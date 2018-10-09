@@ -3,4 +3,4 @@ Open source XMPP client for iOS is not publicly released yet, and is in alpha-te
 
 This repository does not contain issues so far, and is necessary for beta-testers to leave feedback. Please restrain yourself from feature requests (OMEMO folks, we're looking at you), we know what we need to do. Goal of this beta testing stage is to establish reliable message delivery to iOS without disclosing message contents to third party.
 
-More information is in [wiki](../../wiki)
+More information on known issues and on joining BetaTesting is in [wiki](../../wiki)
