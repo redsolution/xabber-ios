@@ -1,0 +1,141 @@
+//
+//
+//
+//  This program is free software; you can redistribute it and/or
+//  modify it under the terms of the GNU General Public License as
+//  published by the Free Software Foundation; either version 3 of the
+//  License.
+//
+//  This program is distributed in the hope that it will be useful,
+//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+//  General Public License for more details.
+//
+//  You should have received a copy of the GNU General Public License along
+//  with this program; if not, write to the Free Software Foundation, Inc.,
+//  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+//
+//
+//
+
+import Foundation
+import UIKit
+
+extension ContactInfoViewController: UITableViewDataSource {
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        return datasource[section].childs.count
+    }
+    
+    func numberOfSections(in tableView: UITableView) -> Int {
+        return datasource.count
+    }
+    
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let item = datasource[indexPath.section].childs[indexPath.row]
+        switch item.kind {
+        case .text:
+            let cell = tableView.dequeueReusableCell(withIdentifier: "TextCell", for: indexPath)
+            cell.textLabel?.text = item.title
+            cell.detailTextLabel?.text = item.subtitle
+            return cell
+        case .resource:
+            fatalError()
+        case .vcard:
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: VCardCell.cellName,
+                for: indexPath
+            ) as? VCardCell else {
+                fatalError()
+            }
+            cell.configure(title: item.title, subtitle: item.subtitle)
+            return cell
+        case .button:
+            if item.key == "circles" {
+                guard let cell = tableView.dequeueReusableCell(withIdentifier: EditCirclesCell.cellName, for: indexPath) as? EditCirclesCell else {
+                    fatalError()
+                }
+                
+                cell.configure(title: item.title, circles: circles)
+                
+                return cell
+            }
+            let cell = tableView.dequeueReusableCell(withIdentifier: "ButtonCell", for: indexPath)
+            cell.textLabel?.text = item.title
+            cell.detailTextLabel?.text = item.subtitle
+            if item.key == "block_chat_button" {
+                if self.isBlocked {
+                    cell.textLabel?.text = "Unblock".localizeString(id: "contact_bar_unblock", arguments: [])
+                } else {
+                    cell.textLabel?.text = "Block".localizeString(id: "contact_bar_block", arguments: [])
+                }
+            } else if item.key == "notify_chat_button" {
+                if self.isMuted {
+                    cell.textLabel?.text = "Enable notifications".localizeString(id: "groupchat_enable_notificaions", arguments: [])
+                } else {
+                    cell.textLabel?.text = "Disable notifications".localizeString(id: "groupchats_disable_notifications", arguments: [])
+                }
+            }
+            if item.key == "fingerprints" {
+                cell.textLabel?.text = "\(item.title) \(item.subtitle ?? "")"
+                cell.textLabel?.textColor = .black
+                cell.accessoryType = .disclosureIndicator
+            } else if item.key == "delete_chat_button" {
+                cell.textLabel?.textColor = .systemRed
+            } else {
+                cell.textLabel?.textColor = .systemBlue
+            }
+            return cell
+        }
+    }
+    
+    func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+        let title = datasource[section].title
+        return title.isEmpty ? nil : title
+    }
+    
+//    func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
+//        if datasource[section].key == "about_section" {
+//            return "View full vCard"
+//        }
+//        return nil
+//    }
+    
+    func tableView(_ tableView: UITableView, viewForFooterInSection section: Int) -> UIView? {
+        if datasource[section].key == "about_section" {
+//            let label = UILabel()
+            let button = UIButton()
+            let attrsString = NSMutableAttributedString(string: "View full vCard".localizeString(id: "contact_view_full_vcard", arguments: []))
+            let range = NSRange(location: 0, length: attrsString.string.count)
+            attrsString.addAttribute(.foregroundColor, value: UIColor.systemBlue, range: range)
+            attrsString.addAttribute(.font, value: UIFont.preferredFont(forTextStyle: .footnote), range: range)
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = .left
+//            paragraph.lineHeightMultiple = 1.27
+            attrsString.addAttribute(.paragraphStyle, value: paragraph, range: range)
+            button.setAttributedTitle(attrsString, for: .normal)
+            button.frame = CGRect(width: tableView.frame.width, height: 44)
+            button.contentHorizontalAlignment = .left
+            button.titleEdgeInsets = UIEdgeInsets(top: 0, bottom: 0, left: 20, right: 0)
+            button.addTarget(self, action: #selector(showFullVCard), for: .touchUpInside)
+            return button
+        }
+        return nil
+    }
+    
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        let value = scrollView.contentOffset.y
+        var height = abs(value)
+        if height > self.headerHeightMax {
+            height = self.headerHeightMax
+        }
+        if height < self.headerHeightMin {
+            height = self.headerHeightMin
+        }
+        if value < 0 {
+            UIView.performWithoutAnimation {
+                self.headerView.frame = CGRect(x: 0, y: 0, width: self.view.frame.width, height: height)
+                self.headerView.update()
+            }
+        }
+    }
+}

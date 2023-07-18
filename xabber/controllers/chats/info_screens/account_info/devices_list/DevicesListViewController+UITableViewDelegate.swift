@@ -1,0 +1,120 @@
+//
+//
+//
+//  This program is free software; you can redistribute it and/or
+//  modify it under the terms of the GNU General Public License as
+//  published by the Free Software Foundation; either version 3 of the
+//  License.
+//
+//  This program is distributed in the hope that it will be useful,
+//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+//  General Public License for more details.
+//
+//  You should have received a copy of the GNU General Public License along
+//  with this program; if not, write to the Free Software Foundation, Inc.,
+//  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+//
+//
+//
+
+import Foundation
+import UIKit
+
+extension DevicesListViewController: UITableViewDelegate {
+    
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        let item = datasource[indexPath.section]
+        switch item.kind {
+        case .current:
+            if item.childs[indexPath.row].kind == .button {
+                return 44
+            }
+            return 84
+        case .token, .broken: return 84
+        case .button: return 44
+        }
+    }
+    
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        switch datasource[indexPath.section].kind {
+        case .current:
+            let item = datasource[indexPath.section].childs[indexPath.row]
+            switch item.kind {
+            case .button:
+                onRevokeAll()
+            case .token:
+                showTokenInfo(uid: currentDevice, canEdit: true)
+            default:
+                break
+            }
+        case .token:
+            let uid = devices[indexPath.row].uid
+            showTokenInfo(uid: uid, canEdit: false)
+        case .button:
+            let item = datasource[indexPath.section].childs[indexPath.row]
+            if item.value == "quit" {
+                self.quitAccount()
+            }
+        case .broken:
+            
+            YesNoPresenter().present(
+                in: self,
+                style: .actionSheet,
+                title: "Delete broken device",
+                message: "",
+                yesText: "Delete",
+                dangerYes: true,
+                noText: "Cancel",
+                animated: true) { value in
+                    if value {
+                        let item = self.brokenOmemoDevices[indexPath.row]
+                        let deviceId = item.deviceId
+                        AccountManager.shared.find(for: self.jid)?.unsafeAction({ user, stream in
+                            user.omemo.deleteDevice(deviceId: deviceId)
+                        })
+                    }
+                }
+        }
+    }
+    
+    func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
+        let item = datasource[indexPath.section]
+        switch item.kind {
+        case .current, .button: return false
+        case .token: return true
+        case .broken: return true
+        }
+    }
+    
+    func tableView(_ tableView: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool {
+        return false
+    }
+    
+    
+    // invalid number of section of no devices only obsolete
+    func tableView(_ tableView: UITableView, editActionsForRowAt indexPath: IndexPath) -> [UITableViewRowAction]? {
+        if indexPath.section == 2 {
+            let revokeAction = UITableViewRowAction(style: .destructive, title: "Delete key") { (action, indexPath) in
+                let item = self.brokenOmemoDevices[indexPath.row]
+                let deviceId = item.deviceId
+                AccountManager.shared.find(for: self.jid)?.unsafeAction({ user, stream in
+                    user.omemo.deleteDevice(deviceId: deviceId)
+                })
+            }
+            return [revokeAction]
+        }
+        let revokeAction = UITableViewRowAction(style: .destructive, title: "Revoke token".localizeString(id: "settings_account_revoke_token", arguments: [])) { (action, indexPath) in
+            let item = self.devices[indexPath.row]
+            let uid = item.uid
+            XMPPUIActionManager.shared.performRequest(owner: self.jid) { stream, session in
+                session.devices?.revoke(stream, uids: [uid])
+            } fail: {
+                AccountManager.shared.find(for: self.jid)?.action({ (user, stream) in
+                    user.devices.revoke(stream, uids: [uid])
+                })
+            }
+        }
+        return [revokeAction]
+    }
+}

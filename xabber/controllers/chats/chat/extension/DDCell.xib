@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.XIB" version="3.0" toolsVersion="14113" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES">
+    <device id="retina4_7" orientation="portrait">
+        <adaptation id="fullscreen"/>
+    </device>
+    <dependencies>
+        <deployment identifier="iOS"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="14088"/>
+        <capability name="Constraints to layout margins" minToolsVersion="6.0"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <objects>
+        <placeholder placeholderIdentifier="IBFilesOwner" id="-1" userLabel="File's Owner"/>
+        <placeholder placeholderIdentifier="IBFirstResponder" id="-2" customClass="UIResponder"/>
+        <tableViewCell clipsSubviews="YES" contentMode="scaleToFill" preservesSuperviewLayoutMargins="YES" selectionStyle="default" indentationWidth="10" reuseIdentifier="DropDownCell" rowHeight="68" id="cud-gB-Tf6" customClass="DropDownMenuCell" customModule="xabber_test_xmpp" customModuleProvider="target">
+            <rect key="frame" x="0.0" y="0.0" width="375" height="56"/>
+            <autoresizingMask key="autoresizingMask"/>
+            <tableViewCellContentView key="contentView" opaque="NO" clipsSubviews="YES" multipleTouchEnabled="YES" contentMode="center" preservesSuperviewLayoutMargins="YES" insetsLayoutMarginsFromSafeArea="NO" tableViewCell="cud-gB-Tf6" id="BRV-rG-DPj">
+                <rect key="frame" x="0.0" y="0.0" width="375" height="55.5"/>
+                <autoresizingMask key="autoresizingMask"/>
+                <subviews>
+                    <stackView opaque="NO" contentMode="scaleToFill" spacing="16" translatesAutoresizingMaskIntoConstraints="NO" id="qBc-U2-d04">
+                        <rect key="frame" x="16" y="16" width="339" height="24"/>
+                        <subviews>
+                            <imageView userInteractionEnabled="NO" contentMode="scaleToFill" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="xabberIcon20" translatesAutoresizingMaskIntoConstraints="NO" id="Ari-72-zOU">
+                                <rect key="frame" x="0.0" y="0.0" width="24" height="24"/>
+                                <constraints>
+                                    <constraint firstAttribute="height" constant="24" id="Gl4-Ie-dUk"/>
+                                    <constraint firstAttribute="width" constant="24" id="sr4-a9-KWo"/>
+                                </constraints>
+                            </imageView>
+                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="Archived" textAlignment="natural" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="fyZ-dE-qGE">
+                                <rect key="frame" x="40" y="0.0" width="299" height="24"/>
+                                <fontDescription key="fontDescription" type="system" pointSize="18"/>
+                                <nil key="textColor"/>
+                                <nil key="highlightedColor"/>
+                            </label>
+                        </subviews>
+                        <constraints>
+                            <constraint firstAttribute="height" constant="24" id="q2S-HB-M9E"/>
+                        </constraints>
+                    </stackView>
+                    <view alpha="0.29999999999999999" contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="c36-c6-LRz">
+                        <rect key="frame" x="56" y="55" width="319" height="0.5"/>
+                        <color key="backgroundColor" white="0.0" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                        <constraints>
+                            <constraint firstAttribute="height" constant="0.5" id="MHi-uh-TtC"/>
+                        </constraints>
+                    </view>
+                </subviews>
+                <constraints>
+                    <constraint firstAttribute="trailing" secondItem="c36-c6-LRz" secondAttribute="trailing" id="4Ci-cg-8Kp"/>
+                    <constraint firstItem="qBc-U2-d04" firstAttribute="centerX" secondItem="BRV-rG-DPj" secondAttribute="centerX" id="4kJ-Pn-X4Q"/>
+                    <constraint firstItem="qBc-U2-d04" firstAttribute="centerY" secondItem="BRV-rG-DPj" secondAttribute="centerY" id="MFS-ii-yD3"/>
+                    <constraint firstAttribute="bottom" secondItem="c36-c6-LRz" secondAttribute="bottom" id="c2R-dj-CYo"/>
+                    <constraint firstItem="c36-c6-LRz" firstAttribute="leading" secondItem="BRV-rG-DPj" secondAttribute="leading" constant="56" id="cPT-m0-NlB"/>
+                    <constraint firstItem="qBc-U2-d04" firstAttribute="leading" secondItem="BRV-rG-DPj" secondAttribute="leadingMargin" id="rLm-A9-tuf"/>
+                    <constraint firstAttribute="trailingMargin" secondItem="qBc-U2-d04" secondAttribute="trailing" constant="4" id="uyM-kL-wAH"/>
+                </constraints>
+            </tableViewCellContentView>
+            <connections>
+                <outlet property="icon" destination="Ari-72-zOU" id="rqz-X4-7Ls"/>
+                <outlet property="optionLabel" destination="fyZ-dE-qGE" id="vMp-EI-kFH"/>
+                <outlet property="separator" destination="c36-c6-LRz" id="quF-36-xNz"/>
+            </connections>
+            <point key="canvasLocation" x="-13.5" y="15"/>
+        </tableViewCell>
+    </objects>
+    <resources>
+        <image name="xabberIcon20" width="20" height="20"/>
+    </resources>
+</document>
