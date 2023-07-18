@@ -23,7 +23,6 @@
 		1A939B2C27E49ED800014E43 /* MasksSelectionViewController+TableViewDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A939B2B27E49ED800014E43 /* MasksSelectionViewController+TableViewDataSource.swift */; };
 		1A95607028040A1C00CE02ED /* AccountEditViewController+UINavigationControllerDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A95606F28040A1B00CE02ED /* AccountEditViewController+UINavigationControllerDelegate.swift */; };
 		1A95607228040A8B00CE02ED /* AccountSecurityViewController+Flow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A95607128040A8B00CE02ED /* AccountSecurityViewController+Flow.swift */; };
-		1A98632927FACA3C00B45FD8 /* XASettingsDebug.plist in Resources */ = {isa = PBXBuildFile; fileRef = 1A98632827FACA3C00B45FD8 /* XASettingsDebug.plist */; };
 		1A999D8627DF497A0093A011 /* CloudStorageViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A999D8527DF497A0093A011 /* CloudStorageViewController.swift */; };
 		1A999D8827DF60840093A011 /* CloudStorageViewController+TableViewDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A999D8727DF60840093A011 /* CloudStorageViewController+TableViewDelegate.swift */; };
 		1A999D8A27DF609C0093A011 /* CloudStorageViewController+TableViewDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A999D8927DF609C0093A011 /* CloudStorageViewController+TableViewDataSource.swift */; };
@@ -63,144 +62,6 @@
 		4D683D20285DE00700FFCB25 /* AccountInfoViewController+UITableViewDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D683D1F285DE00700FFCB25 /* AccountInfoViewController+UITableViewDataSource.swift */; };
 		4D683D22285DE02400FFCB25 /* AccountInfoViewController+InfoScreenHeaderButtonDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D683D21285DE02400FFCB25 /* AccountInfoViewController+InfoScreenHeaderButtonDelegate.swift */; };
 		4D683D24285DE04200FFCB25 /* AccountInfoViewController+QuotaCellDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D683D23285DE04200FFCB25 /* AccountInfoViewController+QuotaCellDelegate.swift */; };
-		4D7315052937278A00BE2A50 /* Roland35C5.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314C02937277C00BE2A50 /* Roland35C5.caf */; };
-		4D7315062937278A00BE2A50 /* Roland35C5.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314C02937277C00BE2A50 /* Roland35C5.caf */; };
-		4D7315072937278A00BE2A50 /* Roland84G4.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314C12937277D00BE2A50 /* Roland84G4.caf */; };
-		4D7315082937278A00BE2A50 /* Roland84G4.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314C12937277D00BE2A50 /* Roland84G4.caf */; };
-		4D7315092937278A00BE2A50 /* Roland87G7.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314C22937277D00BE2A50 /* Roland87G7.caf */; };
-		4D73150A2937278A00BE2A50 /* Roland87G7.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314C22937277D00BE2A50 /* Roland87G7.caf */; };
-		4D73150B2937278A00BE2A50 /* Roland56E1.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314C32937277D00BE2A50 /* Roland56E1.caf */; };
-		4D73150C2937278A00BE2A50 /* Roland56E1.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314C32937277D00BE2A50 /* Roland56E1.caf */; };
-		4D73150D2937278A00BE2A50 /* Roland24B5.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314C42937277D00BE2A50 /* Roland24B5.caf */; };
-		4D73150E2937278A00BE2A50 /* Roland24B5.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314C42937277D00BE2A50 /* Roland24B5.caf */; };
-		4D73150F2937278A00BE2A50 /* Roland67F2_1.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314C52937277D00BE2A50 /* Roland67F2_1.caf */; };
-		4D7315102937278A00BE2A50 /* Roland67F2_1.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314C52937277D00BE2A50 /* Roland67F2_1.caf */; };
-		4D7315112937278A00BE2A50 /* Roland36C6_1.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314C62937277E00BE2A50 /* Roland36C6_1.caf */; };
-		4D7315122937278A00BE2A50 /* Roland36C6_1.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314C62937277E00BE2A50 /* Roland36C6_1.caf */; };
-		4D7315132937278A00BE2A50 /* Roland12B1_3.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314C72937277E00BE2A50 /* Roland12B1_3.caf */; };
-		4D7315142937278A00BE2A50 /* Roland12B1_3.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314C72937277E00BE2A50 /* Roland12B1_3.caf */; };
-		4D7315152937278A00BE2A50 /* Roland41C6_2.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314C82937277E00BE2A50 /* Roland41C6_2.caf */; };
-		4D7315162937278A00BE2A50 /* Roland41C6_2.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314C82937277E00BE2A50 /* Roland41C6_2.caf */; };
-		4D7315172937278A00BE2A50 /* Roland20B3_1.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314C92937277E00BE2A50 /* Roland20B3_1.caf */; };
-		4D7315182937278A00BE2A50 /* Roland20B3_1.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314C92937277E00BE2A50 /* Roland20B3_1.caf */; };
-		4D7315192937278A00BE2A50 /* Roland96H3_2.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314CA2937277E00BE2A50 /* Roland96H3_2.caf */; };
-		4D73151A2937278A00BE2A50 /* Roland96H3_2.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314CA2937277E00BE2A50 /* Roland96H3_2.caf */; };
-		4D73151B2937278A00BE2A50 /* Roland79G1.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314CB2937277E00BE2A50 /* Roland79G1.caf */; };
-		4D73151C2937278A00BE2A50 /* Roland79G1.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314CB2937277E00BE2A50 /* Roland79G1.caf */; };
-		4D73151D2937278A00BE2A50 /* Roland26B7.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314CC2937277F00BE2A50 /* Roland26B7.caf */; };
-		4D73151E2937278A00BE2A50 /* Roland26B7.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314CC2937277F00BE2A50 /* Roland26B7.caf */; };
-		4D73151F2937278A00BE2A50 /* Roland51D5.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314CD2937277F00BE2A50 /* Roland51D5.caf */; };
-		4D7315202937278A00BE2A50 /* Roland51D5.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314CD2937277F00BE2A50 /* Roland51D5.caf */; };
-		4D7315212937278A00BE2A50 /* Roland21B3_2.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314CE2937277F00BE2A50 /* Roland21B3_2.caf */; };
-		4D7315222937278A00BE2A50 /* Roland21B3_2.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314CE2937277F00BE2A50 /* Roland21B3_2.caf */; };
-		4D7315232937278A00BE2A50 /* Roland05A4.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314CF2937277F00BE2A50 /* Roland05A4.caf */; };
-		4D7315242937278A00BE2A50 /* Roland05A4.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314CF2937277F00BE2A50 /* Roland05A4.caf */; };
-		4D7315252937278A00BE2A50 /* Roland86G6.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314D02937277F00BE2A50 /* Roland86G6.caf */; };
-		4D7315262937278A00BE2A50 /* Roland86G6.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314D02937277F00BE2A50 /* Roland86G6.caf */; };
-		4D7315272937278A00BE2A50 /* Roland65E6.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314D12937278000BE2A50 /* Roland65E6.caf */; };
-		4D7315282937278A00BE2A50 /* Roland65E6.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314D12937278000BE2A50 /* Roland65E6.caf */; };
-		4D7315292937278A00BE2A50 /* Roland85G5.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314D22937278000BE2A50 /* Roland85G5.caf */; };
-		4D73152A2937278A00BE2A50 /* Roland85G5.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314D22937278000BE2A50 /* Roland85G5.caf */; };
-		4D73152B2937278A00BE2A50 /* Roland54D7.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314D32937278000BE2A50 /* Roland54D7.caf */; };
-		4D73152C2937278A00BE2A50 /* Roland54D7.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314D32937278000BE2A50 /* Roland54D7.caf */; };
-		4D73152D2937278A00BE2A50 /* Roland08A7.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314D42937278000BE2A50 /* Roland08A7.caf */; };
-		4D73152E2937278A00BE2A50 /* Roland08A7.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314D42937278000BE2A50 /* Roland08A7.caf */; };
-		4D73152F2937278A00BE2A50 /* Roland45C8_1.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314D52937278000BE2A50 /* Roland45C8_1.caf */; };
-		4D7315302937278A00BE2A50 /* Roland45C8_1.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314D52937278000BE2A50 /* Roland45C8_1.caf */; };
-		4D7315312937278A00BE2A50 /* Roland70F4.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314D62937278100BE2A50 /* Roland70F4.caf */; };
-		4D7315322937278A00BE2A50 /* Roland70F4.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314D62937278100BE2A50 /* Roland70F4.caf */; };
-		4D7315332937278A00BE2A50 /* Roland13B1_4.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314D72937278100BE2A50 /* Roland13B1_4.caf */; };
-		4D7315342937278A00BE2A50 /* Roland13B1_4.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314D72937278100BE2A50 /* Roland13B1_4.caf */; };
-		4D7315352937278A00BE2A50 /* Roland10B1_2.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314D82937278100BE2A50 /* Roland10B1_2.caf */; };
-		4D7315362937278A00BE2A50 /* Roland10B1_2.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314D82937278100BE2A50 /* Roland10B1_2.caf */; };
-		4D7315372937278A00BE2A50 /* Roland66E8.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314D92937278100BE2A50 /* Roland66E8.caf */; };
-		4D7315382937278A00BE2A50 /* Roland66E8.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314D92937278100BE2A50 /* Roland66E8.caf */; };
-		4D7315392937278A00BE2A50 /* Roland74F5_1.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314DA2937278200BE2A50 /* Roland74F5_1.caf */; };
-		4D73153A2937278A00BE2A50 /* Roland74F5_1.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314DA2937278200BE2A50 /* Roland74F5_1.caf */; };
-		4D73153B2937278A00BE2A50 /* Roland14B2.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314DB2937278200BE2A50 /* Roland14B2.caf */; };
-		4D73153C2937278A00BE2A50 /* Roland14B2.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314DB2937278200BE2A50 /* Roland14B2.caf */; };
-		4D73153D2937278A00BE2A50 /* Roland82G3.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314DC2937278200BE2A50 /* Roland82G3.caf */; };
-		4D73153E2937278A00BE2A50 /* Roland82G3.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314DC2937278200BE2A50 /* Roland82G3.caf */; };
-		4D73153F2937278A00BE2A50 /* Roland55D8.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314DD2937278200BE2A50 /* Roland55D8.caf */; };
-		4D7315402937278A00BE2A50 /* Roland55D8.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314DD2937278200BE2A50 /* Roland55D8.caf */; };
-		4D7315412937278A00BE2A50 /* Roland53D6.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314DE2937278200BE2A50 /* Roland53D6.caf */; };
-		4D7315422937278A00BE2A50 /* Roland53D6.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314DE2937278200BE2A50 /* Roland53D6.caf */; };
-		4D7315432937278A00BE2A50 /* Roland07A6.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314DF2937278200BE2A50 /* Roland07A6.caf */; };
-		4D7315442937278A00BE2A50 /* Roland07A6.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314DF2937278200BE2A50 /* Roland07A6.caf */; };
-		4D7315452937278A00BE2A50 /* Roland94H3_1.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314E02937278300BE2A50 /* Roland94H3_1.caf */; };
-		4D7315462937278A00BE2A50 /* Roland94H3_1.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314E02937278300BE2A50 /* Roland94H3_1.caf */; };
-		4D7315472937278A00BE2A50 /* Roland64E5.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314E12937278300BE2A50 /* Roland64E5.caf */; };
-		4D7315482937278A00BE2A50 /* Roland64E5.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314E12937278300BE2A50 /* Roland64E5.caf */; };
-		4D7315492937278A00BE2A50 /* Roland60E3.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314E22937278300BE2A50 /* Roland60E3.caf */; };
-		4D73154A2937278A00BE2A50 /* Roland60E3.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314E22937278300BE2A50 /* Roland60E3.caf */; };
-		4D73154B2937278A00BE2A50 /* Roland47D2.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314E32937278300BE2A50 /* Roland47D2.caf */; };
-		4D73154C2937278A00BE2A50 /* Roland47D2.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314E32937278300BE2A50 /* Roland47D2.caf */; };
-		4D73154D2937278A00BE2A50 /* Roland49D3.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314E42937278300BE2A50 /* Roland49D3.caf */; };
-		4D73154E2937278A00BE2A50 /* Roland49D3.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314E42937278300BE2A50 /* Roland49D3.caf */; };
-		4D73154F2937278A00BE2A50 /* Roland48D2_1.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314E52937278400BE2A50 /* Roland48D2_1.caf */; };
-		4D7315502937278A00BE2A50 /* Roland48D2_1.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314E52937278400BE2A50 /* Roland48D2_1.caf */; };
-		4D7315512937278A00BE2A50 /* Roland42C6_3.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314E62937278400BE2A50 /* Roland42C6_3.caf */; };
-		4D7315522937278A00BE2A50 /* Roland42C6_3.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314E62937278400BE2A50 /* Roland42C6_3.caf */; };
-		4D7315532937278A00BE2A50 /* Roland93H2.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314E72937278400BE2A50 /* Roland93H2.caf */; };
-		4D7315542937278A00BE2A50 /* Roland93H2.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314E72937278400BE2A50 /* Roland93H2.caf */; };
-		4D7315552937278A00BE2A50 /* Roland61E4.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314E82937278400BE2A50 /* Roland61E4.caf */; };
-		4D7315562937278A00BE2A50 /* Roland61E4.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314E82937278400BE2A50 /* Roland61E4.caf */; };
-		4D7315572937278A00BE2A50 /* Roland04A3.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314E92937278400BE2A50 /* Roland04A3.caf */; };
-		4D7315582937278A00BE2A50 /* Roland04A3.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314E92937278400BE2A50 /* Roland04A3.caf */; };
-		4D7315592937278A00BE2A50 /* Roland83G3_1.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314EA2937278400BE2A50 /* Roland83G3_1.caf */; };
-		4D73155A2937278A00BE2A50 /* Roland83G3_1.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314EA2937278400BE2A50 /* Roland83G3_1.caf */; };
-		4D73155B2937278A00BE2A50 /* Roland81G2.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314EB2937278500BE2A50 /* Roland81G2.caf */; };
-		4D73155C2937278A00BE2A50 /* Roland81G2.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314EB2937278500BE2A50 /* Roland81G2.caf */; };
-		4D73155D2937278A00BE2A50 /* Roland92G8_1.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314EC2937278500BE2A50 /* Roland92G8_1.caf */; };
-		4D73155E2937278A00BE2A50 /* Roland92G8_1.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314EC2937278500BE2A50 /* Roland92G8_1.caf */; };
-		4D73155F2937278A00BE2A50 /* Roland88G8.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314ED2937278500BE2A50 /* Roland88G8.caf */; };
-		4D7315602937278A00BE2A50 /* Roland88G8.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314ED2937278500BE2A50 /* Roland88G8.caf */; };
-		4D7315612937278A00BE2A50 /* Roland25B6.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314EE2937278500BE2A50 /* Roland25B6.caf */; };
-		4D7315622937278A00BE2A50 /* Roland25B6.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314EE2937278500BE2A50 /* Roland25B6.caf */; };
-		4D7315632937278A00BE2A50 /* Roland27B8_1.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314EF2937278600BE2A50 /* Roland27B8_1.caf */; };
-		4D7315642937278A00BE2A50 /* Roland27B8_1.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314EF2937278600BE2A50 /* Roland27B8_1.caf */; };
-		4D7315652937278A00BE2A50 /* Roland78F8.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314F02937278600BE2A50 /* Roland78F8.caf */; };
-		4D7315662937278A00BE2A50 /* Roland78F8.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314F02937278600BE2A50 /* Roland78F8.caf */; };
-		4D7315672937278A00BE2A50 /* Roland09B1_1.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314F12937278600BE2A50 /* Roland09B1_1.caf */; };
-		4D7315682937278A00BE2A50 /* Roland09B1_1.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314F12937278600BE2A50 /* Roland09B1_1.caf */; };
-		4D7315692937278A00BE2A50 /* Roland44C7.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314F22937278600BE2A50 /* Roland44C7.caf */; };
-		4D73156A2937278A00BE2A50 /* Roland44C7.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314F22937278600BE2A50 /* Roland44C7.caf */; };
-		4D73156B2937278A00BE2A50 /* Roland57E2_1.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314F32937278600BE2A50 /* Roland57E2_1.caf */; };
-		4D73156C2937278A00BE2A50 /* Roland57E2_1.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314F32937278600BE2A50 /* Roland57E2_1.caf */; };
-		4D73156D2937278A00BE2A50 /* Roland69F3.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314F42937278600BE2A50 /* Roland69F3.caf */; };
-		4D73156E2937278A00BE2A50 /* Roland69F3.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314F42937278600BE2A50 /* Roland69F3.caf */; };
-		4D73156F2937278A00BE2A50 /* Roland75F5_2.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314F52937278700BE2A50 /* Roland75F5_2.caf */; };
-		4D7315702937278A00BE2A50 /* Roland75F5_2.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314F52937278700BE2A50 /* Roland75F5_2.caf */; };
-		4D7315712937278A00BE2A50 /* Roland76F6.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314F62937278700BE2A50 /* Roland76F6.caf */; };
-		4D7315722937278A00BE2A50 /* Roland76F6.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314F62937278700BE2A50 /* Roland76F6.caf */; };
-		4D7315732937278A00BE2A50 /* Roland30C2.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314F72937278700BE2A50 /* Roland30C2.caf */; };
-		4D7315742937278A00BE2A50 /* Roland30C2.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314F72937278700BE2A50 /* Roland30C2.caf */; };
-		4D7315752937278A00BE2A50 /* Roland73F4_2.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314F82937278700BE2A50 /* Roland73F4_2.caf */; };
-		4D7315762937278A00BE2A50 /* Roland73F4_2.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314F82937278700BE2A50 /* Roland73F4_2.caf */; };
-		4D7315772937278A00BE2A50 /* Roland58E2_2.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314F92937278700BE2A50 /* Roland58E2_2.caf */; };
-		4D7315782937278A00BE2A50 /* Roland58E2_2.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314F92937278700BE2A50 /* Roland58E2_2.caf */; };
-		4D7315792937278A00BE2A50 /* Roland77F7.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314FA2937278700BE2A50 /* Roland77F7.caf */; };
-		4D73157A2937278A00BE2A50 /* Roland77F7.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314FA2937278700BE2A50 /* Roland77F7.caf */; };
-		4D73157B2937278A00BE2A50 /* Roland68F2_2.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314FB2937278800BE2A50 /* Roland68F2_2.caf */; };
-		4D73157C2937278A00BE2A50 /* Roland68F2_2.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314FB2937278800BE2A50 /* Roland68F2_2.caf */; };
-		4D73157D2937278A00BE2A50 /* Roland06A5.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314FC2937278800BE2A50 /* Roland06A5.caf */; };
-		4D73157E2937278A00BE2A50 /* Roland06A5.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314FC2937278800BE2A50 /* Roland06A5.caf */; };
-		4D73157F2937278A00BE2A50 /* Roland71F4_1.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314FD2937278800BE2A50 /* Roland71F4_1.caf */; };
-		4D7315802937278A00BE2A50 /* Roland71F4_1.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314FD2937278800BE2A50 /* Roland71F4_1.caf */; };
-		4D7315812937278A00BE2A50 /* Roland33C4.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314FE2937278800BE2A50 /* Roland33C4.caf */; };
-		4D7315822937278A00BE2A50 /* Roland33C4.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314FE2937278800BE2A50 /* Roland33C4.caf */; };
-		4D7315832937278A00BE2A50 /* Roland46C8_2.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314FF2937278800BE2A50 /* Roland46C8_2.caf */; };
-		4D7315842937278A00BE2A50 /* Roland46C8_2.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7314FF2937278800BE2A50 /* Roland46C8_2.caf */; };
-		4D7315852937278A00BE2A50 /* Roland29C1.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7315002937278900BE2A50 /* Roland29C1.caf */; };
-		4D7315862937278A00BE2A50 /* Roland29C1.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7315002937278900BE2A50 /* Roland29C1.caf */; };
-		4D7315872937278A00BE2A50 /* Roland23B4.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7315012937278900BE2A50 /* Roland23B4.caf */; };
-		4D7315882937278A00BE2A50 /* Roland23B4.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7315012937278900BE2A50 /* Roland23B4.caf */; };
-		4D7315892937278A00BE2A50 /* Roland50D4.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7315022937278900BE2A50 /* Roland50D4.caf */; };
-		4D73158A2937278A00BE2A50 /* Roland50D4.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7315022937278900BE2A50 /* Roland50D4.caf */; };
-		4D73158B2937278A00BE2A50 /* Roland32C3.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7315032937278900BE2A50 /* Roland32C3.caf */; };
-		4D73158C2937278A00BE2A50 /* Roland32C3.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7315032937278900BE2A50 /* Roland32C3.caf */; };
-		4D73158D2937278A00BE2A50 /* Roland28B8_2.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7315042937278900BE2A50 /* Roland28B8_2.caf */; };
-		4D73158E2937278A00BE2A50 /* Roland28B8_2.caf in Resources */ = {isa = PBXBuildFile; fileRef = 4D7315042937278900BE2A50 /* Roland28B8_2.caf */; };
 		4D784637288E57AB00DB706A /* ChangePasswordTableViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D784636288E57AB00DB706A /* ChangePasswordTableViewController.swift */; };
 		4D9C8FD928534E45003E35BE /* SettingsViewController+InfoScreenHeaderButtonDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D9C8FD828534E45003E35BE /* SettingsViewController+InfoScreenHeaderButtonDelegate.swift */; };
 		4DB3259B290FAE8D005364DD /* SubscriptionsTableViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DB3259A290FAE8D005364DD /* SubscriptionsTableViewController.swift */; };
@@ -428,13 +289,11 @@
 		6646D33423488FB600B64FEB /* ShareDialogController+UITableViewDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6646D33323488FB600B64FEB /* ShareDialogController+UITableViewDataSource.swift */; };
 		6646D33823488FD600B64FEB /* ShareDialogController+ItemCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6646D33723488FD600B64FEB /* ShareDialogController+ItemCell.swift */; };
 		6646D33A234893DA00B64FEB /* ShareDialogController+UISearchResultsUpdating.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6646D339234893DA00B64FEB /* ShareDialogController+UISearchResultsUpdating.swift */; };
-		66470200265683E300D3FE2C /* XabberAPIManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 664701FF265683E300D3FE2C /* XabberAPIManager.swift */; };
 		6648841C26EA068F00323013 /* ChatViewController+SearchBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6648841B26EA068F00323013 /* ChatViewController+SearchBar.swift */; };
 		664CF1B522A7FF4D007987B0 /* QuitAccountPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 664CF1B422A7FF4D007987B0 /* QuitAccountPresenter.swift */; };
 		664CFF31291E788900CDB62C /* SubscribtionTopInfoTableViewCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 664CFF30291E788900CDB62C /* SubscribtionTopInfoTableViewCell.swift */; };
 		664D9A2F22B26B3200CCA995 /* InvalidPasswordPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 664D9A2E22B26B3200CCA995 /* InvalidPasswordPresenter.swift */; };
 		664E3D7823978BB000E2CBCF /* PickerViewPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 664E3D7723978BB000E2CBCF /* PickerViewPresenter.swift */; };
-		664E3D7F2397DB0400E2CBCF /* info_debug.plist in Resources */ = {isa = PBXBuildFile; fileRef = 664E3D7E2397DB0400E2CBCF /* info_debug.plist */; };
 		664F18A721B92FBD0006D63C /* ReliableMessageDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 664F18A621B92FBD0006D63C /* ReliableMessageDelivery.swift */; };
 		664F341821B533F400618B5E /* ImagePickerCollectionViewCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 664F341721B533F400618B5E /* ImagePickerCollectionViewCell.swift */; };
 		664F341A21B542AA00618B5E /* imagePickerCell.xib in Resources */ = {isa = PBXBuildFile; fileRef = 664F341921B542AA00618B5E /* imagePickerCell.xib */; };
@@ -475,7 +334,6 @@
 		665F923222CF189E0019D301 /* LastChatsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 665F923122CF189E0019D301 /* LastChatsViewController.swift */; };
 		665F923522CF1DB20019D301 /* DefaultAvatarManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 665F923422CF1DB20019D301 /* DefaultAvatarManager.swift */; };
 		66605F732395207E00383EF1 /* GroupchatInvitesStorageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66605F722395207E00383EF1 /* GroupchatInvitesStorageItem.swift */; };
-		666167912034273400EEEDA1 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 666167902034273400EEEDA1 /* GoogleService-Info.plist */; };
 		6661D8A9221C41EF008707E3 /* ChatViewController+AudioPlayerDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6661D8A8221C41EF008707E3 /* ChatViewController+AudioPlayerDelegate.swift */; };
 		666201F822B3DE2A00FB2A44 /* AccountBlockListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 666201F722B3DE2A00FB2A44 /* AccountBlockListViewController.swift */; };
 		666201FA22B3E1D800FB2A44 /* AccountBlockListViewController+UITableViewDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 666201F922B3E1D800FB2A44 /* AccountBlockListViewController+UITableViewDelegate.swift */; };
@@ -777,7 +635,6 @@
 		66D2B54B253EC01300299578 /* icons.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 66D2B54A253EC01300299578 /* icons.xcassets */; };
 		66D2B580253ECBD200299578 /* icons.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 66D2B54A253EC01300299578 /* icons.xcassets */; };
 		66D2B585253EFED100299578 /* XabberAssetsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66D2B584253EFED100299578 /* XabberAssetsTests.swift */; };
-		66D2B58A253F0DAA00299578 /* make_assets.sh in Resources */ = {isa = PBXBuildFile; fileRef = 66D2B589253F0DAA00299578 /* make_assets.sh */; };
 		66D48869221EA4C80011CDB2 /* PulseLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66D48868221EA4C70011CDB2 /* PulseLayer.swift */; };
 		66D7AE8B203EA65B001FC6F3 /* VCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66D7AE8A203EA65B001FC6F3 /* VCard.swift */; };
 		66D89D2F231931E20051A1DA /* GroupchatStorageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66D89D2E231931E20051A1DA /* GroupchatStorageItem.swift */; };
@@ -1132,7 +989,6 @@
 		1A939B2B27E49ED800014E43 /* MasksSelectionViewController+TableViewDataSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MasksSelectionViewController+TableViewDataSource.swift"; sourceTree = "<group>"; };
 		1A95606F28040A1B00CE02ED /* AccountEditViewController+UINavigationControllerDelegate.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "AccountEditViewController+UINavigationControllerDelegate.swift"; sourceTree = "<group>"; };
 		1A95607128040A8B00CE02ED /* AccountSecurityViewController+Flow.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "AccountSecurityViewController+Flow.swift"; sourceTree = "<group>"; };
-		1A98632827FACA3C00B45FD8 /* XASettingsDebug.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = XASettingsDebug.plist; sourceTree = "<group>"; };
 		1A999D8527DF497A0093A011 /* CloudStorageViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudStorageViewController.swift; sourceTree = "<group>"; };
 		1A999D8727DF60840093A011 /* CloudStorageViewController+TableViewDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudStorageViewController+TableViewDelegate.swift"; sourceTree = "<group>"; };
 		1A999D8927DF609C0093A011 /* CloudStorageViewController+TableViewDataSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudStorageViewController+TableViewDataSource.swift"; sourceTree = "<group>"; };
@@ -1171,75 +1027,6 @@
 		4D683D1F285DE00700FFCB25 /* AccountInfoViewController+UITableViewDataSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AccountInfoViewController+UITableViewDataSource.swift"; sourceTree = "<group>"; };
 		4D683D21285DE02400FFCB25 /* AccountInfoViewController+InfoScreenHeaderButtonDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AccountInfoViewController+InfoScreenHeaderButtonDelegate.swift"; sourceTree = "<group>"; };
 		4D683D23285DE04200FFCB25 /* AccountInfoViewController+QuotaCellDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AccountInfoViewController+QuotaCellDelegate.swift"; sourceTree = "<group>"; };
-		4D7314C02937277C00BE2A50 /* Roland35C5.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland35C5.caf; sourceTree = "<group>"; };
-		4D7314C12937277D00BE2A50 /* Roland84G4.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland84G4.caf; sourceTree = "<group>"; };
-		4D7314C22937277D00BE2A50 /* Roland87G7.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland87G7.caf; sourceTree = "<group>"; };
-		4D7314C32937277D00BE2A50 /* Roland56E1.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland56E1.caf; sourceTree = "<group>"; };
-		4D7314C42937277D00BE2A50 /* Roland24B5.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland24B5.caf; sourceTree = "<group>"; };
-		4D7314C52937277D00BE2A50 /* Roland67F2_1.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland67F2_1.caf; sourceTree = "<group>"; };
-		4D7314C62937277E00BE2A50 /* Roland36C6_1.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland36C6_1.caf; sourceTree = "<group>"; };
-		4D7314C72937277E00BE2A50 /* Roland12B1_3.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland12B1_3.caf; sourceTree = "<group>"; };
-		4D7314C82937277E00BE2A50 /* Roland41C6_2.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland41C6_2.caf; sourceTree = "<group>"; };
-		4D7314C92937277E00BE2A50 /* Roland20B3_1.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland20B3_1.caf; sourceTree = "<group>"; };
-		4D7314CA2937277E00BE2A50 /* Roland96H3_2.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland96H3_2.caf; sourceTree = "<group>"; };
-		4D7314CB2937277E00BE2A50 /* Roland79G1.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland79G1.caf; sourceTree = "<group>"; };
-		4D7314CC2937277F00BE2A50 /* Roland26B7.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland26B7.caf; sourceTree = "<group>"; };
-		4D7314CD2937277F00BE2A50 /* Roland51D5.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland51D5.caf; sourceTree = "<group>"; };
-		4D7314CE2937277F00BE2A50 /* Roland21B3_2.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland21B3_2.caf; sourceTree = "<group>"; };
-		4D7314CF2937277F00BE2A50 /* Roland05A4.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland05A4.caf; sourceTree = "<group>"; };
-		4D7314D02937277F00BE2A50 /* Roland86G6.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland86G6.caf; sourceTree = "<group>"; };
-		4D7314D12937278000BE2A50 /* Roland65E6.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland65E6.caf; sourceTree = "<group>"; };
-		4D7314D22937278000BE2A50 /* Roland85G5.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland85G5.caf; sourceTree = "<group>"; };
-		4D7314D32937278000BE2A50 /* Roland54D7.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland54D7.caf; sourceTree = "<group>"; };
-		4D7314D42937278000BE2A50 /* Roland08A7.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland08A7.caf; sourceTree = "<group>"; };
-		4D7314D52937278000BE2A50 /* Roland45C8_1.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland45C8_1.caf; sourceTree = "<group>"; };
-		4D7314D62937278100BE2A50 /* Roland70F4.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland70F4.caf; sourceTree = "<group>"; };
-		4D7314D72937278100BE2A50 /* Roland13B1_4.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland13B1_4.caf; sourceTree = "<group>"; };
-		4D7314D82937278100BE2A50 /* Roland10B1_2.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland10B1_2.caf; sourceTree = "<group>"; };
-		4D7314D92937278100BE2A50 /* Roland66E8.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland66E8.caf; sourceTree = "<group>"; };
-		4D7314DA2937278200BE2A50 /* Roland74F5_1.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland74F5_1.caf; sourceTree = "<group>"; };
-		4D7314DB2937278200BE2A50 /* Roland14B2.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland14B2.caf; sourceTree = "<group>"; };
-		4D7314DC2937278200BE2A50 /* Roland82G3.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland82G3.caf; sourceTree = "<group>"; };
-		4D7314DD2937278200BE2A50 /* Roland55D8.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland55D8.caf; sourceTree = "<group>"; };
-		4D7314DE2937278200BE2A50 /* Roland53D6.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland53D6.caf; sourceTree = "<group>"; };
-		4D7314DF2937278200BE2A50 /* Roland07A6.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland07A6.caf; sourceTree = "<group>"; };
-		4D7314E02937278300BE2A50 /* Roland94H3_1.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland94H3_1.caf; sourceTree = "<group>"; };
-		4D7314E12937278300BE2A50 /* Roland64E5.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland64E5.caf; sourceTree = "<group>"; };
-		4D7314E22937278300BE2A50 /* Roland60E3.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland60E3.caf; sourceTree = "<group>"; };
-		4D7314E32937278300BE2A50 /* Roland47D2.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland47D2.caf; sourceTree = "<group>"; };
-		4D7314E42937278300BE2A50 /* Roland49D3.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland49D3.caf; sourceTree = "<group>"; };
-		4D7314E52937278400BE2A50 /* Roland48D2_1.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland48D2_1.caf; sourceTree = "<group>"; };
-		4D7314E62937278400BE2A50 /* Roland42C6_3.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland42C6_3.caf; sourceTree = "<group>"; };
-		4D7314E72937278400BE2A50 /* Roland93H2.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland93H2.caf; sourceTree = "<group>"; };
-		4D7314E82937278400BE2A50 /* Roland61E4.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland61E4.caf; sourceTree = "<group>"; };
-		4D7314E92937278400BE2A50 /* Roland04A3.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland04A3.caf; sourceTree = "<group>"; };
-		4D7314EA2937278400BE2A50 /* Roland83G3_1.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland83G3_1.caf; sourceTree = "<group>"; };
-		4D7314EB2937278500BE2A50 /* Roland81G2.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland81G2.caf; sourceTree = "<group>"; };
-		4D7314EC2937278500BE2A50 /* Roland92G8_1.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland92G8_1.caf; sourceTree = "<group>"; };
-		4D7314ED2937278500BE2A50 /* Roland88G8.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland88G8.caf; sourceTree = "<group>"; };
-		4D7314EE2937278500BE2A50 /* Roland25B6.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland25B6.caf; sourceTree = "<group>"; };
-		4D7314EF2937278600BE2A50 /* Roland27B8_1.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland27B8_1.caf; sourceTree = "<group>"; };
-		4D7314F02937278600BE2A50 /* Roland78F8.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland78F8.caf; sourceTree = "<group>"; };
-		4D7314F12937278600BE2A50 /* Roland09B1_1.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland09B1_1.caf; sourceTree = "<group>"; };
-		4D7314F22937278600BE2A50 /* Roland44C7.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland44C7.caf; sourceTree = "<group>"; };
-		4D7314F32937278600BE2A50 /* Roland57E2_1.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland57E2_1.caf; sourceTree = "<group>"; };
-		4D7314F42937278600BE2A50 /* Roland69F3.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland69F3.caf; sourceTree = "<group>"; };
-		4D7314F52937278700BE2A50 /* Roland75F5_2.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland75F5_2.caf; sourceTree = "<group>"; };
-		4D7314F62937278700BE2A50 /* Roland76F6.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland76F6.caf; sourceTree = "<group>"; };
-		4D7314F72937278700BE2A50 /* Roland30C2.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland30C2.caf; sourceTree = "<group>"; };
-		4D7314F82937278700BE2A50 /* Roland73F4_2.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland73F4_2.caf; sourceTree = "<group>"; };
-		4D7314F92937278700BE2A50 /* Roland58E2_2.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland58E2_2.caf; sourceTree = "<group>"; };
-		4D7314FA2937278700BE2A50 /* Roland77F7.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland77F7.caf; sourceTree = "<group>"; };
-		4D7314FB2937278800BE2A50 /* Roland68F2_2.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland68F2_2.caf; sourceTree = "<group>"; };
-		4D7314FC2937278800BE2A50 /* Roland06A5.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland06A5.caf; sourceTree = "<group>"; };
-		4D7314FD2937278800BE2A50 /* Roland71F4_1.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland71F4_1.caf; sourceTree = "<group>"; };
-		4D7314FE2937278800BE2A50 /* Roland33C4.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland33C4.caf; sourceTree = "<group>"; };
-		4D7314FF2937278800BE2A50 /* Roland46C8_2.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland46C8_2.caf; sourceTree = "<group>"; };
-		4D7315002937278900BE2A50 /* Roland29C1.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland29C1.caf; sourceTree = "<group>"; };
-		4D7315012937278900BE2A50 /* Roland23B4.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland23B4.caf; sourceTree = "<group>"; };
-		4D7315022937278900BE2A50 /* Roland50D4.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland50D4.caf; sourceTree = "<group>"; };
-		4D7315032937278900BE2A50 /* Roland32C3.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland32C3.caf; sourceTree = "<group>"; };
-		4D7315042937278900BE2A50 /* Roland28B8_2.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Roland28B8_2.caf; sourceTree = "<group>"; };
 		4D784636288E57AB00DB706A /* ChangePasswordTableViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangePasswordTableViewController.swift; sourceTree = "<group>"; };
 		4D9C8FD828534E45003E35BE /* SettingsViewController+InfoScreenHeaderButtonDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SettingsViewController+InfoScreenHeaderButtonDelegate.swift"; sourceTree = "<group>"; };
 		4DB3259A290FAE8D005364DD /* SubscriptionsTableViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionsTableViewController.swift; sourceTree = "<group>"; };
@@ -1465,13 +1252,11 @@
 		6646D33323488FB600B64FEB /* ShareDialogController+UITableViewDataSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ShareDialogController+UITableViewDataSource.swift"; sourceTree = "<group>"; };
 		6646D33723488FD600B64FEB /* ShareDialogController+ItemCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ShareDialogController+ItemCell.swift"; sourceTree = "<group>"; };
 		6646D339234893DA00B64FEB /* ShareDialogController+UISearchResultsUpdating.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ShareDialogController+UISearchResultsUpdating.swift"; sourceTree = "<group>"; };
-		664701FF265683E300D3FE2C /* XabberAPIManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XabberAPIManager.swift; sourceTree = "<group>"; };
 		6648841B26EA068F00323013 /* ChatViewController+SearchBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewController+SearchBar.swift"; sourceTree = "<group>"; };
 		664CF1B422A7FF4D007987B0 /* QuitAccountPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuitAccountPresenter.swift; sourceTree = "<group>"; };
 		664CFF30291E788900CDB62C /* SubscribtionTopInfoTableViewCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscribtionTopInfoTableViewCell.swift; sourceTree = "<group>"; };
 		664D9A2E22B26B3200CCA995 /* InvalidPasswordPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InvalidPasswordPresenter.swift; sourceTree = "<group>"; };
 		664E3D7723978BB000E2CBCF /* PickerViewPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PickerViewPresenter.swift; sourceTree = "<group>"; };
-		664E3D7E2397DB0400E2CBCF /* info_debug.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = info_debug.plist; sourceTree = "<group>"; };
 		664F18A621B92FBD0006D63C /* ReliableMessageDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReliableMessageDelivery.swift; sourceTree = "<group>"; };
 		664F341721B533F400618B5E /* ImagePickerCollectionViewCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImagePickerCollectionViewCell.swift; sourceTree = "<group>"; };
 		664F341921B542AA00618B5E /* imagePickerCell.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = imagePickerCell.xib; sourceTree = "<group>"; };
@@ -1513,7 +1298,6 @@
 		665F923122CF189E0019D301 /* LastChatsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastChatsViewController.swift; sourceTree = "<group>"; };
 		665F923422CF1DB20019D301 /* DefaultAvatarManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DefaultAvatarManager.swift; sourceTree = "<group>"; };
 		66605F722395207E00383EF1 /* GroupchatInvitesStorageItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupchatInvitesStorageItem.swift; sourceTree = "<group>"; };
-		666167902034273400EEEDA1 /* GoogleService-Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		6661D8A8221C41EF008707E3 /* ChatViewController+AudioPlayerDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewController+AudioPlayerDelegate.swift"; sourceTree = "<group>"; };
 		666201F722B3DE2A00FB2A44 /* AccountBlockListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountBlockListViewController.swift; sourceTree = "<group>"; };
 		666201F922B3E1D800FB2A44 /* AccountBlockListViewController+UITableViewDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AccountBlockListViewController+UITableViewDelegate.swift"; sourceTree = "<group>"; };
@@ -1645,7 +1429,6 @@
 		669C182726F2054100352973 /* LastChatsViewController+Flow.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "LastChatsViewController+Flow.swift"; sourceTree = "<group>"; };
 		669C58022726C3E400EA0C37 /* EditContactViewController+SimpleCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "EditContactViewController+SimpleCell.swift"; sourceTree = "<group>"; };
 		669C5FED27F2DE48008BADC2 /* Backgrounds.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Backgrounds.xcassets; sourceTree = "<group>"; };
-		669C896F27F5D07800E0014B /* config.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = config.sh; sourceTree = "<group>"; };
 		669CBE1A264CFE1900FA59C1 /* AbstractXMPPParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AbstractXMPPParser.swift; sourceTree = "<group>"; };
 		669CBE1F264D07B300FA59C1 /* MessagesParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagesParser.swift; sourceTree = "<group>"; };
 		669DC92423A2153C0072891B /* GroupchatEditContactViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupchatEditContactViewController.swift; sourceTree = "<group>"; };
@@ -1823,7 +1606,6 @@
 		66D27DB5235842C400130FE0 /* ClientSynchronizationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClientSynchronizationManager.swift; sourceTree = "<group>"; };
 		66D2B54A253EC01300299578 /* icons.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = icons.xcassets; sourceTree = "<group>"; };
 		66D2B584253EFED100299578 /* XabberAssetsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XabberAssetsTests.swift; sourceTree = "<group>"; };
-		66D2B589253F0DAA00299578 /* make_assets.sh */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.script.sh; path = make_assets.sh; sourceTree = "<group>"; };
 		66D48868221EA4C70011CDB2 /* PulseLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseLayer.swift; sourceTree = "<group>"; };
 		66D7AE8A203EA65B001FC6F3 /* VCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VCard.swift; sourceTree = "<group>"; };
 		66D89D2E231931E20051A1DA /* GroupchatStorageItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupchatStorageItem.swift; sourceTree = "<group>"; };
@@ -2089,82 +1871,6 @@
 			path = MusicBox;
 			sourceTree = "<group>";
 		};
-		4DDD5D532934A8EB003AD478 /* Sounds */ = {
-			isa = PBXGroup;
-			children = (
-				4D7314E92937278400BE2A50 /* Roland04A3.caf */,
-				4D7314CF2937277F00BE2A50 /* Roland05A4.caf */,
-				4D7314FC2937278800BE2A50 /* Roland06A5.caf */,
-				4D7314DF2937278200BE2A50 /* Roland07A6.caf */,
-				4D7314D42937278000BE2A50 /* Roland08A7.caf */,
-				4D7314F12937278600BE2A50 /* Roland09B1_1.caf */,
-				4D7314D82937278100BE2A50 /* Roland10B1_2.caf */,
-				4D7314C72937277E00BE2A50 /* Roland12B1_3.caf */,
-				4D7314D72937278100BE2A50 /* Roland13B1_4.caf */,
-				4D7314DB2937278200BE2A50 /* Roland14B2.caf */,
-				4D7314C92937277E00BE2A50 /* Roland20B3_1.caf */,
-				4D7314CE2937277F00BE2A50 /* Roland21B3_2.caf */,
-				4D7315012937278900BE2A50 /* Roland23B4.caf */,
-				4D7314C42937277D00BE2A50 /* Roland24B5.caf */,
-				4D7314EE2937278500BE2A50 /* Roland25B6.caf */,
-				4D7314CC2937277F00BE2A50 /* Roland26B7.caf */,
-				4D7314EF2937278600BE2A50 /* Roland27B8_1.caf */,
-				4D7315042937278900BE2A50 /* Roland28B8_2.caf */,
-				4D7315002937278900BE2A50 /* Roland29C1.caf */,
-				4D7314F72937278700BE2A50 /* Roland30C2.caf */,
-				4D7315032937278900BE2A50 /* Roland32C3.caf */,
-				4D7314FE2937278800BE2A50 /* Roland33C4.caf */,
-				4D7314C02937277C00BE2A50 /* Roland35C5.caf */,
-				4D7314C62937277E00BE2A50 /* Roland36C6_1.caf */,
-				4D7314C82937277E00BE2A50 /* Roland41C6_2.caf */,
-				4D7314E62937278400BE2A50 /* Roland42C6_3.caf */,
-				4D7314F22937278600BE2A50 /* Roland44C7.caf */,
-				4D7314D52937278000BE2A50 /* Roland45C8_1.caf */,
-				4D7314FF2937278800BE2A50 /* Roland46C8_2.caf */,
-				4D7314E32937278300BE2A50 /* Roland47D2.caf */,
-				4D7314E52937278400BE2A50 /* Roland48D2_1.caf */,
-				4D7314E42937278300BE2A50 /* Roland49D3.caf */,
-				4D7315022937278900BE2A50 /* Roland50D4.caf */,
-				4D7314CD2937277F00BE2A50 /* Roland51D5.caf */,
-				4D7314DE2937278200BE2A50 /* Roland53D6.caf */,
-				4D7314D32937278000BE2A50 /* Roland54D7.caf */,
-				4D7314DD2937278200BE2A50 /* Roland55D8.caf */,
-				4D7314C32937277D00BE2A50 /* Roland56E1.caf */,
-				4D7314F32937278600BE2A50 /* Roland57E2_1.caf */,
-				4D7314F92937278700BE2A50 /* Roland58E2_2.caf */,
-				4D7314E22937278300BE2A50 /* Roland60E3.caf */,
-				4D7314E82937278400BE2A50 /* Roland61E4.caf */,
-				4D7314E12937278300BE2A50 /* Roland64E5.caf */,
-				4D7314D12937278000BE2A50 /* Roland65E6.caf */,
-				4D7314D92937278100BE2A50 /* Roland66E8.caf */,
-				4D7314C52937277D00BE2A50 /* Roland67F2_1.caf */,
-				4D7314FB2937278800BE2A50 /* Roland68F2_2.caf */,
-				4D7314F42937278600BE2A50 /* Roland69F3.caf */,
-				4D7314D62937278100BE2A50 /* Roland70F4.caf */,
-				4D7314FD2937278800BE2A50 /* Roland71F4_1.caf */,
-				4D7314F82937278700BE2A50 /* Roland73F4_2.caf */,
-				4D7314DA2937278200BE2A50 /* Roland74F5_1.caf */,
-				4D7314F52937278700BE2A50 /* Roland75F5_2.caf */,
-				4D7314F62937278700BE2A50 /* Roland76F6.caf */,
-				4D7314FA2937278700BE2A50 /* Roland77F7.caf */,
-				4D7314F02937278600BE2A50 /* Roland78F8.caf */,
-				4D7314CB2937277E00BE2A50 /* Roland79G1.caf */,
-				4D7314EB2937278500BE2A50 /* Roland81G2.caf */,
-				4D7314DC2937278200BE2A50 /* Roland82G3.caf */,
-				4D7314EA2937278400BE2A50 /* Roland83G3_1.caf */,
-				4D7314C12937277D00BE2A50 /* Roland84G4.caf */,
-				4D7314D22937278000BE2A50 /* Roland85G5.caf */,
-				4D7314D02937277F00BE2A50 /* Roland86G6.caf */,
-				4D7314C22937277D00BE2A50 /* Roland87G7.caf */,
-				4D7314ED2937278500BE2A50 /* Roland88G8.caf */,
-				4D7314EC2937278500BE2A50 /* Roland92G8_1.caf */,
-				4D7314E72937278400BE2A50 /* Roland93H2.caf */,
-				4D7314E02937278300BE2A50 /* Roland94H3_1.caf */,
-				4D7314CA2937277E00BE2A50 /* Roland96H3_2.caf */,
-			);
-			path = Sounds;
-			sourceTree = "<group>";
-		};
 		4DFF74FF2851E5170036AE0D /* SelectorViewController */ = {
 			isa = PBXGroup;
 			children = (
@@ -2364,9 +2070,7 @@
 		66159DE7201EDC7D00B1CF92 = {
 			isa = PBXGroup;
 			children = (
-				669C896F27F5D07800E0014B /* config.sh */,
 				66CDBED7279E920900B2CC6F /* Packages */,
-				66D2B589253F0DAA00299578 /* make_assets.sh */,
 				66159E27201EE44D00B1CF92 /* Podfile */,
 				66159DF2201EDC7D00B1CF92 /* xabber */,
 				5912C14D9B333C86586E9907 /* Pods */,
@@ -2383,7 +2087,6 @@
 		66159DF2201EDC7D00B1CF92 /* xabber */ = {
 			isa = PBXGroup;
 			children = (
-				4DDD5D532934A8EB003AD478 /* Sounds */,
 				66A349FD280D89DF008E5B9F /* proofreading.json */,
 				66A349FC280D89DE008E5B9F /* translations.json */,
 				1A9347D02806FCD8001A6ABF /* translations */,
@@ -2396,11 +2099,9 @@
 				66159E16201EDE0800B1CF92 /* controllers */,
 				66159E15201EDDFA00B1CF92 /* models */,
 				66159DF9201EDC7D00B1CF92 /* Main.storyboard */,
-				666167902034273400EEEDA1 /* GoogleService-Info.plist */,
 				6659F35D2032E95A007F7FCF /* xabber.entitlements */,
 				66A4BF722660D1C60067247C /* emojis.json */,
 				669C5FED27F2DE48008BADC2 /* Backgrounds.xcassets */,
-				1A98632827FACA3C00B45FD8 /* XASettingsDebug.plist */,
 				1A46380627E36A54005AFAC9 /* Masks.xcassets */,
 				669F92E827FC1F750035658C /* push_service.plist */,
 				6662AA92291BCC4E001A6D59 /* credential_store.plist */,
@@ -2411,7 +2112,6 @@
 				66159E01201EDC7D00B1CF92 /* Info.plist */,
 				660D497C2653C9AA00480A75 /* whitelabel_res.xcassets */,
 				66D2B54A253EC01300299578 /* icons.xcassets */,
-				664E3D7E2397DB0400E2CBCF /* info_debug.plist */,
 				66B749D6205BF13900E4F83D /* xabber-Bridging-Header.h */,
 			);
 			path = xabber;
@@ -2868,14 +2568,6 @@
 				6646D33723488FD600B64FEB /* ShareDialogController+ItemCell.swift */,
 			);
 			path = share;
-			sourceTree = "<group>";
-		};
-		664701FE265683B300D3FE2C /* XabberAPIManager */ = {
-			isa = PBXGroup;
-			children = (
-				664701FF265683E300D3FE2C /* XabberAPIManager.swift */,
-			);
-			path = XabberAPIManager;
 			sourceTree = "<group>";
 		};
 		664F18A521B92F8C0006D63C /* XEP-0XXX */ = {
@@ -3481,7 +3173,6 @@
 				1AFEA66A27E360770005BAE0 /* whiteLabel */,
 				66F1F8072715902600F67C08 /* CredentialsManager */,
 				66CDA9B7219572D4002D0C3D /* ContactChatMetadata */,
-				664701FE265683B300D3FE2C /* XabberAPIManager */,
 				66C8CA772510AA0F00CA7271 /* XMPPBackgroundTask */,
 				66DE588224BEDB59001FAFAB /* XMPPUIActionManager */,
 				66F2566224A37662002FC961 /* xmpp_action_manager */,
@@ -4704,95 +4395,23 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				4D7315432937278A00BE2A50 /* Roland07A6.caf in Resources */,
-				664E3D7F2397DB0400E2CBCF /* info_debug.plist in Resources */,
-				4D7315112937278A00BE2A50 /* Roland36C6_1.caf in Resources */,
 				66159E00201EDC7D00B1CF92 /* LaunchScreen.storyboard in Resources */,
-				4D7315292937278A00BE2A50 /* Roland85G5.caf in Resources */,
-				4D7315792937278A00BE2A50 /* Roland77F7.caf in Resources */,
 				66A4BF732660D1C70067247C /* emojis.json in Resources */,
-				4D7315732937278A00BE2A50 /* Roland30C2.caf in Resources */,
-				4D7315772937278A00BE2A50 /* Roland58E2_2.caf in Resources */,
-				4D7315592937278A00BE2A50 /* Roland83G3_1.caf in Resources */,
-				4D7315412937278A00BE2A50 /* Roland53D6.caf in Resources */,
 				66A349FF280D89DF008E5B9F /* proofreading.json in Resources */,
-				4D73151F2937278A00BE2A50 /* Roland51D5.caf in Resources */,
-				4D73156F2937278A00BE2A50 /* Roland75F5_2.caf in Resources */,
 				660D497D2653C9AA00480A75 /* whitelabel_res.xcassets in Resources */,
-				4D7315572937278A00BE2A50 /* Roland04A3.caf in Resources */,
 				66D2B54B253EC01300299578 /* icons.xcassets in Resources */,
 				66A349FE280D89DF008E5B9F /* translations.json in Resources */,
-				4D7315552937278A00BE2A50 /* Roland61E4.caf in Resources */,
-				4D73155F2937278A00BE2A50 /* Roland88G8.caf in Resources */,
-				4D73152B2937278A00BE2A50 /* Roland54D7.caf in Resources */,
-				4D7315692937278A00BE2A50 /* Roland44C7.caf in Resources */,
-				4D7315152937278A00BE2A50 /* Roland41C6_2.caf in Resources */,
-				4D73152F2937278A00BE2A50 /* Roland45C8_1.caf in Resources */,
-				4D7315172937278A00BE2A50 /* Roland20B3_1.caf in Resources */,
-				4D7315352937278A00BE2A50 /* Roland10B1_2.caf in Resources */,
-				4D73156D2937278A00BE2A50 /* Roland69F3.caf in Resources */,
-				4D7315332937278A00BE2A50 /* Roland13B1_4.caf in Resources */,
-				1A98632927FACA3C00B45FD8 /* XASettingsDebug.plist in Resources */,
-				4D7315232937278A00BE2A50 /* Roland05A4.caf in Resources */,
-				4D7315612937278A00BE2A50 /* Roland25B6.caf in Resources */,
-				4D73157B2937278A00BE2A50 /* Roland68F2_2.caf in Resources */,
 				66159DFD201EDC7D00B1CF92 /* Assets.xcassets in Resources */,
-				666167912034273400EEEDA1 /* GoogleService-Info.plist in Resources */,
 				1A9347D32806FD4F001A6ABF /* Localizable.strings in Resources */,
-				4D73154B2937278A00BE2A50 /* Roland47D2.caf in Resources */,
-				4D7315252937278A00BE2A50 /* Roland86G6.caf in Resources */,
-				4D73151B2937278A00BE2A50 /* Roland79G1.caf in Resources */,
-				4D7315852937278A00BE2A50 /* Roland29C1.caf in Resources */,
-				4D73152D2937278A00BE2A50 /* Roland08A7.caf in Resources */,
 				6662AA93291BCC4E001A6D59 /* credential_store.plist in Resources */,
 				66159E28201EE44D00B1CF92 /* Podfile in Resources */,
-				4D7315672937278A00BE2A50 /* Roland09B1_1.caf in Resources */,
 				664F341A21B542AA00618B5E /* imagePickerCell.xib in Resources */,
-				4D7315492937278A00BE2A50 /* Roland60E3.caf in Resources */,
 				66449AA2291CE4C000D1A329 /* subscribtions_secret.plist in Resources */,
-				4D7315512937278A00BE2A50 /* Roland42C6_3.caf in Resources */,
-				4D7315472937278A00BE2A50 /* Roland64E5.caf in Resources */,
-				4D73155D2937278A00BE2A50 /* Roland92G8_1.caf in Resources */,
-				4D73154D2937278A00BE2A50 /* Roland49D3.caf in Resources */,
 				1A46380727E36A54005AFAC9 /* Masks.xcassets in Resources */,
-				4D7315532937278A00BE2A50 /* Roland93H2.caf in Resources */,
-				4D73155B2937278A00BE2A50 /* Roland81G2.caf in Resources */,
-				4D7315372937278A00BE2A50 /* Roland66E8.caf in Resources */,
-				4D73153D2937278A00BE2A50 /* Roland82G3.caf in Resources */,
-				4D7315872937278A00BE2A50 /* Roland23B4.caf in Resources */,
 				669F92EB27FC23630035658C /* common_config.plist in Resources */,
-				4D73158B2937278A00BE2A50 /* Roland32C3.caf in Resources */,
 				66159DFB201EDC7D00B1CF92 /* Main.storyboard in Resources */,
-				4D7315212937278A00BE2A50 /* Roland21B3_2.caf in Resources */,
-				4D7315712937278A00BE2A50 /* Roland76F6.caf in Resources */,
-				4D73157F2937278A00BE2A50 /* Roland71F4_1.caf in Resources */,
-				4D7315752937278A00BE2A50 /* Roland73F4_2.caf in Resources */,
-				4D73157D2937278A00BE2A50 /* Roland06A5.caf in Resources */,
-				4D7315192937278A00BE2A50 /* Roland96H3_2.caf in Resources */,
-				4D73150D2937278A00BE2A50 /* Roland24B5.caf in Resources */,
-				4D73150F2937278A00BE2A50 /* Roland67F2_1.caf in Resources */,
-				4D7315812937278A00BE2A50 /* Roland33C4.caf in Resources */,
 				669F92E927FC1F750035658C /* push_service.plist in Resources */,
-				4D7315092937278A00BE2A50 /* Roland87G7.caf in Resources */,
-				4D7315072937278A00BE2A50 /* Roland84G4.caf in Resources */,
-				4D73153F2937278A00BE2A50 /* Roland55D8.caf in Resources */,
-				4D7315272937278A00BE2A50 /* Roland65E6.caf in Resources */,
-				4D73156B2937278A00BE2A50 /* Roland57E2_1.caf in Resources */,
-				4D7315132937278A00BE2A50 /* Roland12B1_3.caf in Resources */,
-				4D73151D2937278A00BE2A50 /* Roland26B7.caf in Resources */,
-				4D7315632937278A00BE2A50 /* Roland27B8_1.caf in Resources */,
-				4D7315652937278A00BE2A50 /* Roland78F8.caf in Resources */,
-				4D7315392937278A00BE2A50 /* Roland74F5_1.caf in Resources */,
-				4D7315312937278A00BE2A50 /* Roland70F4.caf in Resources */,
-				4D7315892937278A00BE2A50 /* Roland50D4.caf in Resources */,
-				4D7315052937278A00BE2A50 /* Roland35C5.caf in Resources */,
 				669C5FEE27F2DE48008BADC2 /* Backgrounds.xcassets in Resources */,
-				4D73154F2937278A00BE2A50 /* Roland48D2_1.caf in Resources */,
-				4D73158D2937278A00BE2A50 /* Roland28B8_2.caf in Resources */,
-				4D73150B2937278A00BE2A50 /* Roland56E1.caf in Resources */,
-				4D7315452937278A00BE2A50 /* Roland94H3_1.caf in Resources */,
-				4D7315832937278A00BE2A50 /* Roland46C8_2.caf in Resources */,
-				4D73153B2937278A00BE2A50 /* Roland14B2.caf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -4801,7 +4420,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				66D2B580253ECBD200299578 /* icons.xcassets in Resources */,
-				66D2B58A253F0DAA00299578 /* make_assets.sh in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -4809,76 +4427,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				4D7315422937278A00BE2A50 /* Roland53D6.caf in Resources */,
-				4D7315462937278A00BE2A50 /* Roland94H3_1.caf in Resources */,
-				4D7315402937278A00BE2A50 /* Roland55D8.caf in Resources */,
-				4D7315242937278A00BE2A50 /* Roland05A4.caf in Resources */,
-				4D7315682937278A00BE2A50 /* Roland09B1_1.caf in Resources */,
-				4D7315142937278A00BE2A50 /* Roland12B1_3.caf in Resources */,
-				4D7315442937278A00BE2A50 /* Roland07A6.caf in Resources */,
-				4D7315342937278A00BE2A50 /* Roland13B1_4.caf in Resources */,
-				4D73155E2937278A00BE2A50 /* Roland92G8_1.caf in Resources */,
-				4D7315762937278A00BE2A50 /* Roland73F4_2.caf in Resources */,
-				4D7315062937278A00BE2A50 /* Roland35C5.caf in Resources */,
-				4D73151C2937278A00BE2A50 /* Roland79G1.caf in Resources */,
-				4D7315102937278A00BE2A50 /* Roland67F2_1.caf in Resources */,
-				4D73156E2937278A00BE2A50 /* Roland69F3.caf in Resources */,
-				4D73150A2937278A00BE2A50 /* Roland87G7.caf in Resources */,
-				4D7315742937278A00BE2A50 /* Roland30C2.caf in Resources */,
-				4D73156A2937278A00BE2A50 /* Roland44C7.caf in Resources */,
-				4D73153E2937278A00BE2A50 /* Roland82G3.caf in Resources */,
-				4D7315082937278A00BE2A50 /* Roland84G4.caf in Resources */,
-				4D73155A2937278A00BE2A50 /* Roland83G3_1.caf in Resources */,
-				4D7315602937278A00BE2A50 /* Roland88G8.caf in Resources */,
-				4D73153A2937278A00BE2A50 /* Roland74F5_1.caf in Resources */,
-				4D73158A2937278A00BE2A50 /* Roland50D4.caf in Resources */,
-				4D73151A2937278A00BE2A50 /* Roland96H3_2.caf in Resources */,
-				4D73157A2937278A00BE2A50 /* Roland77F7.caf in Resources */,
-				4D73158C2937278A00BE2A50 /* Roland32C3.caf in Resources */,
-				4D7315622937278A00BE2A50 /* Roland25B6.caf in Resources */,
-				4D7315382937278A00BE2A50 /* Roland66E8.caf in Resources */,
-				4D7315802937278A00BE2A50 /* Roland71F4_1.caf in Resources */,
-				4D7315302937278A00BE2A50 /* Roland45C8_1.caf in Resources */,
-				4D7315202937278A00BE2A50 /* Roland51D5.caf in Resources */,
 				6609E0B32A2478CC00C84581 /* credential_store.plist in Resources */,
-				4D7315222937278A00BE2A50 /* Roland21B3_2.caf in Resources */,
-				4D73154C2937278A00BE2A50 /* Roland47D2.caf in Resources */,
-				4D73152C2937278A00BE2A50 /* Roland54D7.caf in Resources */,
-				4D7315562937278A00BE2A50 /* Roland61E4.caf in Resources */,
-				4D73150E2937278A00BE2A50 /* Roland24B5.caf in Resources */,
-				4D7315642937278A00BE2A50 /* Roland27B8_1.caf in Resources */,
-				4D73152E2937278A00BE2A50 /* Roland08A7.caf in Resources */,
-				4D73151E2937278A00BE2A50 /* Roland26B7.caf in Resources */,
-				4D7315502937278A00BE2A50 /* Roland48D2_1.caf in Resources */,
-				4D7315862937278A00BE2A50 /* Roland29C1.caf in Resources */,
-				4D7315122937278A00BE2A50 /* Roland36C6_1.caf in Resources */,
-				4D73153C2937278A00BE2A50 /* Roland14B2.caf in Resources */,
-				4D7315322937278A00BE2A50 /* Roland70F4.caf in Resources */,
-				4D73154E2937278A00BE2A50 /* Roland49D3.caf in Resources */,
-				4D7315162937278A00BE2A50 /* Roland41C6_2.caf in Resources */,
-				4D7315782937278A00BE2A50 /* Roland58E2_2.caf in Resources */,
-				4D7315282937278A00BE2A50 /* Roland65E6.caf in Resources */,
-				4D7315702937278A00BE2A50 /* Roland75F5_2.caf in Resources */,
-				4D73156C2937278A00BE2A50 /* Roland57E2_1.caf in Resources */,
-				4D7315822937278A00BE2A50 /* Roland33C4.caf in Resources */,
-				4D7315482937278A00BE2A50 /* Roland64E5.caf in Resources */,
-				4D73154A2937278A00BE2A50 /* Roland60E3.caf in Resources */,
-				4D7315582937278A00BE2A50 /* Roland04A3.caf in Resources */,
-				4D7315522937278A00BE2A50 /* Roland42C6_3.caf in Resources */,
-				4D7315662937278A00BE2A50 /* Roland78F8.caf in Resources */,
-				4D73157C2937278A00BE2A50 /* Roland68F2_2.caf in Resources */,
-				4D73150C2937278A00BE2A50 /* Roland56E1.caf in Resources */,
-				4D7315722937278A00BE2A50 /* Roland76F6.caf in Resources */,
-				4D73158E2937278A00BE2A50 /* Roland28B8_2.caf in Resources */,
-				4D7315262937278A00BE2A50 /* Roland86G6.caf in Resources */,
-				4D7315542937278A00BE2A50 /* Roland93H2.caf in Resources */,
-				4D73155C2937278A00BE2A50 /* Roland81G2.caf in Resources */,
-				4D73152A2937278A00BE2A50 /* Roland85G5.caf in Resources */,
-				4D73157E2937278A00BE2A50 /* Roland06A5.caf in Resources */,
-				4D7315182937278A00BE2A50 /* Roland20B3_1.caf in Resources */,
-				4D7315842937278A00BE2A50 /* Roland46C8_2.caf in Resources */,
-				4D7315362937278A00BE2A50 /* Roland10B1_2.caf in Resources */,
-				4D7315882937278A00BE2A50 /* Roland23B4.caf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -5592,7 +5141,6 @@
 				66FF657921FF13E700BFDC22 /* FutureNotImplementPresenter.swift in Sources */,
 				66CA93622387EFD9006FFE94 /* CreateNewGroupViewController+Flow.swift in Sources */,
 				66B4D0A023A8AC66008B2C64 /* GroupchatDefaultRightsViewController+Delegate.swift in Sources */,
-				66470200265683E300D3FE2C /* XabberAPIManager.swift in Sources */,
 				66B6E96624191D9600602626 /* SubforwardsViewController.swift in Sources */,
 				66FF657D21FF3A2600BFDC22 /* BlockContactPresenter.swift in Sources */,
 				66E8C9BB29EFF2D500D307D5 /* nanoid.swift in Sources */,
