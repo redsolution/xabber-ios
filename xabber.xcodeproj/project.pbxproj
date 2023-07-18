@@ -724,7 +724,7 @@
 		66FF754B211C7029008EF11D /* PingManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66FF754A211C7029008EF11D /* PingManager.swift */; };
 		66FF754E211C7387008EF11D /* QueryDeliveryQueueItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66FF754D211C7387008EF11D /* QueryDeliveryQueueItem.swift */; };
 		7D619BF581B2C3AD7536E46A /* Pods_xabberTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DC236808525500AA398656C3 /* Pods_xabberTests.framework */; };
-		BB77E3889B80B13576FEC3B1 /* Pods_clandestino.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1237B8F157458C709558D1FC /* Pods_clandestino.framework */; };
+		CB444BFBCFA3A0CB3E831615 /* Pods_xabber.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EB6DFA8E00BD914EAFA8CAE8 /* Pods_xabber.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -759,7 +759,6 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		1237B8F157458C709558D1FC /* Pods_clandestino.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_clandestino.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		163452C65A63992FE656E475 /* AccountManager.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AccountManager.swift; sourceTree = "<group>"; };
 		163457817B9EDAF9D7FB6FF8 /* NotifyManager.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = NotifyManager.swift; sourceTree = "<group>"; };
 		16345968863BF3D05325BFCF /* LastChats.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = LastChats.swift; sourceTree = "<group>"; };
@@ -1015,6 +1014,7 @@
 		1ABD4CEE27C90172004882D0 /* AvatarUploadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarUploadManager.swift; sourceTree = "<group>"; };
 		202C954ACBAF192765B32D98 /* Pods-XabberPushService.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-XabberPushService.debug.xcconfig"; path = "Target Support Files/Pods-XabberPushService/Pods-XabberPushService.debug.xcconfig"; sourceTree = "<group>"; };
 		2366059D7400C4540A016B53 /* Pods-clandestino.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-clandestino.debug.xcconfig"; path = "Target Support Files/Pods-clandestino/Pods-clandestino.debug.xcconfig"; sourceTree = "<group>"; };
+		2B8CAEDEDAC72379199494EF /* Pods-xabber.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-xabber.debug.xcconfig"; path = "Target Support Files/Pods-xabber/Pods-xabber.debug.xcconfig"; sourceTree = "<group>"; };
 		2E93ADFE8977B261BCCEEB27 /* Pods_XabberPushService.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_XabberPushService.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		4D3DD42C285DABF600C2E429 /* DevicesListViewController+ExpandItemCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DevicesListViewController+ExpandItemCell.swift"; sourceTree = "<group>"; };
 		4D3DD42E285DAC2900C2E429 /* DevicesListViewController+UITableViewDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DevicesListViewController+UITableViewDelegate.swift"; sourceTree = "<group>"; };
@@ -1691,8 +1691,10 @@
 		66FF754D211C7387008EF11D /* QueryDeliveryQueueItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryDeliveryQueueItem.swift; sourceTree = "<group>"; };
 		6801BFD6F1B5E6C36E63421D /* Pods-xabberTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-xabberTests.release.xcconfig"; path = "Target Support Files/Pods-xabberTests/Pods-xabberTests.release.xcconfig"; sourceTree = "<group>"; };
 		70068162704B8E5FC361D39E /* Pods-XabberPushService.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-XabberPushService.release.xcconfig"; path = "Target Support Files/Pods-XabberPushService/Pods-XabberPushService.release.xcconfig"; sourceTree = "<group>"; };
+		95BBDD332E1BBA6B58CF98AC /* Pods-xabber.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-xabber.release.xcconfig"; path = "Target Support Files/Pods-xabber/Pods-xabber.release.xcconfig"; sourceTree = "<group>"; };
 		A5A1B180AC3ADA69A08E4243 /* Pods-clandestino.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-clandestino.release.xcconfig"; path = "Target Support Files/Pods-clandestino/Pods-clandestino.release.xcconfig"; sourceTree = "<group>"; };
 		DC236808525500AA398656C3 /* Pods_xabberTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_xabberTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		EB6DFA8E00BD914EAFA8CAE8 /* Pods_xabber.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_xabber.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1705,7 +1707,7 @@
 				66B777322425491C003F1403 /* CloudKit.framework in Frameworks */,
 				4DD4C5772910EAE600CD50C9 /* StoreKit.framework in Frameworks */,
 				6696B6C62215770600D6D437 /* libogg.a in Frameworks */,
-				BB77E3889B80B13576FEC3B1 /* Pods_clandestino.framework in Frameworks */,
+				CB444BFBCFA3A0CB3E831615 /* Pods_xabber.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1812,8 +1814,8 @@
 				66898064265B84A400E13ED1 /* AuthenticationServices.framework */,
 				66B777312425491C003F1403 /* CloudKit.framework */,
 				2E93ADFE8977B261BCCEEB27 /* Pods_XabberPushService.framework */,
-				1237B8F157458C709558D1FC /* Pods_clandestino.framework */,
 				DC236808525500AA398656C3 /* Pods_xabberTests.framework */,
+				EB6DFA8E00BD914EAFA8CAE8 /* Pods_xabber.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -1886,6 +1888,8 @@
 				A5A1B180AC3ADA69A08E4243 /* Pods-clandestino.release.xcconfig */,
 				56782CFB8BD3AD8A774ED926 /* Pods-xabberTests.debug.xcconfig */,
 				6801BFD6F1B5E6C36E63421D /* Pods-xabberTests.release.xcconfig */,
+				2B8CAEDEDAC72379199494EF /* Pods-xabber.debug.xcconfig */,
+				95BBDD332E1BBA6B58CF98AC /* Pods-xabber.release.xcconfig */,
 			);
 			path = Pods;
 			sourceTree = "<group>";
@@ -4544,7 +4548,7 @@
 			files = (
 			);
 			inputPaths = (
-				"${PODS_ROOT}/Target Support Files/Pods-clandestino/Pods-clandestino-frameworks.sh",
+				"${PODS_ROOT}/Target Support Files/Pods-xabber/Pods-xabber-frameworks.sh",
 				"${BUILT_PRODUCTS_DIR}/Alamofire/Alamofire.framework",
 				"${BUILT_PRODUCTS_DIR}/Cache/Cache.framework",
 				"${BUILT_PRODUCTS_DIR}/CocoaAsyncSocket/CocoaAsyncSocket.framework",
@@ -4617,7 +4621,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-clandestino/Pods-clandestino-frameworks.sh\"\n";
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-xabber/Pods-xabber-frameworks.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
 		8A7533F255E3E5B51C3B6BB4 /* [CP] Check Pods Manifest.lock */ = {
@@ -4657,7 +4661,7 @@
 			outputFileListPaths = (
 			);
 			outputPaths = (
-				"$(DERIVED_FILE_DIR)/Pods-clandestino-checkManifestLockResult.txt",
+				"$(DERIVED_FILE_DIR)/Pods-xabber-checkManifestLockResult.txt",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -5765,13 +5769,13 @@
 		};
 		66159E10201EDC7D00B1CF92 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 2366059D7400C4540A016B53 /* Pods-clandestino.debug.xcconfig */;
+			baseConfigurationReference = 2B8CAEDEDAC72379199494EF /* Pods-xabber.debug.xcconfig */;
 			buildSettings = {
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_OPTIMIZATION = time;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
-				CLANG_USE_OPTIMIZATION_PROFILE = YES;
+				CLANG_USE_OPTIMIZATION_PROFILE = NO;
 				CLANG_WARN_DOCUMENTATION_COMMENTS = NO;
 				CODE_SIGN_ENTITLEMENTS = xabber/xabber.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
@@ -5823,13 +5827,13 @@
 		};
 		66159E11201EDC7D00B1CF92 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = A5A1B180AC3ADA69A08E4243 /* Pods-clandestino.release.xcconfig */;
+			baseConfigurationReference = 95BBDD332E1BBA6B58CF98AC /* Pods-xabber.release.xcconfig */;
 			buildSettings = {
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_OPTIMIZATION = time;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
-				CLANG_USE_OPTIMIZATION_PROFILE = YES;
+				CLANG_USE_OPTIMIZATION_PROFILE = NO;
 				CLANG_WARN_DOCUMENTATION_COMMENTS = NO;
 				CODE_SIGN_ENTITLEMENTS = xabber/xabber.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
