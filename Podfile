@@ -55,7 +55,7 @@ end
 
 
 # to use pods in app target
-target 'clandestino' do
+target 'xabber' do
     main_pods
 end
 
