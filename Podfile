@@ -79,6 +79,7 @@ post_install do |installer|
         puts target.name
         target.build_configurations.each do |config|
             config.build_settings['CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF'] = 'NO'
+	    config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
         end
     end
 end
