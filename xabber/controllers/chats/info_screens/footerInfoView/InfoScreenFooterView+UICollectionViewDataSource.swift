@@ -36,7 +36,7 @@ extension InfoScreenFooterView: UICollectionViewDataSource {
         }
     }
 
-    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+    internal func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         if datasource.isNotEmpty {
             DispatchQueue.global(qos: .background).async {
                 if indexPath.item == (collectionView.numberOfItems(inSection: 0) - 1) {
@@ -96,7 +96,6 @@ extension InfoScreenFooterView: UICollectionViewDataSource {
                                senderName: data.senderName,
                                owner: owner,
                                sizeInBytes: data.sizeInBytes ?? "")
-                    
                     return cell
                 } else {
                     fallthrough
@@ -110,12 +109,7 @@ extension InfoScreenFooterView: UICollectionViewDataSource {
             
         } else {
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: NoFilesMediaCollectionCell.cellName, for: indexPath) as! NoFilesMediaCollectionCell
-            if isFirstTimeOpened {
-                isFirstTimeOpened = false
-                needsCollectionUpdate = true
-            } else {
-                cell.setup()
-            }
+            cell.setup()
             return cell
         }
     }

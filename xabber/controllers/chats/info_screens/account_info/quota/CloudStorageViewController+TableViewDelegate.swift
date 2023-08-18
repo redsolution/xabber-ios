@@ -45,27 +45,55 @@ extension CloudStorageViewController: UITableViewDelegate {
         func getFreedSpace(days: Int, preparedDate: String) {
             guard let account = AccountManager.shared.find(for: jid),
                   let uploader = account.getDefaultUploader() as? UploadManagerExtendedProtocol else { return }
-            uploader.getFreeSpaceAfterDeletion(earlierThanDate: preparedDate) { freedSpace in
-                if freedSpace == nil {
-                    self.showVCBeforeDeletingFiles(days: days, preparedDate: preparedDate, freedSpace: "0 KiB")
+//            uploader.getFreeSpaceAfterDeletion(earlierThanDate: preparedDate) { freedSpace in
+//                if freedSpace == nil {
+//                    self.showVCBeforeDeletingFiles(days: days, preparedDate: preparedDate, freedSpace: "0 KiB")
+//                } else if freedSpace == "New token" {
+//                    getFreedSpace(days: days, preparedDate: preparedDate)
+//                } else {
+//                    self.showVCBeforeDeletingFiles(days: days, preparedDate: preparedDate, freedSpace: freedSpace!)
+//                }
+//            }
+            uploader.getFilesToDelete(earlierThanDate: preparedDate) { viewControllerDelete in
+                if viewControllerDelete == nil {
+                    return
                 } else {
-                    self.showVCBeforeDeletingFiles(days: days, preparedDate: preparedDate, freedSpace: freedSpace!)
+                    self.navigationController?.pushViewController(viewControllerDelete!, animated: true)
+                    return
+                }
+            }
+        }
+//        func getFreedSpace(days: Int, preparedDate: String) {
+//            guard let account = AccountManager.shared.find(for: jid), let uploader = account.getDefaultUploader() as? UploadManagerExtendedProtocol else { return }
+//            uploader.getFilesToDelete(earlierThanDate: <#T##String#>, successCallback: <#T##((String?) -> Void)##((String?) -> Void)##(String?) -> Void#>)
+//        }
+        func getFreedSpace(percent: String) {
+            guard let account = AccountManager.shared.find(for: jid), let uploader = account.getDefaultUploader() as? UploadManagerExtendedProtocol else { return }
+            uploader.getFreeSpaceAfterDeletionBySize(percent: percent) { freedSpace in
+                if freedSpace == nil {
+                    self.showVCBeforeDeletingFiles(percent: Int(percent)!, freedSpace: "0 KiB")
+                } else {
+                    self.showVCBeforeDeletingFiles(percent: Int(percent)!, freedSpace: freedSpace!)
                 }
             }
         }
         
         let item = datasource[indexPath.section].children[indexPath.row]
-        if item.key == "delete_files" {
+        tableView.deselectRow(at: indexPath, animated: true)
+        switch item.key {
+        case "delete_files":
             let deleteItems: [ActionSheetPresenter.Item] = [
-                ActionSheetPresenter.Item(destructive: false, title: "Older than 15 days".localizeString(id: "delete_files_older_than_15_days", arguments: []), value: "15days"),
-                ActionSheetPresenter.Item(destructive: false, title: "Older than 30 days".localizeString(id: "delete_files_older_than_30_days", arguments: []), value: "30days"),
-                ActionSheetPresenter.Item(destructive: false, title: "Older than 60 days".localizeString(id: "delete_files_older_than_60_days", arguments: []), value: "60days")
+                ActionSheetPresenter.Item(destructive: false, title: "15%", value: "15percent"),
+                ActionSheetPresenter.Item(destructive: false, title: "25%", value: "25percent"),
+                ActionSheetPresenter.Item(destructive: false, title: "50%", value: "50percent"),
+                ActionSheetPresenter.Item(destructive: false, title: "All files", value: "100percent"),
+                ActionSheetPresenter.Item(destructive: false, title: "6 days", value: "6days")
             ]
             
             ActionSheetPresenter()
                 .present(in: self,
-                         title: "Delete files".localizeString(id: "account_delete_files_message", arguments: []),
-                         message: "Choose which files will be deleted".localizeString(id: "account_which_files_to_delete", arguments: []),
+                         title: "Free up space".localizeString(id: "account_delete_files_message", arguments: []),
+                         message: "Choose how many files will be deleted to free up space (as a percentage)".localizeString(id: "account_which_files_to_delete", arguments: []),
                          cancel: "Cancel".localizeString(id: "cancel", arguments: []),
                          values: deleteItems,
                          animated: true
@@ -84,12 +112,41 @@ extension CloudStorageViewController: UITableViewDelegate {
                         prepareDate(days: 60) { preparedDate in
                             getFreedSpace(days: 60, preparedDate: preparedDate)
                         }
+                    case "6days":
+                        prepareDate(days: 6) { preparedDate in
+                            getFreedSpace(days: 6, preparedDate: preparedDate)
+                        }
+                        return
+                    case "15percent":
+                        getFreedSpace(percent: "15")
                     default:
                         break
                     }
                 }
+            return
+        case "images":
+            let viewController = CloudStorageGalleryViewController()
+            viewController.configure(jid: self.jid, .images)
+            navigationController?.pushViewController(viewController, animated: true)
+            return
+        case "videos":
+            let viewController = CloudStorageGalleryViewController()
+            viewController.configure(jid: self.jid, .videos)
+            navigationController?.pushViewController(viewController, animated: true)
+            return
+        case "files":
+            let viewController = CloudStorageGalleryViewController()
+            viewController.configure(jid: self.jid, .files)
+            navigationController?.pushViewController(viewController, animated: true)
+            return
+        case "audio":
+            let viewController = CloudStorageGalleryViewController()
+            viewController.configure(jid: self.jid, .voice)
+            navigationController?.pushViewController(viewController, animated: true)
+            return
+        default:
+            break
         }
         
-        tableView.deselectRow(at: indexPath, animated: true)
     }
 }

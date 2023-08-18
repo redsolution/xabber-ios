@@ -31,6 +31,9 @@ protocol UploadManagerExtendedProtocol: UploadManagerProtocol {
     func getQuotaInfo(_ callback: (() -> Void)?)
     func deleteMediaFromServer(fileID: Int)
     func getFreeSpaceAfterDeletion(earlierThanDate: String, successCallback: @escaping ((String?) -> Void))
+    func getFreeSpaceAfterDeletionBySize(percent: String, successCallBack: @escaping ((String?) -> Void))
+    func getFilesToDelete(earlierThanDate: String, successCallback: @escaping ((CloudStorageDeleteViewController?) -> Void))
     func deleteMediaForSelectedPeriod(earlierThanDate: String, successCallback: @escaping (() -> Void))
+    func deleteMediaForSelectedPercent(percent: Int, successCallback: @escaping (() -> Void))
     func deleteGallery(jid: String)
 }

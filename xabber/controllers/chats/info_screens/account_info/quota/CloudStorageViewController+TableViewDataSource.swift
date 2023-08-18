@@ -44,22 +44,11 @@ extension CloudStorageViewController: UITableViewDataSource {
             
             return cell!
         } else {
-            var cell = tableView.dequeueReusableCell(withIdentifier: "TextCell")
-            if cell == nil {
-                cell = UITableViewCell(style: .value1, reuseIdentifier: "TextCell")
-            }
-            
-            cell?.textLabel?.text = item.title
-            cell?.detailTextLabel?.text = item.subtitle
-            
-            switch item.kind {
-            case .text:
-                cell?.selectionStyle = .none
-            case .button:
-                cell?.textLabel?.textColor = .systemRed
-            }
-            
-            return cell!
+            let cell = UITableViewCell(style: .value1, reuseIdentifier: "value1CellReuseID")
+            cell.textLabel?.text = item.title
+            cell.detailTextLabel?.text = item.subtitle
+            cell.accessoryType = .disclosureIndicator
+            return cell
         }
     }
 }

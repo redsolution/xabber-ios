@@ -274,6 +274,11 @@ public class PhotoGallery: UIViewController {
     @objc
     func didTapSenderInfoButton() {
         self.dismissGallery()
+//        if chatVCDelegate == nil {
+//            guard let primary = messageIds[currentPage].split(separator: "_").first else { return }
+//            let chatViewController = ChatViewController()
+////            chatViewController. // определить messageId сообщения и потом по нему создать ChatViewController()
+//        }
         if calledFromChatViewController {
             guard let primary = messageIds[currentPage].split(separator: "_").first else { return }
             chatVCDelegate?.didTapPhotoFromChat(primary: String(primary))
