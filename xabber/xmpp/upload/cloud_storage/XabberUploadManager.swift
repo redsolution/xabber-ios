@@ -32,9 +32,6 @@ import Kingfisher
 *       It is used for receiving user's token for messages and files exchange
 **/
 class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
-//    private let prefixUrl: String = "https://gallery.dev.xabber.com/"
-    
-    
     enum UploadError: Error {
         case notAvailable
     }
@@ -118,13 +115,13 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
         print("TOKEN:\n\(token)")
         
         var mime: String = mimeType
-        if mimeType.contains("ogg") {
-            mime += "+voice"
-        }
+//        if mimeType.contains("ogg") {
+//            mime += "+voice"
+//        }
         
         Alamofire.upload(
             multipartFormData: { formData in
-                formData.append(data, withName: "some_file_name.png", fileName: filename, mimeType: mimeType)
+                formData.append(data, withName: "file", fileName: filename, mimeType: mimeType)
                 formData.append(mime.data(using: .utf8)!, withName: "media_type")
                 //Takes type of file, e.g. "audio" from "audio/ogg"
             },
@@ -135,16 +132,18 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
                 switch result {
                     
                 case .success(request: let request, streamingFromDisk: let streamingFromDisk, streamFileURL: let streamFileURL):
+                    
                     request.responseJSON(queue: nil, options: []) { response in
                         print("ResponseJSON: \(response)")
-                        if response.response?.statusCode == 200 {
+                        
+                        if response.response!.statusCode < 400 {
                             guard let json = response.result.value as? NSDictionary,
                                   let fileUrl = json["file"] as? String,
                                   let name = json["name"] as? String,
                                   let hash = json["hash"] as? String,
                                   let quota = json["quota"] as? Int,
                                   let used = json["used"] as? Int,
-                                  let fileID = json["id"] as? Int else { return }
+                                  let fileID = json["id"] as? Int else { return } // TODO fixme
                             let thumbnailUrl = json["thumbnail"] as? String
 
                             successCallback(fileUrl, thumbnailUrl, fileID, name, hash, url, quota, used)
@@ -264,6 +263,7 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
                                                 uploadedReference.metadata?["filename"] = name
                                                 uploadedReference.metadata?["hash"] = hash
                                                 uploadedReference.isUploaded = true
+                                                uploadedReference.url = getUrl
                                                 if let thumbnailUrl = thumbnailUrl {
                                                     uploadedReference.metadata?["thumbnail"] = thumbnailUrl
                                                 }
@@ -551,197 +551,87 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
             }
     }
     
-    public func getFreeSpaceAfterDeletion(earlierThanDate: String, successCallback: @escaping ((String?) -> Void)) {
-        guard self.isAvailable(), let node = node else {
-            DDLogDebug("XabberUploadManager (\(#function) is unavailable.")
-            return
-        }
-        
-        let stringUrl = node + String(format: "v1/files/stats/?date_lte=%@", earlierThanDate)
-        
-        guard let url = URL(string: stringUrl) else {
-            DDLogDebug("XabberUploadManager: \(#function). Error with upload url.")
-            return
-        }
-        
-        let headers: [String: String] = [
-            "Authorization" : "Bearer \(self.token)",
-        ]
-        
-        Alamofire
-            .request(url,
-                     method: .get,
-                     parameters: nil,
-                     encoding: JSONEncoding.default,
-                     headers: headers
-            ).responseJSON { response in
-                print("ResponseJSON (from date): \(response)")
-                
-                switch response.result {
-                case .success(let value):
-                    guard let json = value as? NSDictionary,
-                          let fullJID = AccountManager.shared.find(for: self.owner)?.xmppStream.myJID?.full else {
-                        successCallback(nil)
-                        return
-                    }
-                    if let error = json["error"] as? String {
-                        if error == "Unauthorized" {
-                            self.getCode(fullJID: fullJID)
-                            successCallback(self.backToGettingFreedSpace())
-                        }
-                        else {
-                            print("ERROR: \(error)")
-                            successCallback(nil)
-                            return
-                        }
-                    }
-                    guard let json = value as? NSDictionary,
-                          let total = json["total"] as? NSDictionary,
-                          let totalFreed = total["used"] as? Int else {
-                              successCallback(nil)
-                              return
-                          }
-                    successCallback(AccountQuotaStorageItem.beautify(size: totalFreed))
-                case .failure(let value):
-                    DDLogDebug("XabberUploadManager: \(#function). \(value.localizedDescription)")
-                }
-            }
-    }
-    
-    func backToGettingFreedSpace() -> String {
-        print("A new token has been set")
-        return "New token"
-    }
-    
-    public func getFilesToDelete(earlierThanDate: String, successCallback: @escaping ((CloudStorageDeleteViewController?) -> Void)) {
-        successCallback(self.showFilesToDelete())
-        return
+//    public func getFreeSpaceAfterDeletion(earlierThanDate: String, successCallback: @escaping ((String?) -> Void)) {
 //        guard self.isAvailable(), let node = node else {
 //            DDLogDebug("XabberUploadManager (\(#function) is unavailable.")
 //            return
 //        }
 //
-//        let stringUrl = node + String(format: "v1/files/?date_lte=%@", earlierThanDate)
+//        let stringUrl = node + String(format: "v1/files/stats/?date_lte=%@", earlierThanDate)
+//
 //        guard let url = URL(string: stringUrl) else {
 //            DDLogDebug("XabberUploadManager: \(#function). Error with upload url.")
 //            return
 //        }
 //
 //        let headers: [String: String] = [
-//            "Authorization": "Bearer \(self.token)"
+//            "Authorization" : "Bearer \(self.token)",
 //        ]
 //
 //        Alamofire
-//            .request(url, method: .get, parameters: nil, encoding: JSONEncoding.default, headers: headers)
-//            .responseJSON { response in
+//            .request(url,
+//                     method: .get,
+//                     parameters: nil,
+//                     encoding: JSONEncoding.default,
+//                     headers: headers
+//            ).responseJSON { response in
 //                print("ResponseJSON (from date): \(response)")
 //
 //                switch response.result {
 //                case .success(let value):
-////                    guard let json = value as? NSDictionary, let total = json["total"] as? NSDictionary, let totalFreed = total["used"] as? Int else {
-////                        successCallback(nil)
-////                        return
-////                    }
-////                    successCallback(AccountQuotaStorageItem.beautify(size: totalFreed))
-//                    // Тут будет вывод всех файлов
-//                    guard let json = value as? NSDictionary else {
+//                    guard let json = value as? NSDictionary,
+//                          let fullJID = AccountManager.shared.find(for: self.owner)?.xmppStream.myJID?.full else {
 //                        successCallback(nil)
 //                        return
 //                    }
-//                    successCallback(self.showFilesToDelete(data: json))
-//                    return
+//                    if let error = json["error"] as? String {
+//                        if error == "Unauthorized" {
+//                            self.getCode(fullJID: fullJID)
+//                            successCallback(self.backToGettingFreedSpace())
+//                        }
+//                        else {
+//                            print("ERROR: \(error)")
+//                            successCallback(nil)
+//                            return
+//                        }
+//                    }
+//                    guard let json = value as? NSDictionary,
+//                          let total = json["total"] as? NSDictionary,
+//                          let totalFreed = total["used"] as? Int else {
+//                              successCallback(nil)
+//                              return
+//                          }
+//                    successCallback(AccountQuotaStorageItem.beautify(size: totalFreed))
 //                case .failure(let value):
 //                    DDLogDebug("XabberUploadManager: \(#function). \(value.localizedDescription)")
 //                }
 //            }
-//        do {
-//            let realm = try WRealm.safe()
-//            let predicate = makePredicate(selectedKind: "images", earlierThanDate: earlierThanDate)
-//            let collection = realm
-//                .objects(MessageReferenceStorageItem.self)
-//                .filter(predicate)
-//                .sorted(byKeyPath: "sentDate", ascending: false)
-//        } catch {
-//            DDLogDebug("XabberUploadManager: \(#function). \(error.localizedDescription)")
-//        }
-        
-    }
-    
-//    private func makePredicate(selectedKind: String, earlierThanDate: String) -> NSPredicate {
-//        let predicate: NSPredicate
-//        switch selectedKind {
-//        case "images":
-//            predicate = NSPredicate(format: "owner == %@ AND kind_ == %@ AND mimetype == %@ AND sentDate <= %@ AND hasError == false OR opponent == %@ AND kind_ == %@ AND mimetype == %@ AND sentDate <= %@ AND hasError == false",
-//                                    self.owner, MessageReferenceStorageItem.Kind.media.rawValue, "images", earlierThanDate,
-//                                    self.owner, MessageReferenceStorageItem.Kind.media.rawValue, "images", earlierThanDate)
-//        case "videos":
-//            predicate = NSPredicate(format: "owner == %@ AND kind_ == %@ AND mimetype == %@ AND sentDate <= %@ AND hasError == false OR jid == %@ AND kind_ == %@ AND mimetype == %@ AND sentDate <= %@ AND hasError == false",
-//                                    self.owner, MessageReferenceStorageItem.Kind.media.rawValue, "video", earlierThanDate,
-//                                    self.owner, MessageReferenceStorageItem.Kind.media.rawValue, "video", earlierThanDate)
-//        case "files":
-//            let mimeTypes: [String] = mimeIcon.compactMap ({
-//                item -> String? in
-//                if item.value == .document ||
-//                   item.value == .pdf ||
-//                   item.value == .table ||
-//                   item.value == .presentation ||
-//                   item.value == .archive ||
-//                   item.value == .audio ||
-//                   item.value == .file {
-//                     let start = item.key.lastIndex(of: "/") ?? item.key.startIndex
-//                     let mimeType = String(item.key[start..<item.key.endIndex]).replacingOccurrences(of: "/", with: "")
-//
-//                     return mimeType
-//                }
-//                return nil
-//            })
-//            predicate = NSPredicate(format: "owner == %@ AND kind_ == %@ AND mimetype IN %@ AND sentDate <= %@ AND hasError == false OR jid == %@ AND kind_ == %@ AND mimetype IN %@ AND sentDate <= %@ AND hasError == false",
-//                                    self.owner, MessageReferenceStorageItem.Kind.media.rawValue, mimeTypes, earlierThanDate,
-//                                    self.owner, MessageReferenceStorageItem.Kind.media.rawValue, mimeTypes, earlierThanDate)
-//        case "voice":
-//            predicate = NSPredicate(format: "owner == %@ AND kind_ == %@ AND mimetype == %@ AND sentDate <= %@ AND hasError == false OR jid == %@ AND kind_ == %@ AND sentDate <= %@ AND hasError == false",
-//                                    self.owner, MessageReferenceStorageItem.Kind.voice.rawValue, earlierThanDate,
-//                                    self.owner, MessageReferenceStorageItem.Kind.voice.rawValue, earlierThanDate)
-//        default:
-//            fatalError()
-//        }
-//
-//        return predicate
 //    }
     
-    func showFilesToDelete() -> CloudStorageDeleteViewController {
-        let viewController = CloudStorageDeleteViewController()
-        viewController.configure(jid: self.owner)
-//        let valueArray = data.compactMap { return $0.key as! String == "items" ? $0.value : nil}
-//        valueArray.forEach { file in
-//            let dictionary = file as! Array<Dictionary<String, Any>>
-//            let thumbnail = dictionary[0]["thumbnail"] as! Dictionary<String, Any>
-//            guard viewController.sectionImages.datasource.append(CloudDeleteInfoScreenView
-//                .Datasource(
-//                jid: self.owner,
-//                uri: thumbnail["url"] as! String,
-//                sizeInBytes: dictionary[0]["size"] as! String,
-//                filename: dictionary[0]["name"] as! String)) else { return }
-//            print(file)
-//        }
-        return viewController
+    func backToGettingFreedSpace() -> String {
+        print("A new token has been set")
+        return "New token"
     }
     
-    public func getFreeSpaceAfterDeletionBySize(percent: String, successCallBack successCallback: @escaping ((String?) -> Void)) {
+    func getFilesToDeleteByPercent(percent: Int, callback: @escaping (([NSDictionary]) -> Void)) {
         guard self.isAvailable(), let node = node else {
             DDLogDebug("XabberUploadManager (\(#function) is unavailable.")
             return
         }
         
-        let stringUrl = node + String(format: "v1/files/stats/?size_lte=%@", percent)//String(format: "api/v1/files/stats/?date_lte=%@", earlierThanDate)
+        let stringUrl = node + String(format: "v1/files/", String(percent))
         
-        guard let url = URL(string: stringUrl) else {
+        guard var url = URLComponents(string: stringUrl) else {
             DDLogDebug("XabberUploadManager: \(#function). Error with upload url.")
             return
         }
         
+        url.queryItems = [
+            URLQueryItem(name: "percent", value: String(percent))
+        ]
+        
         let headers: [String: String] = [
-            "Authorization" : "Bearer \(self.token)",
+            "Authorization": "Bearer \(self.token)"
         ]
         
         Alamofire
@@ -749,24 +639,22 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
                      method: .get,
                      parameters: nil,
                      encoding: JSONEncoding.default,
-                     headers: headers
-            ).responseJSON { response in
+                     headers: headers)
+            .responseJSON { response in
                 print("ResponseJSON (from date): \(response)")
-                
                 
                 switch response.result {
                 case .success(let value):
                     guard let json = value as? NSDictionary,
-                          let total = json["total"] as? NSDictionary,
-                          let totalFreed = total["used"] as? Int else {
-                              successCallback(nil)
-                              return
-                          }
-                    successCallback(AccountQuotaStorageItem.beautify(size: totalFreed))
+                          let totalObjects = json["total_objects"] as? Int else { return }
+                    if totalObjects > 0 {
+                        callback(json["items"] as! [NSDictionary])
+                    }
                 case .failure(let value):
                     DDLogDebug("XabberUploadManager: \(#function). \(value.localizedDescription)")
+                    return
                 }
-            }
+        }
     }
     
     //MARK: - Deletes all media files for selected period
@@ -776,7 +664,7 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
             return
         }
         
-        let stringUrl = node + "v1/files/"//"api/v1/files/"
+        let stringUrl = node + "v1/files/"
         
         let headers: [String: String] = [
             "Authorization" : "Bearer \(token)",
@@ -800,7 +688,7 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
                     print("Response success, status code: \(response.response?.statusCode ?? 000)")
                     guard let json = value as? NSDictionary,
                           let status = json["status"] as? Int,
-                          let error = json["error"] as? String else { return }
+                          let error = json["error"] as? String else { successCallback(); return }
                     print("Status code from server: \(status), error: \(error)")
                     successCallback()
                 case .failure(let error):
@@ -810,7 +698,20 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
     }
     
     public func deleteMediaForSelectedPercent(percent: Int, successCallback: @escaping (() -> Void)) {
+//        guard self.isAvailable(), let node = node else {
+//            DDLogDebug("XabberUploadManager (\(#function) is unavailable.")
+//            return
+//        }
+//        
+//        let stringUrl = node + "v1/files"
+//        
+//        let headers: [String: String] = [
+//            "Authorization": "Bearer \(self.token)"
+//        ]
         
+//        let params: [String: String] = [
+//            "date_lte":
+//        ]
     }
     
     public final func enable() {
@@ -826,6 +727,9 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
         guard self.isAvailable(), let node = node else {
             return
         }
+        
+//        let nodeXabber = "https://gallery.dev.xabber.com/api/"
+        
         let stringUrl = node + "v1/account/xmpp_code_request/"//"api/v1/account/xmpp_code_request/"
         
         let params: [String: String] = ["jid": fullJID,

@@ -210,6 +210,7 @@ class MessageReferenceStorageItem: Object {
     @objc dynamic var isUploaded: Bool = false
     @objc dynamic var isMissed: Bool = false
     @objc dynamic var hasError: Bool = false
+    @objc dynamic var url: String? = nil
     
     override static func ignoredProperties() -> [String] {
         return ["temporaryData", "cachedMetadata", "model"]
@@ -260,12 +261,13 @@ class MessageReferenceStorageItem: Object {
     
     var downloadUrl: URL? {
         get {
-            guard let uri = self.metadata?["uri"] as? String else { return nil }
+            guard let uri = self.url else { return nil }
             return URL(string: uri)
         }
         set {
             if let uri = newValue?.absoluteString {
                 self.metadata?["uri"] = uri
+                self.url = uri
             }
         }
     }

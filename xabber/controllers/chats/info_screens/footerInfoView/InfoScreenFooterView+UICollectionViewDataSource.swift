@@ -85,6 +85,9 @@ extension InfoScreenFooterView: UICollectionViewDataSource {
                            time: data.send_time ?? "",
                            sizeInBytes: data.sizeInBytes ?? "",
                            filename: data.filename)
+                if indexPath.item == datasource.count - 1 {
+                    cell.separatorLine.removeFromSuperview()
+                }
                 return cell
                 
             case .voice:
@@ -96,6 +99,9 @@ extension InfoScreenFooterView: UICollectionViewDataSource {
                                senderName: data.senderName,
                                owner: owner,
                                sizeInBytes: data.sizeInBytes ?? "")
+                    if indexPath.item == datasource.count - 1 {
+                        cell.audioView.separatorLine.removeFromSuperview()
+                    }
                     return cell
                 } else {
                     fallthrough

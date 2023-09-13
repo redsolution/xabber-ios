@@ -86,7 +86,7 @@ class CloudStorageViewController: BaseViewController {
         ]))
         
         datasource.append(Datasource(.text, title: "", children: [
-            Datasource(.button, title: "Free up space...".localizeString(id: "account_delete_files", arguments: []),
+            Datasource(.button, title: "Free up space".localizeString(id: "account_delete_files", arguments: []),
                        key: "delete_files")
         ]))
         
@@ -188,5 +188,29 @@ class CloudStorageViewController: BaseViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         navigationItem.backButtonDisplayMode = .minimal
+    }
+    
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        guard let quotaCell = self.tableView.cellForRow(at: IndexPath.init(row: 0, section: 0)) as? QuotaInfoCell else { return }
+        quotaCell.reloadData() {
+            self.getTypeSizesFromRealm() {
+                self.datasource[1].children.forEach {
+                    switch $0.title {
+                    case "Images".localizeString(id: "images", arguments: []):
+                        $0.subtitle = self.imagesUsed
+                    case "Videos".localizeString(id: "videos", arguments: []):
+                        $0.subtitle = self.videosUsed
+                    case "Files".localizeString(id: "files", arguments: []):
+                        $0.subtitle = self.filesUsed
+                    case "Voice".localizeString(id: "voice", arguments: []):
+                        $0.subtitle = self.audioUsed
+                    default:
+                        break
+                    }
+                }
+                self.tableView.reloadSections([0, 1], with: .fade)
+            }
+        }
     }
 }

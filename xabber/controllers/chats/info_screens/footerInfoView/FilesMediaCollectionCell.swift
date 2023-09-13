@@ -123,7 +123,7 @@ class FilesMediaCollectionCell: UICollectionViewCell {
     
     let separatorLine: UIView = {
         let view = UIView()
-        view.backgroundColor = .lightGray
+        view.backgroundColor = .systemGray
         view.translatesAutoresizingMaskIntoConstraints = false
         
         return view
@@ -134,6 +134,7 @@ class FilesMediaCollectionCell: UICollectionViewCell {
         addSubview(primaryStack)
         addSubview(separatorLine)
         
+        primaryStack.backgroundColor = .white
         primaryStack.fillSuperview()
         primaryStack.addArrangedSubview(iconButton)
         primaryStack.addArrangedSubview(contentStackView)
@@ -198,7 +199,8 @@ class FilesMediaCollectionCell: UICollectionViewCell {
             fileSizeLabel.rightAnchor.constraint(equalTo: fileNameStack.rightAnchor),
             
             separatorLine.leftAnchor.constraint(equalTo: nameAndDateStack.leftAnchor),
-            separatorLine.rightAnchor.constraint(equalTo: nameAndDateStack.rightAnchor, constant: 25),
+//            separatorLine.rightAnchor.constraintEq(equalToC: contentStackView.frame.width),
+            separatorLine.widthAnchor.constraint(equalToConstant: separatorLine.superview!.frame.width - iconButton.frame.width - 2 * InfoScreenFooterView.cellSpacing),
             separatorLine.bottomAnchor.constraint(equalTo: bottomAnchor),
             separatorLine.heightAnchor.constraint(equalToConstant: 0.5)
         ])

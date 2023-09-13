@@ -102,7 +102,6 @@ class VideosMediaCollectionCell: UICollectionViewCell {
         } else {
             setCellWithoutVideo(keyIsNotNil: false)
         }
-        
     }
     
     internal func makeConstraints() {

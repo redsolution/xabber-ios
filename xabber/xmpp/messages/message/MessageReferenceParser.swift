@@ -189,6 +189,7 @@ func parseReferences(_ message: XMPPMessage, jid: String, owner: String, echo: B
             metadata["size"] = file.element(forName: "size")?.stringValueAsNSInteger() ?? 0
             metadata["hash"] = file.element(forName: "hash")?.stringValue ?? ""
             metadata["uri"] = uri
+            reference.url = uri
         case .media:
             guard let fileSharing = ref.element(forName: "file-sharing",
                                                 xmlns: "https://xabber.com/protocol/files"),
@@ -221,6 +222,7 @@ func parseReferences(_ message: XMPPMessage, jid: String, owner: String, echo: B
             metadata["orientation"] = file.element(forName: "orientation")?.stringValue ?? ""
             metadata["video_duration"] = file.element(forName: "video_duration")?.stringValue ?? ""
             metadata["uri"] = uri
+            reference.url = uri
         case .markup:
             var styles: [String] = []
             if ref.element(forName: "bold") != nil { styles.append("bold") }
@@ -230,6 +232,7 @@ func parseReferences(_ message: XMPPMessage, jid: String, owner: String, echo: B
             if let uri = ref.element(forName: "link")?.stringValue {
                 styles.append("uri")
                 metadata["uri"] = uri
+                reference.url = uri
             }
             if styles.isNotEmpty {
                 metadata["styles"] = styles

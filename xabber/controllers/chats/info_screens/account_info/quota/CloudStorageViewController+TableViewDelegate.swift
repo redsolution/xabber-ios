@@ -42,40 +42,10 @@ extension CloudStorageViewController: UITableViewDelegate {
             
             callback(preparedDate)
         }
-        func getFreedSpace(days: Int, preparedDate: String) {
-            guard let account = AccountManager.shared.find(for: jid),
-                  let uploader = account.getDefaultUploader() as? UploadManagerExtendedProtocol else { return }
-//            uploader.getFreeSpaceAfterDeletion(earlierThanDate: preparedDate) { freedSpace in
-//                if freedSpace == nil {
-//                    self.showVCBeforeDeletingFiles(days: days, preparedDate: preparedDate, freedSpace: "0 KiB")
-//                } else if freedSpace == "New token" {
-//                    getFreedSpace(days: days, preparedDate: preparedDate)
-//                } else {
-//                    self.showVCBeforeDeletingFiles(days: days, preparedDate: preparedDate, freedSpace: freedSpace!)
-//                }
-//            }
-            uploader.getFilesToDelete(earlierThanDate: preparedDate) { viewControllerDelete in
-                if viewControllerDelete == nil {
-                    return
-                } else {
-                    self.navigationController?.pushViewController(viewControllerDelete!, animated: true)
-                    return
-                }
-            }
-        }
-//        func getFreedSpace(days: Int, preparedDate: String) {
-//            guard let account = AccountManager.shared.find(for: jid), let uploader = account.getDefaultUploader() as? UploadManagerExtendedProtocol else { return }
-//            uploader.getFilesToDelete(earlierThanDate: <#T##String#>, successCallback: <#T##((String?) -> Void)##((String?) -> Void)##(String?) -> Void#>)
-//        }
-        func getFreedSpace(percent: String) {
-            guard let account = AccountManager.shared.find(for: jid), let uploader = account.getDefaultUploader() as? UploadManagerExtendedProtocol else { return }
-            uploader.getFreeSpaceAfterDeletionBySize(percent: percent) { freedSpace in
-                if freedSpace == nil {
-                    self.showVCBeforeDeletingFiles(percent: Int(percent)!, freedSpace: "0 KiB")
-                } else {
-                    self.showVCBeforeDeletingFiles(percent: Int(percent)!, freedSpace: freedSpace!)
-                }
-            }
+        
+        func showFilesToDelete(percent: Int) {
+            let viewController = CloudStorageDeleteViewController(percent: percent, owner: self.jid)
+            self.navigationController?.pushViewController(viewController, animated: true)
         }
         
         let item = datasource[indexPath.section].children[indexPath.row]
@@ -86,8 +56,7 @@ extension CloudStorageViewController: UITableViewDelegate {
                 ActionSheetPresenter.Item(destructive: false, title: "15%", value: "15percent"),
                 ActionSheetPresenter.Item(destructive: false, title: "25%", value: "25percent"),
                 ActionSheetPresenter.Item(destructive: false, title: "50%", value: "50percent"),
-                ActionSheetPresenter.Item(destructive: false, title: "All files", value: "100percent"),
-                ActionSheetPresenter.Item(destructive: false, title: "6 days", value: "6days")
+                ActionSheetPresenter.Item(destructive: false, title: "All files", value: "100percent")
             ]
             
             ActionSheetPresenter()
@@ -100,25 +69,14 @@ extension CloudStorageViewController: UITableViewDelegate {
                 ) { result in
                     
                     switch result {
-                    case "15days":
-                        prepareDate(days: 15) { preparedDate in
-                            getFreedSpace(days: 15, preparedDate: preparedDate)
-                        }
-                    case "30days":
-                        prepareDate(days: 30) { preparedDate in
-                            getFreedSpace(days: 30, preparedDate: preparedDate)
-                        }
-                    case "60days":
-                        prepareDate(days: 60) { preparedDate in
-                            getFreedSpace(days: 60, preparedDate: preparedDate)
-                        }
-                    case "6days":
-                        prepareDate(days: 6) { preparedDate in
-                            getFreedSpace(days: 6, preparedDate: preparedDate)
-                        }
-                        return
                     case "15percent":
-                        getFreedSpace(percent: "15")
+                        showFilesToDelete(percent: 15)
+                    case "25percent":
+                        showFilesToDelete(percent: 25)
+                    case "50percent":
+                        showFilesToDelete(percent: 50)
+                    case "100percent":
+                        showFilesToDelete(percent: 100)
                     default:
                         break
                     }
@@ -147,6 +105,5 @@ extension CloudStorageViewController: UITableViewDelegate {
         default:
             break
         }
-        
     }
 }

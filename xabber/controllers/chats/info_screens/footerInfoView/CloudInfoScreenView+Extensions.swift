@@ -18,12 +18,9 @@ extension CloudInfoScreenView: TappedPhotoInCloudGallery {
         do {
             let realm = try WRealm.safe()
             let item = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary)
-//            var nickname = item!.outgoing ? self.jid : ""
             let chatViewController = ChatViewController()
-    //        chatViewController.owner =
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-//            self.messagesPanelValidationError("Database error".localizeString(id: "chat_database_error", arguments: []))
             return
         }
     }
