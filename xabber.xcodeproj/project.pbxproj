@@ -726,6 +726,7 @@
 		7D619BF581B2C3AD7536E46A /* Pods_xabberTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DC236808525500AA398656C3 /* Pods_xabberTests.framework */; };
 		AF5503272A83B1CB00632E83 /* CloudInfoScreenView+Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF5503262A83B1CB00632E83 /* CloudInfoScreenView+Extensions.swift */; };
 		AF5FCCC52A84BB0000C7DDC0 /* CloudPhotoGallery.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF5FCCC42A84BB0000C7DDC0 /* CloudPhotoGallery.swift */; };
+		AF6ADC052ABABFE40048BEF6 /* FileDeletionConfirmation.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF6ADC042ABABFE40048BEF6 /* FileDeletionConfirmation.swift */; };
 		AF6CDE1D2AB1B5A7004EBB9F /* CloudStorageDeleteViewController+UICollectionViewDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF6CDE1C2AB1B5A7004EBB9F /* CloudStorageDeleteViewController+UICollectionViewDataSource.swift */; };
 		AF6CDE1F2AB1B5DF004EBB9F /* CloudStorageDeleteViewController+UICollectionViewDelegateFlowLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF6CDE1E2AB1B5DF004EBB9F /* CloudStorageDeleteViewController+UICollectionViewDelegateFlowLayout.swift */; };
 		AF8BA1AD2A7B836C0040E109 /* CloudStorageGalleryViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF8BA1AC2A7B836C0040E109 /* CloudStorageGalleryViewController.swift */; };
@@ -1703,6 +1704,7 @@
 		A5A1B180AC3ADA69A08E4243 /* Pods-clandestino.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-clandestino.release.xcconfig"; path = "Target Support Files/Pods-clandestino/Pods-clandestino.release.xcconfig"; sourceTree = "<group>"; };
 		AF5503262A83B1CB00632E83 /* CloudInfoScreenView+Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudInfoScreenView+Extensions.swift"; sourceTree = "<group>"; };
 		AF5FCCC42A84BB0000C7DDC0 /* CloudPhotoGallery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPhotoGallery.swift; sourceTree = "<group>"; };
+		AF6ADC042ABABFE40048BEF6 /* FileDeletionConfirmation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDeletionConfirmation.swift; sourceTree = "<group>"; };
 		AF6CDE1C2AB1B5A7004EBB9F /* CloudStorageDeleteViewController+UICollectionViewDataSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudStorageDeleteViewController+UICollectionViewDataSource.swift"; sourceTree = "<group>"; };
 		AF6CDE1E2AB1B5DF004EBB9F /* CloudStorageDeleteViewController+UICollectionViewDelegateFlowLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudStorageDeleteViewController+UICollectionViewDelegateFlowLayout.swift"; sourceTree = "<group>"; };
 		AF8BA1AC2A7B836C0040E109 /* CloudStorageGalleryViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudStorageGalleryViewController.swift; sourceTree = "<group>"; };
@@ -1797,6 +1799,7 @@
 				AF8DC7822A864232002F78E1 /* CloudStorageDeleteViewController.swift */,
 				AF6CDE1C2AB1B5A7004EBB9F /* CloudStorageDeleteViewController+UICollectionViewDataSource.swift */,
 				AF6CDE1E2AB1B5DF004EBB9F /* CloudStorageDeleteViewController+UICollectionViewDelegateFlowLayout.swift */,
+				AF6ADC042ABABFE40048BEF6 /* FileDeletionConfirmation.swift */,
 			);
 			path = quota;
 			sourceTree = "<group>";
@@ -5365,6 +5368,7 @@
 				668409E326035C15001BB80B /* ChatViewController+Dataset.swift in Sources */,
 				66C01C7F2348B6B1001C167C /* ShareDialogSearchController.swift in Sources */,
 				666201FC22B3E22800FB2A44 /* AccountBlockListViewController+UITableViewDatasource.swift in Sources */,
+				AF6ADC052ABABFE40048BEF6 /* FileDeletionConfirmation.swift in Sources */,
 				669DC92C23A216F00072891B /* GroupchatEditContactViewController+TextEditCell.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

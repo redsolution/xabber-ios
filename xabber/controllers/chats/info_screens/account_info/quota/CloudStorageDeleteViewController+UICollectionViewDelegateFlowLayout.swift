@@ -13,9 +13,7 @@ extension CloudStorageDeleteViewController: UICollectionViewDelegateFlowLayout {
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
         if indexPath.section == 0 {
             return CGSize(width: 0, height: 0)
-        }
-        
-        if indexPath.section == datasource.count {
+        } else if indexPath.section == datasource.count || indexPath.section == datasource.count + 1 {
             return CGSize(width: view.frame.width - InfoScreenFooterView.cellSpacing * 2, height: 44)
         }
         let item = datasource[indexPath.section][indexPath.row]
@@ -40,7 +38,7 @@ extension CloudStorageDeleteViewController: UICollectionViewDelegateFlowLayout {
         if section == 0 {
             return CGSize(width: collectionView.frame.width, height: 140)
         }
-        if section == datasource.count { return CGSize() }
+        if section == datasource.count || section == datasource.count + 1 { return CGSize() }
         return CGSize(width: collectionView.frame.width, height: 35)
     }
     

@@ -454,7 +454,7 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
                           let videosStats = videos["used"] as? Int,
                           let files = json["files"] as? NSDictionary,
                           let filesStats = files["used"] as? Int,
-                          let voices = json["voices"] as? NSDictionary,
+                          let voices = json["audio"] as? NSDictionary,
                           let voicesStats = voices["used"] as? Int else { return }
                     
                     successCallback(imagesStats, videosStats, filesStats, voicesStats)
@@ -551,69 +551,12 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
             }
     }
     
-//    public func getFreeSpaceAfterDeletion(earlierThanDate: String, successCallback: @escaping ((String?) -> Void)) {
-//        guard self.isAvailable(), let node = node else {
-//            DDLogDebug("XabberUploadManager (\(#function) is unavailable.")
-//            return
-//        }
-//
-//        let stringUrl = node + String(format: "v1/files/stats/?date_lte=%@", earlierThanDate)
-//
-//        guard let url = URL(string: stringUrl) else {
-//            DDLogDebug("XabberUploadManager: \(#function). Error with upload url.")
-//            return
-//        }
-//
-//        let headers: [String: String] = [
-//            "Authorization" : "Bearer \(self.token)",
-//        ]
-//
-//        Alamofire
-//            .request(url,
-//                     method: .get,
-//                     parameters: nil,
-//                     encoding: JSONEncoding.default,
-//                     headers: headers
-//            ).responseJSON { response in
-//                print("ResponseJSON (from date): \(response)")
-//
-//                switch response.result {
-//                case .success(let value):
-//                    guard let json = value as? NSDictionary,
-//                          let fullJID = AccountManager.shared.find(for: self.owner)?.xmppStream.myJID?.full else {
-//                        successCallback(nil)
-//                        return
-//                    }
-//                    if let error = json["error"] as? String {
-//                        if error == "Unauthorized" {
-//                            self.getCode(fullJID: fullJID)
-//                            successCallback(self.backToGettingFreedSpace())
-//                        }
-//                        else {
-//                            print("ERROR: \(error)")
-//                            successCallback(nil)
-//                            return
-//                        }
-//                    }
-//                    guard let json = value as? NSDictionary,
-//                          let total = json["total"] as? NSDictionary,
-//                          let totalFreed = total["used"] as? Int else {
-//                              successCallback(nil)
-//                              return
-//                          }
-//                    successCallback(AccountQuotaStorageItem.beautify(size: totalFreed))
-//                case .failure(let value):
-//                    DDLogDebug("XabberUploadManager: \(#function). \(value.localizedDescription)")
-//                }
-//            }
-//    }
-    
     func backToGettingFreedSpace() -> String {
         print("A new token has been set")
         return "New token"
     }
     
-    func getFilesToDeleteByPercent(percent: Int, callback: @escaping (([NSDictionary]) -> Void)) {
+    func getFilesToDeleteByPercent(percent: Int, page: Int, callback: @escaping ([NSDictionary], Int, Int, Int) -> Void) {
         guard self.isAvailable(), let node = node else {
             DDLogDebug("XabberUploadManager (\(#function) is unavailable.")
             return
@@ -627,7 +570,8 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
         }
         
         url.queryItems = [
-            URLQueryItem(name: "percent", value: String(percent))
+            URLQueryItem(name: "percent", value: String(percent)),
+            URLQueryItem(name: "page", value: String(page))
         ]
         
         let headers: [String: String] = [
@@ -641,14 +585,16 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
                      encoding: JSONEncoding.default,
                      headers: headers)
             .responseJSON { response in
-                print("ResponseJSON (from date): \(response)")
+                print("ResponseJSON (from percent): \(response)")
                 
                 switch response.result {
                 case .success(let value):
                     guard let json = value as? NSDictionary,
-                          let totalObjects = json["total_objects"] as? Int else { return }
+                          let totalObjects = json["total_objects"] as? Int,
+                          let objPerPage = json["obj_per_page"] as? Int,
+                          let totalPages = json["total_pages"] as? Int else { return }
                     if totalObjects > 0 {
-                        callback(json["items"] as! [NSDictionary])
+                        callback(json["items"] as! [NSDictionary], totalObjects, objPerPage, totalPages)
                     }
                 case .failure(let value):
                     DDLogDebug("XabberUploadManager: \(#function). \(value.localizedDescription)")

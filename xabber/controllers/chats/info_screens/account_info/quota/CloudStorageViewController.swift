@@ -192,6 +192,9 @@ class CloudStorageViewController: BaseViewController {
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        
+        self.navigationController?.navigationBar.prefersLargeTitles = false
+        
         guard let quotaCell = self.tableView.cellForRow(at: IndexPath.init(row: 0, section: 0)) as? QuotaInfoCell else { return }
         quotaCell.reloadData() {
             self.getTypeSizesFromRealm() {

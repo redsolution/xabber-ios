@@ -30,21 +30,8 @@ extension CloudStorageViewController: UITableViewDelegate {
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        func prepareDate(days: Int, callback: @escaping ((String) -> Void )) {
-            var dateComponent = DateComponents()
-            
-            dateComponent.day = -days
-            guard let date = Calendar.current.date(byAdding: dateComponent, to: Date()) else { return }
-            
-            let formatter = DateFormatter()
-            formatter.dateFormat = "YYYY-MM-dd"
-            let preparedDate = formatter.string(from: date)
-            
-            callback(preparedDate)
-        }
-        
-        func showFilesToDelete(percent: Int) {
-            let viewController = CloudStorageDeleteViewController(percent: percent, owner: self.jid)
+        func showConfirmationToDelete(percent: Int) {
+            let viewController = FileDeletionConfirmation(percent: percent, owner: self.jid)
             self.navigationController?.pushViewController(viewController, animated: true)
         }
         
@@ -70,13 +57,13 @@ extension CloudStorageViewController: UITableViewDelegate {
                     
                     switch result {
                     case "15percent":
-                        showFilesToDelete(percent: 15)
+                        showConfirmationToDelete(percent: 15)
                     case "25percent":
-                        showFilesToDelete(percent: 25)
+                        showConfirmationToDelete(percent: 25)
                     case "50percent":
-                        showFilesToDelete(percent: 50)
+                        showConfirmationToDelete(percent: 50)
                     case "100percent":
-                        showFilesToDelete(percent: 100)
+                        showConfirmationToDelete(percent: 100)
                     default:
                         break
                     }

@@ -16,7 +16,7 @@ extension CloudStorageDeleteViewController: UICollectionViewDataSource {
 
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
         if section == datasource.count {
-            return 1 // The button for deleting files
+            return 1 // button
         }
         return datasource[section].count
     }
@@ -37,9 +37,7 @@ extension CloudStorageDeleteViewController: UICollectionViewDataSource {
             cell.selectedBackgroundView?.layer.cornerRadius = 10
             cell.selectedBackgroundView?.backgroundColor = .systemGray3
             return cell
-        }
-        
-        if indexPath.section == 0 { // cell for specification
+        } else if indexPath.section == 0 { // cell for specification
             let cell = UICollectionViewCell()
             return cell
         }
@@ -85,10 +83,10 @@ extension CloudStorageDeleteViewController: UICollectionViewDataSource {
         if indexPath.section == 0 {
             let label = UILabel()
             label.font = UIFont.preferredFont(forTextStyle: .body)
-            label.text = "Please review the list of files that are about to be deleted from a cloud storage to free up space.\n\nFiles will remain on this device, but will be inaccessible for your other devices."
+            label.text = "Please review the list of files that are about to be deleted from your cloud storage to free up space.\n\nFiles will remain on this device, but will be inaccessible on your other devices."
             label.numberOfLines = 0
             headerView.addSubview(label)
-            label.fillSuperviewWithOffset(top: 0, bottom: 0, left: 10, right: 0)
+            label.fillSuperviewWithOffset(top: 0, bottom: 0, left: 10, right: 10)
             
             return headerView
         }
