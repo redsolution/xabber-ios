@@ -84,11 +84,7 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
             if self.appInBackground { return }
             AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
                 user.messages.readMessage(primary,
-                                          jid: self.jid,
                                           last: false)
-                user.chatMarkers.displayed(stream,
-                                           for: self.jid,
-                                           primary: primary)
             })
         }
     }

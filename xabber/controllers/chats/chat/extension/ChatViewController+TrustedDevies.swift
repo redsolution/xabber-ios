@@ -116,20 +116,23 @@ extension ChatViewController {
     }
     
     private func showTrustedDevicesBlockingPanel() {
-        if UIDevice.needBottomOffset {
-            self.trustedDevicesBlockingPanel.frame = CGRect(x: 0, y: -8, width: self.view.frame.width, height: 84)
-        } else {
-            self.trustedDevicesBlockingPanel.frame = CGRect(width: self.view.frame.width, height: 44)
-        }
-        
-        self.xabberInputBar.addSubview(self.trustedDevicesBlockingPanel)
-        self.xabberInputBar.bringSubviewToFront(self.trustedDevicesBlockingPanel)
+//        if UIDevice.needBottomOffset {
+//            self.trustedDevicesBlockingPanel.frame = CGRect(x: 0, y: -8, width: self.view.frame.width, height: 84)
+//        } else {
+//            self.trustedDevicesBlockingPanel.frame = CGRect(width: self.view.frame.width, height: 44)
+//        }
+//
+//        self.xabberInputBar.addSubview(self.trustedDevicesBlockingPanel)
+//        self.xabberInputBar.bringSubviewToFront(self.trustedDevicesBlockingPanel)
+
+        self.xabberInputView.changeState(to: .checkDevices)
         self.isTrustedDevicesBlockingPanelopen = true
     }
     
     private func hideTrustedDevicesBlockingPanel() {
-        self.trustedDevicesBlockingPanel.removeFromSuperview()
+        self.xabberInputView.changeState(to: .normal)
         self.isTrustedDevicesBlockingPanelopen = false
+//        self.trustedDevicesBlockingPanel.removeFromSuperview()
     }
 }
 

@@ -26,15 +26,7 @@ import MaterialComponents.MDCPalettes
 import CocoaLumberjack
 
 extension ChatViewController {
-    
-    func dismissKb() {
-        UIView.setAnimationsEnabled(false)
-//        UIView.performWithoutAnimation {
-            self.xabberInputBar.inputTextView.resignFirstResponder()
-//        }
-        UIView.setAnimationsEnabled(true)
-    }
-    
+        
     internal func askPhotoPermision(callback: @escaping ((Bool) -> Void)) {
         if let value = self.isAccessToPhotoGranted {
             callback(value)
@@ -71,10 +63,7 @@ extension ChatViewController {
     
     @objc
     internal func showImagePicker() {
-        let keyboardState = isKeyboardShowed
-        if keyboardState {
-            dismissKb()
-        }
+        self.view.endEditing(false)
         askPhotoPermision { (value) in
 //            DispatchQueue.main.asyncAfter(deadline: .now() + (keyboardState ? 0.0 : 0.0)) {
             DispatchQueue.main.async {
@@ -94,6 +83,80 @@ extension ChatViewController {
 //                        UIApplication.shared.windows.last?.rootViewController?.present(picker, animated: false, completion: nil)
                     }
                 }
+            }
+        }
+    }
+    
+    @objc
+    func keyboardWillChangeFrameNotification(_ notification: Notification) {
+
+    }
+    
+    @objc
+    func keyboardWillShowNotification(_ notification: Notification) {
+        if let userInfo = notification.userInfo {
+            if let frameValue = userInfo[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue {
+                let frame = frameValue.cgRectValue
+                let keyboardVisibleHeight = frame.size.height
+                print("keyboardVisibleHeight", keyboardVisibleHeight)
+                switch (userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber, userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber) {
+                case let (.some(duration), .some(curve)):
+                        let inputHeight: CGFloat = self.xabberInputView.barHeight + keyboardVisibleHeight
+                    
+                    let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
+                    let options = UIView.AnimationOptions(rawValue: curve.uintValue)
+                    print("duration, options", duration, options)
+                    UIView.animate(
+                        withDuration: TimeInterval(duration.doubleValue),
+                        delay: 0,
+                        options: options,
+                        animations: {
+                            self.xabberInputView.update(screenHeight: self.view.bounds.height, keyboardHeight: keyboardVisibleHeight)
+                            self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 100, right: 0)
+                            
+                            if self.messagesCollectionView.contentOffset.y < 100 {
+                                self.messagesCollectionView.contentOffset.y = -inputHeight - 8
+                                print("-inputHeight - 8", -inputHeight - 8)
+                            }
+                            return
+                        }, completion: { finished in
+                    })
+                default:
+                    
+                    break
+                }
+            }
+        }
+        
+    }
+    
+    @objc func keyboardWillHideNotification(_ notification: NSNotification) {
+//            keyboardVisibleHeight = 0
+//            self.updateConstant()
+        
+        if let userInfo = notification.userInfo {
+            
+            switch (userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber, userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber) {
+            case let (.some(duration), .some(curve)):
+                let options = UIView.AnimationOptions(rawValue: curve.uintValue)
+                print("duration, options", duration, options)
+                var inputHeight: CGFloat = self.xabberInputView.barHeight
+                if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
+                    inputHeight += bottomInset
+                }
+                
+                UIView.animate(
+                    withDuration: TimeInterval(duration.doubleValue),
+                    delay: 0,
+                    options: options,
+                    animations: {
+                        self.xabberInputView.update(screenHeight: self.view.bounds.height, keyboardHeight: 0)
+                        self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 100, right: 0)
+                        return
+                    }, completion: { finished in
+                })
+            default:
+                break
             }
         }
     }

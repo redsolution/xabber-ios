@@ -115,42 +115,45 @@ extension MessageManager {
             
             childs.forEach { stanza.addChild($0) }
             switch conversationType {
-            case .omemo, .omemo1, .axolotl:
-                let forwardedMessages = formForwardedMessages(item
-                    .inlineForwards
-                    .sorted(byKeyPath: "originalDate", ascending: true)
-                    .toArray()
-                    .compactMap { return $0.messageId })
-                    .compactMap { $0.referenceElement }
-                let references = item.createReferences()
-                guard let payload = AccountManager.shared.find(for: self.owner)?.omemo.prepareStanzaContent(
-                    message: item.legacyBody,
-                    date: item.sentDate,
-                    jid: item.opponent,
-                    additionalContent: [forwardedMessages, references].flatMap({ $0 })
-                ) else {
-                    return
-                }
-                do {
-                    let encrypted = try AccountManager.shared.find(for: self.owner)?.omemo.encryptMessage(message: payload, to: item.opponent)
-                    if let encrypted = encrypted {
-                        stanza.addChild(encrypted)
+                case .omemo, .omemo1, .axolotl:
+                    let forwardedMessages = formForwardedMessages(item
+                        .inlineForwards
+                        .sorted(byKeyPath: "originalDate", ascending: true)
+                        .toArray()
+                        .compactMap { return $0.messageId })
+                        .compactMap { $0.referenceElement }
+                    let references = item.createReferences()
+                    guard let payload = AccountManager.shared.find(for: self.owner)?.omemo.prepareStanzaContent(
+                        message: item.legacyBody,
+                        date: item.sentDate,
+                        jid: item.opponent,
+                        additionalContent: [forwardedMessages, references].flatMap({ $0 })
+                    ) else {
+                        return
                     }
-                } catch {
-                    DDLogDebug("MessageManager; \(#function). \(error.localizedDescription)")
-                }
-                stanza.addBody("Message was encrypted by OMEMO".localizeString(id: "message_omemo_encryption", arguments: []))
-                
-            default:
-                formForwardedMessages(item
-                    .inlineForwards
-                    .sorted(byKeyPath: "originalDate", ascending: true)
-                    .toArray()
-                    .compactMap { return $0.messageId })
-                    .forEach { stanza.addChild($0.referenceElement) }
-                
-                stanza.addBody(item.legacyBody)
-                item.createReferences().forEach { stanza.addChild($0) }
+                    do {
+                        let encrypted = try AccountManager.shared.find(for: self.owner)?.omemo.encryptMessage(message: payload, to: item.opponent)
+                        if let encrypted = encrypted {
+                            stanza.addChild(encrypted)
+                        }
+                    } catch {
+                        DDLogDebug("MessageManager; \(#function). \(error.localizedDescription)")
+                    }
+                    let encryptionElement = DDXMLElement(name: "encryption", xmlns: "urn:xmpp:eme:0")
+                    encryptionElement.addAttribute(withName: "namespace", stringValue: conversationType.rawValue)
+                    stanza.addChild(encryptionElement)
+                    stanza.addBody("Message was encrypted by OMEMO".localizeString(id: "message_omemo_encryption", arguments: []))
+                    
+                default:
+                    formForwardedMessages(item
+                        .inlineForwards
+                        .sorted(byKeyPath: "originalDate", ascending: true)
+                        .toArray()
+                        .compactMap { return $0.messageId })
+                        .forEach { stanza.addChild($0.referenceElement) }
+                    
+                    stanza.addBody(item.legacyBody)
+                    item.createReferences().forEach { stanza.addChild($0) }
             }
             
 //            if retry && item.displayAs != .text {
@@ -161,6 +164,19 @@ extension MessageManager {
             stanza.addAttribute(withName: "from", stringValue: owner)
             let missRetryElementOnResend = item.messageErrorCode == "405"
             try realm.write {
+                if item.displayAs != .system {
+                    if [.omemo, .omemo1, .axolotl].contains(item.conversationType) {
+                        if let conversation = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: item.opponent, owner: item.owner, conversationType: item.conversationType)) {
+                            if conversation.isAfterburnEnabled {
+                                let ephemeralElement = DDXMLElement(name: "ephemeral", xmlns: "urn:xmpp:ephemeral:0")
+                                ephemeralElement.addAttribute(withName: "timer", doubleValue: conversation.afterburnInterval)
+                                stanza.addChild(ephemeralElement)
+                                item.afterburnInterval = conversation.afterburnInterval
+                            }
+                        }
+                    }
+                }
+                
                 item.state = .sending
                 
                 item.trustedSource = realm.object(
@@ -213,6 +229,11 @@ extension MessageManager {
         }
     }
     
+    struct ForwardedMessagePrimaryWithNotmalMessage {
+        let primary: String
+        let stanzaPrimary: String
+    }
+    
     internal func formForwardedMessages(_ forwarded: [String]) -> [ForwardedMessageItem] {
         var out: [ForwardedMessageItem] = []
         var legacyBody: String = ""
@@ -224,6 +245,13 @@ extension MessageManager {
             
             dateFormatter.dateFormat = "EEEE, MMMM d, yyyy"
             timeFormatter.dateFormat = "[HH:mm:ss]"
+            
+            try forwarded.compactMap {
+                return ForwardedMessagePrimaryWithNotmalMessage(
+                    primary: $0,
+                    stanzaPrimary: [$0, "stanza"].prp()
+                )
+            }
             
             try forwarded.map{ return [$0, "stanza"].prp() }.forEach {
                 var body: String? = nil
@@ -385,6 +413,33 @@ extension MessageManager {
                 .filter("owner == %@ AND messageId == %@", owner, instance.messageId).count > 0 {
                 instance.messageId = UUID().uuidString
             }
+            instance.updatePrimary()
+            try realm.write {
+                _ = instance.save(commitTransaction: false)
+                let chat = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: self.owner, conversationType: conversationType))
+                chat?.lastReadId = nil
+                chat?.draftMessage = nil
+            }
+            
+            self.processSender(item: instance.primary, childs: childs)
+        } catch {
+            DDLogDebug("cant store new message item")
+        }
+    }
+    
+    public func sendSystemMessage(_ body: String, attachments: [MessageReferenceStorageItem], to jid: String, childs: [DDXMLElement] = [], conversationType: ClientSynchronizationManager.ConversationType) {
+        do {
+            let realm = try  WRealm.safe()
+            let instance = MessageStorageItem()
+            instance.conversationType = conversationType
+            instance.configureOutgoingMessage(body,
+                                              legacy: body,
+                                              messageId: UUID().uuidString,
+                                              owner: owner,
+                                              opponent: jid,
+                                              references: attachments,
+                                              inlineForwards: [])
+
             instance.updatePrimary()
             try realm.write {
                 _ = instance.save(commitTransaction: false)

@@ -67,7 +67,6 @@ func getAppVersion() -> String {
             logFileManager = fileLogger.logFileManager
             DDLog.add(fileLogger, with: DDLogLevel.all)
         }
-        
         return true
     }
     
@@ -120,7 +119,6 @@ func getAppVersion() -> String {
                                                object: nil)
         
         ApplicationStateManager.shared.runPincodeTask(animated: false)
-        
         return true
     }
     

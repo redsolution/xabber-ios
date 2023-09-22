@@ -94,7 +94,7 @@ extension ChatViewController {
 //        self.initialtp[
 //        additionalTopInset = 274
         self.messageCollectionViewLastKBPosition = 224
-        self.messageCollectionViewTopInset = self.requiredInitialScrollViewBottomInset()
+//        self.messageCollectionViewTopInset = self.requiredInitialScrollViewBottomInset()
         presenter.present(
             in: self,
             title: nil,
@@ -103,7 +103,6 @@ extension ChatViewController {
             values: values,
             animated: false) { (value) in
             self.onInviteActionSelected()
-            self.xabberInputBar.isHidden = false
             switch value {
             case "accept":
                 self.onAcceptInvite()
@@ -117,7 +116,7 @@ extension ChatViewController {
             self.becomeFirstResponder()
             UIView.animate(withDuration: 0.2) {
                 self.messageCollectionViewLastKBPosition = 0
-                self.messageCollectionViewTopInset = self.requiredInitialScrollViewBottomInset()
+//                self.messageCollectionViewTopInset = self.requiredInitialScrollViewBottomInset()
             }
         }
     }
@@ -304,8 +303,8 @@ extension ChatViewController {
     
     private final func onCancelInvite() {
         UIView.performWithoutAnimation {
-            self.messageCollectionViewLastKBPosition = 0
-            self.messageCollectionViewTopInset = self.requiredInitialScrollViewBottomInset()
+//            self.messageCollectionViewLastKBPosition = 0
+//            self.messageCollectionViewTopInset = self.requiredInitialScrollViewBottomInset()
         }
         self.navigationController?.popViewController(animated: true)
     }

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme
    LastUpgradeVersion = "1340"
-   version = "2.0">
+   version = "1.7">
    <BuildAction
       parallelizeBuildables = "YES"
       buildImplicitDependencies = "YES">
@@ -10,7 +10,7 @@
             ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
             <ActionContent
                title = "Run Script"
-               scriptText = "&quot;${PROJECT_DIR}/config.sh&quot;&#10;&quot;${PROJECT_DIR}/make_assets.sh&quot;&#10;">
+               scriptText = "&#10;">
                <EnvironmentBuildable>
                   <BuildableReference
                      BuildableIdentifier = "primary"
@@ -23,38 +23,32 @@
             </ActionContent>
          </ExecutionAction>
       </PreActions>
-      <BuildActionEntries>
-         <BuildActionEntry
-            buildForTesting = "YES"
-            buildForRunning = "YES"
-            buildForProfiling = "YES"
-            buildForArchiving = "YES"
-            buildForAnalyzing = "YES">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "66159DEF201EDC7D00B1CF92"
-               BuildableName = "xabber_test_xmpp.app"
-               BlueprintName = "xabber_test_xmpp"
-               ReferencedContainer = "container:xabber_test_xmpp.xcodeproj">
-            </BuildableReference>
-         </BuildActionEntry>
-      </BuildActionEntries>
    </BuildAction>
    <TestAction
       buildConfiguration = "Debug"
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       shouldUseLaunchSchemeArgsEnv = "YES">
-      <MacroExpansion>
-         <BuildableReference
-            BuildableIdentifier = "primary"
-            BlueprintIdentifier = "66159DEF201EDC7D00B1CF92"
-            BuildableName = "xabber_test_xmpp.app"
-            BlueprintName = "xabber_test_xmpp"
-            ReferencedContainer = "container:xabber_test_xmpp.xcodeproj">
-         </BuildableReference>
-      </MacroExpansion>
+      <PreActions>
+         <ExecutionAction
+            ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
+            <ActionContent
+               title = "Run Script"
+               scriptText = "&#10;">
+            </ActionContent>
+         </ExecutionAction>
+      </PreActions>
       <Testables>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "66159E05201EDC7D00B1CF92"
+               BuildableName = "xabber_test_xmppTests.xctest"
+               BlueprintName = "xabber_test_xmppTests"
+               ReferencedContainer = "container:xabber_test_xmpp.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
          <TestableReference
             skipped = "NO">
             <BuildableReference
@@ -68,26 +62,23 @@
       </Testables>
    </TestAction>
    <LaunchAction
-      buildConfiguration = "Release"
-      selectedDebuggerIdentifier = ""
-      selectedLauncherIdentifier = "Xcode.IDEFoundation.Launcher.PosixSpawn"
+      buildConfiguration = "Debug"
+      selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
+      selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       disableMainThreadChecker = "YES"
       launchStyle = "0"
       useCustomWorkingDirectory = "NO"
       ignoresPersistentStateOnLaunch = "NO"
       debugDocumentVersioning = "YES"
-      debugXPCServices = "NO"
       debugServiceExtension = "internal"
-      allowLocationSimulation = "YES"
-      viewDebuggingEnabled = "No"
-      queueDebuggingEnabled = "No"
-      GPUProfilerEnabled = "No">
+      enableGPUValidationMode = "1"
+      allowLocationSimulation = "YES">
       <PreActions>
          <ExecutionAction
             ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
             <ActionContent
                title = "Run Script"
-               scriptText = "&quot;${PROJECT_DIR}/config.sh&quot;&#10;&quot;${PROJECT_DIR}/make_assets.sh&quot;&#10;">
+               scriptText = "&#10;">
             </ActionContent>
          </ExecutionAction>
       </PreActions>
@@ -101,15 +92,19 @@
             ReferencedContainer = "container:xabber.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
-      <MacroExpansion>
-         <BuildableReference
-            BuildableIdentifier = "primary"
-            BlueprintIdentifier = "66159DEF201EDC7D00B1CF92"
-            BuildableName = "xabber_test_xmpp.app"
-            BlueprintName = "xabber_test_xmpp"
-            ReferencedContainer = "container:xabber_test_xmpp.xcodeproj">
-         </BuildableReference>
-      </MacroExpansion>
+      <CommandLineArguments>
+         <CommandLineArgument
+            argument = "remoteNotification"
+            isEnabled = "NO">
+         </CommandLineArgument>
+      </CommandLineArguments>
+      <EnvironmentVariables>
+         <EnvironmentVariable
+            key = ""
+            value = ""
+            isEnabled = "YES">
+         </EnvironmentVariable>
+      </EnvironmentVariables>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"
@@ -117,16 +112,15 @@
       savedToolIdentifier = ""
       useCustomWorkingDirectory = "NO"
       debugDocumentVersioning = "YES">
-      <BuildableProductRunnable
-         runnableDebuggingMode = "0">
+      <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "66159DEF201EDC7D00B1CF92"
-            BuildableName = "xabber_test_xmpp.app"
-            BlueprintName = "xabber_test_xmpp"
-            ReferencedContainer = "container:xabber_test_xmpp.xcodeproj">
+            BuildableName = "xabber.app"
+            BlueprintName = "xabber"
+            ReferencedContainer = "container:xabber.xcodeproj">
          </BuildableReference>
-      </BuildableProductRunnable>
+      </MacroExpansion>
    </ProfileAction>
    <AnalyzeAction
       buildConfiguration = "Debug">
@@ -139,7 +133,7 @@
             ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
             <ActionContent
                title = "Run Script"
-               scriptText = "&quot;${PROJECT_DIR}/config.sh&quot;&#10;&quot;${PROJECT_DIR}/make_assets.sh&quot;&#10;">
+               scriptText = "&#10;">
             </ActionContent>
          </ExecutionAction>
       </PreActions>

@@ -474,7 +474,7 @@ class PresenceManager: AbstractXMPPManager {
             initialMessage.configureInitialMessage(
                 self.owner,
                 opponent: jid,
-                conversationType: .regular,
+                conversationType: ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular,
                 text: "",
                 date: Date(),
                 isRead: true

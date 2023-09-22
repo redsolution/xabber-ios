@@ -101,7 +101,7 @@ extension ChatViewController {
                     let offlineStatus = "last seen recently".localizeString(id: "last_seen_recently", arguments: [])
                     let status = (results.first?.statusMessage.isEmpty ?? true) ? RosterUtils.shared.convertStatus(results.first?.status ?? .offline, customOfflineStatus: offlineStatus) : results.first?.statusMessage ?? RosterUtils.shared.convertStatus(results.first?.status ?? .offline, customOfflineStatus: offlineStatus)
                     self.contactUsename = nickname
-                    self.titleLabel.text = self.updateTitle()
+                    self.titleLabel.attributedText = self.updateTitle()
                     let statusStr = AccountManager.shared.connectingUsers.value.contains(self.owner) ? "Waiting for network...".localizeString(id: "waiting_for_network", arguments: []) : status
                     if self.statusLabel.text == " " {
                         self.statusLabel.text = statusStr
@@ -145,7 +145,7 @@ extension ChatViewController {
                     )
                 }
                 self.contactUsename = self.opponentSender.displayName
-                self.titleLabel.text = self.updateTitle()
+                self.titleLabel.attributedText = self.updateTitle()
                 self.statusTextObserver.accept(AccountManager
                     .shared
                     .connectingUsers
@@ -153,6 +153,28 @@ extension ChatViewController {
                     .contains(self.owner) ? "Waiting for network..."
                             .localizeString(id: "waiting_for_network", arguments: []) : self.contactStatus ?? " ")
                 
+                switch ChatMarkersManager.BurnMessagesTimerValues(rawValue: Int(item.afterburnInterval)) {
+                    case .off, .none:
+                        self.xabberInputView.timerButton.setImage(UIImage(systemName: "stopwatch"), for: .normal)
+                    case .s5:
+                        self.xabberInputView.timerButton.setImage(UIImage(systemName: "5.circle"), for: .normal)
+                    case .s10:
+                        self.xabberInputView.timerButton.setImage(UIImage(systemName: "10.circle"), for: .normal)
+                    case .s15:
+                        self.xabberInputView.timerButton.setImage(UIImage(systemName: "15.circle"), for: .normal)
+                    case .s30:
+                        self.xabberInputView.timerButton.setImage(UIImage(systemName: "30.circle"), for: .normal)
+                    case .m1:
+                        self.xabberInputView.timerButton.setImage(UIImage(systemName: "1.square"), for: .normal)
+                    case .m5:
+                        self.xabberInputView.timerButton.setImage(UIImage(systemName: "5.square"), for: .normal)
+                    case .m10:
+                        self.xabberInputView.timerButton.setImage(UIImage(systemName: "10.square"), for: .normal)
+                    case .m15:
+                        self.xabberInputView.timerButton.setImage(UIImage(systemName: "15.square"), for: .normal)
+                    
+                }
+                    
             })
             .disposed(by: bag)
 
@@ -294,11 +316,7 @@ extension ChatViewController {
                             self.navigationController?.popToRootViewController(animated: true)
                         }
                     } else {
-                        var username = nickname
-                        if self.conversationType == .omemo {
-                            username = "🔒 \(username)"
-                        }
-                        self.titleLabel.text = username
+                        self.titleLabel.text = nickname
                         let statusStr = self.isInviteViewControllerShowed ? (item.privacy == .incognito ? "Incognito group".localizeString(id: "intro_incognito_group", arguments: []) : "Public group".localizeString(id: "intro_public_group", arguments: [])) : item.statusString
                         if self.statusLabel.text == " " {
                             self.statusLabel.text = statusStr
@@ -333,33 +351,20 @@ extension ChatViewController {
                 .filter("groupchatId == %@ AND isMe == true", [self.jid, self.owner].prp()))
             .subscribe(onNext: { (results) in
                 if let item = results.first {
-                    if [.privateChat, .incognitoChat].contains(self.entity) {
-                        self.xabberInputBar.inputTextView.placeholder = "Message as \(item.nickname)"
-                    }
                     if item.nickname != (AccountManager.shared.find(for: self.owner)?.username ?? "") {
                         if !self.showMyNickname {
                             self.showMyNickname = true
-                            DispatchQueue.main.async {
-                                UIView.performWithoutAnimation {
-                                    self.messagesCollectionView.reloadData()
-                                }
+                            UIView.performWithoutAnimation {
+                                self.messagesCollectionView.reloadData()
                             }
-                            
                         }
                     } else {
                         if self.showMyNickname {
                             self.showMyNickname = false
-                            DispatchQueue.main.async {
-                                UIView.performWithoutAnimation {
-                                    self.messagesCollectionView.reloadData()
-                                }
+                            UIView.performWithoutAnimation {
+                                self.messagesCollectionView.reloadData()
                             }
                         }
-                    }
-                    if item.isBlocked {
-                        self.xabberInputBar.isHidden = true
-                    } else {
-                        self.xabberInputBar.isHidden = false
                     }
                 }
             })

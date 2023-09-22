@@ -75,7 +75,10 @@ class CommonMessageSizeCalculator: MessageSizeCalculator {
         messageContainerSize = CGSize(width: inlineMessageContainers.compactMap { return $0.width }.max() ?? maxWidth,
                                       height: inlineMessageContainers.compactMap { return $0.height }.reduce(0,+))
 
-        let dateWidth: CGFloat = message.isEdited ? 112 : (message.isOutgoing ? 72 : 56)
+        var dateWidth: CGFloat = message.isEdited ? 112 : (message.isOutgoing ? 88 : 72)
+        if message.afterburnInterval > 0 {
+            dateWidth += 12
+        }
         let lastLineDelta = messageContainerSize.width - lastLineWidth
         if lastLineDelta < dateWidth {
             if (messageContainerSize.width + (dateWidth - lastLineDelta)) <= maxWidth + 16 {

@@ -33,7 +33,7 @@ class MessageManager: AbstractXMPPManager {
     
     var queue: DispatchQueue
     
-    var previousId: String = ""
+//    var previousId: String = ""
     
     internal var receiverSubscribtion: Disposable? = nil
     internal var receiverBag: DisposeBag = DisposeBag()
@@ -41,7 +41,7 @@ class MessageManager: AbstractXMPPManager {
     
     internal var senderBag: DisposeBag = DisposeBag()
     
-    internal var scheduledMessages: Set<ScheduledMessage> = Set<ScheduledMessage>()
+//    internal var scheduledMessages: Set<ScheduledMessage> = Set<ScheduledMessage>()
     internal var stanzaQueue: BehaviorRelay<Array<XMPPMessage>> = BehaviorRelay<Array<XMPPMessage>>(value: Array<XMPPMessage>())
     
 //    internal var sendingMessages: Results<MessageStorageItem>? = nil
@@ -51,8 +51,7 @@ class MessageManager: AbstractXMPPManager {
     init(withOwner owner: String, activeStream: Bool) {
         self.queue = DispatchQueue(
             label: "com.xabber.messages.transmitter.\(owner).\(UUID().uuidString)",
-            qos: .userInteractive,
-//            qos: .background,
+            qos: .utility,
             attributes: [],
             autoreleaseFrequency: .never,
             target: nil
@@ -62,7 +61,7 @@ class MessageManager: AbstractXMPPManager {
         super.init(withOwner: owner)
         subscribe(activeStream)
         if activeStream {
-            self.queue.async {
+//            self.queue.async {
                 do {
                     let realm = try  WRealm.safe()
                     let states = [
@@ -86,7 +85,7 @@ class MessageManager: AbstractXMPPManager {
                 } catch {
                     DDLogDebug("MessageManager: \(#function). \(error.localizedDescription)")
                 }
-            }
+//            }
         }
     }
     
@@ -151,205 +150,74 @@ class MessageManager: AbstractXMPPManager {
         
     }
     
-    func didResetState() {
-//        self.senderBag = DisposeBag()
-//        self.receiverBag = DisposeBag()
-//        subscribe(true)
-        previousId = ""
-    }
-    
-    open func addStanzaToQueue(_ stanza: XMPPMessage) {
-        var value = stanzaQueue.value
-        value.append(stanza)
-        stanzaQueue.accept(value)
-    }
-    
-    func receiveStateMessage(_ message: XMPPMessage) -> Bool {
-        //if self.changeUnreadState(message) { return true }
-        DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
-            self.changeUnreadState(message)
-        }
-        var opponent: String? = message.from?.bare
-        if opponent == self.owner {
-            opponent = message.to?.bare
-        }
-        guard let opponent = opponent else { return false }
-        if let received = message.element(forName: "received")  {
-            let messageId = received.attributeStringValue(forName: "id") ?? ""
-            switch (received.xmlns() ?? "") {
-            case "urn:xmpp:receipts":
-                self.changeMessageState(for: opponent, Id: messageId, to: .deliver)
-                return true
-            case "urn:xmpp:chat-markers:0":
-                self.changeMessageState(for: opponent, Id: messageId, to: .deliver)
-                return true
-            default: return false
-            }
-        } else if let displayed = message.element(forName: "displayed")  {
-            let messageId = displayed.attributeStringValue(forName: "id") ?? ""
-            switch (displayed.xmlns() ?? "") {
-            case "urn:xmpp:chat-markers:0":
-                NotifyManager.shared.clearNotificationsFor(account: owner)
-                self.changeMessageState(for: opponent, Id: messageId, to: .read)
-                return true
-            default: return false
-            }
-        }
-        return false
-    }
-    
-    internal func changeUnreadState(_ message: XMPPMessage) -> Bool {
-        guard let displayed = message.element(forName: "displayed", xmlns: "urn:xmpp:chat-markers:0"),
-            let elementId = displayed.attributeStringValue(forName: "id") else {
-                return false
-        }
-        let messageId = elementId
-//
-        
-        var opponent: String? = message.from?.bare
-        if opponent == self.owner {
-            opponent = message.to?.bare
-        }
-        
-        guard let opponent = opponent else { return false }
-        
+    func readAllMessages() {
         do {
             let realm = try WRealm.safe()
-            
-            if let instance = realm
-                .objects(MessageStorageItem.self)
-                .filter("owner == %@ AND opponent == %@ AND messageId == %@",
-                        self.owner,
-                        opponent,
-                        messageId)
-                    .first {
-                let collection = realm
-                    .objects(MessageStorageItem.self)
-                    .filter("owner == %@ AND opponent == %@ AND isRead == %@ AND date <= %@ AND conversationType_ == %@", self.owner, opponent, false, instance.date, instance.conversationType_)
-                let chatInstance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: instance.opponent, owner: instance.owner, conversationType: instance.conversationType))
-                try realm.write {
-                    collection.forEach {
-                        $0.isRead = true
-                        $0.state = .read
-                    }
-                    instance.isRead = true
-                    instance.state = .read
-                    if chatInstance?.lastMessage?.primary == instance.primary {
-                        chatInstance?.unread = 0
-                    }
-                }
-            }
+            realm
+                .objects(LastChatsStorageItem.self)
+                .filter("isArchived == false AND owner == %@", self.owner)
+                .sorted(byKeyPath: "messageDate", ascending: false)
+                .compactMap { return $0.lastMessage?.primary }
+                .forEach { self.readMessage($0, last: true) }
         } catch {
-            DDLogDebug("MessageManger: \(#function). \(error.localizedDescription)")
-        }
-        return true
-    }
-    
-    func changeMessageState(_ message: XMPPMessage, to state: MessageStorageItem.MessageSendingState) {
-        do {
-            let messageId = getUniqueMessageId(message, owner: self.owner)
-            DDLogDebug("try to change state for message by message \(messageId)")
-            let realm = try  WRealm.safe()
-            if let instance = realm.objects(MessageStorageItem.self).filter("messageId == %@ AND owner == %@", messageId, self.owner).first {
-                try realm.write {
-                    if instance.isInvalidated { return }
-                    instance.state = state
-                }
-                DDLogDebug("state changed \(state)")
-            }
-        } catch {
-            DDLogDebug("cant change state for message with id \(getUniqueMessageId(message, owner: self.owner))")
+            DDLogDebug("MessagesManager: \(#function). \(error.localizedDescription)")
         }
     }
     
-    func changeMessageState(for opponent: String, Id messageId: String, to state: MessageStorageItem.MessageSendingState) {
+    func readLastMessage(jid: String, conversationType: ClientSynchronizationManager.ConversationType) {
         do {
-            DDLogDebug("try to change state for message \(messageId)")
-            
-            let realm = try  WRealm.safe()
-            
-            guard let conversationTypeRaw = realm
-                .objects(MessageStorageItem.self)
-                .filter("owner == %@ AND opponent == %@ AND messageId == %@", self.owner, opponent, messageId)
-                .first?
-                .conversationType_ else {
-                return
-            }
-            
-            if state == .read {
-                let colelction = realm.objects(MessageStorageItem.self)
-                    .filter("owner == %@ AND opponent == %@ AND outgoing == true AND conversationType_ == %@", self.owner, opponent, conversationTypeRaw)
-                    .toArray()
-                    .sorted(by: {
-                    (lhs, rhs) -> Bool in
-                    return lhs.date.compare(rhs.date) == .orderedAscending
-                })
-                
-                try realm.write {
-                    for item in colelction {
-                        if item.state == .deliver {
-                            item.state = state
-                        }
-                        if item.messageId == messageId {
-                            item.state = state
-                            break
-                        }
-                    }
-                }
-            } else {
-                if let instance = realm.objects(MessageStorageItem.self)
-                    .filter("messageId == %@ AND owner == %@ AND conversationType_ == %@", messageId, self.owner, conversationTypeRaw)
-                    .first {
-                    try realm.write {
-                        if instance.isInvalidated { return }
-                        instance.state = state
-                    }
-                    DDLogDebug("state changed \(state)")
-                }
-            }
-        } catch {
-            DDLogDebug("cant change state for message with id \(messageId)")
-        }
-    }
-    
-    func readMessage(_ primary: String, jid: String, last: Bool) {
-
-        var conversationType: ClientSynchronizationManager.ConversationType?
-
-        do {
-            let realm = try  WRealm.safe()
-            if let instance = realm.object(ofType: MessageStorageItem.self,
-                                           forPrimaryKey: primary) {
-                let stanzaId = instance.archivedId
-                conversationType = instance.conversationType
-                NotifyManager.shared.clearNotifications(forMessage: [stanzaId])
-                if !realm.isInWriteTransaction {
-                    try realm.write {
-                        if instance.isInvalidated { return }
-                        instance.isRead = true
-                    }
-                }
-            }
-            if let conversationType = conversationType,
-               let instance = realm.object(ofType: LastChatsStorageItem.self,
-                                           forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid,
-                                                                                          owner: self.owner,
-                                                                                          conversationType: conversationType)),
-               instance.unread > 0 {
-                if !realm.isInWriteTransaction {
-                    try realm.write {
-                        if instance.isInvalidated { return }
-                        if last {
-                            instance.unread = 0
-                        } else {
-                            instance.unread -= 1
-                        }
-                    }
-                }
+            let realm = try WRealm.safe()
+            if let primary = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: conversationType))?.lastMessage?.primary {
+                self.readMessage(primary, last: true)
             }
         } catch {
             DDLogDebug("MessageManager: \(#function). \(error.localizedDescription)")
         }
+    }
+    
+    func readMessage(_ primary: String, last: Bool) {
+        do {
+            let realm = try  WRealm.safe()
+            if let message = realm.object(ofType: MessageStorageItem.self,
+                                           forPrimaryKey: primary) {
+                if message.outgoing {
+                    return
+                }
+                let stanzaId = message.archivedId
+                NotifyManager.shared.clearNotifications(forMessage: [stanzaId])
+                if !realm.isInWriteTransaction {
+                    try realm.write {
+                        if message.isInvalidated { return }
+                        message.isRead = true
+                        message.state = .read
+                    }
+                }
+                if let instance = realm.object(ofType: LastChatsStorageItem.self,
+                                               forPrimaryKey: LastChatsStorageItem.genPrimary(
+                                                jid: message.opponent,
+                                                owner: self.owner,
+                                                conversationType: message.conversationType)),
+                   instance.unread > 0 {
+                    if !realm.isInWriteTransaction {
+                        try realm.write {
+                            if instance.isInvalidated { return }
+                            if last {
+                                instance.unread = 0
+                            } else {
+                                instance.unread -= 1
+                            }
+                        }
+                    }
+                }
+            }
+            
+        } catch {
+            DDLogDebug("MessageManager: \(#function). \(error.localizedDescription)")
+        }
+        
+        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+            user.chatMarkers.displayed(stream, message: primary)
+        })
     }
     
     internal func getForwardedAuthorNicknameGroupchat(_ references: [DDXMLElement]) -> String? {

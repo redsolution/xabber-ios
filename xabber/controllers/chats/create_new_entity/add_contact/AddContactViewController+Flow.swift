@@ -96,7 +96,7 @@ extension AddContactViewController {
                                 owner: self.owner,
                                 jid: self.contactJid,
                                 entity: .contact,
-                                conversationType: .omemo
+                                conversationType: ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
                             )
                         }
                     } else {

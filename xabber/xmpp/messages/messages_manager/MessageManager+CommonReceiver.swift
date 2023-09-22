@@ -45,8 +45,9 @@ extension MessageManager {
         var clientSyncMessage: Bool = false
         var queryId: String? = nil
         var groupchatUserCard: DDXMLElement? = nil
+        var readDate: Date? = nil
         
-        init(_ message: XMPPMessage, archivedFrom: String?, isRead: Bool, date: Date, state: MessageStorageItem.MessageSendingState, forceUnreadState: Bool? = nil, clientSyncMessage: Bool = false, queryId: String?, groupchatUserCard: DDXMLElement? = nil) {
+        init(_ message: XMPPMessage, archivedFrom: String?, isRead: Bool, date: Date, state: MessageStorageItem.MessageSendingState, forceUnreadState: Bool? = nil, clientSyncMessage: Bool = false, queryId: String?, groupchatUserCard: DDXMLElement? = nil, readDate: Date? = nil) {
             self.message = message
             self.archivedFrom = archivedFrom
             self.isRead = isRead
@@ -56,6 +57,7 @@ extension MessageManager {
             self.clientSyncMessage = clientSyncMessage
             self.groupchatUserCard = groupchatUserCard
             self.queryId = queryId
+            self.readDate = readDate
         }
         
         func hash(into hasher: inout Hasher) {
@@ -64,12 +66,12 @@ extension MessageManager {
         }
     }
     
-    open func resetQueue() {
+    public func resetQueue() {
         clearQueue()
         subscribe(true)
     }
     
-    open func receiveClientSyncRaw(_ message: XMPPMessage, groupchatUserCard: DDXMLElement?, isRead: Bool, state: MessageStorageItem.MessageSendingState, date: Date) -> MessageQueueItem? {
+    public func receiveClientSyncRaw(_ message: XMPPMessage, groupchatUserCard: DDXMLElement?, isRead: Bool, state: MessageStorageItem.MessageSendingState, date: Date, readDate: Date? = nil) -> MessageQueueItem? {
         return MessageQueueItem(
             message,
             archivedFrom: message.from?.bare,
@@ -79,11 +81,12 @@ extension MessageManager {
             forceUnreadState: isRead,
             clientSyncMessage: true,
             queryId: getMAMQueryId(message),
-            groupchatUserCard: groupchatUserCard
+            groupchatUserCard: groupchatUserCard,
+            readDate: readDate
         )
     }
     
-    open func receiveClientSync(_ message: XMPPMessage, isRead: Bool, state: MessageStorageItem.MessageSendingState, date: Date) {
+    public func receiveClientSync(_ message: XMPPMessage, isRead: Bool, state: MessageStorageItem.MessageSendingState, date: Date) {
         enqueue(MessageQueueItem(message,
                                  archivedFrom: message.from?.bare,
                                  isRead: isRead,
@@ -95,7 +98,7 @@ extension MessageManager {
         
     }
     
-    open func receiveTemporary(_ message: XMPPMessage) -> MessageQueueItem? {
+    public func receiveTemporary(_ message: XMPPMessage) -> MessageQueueItem? {
         if let date = getDelayedDate(message),
             let messageBare = getArchivedMessageContainer(message) {
              return MessageQueueItem(messageBare,
@@ -109,7 +112,7 @@ extension MessageManager {
         return nil
     }
     
-    open func receiveArchived(_ message: XMPPMessage) {
+    public func receiveArchived(_ message: XMPPMessage) {
         if let date = getDelayedDate(message),
             let messageBare = getArchivedMessageContainer(message) {
             enqueue(MessageQueueItem(messageBare,
@@ -121,7 +124,7 @@ extension MessageManager {
         }
     }
     
-    open func receiveCarbon(_ message: XMPPMessage) {
+    public func receiveCarbon(_ message: XMPPMessage) {
         if let messageBare = getCarbonCopyMessageContainer(message) {
             enqueue(MessageQueueItem(messageBare,
                                      archivedFrom: message.from?.bare,
@@ -132,7 +135,7 @@ extension MessageManager {
         }
     }
     
-    open func receiveCarbonForwarded(_ message: XMPPMessage) {
+    public func receiveCarbonForwarded(_ message: XMPPMessage) {
         if let messageBare = getCarbonForwardedMessageContainer(message) {
             enqueue(MessageQueueItem(messageBare,
                                      archivedFrom: message.from?.bare,
@@ -143,7 +146,7 @@ extension MessageManager {
         }
     }
     
-    open func receiveRuntime(_ message: XMPPMessage) {
+    public func receiveRuntime(_ message: XMPPMessage) {
         enqueue(MessageQueueItem(message,
                                  archivedFrom: message.from?.bare,
                                  isRead: false,
@@ -225,7 +228,10 @@ extension MessageManager {
         }
         var messageQueryIds: Set<String> = Set<String>()
         var out: Set<MessageStorageItem> = Set<MessageStorageItem>()
-        items.forEach { (item) in
+        let sortedItems = Array(items).sorted(by: {
+            $0.date.timeIntervalSince1970 < $1.date.timeIntervalSince1970
+        })
+        sortedItems.forEach { (item) in
             if isVoIPMessage(item.message) {
                 return
             }
@@ -247,6 +253,9 @@ extension MessageManager {
                 isEncryptedMessage = true
                 errorMetadata = SignatureManager.MessageError().errorMetadata
             }
+            
+            let afterburnInterval = item.message.element(forName: "ephemeral", xmlns: "urn:xmpp:ephemeral:0")?.attributeDoubleValue(forName: "timer") ?? -1
+            
             var hasSignElement: Bool = false
             var envelopeContainer: String? = nil
             print("RECEIVER", #function, item.message.prettyXMLString!)
@@ -294,7 +303,7 @@ extension MessageManager {
                 item.originalOutgoing = from == owner
             }
             
-            if item.originalOutgoing {
+            if item.originalOutgoing || item.state == .read {
                 item.isRead = true
                 RunLoop.main.perform {
                     do {
@@ -317,6 +326,16 @@ extension MessageManager {
                                             .forEach {
                                                 stanzaIDs.insert($0.archivedId)
                                                 $0.isRead = true
+                                                if $0.afterburnInterval > 0 && $0.burnDate < 0 {
+                                                    
+                                                    if let readDate = item.readDate {
+                                                        $0.readDate = readDate.timeIntervalSince1970
+                                                        $0.burnDate = readDate.timeIntervalSince1970 + afterburnInterval
+                                                        if (readDate.timeIntervalSince1970 + afterburnInterval) < Date().timeIntervalSince1970 {
+                                                            $0.isDeleted = true
+                                                        }
+                                                    }
+                                                }
                                             }
                                     }
                                 }
@@ -376,6 +395,16 @@ extension MessageManager {
             }
             instance.envelopeContainer = envelopeContainer
             instance.updatePrimary()
+            instance.afterburnInterval = afterburnInterval
+            if let readDate = item.readDate,
+               afterburnInterval > 0 {
+                instance.isRead = true
+                instance.readDate = readDate.timeIntervalSince1970
+                instance.burnDate = readDate.timeIntervalSince1970 + afterburnInterval
+                if instance.burnDate < Date().timeIntervalSince1970 {
+                    instance.isDeleted = true
+                }
+            }
             if hasSignElement {
                 instance.errorMetadata = errorMetadata
             }
@@ -383,7 +412,6 @@ extension MessageManager {
             if item.clientSyncMessage {
                 instance.trustedSource = false
             } else {
-//                print(item.queryId)
                 if let queryId = item.queryId {
                     if messageQueryIds.contains(queryId) {
                         instance.trustedSource = true
@@ -393,11 +421,9 @@ extension MessageManager {
                     }
                 } else {
                     instance.trustedSource = false
-//                    instance.previousId = "rec prev id"// self.previousId
                 }
             }
             
-//            self.previousId =  "instance mess id"// instance.messageId
             instance.previousId = getPreviousId(item.message)
             print("PIPELINED", item.message)
             

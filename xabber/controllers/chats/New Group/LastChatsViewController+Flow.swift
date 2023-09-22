@@ -82,20 +82,11 @@ extension LastChatsViewController {
             try realm.write {
                 collection.forEach { $0.unread = 0 }
             }
-            unreadLastChatsArray.forEach {
-                item in
-                let owner = item.owner
-                let jid = item.jid
-                let conversationType = item.conversationType
-                AccountManager.shared.find(for: owner)?.action({ (user, stream) in
-                    user.chatMarkers.forceReadChat(stream, for: jid, conversationType: conversationType)
+            self.enabledAccounts.value.forEach {
+                AccountManager.shared.find(for: $0)?.action({ user, stream in
+                    user.messages.readAllMessages()
                 })
             }
-            
-            try realm.write {
-                collection.forEach { $0.unread = 0 }
-            }
-            
             self.canUpdateDataset = true
             self.runDatasetUpdateTask()
         } catch {

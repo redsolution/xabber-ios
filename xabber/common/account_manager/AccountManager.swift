@@ -184,10 +184,6 @@ public class AccountManager: NSObject {
     }
     
     func load(_ autoConnect: Bool = true) {
-//        if alreadyLoaded {
-//            return
-//        }
-//        alreadyLoaded = autoConnect
         do {
             let realm = try WRealm.safe()
             realm

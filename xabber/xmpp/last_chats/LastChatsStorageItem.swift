@@ -77,6 +77,12 @@ class LastChatsStorageItem: Object {
     
     @objc dynamic var muteExpired: Double = -1
     
+    @objc dynamic var afterburnInterval: Double = -1
+    @objc dynamic var afterburnIntervalLastUpdate: Double = -1
+    @objc dynamic var isAllHistoryLoaded: Bool = false
+    @objc dynamic var isFreshNotEmptyEncryptedChat: Bool = false
+    
+    
     @objc dynamic var conversationType_: String = ClientSynchronizationManager.ConversationType.omemo.rawValue
     
     var conversationType: ClientSynchronizationManager.ConversationType {
@@ -85,6 +91,12 @@ class LastChatsStorageItem: Object {
                 .ConversationType(rawValue: self.conversationType_) ?? .regular
         } set {
             self.conversationType_ = newValue.rawValue
+        }
+    }
+    
+    var isAfterburnEnabled: Bool {
+        get {
+            return self.afterburnInterval > 0
         }
     }
     

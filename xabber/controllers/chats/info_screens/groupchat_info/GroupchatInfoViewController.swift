@@ -555,6 +555,7 @@ class GroupchatInfoViewController: BaseViewController {
         headerView.thirdButton.configure(#imageLiteral(resourceName: "bell"), title: "Notifications".localizeString(id: "contact_bar_notifications", arguments: []), style: .active)
         headerView.fourthButton.configure(#imageLiteral(resourceName: "leave"), title: "Leave".localizeString(id: "groupchat_leave", arguments: []), style: .danger)
 
+        footerView.conversationType = .group
         footerView.jid = self.jid
         footerView.owner = self.owner
         

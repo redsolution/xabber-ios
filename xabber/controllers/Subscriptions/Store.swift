@@ -34,13 +34,13 @@ extension String {
 
 public struct ClandestinoProducts {
     
-//    public static let productIdentifiers: Set<String> = ["subs.id.chat.clandestino.dev.month12",
-//                                                         "subs.id.chat.clandestino.dev.month6",
-//                                                         "subs.id.chat.clandestino.dev.month3",
-//                                                         "subs.id.chat.clandestino.dev.month1"]
+    public static let productIdentifiers: Set<String> = ["subs.id.chat.clandestino.dev.month12",
+                                                         "subs.id.chat.clandestino.dev.month6",
+                                                         "subs.id.chat.clandestino.dev.month3",
+                                                         "subs.id.chat.clandestino.dev.month1"]
     
-    public static let productIdentifiers: Set<String> = ["ru.clandestino.test.subscription_one_year_productID",
-                                                         "ru.clandestino.test.subscription_one_month_productID"]
+//    public static let productIdentifiers: Set<String> = ["ru.clandestino.test.subscription_one_year_productID",
+//                                                         "ru.clandestino.test.subscription_one_month_productID"]
 }
 
 public enum StoreError: Error {

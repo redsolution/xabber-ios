@@ -50,6 +50,8 @@ class DeviceDetailViewController: SimpleBaseViewController {
     open var canEdit: Bool = false
     private var datasource: [[Datasource]] = []
     
+    private var omemoDeviceID: Int = -1
+    
     private var resource: String? = nil
     private var statusTitle: String? = nil
     private var status: ResourceStatus = .offline
@@ -94,6 +96,7 @@ class DeviceDetailViewController: SimpleBaseViewController {
             guard let tokenInstance = realm.object(ofType: DeviceStorageItem.self, forPrimaryKey: [uid, jid].prp()) else {
                 return
             }
+            self.omemoDeviceID = tokenInstance.omemoDeviceId
             let resourceInstance = realm.objects(AccountStorageItem.self).filter("jid == %@", jid)
             
             let deviceTitle = tokenInstance.descr.isNotEmpty ? tokenInstance.descr : tokenInstance.client
@@ -310,14 +313,12 @@ extension DeviceDetailViewController: UITableViewDelegate {
                     case "trust":
                         do {
                             let realm = try Realm()
-                            let deviceIdPrefixed = self.uid.prefix(8)
-                            if let deviceIdInteger = Int(deviceIdPrefixed) {
-                                if let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.jid, deviceId: deviceIdInteger)) {
-                                    try realm.write {
-                                        instance.state = .trusted
-                                    }
+                            if let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.jid, deviceId: self.omemoDeviceID)) {
+                                try realm.write {
+                                    instance.state = .trusted
                                 }
                             }
+                            
                             DispatchQueue.main.async {
                                 self.goBack()
                             }
@@ -355,14 +356,12 @@ extension DeviceDetailViewController: UITableViewDelegate {
                     case "trust":
                         do {
                             let realm = try Realm()
-                            let deviceIdPrefixed = self.uid.prefix(8)
-                            if let deviceIdInteger = Int(deviceIdPrefixed) {
-                                if let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.jid, deviceId: deviceIdInteger)) {
-                                    try realm.write {
-                                        instance.state = .trusted
-                                    }
+                            if let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.jid, deviceId: self.omemoDeviceID)) {
+                                try realm.write {
+                                    instance.state = .trusted
                                 }
                             }
+                            
                             DispatchQueue.main.async {
                                 self.goBack()
                             }

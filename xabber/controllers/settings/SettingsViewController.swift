@@ -59,6 +59,9 @@ class SettingsViewController: BaseViewController {
             case notificationInAppAlertLastChats = "notification_in_app_alert_last_chats"
             case notificationInAppSound = "notification_in_app_sound"
             case avatarMasksCurrentAvatarMask = "avatar_masks_current_avatar_mask_"
+            case afterburnTimer = "afterburn_timer"
+            case afterburnEnabled = "burn_messages_enabled"
+//            case privacy
         }
         
         enum Section: Int {
@@ -87,6 +90,7 @@ class SettingsViewController: BaseViewController {
             case autolock
             case delete
             case none
+            case afterburn
             
             func description() -> String {
                 switch self {
@@ -138,6 +142,8 @@ class SettingsViewController: BaseViewController {
                     return "Auto-Lock"
                 case .delete:
                     return "Delete account".localizeString(id: "account_delete", arguments: [])
+                case .afterburn:
+                    return "Burning messages"
                 case .none:
                     return ""
                 }
@@ -562,7 +568,19 @@ class SettingsViewController: BaseViewController {
                         Datasource(section: .autolock, title: "Show attempts left", itemType: .toggle, toggle: (dict[Datasource.Keys.showAttempts.rawValue] as? Bool) ?? false, key: .showAttempts)
                     ])
                 ], key: .passcode),
-                Datasource(section: .security, title: "Yubikey signature", viewController: YubikeySetupViewController.self, key: .yubikey)
+                Datasource(section: .security, title: "Yubikey signature", viewController: YubikeySetupViewController.self, key: .yubikey),
+//                Datasource(section: .afterburn, title: "Burning messages", viewController: SimpleTableViewController.self,childs: [
+//                    Datasource(section: .afterburn, title: "", childs: [
+//                        Datasource(section: .afterburn, title: "Enabled", itemType: .toggle, toggle: (dict[Datasource.Keys.afterburnEnabled.rawValue] as? Bool) ?? false, key: .afterburnEnabled),
+////                        Datasource(section: .afterburn, title: "Default timer", itemType: .selector, values: ChatMarkersManager.BurnMessagesTimerValues.allVerboseValues(), key: .afterburnTimer),
+//                    ],key: .afterburnTimer)
+//                ], key: .afterburnTimer)
+//                Datasource(section: .afterburn, title: "Burning messages", viewController: SimpleTableViewController.self,childs: [
+//                    Datasource(section: .afterburn, title: "", childs: [
+//                        Datasource(section: .afterburn, title: "Enabled", itemType: .toggle, toggle: (dict[Datasource.Keys.afterburnEnabled.rawValue] as? Bool) ?? false, key: .afterburnEnabled),
+////                        Datasource(section: .afterburn, title: "Default timer", itemType: .selector, values: ChatMarkersManager.BurnMessagesTimerValues.allVerboseValues(), key: .afterburnTimer),
+//                    ],key: .afterburnTimer)
+//                ], key: .afterburnTimer)
             ]))
 
     }

@@ -67,10 +67,8 @@ extension ChatViewController {
                 }
                 self.addMeteringObservers()
             } else {
-                self.xabberInputBar.resetRecordButton()
                 self.showToast(error: "The application does not have access to microphone. Go to settings and enable microphone access if you want to record audio messages".localizeString(id: "message_manager_no_microphone_access", arguments: []))
                 self.deleteRecord()
-                self.xabberInputBar.recordButton.isEnabled = false
             }
         })
     }
@@ -88,17 +86,6 @@ extension ChatViewController {
                 AudioManager.shared.player = try AVAudioPlayer(contentsOf: url, fileTypeHint: "wav")
                 if let duration = AudioManager.shared.player?.duration {
                     self.recordingPanel.updateTimeLabel(duration)
-                }
-                if UIDevice.needBottomOffset {
-                    self.recordingPanel.frame = CGRect(
-                        width: xabberInputBar.frame.width - 40,
-                        height: xabberInputBar.frame.height - 16
-                    )
-                } else {
-                    self.recordingPanel.frame = CGRect(
-                        width: xabberInputBar.frame.width - 40,
-                        height: xabberInputBar.frame.height
-                    )
                 }
                 self.recordingPanel
                     .configurePreview(color: self.accountPallete.tint500,
@@ -156,7 +143,7 @@ extension ChatViewController {
         print(#function)
         try? AudioRecorder.shared.stopRecording()
         self.recordingPanel.removeFromSuperview()
-        self.xabberInputBar.resetRecordButtonAfterPinned()
+//        self.xabberInputBar.resetRecordButtonAfterPinned()
         self.onRecordingPanelWillEnd()
         self.endRecording()
         DispatchQueue.main.async {
@@ -266,6 +253,8 @@ extension ChatViewController {
         let item = MessageReferenceStorageItem()
         item.kind = .voice
         item.owner = self.owner
+        item.jid = self.jid
+        item.conversationType = self.conversationType
         item.mimeType = MimeIcon(MimeType(url: url).value).value.rawValue
         item.isDownloaded = true
         item.metadata = [
@@ -277,7 +266,6 @@ extension ChatViewController {
             "duration": Int(endedAt.timeIntervalSince(startedAt))
         ]
         item.primary = UUID().uuidString
-//        self.recordedFileReference = item
         let referencePrimary = item.primary
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
             let messagePrimary = user
@@ -371,7 +359,9 @@ extension ChatViewController {
                     }
                     let item = MessageReferenceStorageItem()
                     item.kind = .voice
+                    item.conversationType = self.conversationType
                     item.owner = self.owner
+                    item.jid = self.jid
                     item.mimeType = MimeIcon(MimeType(url: url).value).value.rawValue
                     item.temporaryData = encodedData
                     item.metadata = [
@@ -431,7 +421,7 @@ extension ChatViewController {
     open func onCancelRecord() {
         print(#function)
         deleteRecord()
-        self.xabberInputBar.resetRecordButtonAfterPinned()
+//        self.xabberInputBar.resetRecordButtonAfterPinned()
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
     }

@@ -144,20 +144,13 @@ extension ChatViewController {
     }
     
     private func showTimeSignatureBlockingPanel() {
-        if UIDevice.needBottomOffset {
-            self.timeSignatureBlockingPanel.frame = CGRect(x: 0, y: -8, width: self.view.frame.width, height: 84)
-        } else {
-            self.timeSignatureBlockingPanel.frame = CGRect(width: self.view.frame.width, height: 44)
-        }
-        
-        self.xabberInputBar.addSubview(self.timeSignatureBlockingPanel)
-        self.xabberInputBar.bringSubviewToFront(self.timeSignatureBlockingPanel)
         self.isTimeSignatureBlockingPanelopen = true
+        self.xabberInputView.changeState(to: .identityVerification)
     }
     
     private func hideTimeSignatureBlockingPanel() {
-        self.timeSignatureBlockingPanel.removeFromSuperview()
         self.isTimeSignatureBlockingPanelopen = false
+        self.xabberInputView.changeState(to: .normal)
     }
     
     internal func configureCertificateUpdateTimer() {

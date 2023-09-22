@@ -36,15 +36,13 @@ class ChatListTableViewCell: UITableViewCell {
     public var subBadgeOffset: CGFloat = 30
     
     
-    var stack: UIStackView = {
+    let stack: UIStackView = {
         let stack = UIStackView()
         
         stack.axis = .horizontal
         stack.alignment = .center
         stack.spacing = 8
         stack.distribution = .fill
-//            stack.isLayoutMarginsRelativeArrangement = true
-//            stack.layoutMargins = UIEdgeInsets(top: 6, bottom: 8, left: 72, right: 0)
         
         return stack
     }()
@@ -229,7 +227,8 @@ class ChatListTableViewCell: UITableViewCell {
     let encryptedIndicator: UIImageView = {
         let view = UIImageView()
         
-        view.image = #imageLiteral(resourceName: "lock").withRenderingMode(.alwaysTemplate)
+//        view.image = #imageLiteral(resourceName: "lock").withRenderingMode(.alwaysTemplate)
+        view.image = UIImage(systemName: "lock.fill")?.withRenderingMode(.alwaysTemplate)
         view.tintColor = MDCPalette.green.tint500
         view.isHidden = true
         
@@ -325,10 +324,11 @@ class ChatListTableViewCell: UITableViewCell {
         subtitleLabel.text = groupchatNickname
         
         switch conversationType {
-        case .omemo:
-//            self.encryptedIndicator.isHidden = false
-            self.usernameLabel.textColor = MDCPalette.green.tint500
-        default:
+            case .omemo, .omemo1, .axolotl:
+                self.encryptedIndicator.isHidden = false
+                self.usernameLabel.textColor = MDCPalette.green.tint500
+            default:
+                self.encryptedIndicator.isHidden = true
             break
         }
         
@@ -486,11 +486,7 @@ class ChatListTableViewCell: UITableViewCell {
         contentView.addSubview(infoStack)
         infoStack.fillSuperviewWithOffset(top: 0, bottom: 4, left: 2, right: 0)
         
-        if #available(iOS 13.0, *) {
-            backgroundColor = .systemBackground
-        } else {
-            backgroundColor = .white
-        }
+        backgroundColor = .systemBackground
         
         accountIndicator.frame = CGRect(x: 0.5, y: 1, width: 2, height: 74)
         userImageView.frame = CGRect(x: 10, y: 10, width: 56, height: 56)
@@ -500,13 +496,15 @@ class ChatListTableViewCell: UITableViewCell {
         infoStack.addArrangedSubview(topStack)
         infoStack.addArrangedSubview(bottomStack)
         
-        topStack.addArrangedSubview(usernameLabel)
         topStack.addArrangedSubview(encryptedIndicator)
+        topStack.addArrangedSubview(usernameLabel)
         topStack.addArrangedSubview(muteIndicator)
         topStack.addArrangedSubview(UIStackView())
         topStack.addArrangedSubview(deliveryIndicator)
         topStack.addArrangedSubview(dateLabel)
         topStack.addArrangedSubview(syncedIndicator)
+        
+        topStack.setCustomSpacing(4, after: encryptedIndicator)
         
         labelsStack.addArrangedSubview(subtitleLabel)
         labelsStack.addArrangedSubview(messageLabel)
@@ -542,12 +540,14 @@ class ChatListTableViewCell: UITableViewCell {
             bottomStack.heightAnchor.constraint(equalToConstant: 36),
             deliveryIndicator.widthAnchor.constraint(equalToConstant: 16),
             deliveryIndicator.heightAnchor.constraint(equalToConstant: 16),
-            pinnedIndicator.widthAnchor.constraint(equalToConstant:  24),
+            pinnedIndicator.widthAnchor.constraint(equalToConstant: 24),
             pinnedIndicator.heightAnchor.constraint(equalToConstant: 24),
             muteIndicator.widthAnchor.constraint(equalToConstant: 16),
             muteIndicator.heightAnchor.constraint(equalToConstant: 16),
             syncedIndicator.heightAnchor.constraint(equalToConstant: 4),
             syncedIndicator.widthAnchor.constraint(equalToConstant: 4),
+            encryptedIndicator.widthAnchor.constraint(equalToConstant:  16),
+            encryptedIndicator.heightAnchor.constraint(equalToConstant: 16),
             
             badgeView.widthAnchor.constraint(greaterThanOrEqualToConstant: 20),
             badgeView.heightAnchor.constraint(equalToConstant: 20),

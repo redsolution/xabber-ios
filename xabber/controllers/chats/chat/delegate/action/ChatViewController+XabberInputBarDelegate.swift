@@ -21,17 +21,190 @@
 import Foundation
 import UIKit
 import Kingfisher
+import Realm
+import YubiKit
+import CocoaLumberjack
 
+
+extension ChatViewController: UIPickerViewDelegate {
+    func pickerView(_ pickerView: UIPickerView, didSelectRow row: Int, inComponent component: Int) {
+        print(row)
+        self.selectedAfterburnId = row
+    }
+}
+
+extension ChatViewController: UIPickerViewDataSource {
+    func numberOfComponents(in pickerView: UIPickerView) -> Int {
+        1
+    }
+    
+    func pickerView(_ pickerView: UIPickerView, numberOfRowsInComponent component: Int) -> Int {
+        return ChatMarkersManager.BurnMessagesTimerValues.allVerboseValues().count
+    }
+    
+    func pickerView(_ pickerView: UIPickerView, titleForRow row: Int, forComponent component: Int) -> String? {
+        return ChatMarkersManager.BurnMessagesTimerValues.allVerboseValues()[row]
+    }
+    func pickerView(_ pickerView: UIPickerView, rowHeightForComponent component: Int) -> CGFloat {
+        return 32
+    }
+}
 
 extension ChatViewController: XabberInputBarDelegate {
+    
+    func onUpdateSignature() {
+        SignatureManager.shared.delegate = self
+        FeedbackManager.shared.tap()
+        if #available(iOS 13.0, *) {
+            if YubiKitDeviceCapabilities.supportsISO7816NFCTags {
+                YubiKitExternalLocalization.nfcScanAlertMessage = "Generate digital signature for message"
+                YubiKitManager.shared.startNFCConnection()
+                YubiKitManager.shared.delegate = SignatureManager.shared
+                SignatureManager.shared.currentAction = .signature
+            }
+        }
+    }
+    
+    func onCheckDevices() {
+        let vc = TrustedDevicesViewController()
+        vc.jid = self.jid
+        vc.owner = self.owner
+        self.navigationController?.pushViewController(vc, animated: true)
+    }
+    
+    func onHeightChanged(to height: CGFloat, bar barHeight: CGFloat) {
+        print("self.messagesCollectionView.contentOffset.y", self.messagesCollectionView.contentOffset.y)
+        if self.messagesCollectionView.contentOffset.y < 0 { // -340
+            self.messagesCollectionView.contentOffset.y = -height - 8
+        }
+        self.messagesCollectionView.contentInset = UIEdgeInsets(top: height + 8, left: 0, bottom: 100, right: 0)
+//        let offset = messagesCollectionView.contentOffset.y
+//        messageCollectionViewTopInset = height + 4 //offset - height + barHeight
+//        messagesCollectionView.setContentOffset(CGPoint(x: 0, y: -height), animated: true)
+//        print("OFFSET", offset - height)
+//        messagesCollectionView.contentOffset.y -= offset
+//        messagesCollectionView.contentOffset.y -= height
+    }
+    
+    func onAfterburnButtonTouchUp() {
+        print(#function)
         
+        let message = "\n\n\n\n\n\n"
+        let alert = UIAlertController(title: "Burn message after", message: message, preferredStyle: UIAlertController.Style.actionSheet)
+         
+        let picker = UIPickerView(frame: CGRect(x: 0, y: 20, width: alert.view.frame.width - 16, height: 140))
+        picker.dataSource = self
+        picker.delegate = self
+        
+        do {
+            let realm = try WRealm.safe()
+            if let instance = realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(
+                    jid: self.jid,
+                    owner: self.owner,
+                    conversationType: self.conversationType)) {
+                let selectedValue = ChatMarkersManager.BurnMessagesTimerValues(rawValue: Int(instance.afterburnInterval)) ?? .off
+                let selectedValueId = ChatMarkersManager.BurnMessagesTimerValues.values().firstIndex(of: selectedValue) ?? 0
+                picker.selectRow(selectedValueId, inComponent: 0, animated: false)
+            }
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        }
+        
+        
+        
+        
+        //Add the picker to the alert controller
+        alert.view.addSubview(picker)
+        let okAction = UIAlertAction(title: "Done", style: .default, handler: {
+            (alert: UIAlertAction!) -> Void in
+            let selectedInterval = ChatMarkersManager.BurnMessagesTimerValues.values()[self.selectedAfterburnId]
+            do {
+                let realm = try WRealm.safe()
+                if let instance = realm.object(
+                    ofType: LastChatsStorageItem.self,
+                    forPrimaryKey: LastChatsStorageItem.genPrimary(
+                        jid: self.jid,
+                        owner: self.owner,
+                        conversationType: self.conversationType)) {
+                    if instance.afterburnInterval == Double(selectedInterval.rawValue) {
+                        return
+                    }
+                    try realm.write {
+                        if instance.isInvalidated { return }
+                        instance.afterburnInterval = Double(selectedInterval.rawValue)
+                    }
+                }
+            } catch {
+                DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            }
+            let item = MessageReferenceStorageItem()
+            item.kind = .systemMessage
+            item.owner = self.owner
+            item.jid = self.jid
+            item.conversationType = self.conversationType
+            item.isDownloaded = true
+            item.begin = 0
+            item.end = 0
+            item.metadata = [
+                "ephemeral-timer": selectedInterval.rawValue,
+            ]
+            item.primary = UUID().uuidString
+            var body = "Self-destruct timer was set to \(ChatMarkersManager.BurnMessagesTimerValues.verbose(selectedInterval))"
+            if selectedInterval == .off {
+                body = "Self-destruct timer was disabled"
+            }
+            AccountManager.shared.find(for: self.owner)?.messages.sendSystemMessage(
+                body,
+                attachments: [item],
+                to: self.jid,
+                conversationType: self.conversationType
+            )
+            UIView.performWithoutAnimation {
+                switch selectedInterval {
+                    case .off:
+                        self.xabberInputView.timerButton.setImage(UIImage(systemName: "stopwatch"), for: .normal)
+                    case .s5:
+                        self.xabberInputView.timerButton.setImage(UIImage(systemName: "5.circle"), for: .normal)
+                    case .s10:
+                        self.xabberInputView.timerButton.setImage(UIImage(systemName: "10.circle"), for: .normal)
+                    case .s15:
+                        self.xabberInputView.timerButton.setImage(UIImage(systemName: "15.circle"), for: .normal)
+                    case .s30:
+                        self.xabberInputView.timerButton.setImage(UIImage(systemName: "30.circle"), for: .normal)
+                    case .m1:
+                        self.xabberInputView.timerButton.setImage(UIImage(systemName: "1.square"), for: .normal)
+                    case .m5:
+                        self.xabberInputView.timerButton.setImage(UIImage(systemName: "5.square"), for: .normal)
+                    case .m10:
+                        self.xabberInputView.timerButton.setImage(UIImage(systemName: "10.square"), for: .normal)
+                    case .m15:
+                        self.xabberInputView.timerButton.setImage(UIImage(systemName: "15.square"), for: .normal)
+                }
+            }
+            FeedbackManager.shared.generate(feedback: .success)
+            self.canUpdateDataset = true
+            self.messagesCount += 1
+            self.shouldUpdatePreviousMessage = true
+            self.runDatasetUpdateTask()
+            
+        })
+        
+        alert.addAction(okAction)
+//        alert.addAction(cancelAction)
+        self.present(alert, animated: true)
+    }
+    
     internal func addImage(_ image: UIImage) -> MessageReferenceStorageItem? {
         guard let url = URL(string: [UUID().uuidString, "png"].joined(separator: ".")) else { return nil }
         let item = MessageReferenceStorageItem()
         item.kind = .media
         item.owner = self.owner
+        item.jid = self.jid
         item.mimeType = MimeIcon(MimeType(url: url).value).value.rawValue
         item.temporaryData = image.pngData()
+        item.conversationType = self.conversationType
         item.metadata = [
             "name": "Memoji",
             "size": item.temporaryData?.count ?? 0,
@@ -49,9 +222,10 @@ extension ChatViewController: XabberInputBarDelegate {
         return item
     }
     
-    func attachmentButtonTouchUp(_ inputBar: XabberInputBar) {
+    func attachmentButtonTouchUp() {
 //      if (AccountManager.shared.find(for: self.owner)?.xuploads.isAvailable() ?? false)
-        if let account = AccountManager.shared.find(for: self.owner), let _ = account.getDefaultUploader() {
+        if let account = AccountManager.shared.find(for: self.owner),
+           let _ = account.getDefaultUploader() {
             self.showImagePicker()
         } else {
             if let domain = self.owner.split(separator: "@").last {
@@ -66,129 +240,102 @@ extension ChatViewController: XabberInputBarDelegate {
         }
     }
     
-    func textDidChange(_ inputBar: XabberInputBar, to text: String) {
-        
+    func onTextDidChange(to text: String?) {
+        self.draftMessageText.accept(text)
     }
     
-    func imageDidAttach(_ inputBar: XabberInputBar, image: UIImage) {
-        
-    }
-    
-    func sendButtonTouchUp(_ inputBar: XabberInputBar, with text: String) {
+    func sendButtonTouchUp( with text: String) {
+        func sendMessage(_ text: String) {
+            let forwarded: [String] = self.attachedMessagesIds.value
+            self.draftMessageText.accept(nil)
+            canUpdateDataset = true
+            if let editedMessage = editMessageId.value,
+                editedMessage.isNotEmpty {
+                let primary = editedMessage
+                AccountManager.shared.find(for: self.owner)?.unsafeAction({ (user, stream) in
+                    user.messages.editSimpleMessage(text, primary: primary)
+                    (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
+                            .invalidateLastMessageCachedSize(primary: primary)
+                    self.canUpdateDataset = true
+                    self.runDatasetUpdateTask()
+                })
+            } else {
+                AccountManager.shared.find(for: self.owner)?.unsafeAction({ (user, stream) in
+                    
+                    user.messages.sendSimpleMessage(
+                        text,
+                        to: self.jid,
+                        forwarded: forwarded,
+                        conversationType: self.conversationType
+                    )
+                    
+                    if let primary = self.messagesObserver?.first?.primary {
+                        (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
+                            .invalidateLastMessageCachedSize(primary: primary)
+                    }
+                    FeedbackManager.shared.generate(feedback: .success)
+                    self.canUpdateDataset = true
+                    self.messagesCount += 1
+                    self.shouldUpdatePreviousMessage = true
+                    self.runDatasetUpdateTask()
+                })
+            }
+        }
         if showSkeletonObserver.value {
             return
         }
-        var messageText: String = ""
-        var media: [MessageReferenceStorageItem] = []
-        for component in inputBar.inputTextView.components {
-            if let image = component as? UIImage,
-                let refItem = addImage(image.safeResize(to: 1024)){
-                media.append(refItem)
-            } else if let text = component as? String {
-                messageText = text
-            }
-        }
-        let forwarded: [String] = self.attachedMessagesIds.value
         
-        inputBar.inputTextView.text = ""
-        
-        canUpdateDataset = true
-        if let editedMessage = editMessageId.value,
-            editedMessage.isNotEmpty {
-            let primary = editedMessage
-            AccountManager.shared.find(for: self.owner)?.unsafeAction({ (user, stream) in
-                user.messages.editSimpleMessage(messageText, primary: primary)
-                (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
-                        .invalidateLastMessageCachedSize(primary: primary)
-                self.canUpdateDataset = true
-                self.runDatasetUpdateTask()
-            })
-        } else {
-            AccountManager.shared.find(for: self.owner)?.unsafeAction({ (user, stream) in
-                if media.isNotEmpty {
-                    user.messages.sendMediaMessage(media, to: self.jid, forwarded: forwarded, conversationType: self.conversationType)
+        if [.omemo, .axolotl, .omemo1].contains(self.conversationType) {
+            do {
+                let realm = try WRealm.safe()
+                let collection = realm
+                    .objects(SignalDeviceStorageItem.self)
+                    .filter("owner == %@ AND jid == %@ AND state_ == %@", self.owner, self.jid, SignalDeviceStorageItem.TrustState.unknown.rawValue)
+                if collection.isEmpty {
+                    sendMessage(text)
                 } else {
-                    user.messages.sendSimpleMessage(messageText, to: self.jid, forwarded: forwarded, conversationType: self.conversationType)
+                    let items = [
+                        ActionSheetPresenter.Item(destructive: false, title: "Identity verification", value: "identity"),
+                        ActionSheetPresenter.Item(destructive: true, title: "Send anyway", value: "send")
+                    ]
+                    ActionSheetPresenter().present(
+                        in: self,
+                        title: "Untrusted device warning",
+                        message: "The recipient has added a new device for which you haven't yet performed an identity verification. If you send the message right now, it will be possible to decipher the message contents on this new device. It is recommended that you perform an identity verification now.",
+                        cancel: nil,
+                        values: items,
+                        animated: true) { value in
+                            switch value {
+                                case "identity":
+                                    do {
+                                        let realm = try WRealm.safe()
+                                        if let instance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid, owner: self.owner, conversationType: self.conversationType)) {
+                                            try realm.write {
+                                                instance.draftMessage = text
+                                            }
+                                        }
+                                    } catch {
+                                        DDLogDebug("ChatViewController: \(#function)")
+                                    }
+                                    let vc = TrustedDevicesViewController()
+                                    vc.jid = self.jid
+                                    vc.owner = self.owner
+                                    self.navigationController?.pushViewController(vc, animated: true)
+                                case "send":
+                                    sendMessage(text)
+                                default:
+                                    break
+                            }
+                        }
                 }
-                if let primary = self.messagesObserver?.first?.primary {
-                    (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
-                        .invalidateLastMessageCachedSize(primary: primary)
-                }
-                FeedbackManager.shared.generate(feedback: .success)
-                self.canUpdateDataset = true
-                self.messagesCount += 1
-                self.shouldUpdatePreviousMessage = true
-                self.runDatasetUpdateTask()
-            })
+            } catch {
+                DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            }
+        } else {
+            sendMessage(text)
         }
+        
         
         self.clearAttachments()
-    }
-    
-    func onStartRecording(_ inputBar: XabberInputBar) {
-        print(#function)
-        DispatchQueue.main.async {
-            self.showRecordingPanel()
-            self.startRecord()
-        }
-    }
-    
-    func onStopRecording(_ inputBar: XabberInputBar, state: XabberInputBar.RecordButtonState) {
-        print(#function)
-        DispatchQueue.main.async {
-            switch state {
-            case .active:
-                self.recordingPanel.removeFromSuperview()
-                do {
-                    try self.onSendAudioMessage()
-                } catch {
-                    self.deleteRecord()
-                }
-                
-                break
-            case .pinned:
-                self.stopRecord()
-                break
-            case .cancelled:
-                self.deleteRecord()
-            }
-        }
-    }
-    
-    func onSendVoiceMessage(_ inputBar: XabberInputBar) {
-        print(#function)
-        DispatchQueue.main.async {
-            self.willSendAudioMessage()
-            self.xabberInputBar.resetRecordButtonAfterPinned()
-        }
-        self.messagesCount += 1
-        self.runDatasetUpdateTask()
-        self.messagesCollectionView.scrollToTop()
-    }
-    
-    func onPinRecording(_ inputBar: XabberInputBar) {
-        print(#function)
-        DispatchQueue.main.async {
-            self.recordingPanel.changeState(.locked)
-        }
-    }
-    
-    func onRecordButtonDraggetOut(_ inputBar: XabberInputBar, to point: CGPoint) {
-        self.recordingPanel.cancelButtonRightConstant = point.x
-    }
-    
-    func heightDidChange(_ inputBar: XabberInputBar, to height: CGFloat) {
-        UIView.animate(
-            withDuration: 0.2,
-            delay: 0.0,
-            options: [.curveEaseOut]) {
-            self.toolsButton.frame = CGRect(
-                x: self.view.bounds.width - 50,
-                y: self.view.bounds.height - height - 50 - (UIDevice.needBottomOffset ? 32 : 0),
-                width: 36,
-                height: 44)
-        } completion: { (result) in
-            
-        }
     }
 }

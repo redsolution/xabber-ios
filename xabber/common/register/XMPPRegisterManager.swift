@@ -104,7 +104,7 @@ class XMPPRegistrationManager: NSObject {
         self.stream?.myJID = XMPPJID(string: host)
         self.stream?.startTLSPolicy = XMPPStreamStartTLSPolicy.preferred
         self.stream?.keepAliveInterval = 5
-        self.stream?.registrationKey = "ae69770abdqzzzkg"
+        self.stream?.registrationKey = CommonConfigManager.shared.config.server_registration_url
         self.reconnect = XMPPReconnect(dispatchQueue: self.queue)
         self.reconnect?.activate(self.stream!)
         self.reconnect?.addDelegate(self, delegateQueue: self.queue)

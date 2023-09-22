@@ -78,6 +78,8 @@ protocol MessagesDisplayDelegate: AnyObject {
     func initialMessageTitle() -> String?
     
     func initialMessageFooter() -> String?
+    
+    func isBurnedMessage(at indexPath: IndexPath) -> Bool
 }
 
 extension MessagesDisplayDelegate {

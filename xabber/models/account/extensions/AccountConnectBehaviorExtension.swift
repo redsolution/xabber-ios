@@ -40,9 +40,9 @@ extension Account {
     
     func didAuthenticate() {
         registerRegularPushForAccount()
-        DispatchQueue.main.async {
-            ToastPresenter(message: "Stream authenticated").present(animated: true)
-        }
+//        DispatchQueue.main.async {
+//            ToastPresenter(message: "Stream authenticated").present(animated: true)
+//        }
         self.configureBase()
 //        self.queue.asyncAfter(deadline: .now() + 0.5) {
         XMPPUIActionManager.shared.open(owner: self.jid, force: true)
@@ -54,7 +54,7 @@ extension Account {
             }
         } else {
             DispatchQueue.main.async {
-                ToastPresenter(message: "Run sync").present(animated: true)
+                ToastPresenter(message: "Synchronization").present(animated: true)
             }
             self.configureExtensions()
             self.disco.configure(self.xmppStream)

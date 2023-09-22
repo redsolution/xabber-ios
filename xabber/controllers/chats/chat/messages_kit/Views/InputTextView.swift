@@ -33,12 +33,12 @@ final class InputTextView: UITextView {
     
     // MARK: - Properties
     
-    final override var text: String! {
-        didSet {
-            postTextViewDidChangeNotification()
-            placeholderLabel.isHidden = !text.isEmpty
-        }
-    }
+//    final override var text: String! {
+//        didSet {
+//            postTextViewDidChangeNotification()
+//            placeholderLabel.isHidden = !text.isEmpty
+//        }
+//    }
     
     final override var attributedText: NSAttributedString! {
         didSet {
@@ -69,6 +69,17 @@ final class InputTextView: UITextView {
         return label
     }()
     
+    let timerButton: UIButton = {
+        let button = UIButton(frame: CGRect(square: 40))
+        
+        button.setImage(UIImage(systemName: "stopwatch"), for: .normal)
+        button.tintColor = .secondaryLabel
+        button.isEnabled = true
+        button.translatesAutoresizingMaskIntoConstraints = false
+        
+        return button
+    }()
+    
     /// The placeholder text that appears when there is no text. The default value is "New Message"
     final var placeholder: String? = "Message".localizeString(id: "message", arguments: []) {
         didSet {
@@ -84,7 +95,7 @@ final class InputTextView: UITextView {
     }
     
     /// The UIEdgeInsets the placeholderLabel has within the InputTextView
-    final var placeholderLabelInsets: UIEdgeInsets = UIEdgeInsets(top: 4, left: 7, bottom: 4, right: 7) {
+    final var placeholderLabelInsets: UIEdgeInsets = UIEdgeInsets(top: 7, left: 13, bottom: 9, right: 13) {
         didSet {
             updateConstraintsForPlaceholderLabel()
         }
@@ -116,11 +127,9 @@ final class InputTextView: UITextView {
         }
     }
     
-    /// A weak reference to the MessageInputBar that the InputTextView is contained within
-    final var xabberInputBar: XabberInputBar?
-    
     /// The constraints of the placeholderLabel
     private var placeholderLabelConstraintSet: NSLayoutConstraintSet?
+    private var timerButtonConstraintSet: NSLayoutConstraintSet?
     
     // MARK: - Initializers
     
@@ -148,16 +157,17 @@ final class InputTextView: UITextView {
     final func setup() {
         
         font = UIFont.preferredFont(forTextStyle: .body)
-        textContainerInset = UIEdgeInsets(top: 4, left: 4, bottom: 4, right: 4)
+        textContainerInset = UIEdgeInsets(top: 7, left: 8, bottom: 9, right: 13)
         scrollIndicatorInsets = UIEdgeInsets(top: .leastNonzeroMagnitude,
                                              left: .leastNonzeroMagnitude,
                                              bottom: .leastNonzeroMagnitude,
                                              right: .leastNonzeroMagnitude)
         isScrollEnabled = false
-        layer.cornerRadius = 5.0
-        layer.borderWidth = 1.25
-        layer.borderColor = UIColor.lightGray.cgColor
+//        layer.cornerRadius = 5.0
+//        layer.borderWidth = 1.25
+//        layer.borderColor = UIColor.lightGray.cgColor
         allowsEditingTextAttributes = false
+//        setupTimerButton()
         setupPlaceholderLabel()
         setupObservers()
     }
@@ -178,6 +188,27 @@ final class InputTextView: UITextView {
         placeholderLabelConstraintSet?.centerX?.priority = .defaultLow
         placeholderLabelConstraintSet?.centerY?.priority = .defaultLow
         placeholderLabelConstraintSet?.activate()
+    }
+    
+    private func setupTimerButton() {
+        addSubview(timerButton)
+        
+//        timerButton.frame = CGRect(origin: CGPoint(x: self.bounds.width - 44, y: 0), size: CGSize(square: 36))
+        
+        NSLayoutConstraint.activate([
+            timerButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: 0),
+            timerButton.rightAnchor.constraint(equalTo: rightAnchor, constant: -8),
+            timerButton.widthAnchor.constraint(equalToConstant: 36),
+            timerButton.heightAnchor.constraint(equalToConstant: 36)
+        ])
+        
+//        timerButtonConstraintSet = NSLayoutConstraintSet(
+//            bottom: timerButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: 0),
+//            right: timerButton.rightAnchor.constraint(equalTo: rightAnchor, constant: -8),
+//            width: timerButton.widthAnchor.constraint(equalToConstant: 36),
+//            height: timerButton.heightAnchor.constraint(equalToConstant: 36)
+//        )
+//        timerButtonConstraintSet?.activate()
     }
     // swiftlint:enable colon
     
@@ -219,7 +250,7 @@ final class InputTextView: UITextView {
         guard let image = UIPasteboard.general.image else {
             return super.paste(sender)
         }
-        xabberInputBar?.delegate?.imageDidAttach(xabberInputBar!, image: image)
+//        xabberInputBar?.delegate?.imageDidAttach(xabberInputBar!, image: image)
 //        messageInputBar?.delegate?.messageInputBar(attachedImage: image)
 //        pasteImageInTextContainer(with: image)
     }
@@ -353,7 +384,6 @@ final class InputTextView: UITextView {
     /// Redraws the NSTextAttachments in the NSTextContainer to fit the current bounds
     @objc
     private func redrawTextAttachments() {
-        
         guard images.count > 0 else { return }
         let range = NSRange(location: 0, length: attributedText.length)
         attributedText.enumerateAttribute(.attachment, in: range, options: [], using: { value, _, _ -> Void in

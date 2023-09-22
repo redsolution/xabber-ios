@@ -78,6 +78,7 @@ class LastChatsViewController: BaseViewController {
         let isSystemMessage: Bool
         let isPinned: Bool
         let subRequest: Bool
+        let isEncrypted: Bool
         
         static func compareContent(_ a: LastChatsViewController.Datasource, _ b: LastChatsViewController.Datasource) -> Bool {
             return a.jid == b.jid
@@ -100,6 +101,7 @@ class LastChatsViewController: BaseViewController {
                     && a.isSystemMessage == b.isSystemMessage
                     && a.isPinned == b.isPinned
                     && a.subRequest == b.subRequest
+                    && a.isEncrypted == b.isEncrypted
         }
         
     }
@@ -116,10 +118,12 @@ class LastChatsViewController: BaseViewController {
         
         view.register(ChatListTableViewCell.self, forCellReuseIdentifier: ChatListTableViewCell.cellName)
         view.register(ArchivedCell.self, forCellReuseIdentifier: ArchivedCell.cellName)
+        view.register(SkeletonCell.self, forCellReuseIdentifier: SkeletonCell.cellName)
         
         view.tableFooterView = UIView(frame: .zero)
         view.allowsMultipleSelection = false
         view.allowsMultipleSelectionDuringEditing = false
+        view.cellLayoutMarginsFollowReadableWidth = false
         
         return view
     }()
@@ -236,6 +240,8 @@ class LastChatsViewController: BaseViewController {
     
     public var archivedMode: Bool = false
     
+    internal var showSkeleton: BehaviorRelay<Bool> = BehaviorRelay(value: true)
+    
     internal var topAccountJid: String = ""
     
     internal let updateQueue: DispatchQueue = DispatchQueue(label: "com.xabber.background.lastchats", qos: .background)
@@ -311,6 +317,10 @@ class LastChatsViewController: BaseViewController {
             
             datasetBag = DisposeBag()
             
+            self.showSkeleton.asObservable().subscribe { _ in
+                self.runDatasetUpdateTask()
+            }.disposed(by: self.bag)
+            
             Observable
                 .collection(from: chatsObserver!)
                 .debounce(.milliseconds(400), scheduler: MainScheduler.asyncInstance)
@@ -375,7 +385,33 @@ class LastChatsViewController: BaseViewController {
     }
     
     private final func mapDataset() -> [Datasource] {
-        
+        if self.showSkeleton.value {
+            return (0..<(self.chatsObserver?.count ?? 10)).compactMap {
+                return Datasource(
+                    jid: "\($0)",
+                    owner: "",
+                    username: "",
+                    message: "",
+                    date: Date(),
+                    state: nil,
+                    isMute: false,
+                    isSynced: false,
+                    status: .away,
+                    entity: .bot,
+                    conversationType: .axolotl,
+                    unread: 0,
+                    unreadString: nil,
+                    color: .white,
+                    isDraft: false,
+                    hasAttachment: false,
+                    userNickname: nil,
+                    isSystemMessage: false,
+                    isPinned: false,
+                    subRequest: false,
+                    isEncrypted: false
+                )
+            }
+        }
         do {
             let realm = try  WRealm.safe()
             let predicate: NSPredicate
@@ -488,14 +524,15 @@ class LastChatsViewController: BaseViewController {
                     }
                 }
                 
-                var username = item.rosterItem?.displayName ?? item.jid
-                if item.conversationType == .omemo {
-                    username = "🔒 \(username)"
+                var isSystemMessage: Bool = [.system, .initial].contains(item.lastMessage?.displayAs ?? .text)
+                if item.isFreshNotEmptyEncryptedChat {
+                    message = "Write your encrypted messages here"
+                    isSystemMessage = true
                 }
                 return Datasource(
                     jid: item.jid,
                     owner: item.owner,
-                    username: username,
+                    username: item.rosterItem?.displayName ?? item.jid,
                     message: message,
                     date: item.messageDate,
                     state: item.lastMessage?.outgoing ?? true ? item.lastMessage?.state ?? nil : nil,
@@ -510,9 +547,10 @@ class LastChatsViewController: BaseViewController {
                     isDraft: isDraft,
                     hasAttachment: isAttachment,
                     userNickname: nickname,
-                    isSystemMessage: [.system, .initial].contains(item.lastMessage?.displayAs ?? .text),
+                    isSystemMessage: isSystemMessage,
                     isPinned: item.isPinned,
-                    subRequest: (XMPPJID(string: item.jid)?.isServer ?? true) ? false :  subscriptionRequest
+                    subRequest: (XMPPJID(string: item.jid)?.isServer ?? true) ? false :  subscriptionRequest,
+                    isEncrypted: [.omemo, .axolotl, .omemo1].contains(item.conversationType)
                 )
             }
         } catch {
@@ -555,6 +593,11 @@ class LastChatsViewController: BaseViewController {
     
     private final func preprocessDataset() {
         if !canUpdateDataset { return }
+        if showSkeleton.value {
+            self.datasource = self.mapDataset()
+            self.tableView.reloadData()
+            return
+        }
         self.updateQueue.sync {
             self.canUpdateDataset = false
             let newDataset = self.mapDataset()
@@ -649,12 +692,19 @@ class LastChatsViewController: BaseViewController {
             .asObservable()
             .debounce(.milliseconds(250), scheduler: MainScheduler.asyncInstance)
             .subscribe(onNext: { (results) in
-                DispatchQueue.main.async {
-                    self.updateTitle(self.filter.value)
-                    self.unreadAllMessagesButton.isEnabled = AccountManager.shared.connectingUsers.value.isEmpty
-                    UIView.animate(withDuration: 0.1) {
-                        self.unreadAllMessagesButton.backgroundColor = AccountManager.shared.connectingUsers.value.isNotEmpty ? MDCPalette.grey.tint500 : AccountColorManager.shared.topPalette().tint500
+                if results.isNotEmpty {
+                    if !self.showSkeleton.value {
+                        self.showSkeleton.accept(true)
                     }
+                } else {
+                    if self.showSkeleton.value {
+                        self.showSkeleton.accept(false)
+                    }
+                }
+                self.updateTitle(self.filter.value)
+                self.unreadAllMessagesButton.isEnabled = AccountManager.shared.connectingUsers.value.isEmpty
+                UIView.animate(withDuration: 0.1) {
+                    self.unreadAllMessagesButton.backgroundColor = AccountManager.shared.connectingUsers.value.isNotEmpty ? MDCPalette.grey.tint500 : AccountColorManager.shared.topPalette().tint500
                 }
             })
             .disposed(by: bag)

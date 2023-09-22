@@ -183,6 +183,7 @@ class MessageReferenceStorageItem: Object {
         case quote = "quote"
         case groupchat = "groupchat"
         case call = "call"
+        case systemMessage = "system-message"
         case none = ""
     }
     
@@ -210,9 +211,10 @@ class MessageReferenceStorageItem: Object {
     @objc dynamic var isUploaded: Bool = false
     @objc dynamic var isMissed: Bool = false
     @objc dynamic var hasError: Bool = false
+    @objc dynamic var conversationType_: String = ClientSynchronizationManager.ConversationType.regular.rawValue
     
     override static func ignoredProperties() -> [String] {
-        return ["temporaryData", "cachedMetadata", "model"]
+        return ["temporaryData", "cachedMetadata", "model", "conversationType"]
     }
     
     var model: Model?
@@ -224,6 +226,14 @@ class MessageReferenceStorageItem: Object {
             return Kind(rawValue: kind_) ?? .none
         } set {
             kind_ = newValue.rawValue
+        }
+    }
+    
+    var conversationType: ClientSynchronizationManager.ConversationType {
+        get {
+            return ClientSynchronizationManager.ConversationType(rawValue: self.conversationType_) ?? ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
+        } set {
+            self.conversationType_ = newValue.rawValue
         }
     }
     

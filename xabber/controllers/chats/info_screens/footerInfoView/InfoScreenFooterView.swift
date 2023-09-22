@@ -80,9 +80,11 @@ class InfoScreenFooterView: UIView {
     var previousSelectedCellIndex: IndexPath?
     var selectedCell: VoiceMediaCollectionCell?
     
-    public final var canUpdateDataset = true
+    public var canUpdateDataset = true
     var isFirstTimeOpened: Bool = true
     var needsCollectionUpdate: Bool = false
+    
+    public var conversationType: ClientSynchronizationManager.ConversationType = .regular
     
     static let numberOfCells: CGFloat = 3
     static let cellSpacing: CGFloat = 8
@@ -171,32 +173,32 @@ class InfoScreenFooterView: UIView {
     
     let imagesButton: MediaKindButton = {
         let button = MediaKindButton(title: Kind.images.rawValue.localizeString(id: "images", arguments: []))
-        button.setTitleColor(.gray, for: .normal)
-        button.addTarget(self, action: #selector(imagesButtonPressed), for: .touchUpInside)
+        
+        button.setTitleColor(.systemGray, for: .normal)
         
         return button
     }()
     
     let videosButton: MediaKindButton = {
         let button = MediaKindButton(title: Kind.videos.rawValue.localizeString(id: "videos", arguments: []))
-        button.setTitleColor(.gray, for: .normal)
-        button.addTarget(self, action: #selector(videosButtonPressed), for: .touchUpInside)
+        
+        button.setTitleColor(.systemGray, for: .normal)
         
         return button
     }()
     
     let filesButton: MediaKindButton = {
         let button = MediaKindButton(title: Kind.files.rawValue.localizeString(id: "files", arguments: []))
-        button.setTitleColor(.gray, for: .normal)
-        button.addTarget(self, action: #selector(filesButtonPressed), for: .touchUpInside)
+        
+        button.setTitleColor(.systemGray, for: .normal)
         
         return button
     }()
     
     let voiceButton: MediaKindButton = {
         let button = MediaKindButton(title: Kind.voice.rawValue.localizeString(id: "voice", arguments: []))
-        button.setTitleColor(.gray, for: .normal)
-        button.addTarget(self, action: #selector(voiceButtonPressed), for: .touchUpInside)
+        
+        button.setTitleColor(.systemGray, for: .normal)
         
         return button
     }()
@@ -327,6 +329,12 @@ class InfoScreenFooterView: UIView {
         mediaCollectionView.delegate = self
         mediaCollectionView.dataSource = self
         mediaCollectionView.collectionViewLayout = collectionFlowLayout
+        
+        imagesButton.addTarget(self, action: #selector(imagesButtonPressed), for: .touchUpInside)
+        videosButton.addTarget(self, action: #selector(videosButtonPressed), for: .touchUpInside)
+        filesButton.addTarget(self, action: #selector(filesButtonPressed), for: .touchUpInside)
+        voiceButton.addTarget(self, action: #selector(voiceButtonPressed), for: .touchUpInside)
+        
     }
     
     func setCollectionLayout() {
@@ -389,6 +397,8 @@ class InfoScreenFooterView: UIView {
                 .objects(MessageReferenceStorageItem.self)
                 .filter(predicate)
                 .sorted(byKeyPath: "sentDate", ascending: false)
+            needsCollectionUpdate = true
+            self.canUpdateDataset = true
             self.runSourceUpdateTask()
             
             Observable
@@ -400,7 +410,6 @@ class InfoScreenFooterView: UIView {
                 }
                 .disposed(by: bag)
             
-            self.canUpdateDataset = true
         } catch {
             DDLogDebug("InfoScreenFooterView: \(#function). \(error.localizedDescription)")
         }
@@ -411,9 +420,9 @@ class InfoScreenFooterView: UIView {
         
         switch selectedKind {
         case .images:
-            predicate = NSPredicate(format: "jid == %@ AND owner == %@ AND kind_ == %@ AND mimeType == %@ AND hasError == false", self.jid, self.owner, MessageReferenceStorageItem.Kind.media.rawValue, "image")
+                predicate = NSPredicate(format: "jid == %@ AND owner == %@ AND conversationType_ == %@ AND kind_ == %@ AND mimeType == %@ AND hasError == false", self.jid, self.owner, self.conversationType.rawValue, MessageReferenceStorageItem.Kind.media.rawValue, "image")
         case .videos:
-            predicate = NSPredicate(format: "jid == %@ AND owner == %@ AND kind_ == %@ AND mimeType == %@ AND hasError == false", self.jid, self.owner, MessageReferenceStorageItem.Kind.media.rawValue, "video")
+            predicate = NSPredicate(format: "jid == %@ AND owner == %@ AND conversationType_ == %@ AND kind_ == %@ AND mimeType == %@ AND hasError == false", self.jid, self.owner, self.conversationType.rawValue, MessageReferenceStorageItem.Kind.media.rawValue, "video")
         case .files:
             let mimeTypes: [String] = mimeIcon.compactMap ({
                 item -> String? in
@@ -432,9 +441,9 @@ class InfoScreenFooterView: UIView {
                 return nil
             })
 
-            predicate = NSPredicate(format: "jid == %@ AND owner == %@ AND kind_ == %@ AND mimeType IN %@ AND hasError == false", self.jid, self.owner, MessageReferenceStorageItem.Kind.media.rawValue, mimeTypes)
+            predicate = NSPredicate(format: "jid == %@ AND owner == %@ AND conversationType_ == %@ AND kind_ == %@ AND mimeType IN %@ AND hasError == false", self.jid, self.owner, self.conversationType.rawValue, MessageReferenceStorageItem.Kind.media.rawValue, mimeTypes)
         case .voice:
-            predicate = NSPredicate(format: "jid == %@ AND owner == %@ AND kind_ == %@ AND hasError == false", self.jid, self.owner, MessageReferenceStorageItem.Kind.voice.rawValue)
+                predicate = NSPredicate(format: "jid == %@ AND owner == %@ AND conversationType_ == %@ AND kind_ == %@ AND hasError == false", self.jid, self.owner, self.conversationType.rawValue, MessageReferenceStorageItem.Kind.voice.rawValue)
         }
         return predicate
     }
@@ -460,7 +469,7 @@ class InfoScreenFooterView: UIView {
     
     private func preUpdateTask() {
         if !canUpdateDataset { return }
-        self.queue.sync {
+//        self.queue.sync {
             canUpdateDataset = false
             let newDatasource = prepareDatasource()
             let changes = diff(old: self.datasource, new: newDatasource)
@@ -468,15 +477,12 @@ class InfoScreenFooterView: UIView {
             if needsCollectionUpdate {
                 needsCollectionUpdate = false
                 mediaCollectionView.reloadData()
+                return
             }
-            DispatchQueue.main.async {
-                UIView.performWithoutAnimation {
-                    self.apply(changes: indexPaths) {
-                        self.datasource = newDatasource
-                    }
-                }
+            self.apply(changes: indexPaths) {
+                self.datasource = newDatasource
             }
-        }
+//        }
     }
     
     private func prepareDatasource() -> [Datasource] {
@@ -588,29 +594,33 @@ class InfoScreenFooterView: UIView {
         }
         
         self.mediaCollectionView.performBatchUpdates({
-                prepare()
-                if !changes.deletes.isEmpty {
-                    self.mediaCollectionView.deleteItems(at: changes.deletes)
+            prepare()
+            if !changes.deletes.isEmpty {
+                self.mediaCollectionView.deleteItems(at: changes.deletes)
+            }
+            
+            if !changes.inserts.isEmpty {
+                self.mediaCollectionView.insertItems(at: changes.inserts)
+            }
+            
+            if !changes.replaces.isEmpty {
+                self.mediaCollectionView.reloadItems(at: changes.replaces)
+            }
+        
+            if changes.moves.isNotEmpty {
+                changes.moves.forEach {
+                    (from, to) in
+                    self.mediaCollectionView.moveItem(at: from, to: to)
                 }
-                
-                if !changes.inserts.isEmpty {
-                    self.mediaCollectionView.insertItems(at: changes.inserts)
-                }
-                
-                if changes.moves.isNotEmpty {
-                    changes.moves.forEach {
-                        (from, to) in
-                        self.mediaCollectionView.moveItem(at: from, to: to)
-                    }
-                }
-            }, completion: {
-                result in
-                self.canUpdateDataset = true
-                if changes.replaces.isEmpty { return }
-                UIView.performWithoutAnimation {
-                    self.mediaCollectionView.reloadItems(at: changes.replaces)
-                }
-            })
+            }
+        }, completion: {
+            result in
+            self.canUpdateDataset = true
+//            if changes.replaces.isEmpty { return }
+//            UIView.performWithoutAnimation {
+//                self.mediaCollectionView.reloadItems(at: changes.replaces)
+//            }
+        })
     }
     
     

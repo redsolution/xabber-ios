@@ -155,12 +155,12 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
 //    }
     
     func xmppStream(_ sender: XMPPStream, willReceive iq: XMPPIQ) -> XMPPIQ? {
-        print("WILL REC IQ: \(iq.prettyXMLString ?? "")")
+//        print("WILL REC IQ: \(iq.prettyXMLString ?? "")")
         return iq
     }
     
     func xmppStream(_ sender: XMPPStream, didReceive iq: XMPPIQ) -> Bool {
-        print("UI RECV: \(iq.prettyXMLString ?? "")" )
+//        print("UI RECV: \(iq.prettyXMLString ?? "")" )
         switch true {
 //        case (self.sync?.read(withIQ: iq) ?? false): return true
         case (self.mam?.read(stream, withIQ: iq) ?? false):
@@ -184,7 +184,7 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
     }
     
     func xmppStream(_ sender: XMPPStream, didSend iq: XMPPIQ) {
-        print("UI SEND: \(iq.prettyXMLString ?? "")")
+//        print("UI SEND: \(iq.prettyXMLString ?? "")")
     }
     
     func xmppStream(_ sender: XMPPStream, didFailToSend iq: XMPPIQ, error: Error) {
@@ -204,16 +204,15 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
         
         switch message.messageType ?? .chat {
         case .chat:
-            self.chatMarkers?.received(sender, for: message)
-            self.chatMarkers?.receipts(sender, for: message)
             if self.groupchat?.readMessage(withMessage: message) ?? false {
+                return
+            }
+            if self.chatMarkers?.read(withMessage: message) ?? false {
                 return
             }
             if isArchivedMessage(message) {
                 if let bareMessage = getArchivedMessageContainer(message) {
                     if VoIPManager.shared.onReceiveMessage(bareMessage, owner: sender.myJID!.bare, archivedDate: getDeliveryTime(message, owner: sender.myJID!.bare) ?? getDelayedDate(message)) {
-                        return
-                    } else if self.messages?.receiveStateMessage(bareMessage) ?? false {
                         return
                     } else if self.groupchat?.readInvite(in: bareMessage, date: getDelayedDate(message) ?? Date(), isRead: nil) ?? false {
                         return

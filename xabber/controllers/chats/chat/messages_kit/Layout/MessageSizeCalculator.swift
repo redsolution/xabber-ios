@@ -48,7 +48,7 @@ class MessageSizeCalculator: CellSizeCalculator {
 
     var incomingMessagePadding = UIEdgeInsets(top: 0, left: 4, bottom: 0, right: 12)
     var outgoingMessagePadding = UIEdgeInsets(top: 0, left: 12, bottom: 0, right: 4)
-    var inlineMessageMargin = UIEdgeInsets(top: 4, bottom: 4, left: 8, right: 8)
+    var inlineMessageMargin = UIEdgeInsets(top: 4, bottom: 0, left: 4, right: 4)
     var inlineMessagePadding = UIEdgeInsets(top: 4, bottom: 4, left: 0, right: 0)
     
     public var incomingMessageLabelInsets = UIEdgeInsets(top: 6, left: 8, bottom: 20, right: 0)
@@ -245,7 +245,7 @@ class MessageSizeCalculator: CellSizeCalculator {
                     size = labelSize(for: item.attributedBody,
                                      considering: maxWidthInlines)
                     
-                    if size.width < (maxWidthInlines + 54) && size.height < 24  {
+                    if size.width < (maxWidthInlines + 54) && size.height < 25  {
                         size.width += 54
                     } else {
                         size.height += 20

@@ -137,14 +137,22 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
                 case .success(request: let request, streamingFromDisk: let streamingFromDisk, streamFileURL: let streamFileURL):
                     request.responseJSON(queue: nil, options: []) { response in
                         print("ResponseJSON: \(response)")
-                        if response.response?.statusCode == 200 {
+                        if (response.response?.statusCode ?? 404) < 400 {
                             guard let json = response.result.value as? NSDictionary,
                                   let fileUrl = json["file"] as? String,
                                   let name = json["name"] as? String,
                                   let hash = json["hash"] as? String,
                                   let quota = json["quota"] as? Int,
                                   let used = json["used"] as? Int,
-                                  let fileID = json["id"] as? Int else { return }
+                                  let fileID = json["id"] as? Int else {
+                                guard let json = response.result.value as? NSDictionary,
+                                      let statusCode = json["status"] as? Int else {
+                                          errorCallback(response.response?.statusCode)
+                                          return
+                                      }
+                                errorCallback(statusCode)
+                                return
+                            }
                             let thumbnailUrl = json["thumbnail"] as? String
 
                             successCallback(fileUrl, thumbnailUrl, fileID, name, hash, url, quota, used)

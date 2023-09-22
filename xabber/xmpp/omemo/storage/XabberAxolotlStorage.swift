@@ -52,92 +52,97 @@ class XabberAxolotlStorage: NSObject, SignalStore {
         }
     }
     
-    public func create(for deviceId: Int, context: SignalContext) {
-        if CredentialsManager.shared.getDeviceId(for: owner) != nil {
+    public func create(for deviceId: Int, context: SignalContext) throws {
+        let realm = try WRealm.safe()
+        if let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: deviceId)) {
             return
         }
+//        if CredentialsManager.shared.getDeviceId(for: owner) != nil {
+//            return
+//        }
         self.deviceId = deviceId
         CredentialsManager.shared.setRegistrationId(Int(arc4random() % 16380), for: self.owner)
         CredentialsManager.shared.setDeviceId(self.deviceId, for: owner)
         let keyHelper = SignalKeyHelper(context: context)!
-        do {
-            let realm = try WRealm.safe()
-            let instance = SignalIdentityStorageItem()
+//        do {
+//            let realm = try WRealm.safe()
+        let instance = SignalIdentityStorageItem()
+        instance.owner = self.owner
+        instance.jid = self.owner
+        instance.deviceId = self.deviceId
+        instance.primary = SignalIdentityStorageItem.genRpimary(
+            owner: self.owner,
+            jid: self.owner,
+            deviceId: self.deviceId
+        )
+        instance.name = [[UIDevice.modelName, ","].joined(),  "iOS", UIDevice.current.systemVersion].joined(separator: " ")
+        
+//            let sliced_skp = Data(Array<UInt8>(storedSignedPreKey).suffix(32))
+        
+        
+        let preKeys = keyHelper.generatePreKeys(withStartingPreKeyId: 1, count: 100)
+                    
+        let identityKey = keyHelper.generateIdentityKeyPair()!
+        let signedPreKey = keyHelper.generateSignedPreKey(withIdentity: identityKey, signedPreKeyId: 1)!
+        let signature = signedPreKey.signature
+//            let signature = Ed25519.sign((signedPreKey.publicKey(), with: identityKey)
+        
+        instance.identityKey = identityKey.publicKey.base64EncodedString()
+        instance.signedPreKey = signedPreKey.keyPair!.publicKey.base64EncodedString()
+        instance.signedPreKeySignature = signature.base64EncodedString()
+        instance.signedPreKeyId = Int(preKeys.first?.preKeyId ?? arc4random() % 16380)
+        
+        try realm.write {
+            realm.add(instance)
+        }
+        try preKeys.forEach {
+            preKey in
+            if let data = preKey.serializedData() {
+                _ = self.storePreKey(data, preKeyId: preKey.preKeyId)
+            }
+            let instance = SignalPreKeysStorageItem()
             instance.owner = self.owner
             instance.jid = self.owner
-            instance.deviceId = self.deviceId
-            instance.primary = SignalIdentityStorageItem.genRpimary(
-                owner: self.owner,
-                jid: self.owner,
-                deviceId: self.deviceId
-            )
-            instance.name = [[UIDevice.modelName, ","].joined(),  "iOS", UIDevice.current.systemVersion].joined(separator: " ")
-            
-//            let sliced_skp = Data(Array<UInt8>(storedSignedPreKey).suffix(32))
-            
-            
-            let preKeys = keyHelper.generatePreKeys(withStartingPreKeyId: 1, count: 100)
-                        
-            let identityKey = keyHelper.generateIdentityKeyPair()!
-            let signedPreKey = keyHelper.generateSignedPreKey(withIdentity: identityKey, signedPreKeyId: 1)!
-            let signature = signedPreKey.signature
-//            let signature = Ed25519.sign((signedPreKey.publicKey(), with: identityKey)
-            
-            instance.identityKey = identityKey.publicKey.base64EncodedString()
-            instance.signedPreKey = signedPreKey.keyPair!.publicKey.base64EncodedString()
-            instance.signedPreKeySignature = signature.base64EncodedString()
-            instance.signedPreKeyId = Int(preKeys.first?.preKeyId ?? arc4random() % 16380)
-            
+            instance.deviceId = Int(localDeviceId())
+            instance.pkId = Int(preKey.preKeyId)
+            instance.keyUUID = UUID().uuidString
+            instance.primary = SignalPreKeysStorageItem.genPrimary(keyUUID: instance.keyUUID)
+            instance.preKey = preKey.keyPair!.publicKey.base64EncodedString()
             try realm.write {
-                realm.add(instance)
+                realm.add(instance, update: .modified)
             }
-            try preKeys.forEach {
-                preKey in
-                if let data = preKey.serializedData() {
-                    _ = self.storePreKey(data, preKeyId: preKey.preKeyId)
-                }
-                let instance = SignalPreKeysStorageItem()
-                instance.owner = self.owner
-                instance.jid = self.owner
-                instance.deviceId = Int(localDeviceId())
-                instance.pkId = Int(preKey.preKeyId)
-                instance.keyUUID = UUID().uuidString
-                instance.primary = SignalPreKeysStorageItem.genPrimary(keyUUID: instance.keyUUID)
-                instance.preKey = preKey.keyPair!.publicKey.base64EncodedString()
-                try realm.write {
-                    realm.add(instance, update: .modified)
-                }
-            }
-            
-            
-            
-            CredentialsManager.shared.setIdentityKey(
-                for: self.owner,
-                publicKey: identityKey.publicKey,
-                privateKey: identityKey.privateKey
-            )
-            
-            if let data = signedPreKey.serializedData() {
-                _ = self.storeSignedPreKey(data, signedPreKeyId: signedPreKey.preKeyId)
-            }
-            let deviceInstance: SignalDeviceStorageItem = SignalDeviceStorageItem()
-            deviceInstance.name = [[UIDevice.modelName, ","].joined(),  "iOS", UIDevice.current.systemVersion].joined(separator: " ")
-            deviceInstance.owner = self.owner
-            deviceInstance.jid = self.owner
-            deviceInstance.deviceId = deviceId
-            deviceInstance.state = .trusted
-            deviceInstance.freshlyUpdated = true
-            deviceInstance.primary = SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: deviceId)
-            try realm.write {
-                realm.add(deviceInstance)
-            }
-            
-            realm.refresh()
+        }
+        
+        
+        
+        CredentialsManager.shared.setIdentityKey(
+            for: self.owner,
+            publicKey: identityKey.publicKey,
+            privateKey: identityKey.privateKey
+        )
+        
+        if let data = signedPreKey.serializedData() {
+            _ = self.storeSignedPreKey(data, signedPreKeyId: signedPreKey.preKeyId)
+        }
+        let deviceInstance: SignalDeviceStorageItem = SignalDeviceStorageItem()
+        deviceInstance.name = [[UIDevice.modelName, ","].joined(),  "iOS", UIDevice.current.systemVersion].joined(separator: " ")
+        deviceInstance.owner = self.owner
+        deviceInstance.jid = self.owner
+        deviceInstance.deviceId = deviceId
+        deviceInstance.state = .trusted
+        deviceInstance.freshlyUpdated = true
+        deviceInstance.fingerprint = identityKey.publicKey.formattedFingerprint()
+        deviceInstance.primary = SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: deviceId)
+        try realm.write {
+            realm.add(deviceInstance)
+        }
+        
+        realm.refresh()
             
     //        deviceInstance.fingerprint = Data(identityKey.publicKey.serialize()).formattedFingerprint()
-        } catch {
-            DDLogDebug("XabberAxolotlStorage: \(#function). \(error.localizedDescription)")
-        }
+//        } catch {
+//            DDLogDebug("XabberAxolotlStorage: \(#function). \(error.localizedDescription)")
+//        }
     }
     
     func localDeviceId() -> Int {
@@ -272,7 +277,12 @@ class SessionRecordStorageItem: Object {
 extension XabberAxolotlStorage: SignalPreKeyStore {
     
     func loadPreKey(withId preKeyId: UInt32) -> Data? {
-        return CredentialsManager.shared.getPreKey(for: self.owner, id: Int(preKeyId))
+        guard let preKey = CredentialsManager.shared.getPreKey(for: self.owner, id: Int(preKeyId)) else {
+            print(preKeyId)
+            return nil
+            
+        }
+        return preKey
     }
     
     func storePreKey(_ preKey: Data, preKeyId: UInt32) -> Bool {
@@ -285,7 +295,7 @@ extension XabberAxolotlStorage: SignalPreKeyStore {
     }
     
     func deletePreKey(withId preKeyId: UInt32) -> Bool {
-        CredentialsManager.shared.removePreKey(for: self.owner, id: Int(preKeyId))
+//        CredentialsManager.shared.removePreKey(for: self.owner, id: Int(preKeyId))
         return true
     }
     

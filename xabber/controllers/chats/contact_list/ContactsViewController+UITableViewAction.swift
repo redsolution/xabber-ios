@@ -51,7 +51,7 @@ extension ContactsViewController {
             
 
             let vc = ContactInfoViewController()
-            vc.conversationType = .regular
+            vc.conversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
             
             vc.owner = item.owner
             vc.jid = item.jid!

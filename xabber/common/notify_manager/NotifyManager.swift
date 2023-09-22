@@ -917,7 +917,7 @@ class NotifyManager {
         }
         
         var entity: RosterItemEntity = isGroupchat ? (isIncognito ? .incognitoChat : .groupchat) : RosterItemEntity.contact
-        var conversationType: ClientSynchronizationManager.ConversationType = .regular
+        var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
         if let invite_kind = userInfo["invite_kind"] as? String {
             switch invite_kind {
             case "group":

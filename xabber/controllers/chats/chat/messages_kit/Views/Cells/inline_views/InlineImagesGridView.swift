@@ -121,7 +121,6 @@ class InlineImagesGridView: InlineMediaBaseView {
         self.messageId = messageId
         subviews.forEach { $0.removeFromSuperview() }
         let urls = references
-//            .filter({ $0.mimeType == MimeIconTypes.image.rawValue })
             .compactMap { return $0.metadata?["uri"] as? String }
             .compactMap { return URL(string: $0) }
         prepareGrid(references).enumerated().forEach {
@@ -146,21 +145,6 @@ class InlineImagesGridView: InlineMediaBaseView {
                     activateErrorImage(on: imageView)
                     return
                 }
-                
-//                let resource = ImageResource(downloadURL: urls[index])
-//
-//                ImageCache.default.retrieveImage(forKey: resource.cacheKey) { result in
-//                    switch result {
-//                    case .success(let value):
-//                        imageView.image = value.image
-//                        imageView.stopAnimating()
-//                    case .failure(_):
-//                        errorImageView.image = #imageLiteral(resourceName: "badge-blocked").withRenderingMode(.alwaysTemplate)
-//                        activateErrorImage(on: imageView)
-//                        imageView.stopAnimating()
-//                    }
-//                }
-                
                 if let refItem = references[index].metadata,
                    let keyb64 = refItem["encryption-key"] as? String,
                    let ivb64 = refItem["iv"] as? String {

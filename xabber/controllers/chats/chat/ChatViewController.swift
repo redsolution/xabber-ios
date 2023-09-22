@@ -95,6 +95,8 @@ class ChatViewController: MessagesViewController {
         var state: MessageStorageItem.MessageSendingState
         var searchString: String?
         var errorMetadata: [String: Any]? = nil
+        var burnDate: Double
+        var afterburnInterval: Double
         
         static func compareContent(_ a: ChatViewController.Datasource, _ b: ChatViewController.Datasource) -> Bool {
             return a.primary == b.primary &&
@@ -107,6 +109,7 @@ class ChatViewController: MessagesViewController {
                 a.withAuthor == b.withAuthor &&
                 a.isDownloaded == b.isDownloaded &&
                 a.searchString == b.searchString &&
+                a.burnDate == b.burnDate &&
                 ChatViewController.Datasource.iconForMetadata(for: a.errorMetadata) == ChatViewController.Datasource.iconForMetadata(for: b.errorMetadata)
         }
         
@@ -153,7 +156,7 @@ class ChatViewController: MessagesViewController {
     }
     
     
-    public var conversationType: ClientSynchronizationManager.ConversationType = .regular
+    public var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
     public var entity: RosterItemEntity = .contact
     public var groupchatDescr: String = ""
     
@@ -220,8 +223,8 @@ class ChatViewController: MessagesViewController {
     var forwardedIds: BehaviorRelay<Set<String>> = BehaviorRelay(value: Set<String>())
     var attachedMessagesIds: BehaviorRelay<[String]> = BehaviorRelay(value: [])
     
-//    var draftMessageText: BehaviorRelay<String?> = BehaviorRelay<String?>(value: nil)
-    var previousDraftMessageText: String? = nil
+    var draftMessageText: BehaviorRelay<String?> = BehaviorRelay<String?>(value: nil)
+//    var previousDraftMessageText: String? = nil
     var inTypingMode: BehaviorRelay<Bool?> = BehaviorRelay(value: nil)
     
     var showMyNickname: Bool = false
@@ -235,7 +238,7 @@ class ChatViewController: MessagesViewController {
     
     var toolsButtonStateObserver: BehaviorRelay<ToolsButton.ToolsState> = BehaviorRelay(value: .hidden)
     
-    var topMenuShowObserver: BehaviorRelay<Bool> = BehaviorRelay(value: false)
+//    var topMenuShowObserver: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     var searchTextObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)
     var searchTextBouncerObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)
     
@@ -264,6 +267,8 @@ class ChatViewController: MessagesViewController {
     var appInBackground: Bool = false
     
     var lastReadMessageId: String? = nil
+    
+    var selectedAfterburnId: Int = 0
     
     internal let skeletonMessages: [NSAttributedString] = {
         return (0..<30).compactMap {
@@ -339,14 +344,14 @@ class ChatViewController: MessagesViewController {
         return label
     }()
     
-    var navbarBackgroundBar: UITabBar = {
-        let bar = UITabBar()
-        
-        bar.barStyle = .default
-        bar.backgroundImage = nil
-        
-        return bar
-    }()
+//    var navbarBackgroundBar: UITabBar = {
+//        let bar = UITabBar()
+//
+//        bar.barStyle = .default
+//        bar.backgroundImage = nil
+//
+//        return bar
+//    }()
     
     var pinMessageView: PinMessageView = {
         let view = PinMessageView(frame: .zero)
@@ -364,14 +369,14 @@ class ChatViewController: MessagesViewController {
         return bar
     }()
     
-    var topMenuPanelBar: UITabBar = {
-        let bar = UITabBar()
-        
-        bar.barStyle = .default
-        bar.backgroundImage = nil
-        
-        return bar
-    }()
+//    var topMenuPanelBar: UITabBar = {
+//        let bar = UITabBar()
+//
+//        bar.barStyle = .default
+//        bar.backgroundImage = nil
+//
+//        return bar
+//    }()
     
     var bottomSearchBar: SearchBar = {
         let bar = SearchBar()
@@ -406,34 +411,31 @@ class ChatViewController: MessagesViewController {
         return view
     }()
     
-    internal let messagesPanel: MessagesPanel = {
-        let view = MessagesPanel(frame: .zero)
-        
-        return view
-    }()
-    
-    internal let selectionPanel: SelectionPanel = {
-        let view = SelectionPanel(frame: .zero)
-        
-        return view
-    }()
-    
-    internal let timeSignatureBlockingPanel: TimeSignatureBlockingPanel = {
-        let view = TimeSignatureBlockingPanel(frame: .zero)
-        
-        return view
-    }()
-    
-    internal let trustedDevicesBlockingPanel: TrustedDevicesBlockingPanel = {
-        let view = TrustedDevicesBlockingPanel(frame: .zero)
-        
-        return view
-    }()
-    
     internal let toolsButton: ToolsButton = {
         let button = ToolsButton(frame: CGRect(square: 36))
         
         return button
+    }()
+    
+    let cancelSelectionBarButton: UIBarButtonItem = {
+        let button = UIBarButtonItem(barButtonSystemItem: .cancel, target: nil, action: nil)
+        
+        return button
+    }()
+    
+    
+    let deleteSelectionBarButton: UIBarButtonItem = {
+        let button = UIBarButtonItem(title: "Clear chat", style: .done, target: nil, action: nil)
+        
+        return button
+    }()
+    
+    let selectionCountLabel: UILabel = {
+        let label = UILabel()
+        
+        label.font = UIFont.systemFont(ofSize: 17, weight: .regular)
+        
+        return label
     }()
     
     internal var searchBar: UISearchBar = {
@@ -451,6 +453,8 @@ class ChatViewController: MessagesViewController {
         return button
     }()
     
+    internal var xabberInputView: ModernXabberInputView!
+    
     @objc
     internal func showInfo() {
         let vc: BaseViewController
@@ -465,7 +469,7 @@ class ChatViewController: MessagesViewController {
         vc.owner = self.owner
         vc.jid = self.jid
         self.title = " "
-        self.topMenuShowObserver.accept(false)
+//        self.topMenuShowObserver.accept(false)
         self.navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
         self.navigationController?.navigationBar.shadowImage = UIImage()
         self.navigationController?.navigationBar.layoutIfNeeded()
@@ -479,55 +483,34 @@ class ChatViewController: MessagesViewController {
         self.attachedMessagesIds.accept([])
         self.editMessageId.accept(nil)
     }
-
-    internal func configureNavbarBackgroundBar() {
-//        navbarBackgroundBar.frame = CGRect(x: 0, y: 0, width: view.frame.width, height: 64)
-//        view.addSubview(navbarBackgroundBar)
-    }
     
     internal func configureMessagesPanel() {
-        messagesPanel.onCloseCallback = onMessagesPanelClose
-        messagesPanel.onMiddleContentTouchCallback = onMessagesPanelMiddleContentTouch
+        self.xabberInputView.forwardPanel.delegate = self
     }
     
     internal func configureSelectionPanel() {
-        selectionPanel.delegate = self
+        self.xabberInputView.selectionPanel.delegate = self
+        self.cancelSelectionBarButton.target = self
+        self.cancelSelectionBarButton.action = #selector(onCancelSelection)
+        self.deleteSelectionBarButton.target = self
+        self.deleteSelectionBarButton.action = #selector(onDeleteMessagesButtonTouchDown)
     }
-    
-    internal func configureTimeSignatureBlockingPanel() {
-        timeSignatureBlockingPanel.delegate = self
-    }
-    
-    internal func configureTrustedDevicesBlockingPanel() {
-        trustedDevicesBlockingPanel.delegate = self
-    }
-    
+        
     internal func configureRecordingPanel() {
         recordingPanel.cancelCallback = onCancelRecord
         recordingPanel.deleteCallback = onDeleteRecord
         recordingPanel.onPlayCallback = onRecordingPanelWillPlay
         recordingPanel.onPauseCallback = onRecordingPanelWillPause
         recordingPanel.onEndPlayingCallback = onRecordingPanelWillEnd
-        switch AVAudioSession.sharedInstance().recordPermission {
-        case .denied:
-            DispatchQueue.main.async {
-                self.xabberInputBar.recordButton.isEnabled = false
-            }
-        case .granted:
-            DispatchQueue.main.async {
-                self.xabberInputBar.recordButton.isEnabled = true
-            }
-        default: break
-        }
     }
     
     func configurePinMessagePanel() {
-        pinMessageBar.addSubview(pinMessageView)
+//        pinMessageBar.addSubview(pinMessageView)
         pinMessageView.fillSuperview()
         pinMessageView.frame = CGRect(x: 0, y: 0, width: view.frame.width, height: 64)
         pinMessageBar.frame = CGRect(x: 0, y: 0, width: view.frame.width, height: 64)
         self.pinMessageBar.alpha = 0
-        view.addSubview(pinMessageBar)
+//        view.addSubview(pinMessageBar)
     }
     
     func configureSubscribtionPanel() {
@@ -535,7 +518,7 @@ class ChatViewController: MessagesViewController {
         subscribtionBarView.fillSuperview()
         self.subscribtionBarView.isHidden = true
         subscribtionBar.frame = CGRect(x: 0, y: 0, width: view.frame.width, height: 64)
-        view.addSubview(subscribtionBar)
+//        view.addSubview(subscribtionBar)
         
         subscribtionBar.isHidden = true
     }
@@ -565,7 +548,7 @@ class ChatViewController: MessagesViewController {
         self.navigationItem.titleView = titleButton
         
         self.titleButton.frame = CGRect(width: self.view.frame.width - 64, height: 40)
-        self.xabberInputBar.becomeFirstResponder()
+//        self.xabberInputBar.becomeFirstResponder()
     }
     
     override var disablesAutomaticKeyboardDismissal: Bool {
@@ -594,7 +577,6 @@ class ChatViewController: MessagesViewController {
         self.titleButton.addSubview(titleStack)
         self.titleStack.fillSuperview()
         self.titleButton.bringSubviewToFront(titleStack)
-        self.xabberInputBar.delegate = self
         
         self.messagesCollectionView.scrollsToTop = false
         self.scrollsToBottomOnKeybordBeginsEditing = false
@@ -657,14 +639,24 @@ class ChatViewController: MessagesViewController {
             height: 44
         )
         
+        var inputHeight: CGFloat = 49
+        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
+            inputHeight += bottomInset
+        }
+        
+        let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
+        self.xabberInputView = ModernXabberInputView(frame: frame)
+        self.xabberInputView.delegate = self
+        self.view.addSubview(xabberInputView)
+        self.view.bringSubviewToFront(xabberInputView)
+        self.messagesCollectionView.keyboardDismissMode = .interactive
+        self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 100, right: 0)
+        
         userBarButton.configure(owner: owner, jid: jid)
-        configureNavbarBackgroundBar()
         configureSubscribtionPanel()
         configurePinMessagePanel()
         configureRecordingPanel()
         configureSelectionPanel()
-        configureTimeSignatureBlockingPanel()
-        configureTrustedDevicesBlockingPanel()
         configureMessagesPanel()
         configureCertificateUpdateTimer()
         
@@ -686,6 +678,8 @@ class ChatViewController: MessagesViewController {
                 })
             }
         }
+        
+        
     }
         
     private func unsubscribe() {
@@ -708,6 +702,29 @@ class ChatViewController: MessagesViewController {
             object: UIApplication.shared
         )
         NotificationCenter.default.addObserver(self, selector: #selector(self.didReceiveEndOfFixHistoryTask), name: XMPPBackgroundTask.endFixHistoryTask, object: nil)
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(reloadDatasource),
+                                               name: .newMaskSelected,
+                                               object: nil)
+        
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(self.keyboardWillShowNotification(_:)),
+            name: UIWindow.keyboardWillShowNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(self.keyboardWillHideNotification(_:)),
+            name: UIWindow.keyboardWillHideNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(self.keyboardWillChangeFrameNotification(_:)),
+            name: UIWindow.keyboardWillChangeFrameNotification,
+            object: nil
+        )
     }
     
     @objc
@@ -778,16 +795,16 @@ class ChatViewController: MessagesViewController {
             } else {
                 opponentSender = Sender(id: jid, displayName: jid)
             }
-            if let lastChat = realm.object(
-                ofType: LastChatsStorageItem.self,
-                forPrimaryKey: LastChatsStorageItem.genPrimary(
-                    jid: self.jid,
-                    owner: self.owner,
-                    conversationType: self.conversationType
-                )
-            ) {
-                self.previousDraftMessageText = lastChat.draftMessage
-            }            
+//            if let lastChat = realm.object(
+//                ofType: LastChatsStorageItem.self,
+//                forPrimaryKey: LastChatsStorageItem.genPrimary(
+//                    jid: self.jid,
+//                    owner: self.owner,
+//                    conversationType: self.conversationType
+//                )
+//            ) {
+//                self.previousDraftMessageText = lastChat.draftMessage
+//            }            
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
@@ -823,10 +840,9 @@ class ChatViewController: MessagesViewController {
         userBarButton.gradient.colors = [UIColor.white.cgColor,
                                          AccountColorManager.shared.palette(for: self.owner).tint700.cgColor]
         
-        NotificationCenter.default.addObserver(self,
-                                               selector: #selector(reloadDatasource),
-                                               name: .newMaskSelected,
-                                               object: nil)
+        
+        
+        
     }
     
     override func reloadDatasource() {
@@ -835,31 +851,31 @@ class ChatViewController: MessagesViewController {
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        try? self.subscribe()
-        self.xabberInputBar.isHidden = false
-        self.xabberInputBar.sendButton.tintColor = self.accountPallete.tint600
-        
         do {
+            try self.subscribe()
+            self.addObservers()
             let realm = try WRealm.safe()
-            self.showSkeletonObserver.accept(!(realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid, owner: self.owner, conversationType: self.conversationType))?.isSynced ?? true))
-            self.isSkeletonHided = !self.showSkeletonObserver.value
-        } catch {
-            
-        }
-        
-        DispatchQueue.main.async {
-            self.messageCollectionViewTopInset = self.requiredInitialScrollViewBottomInset()
-            self.navbarBackgroundBar.frame = CGRect(x: 0, y: 0, width: self.view.frame.width, height: 64)
-        }
-        
-        self.initializeDataset()
-        
-        if [.omemo, .omemo1, .axolotl].contains(conversationType) {
-            self.startWatchingSignatureTimer()
-            if SignatureManager.shared.certificate != nil {
-                self.onUpdateTimeSignatureBlockState(!SignatureManager.shared.isSignatureValid())
+            let chat = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid, owner: self.owner, conversationType: self.conversationType))
+            if [.omemo, .omemo1, .axolotl].contains(self.conversationType) {
+                self.xabberInputView.timerButton.isHidden = false
+                self.xabberInputView.timerButton.isEnabled = true
+                self.xabberInputView.shouldHideTimer = false
+            } else {
+                self.xabberInputView.shouldHideTimer = true
+                self.xabberInputView.timerButton.isHidden = true
+                self.xabberInputView.timerButton.isEnabled = false
             }
-            do {
+            self.xabberInputView.textField.text = chat?.draftMessage
+            self.xabberInputView.textViewDidChange()
+            self.showSkeletonObserver.accept(!(chat?.isSynced ?? true))
+            self.isSkeletonHided = !self.showSkeletonObserver.value
+            self.initializeDataset()
+            
+            if [.omemo, .omemo1, .axolotl].contains(conversationType) {
+                self.startWatchingSignatureTimer()
+                if SignatureManager.shared.certificate != nil {
+                    self.onUpdateTimeSignatureBlockState(!SignatureManager.shared.isSignatureValid())
+                }
                 let realm = try Realm()
                 if realm.objects(SignalDeviceStorageItem.self)
                     .filter("owner == %@ AND jid == %@ AND state_ == %@", self.owner, self.jid, SignalDeviceStorageItem.TrustState.trusted.rawValue)
@@ -875,27 +891,24 @@ class ChatViewController: MessagesViewController {
                         .count > 0 {
                     self.onUpdateTrustedDevicesBlockState(true)
                 }
-            } catch {
-                DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
             }
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
         AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-            user.chatMarkers.forceReadChat(stream, for: self.jid, conversationType: self.conversationType)
+            user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
         })
     }
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        
+        self.lowPrioritySubscribtions()
         self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
         self.navigationController?.navigationBar.shadowImage = nil
         self.navigationController?.navigationBar.superview?.bringSubviewToFront(self.navigationController!.navigationBar)
         self.navigationController?.navigationBar.layoutIfNeeded()
         
         self.canLoadPage = true
-        
-        self.lowPrioritySubscribtions()
-        
         self.messagesCollectionView.indexPathsForVisibleItems.forEach {
             if (self.messagesObserver?.count ?? 0) <= $0.section { return }
             self.messagesObserver?[$0.section].references.forEach { item in
@@ -942,8 +955,16 @@ class ChatViewController: MessagesViewController {
                 userInfo: nil,
                 repeats: true
             )
+//            self.xabberInputView.timerButton.isHidden = false
+//            self.xabberInputView.timerButton.isEnabled = true
+//            self.xabberInputView.shouldHideTimer = false
             RunLoop.main.add(self.omemoDeviceListTimer!, forMode: .default)
+        } else {
+//            self.xabberInputView.shouldHideTimer = true
+//            self.xabberInputView.timerButton.isHidden = true
+//            self.xabberInputView.timerButton.isEnabled = false
         }
+        self.xabberInputView.update(screenHeight: self.view.bounds.height, keyboardHeight: 0)
     }
     
     @objc
@@ -955,20 +976,15 @@ class ChatViewController: MessagesViewController {
     
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        if #available(iOS 14.0, *) {
-            navigationItem.backButtonDisplayMode = .minimal
-        }
+        self.navigationItem.backButtonDisplayMode = .minimal
         self.navigationItem.backButtonTitle = self.titleLabel.text
-        self.deleteRecord()
+//        self.deleteRecord()
         omemoDeviceListTimer?.invalidate()
         omemoDeviceListTimer = nil
 
         AccountManager.shared.find(for: owner)?.mam.allowHistoryFixTask = false
-        
-        self.xabberInputBar.endEditing(true)
-        
-        self.topMenuShowObserver.accept(false)
-//        self.xabberInputBar.isHidden = true
+                
+//        self.topMenuShowObserver.accept(false)
         
         do {
             let realm = try WRealm.safe()
@@ -983,7 +999,7 @@ class ChatViewController: MessagesViewController {
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         
-        self.topMenuShowObserver.accept(false)
+//        self.topMenuShowObserver.accept(false)
         unsubscribe()
         XMPPUIActionManager.shared.mam?.endLoadHistory(jid: self.jid, conversationType: conversationType)
         AccountManager.shared.find(for: self.owner)?.mam.endLoadHistory(jid: self.jid, conversationType: conversationType)
@@ -1054,10 +1070,8 @@ class ChatViewController: MessagesViewController {
     deinit {
         self.unsubscribe()
         self.removeObservers()
-        removeKeyboardObservers()
-        removeMenuControllerObservers()
-        removeObservers()
-        clearMemoryCache()
+        self.removeObservers()
+        self.clearMemoryCache()
     }
 }
 
@@ -1068,18 +1082,18 @@ protocol TappedPhotoInMediaGalleryDelegate {
 }
 
 extension ChatViewController: TappedPhotoInMediaGalleryDelegate {
+    
+    func showInputBar() {
+        
+    }
+    
     func didTapPhotoFromChat(primary: String) {
         scrollToMessage(primary: primary)
-        showInputBar()
     }
     
     func didTapPhotoFromGallery(primary: String) {
         scrollToMessage(primary: primary)
-        showInputBar()
         navigationController?.popViewController(animated: true)
     }
     
-    func showInputBar() {
-        xabberInputBar.isHidden = false
-    }
 }

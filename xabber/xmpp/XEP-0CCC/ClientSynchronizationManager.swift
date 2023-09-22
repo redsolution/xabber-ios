@@ -420,19 +420,22 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             })
         }
         let conversationsItems = updateOmemoMessages(query).elements(forName: "conversation")
-        DispatchQueue.main.async {
-            ToastPresenter(message: "Sync element count: \(conversationsItems.count)").present(animated: true)
-        }
+//        DispatchQueue.main.async {
+//            ToastPresenter(message: "Sync element count: \(conversationsItems.count)").present(animated: true)
+//        }
         RunLoop.main.perform {
             do {
                 let realm = try  WRealm.safe()
                 
-                
+                var accountCreateDate: Date? = nil
+                if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: self.owner) {
+                    accountCreateDate = instance.createdAt
+                }
                 
                 realm.writeAsync {
                     conversationsItems.forEach { self.readInvites($0) }
                     
-                    AccountManager.shared.find(for: self.owner)?.messages.processQueue(Set(conversationsItems.compactMap { self.readConversation($0) })) {
+                    AccountManager.shared.find(for: self.owner)?.messages.processQueue(Set(conversationsItems.compactMap { self.readConversation($0, accountCreateDate: accountCreateDate) })) {
                         if let results = $0 {
                             AccountManager.shared.find(for: self.owner)?.messages.unsafeSave(results)
                         }
@@ -549,7 +552,9 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                             MessageStorageItem.MessageSendingState.deliver.rawValue,
                             displayedMessageDate,
                             conversationType.rawValue)
-                    .forEach { $0.state = .read}
+                    .forEach {
+                        $0.state = .read
+                    }
             }
             
         } catch {
@@ -574,13 +579,13 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         
     }
     
-    internal func readConversation(_ conversation: DDXMLElement) -> MessageManager.MessageQueueItem? {
+    internal func readConversation(_ conversation: DDXMLElement, accountCreateDate: Date? = nil) -> MessageManager.MessageQueueItem? {
         guard let jid = conversation.attributeStringValue(forName: "jid"),
                   jid.isNotEmpty else {
                       return nil
             }
 
-        let stamp = conversation.attributeStringValue(forName: "stamp") ?? "0"
+        let stamp = conversation.attributeDoubleValue(forName: "stamp")
         let metadata = conversation
             .elements(forName: "metadata")
             .first(where: { $0.attributeStringValue(forName: "node") == "https://xabber.com/protocol/synchronization" }) ?? DDXMLElement(name: "metadata")
@@ -722,9 +727,15 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             } else if conversationStatus == "active" {
                 instance.isArchived = false
             }
-
-            let timestamp = conversation.attributeDoubleValue(forName: "stamp")
-            let conversationDate = Date(timeIntervalSince1970: timestamp / 1000000)
+            
+            var timestamp = stamp
+            var conversationDate = Date(timeIntervalSince1970: timestamp / 1000000)
+            if let messageElement = metadata.element(forName: "last-message")?.element(forName: "message") {
+                if let date = messageElement.element(forName: "time")?.attributeStringValue(forName: "stamp")?.xmppDate {
+                    conversationDate = date
+                    timestamp = date.timeIntervalSince1970
+                }
+            }
             if instance.messageDate.compare(conversationDate) == .orderedAscending {
                 instance.messageDate = conversationDate
             }
@@ -810,22 +821,33 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             if let messageElement = metadata.element(forName: "last-message")?.element(forName: "message") {
                 if let date = getDeliveryDate(XMPPMessage(from: messageElement)) {
                     instance.messageDate = date
+                    if [.omemo, .axolotl, .omemo1].contains(conversationType), let accountCreateDate = accountCreateDate {
+                        if date.timeIntervalSince1970 < accountCreateDate.timeIntervalSince1970 {
+                            instance.isFreshNotEmptyEncryptedChat = true
+                            instance.isSynced = false
+                            return nil
+                        }
+                    }
                 }
+                
                 if VoIPManager.shared.onReceiveMessage(messageElement, owner: self.owner, archivedDate: Date(timeIntervalSince1970: timestamp / 1000000), commitTransaction: false) {
                     return nil
                 }
                 if ((AccountManager.shared.find(for: self.owner)?.groupchats.readMessage(withMessage: messageElement as! XMPPMessage, commitTransaction: false)) ?? false) {
                     return nil
                 }
+                let stanzaId = getStanzaId(XMPPMessage(from: messageElement), owner: self.owner)
                 var state: MessageStorageItem.MessageSendingState = .sended
-                if instance.deliveredId == stamp {
+                if instance.deliveredId == stanzaId {
                     state = .deliver
-                } else if instance.displayedId == stamp {
-                    state = .read
-                } else if let lastUnread = unreadAfterTS,
-                    round(lastUnread / 1000000) >= round(timestamp / 1000000) {
+                } else if instance.displayedId == stanzaId {
                     state = .read
                 }
+                let readDate = state == .read ? nil : Date(timeIntervalSince1970: stamp / 1000000)
+//                else if let lastUnread = unreadAfterTS,
+//                    round(lastUnread / 1000000) >= round(timestamp / 1000000) {
+//                    state = .read
+//                }
                 
                 if !(AccountManager
                         .shared
@@ -841,9 +863,16 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                     }
 //                    let modifiedMessageStanza = AccountManager.shared.find(for: owner)?.omemo.modifyOmemoStanza(message: messageStanza)
 //                    if let modifiedMessageStanza = modifiedMessageStanza {
-                        if instance.lastMessageId != getUniqueMessageId(messageStanza, owner: self.owner) {
-                            instance.isSynced = false
-                        }
+                    if instance.lastMessageId != getUniqueMessageId(messageStanza, owner: self.owner) {
+                        instance.isSynced = false
+                    }
+                    
+//                    if [.omemo, .omemo1, .axolotl].contains(instance.conversationType) {
+//
+//                        AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, stream in
+//                            user.mam.getLastMessage(stream, jid: instance.jid, conversationType: instance.conversationType)
+//                        })
+//                    }
                         return AccountManager
                             .shared
                             .find(for: owner)?
@@ -852,7 +881,8 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                                                   groupchatUserCard: userCard,
                                                   isRead: instance.unread == 0,
                                                   state: state,
-                                                  date: Date(timeIntervalSince1970: timestamp / 1000000))
+                                                  date: Date(timeIntervalSince1970: timestamp / 1000000),
+                                                  readDate: readDate)
 //                    }
                 }
             } else {

@@ -416,12 +416,6 @@ class XMPPDeviceManager: AbstractXMPPManager {
             return false
         }
         
-        
-    
-        let omemoDeviceId = Int(arc4random() % 16380)
-        AccountManager.shared.find(for: self.owner)?.delayedAction(delay: 1, toExecute: { user, stream in
-            user.omemo.configureLocal(for: omemoDeviceId)
-        })
         self.deviceId = deviceId
         
         CredentialsManager.shared.setItem(for: owner, secret: secret)
@@ -439,7 +433,9 @@ class XMPPDeviceManager: AbstractXMPPManager {
             authDate: Date().timeIntervalSince1970,
             descr: descr
         )
-        instance.omemoDeviceId = omemoDeviceId
+        if let omemoDeviceId = CredentialsManager.shared.getDeviceId(for: self.owner) {
+            instance.omemoDeviceId = omemoDeviceId
+        }
         do {
             let realm = try WRealm.safe()
             try realm.write {

@@ -45,9 +45,9 @@ extension Account: XMPPStreamDelegate {
         }
         delayedConnectTimer?.invalidate()
         delayedConnectTimer = nil
-        DispatchQueue.main.async {
-            ToastPresenter(message: "Stream connected").present(animated: true)
-        }
+//        DispatchQueue.main.async {
+//            ToastPresenter(message: "Stream connected").present(animated: true)
+//        }
         let creditionalsItem = CredentialsManager.shared.getItem(for: self.jid)
         switch creditionalsItem.kind {
         case .password:
@@ -105,35 +105,35 @@ extension Account: XMPPStreamDelegate {
                     invalidate()
                 }
                 do {
-                    DispatchQueue.main.async {
-                        ToastPresenter(message: "Stream try get secret").present(animated: true)
-                    }
+//                    DispatchQueue.main.async {
+//                        ToastPresenter(message: "Stream try get secret").present(animated: true)
+//                    }
                     if let secret = item.creditionalString {
                         creditionalsItem.incrementCounter()
                         let counter = creditionalsItem.counter
-                        DispatchQueue.main.async {
-                            ToastPresenter(message: "Stream increment counter").present(animated: true)
-                        }
+//                        DispatchQueue.main.async {
+//                            ToastPresenter(message: "Stream increment counter").present(animated: true)
+//                        }
                         stream.shouldRegisterDevice = false
                         stream.shouldRequestXToken = false
                         try stream.authenticate(withHOTPSecret: secret, counter: counter)
                         AccountManager.shared.changeNewUserState(for: self.jid, to: .connect)
-                        DispatchQueue.main.async {
-                            ToastPresenter(message: "Stream try auth").present(animated: true)
-                        }
+//                        DispatchQueue.main.async {
+//                            ToastPresenter(message: "Stream try auth").present(animated: true)
+//                        }
                     } else {
                         invalidate()
                         
-                        DispatchQueue.main.async {
-                            ToastPresenter(message: "Stream invalidated").present(animated: true)
-                        }
+//                        DispatchQueue.main.async {
+//                            ToastPresenter(message: "Stream invalidated").present(animated: true)
+//                        }
                     }
                 } catch {
                     item.decrementCounter()
                     reconnect(error)
-                    DispatchQueue.main.async {
-                        ToastPresenter(message: "Stream try reconnect").present(animated: true)
-                    }
+//                    DispatchQueue.main.async {
+//                        ToastPresenter(message: "Stream try reconnect").present(animated: true)
+//                    }
                 }
             }
             
@@ -283,15 +283,11 @@ extension Account: XMPPStreamDelegate {
     func xmppStream(_ sender: XMPPStream, didReceive iq: XMPPIQ) -> Bool {
         switch true {
         case self.syncManager.read(withIQ: iq):
-            if !self.syncManager.checkNextPage(sender, in: iq) {
-                DispatchQueue.main.async {
-                    UIApplication.shared.isNetworkActivityIndicatorVisible = false
-                }
-            }
+            _ = self.syncManager.checkNextPage(sender, in: iq)
             break
         case self.avatarManager.read(withIQ: iq): break
         case self.roster.read(withIQ: iq): break
-        case self.mam.read(withIQ: iq):
+        case self.mam.read(sender, withIQ: iq):
             self.messages.storeMessagesNow()
             break
         case self.push.read(withIQ: iq):
@@ -374,10 +370,7 @@ extension Account: XMPPStreamDelegate {
             
             switch message.messageType ?? .chat {
                 case .chat, .normal:
-                self.chatMarkers.received(sender, for: message)
-                self.chatMarkers.receipts(sender, for: message)
 
-                self.devices.readMessage(message: message)
                 if self.groupchats.readMessage(withMessage: message) {
                     return
                 }
@@ -388,10 +381,6 @@ extension Account: XMPPStreamDelegate {
                     if let bareMessage = getArchivedMessageContainer(message) {
                         if VoIPManager.shared.onReceiveMessage(bareMessage, owner: self.jid, archivedDate: getDeliveryTime(bareMessage, owner: self.jid) ?? getDelayedDate(message)) {
                             return
-                        } else if self.messages.receiveStateMessage(bareMessage) {
-                            return
-                        } else if self.chatStates.read(withMessage: bareMessage) {
-                            return
                         } else if self.groupchats.readInvite(in: bareMessage, date: getDelayedDate(message) ?? Date(), isRead: nil) {
                             return
                         }
@@ -401,15 +390,14 @@ extension Account: XMPPStreamDelegate {
                     }
                     if self.omemo.didReceiveOmemoMessage(message) {
                         return
+                    } else if self.chatMarkers.read(withMessage: message) {
+                        return
                     } else {
                         self.messages.receiveArchived(message)
                     }
-                    
                 } else if isCarbonCopy(message) {
                     if let bareMessage = getCarbonCopyMessageContainer(message) {
-                        if self.messages.receiveStateMessage(bareMessage) {
-                            return
-                        } else if self.chatStates.read(withMessage: bareMessage) {
+                        if self.chatStates.read(withMessage: bareMessage) {
                             return
                         } else if VoIPManager.shared.onReceiveMessage(bareMessage, owner: self.jid, archivedDate: getDeliveryTime(bareMessage, owner: self.jid) ?? getDelayedDate(message), runtime: true, outgoing: true) {
                             return
@@ -425,7 +413,9 @@ extension Account: XMPPStreamDelegate {
                     if let bareMessage = getCarbonForwardedMessageContainer(message) {
                         if VoIPManager.shared.onReceiveMessage(bareMessage, owner: self.jid, archivedDate: getDeliveryTime(bareMessage, owner: self.jid) ?? getDelayedDate(message), runtime: true, outgoing: true) {
                             return
-                        } else if self.messages.receiveStateMessage(bareMessage) {
+                        } else if self.deliveryReceipts.read(withMessage: bareMessage) {
+                            return
+                        } else if self.chatMarkers.read(withMessage: message) {
                             return
                         } else if self.chatStates.read(withMessage: bareMessage) {
                             return
@@ -438,18 +428,20 @@ extension Account: XMPPStreamDelegate {
                     } else {
                         self.messages.receiveCarbonForwarded(message)
                     }
-                    
                 } else {
                     if VoIPManager.shared.onReceiveMessage(message, owner: self.jid, archivedDate: nil, runtime: true) {
                         return
                     }
-                    if self.messages.receiveStateMessage(message) {
+                    if self.deliveryReceipts.read(withMessage: message) {
+                        return
+                    }
+                    if self.chatMarkers.read(withMessage: message) {
                         return
                     }
                     if self.groupchats.readInvite(in: message, date: Date(), isRead: false) {
                         return
                     }
-                    
+                    self.devices.readMessage(message: message)
                     if self.xTokens.receive(sender, withMessage: message) {
                         
                     }
@@ -462,6 +454,9 @@ extension Account: XMPPStreamDelegate {
             case .groupchat:
                 break
             case .headline:
+                if self.deliveryManager.read(headline: message) {
+                    return
+                }
                 if self.devices.readHeadline(message) {
                     return
                 }
@@ -472,9 +467,6 @@ extension Account: XMPPStreamDelegate {
                     return
                 }
                 if self.omemo.onContactDeviceReceiveHeadline(message) {
-                    return
-                }
-                if self.deliveryManager.read(headline: message) {
                     return
                 }
                 if self.avatarManager.readMessage(message) {
@@ -499,11 +491,6 @@ extension Account: XMPPStreamDelegate {
     }
     
     func xmppStream(_ sender: XMPPStream, didSend message: XMPPMessage) {
-        self.queue.async(flags: [.barrier, .detached]) {
-            if !self.deliveryManager.isAvailable {
-                self.messages.changeMessageState(message, to: .sended)
-            }
-        }
         if SettingManager.logEnabled {
             DDLogInfo("S. message: to \(message.to?.bare ?? "none"), from \(message.from?.bare ?? "none"), id \(message.elementID ?? "none")")
         }
@@ -571,9 +558,9 @@ extension Account: XMPPStreamDelegate {
     
     func xmppStream(_ sender: XMPPStream, didReceiveCustomElement element: DDXMLElement) {
         if element.name == "resumed" {
-            DispatchQueue.main.async {
-                ToastPresenter(message: "Resumed received").present(animated: true)
-            }
+//            DispatchQueue.main.async {
+//                ToastPresenter(message: "Resumed received").present(animated: true)
+//            }
         }
     }
     
@@ -582,9 +569,9 @@ extension Account: XMPPStreamDelegate {
 
 extension Account: XMPPStreamManagementDelegate {
     func xmppStreamManagement(_ sender: XMPPStreamManagement, wasEnabled enabled: DDXMLElement) {
-        DispatchQueue.main.async {
-            ToastPresenter(message: "SM session enabled").present(animated: true)
-        }
+//        DispatchQueue.main.async {
+//            ToastPresenter(message: "SM session enabled").present(animated: true)
+//        }
     }
     
     func xmppStreamManagement(_ sender: XMPPStreamManagement, wasNotEnabled failed: DDXMLElement) {

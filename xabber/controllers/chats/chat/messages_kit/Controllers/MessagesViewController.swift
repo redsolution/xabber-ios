@@ -44,7 +44,7 @@ UICollectionViewDelegateFlowLayout, UICollectionViewDataSource {
 
     /// The `MessageInputBar` used as the `inputAccessoryView` in the view controller.
 //    var messageInputBar = MessageInputBar()
-    final let xabberInputBar: XabberInputBar = XabberInputBar()
+//    final let xabberInputBar: XabberInputBar = XabberInputBar()
     
     /// A Boolean value that determines whether the `MessagesCollectionView` scrolls to the
     /// bottom whenever the `InputTextView` begins editing.
@@ -67,7 +67,8 @@ UICollectionViewDelegateFlowLayout, UICollectionViewDataSource {
     }
 
     override var inputAccessoryView: UIView? {
-        return xabberInputBar
+//        return xabberInputBar
+        return nil
     }
 
     override var shouldAutorotate: Bool {
@@ -76,11 +77,9 @@ UICollectionViewDelegateFlowLayout, UICollectionViewDataSource {
 
     private var isFirstLayout: Bool = true
     
-    internal var isMessagesControllerBeingDismissed: Bool = false
-
     internal var selectedIndexPathForMenu: IndexPath?
 
-    internal var messageCollectionViewBottomInset: CGFloat = 16 { //54 {
+    internal var messageCollectionViewBottomInset: CGFloat = 50 { //54 {
         didSet {
             messagesCollectionView.contentInset.bottom = messageCollectionViewBottomInset
             messagesCollectionView.scrollIndicatorInsets.bottom = messageCollectionViewBottomInset
@@ -90,22 +89,7 @@ UICollectionViewDelegateFlowLayout, UICollectionViewDataSource {
     open var accessoryViewSearchCorrectionConstant: CGFloat = 0
     open var accessoryViewCorrectionConstant: CGFloat = 0
     
-    open var messageCollectionViewTopInset: CGFloat = 54 {
-        didSet {
-            if messagesCollectionView.bounds.height > messagesCollectionView.contentSize.height {
-                messagesCollectionView.contentInset.bottom = max(
-                    0,
-                    messagesCollectionView.bounds.height - messagesCollectionView.contentSize.height - 54)
-            } else {
-                messagesCollectionView.contentInset.bottom = 54
-            }
-            
-            let bottomOffset: CGFloat = UIDevice.needBottomOffset ? 86 : 54
-            
-            messagesCollectionView.contentInset.top = messageCollectionViewTopInset + bottomOffset - accessoryViewCorrectionConstant
-            messagesCollectionView.scrollIndicatorInsets.top = messageCollectionViewTopInset + bottomOffset - accessoryViewCorrectionConstant
-        }
-    }
+    open var messageCollectionViewTopInset: CGFloat = 50
     
     open var messageCollectionViewLastKBPosition: CGFloat = 0
     
@@ -113,90 +97,40 @@ UICollectionViewDelegateFlowLayout, UICollectionViewDataSource {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        
-        messageCollectionViewLastKBPosition = 0
-        
         setupDefaults()
         setupSubviews()
         setupConstraints()
         setupDelegates()
-        addMenuControllerObservers()
         addObservers()
     }
     
     open override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        if !isFirstLayout {
-            addKeyboardObservers()
-        }
     }
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         (messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?.cache.invalidate()
-        isMessagesControllerBeingDismissed = false
     }
     
     open override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        isMessagesControllerBeingDismissed = true
-        removeKeyboardObservers()
     }
     
     open override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
-        isMessagesControllerBeingDismissed = false
     }
-    
-    override func viewDidLayoutSubviews() {
-        if isFirstLayout {
-            defer { isFirstLayout = false }
-            addKeyboardObservers()
-//            messageCollectionViewBottomInset = 72
-            if shouldSetRequiredTopInsetAtFirstLayout {
-                messageCollectionViewTopInset = requiredInitialScrollViewBottomInset()
-            }
-        }
-    }
-    
-    open override func viewSafeAreaInsetsDidChange() {
-        super.viewSafeAreaInsetsDidChange()
-        if shouldSetRequiredTopInsetAtFirstLayout {
-            messageCollectionViewTopInset = requiredInitialScrollViewBottomInset()
-        }
-    }
-    
-    public final func updateObserverState() {
-        removeKeyboardObservers()
-        addKeyboardObservers()
-    }
-
-    public final func updateTopInsetAfterModal() {
-        messageCollectionViewTopInset = 0
-    }
-    
-    // MARK: - Initializers
 
     deinit {
-        removeKeyboardObservers()
-        removeMenuControllerObservers()
         removeObservers()
         clearMemoryCache()
     }
 
-    // MARK: - Methods [Private]
-
     private final func setupDefaults() {
         extendedLayoutIncludesOpaqueBars = true
-//        automaticallyAdjustsScrollViewInsets = false
-        if #available(iOS 13.0, *) {
-            view.backgroundColor = .systemBackground
-        } else {
-            view.backgroundColor = .white
-        }
+        view.backgroundColor = .systemBackground
         messagesCollectionView.keyboardDismissMode = .interactive
         messagesCollectionView.alwaysBounceVertical = true
-        initialBottomOffsetUpdate()
     }
 
     private final func setupDelegates() {
@@ -246,7 +180,8 @@ UICollectionViewDelegateFlowLayout, UICollectionViewDataSource {
         }
 
         let message = messagesDataSource.messageForItem(at: indexPath, in: messagesCollectionView)
-
+        
+        
         switch message.kind {
         case .text, .attributedText, .emoji:
             let cell = messagesCollectionView.dequeueReusableCell(TextMessageCell.self, for: indexPath)
@@ -286,6 +221,7 @@ UICollectionViewDelegateFlowLayout, UICollectionViewDataSource {
             cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
             return cell
         case .sticker(_):
+            
             let cell = messagesCollectionView.dequeueReusableCell(StickerMessageCell.self, for: indexPath)
             cell.configure(with: message, at: indexPath, and: messagesCollectionView)
             cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
@@ -330,8 +266,6 @@ UICollectionViewDelegateFlowLayout, UICollectionViewDataSource {
         }
     }
 
-    // MARK: - UICollectionViewDelegateFlowLayout
-
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
         guard let messagesFlowLayout = collectionViewLayout as? MessagesCollectionViewFlowLayout else { return .zero }
         return messagesFlowLayout.sizeForItem(at: indexPath)
@@ -360,53 +294,26 @@ UICollectionViewDelegateFlowLayout, UICollectionViewDataSource {
     }
 
     func collectionView(_ collectionView: UICollectionView, shouldShowMenuForItemAt indexPath: IndexPath) -> Bool {
-        selectedIndexPathForMenu = indexPath
+//        selectedIndexPathForMenu = indexPath
         return true
     }
 
     func collectionView(_ collectionView: UICollectionView, canPerformAction action: Selector, forItemAt indexPath: IndexPath, withSender sender: Any?) -> Bool {
-        return [
-            NSSelectorFromString("copy:"),
-            NSSelectorFromString("shareMessage:"),
-            NSSelectorFromString("replyMessage:"),
-            NSSelectorFromString("deleteMessage:"),
-            NSSelectorFromString("moreAction:")
-        ].contains(action)
+//        return [
+//            NSSelectorFromString("copy:"),
+//            NSSelectorFromString("shareMessage:"),
+//            NSSelectorFromString("replyMessage:"),
+//            NSSelectorFromString("deleteMessage:"),
+//            NSSelectorFromString("moreAction:")
+//        ].contains(action)
+        return false
     }
 
     func collectionView(_ collectionView: UICollectionView, performAction action: Selector, forItemAt indexPath: IndexPath, withSender sender: Any?) {
-        guard let cell = collectionView.cellForItem(at: indexPath) as? MessageCollectionViewCell else { return }
-        messagesCollectionView.messageCellDelegate?.onCopyMessage(cell: cell)
+//        guard let cell = collectionView.cellForItem(at: indexPath) as? MessageCollectionViewCell else { return }
+//        messagesCollectionView.messageCellDelegate?.onCopyMessage(cell: cell)
     }
 
-    // MARK: - Helpers
-    
-    /// A CGFloat value that adds to (or, if negative, subtracts from) the automatically
-    /// computed value of `messagesCollectionView.contentInset.bottom`. Meant to be used
-    /// as a measure of last resort when the built-in algorithm does not produce the right
-    /// value for your app. Please let us know when you end up having to use this property.
-    
-    var currentContentInset: CGFloat {
-        get {
-            return messageCollectionViewTopInset // - automaticallyAddedBottomInset
-        }
-    }
-    
-    var additionalBottomInset: CGFloat = 0 {
-        didSet {
-            let delta = additionalBottomInset - oldValue
-            messageCollectionViewBottomInset += delta
-        }
-    }
-    
-    var additionalTopInset: CGFloat = 0
-//    {
-//        didSet {
-//            let delta = additionalTopInset - oldValue
-//            messageCollectionViewTopInset += delta
-//        }
-//    }
-    
     public func addObservers() {
         NotificationCenter.default.addObserver(
             self,

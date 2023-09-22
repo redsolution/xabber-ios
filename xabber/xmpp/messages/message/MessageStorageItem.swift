@@ -44,13 +44,13 @@ class MessageStorageItem: Object {
     }
     
     public enum MessageSendingState: Int {
-        case sending
         case sended
         case deliver
         case read
         case error
         case none
         case notSended
+        case sending
         case uploading
     }
     
@@ -91,8 +91,9 @@ class MessageStorageItem: Object {
     @objc dynamic var groupchatCard: GroupchatUserStorageItem? = nil
     
     @objc dynamic var envelopeContainer: String? = nil
-    
-//    @objc dynamic var shouldDisplay: Bool = true
+    @objc dynamic var afterburnInterval: Double = -1
+    @objc dynamic var burnDate: Double = -1
+    @objc dynamic var readDate: Double = -1
     
     @objc dynamic var errorMetadata_: String? = nil
     @objc dynamic var systemMetadata_: String? = nil
@@ -105,7 +106,6 @@ class MessageStorageItem: Object {
     @objc dynamic var conversationType_: String = ClientSynchronizationManager.ConversationType.regular.rawValue
     
     var inlineForwards: List<MessageForwardsInlineStorageItem> = List<MessageForwardsInlineStorageItem>()
-    
     
     var conversationType: ClientSynchronizationManager.ConversationType {
         get {
@@ -491,6 +491,8 @@ class MessageStorageItem: Object {
             }
         } else if !references.filter({ $0.kind == .quote }).isEmpty {
             displayAs = .quote
+        } else if !references.filter({ $0.kind == .systemMessage }).isEmpty {
+            displayAs = .system
         }
     }
 
@@ -677,7 +679,7 @@ class MessageStorageItem: Object {
         self.owner = owner
         self.isRead = true
         self.date = Date()
-        self.conversationType = .regular
+        self.conversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
         self.messageId = MessageStorageItem.messageIdForAuthRequest(jid: opponent)
         self.displayAs = .system
         self.sentDate = date
@@ -692,7 +694,7 @@ class MessageStorageItem: Object {
         self.opponent = opponent
         self.owner = owner
         self.isRead = true
-        self.conversationType = .regular
+        self.conversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
         self.date = Date()
         self.messageId = MessageStorageItem.messageIdForContact(owner: owner,
                                                                 jid: opponent,
@@ -718,7 +720,7 @@ class MessageStorageItem: Object {
     public final func configureVoIPCallMessage(opponent: String, owner: String, date: Date, isRead: Bool, callId: String, archivedId: String?, outgoing: Bool, duration: TimeInterval, callState: VoIPCallState) {
         self.opponent = opponent
         self.owner = owner
-        self.conversationType = .regular
+        self.conversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
         self.messageId = MessageStorageItem.messageIdForVoIPCall(
             owner: owner,
             jid: opponent,
@@ -823,6 +825,17 @@ class MessageStorageItem: Object {
                         conversationType: self.conversationType
                     )
                 ) {
+                    try transaction(commit: commitTransaction) {
+                        if let timer = self.references.first?.metadata?["ephemeral-timer"] as? Int {
+                            if instance.afterburnIntervalLastUpdate < self.date.timeIntervalSince1970 {
+                                instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
+                                instance.afterburnInterval = Double(timer)
+                            }
+                        }
+                        if instance.isFreshNotEmptyEncryptedChat {
+                            instance.isFreshNotEmptyEncryptedChat = false
+                        }
+                    }
                     if instance.lastMessage?.date ?? Date(timeIntervalSince1970: 1) > self.date {
                         self.isRead = true
                         if self.outgoing,
@@ -842,6 +855,7 @@ class MessageStorageItem: Object {
                         try transaction(commit: commitTransaction, callback: {
 //                            instance.messagesCount += 1
                             realm.add(self, update: .modified)
+                            
                             if let rosterItem = realm
                                 .object(ofType: RosterStorageItem.self,
                                         forPrimaryKey: [self.opponent, owner].prp()) {
@@ -857,11 +871,16 @@ class MessageStorageItem: Object {
                         }
                         
 //                        let isFastSyncEnabled = false//SettingManager.shared.getKey(for: owner, scope: .clientSynchronization, key: "version")?.isNotEmpty ?? false
+                        
                         try transaction(commit: commitTransaction, callback: {
 //                            instance.messagesCount += 1
                             instance.messageDate = self.sentDate
                             instance.lastMessage = self
                             instance.lastMessageId = self.messageId
+                            if let timer = self.references.first?.metadata?["ephemeral-timer"] as? Int {
+                                instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
+                                instance.afterburnInterval = Double(timer)
+                            }
 //                            instance.isSynced = true
                             if isInvite && !isRead {
                                 if instance.rosterItem?.subscribtion != .both {
@@ -1012,6 +1031,17 @@ class MessageStorageItem: Object {
                 
                 fileSharing.addChild(file)
                 referenceElement.addChild(fileSharing)
+            case .systemMessage:
+                let systemMessage = DDXMLElement(
+                    name: "system-message",
+                    xmlns: "https://xabber.com/protocol/system-message"
+                )
+                if let timer = reference.metadata?["ephemeral-timer"] as? Int {
+                    let ephemeralElement = DDXMLElement(name: "ephemeral", xmlns: "urn:xmpp:ephemeral:0")
+                    ephemeralElement.addAttribute(withName: "timer", doubleValue: Double(timer))
+                    systemMessage.addChild(ephemeralElement)
+                }
+                referenceElement.addChild(systemMessage)
             case .voice:
                 let voiceMessage = DDXMLElement(name: "voice-message",
                                                 xmlns: "https://xabber.com/protocol/voice-messages")
@@ -1141,13 +1171,13 @@ class MessageStorageItem: Object {
                 if let styles = reference.metadata?["styles"] as? [String] {
                     for style in styles {
                         if style == "bold" {
-                            string.addAttribute(NSAttributedString.Key.font, value: UIFont.preferredFont(forTextStyle: .body).bold(), range: reference.range)
+                            string.addAttribute(NSAttributedString.Key.font, value: UIFont.systemFont(ofSize: 14, weight: .regular).bold(), range: reference.range)
                         }
                         if style == "italic" {
                             if styles.contains("bold") {
-                                string.addAttribute(NSAttributedString.Key.font, value: UIFont.preferredFont(forTextStyle: .body).boldItalic(), range: reference.range)
+                                string.addAttribute(NSAttributedString.Key.font, value: UIFont.systemFont(ofSize: 14, weight: .regular).boldItalic(), range: reference.range)
                             } else {
-                                string.addAttribute(NSAttributedString.Key.font, value: UIFont.preferredFont(forTextStyle: .body).italic(), range: reference.range)
+                                string.addAttribute(NSAttributedString.Key.font, value: UIFont.systemFont(ofSize: 14, weight: .regular).italic(), range: reference.range)
                             }
                         }
                         if style == "underline" {

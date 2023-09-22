@@ -119,6 +119,9 @@ func getReferenceType(_ ref: DDXMLElement) -> String? {
     if ref.element(forName: "voice-message",
                    xmlns: "https://xabber.com/protocol/voice-messages") != nil {
         return "voice"
+    } else if ref.element(forName: "system-message",
+                          xmlns: "https://xabber.com/protocol/system-message") != nil {
+        return "system-message"
     } else if ref.element(forName: "file-sharing",
                           xmlns: "https://xabber.com/protocol/files") != nil {
         return "media"
@@ -157,6 +160,8 @@ func parseReferences(_ message: XMPPMessage, jid: String, owner: String, echo: B
         let end = "\(escapingBody.prefix(end_unwr))".excludeFromBody(references, groupchat: groupchatRef).count
         let reference = MessageReferenceStorageItem()
         
+        
+        reference.conversationType = conversationTypeByMessage(message)
         reference.jid = jid
         reference.owner = owner
         reference.begin = begin
@@ -238,6 +243,10 @@ func parseReferences(_ message: XMPPMessage, jid: String, owner: String, echo: B
             }
         case .quote:
             metadata["marker"] = ">".xmlEscaping(reverse: false)
+        case .systemMessage:
+            if let timer = ref.element(forName: "system-message", xmlns: "https://xabber.com/protocol/system-message")?.element(forName: "ephemeral", xmlns: "urn:xmpp:ephemeral:0")?.attributeIntegerValue(forName: "timer") {
+                metadata["ephemeral-timer"] = timer
+            }
         case .groupchat:
             guard let user = ref.element(forName: "user") else { return nil }
             metadata["id"] = user.attributeStringValue(forName: "id", withDefaultValue: "")

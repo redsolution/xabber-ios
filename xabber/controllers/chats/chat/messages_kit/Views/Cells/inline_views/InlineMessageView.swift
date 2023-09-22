@@ -76,7 +76,7 @@ class InlineMessageView: UIView {
         let label = UILabel(frame: CGRect(width: 44, height: 16))
         
         label.textColor = MDCPalette.grey.tint800
-        label.font = UIFont.preferredFont(forTextStyle: .caption1)
+        label.font = UIFont.systemFont(ofSize: 14, weight: .medium)
         label.textAlignment = .center
         label.layoutMargins = UIEdgeInsets(top: 0, bottom: 0, left: 4, right: 4)
         label.lineBreakMode = .byTruncatingMiddle
@@ -150,9 +150,9 @@ class InlineMessageView: UIView {
     
     func update(_ message: MessageType, indexPath: IndexPath, with item: MessageForwardsInlineStorageItem.Model, accountColor: UIColor, palette: MDCPalette) {
         if item.isOutgoing {
-            backgroundView.tintColor = message.isOutgoing ? MDCPalette.grey.tint200 : .white // was tint100
+            backgroundView.tintColor = message.isOutgoing ? MDCPalette.grey.tint200 : MDCPalette.grey.tint50
         } else {
-            backgroundView.tintColor = accountColor
+            backgroundView.tintColor = palette.tint100
         }
         
         if item.subforwards.isNotEmpty {

@@ -127,14 +127,19 @@ class DefaultAvatarManager: NSObject {
                 if let url = URL(string: urlRaw) {
                     ImageDownloader.default.downloadImage(with: url, options: KingfisherParsedOptionsInfo([
                         .backgroundDecode,
-                        .downloadPriority(0.2),
-                        .lowDataMode(nil),
-                        .callbackQueue(.dispatch(DispatchQueue.global(qos: .background)))
+                        .downloadPriority(1.0),
+                        .callbackQueue(.dispatch(DispatchQueue.global(qos: .utility)))
                     ])) {
                         result in
                         switch result {
                             case .success(let value):
                                 let image = DefaultAvatarManager.SizedImage(image: value.image, url: urlRaw, size: size)
+                                ImageCache.default.store(
+                                    value.image,
+                                    forKey: image.key(jid: self.jid, owner: self.owner),
+                                    options: KingfisherParsedOptionsInfo([.callbackQueue(.dispatch(DispatchQueue.global(qos: .utility)))]),
+                                    toDisk: true
+                                )
                                 self.images.append(image)
                             case .failure(_):
                                 if !self.images.contains(where: { $0.size == .original }) {
@@ -443,7 +448,7 @@ class DefaultAvatarManager: NSObject {
     
     public final func getAvatar(jid: String, owner: String, size requiredSize: CGFloat = 0, callback: ((UIImage?) -> Void)?) {
         var size: ImageSize = .original
-        let options: KingfisherOptionsInfo = [.alsoPrefetchToMemory]
+        let options: KingfisherOptionsInfo = [.alsoPrefetchToMemory, .downloadPriority(1.0)]
         switch requiredSize {
         case 32, 44, 48: size = .px96
         case 56: size = .px192
@@ -451,17 +456,19 @@ class DefaultAvatarManager: NSObject {
         case 144, 256: size = .px512
         default: size = .original
         }
-        func completionHandler(result: Result<KFCrossPlatformImage?, KingfisherError>) {
+        func completionHandler(result: Result<ImageCacheResult, KingfisherError>) {
             switch result {
             case .success(let value):
-                    if let image = value?.images?.first {
+                if let image = value.image {
                     callback?(image)
                 } else {
                     if let item = self.imageCache.first(where: { $0.jid == jid && $0.owner == owner }) {
                         item.retrieveDefaultAvatar(size: size, callback: callback)
+                        item.update()
                     } else {
                         let item = AvatarItem(jid: jid, owner: owner)
                         item.retrieveDefaultAvatar(size: size, callback: callback)
+                        item.update()
                     }
                 }
             case .failure(_):
@@ -475,10 +482,10 @@ class DefaultAvatarManager: NSObject {
                 } else {
                     ImageCache
                         .default
-                        .retrieveImageInDiskCache(
+                        .retrieveImage(
                             forKey: item.images[index].key(jid: item.jid, owner: item.owner),
                             options: options,
-                            callbackQueue: .mainAsync,
+//                            callbackQueue: .mainAsync,
                             completionHandler: completionHandler
                         )
                 }
@@ -488,10 +495,10 @@ class DefaultAvatarManager: NSObject {
                 } else {
                     ImageCache
                         .default
-                        .retrieveImageInDiskCache(
+                        .retrieveImage(
                             forKey: item.images.first?.key(jid: item.jid, owner: item.owner) ?? "dumb_avatar",
                             options: options,
-                            callbackQueue: .mainAsync,
+//                            callbackQueue: .mainCurrentOrAsync,
                             completionHandler: completionHandler
                         )
                 }

@@ -109,7 +109,7 @@ class MessageForwardsInlineStorageItem: Object {
                          for: self.owner,
                          badge: self.groupchatAuthorBadge ?? "",
                          role: self.groupchatMetadata?["role"] as? String ?? "member")
-                    .getAttributedNickname([.font: UIFont.preferredFont(forTextStyle: .caption1)])
+                    .getAttributedNickname([.font: UIFont.systemFont(ofSize: 14, weight: .medium)])
             }
         }
         
@@ -131,7 +131,7 @@ class MessageForwardsInlineStorageItem: Object {
                          for: self.owner,
                          badge: self.groupchatAuthorBadge ?? "",
                          role: self.groupchatMetadata?["role"] as? String ?? "member")
-                    .getAttributedNickname([.font: UIFont.preferredFont(forTextStyle: .caption1)])
+                    .getAttributedNickname([.font: UIFont.systemFont(ofSize: 14, weight: .medium)])
             }
         }
         

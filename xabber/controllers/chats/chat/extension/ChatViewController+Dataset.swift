@@ -78,7 +78,9 @@ extension ChatViewController {
                     isDownloaded: true,
                     state: .read,
                     searchString: nil,
-                    errorMetadata: [:]
+                    errorMetadata: [:],
+                    burnDate: -1,
+                    afterburnInterval: -1
                 )
             }
         }
@@ -140,7 +142,7 @@ extension ChatViewController {
                 )
             case .text:
                 kind = .attributedText(
-                    item.createRefBody([NSAttributedString.Key.font: UIFont.preferredFont(forTextStyle: .body)],
+                    item.createRefBody([NSAttributedString.Key.font: UIFont.systemFont(ofSize: 16, weight: .regular)],
                                        searchedText: self.searchTextObserver.value,
                                        searchedTextColor: AccountColorManager.shared.palette(for: self.owner).tint200.withAlphaComponent(0.5)),
                     false,
@@ -231,7 +233,9 @@ extension ChatViewController {
                 isDownloaded: isDownloaded,
                 state: item.displayAs == .call ? .none : item.state,
                 searchString:  searchString,
-                errorMetadata: item.errorMetadata
+                errorMetadata: item.errorMetadata,
+                burnDate: item.burnDate,
+                afterburnInterval: item.afterburnInterval
             )
         }
     }
@@ -278,58 +282,52 @@ extension ChatViewController {
             .invalidateLastMessageCachedSize(primary: datasource.last?.primary)
         let heightBeforeUpdate = self.messagesCollectionView.contentSize.height
         let offsetBeforeUpdate = self.messagesCollectionView.contentOffset.y
-//        if !self.canUpdateDataset {
-//            prepare()
-//
-//            self.messagesCollectionView.reloadData()
-//            self.canUpdateDataset = true
-//            if shouldScrollToLastMessage && self.isSkeletonHided {
-//                self.scrollToLastUnreadMessage(select: true)
+
+        self.messagesCollectionView.performBatchUpdates({
+            prepare()
+//            if !changes.replaces.isEmpty {
+//                self.messagesCollectionView.reconfigureItems(at: changes.replaces.compactMap { return IndexPath(row: 0, section: $0) })
 //            }
-//            return
-//        }
-        UIView.performWithoutAnimation {
-            self.messagesCollectionView.performBatchUpdates({
-                prepare()
-                if !changes.replaces.isEmpty {
-                    self.messagesCollectionView.reconfigureItems(at: changes.replaces.compactMap { return IndexPath(row: 0, section: $0) })
+            if !changes.deletes.isEmpty {
+                self.messagesCollectionView.deleteSections(changes.deletes)
+            }
+            
+            if !changes.inserts.isEmpty {
+                self.messagesCollectionView.insertSections(changes.inserts)
+            }
+            
+            if changes.moves.isNotEmpty {
+                changes.moves.forEach {
+                    (from, to) in
+                    self.messagesCollectionView.moveItem(at: from, to: to)
                 }
-                if !changes.deletes.isEmpty {
-                    self.messagesCollectionView.deleteSections(changes.deletes)
-                }
-                
-                if !changes.inserts.isEmpty {
-                    self.messagesCollectionView.insertSections(changes.inserts)
-                }
-                
-                if changes.moves.isNotEmpty {
-                    changes.moves.forEach {
-                        (from, to) in
-                        self.messagesCollectionView.moveItem(at: from, to: to)
-                    }
-                }
-                
-                if shouldScrollToLastMessage && self.isSkeletonHided {
-                    self.scrollToLastUnreadMessage(select: true)
-                }
-            }, completion: {
-                result in
-                if self.shouldUpdatePreviousMessage {
-                    self.shouldUpdatePreviousMessage = false
-                    self.messagesCollectionView.reconfigureItems(at: [IndexPath(row: 0, section: 1)])
-                }
-                let additionalOffset = self.messagesCollectionView.contentSize.height - heightBeforeUpdate
-                if self.shouldChangeOffsetOnUpdate {
-                    self.messagesCollectionView
-                        .setContentOffset(
-                            CGPoint(x: 0,
-                                    y: offsetBeforeUpdate + additionalOffset),
-                            animated: false
-                        )
-                }
-                self.canUpdateDataset = true
-            })
-        }
+            }
+            
+            if shouldScrollToLastMessage && self.isSkeletonHided {
+                self.scrollToLastUnreadMessage(select: true)
+            }
+        }, completion: {
+            result in
+            if !changes.replaces.isEmpty {
+                self.messagesCollectionView.reconfigureItems(at: changes.replaces.compactMap { return IndexPath(row: 0, section: $0) })
+            }
+//            self.messagesCollectionView.collectionViewLayout.invalidateLayout()
+            if self.shouldUpdatePreviousMessage {
+                self.shouldUpdatePreviousMessage = false
+                self.messagesCollectionView.reconfigureItems(at: [IndexPath(row: 0, section: 1)])
+//                self.messagesCollectionView.reconfigureItems(at: self.messagesCollectionView.indexPathsForVisibleItems)
+            }
+            let additionalOffset = self.messagesCollectionView.contentSize.height - heightBeforeUpdate
+            if self.shouldChangeOffsetOnUpdate {
+                self.messagesCollectionView
+                    .setContentOffset(
+                        CGPoint(x: 0,
+                                y: offsetBeforeUpdate + additionalOffset),
+                        animated: false
+                    )
+            }
+            self.canUpdateDataset = true
+        })
     }
     
     internal final func initializeDataset() {

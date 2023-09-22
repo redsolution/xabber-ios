@@ -82,8 +82,9 @@ class CommonMessageCell: MessageContentCell {
     }
     
     func layoutInlines(with attributes: MessagesCollectionViewLayoutAttributes) {
-        var offset: CGFloat = attributes.shouldShowTopLabel ? 24 : 4
+        var offset: CGFloat = attributes.shouldShowTopLabel ? 22 : 0
         inlineMessagesStack.subviews.forEach { $0.removeFromSuperview() }
+        
         self.subforwards.removeAll()
         attributes.inlineForwardsSizes.enumerated().forEach {
             index, item in

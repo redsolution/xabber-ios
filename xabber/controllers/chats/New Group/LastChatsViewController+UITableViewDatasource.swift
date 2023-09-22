@@ -24,6 +24,14 @@ import UIKit
 extension LastChatsViewController: UITableViewDataSource {
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        if showSkeleton.value {
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: SkeletonCell.cellName, for: indexPath) as? SkeletonCell else {
+                fatalError()
+            }
+//            cell.animate()
+            
+            return cell
+        }
         if showArchivedSection.value && indexPath.row == 0 {
             guard let cell = tableView.dequeueReusableCell(withIdentifier: ArchivedCell.cellName, for: indexPath) as? ArchivedCell else {
                 fatalError()
@@ -106,4 +114,11 @@ extension LastChatsViewController: UITableViewDataSource {
             
         }
     }
+    
+    func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {
+        if self.showSkeleton.value {
+            (cell as? SkeletonCell)?.animate()
+        }
+    }
+    
 }

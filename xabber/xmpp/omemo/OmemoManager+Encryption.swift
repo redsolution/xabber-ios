@@ -100,16 +100,14 @@ extension OmemoManager {
         
         let sessionBuilder = SignalSessionBuilder(address: address, context: self.signalContext)
         
+        
         try! sessionBuilder.processPreKeyBundle(bundle)
-        
-        
-        
+                
         let cipher = SignalSessionCipher(address: address, context: self.signalContext)
-        
-        
         
         let cipherText = try! cipher.encryptData(hmac)
         
+        print("Omemo fixed: -1", cipherText.type.rawValue)
         
         let needKex: Bool = cipherText.type == .preKeyMessage
         
@@ -122,7 +120,7 @@ extension OmemoManager {
         keyElement.stringValue = message.base64EncodedString()
         
         print(keyElement)
-        
+                
         return keyElement
     }
     

@@ -193,9 +193,9 @@ class PushNotificationsManager: AbstractXMPPManager {
            let url = x.element(forName: "url")?.stringValue else {
             return false
         }
-        DispatchQueue.main.async {
-            ToastPresenter(message: "Enable push receive").present(animated: true)
-        }
+//        DispatchQueue.main.async {
+//            ToastPresenter(message: "Enable push receive").present(animated: true)
+//        }
 //        queryIds.remove(elementId)
         PushNotificationsManager.updateDefaultsForPush(self.node, key: "get_url", value: url)
         return true

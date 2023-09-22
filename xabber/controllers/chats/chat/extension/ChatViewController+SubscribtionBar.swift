@@ -234,7 +234,7 @@ extension ChatViewController {
             let width = self.navigationController?.navigationBar.frame.width {
             
             subscribtionBarView.frame = CGRect(x: 0, y: 0, width: width, height: height)
-            additionalBottomInset = 40
+//            additionalBottomInset = 40
             subscribtionBarView.onCancelCallback = onCancelSubscribtionBarButtonPressed
             subscribtionBarView.onAddContactCallback = onAddContactBarButtonPressed
             subscribtionBarView.onBlockContactCallback = onBlockContactBarButtonPressed
@@ -263,7 +263,6 @@ extension ChatViewController {
                 completion?(true)
             }
         }
-        additionalBottomInset = 0
         let width = self.subscribtionBar.frame.width
         transition({
             self.subscribtionBar.frame = CGRect(x: 0, y: 0, width: width, height: 64)

@@ -101,58 +101,58 @@ extension ChatViewController {
         }
         
         public final func hideProgressBar() {
-            UIView.animate(withDuration: 0.66, delay: 0, options: .curveLinear, animations: {
-                self.gradientView.alpha = 0
-            })
+//            UIView.animate(withDuration: 0.66, delay: 0, options: .curveLinear, animations: {
+//                self.gradientView.alpha = 0
+//            })
         }
         
         private final func rotateBar() {
-            UIView.animate(withDuration: 2, delay: 0, options: .curveLinear, animations: {
-                self.gradientView.alpha = 1
-            }) { result in
-                if self.allowBarAnimation {
-                    self.rotateBar()
-                }
-            }
+//            UIView.animate(withDuration: 2, delay: 0, options: .curveLinear, animations: {
+//                self.gradientView.alpha = 1
+//            }) { result in
+//                if self.allowBarAnimation {
+//                    self.rotateBar()
+//                }
+//            }
         }
         
         public final func stopAnimation() {
-            self.allowBarAnimation = false
-            
-            UIView.animate(withDuration: 0.66, delay: 0, options: .curveLinear, animations: {
-                self.gradientView.alpha = 0
-            }) { result in
-                self.stopGradientAnimation()
-            }
+//            self.allowBarAnimation = false
+//
+//            UIView.animate(withDuration: 0.66, delay: 0, options: .curveLinear, animations: {
+//                self.gradientView.alpha = 0
+//            }) { result in
+//                self.stopGradientAnimation()
+//            }
         }
         
         public final func startAnimation() {
-            self.allowBarAnimation = true
-            gradientView.alpha = 0
-            startGradientAnimation()
-            
-            UIView.animate(withDuration: 0.33, delay: 0, options: [], animations: {
-                self.gradientView.alpha = 1
-            })
+//            self.allowBarAnimation = true
+//            gradientView.alpha = 0
+//            startGradientAnimation()
+//
+//            UIView.animate(withDuration: 0.33, delay: 0, options: [], animations: {
+//                self.gradientView.alpha = 1
+//            })
         }
         
         private func startGradientAnimation() {
-            UIView.animate(withDuration: 2, delay: 0, options: .curveLinear, animations: {
-                self.gradientView.transform = self.gradientView.transform.rotated(by: .pi)
-            }) { result in
-                if self.allowBarAnimation {
-                    self.startGradientAnimation()
-                }
-            }
+//            UIView.animate(withDuration: 2, delay: 0, options: .curveLinear, animations: {
+//                self.gradientView.transform = self.gradientView.transform.rotated(by: .pi)
+//            }) { result in
+//                if self.allowBarAnimation {
+//                    self.startGradientAnimation()
+//                }
+//            }
         }
         
         private func stopGradientAnimation() {
-            self.allowBarAnimation = false
-            UIView.animate(withDuration: 2, delay: 0, options: .curveLinear, animations: {
-                self.gradientView.transform = self.gradientView.transform.rotated(by: .pi)
-            }) { _ in
-                self.gradientView.layer.removeAllAnimations()
-            }
+//            self.allowBarAnimation = false
+//            UIView.animate(withDuration: 2, delay: 0, options: .curveLinear, animations: {
+//                self.gradientView.transform = self.gradientView.transform.rotated(by: .pi)
+//            }) { _ in
+//                self.gradientView.layer.removeAllAnimations()
+//            }
         }
         
         internal func subscribe() {

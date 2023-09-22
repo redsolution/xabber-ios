@@ -34,7 +34,7 @@ extension SearchResultsViewController: UITableViewDelegate {
         switch sections[section].kind {
         case .contacts:
             guard let item = filteredContacts?[indexPath.row] else { return }
-            delegate?.openChat(owner: item.owner, jid: item.jid, conversationType: .regular)
+            delegate?.openChat(owner: item.owner, jid: item.jid, conversationType: ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular)
         case .messages:
             guard let item = filteredMessages?[indexPath.row] else { return }
             delegate?.openChat(owner: item.owner, jid: item.opponent, conversationType: item.conversationType)

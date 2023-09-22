@@ -37,11 +37,11 @@ extension ChatViewController: ContextMenuDelegate {
     }
     
     func contextMenuDidAppear(_ contextMenu: ContextMenuSwift.ContextMenu) {
-        self.xabberInputBar.isHidden = true
+        
     }
     
     func contextMenuDidDisappear(_ contextMenu: ContextMenuSwift.ContextMenu) {
-        self.xabberInputBar.isHidden = false
+        
     }
     
     
@@ -69,55 +69,68 @@ extension ChatViewController: MessageCellDelegate {
             self.definesPresentationContext = true
             self.present(nvc, animated: true, completion: nil)
         } else {
-            if let view = (cell as? MessageContentCell)?.messageContainerView {
-                let error = ContextMenuItemWithImage(title: "Network error: quota exceeded", image: UIImage(imageLiteralResourceName: "information"))
-                let retry = ContextMenuItemWithImage(title: "Retry", image: UIImage(imageLiteralResourceName: "share"))
-                let quota = ContextMenuItemWithImage(title: "Manage quota", image: UIImage(imageLiteralResourceName: "menu"))
-                let delete = ContextMenuItemWithImage(title: "Delete", image: UIImage(imageLiteralResourceName: "trash"))
-                CM.MenuConstants.BottomMarginSpace = 54
-                CM.MenuConstants.BlurEffectDefault = UIBlurEffect(style: .regular)
-//                CM.MenuConstants.
-                CM.items = [error, quota, retry, delete]
-                CM.showMenu(viewTargeted: view, delegate: self, animated: false)
-                
-            }
-
-            
-//            let actions: [ActionSheetPresenter.Item] = [
-//                ActionSheetPresenter.Item(destructive: false, title: "Retry", value: "retry"),
-//                ActionSheetPresenter.Item(destructive: true, title: "Delete", value: "delete")
-//            ]
-//            ActionSheetPresenter().present(
-//                in: self,
-//                title: "Error sending message",
-//                message: item.messageError,
-//                cancel: "Cancel",
-//                values: actions,
-//                animated: true
-//            ) { (value) in
-//                switch value {
-//                case "retry":
-//                    XMPPUIActionManager.shared.performRequest(owner: self.owner) { (stream, session) in
-//                        session.messages?.retrySending(item: primary)
-//
-//                        self.canUpdateDataset = true
-//                        self.runDatasetUpdateTask()
-//                    } fail: {
-//                        AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-//                            user.messages.retrySending(item: primary)
-//
-//                            self.canUpdateDataset = true
-//                            self.runDatasetUpdateTask()
-//                        })
-//                    }
-//
-//
-//                case "delete":
-//                    self.deleteMessages(forIds: Set<String>([primary]))
-//                default: break
-//                }
+            let errorMessage = item.messageError
+            let items = [
+                ActionSheetPresenter.Item(destructive: false, title: "Retry", value: "retry"),
+                ActionSheetPresenter.Item(destructive: true, title: "Delete", value: "delete"),
+            ]
+            ActionSheetPresenter().present(
+                in: self,
+                title: "Message sending error",
+                message: errorMessage,
+                cancel: "Cancel",
+                values: items,
+                animated: true) { value in
+                    switch value {
+                        case "retry":
+                            self.retryMessageSend(primary)
+                        case "delete":
+                            self.deleteSendingMessage(primary)
+                        default:
+                            break
+                    }
+                }
+//            if let view = (cell as? MessageContentCell)?.messageContainerView {
+//                let error = ContextMenuItemWithImage(title: "Network error: quota exceeded", image: UIImage(imageLiteralResourceName: "information"))
+//                let retry = ContextMenuItemWithImage(title: "Retry", image: UIImage(imageLiteralResourceName: "share"))
+//                let quota = ContextMenuItemWithImage(title: "Manage quota", image: UIImage(imageLiteralResourceName: "menu"))
+//                let delete = ContextMenuItemWithImage(title: "Delete", image: UIImage(imageLiteralResourceName: "trash"))
+//                CM.MenuConstants.BottomMarginSpace = 54
+//                CM.MenuConstants.BlurEffectDefault = UIBlurEffect(style: .regular)
+////                CM.MenuConstants.
+//                CM.items = [error, quota, retry, delete]
+//                CM.showMenu(viewTargeted: view, delegate: self, animated: false)
 //            }
-            
+        }
+    }
+    
+    private func retryMessageSend(_ primary: String) {
+        do {
+            let realm = try WRealm.safe()
+            if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
+                try realm.write {
+                    instance.state = .sending
+                    instance.messageError = nil
+                }
+            }
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        }
+        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+            user.messages.retrySending(item: primary)
+        })
+    }
+    
+    private func deleteSendingMessage(_ primary: String) {
+        do {
+            let realm = try WRealm.safe()
+            if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
+                try realm.write {
+                    realm.delete(instance)
+                }
+            }
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
     }
     
@@ -133,11 +146,7 @@ extension ChatViewController: MessageCellDelegate {
             vc.jid = self.jid
             vc.userId = userId
             vc.shouldResetNavbar = true
-            self.title = "  "
-            self.topMenuShowObserver.accept(false)
-//            navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
-//            navigationController?.navigationBar.shadowImage = UIImage()
-//            navigationController?.pushViewController(vc, animated: true)
+            self.title = " "
             self.navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
             self.navigationController?.navigationBar.shadowImage = UIImage()
             self.navigationController?.navigationBar.layoutIfNeeded()
@@ -187,7 +196,13 @@ extension ChatViewController: MessageCellDelegate {
     }
     
     func onSwipe(cell: MessageCollectionViewCell) {
-        onReplyMessage(cell: cell)
+        guard let indexPath = indexPathFor(cell),
+            let item = messagesObserver?[indexPath.section] else {
+                return
+        }
+        let primary = item.primary
+        self.forwardedIds.accept(Set<String>())
+        attachedMessagesIds.accept([primary])
     }
     
     func selectMessage(in cell: MessageCollectionViewCell) {
@@ -301,166 +316,165 @@ extension ChatViewController: MessageCellDelegate {
         nvc.modalPresentationStyle = .fullScreen
 
         gallery.initialPage = image
-        xabberInputBar.isHidden = true
         present(nvc, animated: true, completion: nil)
         
     }
     
-    func onCopyMessage(cell: MessageCollectionViewCell) {
-        guard let indexPath = indexPathFor(cell),
-            let item = messagesObserver?[indexPath.section] else {
-                return
-        }
-        
-//        item.createLegacyBody()
-        switch item.displayAs {
-        case .initial: break
-        case .text, .quote:
-            UIPasteboard.general.string = item.legacyBody
-        case .files:
-            UIPasteboard.general.string = item.legacyBody
-        case .images:
-            UIPasteboard.general.string = item.legacyBody
-        case .voice:
-            UIPasteboard.general.string = item.legacyBody
-        case .call: break
-        case .system: break
-        case .sticker: break
-        }
-        
-    }
-    
-    func onReplyMessage(cell: MessageCollectionViewCell) {
-        guard let indexPath = indexPathFor(cell),
-            let item = messagesObserver?[indexPath.section] else {
-                return
-        }
-        let primary = item.primary
-        self.forwardedIds.accept(Set<String>())
-//        forwardedIds.value.removeAll()
-        print("Call empty", #function)
-        attachedMessagesIds.accept([primary])
-    }
-    
-    func onShareMessage(cell: MessageCollectionViewCell) {
-        guard let indexPath = indexPathFor(cell),
-            let item = messagesObserver?[indexPath.section] else {
-                return
-        }
-        let primary = item.primary
-        self.forwardedIds.accept(Set<String>())
-        let messageSet: Set = [primary]
-        forwardedIds.accept(messageSet)
-//        forwardedIds.value.insert(primary)
-        showShareViewController(Array(forwardedIds.value))
-        cancelSelection()
-    }
-    
-    func onDeleteMessage(cell: MessageCollectionViewCell) {
-        guard let indexPath = indexPathFor(cell),
-            let item = messagesObserver?[indexPath.section] else {
-                return
-        }
-        let primary = item.primary
-        deleteMessages(forIds: Set<String>([primary]))
-    }
-    
-    func onMoreAction(cell: MessageCollectionViewCell) {
-        guard let indexPath = indexPathFor(cell),
-            let item = messagesObserver?[indexPath.section] else {
-                return
-        }
-        let primary = item.primary
-        var value = self.forwardedIds.value
-        value.insert(primary)
-        self.forwardedIds.accept(value)
-//        forwardedIds.value.insert(primary)
-    }
-    
-    func onRetrySending(cell: MessageCollectionViewCell) {
-        guard let indexPath = indexPathFor(cell),
-            let item = messagesObserver?[indexPath.section] else {
-                return
-        }
-        let primary = item.primary
-        DispatchQueue.global(qos: .default).async {
-            do {
-                let realm = try WRealm.safe()
-                try realm.write {
-                    realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary)?.state = .sending
-                }
-            } catch {
-                DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-            }
-        }
-        AccountManager.shared.find(for: owner)?.action({ (user, stream) in
-            user.messages.retrySending(item: primary)
-        })
-    }
-    
-    func onEdit(cell: MessageCollectionViewCell) {
-        if attachedMessagesIds.value.isNotEmpty || forwardedIds.value.isNotEmpty { return }
-        guard let indexPath = indexPathFor(cell),
-            let item = messagesObserver?[indexPath.section] else {
-                return
-        }
-        self.xabberInputBar.inputTextView.text = item.body.trimmingCharacters(in: .whitespacesAndNewlines)
-        editMessageId.accept(item.primary)
-    }
-    
-    func onPinMessage(cell: MessageCollectionViewCell) {
-        guard groupchat,
-            let indexPath = indexPathFor(cell),
-            let item = messagesObserver?[indexPath.section] else {
-                return
-        }
-        var origin = self.view.center
-        let keyboardHeight = 432 / UIScreen.main.scale
-        if self.view.bounds.height - origin.x < keyboardHeight {
-            origin.x = self.view.bounds.height - keyboardHeight - 44
-        }
-        self.view.makeToastActivity(origin)
-        let messageId = item.archivedId
-        guard messageId.isNotEmpty else { return }
-        
-        XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
-            session.groupchat?.pinMessage(stream, groupchat: self.jid, message: messageId) { (error) in
-                DispatchQueue.main.async {
-                    self.view.hideToastActivity()
-                    if let error = error {
-                        var message = "Internal error: \(error)"
-                        switch error {
-                        case "not-allowed": message = "You haven`t permissions to pin messages"
-                        default: break
-                        }
-                        self.showToast(error: message)
-                    } else {
-                        self.pinnedMessageId.accept(messageId)
-                    }
-                }
-            }
-        }) {
-            AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                user.groupchats.pinMessage(stream, groupchat: self.jid, message: messageId) { (error) in
-                    DispatchQueue.main.async {
-                        self.view.hideToastActivity()
-                        if let error = error {
-                            var message = "Internal error: \(error)"
-                            switch error {
-                            case "not-allowed": message = "You haven`t permissions to pin messages"
-                            default: break
-                            }
-                            self.showToast(error: message)
-                        } else {
-                            self.pinnedMessageId.accept(messageId)
-                        }
-                    }
-                }
-            })
-        }
-        
-        
-    }
+//    func onCopyMessage(cell: MessageCollectionViewCell) {
+//        guard let indexPath = indexPathFor(cell),
+//            let item = messagesObserver?[indexPath.section] else {
+//                return
+//        }
+//
+////        item.createLegacyBody()
+//        switch item.displayAs {
+//        case .initial: break
+//        case .text, .quote:
+//            UIPasteboard.general.string = item.legacyBody
+//        case .files:
+//            UIPasteboard.general.string = item.legacyBody
+//        case .images:
+//            UIPasteboard.general.string = item.legacyBody
+//        case .voice:
+//            UIPasteboard.general.string = item.legacyBody
+//        case .call: break
+//        case .system: break
+//        case .sticker: break
+//        }
+//
+//    }
+//
+//    func onReplyMessage(cell: MessageCollectionViewCell) {
+//        guard let indexPath = indexPathFor(cell),
+//            let item = messagesObserver?[indexPath.section] else {
+//                return
+//        }
+//        let primary = item.primary
+//        self.forwardedIds.accept(Set<String>())
+////        forwardedIds.value.removeAll()
+//        print("Call empty", #function)
+//        attachedMessagesIds.accept([primary])
+//    }
+//
+//    func onShareMessage(cell: MessageCollectionViewCell) {
+//        guard let indexPath = indexPathFor(cell),
+//            let item = messagesObserver?[indexPath.section] else {
+//                return
+//        }
+//        let primary = item.primary
+//        self.forwardedIds.accept(Set<String>())
+//        let messageSet: Set = [primary]
+//        forwardedIds.accept(messageSet)
+////        forwardedIds.value.insert(primary)
+//        showShareViewController(Array(forwardedIds.value))
+//        cancelSelection()
+//    }
+//
+//    func onDeleteMessage(cell: MessageCollectionViewCell) {
+//        guard let indexPath = indexPathFor(cell),
+//            let item = messagesObserver?[indexPath.section] else {
+//                return
+//        }
+//        let primary = item.primary
+//        deleteMessages(forIds: Set<String>([primary]))
+//    }
+//
+//    func onMoreAction(cell: MessageCollectionViewCell) {
+//        guard let indexPath = indexPathFor(cell),
+//            let item = messagesObserver?[indexPath.section] else {
+//                return
+//        }
+//        let primary = item.primary
+//        var value = self.forwardedIds.value
+//        value.insert(primary)
+//        self.forwardedIds.accept(value)
+////        forwardedIds.value.insert(primary)
+//    }
+//
+//    func onRetrySending(cell: MessageCollectionViewCell) {
+//        guard let indexPath = indexPathFor(cell),
+//            let item = messagesObserver?[indexPath.section] else {
+//                return
+//        }
+//        let primary = item.primary
+//        DispatchQueue.global(qos: .default).async {
+//            do {
+//                let realm = try WRealm.safe()
+//                try realm.write {
+//                    realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary)?.state = .sending
+//                }
+//            } catch {
+//                DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+//            }
+//        }
+//        AccountManager.shared.find(for: owner)?.action({ (user, stream) in
+//            user.messages.retrySending(item: primary)
+//        })
+//    }
+//
+//    func onEdit(cell: MessageCollectionViewCell) {
+//        if attachedMessagesIds.value.isNotEmpty || forwardedIds.value.isNotEmpty { return }
+//        guard let indexPath = indexPathFor(cell),
+//            let item = messagesObserver?[indexPath.section] else {
+//                return
+//        }
+//        self.xabberInputView.textField.text = item.body.trimmingCharacters(in: .whitespacesAndNewlines)
+//        editMessageId.accept(item.primary)
+//    }
+//
+//    func onPinMessage(cell: MessageCollectionViewCell) {
+//        guard groupchat,
+//            let indexPath = indexPathFor(cell),
+//            let item = messagesObserver?[indexPath.section] else {
+//                return
+//        }
+//        var origin = self.view.center
+//        let keyboardHeight = 432 / UIScreen.main.scale
+//        if self.view.bounds.height - origin.x < keyboardHeight {
+//            origin.x = self.view.bounds.height - keyboardHeight - 44
+//        }
+//        self.view.makeToastActivity(origin)
+//        let messageId = item.archivedId
+//        guard messageId.isNotEmpty else { return }
+//
+//        XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
+//            session.groupchat?.pinMessage(stream, groupchat: self.jid, message: messageId) { (error) in
+//                DispatchQueue.main.async {
+//                    self.view.hideToastActivity()
+//                    if let error = error {
+//                        var message = "Internal error: \(error)"
+//                        switch error {
+//                        case "not-allowed": message = "You haven`t permissions to pin messages"
+//                        default: break
+//                        }
+//                        self.showToast(error: message)
+//                    } else {
+//                        self.pinnedMessageId.accept(messageId)
+//                    }
+//                }
+//            }
+//        }) {
+//            AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
+//                user.groupchats.pinMessage(stream, groupchat: self.jid, message: messageId) { (error) in
+//                    DispatchQueue.main.async {
+//                        self.view.hideToastActivity()
+//                        if let error = error {
+//                            var message = "Internal error: \(error)"
+//                            switch error {
+//                            case "not-allowed": message = "You haven`t permissions to pin messages"
+//                            default: break
+//                            }
+//                            self.showToast(error: message)
+//                        } else {
+//                            self.pinnedMessageId.accept(messageId)
+//                        }
+//                    }
+//                }
+//            })
+//        }
+//
+//
+//    }
     
     func isEditable(cell: MessageCollectionViewCell) -> Bool {
         guard MessageDeleteManager.availability(owner),

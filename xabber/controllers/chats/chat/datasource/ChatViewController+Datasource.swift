@@ -90,20 +90,49 @@ extension ChatViewController: MessagesDataSource {
             .getAttributedNickname([.font: UIFont.preferredFont(forTextStyle: .caption1)])
     }
     
+    
+    
     func messageBottomLabelAttributedText(for message: MessageType, at indexPath: IndexPath) -> NSAttributedString? {
         if self.showSkeletonObserver.value {
             return nil
         }
         let item = datasource[indexPath.section]
         if item.isHasAttachedMessages { return nil }
-        var dateString = self.messageDateFormatter.string(from: item.sentDate)
+        let dateString = self.messageDateFormatter.string(from: item.sentDate)
+        
+        let attributedString: NSMutableAttributedString = NSMutableAttributedString()
         
         if item.editDate != nil {
-            dateString = ["edited", dateString].joined(separator: " ")
+            attributedString.append(NSAttributedString(string: "edited "))
         }
-        return NSAttributedString(string: dateString, attributes: [
-            .font: UIFont.systemFont(ofSize: 12, weight: .light),
-        ])
+        if item.afterburnInterval > 0 {
+            switch ChatMarkersManager.BurnMessagesTimerValues(rawValue: Int(item.afterburnInterval)) {
+                case .off, .none:
+                    break
+                case .s5:
+                    attributedString.append(NSAttributedString(string: "5s "))
+                case .s10:
+                    attributedString.append(NSAttributedString(string: "10s "))
+                case .s15:
+                    attributedString.append(NSAttributedString(string: "15s "))
+                case .s30:
+                    attributedString.append(NSAttributedString(string: "30s "))
+                case .m1:
+                    attributedString.append(NSAttributedString(string: "1m "))
+                case .m5:
+                    attributedString.append(NSAttributedString(string: "5m "))
+                case .m10:
+                    attributedString.append(NSAttributedString(string: "10m "))
+                case .m15:
+                    attributedString.append(NSAttributedString(string: "15m "))
+                
+            }
+        }
+        
+        attributedString.append(NSAttributedString(string: dateString))
+        attributedString.addAttribute(.font, value: UIFont.systemFont(ofSize: 12, weight: .regular), range: NSRange(location: 0, length: attributedString.string.count))
+        
+        return attributedString
     }
     
     func messageBottomPadding(at indexPath: IndexPath) -> CGFloat {

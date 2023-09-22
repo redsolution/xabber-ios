@@ -28,24 +28,34 @@ class MediaMessageSizeCalculator: MessageSizeCalculator {
     
     override func messageContainerSize(for message: MessageType) -> CGSize {
         let maxWidth = messageContainerMaxWidth(for: message) > MessagesViewController.maxWidthForMessages ? MessagesViewController.maxWidthForMessages : messageContainerMaxWidth(for: message)
-        let minHeight: CGFloat = 64
+        let maxHeight: CGFloat = UIScreen.main.bounds.height / 2
+        let minHeight: CGFloat = 128
         let minWidth: CGFloat = 128
         let fileHeight: CGFloat = message.withAuthor ? 84 : 60
         let audioHeight: CGFloat = message.withAuthor ? 84 : 60
         
         let sizeForMediaItem = { (maxWidth: CGFloat, sizeUnwr: CGSize?) -> CGSize in
             if let size = sizeUnwr {
-                
-                if maxWidth < size.width {
-                    // Maintain the ratio if width is too great
-                    let height = maxWidth * size.height / size.width
-                    if height > maxWidth {
-                        return CGSize(width: maxWidth, height: height)
+
+                var calculatedWidth = size.width
+                var calculatedHeight = size.height
+
+                if size.width > maxWidth {
+                    calculatedWidth = maxWidth
+                    calculatedHeight = maxWidth * size.height / size.width
+                    if calculatedHeight > maxHeight {
+                        calculatedWidth = maxHeight * calculatedWidth / calculatedHeight
+                        calculatedHeight = maxHeight
                     }
-                    
-                    return CGSize(width: maxWidth, height: max(height, minHeight))
+                } else if size.height > maxHeight {
+                    calculatedHeight = maxHeight
+                    calculatedWidth = maxHeight * size.width / size.height
+                    if calculatedWidth > maxWidth {
+                        calculatedHeight = maxWidth * calculatedHeight / calculatedWidth
+                        calculatedWidth = maxWidth
+                    }
                 }
-                return CGSize(width: max(size.width, minWidth), height: max(size.height, minHeight))
+                return CGSize(width: max(minWidth, calculatedWidth), height: max(minHeight, calculatedHeight))
             } else {
                 return CGSize(width: maxWidth, height: maxWidth)
             }

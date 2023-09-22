@@ -61,4 +61,6 @@ class AccountStorageItem: Object {
     @objc dynamic var isEncryptionEnabled: Bool = true
     @objc dynamic var isOmemoDevicesListReceived: Bool = false
     @objc dynamic var isDevicesListReceived: Bool = false
+    
+    @objc dynamic var createdAt: Date = Date()
 }

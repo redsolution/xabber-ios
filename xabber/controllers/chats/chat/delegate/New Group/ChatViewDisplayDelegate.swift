@@ -67,6 +67,10 @@ extension ChatViewController: MessagesDisplayDelegate {
         }
     }
     
+    func isBurnedMessage(at indexPath: IndexPath) -> Bool {
+        return self.datasource[indexPath.section].afterburnInterval > 0
+    }
+    
     func enabledDetectors(for message: MessageType, at indexPath: IndexPath, in messagesCollectionView: MessagesCollectionView) -> [DetectorType] {
         return [.url, .address, .phoneNumber, .date]
     }
@@ -76,7 +80,7 @@ extension ChatViewController: MessagesDisplayDelegate {
         if item.isHasAttachedMessages {
             return .clear
         }
-        return item.outgoing ? accountPallete.tint50 : UIColor.white
+        return item.outgoing ? UIColor.white : self.accountPallete.tint50
     }
     
     func deliveryState(at indexPath: IndexPath) -> MessageStorageItem.MessageSendingState {

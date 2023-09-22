@@ -93,14 +93,13 @@ open class OmemoManager: AbstractXMPPManager {
                     $0.freshlyUpdated = false
                 }
             }
+            try self.localStore.create(for: deviceId, context: self.signalContext)
+            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                user.omemo.updateMyDevice(stream)
+            })
         } catch {
-            DDLogDebug("sda")
+            DDLogDebug("OmemoManager: \(#function). \(error.localizedDescription)")
         }
-//        CredentialsManager.shared.setDeviceId(deviceId, for: self.owner)
-        self.localStore.create(for: deviceId, context: self.signalContext)
-        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-            user.omemo.updateMyDevice(stream)
-        })
     }
     
     internal func checkInfo() {
@@ -200,6 +199,43 @@ open class OmemoManager: AbstractXMPPManager {
         envelope.addChild(rpad)
         
         return envelope.compactXMLString
+    }
+    
+    static func remove(for owner: String, commitTransaction: Bool) {
+        do {
+            let realm = try WRealm.safe()
+            let identitys = realm.objects(SignalIdentityStorageItem.self).filter("owner == %@", owner)
+            let devices = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@", owner)
+            let preKeys = realm.objects(SignalPreKeysStorageItem.self).filter("owner == %@", owner)
+            let sessions = realm.objects(SessionRecordStorageItem.self).filter("owner == %@", owner)
+            let trustedIdentity = realm.objects(SignalTrustedIdentityStoreageItem.self).filter("owner == %@", owner)
+            let senderKeys = realm.objects(SignalSenderKeyStoreageItem.self).filter("owner == %@", owner)
+            CredentialsManager.shared.removeIdentityKey(for: owner)
+            CredentialsManager.shared.removeDeviceId(for: owner)
+            preKeys.forEach {
+                CredentialsManager.shared.removePreKey(for: owner, id: $0.pkId)
+            }
+            CredentialsManager.shared.removeSignedPreKey(for: owner, id: 1)
+            if commitTransaction {
+                try realm.write {
+                    identitys.forEach { realm.delete($0) }
+                    devices.forEach { realm.delete($0) }
+                    preKeys.forEach { realm.delete($0) }
+                    sessions.forEach { realm.delete($0) }
+                    trustedIdentity.forEach { realm.delete($0) }
+                    senderKeys.forEach { realm.delete($0) }
+                }
+            } else {
+                identitys.forEach { realm.delete($0) }
+                devices.forEach { realm.delete($0) }
+                preKeys.forEach { realm.delete($0) }
+                sessions.forEach { realm.delete($0) }
+                trustedIdentity.forEach { realm.delete($0) }
+                senderKeys.forEach { realm.delete($0) }
+            }
+        } catch {
+            DDLogDebug("OmemoManager: \(#function). \(error.localizedDescription)")
+        }
     }
 }
 
@@ -1167,31 +1203,31 @@ extension OmemoManager {
         return String(bytes: body, encoding: .utf8)
     }
     
-    static func remove(for owner: String, commitTransaction: Bool) {
-        func transaction(_ block: () -> Void) throws {
-            let realm = try WRealm.safe()
-            
-            if commitTransaction {
-                try realm.write {
-                    block()
-                }
-            } else {
-                block()
-            }
-        }
-        do {
-            let realm = try WRealm.safe()
-            let identityCollection = realm.objects(SignalIdentityStorageItem.self).filter("owner == %@",  owner)
-            let devicesCollection = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@",  owner)
-            let preKeysCollection = realm.objects(SignalPreKeysStorageItem.self).filter("owner == %@",  owner)
-            try transaction {
-                realm.delete(identityCollection)
-                realm.delete(devicesCollection)
-                realm.delete(preKeysCollection)
-            }
-        } catch {
-            DDLogDebug("OmemoManager: \(#function). \(error.localizedDescription)")
-        }
-     }
+//    static func remove(for owner: String, commitTransaction: Bool) {
+//        func transaction(_ block: () -> Void) throws {
+//            let realm = try WRealm.safe()
+//            
+//            if commitTransaction {
+//                try realm.write {
+//                    block()
+//                }
+//            } else {
+//                block()
+//            }
+//        }
+//        do {
+//            let realm = try WRealm.safe()
+//            let identityCollection = realm.objects(SignalIdentityStorageItem.self).filter("owner == %@",  owner)
+//            let devicesCollection = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@",  owner)
+//            let preKeysCollection = realm.objects(SignalPreKeysStorageItem.self).filter("owner == %@",  owner)
+//            try transaction {
+//                realm.delete(identityCollection)
+//                realm.delete(devicesCollection)
+//                realm.delete(preKeysCollection)
+//            }
+//        } catch {
+//            DDLogDebug("OmemoManager: \(#function). \(error.localizedDescription)")
+//        }
+//     }
          
 }

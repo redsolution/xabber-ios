@@ -65,7 +65,7 @@ extension ContactsViewController: UITableViewDelegate {
             tableView.deselectRow(at: indexPath, animated: true)
             guard let jid = item.jid else { return }
             var groupchatDescr: String = ""
-            var conversationType: ClientSynchronizationManager.ConversationType = .regular
+            var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
             do {
                 let realm = try WRealm.safe()
                 if let instance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: [jid, item.owner].prp()) {

@@ -371,8 +371,7 @@ extension ChatViewController {
         }
         
         open func reset() {
-            durationLabel.text = TimeInterval(0).minuteFormatedString
-            durationLabel.layoutIfNeeded()
+            
         }
         
         internal func updateState(_ state: State) {
@@ -419,35 +418,14 @@ extension ChatViewController {
         }
         
         open func changeState(_ state: State) {
-            DispatchQueue.main.async {
-                if state != self.currentState {
-                    self.updateState(state)
-                }
-            }
+
         }
     }
     
     func showRecordingPanel() {
-        self.recordingPanel.alpha = 1.0
-        self.recordingPanel.isHidden = false
-        self.recordingPanel.updateState(.unlocked)
-        if UIDevice.needBottomOffset {
-            self.recordingPanel.frame = CGRect(
-                width: xabberInputBar.frame.width - 86,
-                height: xabberInputBar.frame.height - 16
-            )
-        } else {
-            self.recordingPanel.frame = CGRect(
-                width: xabberInputBar.frame.width - 86,
-                height: xabberInputBar.frame.height
-            )
-        }
-        self.xabberInputBar.addSubview(self.recordingPanel)
-        self.xabberInputBar.bringSubviewToFront(self.recordingPanel)
-        self.recordingPanel.layoutIfNeeded()
+
     }
     
     func hideRecordingPanel() {
-        self.recordingPanel.removeFromSuperview()
     }
 }

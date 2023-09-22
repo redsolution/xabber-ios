@@ -54,7 +54,7 @@ class MessagesCollectionViewFlowLayout: UICollectionViewFlowLayout {
 
     var itemWidth: CGFloat {
         guard let collectionView = collectionView else { return 0 }
-        return collectionView.frame.width - sectionInset.left - sectionInset.right
+        return collectionView.frame.width - sectionInset.horizontal
     }
     
     override init() {
@@ -78,7 +78,6 @@ class MessagesCollectionViewFlowLayout: UICollectionViewFlowLayout {
         guard let attributesArray = super.layoutAttributesForElements(in: rect) as? [MessagesCollectionViewLayoutAttributes] else {
             return nil
         }
-//        print("layout in rect")
         for attributes in attributesArray where attributes.representedElementCategory == .cell {
             let cellSizeCalculator = cellSizeCalculatorForItem(at: attributes.indexPath)
             cellSizeCalculator.configure(attributes: attributes)
@@ -90,7 +89,6 @@ class MessagesCollectionViewFlowLayout: UICollectionViewFlowLayout {
         guard let attributes = super.layoutAttributesForItem(at: indexPath) as? MessagesCollectionViewLayoutAttributes else {
             return nil
         }
-//        print("layout for item")
         if attributes.representedElementCategory == .cell {
             let cellSizeCalculator = cellSizeCalculatorForItem(at: attributes.indexPath)
             cellSizeCalculator.configure(attributes: attributes)
@@ -148,10 +146,6 @@ class MessagesCollectionViewFlowLayout: UICollectionViewFlowLayout {
     }
 
     func sizeForItem(at indexPath: IndexPath) -> CGSize {
-//        let calculator = cellSizeCalculatorForItem(at: indexPath)
-//        print("call size for item \(indexPath), calculator \(calculator.sizeForItem(at: indexPath))")
-//        return calculator.sizeForItem(at: indexPath)
-        
         let message = messagesDataSource.messageForItem(at: indexPath, in: messagesCollectionView)
         if let size = cache.get(for: message.primary) {
             return size

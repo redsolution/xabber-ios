@@ -30,9 +30,13 @@ extension ChatViewController {
 //        self.topMenuShowObserver.accept(!topMenuShowObserver.value)
     }
     
-    internal final func updateTitle() -> String {
-        var title = self.contactUsename
-        if self.conversationType == .omemo {
+    internal final func updateTitle() -> NSAttributedString {
+        let attributedTitle: NSMutableAttributedString = NSMutableAttributedString()
+        let indicatorAttach = NSTextAttachment()
+        
+        var color: UIColor = self.accountPallete.tint500
+        
+        if [.omemo, .omemo1, .axolotl].contains(self.conversationType) {
             do {
                 let realm = try WRealm.safe()
                 let collectionOwner = realm
@@ -42,18 +46,27 @@ extension ChatViewController {
                     .objects(SignalDeviceStorageItem.self)
                     .filter("jid == %@ AND owner == %@ AND state_ != %@", jid, owner, SignalDeviceStorageItem.TrustState.trusted.rawValue).count
                 if collectionOwner > 0 {
-                    title = "⚠️ \(title)"
+                    color = .systemYellow
+                    indicatorAttach.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withTintColor(.systemYellow)
+                    attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
                 } else if collectionJid > 0 {
-                    title = "⚠️ \(title)"
+                    color = .systemYellow
+                    indicatorAttach.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withTintColor(.systemYellow)
+                    attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
                 } else {
-                    title = "🔒 \(title)"
+                    color = .systemGreen
+                    indicatorAttach.image = UIImage(systemName: "lock.fill")?.withTintColor(.systemGreen)
+                    attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
                 }
                 
             } catch {
                 DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
             }
-            
         }
-        return title
+        attributedTitle.append(NSAttributedString(string: self.contactUsename, attributes: [
+            .foregroundColor: color,
+            .font: UIFont.systemFont(ofSize: 17, weight: .semibold)
+        ]))
+        return attributedTitle
     }
 }

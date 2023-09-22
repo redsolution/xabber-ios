@@ -39,7 +39,7 @@ class ActionSheetPresenter {
     public var cancelAction: (() -> Void)? = nil
     public var completion: (() -> Void)? = nil
     
-    func present(in view: UIViewController, title: String?, message: String?, cancel: String, values: [Item], animated: Bool, completion: @escaping ((String)->Void)) {
+    func present(in view: UIViewController, title: String?, message: String?, cancel: String?, values: [Item], animated: Bool, completion: @escaping ((String)->Void)) {
         self.alert = XabberAlertController(title: title, message: message, preferredStyle: .actionSheet)
         values.forEach {
             item in
@@ -47,9 +47,11 @@ class ActionSheetPresenter {
                 completion(item.value)
             }))
         }
-        alert?.addAction(UIAlertAction(title: cancel, style: .cancel, handler: { (action) in
-            self.cancelAction?()
-        }))
+        if let cancel = cancel {
+            alert?.addAction(UIAlertAction(title: cancel, style: .cancel, handler: { (action) in
+                self.cancelAction?()
+            }))
+        }
         
         if UIDevice.current.userInterfaceIdiom == .pad {
             if let popoverController = alert?.popoverPresentationController {

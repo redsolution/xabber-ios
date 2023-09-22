@@ -90,7 +90,7 @@ class XMPPUIActionManager: NSObject {
     public final func open(owner: String, force: Bool = false) {
 
 //        return
-        print("UI CONNECTION START OPEN!!!!!!")
+//        print("UI CONNECTION START OPEN!!!!!!")
         guard XMPPJID(string: owner) != nil else { return }
 //        if !force {
 //            if self.currentJid == owner {
@@ -234,15 +234,15 @@ class XMPPUIActionManager: NSObject {
     
     public final func performRequest(owner: String, action: @escaping ((XMPPStream, XMPPUIActionManager) -> Void), fail: @escaping (() -> Void), retryCounter: Int = 0) {
         self.open(owner: owner, force: false)
-        print("UI STREAM STATE", stream.isConnected, "is in auth process:", stream.isAuthenticating, "auth", stream.isAuthenticated)
+//        print("UI STREAM STATE", stream.isConnected, "is in auth process:", stream.isAuthenticating, "auth", stream.isAuthenticated)
         
         if !self.stream.isConnected {
             if retryCounter > 3 {
-                print("UI RETRY COUNTER FAIL")
+//                print("UI RETRY COUNTER FAIL")
                 fail()
                 return
             } else {
-                print("UI RETRY COUNTER", retryCounter)
+//                print("UI RETRY COUNTER", retryCounter)
                 if !self.stream.isConnecting {
                     self.restore()
                 }
@@ -257,7 +257,7 @@ class XMPPUIActionManager: NSObject {
             return
         } else {
             if !self.stream.isAuthenticated {
-                print("UI RETRY COUNTER, CANT SEND STANZAS", retryCounter)
+//                print("UI RETRY COUNTER, CANT SEND STANZAS", retryCounter)
                 self.queue.asyncAfter(deadline: .now() + 1) {
                     self.performRequest(owner: owner, action: action, fail: fail, retryCounter: retryCounter + 1)
                     return

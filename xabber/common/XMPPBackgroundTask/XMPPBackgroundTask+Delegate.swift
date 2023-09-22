@@ -158,9 +158,6 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
                 if let bareMessage = getArchivedMessageContainer(message) {
                     if VoIPManager.shared.onReceiveMessage(bareMessage, owner: sender.myJID!.bare, archivedDate: getDeliveryTime(message, owner: sender.myJID!.bare) ?? getDelayedDate(message)) {
                         return
-                    } else
-                    if self.messages.receiveStateMessage(bareMessage) {
-                        return
                     }
                 }
                 if !(AccountManager.shared.find(for: sender.myJID!.bare)?.omemo.didReceiveOmemoMessage(message) ?? false) {

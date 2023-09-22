@@ -49,6 +49,7 @@ open class SettingManager: NSObject {
         case languages = "languages"
         case security = "security"
         case products = "products"
+        case burnMessages = "burn_messages"
     }
     
     enum DatasourceKind {
@@ -393,6 +394,8 @@ open class SettingManager: NSObject {
             "privacy_checkServerCertificate": true,
             "developer_logEnabled": false,
             "avatar_masks_current_avatar_mask_": "rounded",
+            "burn_messages_enabled": true,
+            "burn_messages_timer": 0
         ]
         defaults.forEach { (item) in
             userDefaults.set(item.value, forKey: item.key as! String)

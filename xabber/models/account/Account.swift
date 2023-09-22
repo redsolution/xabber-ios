@@ -87,6 +87,8 @@ final class Account: NSObject {
     
     var omemo: OmemoManager
     
+    var deliveryReceipts: MessageDeliveryReceipts
+    
     var carbonsEnabled: Bool = false
     var pushWasReceived: Bool {
         didSet {
@@ -167,6 +169,7 @@ final class Account: NSObject {
         self.x509Manager = X509XMPPManager(withOwner: self.jid)
         self.smStorage = XMPPStreamManagementMemoryStorage()
         self.sm = XMPPStreamManagement(storage: self.smStorage, dispatchQueue: queue)
+        self.deliveryReceipts = MessageDeliveryReceipts(withOwner: self.jid)
         // start init NSObject
         super.init()
         self.registerModules()
@@ -284,6 +287,9 @@ final class Account: NSObject {
             result in
             self.pushStatusMessage.accept(result)
         }
+        let deviceId = CredentialsManager.shared.getDeviceId(for: self.jid) ?? Int(arc4random() % 16380)
+        self.omemo.configureLocal(for: deviceId)
+        ApplicationStateManager.shared.checkApplicationBlockedState(for: self.jid)
     }
     
 /**
@@ -344,10 +350,10 @@ final class Account: NSObject {
  *    open XMPPStream in special thread
  **/
     func asyncConnect() {
-        self.queue.async {
+//        self.queue.async {
             self.configureStream()
             self.connect()
-        }
+//        }
 //        self.queue.async {
 //            self.configureStream()
 //        }
@@ -502,11 +508,9 @@ final class Account: NSObject {
 //        self.statusMessage.accept("Waiting for network")
         self.statusMessage.accept("Offline")
         self.mam.didResetState()
-        self.messages.didResetState()
         self.presences.didResetState()
         self.msgDeleteManager.clearSession()
         self.devices.clearSession()
-//        self.lastChats.resetSyncedStatus()
         self.groupchats.reset()
         self.syncManager.reset()
     }
@@ -708,6 +712,7 @@ final class Account: NSObject {
                 item.statusMessage = self.statusMessage.value
                 item.xTokenSupport = self.supportTokens
                 item.xTokenUID = self.tokenUid
+                item.createdAt = Date()
                 if let deviceId = self.devices.deviceId {
                     item.deviceUuid = deviceId
                 }

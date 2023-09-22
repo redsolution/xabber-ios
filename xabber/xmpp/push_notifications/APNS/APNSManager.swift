@@ -219,9 +219,9 @@ class APNSManager: NSObject {
 //        }
         completionHandler?()
         
-        DispatchQueue.main.async {
-            ToastPresenter(message: "Reg jid push receive").present(animated: true)
-        }
+//        DispatchQueue.main.async {
+//            ToastPresenter(message: "Reg jid push receive").present(animated: true)
+//        }
         
         throw APNSError.registrationSuccess
     }

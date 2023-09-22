@@ -55,6 +55,9 @@ class CommonConfigManager: NSObject {
         var support_jid: String
         var should_block_application_when_subscribtion_end: Bool
         var use_yubikey: Bool
+        var afterburn_at_default: Bool
+        var afterburn_default_interval: Int
+        var server_registration_url: String
     }
     
     var config: CommonConfig

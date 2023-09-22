@@ -42,10 +42,10 @@ open class MessagesCollectionViewLayoutAttributes: UICollectionViewLayoutAttribu
     public var messageTopLabelSize: CGSize = .zero
 
     public var messageBottomLabelAlignment = LabelAlignment(textAlignment: .center, textInsets: .zero)
-    public var messageBottomLabelSize: CGSize = CGSize(width: 38, height: 16)
+    public var messageBottomLabelSize: CGSize = CGSize(width: 42, height: 16)
     public var messageBottomPadding: CGFloat = 4
     
-    public var inlineMessageMargin: UIEdgeInsets = UIEdgeInsets(top: 0, bottom: 0, left: 16, right: 16)
+    public var inlineMessageMargin: UIEdgeInsets = UIEdgeInsets(top: 4, bottom: 4, left: 4, right: 4)
     
     public var showMessageStateIndicator: Bool = true
     

@@ -139,6 +139,7 @@ class ImagePickerViewController: UIViewController {
         UIView.animate(withDuration: 0.1, animations: {
             self.baseView.frame = CGRect(x: 0, y: self.view.frame.height, width: self.view.frame.width, height: 190)
             self.dimmed.alpha = 0.0
+            self.blurredEffectView.frame = self.baseView.bounds
         }) { _ in
             self.dismiss(animated: false, completion: nil)
         }
@@ -242,6 +243,7 @@ class ImagePickerViewController: UIViewController {
                                              y: self.view.frame.height - (reverse ? 190 : 90),
                                              width: self.view.frame.width,
                                              height: (reverse ? 190 : 90))
+                self.blurredEffectView.frame = self.baseView.bounds
                 self.collectionView?.isHidden = !reverse
                 self.separator.isHidden = !reverse
             })
@@ -311,7 +313,7 @@ class ImagePickerViewController: UIViewController {
         collectionView = UICollectionView(frame: CGRect(x: 8, y: 8, width: self.baseView.frame.width - 16, height: 88), collectionViewLayout: collectionLayout)
         collectionView!.delegate = self
         collectionView!.dataSource = self
-        collectionView!.backgroundColor = .white
+        collectionView!.backgroundColor = .clear
         collectionView!.contentMode = .left
         
         collectionView!.allowsSelection = true
@@ -349,6 +351,13 @@ class ImagePickerViewController: UIViewController {
         }
     }
     
+    let blurredEffectView: UIVisualEffectView = {
+        let blurEffect = UIBlurEffect(style: .systemMaterial)
+        let blurredEffectView = UIVisualEffectView(effect: blurEffect)
+        
+        return blurredEffectView
+    }()
+    
     internal func configure() {
         
         getLastSavedImages()
@@ -363,11 +372,8 @@ class ImagePickerViewController: UIViewController {
         }
         
         baseView.frame = CGRect(x: 0, y: self.view.frame.height, width: self.view.frame.width, height: 190 + additionalInset)
-        if #available(iOS 13.0, *) {
-            baseView.backgroundColor = .systemBackground
-        } else {
-            baseView.backgroundColor = .white
-        }
+        blurredEffectView.frame = baseView.bounds
+        baseView.addSubview(self.blurredEffectView)
         
         self.view.addSubview(baseView)
         
@@ -395,6 +401,7 @@ class ImagePickerViewController: UIViewController {
         }
         UIView.animate(withDuration: 0.18) {
             self.baseView.frame = CGRect(x: 0, y: self.view.frame.height - 190 - additionalInset, width: self.view.frame.width, height: 190 + additionalInset)
+            self.blurredEffectView.frame = self.baseView.bounds
         }
     }
     
@@ -492,6 +499,8 @@ extension ImagePickerViewController: UIImagePickerControllerDelegate {
         let item = MessageReferenceStorageItem()
         item.kind = .media
         item.owner = self.owner
+        item.jid = self.jid
+        item.conversationType = self.conversationType
         item.mimeType = MimeIcon(MimeType(url: url).value).value.rawValue
         item.temporaryData = data
         item.metadata = [
@@ -514,6 +523,8 @@ extension ImagePickerViewController: UIImagePickerControllerDelegate {
         let item = MessageReferenceStorageItem()
         item.kind = .media
         item.owner = self.owner
+        item.jid = self.jid
+        item.conversationType = self.conversationType
         item.mimeType = MimeIcon(MimeType(url: url).value).value.rawValue
         item.temporaryData = image.pngData()
         item.metadata = [
@@ -607,6 +618,8 @@ extension ImagePickerViewController: UIDocumentPickerDelegate {
         let mimeType = MimeIcon(MimeType(url: url).value).value
         item.mimeType = mimeType.rawValue
         item.owner = self.owner
+        item.jid = self.jid
+        item.conversationType = self.conversationType
         item.metadata = [
             "filename": url.lastPathComponent,
             "size": item.temporaryData?.count ?? 0,

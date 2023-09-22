@@ -76,9 +76,9 @@ class ReliableMessageDeliveryManager: AbstractXMPPManager {
     
     open func read(headline message: XMPPMessage) -> Bool {
         switch true {
+        case readNotification(message): return true
         case readEcho(message): return true
         case readRealtimeNotification(message): return true
-        case readNotification(message): return true
         default: return false
         }
     }
@@ -160,17 +160,12 @@ class ReliableMessageDeliveryManager: AbstractXMPPManager {
     }
     
     internal func readNotification(_ message: XMPPMessage) -> Bool {
-        guard let received = message.element(forName: "received"),
-            received.xmlns() == getPrimaryNamespace(),
-            let elementId = received.element(forName: "origin-id")?.attributeStringValue(forName: "id"),
-            let stamp = received.element(forName: "time")?.attributeStringValue(forName: "stamp")?.xmppDate else {
+        guard let received = message.element(forName: "received", xmlns: getPrimaryNamespace()),
+            let elementId = received.element(forName: "origin-id")?.attributeStringValue(forName: "id") else {
                 return false
         }
         do {
             let realm = try  WRealm.safe()
-            print(realm
-                    .objects(MessageStorageItem.self)
-                    .filter("owner == %@ AND messageId == %@", owner, elementId).toArray())
             if let instance = realm
                 .objects(MessageStorageItem.self)
                 .filter("owner == %@ AND messageId == %@", owner, elementId)
@@ -179,8 +174,10 @@ class ReliableMessageDeliveryManager: AbstractXMPPManager {
                         if instance.state == .sending {
                             instance.state = .sended
                         }
-                        instance.date = stamp
-                        instance.sentDate = stamp
+                        if let stamp = received.element(forName: "time")?.attributeStringValue(forName: "stamp")?.xmppDate {
+                            instance.date = stamp
+                            instance.sentDate = stamp
+                        }
                         instance.archivedId = getStanzaId(message, owner: owner)
                     }
             }

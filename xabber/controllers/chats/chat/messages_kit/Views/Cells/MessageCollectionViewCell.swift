@@ -25,6 +25,10 @@ open class MessageCollectionViewCell: UICollectionViewCell {
 
     // MARK: - Initializers
 
+    func configure(with message: MessageType, at indexPath: IndexPath, and messagesCollectionView: MessagesCollectionView) {
+        
+    }
+    
     public override init(frame: CGRect) {
         super.init(frame: frame)
     }

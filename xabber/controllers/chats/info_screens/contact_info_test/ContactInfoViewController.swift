@@ -66,7 +66,7 @@ class ContactInfoViewController: BaseViewController {
     var headerHeightMax: CGFloat = 282//264
     var headerHeightMin: CGFloat = 180//150
     
-    public var conversationType: ClientSynchronizationManager.ConversationType = .regular
+    public var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
     
     internal let headerView: InfoScreenHeaderView = {
         let view = InfoScreenHeaderView(frame: .zero)
@@ -342,6 +342,7 @@ class ContactInfoViewController: BaseViewController {
                                           title: "Call".localizeString(id: "contact_bar_call", arguments: []),
                                           style: .active,
                                           enabled: false)
+        headerView.secondButton.isHidden = true
         headerView.thirdButton.configure(#imageLiteral(resourceName: "bell"),
                                          title: "Notifications".localizeString(id: "contact_bar_notifications", arguments: []),
                                          style: .active)
@@ -350,6 +351,7 @@ class ContactInfoViewController: BaseViewController {
                                           style: .danger)
 //        headerView.subtitleLabel.isHidden = true
         
+        footerView.conversationType = self.conversationType
         footerView.jid = self.jid
         footerView.owner = self.owner
         
@@ -358,7 +360,6 @@ class ContactInfoViewController: BaseViewController {
                                   height: view.frame.height - headerHeightMin)
         footerView.mediaButtonsDelegate = self
         footerView.infoVCDelegate = self
-        footerView.getReferences()
         tableView.tableFooterView = footerView
         
         editButton.target = self
@@ -396,6 +397,7 @@ class ContactInfoViewController: BaseViewController {
         getAppTabBar()?.hide()
         navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
         navigationController?.navigationBar.shadowImage = UIImage()
+        footerView.getReferences()
     }
     
     override func viewDidAppear(_ animated: Bool) {

@@ -22,6 +22,12 @@ import Foundation
 import UIKit
 
 extension SubforwardsViewController: MessagesDisplayDelegate {
+    func isBurnedMessage(at indexPath: IndexPath) -> Bool {
+        return false
+    }
+    
+    
+    
     
     
     func messageStyle(for message: MessageType, at indexPath: IndexPath, in messagesCollectionView: MessagesCollectionView) -> MessageStyle {
