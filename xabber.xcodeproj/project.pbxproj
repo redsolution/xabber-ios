@@ -724,6 +724,15 @@
 		66FF754B211C7029008EF11D /* PingManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66FF754A211C7029008EF11D /* PingManager.swift */; };
 		66FF754E211C7387008EF11D /* QueryDeliveryQueueItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66FF754D211C7387008EF11D /* QueryDeliveryQueueItem.swift */; };
 		7D619BF581B2C3AD7536E46A /* Pods_xabberTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DC236808525500AA398656C3 /* Pods_xabberTests.framework */; };
+		AF5503272A83B1CB00632E83 /* CloudInfoScreenView+Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF5503262A83B1CB00632E83 /* CloudInfoScreenView+Extensions.swift */; };
+		AF5FCCC52A84BB0000C7DDC0 /* CloudPhotoGallery.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF5FCCC42A84BB0000C7DDC0 /* CloudPhotoGallery.swift */; };
+		AF6ADC052ABABFE40048BEF6 /* FileDeletionConfirmation.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF6ADC042ABABFE40048BEF6 /* FileDeletionConfirmation.swift */; };
+		AF6CDE1D2AB1B5A7004EBB9F /* CloudStorageDeleteViewController+UICollectionViewDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF6CDE1C2AB1B5A7004EBB9F /* CloudStorageDeleteViewController+UICollectionViewDataSource.swift */; };
+		AF6CDE1F2AB1B5DF004EBB9F /* CloudStorageDeleteViewController+UICollectionViewDelegateFlowLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF6CDE1E2AB1B5DF004EBB9F /* CloudStorageDeleteViewController+UICollectionViewDelegateFlowLayout.swift */; };
+		AF8BA1AD2A7B836C0040E109 /* CloudStorageGalleryViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF8BA1AC2A7B836C0040E109 /* CloudStorageGalleryViewController.swift */; };
+		AF8DC7832A864232002F78E1 /* CloudStorageDeleteViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF8DC7822A864232002F78E1 /* CloudStorageDeleteViewController.swift */; };
+		AF9D98072A81128900061D41 /* CloudInfoScreenView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF9D98062A81128900061D41 /* CloudInfoScreenView.swift */; };
+		AFBDA02A2A838F920017A145 /* CloudStorageGalleryViewController+Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFBDA0292A838F920017A145 /* CloudStorageGalleryViewController+Extensions.swift */; };
 		CB444BFBCFA3A0CB3E831615 /* Pods_xabber.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EB6DFA8E00BD914EAFA8CAE8 /* Pods_xabber.framework */; };
 /* End PBXBuildFile section */
 
@@ -1694,6 +1703,15 @@
 		70068162704B8E5FC361D39E /* Pods-XabberPushService.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-XabberPushService.release.xcconfig"; path = "Target Support Files/Pods-XabberPushService/Pods-XabberPushService.release.xcconfig"; sourceTree = "<group>"; };
 		95BBDD332E1BBA6B58CF98AC /* Pods-xabber.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-xabber.release.xcconfig"; path = "Target Support Files/Pods-xabber/Pods-xabber.release.xcconfig"; sourceTree = "<group>"; };
 		A5A1B180AC3ADA69A08E4243 /* Pods-clandestino.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-clandestino.release.xcconfig"; path = "Target Support Files/Pods-clandestino/Pods-clandestino.release.xcconfig"; sourceTree = "<group>"; };
+		AF5503262A83B1CB00632E83 /* CloudInfoScreenView+Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudInfoScreenView+Extensions.swift"; sourceTree = "<group>"; };
+		AF5FCCC42A84BB0000C7DDC0 /* CloudPhotoGallery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPhotoGallery.swift; sourceTree = "<group>"; };
+		AF6ADC042ABABFE40048BEF6 /* FileDeletionConfirmation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDeletionConfirmation.swift; sourceTree = "<group>"; };
+		AF6CDE1C2AB1B5A7004EBB9F /* CloudStorageDeleteViewController+UICollectionViewDataSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudStorageDeleteViewController+UICollectionViewDataSource.swift"; sourceTree = "<group>"; };
+		AF6CDE1E2AB1B5DF004EBB9F /* CloudStorageDeleteViewController+UICollectionViewDelegateFlowLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudStorageDeleteViewController+UICollectionViewDelegateFlowLayout.swift"; sourceTree = "<group>"; };
+		AF8BA1AC2A7B836C0040E109 /* CloudStorageGalleryViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudStorageGalleryViewController.swift; sourceTree = "<group>"; };
+		AF8DC7822A864232002F78E1 /* CloudStorageDeleteViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudStorageDeleteViewController.swift; sourceTree = "<group>"; };
+		AF9D98062A81128900061D41 /* CloudInfoScreenView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudInfoScreenView.swift; sourceTree = "<group>"; };
+		AFBDA0292A838F920017A145 /* CloudStorageGalleryViewController+Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudStorageGalleryViewController+Extensions.swift"; sourceTree = "<group>"; };
 		DC236808525500AA398656C3 /* Pods_xabberTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_xabberTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		EB6DFA8E00BD914EAFA8CAE8 /* Pods_xabber.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_xabber.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -1755,6 +1773,8 @@
 				1AAD59FE27AAAFC2006D0BA9 /* VoiceMediaCollectionCell.swift */,
 				1A9EDCD027A7E00E00DEBE3B /* NoFilesMediaCollectionCell.swift */,
 				1A923D2B27BBC083008BD714 /* InfoScreenFooterView+Extensions.swift */,
+				AF9D98062A81128900061D41 /* CloudInfoScreenView.swift */,
+				AF5503262A83B1CB00632E83 /* CloudInfoScreenView+Extensions.swift */,
 			);
 			path = footerInfoView;
 			sourceTree = "<group>";
@@ -1775,6 +1795,12 @@
 				1A999D8727DF60840093A011 /* CloudStorageViewController+TableViewDelegate.swift */,
 				1A999D8927DF609C0093A011 /* CloudStorageViewController+TableViewDataSource.swift */,
 				1AA11F3A27E1CA4100E8C75A /* CloudStorageViewController+extensions.swift */,
+				AF8BA1AC2A7B836C0040E109 /* CloudStorageGalleryViewController.swift */,
+				AFBDA0292A838F920017A145 /* CloudStorageGalleryViewController+Extensions.swift */,
+				AF8DC7822A864232002F78E1 /* CloudStorageDeleteViewController.swift */,
+				AF6CDE1C2AB1B5A7004EBB9F /* CloudStorageDeleteViewController+UICollectionViewDataSource.swift */,
+				AF6CDE1E2AB1B5DF004EBB9F /* CloudStorageDeleteViewController+UICollectionViewDelegateFlowLayout.swift */,
+				AF6ADC042ABABFE40048BEF6 /* FileDeletionConfirmation.swift */,
 			);
 			path = quota;
 			sourceTree = "<group>";
@@ -2644,6 +2670,7 @@
 				66A51ACA23ADFB8F005369C3 /* PanDirectionGestureRecognizer.swift */,
 				66A51ACB23ADFB8F005369C3 /* PhotoGallery.swift */,
 				66A51ACC23ADFB90005369C3 /* PhotoGalleryCell.swift */,
+				AF5FCCC42A84BB0000C7DDC0 /* CloudPhotoGallery.swift */,
 			);
 			path = image_gallery;
 			sourceTree = "<group>";
@@ -4752,6 +4779,7 @@
 				66FD8EFA22B3719C00693944 /* AccountConnectionViewController+EditCell.swift in Sources */,
 				66CDBEDC279EBE2900B2CC6F /* NewSecretChatViewController.swift in Sources */,
 				66A57588248A52DE0073216B /* vCardCell.swift in Sources */,
+				AF6CDE1D2AB1B5A7004EBB9F /* CloudStorageDeleteViewController+UICollectionViewDataSource.swift in Sources */,
 				6646D33023487B5F00B64FEB /* ShareDialogController.swift in Sources */,
 				66A3169422AE9D5600EA0773 /* XTokenManager.swift in Sources */,
 				1A9ED07C279FFED500F3543D /* PhotosMediaCollectionCell.swift in Sources */,
@@ -4766,6 +4794,7 @@
 				6627A73024BD939B00FB0304 /* InviteSearchViewController.swift in Sources */,
 				66E6A146248FAE66006F6968 /* GroupchatInfoViewController.swift in Sources */,
 				669F8AA4238EB0080022A9AA /* GroupchatSettingsViewController+LargeTextUtenCell.swift in Sources */,
+				AF5FCCC52A84BB0000C7DDC0 /* CloudPhotoGallery.swift in Sources */,
 				66E66801238BD4E9002F8B8A /* GroupchatSettingsViewController+InfoCell.swift in Sources */,
 				662551CB28730EE7000055BD /* DevicesListViewController.swift in Sources */,
 				6667ABF028880A6100B9841A /* PrivacySplashScreenViewController.swift.swift in Sources */,
@@ -4826,6 +4855,7 @@
 				6636EDA12464355B000FA8D1 /* StickerMessageCell.swift in Sources */,
 				6619537022A68D6B00BE7190 /* SettingsItemSelectorViewController.swift in Sources */,
 				665451B322A92DD60077635D /* AccountEditViewController+UITextFieldDelegate.swift in Sources */,
+				AF6CDE1F2AB1B5DF004EBB9F /* CloudStorageDeleteViewController+UICollectionViewDelegateFlowLayout.swift in Sources */,
 				6689B4B624AB183D00A993BD /* LastChatsViewController+PullDownTableHeaderView.swift in Sources */,
 				6635A05225CC1A5A00EA57FE /* NewCallViewController+Flow.swift in Sources */,
 				66A5232428ED84DE008F7094 /* Data+EncryptionExtension.swift in Sources */,
@@ -4903,6 +4933,7 @@
 				4D784637288E57AB00DB706A /* ChangePasswordTableViewController.swift in Sources */,
 				6648841C26EA068F00323013 /* ChatViewController+SearchBar.swift in Sources */,
 				66C8CA7B2510AA6C00CA7271 /* XMPPBackgroundTask+Delegate.swift in Sources */,
+				AF8BA1AD2A7B836C0040E109 /* CloudStorageGalleryViewController.swift in Sources */,
 				66232BC022AA7FD2008B272D /* AccountSecurityViewController+UITextFieldDelegate.swift in Sources */,
 				66CDBEDE279EC0C400B2CC6F /* ContactListTableViewCell.swift in Sources */,
 				66A3168922AE34B500EA0773 /* ContactChatMetadata.swift in Sources */,
@@ -4917,6 +4948,7 @@
 				66B734FC26524AA400DABB20 /* SimpleBaseViewController.swift in Sources */,
 				1AAD59FB27AA8483006D0BA9 /* AVAsset+Extensions.swift in Sources */,
 				669F207F24812F5E00A0A666 /* EditContactViewController+UITableViewDelegate.swift in Sources */,
+				AF8DC7832A864232002F78E1 /* CloudStorageDeleteViewController.swift in Sources */,
 				66FB564C208DE5D500BE2BA4 /* CellWithBadge.swift in Sources */,
 				666B06D92832541900B2F991 /* UpdateSignaturePresenter.swift in Sources */,
 				66DED55522AA60BF008E5710 /* AccountColorViewController+UITableViewDelegate.swift in Sources */,
@@ -5094,6 +5126,7 @@
 				669F92EE27FC40C00035658C /* CommonConfigManager.swift in Sources */,
 				6643F32221C2650E00333229 /* Avatar.swift in Sources */,
 				66BC5C7825CD238500CEC418 /* NewCallSearchViewController.swift in Sources */,
+				AFBDA02A2A838F920017A145 /* CloudStorageGalleryViewController+Extensions.swift in Sources */,
 				66A57584248A45CD0073216B /* UIImage+Resize.swift in Sources */,
 				6638AE7E236C6EBC0022DF7D /* SystemMessageCell.swift in Sources */,
 				6643F30621C2650E00333229 /* MessageSizeCalculator.swift in Sources */,
@@ -5215,6 +5248,7 @@
 				662D4A792489371D009E2B22 /* RoundedAvatarButton.swift in Sources */,
 				6643F31A21C2650E00333229 /* InputTextView.swift in Sources */,
 				6620584C2383CF71000B0E11 /* NewEntityViewController+ContactCell.swift in Sources */,
+				AF9D98072A81128900061D41 /* CloudInfoScreenView.swift in Sources */,
 				66B5F2D723FEA68A00A22F64 /* MessageForwardsInlineStorageItem.swift in Sources */,
 				4DC3146D291A96DD004B6C9D /* Store.swift in Sources */,
 				1A9D9956279AB8B700E5FB74 /* InfoScreenFooterView.swift in Sources */,
@@ -5245,6 +5279,7 @@
 				66A15B4E281C086100FC1E65 /* SignalPreKeyStorageItem.swift in Sources */,
 				6686A7F822BB90CE0014376A /* AboutXabberViewController+Cell.swift in Sources */,
 				6617C11B241B9A520027D5C2 /* SubforwardsViewController+AVAudioPlayerDelegate.swift in Sources */,
+				AF5503272A83B1CB00632E83 /* CloudInfoScreenView+Extensions.swift in Sources */,
 				6619536722A6745100BE7190 /* SettingsitemDetailViewController+SwitchCell.swift in Sources */,
 				6697DDE122D31C3200C5FB27 /* LastChatsViewController+UITableViewDatasource.swift in Sources */,
 				6643F30421C2650E00333229 /* MessagesCollectionViewFlowLayout.swift in Sources */,
@@ -5367,6 +5402,7 @@
 				668409E326035C15001BB80B /* ChatViewController+Dataset.swift in Sources */,
 				66C01C7F2348B6B1001C167C /* ShareDialogSearchController.swift in Sources */,
 				666201FC22B3E22800FB2A44 /* AccountBlockListViewController+UITableViewDatasource.swift in Sources */,
+				AF6ADC052ABABFE40048BEF6 /* FileDeletionConfirmation.swift in Sources */,
 				669DC92C23A216F00072891B /* GroupchatEditContactViewController+TextEditCell.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

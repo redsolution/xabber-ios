@@ -35,31 +35,26 @@ extension CloudStorageViewController: UITableViewDataSource {
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let item = datasource[indexPath.section].children[indexPath.row]
         
-        if item.key == "quota_info" {
-            let cell = tableView.dequeueReusableCell(withIdentifier: QuotaInfoCell.cellName,
-                                                           for: indexPath) as? QuotaInfoCell
+        switch item.key {
+        case "quota_info":
+            let cell = tableView.dequeueReusableCell(withIdentifier: QuotaInfoCell.cellName, for: indexPath) as? QuotaInfoCell
             cell?.selectionStyle = .none
-            
             cell?.setup(title: item.title, owner: jid, quotaDelegate: self)
-            
             return cell!
-        } else {
-            var cell = tableView.dequeueReusableCell(withIdentifier: "TextCell")
-            if cell == nil {
-                cell = UITableViewCell(style: .value1, reuseIdentifier: "TextCell")
-            }
-            
-            cell?.textLabel?.text = item.title
-            cell?.detailTextLabel?.text = item.subtitle
-            
-            switch item.kind {
-            case .text:
-                cell?.selectionStyle = .none
-            case .button:
-                cell?.textLabel?.textColor = .systemRed
-            }
-            
-            return cell!
+        case "delete_files":
+            let cell = UITableViewCell(style: .value1, reuseIdentifier: "value1CellReuseID")
+            var listContentConfiguration = cell.defaultContentConfiguration()
+            listContentConfiguration.text = item.title
+            listContentConfiguration.textProperties.color = .systemRed
+            listContentConfiguration.textProperties.alignment = .center
+            cell.contentConfiguration = listContentConfiguration
+            return cell
+        default:
+            let cell = UITableViewCell(style: .value1, reuseIdentifier: "value1CellReuseID")
+            cell.textLabel?.text = item.title
+            cell.detailTextLabel?.text = item.subtitle
+            cell.accessoryType = .disclosureIndicator
+            return cell
         }
     }
 }

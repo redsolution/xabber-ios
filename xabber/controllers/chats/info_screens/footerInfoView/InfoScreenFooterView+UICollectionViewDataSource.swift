@@ -36,7 +36,7 @@ extension InfoScreenFooterView: UICollectionViewDataSource {
         }
     }
 
-    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+    internal func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         if datasource.isNotEmpty {
             DispatchQueue.global(qos: .background).async {
                 if indexPath.item == (collectionView.numberOfItems(inSection: 0) - 1) {
@@ -85,6 +85,9 @@ extension InfoScreenFooterView: UICollectionViewDataSource {
                            time: data.send_time ?? "",
                            sizeInBytes: data.sizeInBytes ?? "",
                            filename: data.filename)
+                if indexPath.item == datasource.count - 1 {
+                    cell.separatorLine.removeFromSuperview()
+                }
                 return cell
                 
             case .voice:
@@ -96,7 +99,9 @@ extension InfoScreenFooterView: UICollectionViewDataSource {
                                senderName: data.senderName,
                                owner: owner,
                                sizeInBytes: data.sizeInBytes ?? "")
-                    
+                    if indexPath.item == datasource.count - 1 {
+                        cell.audioView.separatorLine.removeFromSuperview()
+                    }
                     return cell
                 } else {
                     fallthrough
@@ -110,12 +115,7 @@ extension InfoScreenFooterView: UICollectionViewDataSource {
             
         } else {
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: NoFilesMediaCollectionCell.cellName, for: indexPath) as! NoFilesMediaCollectionCell
-            if isFirstTimeOpened {
-                isFirstTimeOpened = false
-                needsCollectionUpdate = true
-            } else {
-                cell.setup()
-            }
+            cell.setup()
             return cell
         }
     }

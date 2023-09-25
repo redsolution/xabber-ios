@@ -30,66 +30,67 @@ extension CloudStorageViewController: UITableViewDelegate {
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        func prepareDate(days: Int, callback: @escaping ((String) -> Void )) {
-            var dateComponent = DateComponents()
-            
-            dateComponent.day = -days
-            guard let date = Calendar.current.date(byAdding: dateComponent, to: Date()) else { return }
-            
-            let formatter = DateFormatter()
-            formatter.dateFormat = "YYYY-MM-dd"
-            let preparedDate = formatter.string(from: date)
-            
-            callback(preparedDate)
-        }
-        func getFreedSpace(days: Int, preparedDate: String) {
-            guard let account = AccountManager.shared.find(for: jid),
-                  let uploader = account.getDefaultUploader() as? UploadManagerExtendedProtocol else { return }
-            uploader.getFreeSpaceAfterDeletion(earlierThanDate: preparedDate) { freedSpace in
-                if freedSpace == nil {
-                    self.showVCBeforeDeletingFiles(days: days, preparedDate: preparedDate, freedSpace: "0 KiB")
-                } else {
-                    self.showVCBeforeDeletingFiles(days: days, preparedDate: preparedDate, freedSpace: freedSpace!)
-                }
-            }
+        func showConfirmationToDelete(percent: Int) {
+            let viewController = FileDeletionConfirmation(percent: percent, owner: self.jid)
+            self.navigationController?.pushViewController(viewController, animated: true)
         }
         
         let item = datasource[indexPath.section].children[indexPath.row]
-        if item.key == "delete_files" {
+        tableView.deselectRow(at: indexPath, animated: true)
+        switch item.key {
+        case "delete_files":
             let deleteItems: [ActionSheetPresenter.Item] = [
-                ActionSheetPresenter.Item(destructive: false, title: "Older than 15 days".localizeString(id: "delete_files_older_than_15_days", arguments: []), value: "15days"),
-                ActionSheetPresenter.Item(destructive: false, title: "Older than 30 days".localizeString(id: "delete_files_older_than_30_days", arguments: []), value: "30days"),
-                ActionSheetPresenter.Item(destructive: false, title: "Older than 60 days".localizeString(id: "delete_files_older_than_60_days", arguments: []), value: "60days")
+                ActionSheetPresenter.Item(destructive: false, title: "15%", value: "15percent"),
+                ActionSheetPresenter.Item(destructive: false, title: "25%", value: "25percent"),
+                ActionSheetPresenter.Item(destructive: false, title: "50%", value: "50percent"),
+                ActionSheetPresenter.Item(destructive: false, title: "All files", value: "100percent")
             ]
             
             ActionSheetPresenter()
                 .present(in: self,
-                         title: "Delete files".localizeString(id: "account_delete_files_message", arguments: []),
-                         message: "Choose which files will be deleted".localizeString(id: "account_which_files_to_delete", arguments: []),
+                         title: "Free up space".localizeString(id: "account_delete_files_message", arguments: []),
+                         message: "Choose how many files will be deleted to free up space (as a percentage)".localizeString(id: "account_which_files_to_delete", arguments: []),
                          cancel: "Cancel".localizeString(id: "cancel", arguments: []),
                          values: deleteItems,
                          animated: true
                 ) { result in
                     
                     switch result {
-                    case "15days":
-                        prepareDate(days: 15) { preparedDate in
-                            getFreedSpace(days: 15, preparedDate: preparedDate)
-                        }
-                    case "30days":
-                        prepareDate(days: 30) { preparedDate in
-                            getFreedSpace(days: 30, preparedDate: preparedDate)
-                        }
-                    case "60days":
-                        prepareDate(days: 60) { preparedDate in
-                            getFreedSpace(days: 60, preparedDate: preparedDate)
-                        }
+                    case "15percent":
+                        showConfirmationToDelete(percent: 15)
+                    case "25percent":
+                        showConfirmationToDelete(percent: 25)
+                    case "50percent":
+                        showConfirmationToDelete(percent: 50)
+                    case "100percent":
+                        showConfirmationToDelete(percent: 100)
                     default:
                         break
                     }
                 }
+            return
+        case "images":
+            let viewController = CloudStorageGalleryViewController()
+            viewController.configure(jid: self.jid, .images)
+            navigationController?.pushViewController(viewController, animated: true)
+            return
+        case "videos":
+            let viewController = CloudStorageGalleryViewController()
+            viewController.configure(jid: self.jid, .videos)
+            navigationController?.pushViewController(viewController, animated: true)
+            return
+        case "files":
+            let viewController = CloudStorageGalleryViewController()
+            viewController.configure(jid: self.jid, .files)
+            navigationController?.pushViewController(viewController, animated: true)
+            return
+        case "audio":
+            let viewController = CloudStorageGalleryViewController()
+            viewController.configure(jid: self.jid, .voice)
+            navigationController?.pushViewController(viewController, animated: true)
+            return
+        default:
+            break
         }
-        
-        tableView.deselectRow(at: indexPath, animated: true)
     }
 }

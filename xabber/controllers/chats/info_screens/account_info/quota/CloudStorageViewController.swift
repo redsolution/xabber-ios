@@ -31,14 +31,16 @@ class CloudStorageViewController: BaseViewController {
         }
         
         var kind: Kind
+        var viewController: UIViewController.Type?
         var title: String
         var subtitle: String?
         var key: String?
         
         var children: [Datasource]
         
-        init(_ kind: Kind, title: String, subtitle: String? = nil, key: String? = nil, children: [Datasource] = []) {
+        init(_ kind: Kind, viewController: UIViewController.Type? = nil, title: String, subtitle: String? = nil, key: String? = nil, children: [Datasource] = []) {
             self.kind = kind
+            self.viewController = viewController
             self.title = title
             self.subtitle = subtitle
             self.key = key
@@ -60,6 +62,8 @@ class CloudStorageViewController: BaseViewController {
         return tableView
     }()
     
+    var isCellTapped: Bool = false
+    
     func configure(jid: String) {
         self.jid = jid
         title = "Cloud Storage".localizeString(id: "account_cloud_storage", arguments: [])
@@ -71,9 +75,8 @@ class CloudStorageViewController: BaseViewController {
                        key: "quota_info")
         ]))
         
-        datasource.append(Datasource(.text, title: "", children: [
-            Datasource(.text, title: "Images".localizeString(id: "images", arguments: []),
-                       subtitle: imagesUsed, key: "images"),
+        datasource.append(Datasource(.text, title: "".localizeString(id: "images", arguments: []), children: [
+            Datasource(.text, title: "Images", subtitle: imagesUsed, key: "images"),
             Datasource(.text, title: "Videos".localizeString(id: "videos", arguments: []),
                        subtitle: videosUsed, key: "videos"),
             Datasource(.text, title: "Files".localizeString(id: "files", arguments: []),
@@ -83,7 +86,7 @@ class CloudStorageViewController: BaseViewController {
         ]))
         
         datasource.append(Datasource(.text, title: "", children: [
-            Datasource(.button, title: "Delete files...".localizeString(id: "account_delete_files", arguments: []),
+            Datasource(.button, title: "Free up space".localizeString(id: "account_delete_files", arguments: []),
                        key: "delete_files")
         ]))
         
@@ -113,7 +116,7 @@ class CloudStorageViewController: BaseViewController {
     func showVCBeforeDeletingFiles(days: Int, preparedDate: String, freedSpace: String) {
         let alert = UIAlertController(title: "Delete files?".localizeString(id: "account_delete_files_confirmation", arguments: []),
                                       message: "Deleting files older than \(days) days will free up \(freedSpace)"
-                                        .localizeString(id: "account_freeing_space_after_deletion_message", arguments: ["\(days)", "\(freedSpace)"]),
+            .localizeString(id: "account_freeing_space_after_deletion_message", arguments: ["\(days)", "\(freedSpace)"]),
                                       preferredStyle: .alert)
         
         let deleteAction = UIAlertAction(title: "Delete".localizeString(id: "account_delete_files_button", arguments: []),
@@ -145,8 +148,72 @@ class CloudStorageViewController: BaseViewController {
         alert.addAction(cancelAction)
         self.present(alert, animated: true)
     }
-
+    
+    func showVCBeforeDeletingFiles(percent: Int, freedSpace: String) {
+        let alert = UIAlertController(title: "Delete files?".localizeString(id: "account_delete_files_confirmation", arguments: []),
+                                      message: "Deleting files that make up \(percent) percent of the total memory will free up \(freedSpace)."
+            .localizeString(id: "account_freeing_space_after_deletion_message_by_percent", arguments: ["\(percent)", "\(freedSpace)"]),
+                                      preferredStyle: .alert)
+        
+        let deleteAction = UIAlertAction(title: "Delete".localizeString(id: "account_delete_files_button", arguments: []),
+                                         style: .destructive) { _ in
+            if let quotaCell = self.tableView.cellForRow(at: IndexPath.init(row: 0, section: 0)) as? QuotaInfoCell,
+               let account = AccountManager.shared.find(for: self.jid),
+               let uploader = account.getDefaultUploader() as? UploadManagerExtendedProtocol {
+                uploader.deleteMediaForSelectedPercent(percent: percent) {
+                    quotaCell.reloadData() {
+                        self.getTypeSizesFromRealm() {
+                            self.datasource[1].children.forEach({
+                                switch $0.title {
+                                case "Images".localizeString(id: "images", arguments: []): $0.subtitle = self.imagesUsed
+                                case "Videos".localizeString(id: "videos", arguments: []): $0.subtitle = self.videosUsed
+                                case "Files".localizeString(id: "files", arguments: []): $0.subtitle = self.filesUsed
+                                case "Voice".localizeString(id: "voice", arguments: []): $0.subtitle = self.audioUsed
+                                default: break
+                                }
+                            })
+                            self.tableView.reloadSections([0, 1], with: .fade)
+                        }
+                    }
+                }
+            }
+        }
+        
+        let cancelAction = UIAlertAction(title: "Cancel".localizeString(id: "cancel", arguments: []), style: .cancel)
+        alert.addAction(deleteAction)
+        alert.addAction(cancelAction)
+        self.present(alert, animated: true)
+    }
+    
     override func viewDidLoad() {
         super.viewDidLoad()
+        navigationItem.backButtonDisplayMode = .minimal
+    }
+    
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        
+        self.navigationController?.navigationBar.prefersLargeTitles = false
+        
+        guard let quotaCell = self.tableView.cellForRow(at: IndexPath.init(row: 0, section: 0)) as? QuotaInfoCell else { return }
+        quotaCell.reloadData() {
+            self.getTypeSizesFromRealm() {
+                self.datasource[1].children.forEach {
+                    switch $0.title {
+                    case "Images".localizeString(id: "images", arguments: []):
+                        $0.subtitle = self.imagesUsed
+                    case "Videos".localizeString(id: "videos", arguments: []):
+                        $0.subtitle = self.videosUsed
+                    case "Files".localizeString(id: "files", arguments: []):
+                        $0.subtitle = self.filesUsed
+                    case "Voice".localizeString(id: "voice", arguments: []):
+                        $0.subtitle = self.audioUsed
+                    default:
+                        break
+                    }
+                }
+                self.tableView.reloadSections([0, 1], with: .fade)
+            }
+        }
     }
 }

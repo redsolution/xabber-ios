@@ -157,7 +157,7 @@ class InfoScreenFooterView: UIView {
         return layout
     }()
     
-    let mediaButtonsStackView: UIStackView = {
+    var mediaButtonsStackView: UIStackView = {
         let stack = UIStackView()
         stack.axis = .horizontal
         stack.distribution = .fillEqually
@@ -231,6 +231,7 @@ class InfoScreenFooterView: UIView {
         imagesButton.isSelected = true
         selectedKind = .images
         
+        needsCollectionUpdate = true
         getReferences()
         setCollectionLayout()
         mediaCollectionView.scrollToItem(at: IndexPath.init(item: 0, section: 0), at: [], animated: true)
@@ -247,6 +248,7 @@ class InfoScreenFooterView: UIView {
         videosButton.isSelected = true
         selectedKind = .videos
         
+        needsCollectionUpdate = true
         getReferences()
         setCollectionLayout()
         mediaCollectionView.scrollToItem(at: IndexPath.init(item: 0, section: 0), at: [], animated: true)
@@ -263,6 +265,7 @@ class InfoScreenFooterView: UIView {
         filesButton.isSelected = true
         selectedKind = .files
         
+        needsCollectionUpdate = true
         getReferences()
         setCollectionLayout()
         mediaCollectionView.scrollToItem(at: IndexPath.init(item: 0, section: 0), at: [], animated: true)
@@ -279,6 +282,7 @@ class InfoScreenFooterView: UIView {
         voiceButton.isSelected = true
         selectedKind = .voice
         
+        needsCollectionUpdate = true
         getReferences()
         setCollectionLayout()
         mediaCollectionView.scrollToItem(at: IndexPath.init(item: 0, section: 0), at: [], animated: true)
@@ -312,10 +316,10 @@ class InfoScreenFooterView: UIView {
     internal func setup() {
         self.backgroundColor = .white
         getReferences()
-//        archiveRequest(filter: .image)
+        
+        self.addSubview(scrollView)
         
         buttons = [imagesButton, videosButton, filesButton, voiceButton]
-        self.addSubview(scrollView)
         for button in buttons {
             mediaButtonsStackView.addArrangedSubview(button)
         }
@@ -334,7 +338,8 @@ class InfoScreenFooterView: UIView {
         videosButton.addTarget(self, action: #selector(videosButtonPressed), for: .touchUpInside)
         filesButton.addTarget(self, action: #selector(filesButtonPressed), for: .touchUpInside)
         voiceButton.addTarget(self, action: #selector(voiceButtonPressed), for: .touchUpInside)
-        
+
+        needsCollectionUpdate = true
     }
     
     func setCollectionLayout() {
@@ -420,30 +425,54 @@ class InfoScreenFooterView: UIView {
         
         switch selectedKind {
         case .images:
-                predicate = NSPredicate(format: "jid == %@ AND owner == %@ AND conversationType_ == %@ AND kind_ == %@ AND mimeType == %@ AND hasError == false", self.jid, self.owner, self.conversationType.rawValue, MessageReferenceStorageItem.Kind.media.rawValue, "image")
+            if self.jid != "" && self.owner == "" {
+                predicate = NSPredicate(format: "owner == %@ AND kind_ == %@ AND mimeType == %@ AND hasError == false", self.jid, MessageReferenceStorageItem.Kind.media.rawValue, "image")
+            } else if self.jid == "" && self.owner != "" {
+                predicate = NSPredicate(format: "owner == %@ AND kind_ == %@ AND mimeType == %@ AND hasError == false", self.owner, MessageReferenceStorageItem.Kind.media.rawValue, "image")
+            } else {
+                predicate = NSPredicate(format: "jid == %@ AND owner == %@ AND kind_ == %@ AND mimeType == %@ AND hasError == false", self.jid, self.owner, MessageReferenceStorageItem.Kind.media.rawValue, "image")
+            }
         case .videos:
-            predicate = NSPredicate(format: "jid == %@ AND owner == %@ AND conversationType_ == %@ AND kind_ == %@ AND mimeType == %@ AND hasError == false", self.jid, self.owner, self.conversationType.rawValue, MessageReferenceStorageItem.Kind.media.rawValue, "video")
+            if self.jid != "" && self.owner == "" {
+                predicate = NSPredicate(format: "owner == %@ AND kind_ == %@ AND mimeType == %@ AND hasError == false", self.jid, MessageReferenceStorageItem.Kind.media.rawValue, "video")
+            } else if self.jid == "" && self.owner != "" {
+                predicate = NSPredicate(format: "owner == %@ AND kind_ == %@ AND mimeType == %@ AND hasError == false", self.owner, MessageReferenceStorageItem.Kind.media.rawValue, "video")
+            } else {
+                predicate = NSPredicate(format: "jid == %@ AND owner == %@ AND kind_ == %@ AND mimeType == %@ AND hasError == false", self.jid, self.owner, MessageReferenceStorageItem.Kind.media.rawValue, "video")
+            }
         case .files:
-            let mimeTypes: [String] = mimeIcon.compactMap ({
-                item -> String? in
-                if item.value == .document ||
-                   item.value == .pdf ||
-                   item.value == .table ||
-                   item.value == .presentation ||
-                   item.value == .archive ||
-                   item.value == .audio ||
-                   item.value == .file {
-                     let start = item.key.lastIndex(of: "/") ?? item.key.startIndex
-                     let mimeType = String(item.key[start..<item.key.endIndex]).replacingOccurrences(of: "/", with: "")
-                    
-                     return mimeType
-                }
-                return nil
-            })
-
-            predicate = NSPredicate(format: "jid == %@ AND owner == %@ AND conversationType_ == %@ AND kind_ == %@ AND mimeType IN %@ AND hasError == false", self.jid, self.owner, self.conversationType.rawValue, MessageReferenceStorageItem.Kind.media.rawValue, mimeTypes)
+//            let mimeTypes: [String] = mimeIcon.compactMap ({
+//                item -> String? in
+//                if item.value == .document ||
+//                   item.value == .pdf ||
+//                   item.value == .table ||
+//                   item.value == .presentation ||
+//                   item.value == .archive ||
+//                   item.value == .audio ||
+//                   item.value == .file {
+//                     let start = item.key.lastIndex(of: "/") ?? item.key.startIndex
+//                     let mimeType = String(item.key[start..<item.key.endIndex]).replacingOccurrences(of: "/", with: "")
+//
+//                     return mimeType
+//                }
+//                return nil
+//            })
+            let mimeTypes: [String] = ["document", "pdf", "table", "presentation", "archive", "audio", "file"]
+            if self.jid != "" && self.owner == "" {
+                predicate = NSPredicate(format: "owner == %@ AND kind_ == %@ AND mimeType IN %@ AND hasError == false", self.jid, MessageReferenceStorageItem.Kind.media.rawValue, mimeTypes)
+            } else if self.jid == "" && self.owner != "" {
+                predicate = NSPredicate(format: "owner == %@ AND kind_ == %@ AND mimeType IN %@ AND hasError == false", self.owner, MessageReferenceStorageItem.Kind.media.rawValue, mimeTypes)
+            } else {
+                predicate = NSPredicate(format: "jid == %@ AND owner == %@ AND kind_ == %@ AND mimeType IN %@ AND hasError == false", self.jid, self.owner, MessageReferenceStorageItem.Kind.media.rawValue, mimeTypes)
+            }
         case .voice:
-                predicate = NSPredicate(format: "jid == %@ AND owner == %@ AND conversationType_ == %@ AND kind_ == %@ AND hasError == false", self.jid, self.owner, self.conversationType.rawValue, MessageReferenceStorageItem.Kind.voice.rawValue)
+            if self.jid != "" && self.owner == "" {
+                predicate = NSPredicate(format: "owner == %@ AND kind_ == %@ AND hasError == false", self.jid, MessageReferenceStorageItem.Kind.voice.rawValue)
+            } else if self.jid == "" && self.owner != "" {
+                predicate = NSPredicate(format: "owner == %@ AND kind_ == %@ AND hasError == false", self.owner, MessageReferenceStorageItem.Kind.voice.rawValue)
+            } else {
+                predicate = NSPredicate(format: "jid == %@ AND owner == %@ AND kind_ == %@ AND hasError == false", self.jid, self.owner, MessageReferenceStorageItem.Kind.voice.rawValue)
+            }
         }
         return predicate
     }
@@ -474,8 +503,12 @@ class InfoScreenFooterView: UIView {
             let newDatasource = prepareDatasource()
             let changes = diff(old: self.datasource, new: newDatasource)
             let indexPaths = self.convertChangeset(changes: changes)
+            if indexPaths.inserts.isEmpty && indexPaths.deletes.isEmpty && indexPaths.moves.isEmpty && indexPaths.replaces.isEmpty {
+                return
+            }
             if needsCollectionUpdate {
                 needsCollectionUpdate = false
+                self.datasource = newDatasource
                 mediaCollectionView.reloadData()
                 return
             }
@@ -485,7 +518,7 @@ class InfoScreenFooterView: UIView {
 //        }
     }
     
-    private func prepareDatasource() -> [Datasource] {
+    internal func prepareDatasource() -> [Datasource] {
         do {
             let realm = try WRealm.safe()
             
@@ -563,7 +596,7 @@ class InfoScreenFooterView: UIView {
     
 
     
-    private final func convertChangeset(changes: [Change<Datasource>]) -> ChangesWithIndexPath {
+    internal final func convertChangeset(changes: [Change<Datasource>]) -> ChangesWithIndexPath {
         let inserts =  changes.compactMap { return $0.insert?.index }.compactMap({ return IndexPath(row:$0, section: 0)})
         let deletes =  changes.compactMap { return $0.delete?.index }.compactMap({ return IndexPath(row:$0, section: 0 )})
         let replaces = changes.compactMap { return $0.replace?.index }.compactMap({ return IndexPath(row:$0, section: 0 )})
@@ -583,7 +616,7 @@ class InfoScreenFooterView: UIView {
         )
     }
     
-    private final func apply(changes: ChangesWithIndexPath, prepare: @escaping (() -> Void)) {
+    internal final func apply(changes: ChangesWithIndexPath, prepare: @escaping (() -> Void)) {
         if changes.deletes.isEmpty &&
             changes.inserts.isEmpty &&
             changes.moves.isEmpty &&

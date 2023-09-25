@@ -350,6 +350,7 @@ class HTTPUploadsManager: AbstractXMPPManager, UploadManagerProtocol {
                                                            forPrimaryKey: elementId) {
                                 try realm.write {
                                     instance.metadata?["uri"] = uri
+                                    instance.url = uri
                                 }
                             }
                         } catch {
