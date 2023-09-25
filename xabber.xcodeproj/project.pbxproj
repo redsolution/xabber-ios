@@ -189,6 +189,7 @@
 		6627A73224BD93B200FB0304 /* InviteSearchViewController+UITableViewDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6627A73124BD93B200FB0304 /* InviteSearchViewController+UITableViewDataSource.swift */; };
 		6627A73424BD93C200FB0304 /* InviteSearchViewController+UITableViewDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6627A73324BD93C200FB0304 /* InviteSearchViewController+UITableViewDelegate.swift */; };
 		6627A73824BD94F000FB0304 /* InviteSearchViewController+UISearchResultsUpdating.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6627A73724BD94F000FB0304 /* InviteSearchViewController+UISearchResultsUpdating.swift */; };
+		662908D62ABDB9E60027535E /* NickGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662908D52ABDB9E60027535E /* NickGenerator.swift */; };
 		662A34592362FB0A00A4A71E /* DeleteConversationPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662A34582362FB0A00A4A71E /* DeleteConversationPresenter.swift */; };
 		662B98B52456F09D009F5879 /* RandomTitleManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662B98B42456F09D009F5879 /* RandomTitleManager.swift */; };
 		662BA62D273BA07500E13AF4 /* TokenCounterIncorrectPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662BA62C273BA07500E13AF4 /* TokenCounterIncorrectPresenter.swift */; };
@@ -1153,6 +1154,7 @@
 		6627A73124BD93B200FB0304 /* InviteSearchViewController+UITableViewDataSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "InviteSearchViewController+UITableViewDataSource.swift"; sourceTree = "<group>"; };
 		6627A73324BD93C200FB0304 /* InviteSearchViewController+UITableViewDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "InviteSearchViewController+UITableViewDelegate.swift"; sourceTree = "<group>"; };
 		6627A73724BD94F000FB0304 /* InviteSearchViewController+UISearchResultsUpdating.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "InviteSearchViewController+UISearchResultsUpdating.swift"; sourceTree = "<group>"; };
+		662908D52ABDB9E60027535E /* NickGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NickGenerator.swift; sourceTree = "<group>"; };
 		662A34582362FB0A00A4A71E /* DeleteConversationPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeleteConversationPresenter.swift; sourceTree = "<group>"; };
 		662B98B42456F09D009F5879 /* RandomTitleManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RandomTitleManager.swift; sourceTree = "<group>"; };
 		662BA62C273BA07500E13AF4 /* TokenCounterIncorrectPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenCounterIncorrectPresenter.swift; sourceTree = "<group>"; };
@@ -2269,6 +2271,14 @@
 			path = search;
 			sourceTree = "<group>";
 		};
+		662908D42ABDB9D40027535E /* nick_generator */ = {
+			isa = PBXGroup;
+			children = (
+				662908D52ABDB9E60027535E /* NickGenerator.swift */,
+			);
+			path = nick_generator;
+			sourceTree = "<group>";
+		};
 		662B98B32456F076009F5879 /* random_titles_manager */ = {
 			isa = PBXGroup;
 			children = (
@@ -2596,6 +2606,7 @@
 		6652EB43203BF91E0088C8FA /* utils */ = {
 			isa = PBXGroup;
 			children = (
+				662908D42ABDB9D40027535E /* nick_generator */,
 				66A09C982938D10C004ABC35 /* lipsum */,
 				66449AA3291CE53A00D1A329 /* uuid */,
 				66C6E6CA2853103A000E4540 /* realm */,
@@ -5104,6 +5115,7 @@
 				660AE35B23856EA200E7FC00 /* CreateNewGroupViewController+UITableViewDelegate.swift in Sources */,
 				660951A72833B10700FDEAAF /* ApplicationStateManager.swift in Sources */,
 				66B7AE6B26D7C1130043969F /* BaseViewController.swift in Sources */,
+				662908D62ABDB9E60027535E /* NickGenerator.swift in Sources */,
 				1A297FDE28081EF6007129CD /* TranslationsManager.swift in Sources */,
 				6640E57026CD3F61000380E3 /* GroupchatMembersListViewController.swift in Sources */,
 				66FD8EFE22B371C200693944 /* AccountConnectionViewController+Flow.swift in Sources */,

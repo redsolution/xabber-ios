@@ -63,4 +63,6 @@ class AccountStorageItem: Object {
     @objc dynamic var isDevicesListReceived: Bool = false
     
     @objc dynamic var createdAt: Date = Date()
+    
+    @objc dynamic var deviceName: String = ""
 }

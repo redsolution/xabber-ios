@@ -513,6 +513,14 @@ class SettingsViewController: BaseViewController {
         }
 
         datasource.append(Datasource(section: .settings, title: Datasource.Section.settings.description(), childs: [
+            Datasource(
+                section: .privacy,
+                title: Datasource.Section.privacy.description(),
+                subtitle: nil,
+                premiumOnly: false,
+                viewController: SimpleTableViewController.self,
+                childs: []
+              ),
                 Datasource(section: .interface, title: "Interface", viewController: SimpleTableViewController.self, childs: [
                         Datasource(section: .chat, title: Datasource.Section.chat.description(), childs: [
                             Datasource(section: .chat, title: "Background", itemType: .selector,

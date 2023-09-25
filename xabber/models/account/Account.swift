@@ -120,6 +120,8 @@ final class Account: NSObject {
     var isSynced: Bool = false
     var isConfigured: Bool = false
     
+    var deviceName: String = ""
+    
     public var isNewAccount: Bool = false
     
     init(jid: String, queue: DispatchQueue) {
@@ -192,27 +194,20 @@ final class Account: NSObject {
     }
     
     func configureStream() {
-//        self.xmppStream.removeDelegate(self, delegateQueue: self.queue)
         self.xmppStream.shouldRequestXToken = false
         self.xmppStream.shouldRegisterDevice = false
-//        self.xmppStream.skipStartSession = true
         self.xmppStream.xabberClientInfo = "Xabber"
+        self.xmppStream.xabberPublicLabel = self.deviceName
         self.xmppStream.xabberDeviceInfo = [[UIDevice.modelName, ","].joined(),  "iOS", UIDevice.current.systemVersion].joined(separator: " ")
         self.xmppStream.myJID = XMPPJID(string: jid, resource: AccountManager.defaultResource)
-//        self.xmppStream.hostName = "2ztp3tk75olpu3svugvt3nolvbfbn3aej4qjykqmthw7gd36r4rtmkad.onion"
         self.xmppStream.startTLSPolicy = XMPPStreamStartTLSPolicy.preferred
         self.xmppStream.keepAliveInterval = 60
         self.xmppStream.removeDelegate(self, delegateQueue: self.queue)
         self.xmppStream.removeDelegate(self)
         self.xmppStream.addDelegate(self, delegateQueue: self.queue)
-//        self.xmppStream.addDelegate(self.reconnect, delegateQueue: self.queue)
-//        self.xmppStream.addDelegate(self.sm, delegateQueue: self.queue)
-//        self.xmppStream.asyncSocket.autoDisconnectOnClosedReadStream = true
-//        self.configureBase()
     }
     
     func resetStream() {
-        print(#function)
         self.statusState.accept(.offline)
         self.statusMessage.accept(RosterUtils.shared.convertStatus(.offline))
         self.xmppStream.abortConnecting()
@@ -350,19 +345,8 @@ final class Account: NSObject {
  *    open XMPPStream in special thread
  **/
     func asyncConnect() {
-//        self.queue.async {
-            self.configureStream()
-            self.connect()
-//        }
-//        self.queue.async {
-//            self.configureStream()
-//        }
-//        self.queue.asyncAfter(deadline: .now() + 0.2) {
-//            self.connect()
-//        }
-//        self.queue.async(flags: [.barrier]) {
-//            self.connect()
-//        }
+        self.configureStream()
+        self.connect()
     }
     
 /**
@@ -566,11 +550,11 @@ final class Account: NSObject {
                 self.savePassword = item.savePassword
                 self.manuallySetHost = item.manuallySetHost
                 self.port = item.port
+                self.deviceName = item.deviceName
                 if let resource = item.resource?.resource {
                     self.resource = resource
                 }
                 self.username = item.username
-//                self.wasOnline = item.enabled
                 self.push.node = item.node
                 self.push.service = item.service
             }
@@ -590,13 +574,6 @@ final class Account: NSObject {
  **/
     func update(forPushNode node: String, withService service: String) {
         self.push.configure(node: node, service: service)
-//        PushNotificationsManager.setDefaultsForPush(
-//            target: self.push.node,
-//            username: self.xmppStream.myJID?.user ?? "\(self.jid.split(separator: "@").first ?? ""))",
-//            host: self.xmppStream.myJID?.domain ?? "\(self.jid.split(separator: "@").last ?? ""))",
-//            resource: resource,
-//            secret: "supersecretkey"
-//        )
         do {
             let realm = try  WRealm.safe()
             if let item = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: self.jid) {
@@ -713,6 +690,7 @@ final class Account: NSObject {
                 item.xTokenSupport = self.supportTokens
                 item.xTokenUID = self.tokenUid
                 item.createdAt = Date()
+                item.deviceName = NickGenerator.shared.genRandomNick()
                 if let deviceId = self.devices.deviceId {
                     item.deviceUuid = deviceId
                 }
@@ -864,7 +842,6 @@ final class Account: NSObject {
  *    }
  **/
     func action(_ toExecute: @escaping ((Account, XMPPStream) -> Void)) {
-//        DispatchQueue(label: "com.xabber.\(xmppStream.generateUUID)", qos: .default, attributes: .concurrent, autoreleaseFrequency: .workItem, target: nil).async {
         self.queue.async {
             [unowned self] in
             toExecute(self, self.xmppStream)
@@ -879,15 +856,10 @@ final class Account: NSObject {
             autoreleaseFrequency: .workItem,
             target: nil
         ).asyncAfter(deadline: .now() + delay ) {
+            [unowned self] in
             toExecute(self, self.xmppStream)
         }
     }
-//    
-//    func syncAction(_ toExecute: @escaping ((Account, XMPPStream) -> Void)) {
-//        self.queue.async {
-//            toExecute(self, self.xmppStream)
-//        }
-//    }
     
     func unsafeAction(_ toExecute: @escaping (Account, XMPPStream) -> Void) {
         toExecute(self, self.xmppStream)
@@ -925,9 +897,7 @@ extension Account: XMPPReconnectDelegate {
     
     func xmppReconnect(_ sender: XMPPReconnect, didDetectAccidentalDisconnect connectionFlags: SCNetworkConnectionFlags) {
         DDLogDebug("DidDetectDisconnect. Connection flags \(connectionFlags)")
-//        self.updateAway()
         self.resetModules()
-//        self.statusMessage.accept("Waiting for network")
         self.statusMessage.accept("Offline")
         self.showReconnectStatus(connectionFlags: connectionFlags)
     }
