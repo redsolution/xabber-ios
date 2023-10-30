@@ -626,6 +626,10 @@ extension ImagePickerViewController: UIDocumentPickerDelegate {
             "media-type": MimeType(url: url).value,
             "uri": url.absoluteString
         ]
+        
+        item.primary = UUID().uuidString
+        item.localFileUrl = item.temporaryData?.saveToTemporaryDir(name: url.lastPathComponent)
+        
         switch mimeType {
         case .image:
             item.metadata?["name"] = "Image"
@@ -650,14 +654,19 @@ extension ImagePickerViewController: UIDocumentPickerDelegate {
             
             item.metadata?["width"] = abs(size.width)
             item.metadata?["height"] = abs(size.height)
-//            item.metadata?["width_thumb"] = abs(size.width)
-//            item.metadata?["height_thumb"] = abs(size.height)
             item.videoOrientation = orientation
+            
+            // add initialization of videoPreviewKey and videoDuration
+            let url = item.metadata?["uri"] as! String
+            let key = [jid, owner, url].prp()
+            let result = item.extractFrameFromVideo(forKey: key)
+            item.isDownloaded = true
+            item.videoPreviewKey = key
+            item.video_duration = result.video_duration ?? ""
         default:
             item.metadata?["name"] = url.lastPathComponent
         }
-        item.primary = UUID().uuidString
-        item.localFileUrl = item.temporaryData?.saveToTemporaryDir(name: url.lastPathComponent)
+        
 //        HTTPUploadsManager.storeData(item.temporaryData!, for: item.primary)
         return item
     }

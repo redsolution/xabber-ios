@@ -48,6 +48,8 @@ class CloudStorageViewController: BaseViewController {
             self.children = children
         }
     }
+    
+    var isDeletingFilesEnabled: Bool = false
     var imagesUsed: String = ""
     var videosUsed: String = ""
     var filesUsed: String = ""
@@ -82,7 +84,8 @@ class CloudStorageViewController: BaseViewController {
             Datasource(.text, title: "Files".localizeString(id: "files", arguments: []),
                        subtitle: filesUsed, key: "files"),
             Datasource(.text, title: "Voice".localizeString(id: "voice", arguments: []),
-                       subtitle: audioUsed, key: "audio")
+                       subtitle: audioUsed, key: "audio"),
+            Datasource(.text, title: "Avatars".localizeString(id: "avatars", arguments: []), subtitle: "Not included", key: "avatars")
         ]))
         
         datasource.append(Datasource(.text, title: "", children: [
@@ -113,77 +116,77 @@ class CloudStorageViewController: BaseViewController {
         }
     }
     
-    func showVCBeforeDeletingFiles(days: Int, preparedDate: String, freedSpace: String) {
-        let alert = UIAlertController(title: "Delete files?".localizeString(id: "account_delete_files_confirmation", arguments: []),
-                                      message: "Deleting files older than \(days) days will free up \(freedSpace)"
-            .localizeString(id: "account_freeing_space_after_deletion_message", arguments: ["\(days)", "\(freedSpace)"]),
-                                      preferredStyle: .alert)
-        
-        let deleteAction = UIAlertAction(title: "Delete".localizeString(id: "account_delete_files_button", arguments: []),
-                                         style: .destructive) { _ in
-            if let quotaCell = self.tableView.cellForRow(at: IndexPath.init(row: 0, section: 0)) as? QuotaInfoCell,
-               let account = AccountManager.shared.find(for: self.jid),
-               let uploader = account.getDefaultUploader() as? UploadManagerExtendedProtocol {
-                uploader.deleteMediaForSelectedPeriod(earlierThanDate: preparedDate) {
-                    quotaCell.reloadData() {
-                        self.getTypeSizesFromRealm() {
-                            self.datasource[1].children.forEach({
-                                switch $0.title {
-                                case "Images".localizeString(id: "images", arguments: []): $0.subtitle = self.imagesUsed
-                                case "Videos".localizeString(id: "videos", arguments: []): $0.subtitle = self.videosUsed
-                                case "Files".localizeString(id: "files", arguments: []): $0.subtitle = self.filesUsed
-                                case "Voice".localizeString(id: "voice", arguments: []): $0.subtitle = self.audioUsed
-                                default: break
-                                }
-                            })
-                            self.tableView.reloadSections([0, 1], with: .fade)
-                        }
-                    }
-                }
-            }
-        }
-        
-        let cancelAction = UIAlertAction(title: "Cancel".localizeString(id: "cancel", arguments: []), style: .cancel)
-        alert.addAction(deleteAction)
-        alert.addAction(cancelAction)
-        self.present(alert, animated: true)
-    }
+//    func showVCBeforeDeletingFiles(days: Int, preparedDate: String, freedSpace: String) {
+//        let alert = UIAlertController(title: "Delete files?".localizeString(id: "account_delete_files_confirmation", arguments: []),
+//                                      message: "Deleting files older than \(days) days will free up \(freedSpace)"
+//            .localizeString(id: "account_freeing_space_after_deletion_message", arguments: ["\(days)", "\(freedSpace)"]),
+//                                      preferredStyle: .alert)
+//
+//        let deleteAction = UIAlertAction(title: "Delete".localizeString(id: "account_delete_files_button", arguments: []),
+//                                         style: .destructive) { _ in
+//            if let quotaCell = self.tableView.cellForRow(at: IndexPath.init(row: 0, section: 0)) as? QuotaInfoCell,
+//               let account = AccountManager.shared.find(for: self.jid),
+//               let uploader = account.getDefaultUploader() as? UploadManagerExtendedProtocol {
+//                uploader.deleteMediaForSelectedPeriod(earlierThanDate: preparedDate) {
+//                    quotaCell.reloadData() {
+//                        self.getTypeSizesFromRealm() {
+//                            self.datasource[1].children.forEach({
+//                                switch $0.title {
+//                                case "Images".localizeString(id: "images", arguments: []): $0.subtitle = self.imagesUsed
+//                                case "Videos".localizeString(id: "videos", arguments: []): $0.subtitle = self.videosUsed
+//                                case "Files".localizeString(id: "files", arguments: []): $0.subtitle = self.filesUsed
+//                                case "Voice".localizeString(id: "voice", arguments: []): $0.subtitle = self.audioUsed
+//                                default: break
+//                                }
+//                            })
+//                            self.tableView.reloadSections([0, 1], with: .fade)
+//                        }
+//                    }
+//                }
+//            }
+//        }
+//
+//        let cancelAction = UIAlertAction(title: "Cancel".localizeString(id: "cancel", arguments: []), style: .cancel)
+//        alert.addAction(deleteAction)
+//        alert.addAction(cancelAction)
+//        self.present(alert, animated: true)
+//    }
     
-    func showVCBeforeDeletingFiles(percent: Int, freedSpace: String) {
-        let alert = UIAlertController(title: "Delete files?".localizeString(id: "account_delete_files_confirmation", arguments: []),
-                                      message: "Deleting files that make up \(percent) percent of the total memory will free up \(freedSpace)."
-            .localizeString(id: "account_freeing_space_after_deletion_message_by_percent", arguments: ["\(percent)", "\(freedSpace)"]),
-                                      preferredStyle: .alert)
-        
-        let deleteAction = UIAlertAction(title: "Delete".localizeString(id: "account_delete_files_button", arguments: []),
-                                         style: .destructive) { _ in
-            if let quotaCell = self.tableView.cellForRow(at: IndexPath.init(row: 0, section: 0)) as? QuotaInfoCell,
-               let account = AccountManager.shared.find(for: self.jid),
-               let uploader = account.getDefaultUploader() as? UploadManagerExtendedProtocol {
-                uploader.deleteMediaForSelectedPercent(percent: percent) {
-                    quotaCell.reloadData() {
-                        self.getTypeSizesFromRealm() {
-                            self.datasource[1].children.forEach({
-                                switch $0.title {
-                                case "Images".localizeString(id: "images", arguments: []): $0.subtitle = self.imagesUsed
-                                case "Videos".localizeString(id: "videos", arguments: []): $0.subtitle = self.videosUsed
-                                case "Files".localizeString(id: "files", arguments: []): $0.subtitle = self.filesUsed
-                                case "Voice".localizeString(id: "voice", arguments: []): $0.subtitle = self.audioUsed
-                                default: break
-                                }
-                            })
-                            self.tableView.reloadSections([0, 1], with: .fade)
-                        }
-                    }
-                }
-            }
-        }
-        
-        let cancelAction = UIAlertAction(title: "Cancel".localizeString(id: "cancel", arguments: []), style: .cancel)
-        alert.addAction(deleteAction)
-        alert.addAction(cancelAction)
-        self.present(alert, animated: true)
-    }
+//    func showVCBeforeDeletingFiles(percent: Int, freedSpace: String) {
+//        let alert = UIAlertController(title: "Delete files?".localizeString(id: "account_delete_files_confirmation", arguments: []),
+//                                      message: "Deleting files that make up \(percent) percent of the total memory will free up \(freedSpace)."
+//            .localizeString(id: "account_freeing_space_after_deletion_message_by_percent", arguments: ["\(percent)", "\(freedSpace)"]),
+//                                      preferredStyle: .alert)
+//
+//        let deleteAction = UIAlertAction(title: "Delete".localizeString(id: "account_delete_files_button", arguments: []),
+//                                         style: .destructive) { _ in
+//            if let quotaCell = self.tableView.cellForRow(at: IndexPath.init(row: 0, section: 0)) as? QuotaInfoCell,
+//               let account = AccountManager.shared.find(for: self.jid),
+//               let uploader = account.getDefaultUploader() as? UploadManagerExtendedProtocol {
+//                uploader.deleteMediaForSelectedPercent(percent: percent) {
+//                    quotaCell.reloadData() {
+//                        self.getTypeSizesFromRealm() {
+//                            self.datasource[1].children.forEach({
+//                                switch $0.title {
+//                                case "Images".localizeString(id: "images", arguments: []): $0.subtitle = self.imagesUsed
+//                                case "Videos".localizeString(id: "videos", arguments: []): $0.subtitle = self.videosUsed
+//                                case "Files".localizeString(id: "files", arguments: []): $0.subtitle = self.filesUsed
+//                                case "Voice".localizeString(id: "voice", arguments: []): $0.subtitle = self.audioUsed
+//                                default: break
+//                                }
+//                            })
+//                            self.tableView.reloadSections([0, 1], with: .fade)
+//                        }
+//                    }
+//                }
+//            }
+//        }
+//
+//        let cancelAction = UIAlertAction(title: "Cancel".localizeString(id: "cancel", arguments: []), style: .cancel)
+//        alert.addAction(deleteAction)
+//        alert.addAction(cancelAction)
+//        self.present(alert, animated: true)
+//    }
     
     override func viewDidLoad() {
         super.viewDidLoad()

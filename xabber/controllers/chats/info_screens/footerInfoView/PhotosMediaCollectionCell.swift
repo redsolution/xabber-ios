@@ -29,7 +29,7 @@ class PhotosMediaCollectionCell: UICollectionViewCell {
     
     let imageView: UIImageView = {
         let view = UIImageView()
-        view.backgroundColor = .groupTableViewBackground
+        view.backgroundColor = .systemGroupedBackground
         view.contentMode = .scaleAspectFill
         view.clipsToBounds = true
         view.translatesAutoresizingMaskIntoConstraints = false
@@ -47,14 +47,30 @@ class PhotosMediaCollectionCell: UICollectionViewCell {
         return view
     }()
     
+    let selectedImageView: UIImageView = {
+        let view = UIImageView()
+        view.image = nil
+        view.backgroundColor = UIColor.black.withAlphaComponent(0.2)
+        view.layer.borderColor = MDCPalette.grey.tint100.cgColor
+        view.layer.masksToBounds = true
+        
+        view.isHidden = true
+        return view
+    }()
+    
     override func prepareForReuse() {
         super.prepareForReuse()
         imageView.image = nil
         errorImageView.removeFromSuperview()
+        selectedImageView.removeFromSuperview()
     }
     
     internal func setup(photoUrls urls: (thumb: String?, url: String)) {
         addSubview(imageView)
+        imageView.addSubview(selectedImageView)
+        selectedImageView.frame = CGRect(x: contentView.frame.width - 28, y: 4, width: 22, height: 22)
+        selectedImageView.layer.cornerRadius = selectedImageView.frame.height / 2
+        contentView.bringSubviewToFront(selectedImageView)
         makeConstraints()
         imageView.layer.cornerRadius = 3
         addImage(urls: (thumb: urls.thumb, url: urls.url))
@@ -89,8 +105,11 @@ class PhotosMediaCollectionCell: UICollectionViewCell {
         }
         
         guard let downloadUrl = URL(string: urls.url) else {
-            activateErrorImage()
-//            infoScreenDelegate?.passCellToFooter(cell: self)
+            guard let thumbUrl = URL(string: urls.thumb ?? "") else {
+                activateErrorImage()
+                return
+            }
+            setImageWithKf(url: thumbUrl)
             return
         }
         
@@ -111,5 +130,26 @@ class PhotosMediaCollectionCell: UICollectionViewCell {
             errorImageView.widthAnchor.constraint(equalToConstant: 24),
             errorImageView.heightAnchor.constraint(equalToConstant: 24)
         ])
+    }
+    
+    func editModeEnabled() {
+        selectedImageView.isHidden = false
+    }
+    
+    func editModeDisabled() {
+        selectedImageView.isHidden = true
+        deselect()
+    }
+    
+    func select() {
+        selectedImageView.image = #imageLiteral(resourceName: "check-circle").withRenderingMode(.alwaysTemplate)
+        selectedImageView.tintColor = .systemBlue
+        selectedImageView.backgroundColor = UIColor.white
+    }
+    
+    func deselect() {
+        selectedImageView.image = nil
+        selectedImageView.backgroundColor = UIColor.black.withAlphaComponent(0.2)
+        selectedImageView.layer.borderColor = MDCPalette.grey.tint100.cgColor
     }
 }

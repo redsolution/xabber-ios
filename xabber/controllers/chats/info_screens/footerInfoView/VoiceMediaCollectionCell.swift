@@ -114,6 +114,7 @@ class VoiceMediaCollectionCell: UICollectionViewCell {
             label.font = UIFont.systemFont(ofSize: 16)
             label.textColor = .black
             label.textAlignment = .left
+            label.translatesAutoresizingMaskIntoConstraints = false
             
             return label
         }()
@@ -151,7 +152,7 @@ class VoiceMediaCollectionCell: UICollectionViewCell {
         
         let separatorLine: UIView = {
             let view = UIView()
-            view.backgroundColor = .lightGray
+            view.backgroundColor = .systemGray5
             view.translatesAutoresizingMaskIntoConstraints = false
             
             return view
@@ -191,9 +192,13 @@ class VoiceMediaCollectionCell: UICollectionViewCell {
                 dateLabel.rightAnchor.constraint(equalTo: durationAndDateStack.rightAnchor),
                 
                 separatorLine.leftAnchor.constraint(equalTo: durationAndDateStack.leftAnchor),
-                separatorLine.rightAnchor.constraint(equalTo: rightAnchor, constant: 25),
+                separatorLine.rightAnchor.constraint(equalTo: rightAnchor),
                 separatorLine.bottomAnchor.constraint(equalTo: bottomAnchor),
-                separatorLine.heightAnchor.constraint(equalToConstant: 0.5)
+                separatorLine.heightAnchor.constraint(equalToConstant: 0.5),
+                
+                nameLabel.leftAnchor.constraint(equalTo: nameAndTimeStack.leftAnchor),
+                timeAndDateLabel.leftAnchor.constraint(equalTo: nameLabel.rightAnchor),
+                timeAndDateLabel.rightAnchor.constraint(equalTo: nameAndTimeStack.rightAnchor),
             ])
         }
         
@@ -222,8 +227,14 @@ class VoiceMediaCollectionCell: UICollectionViewCell {
     var owner: String = ""
     var sizeInBytes: String = ""
     
-    func setup(withReference audioReference: MessageReferenceStorageItem.Model, date: String, send_time: String, senderName: String, owner: String, sizeInBytes: String) {
-        self.owner = owner
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        audioView.removeFromSuperview()
+        audioView = .init(frame: .zero)
+    }
+    
+    func setup(withReference audioReference: MessageReferenceStorageItem.Model?, date: String, send_time: String, senderName: String? = nil, owner: String? = nil, sizeInBytes: String, url: String? = nil) {
+        self.owner = owner ?? ""
         self.sizeInBytes = sizeInBytes
         
         audioView.backgroundColor = .white
@@ -232,10 +243,13 @@ class VoiceMediaCollectionCell: UICollectionViewCell {
         addSubview(audioView)
         makeConstraints()
         
-        
         self.date = date
         self.send_time = send_time
-        self.sender = senderName
+        self.sender = senderName ?? ""
+        guard let audioReference = audioReference else {
+            self.audioUrl = URL(string: url!)
+            return
+        }
         configure(withReference: audioReference)
         
         guard let url = audioReference.downloadUrl else { return }
@@ -333,6 +347,20 @@ class VoiceMediaCollectionCell: UICollectionViewCell {
             audioView.rightAnchor.constraint(equalTo: self.rightAnchor),
             audioView.bottomAnchor.constraint(equalTo: self.bottomAnchor),
         ])
+    }
+    
+    func editModeDisabled() {
+        deselect()
+    }
+    
+    func select() {
+        audioView.playButton.backgroundColor = MDCPalette.grey.tint100
+        audioView.backgroundColor = .systemGray5
+    }
+    
+    func deselect() {
+        audioView.playButton.backgroundColor = MDCPalette.grey.tint300
+        audioView.backgroundColor = .white
     }
 }
 

@@ -137,6 +137,7 @@ public enum MimeIconTypes: String {
     case presentation = "presentation"
     case archive = "archive"
     case file = "file"
+    case avatar = "avatar"
 }
 let DEFAULT_MIME_ICON: MimeIconTypes = .file
 let mimeIcon: [String: MimeIconTypes] = [

@@ -30,8 +30,10 @@ protocol UploadManagerExtendedProtocol: UploadManagerProtocol {
     func getFileData(message primary: String, successCallback: @escaping (() -> Void), failCallback: @escaping (() -> Void))
     func getQuotaInfo(_ callback: (() -> Void)?)
     func deleteMediaFromServer(fileID: Int)
+    func deleteAvatarFromServer(fileID: Int)
+    func getFilesOfType(type: MimeIconTypes, page: Int, callback: @escaping ([NSDictionary], Int, Int, Int) -> Void)
+    func getAvatars(page: Int, callback: @escaping ([NSDictionary], Int, Int, Int) -> Void)
     func getFilesToDeleteByPercent(percent: Int, page: Int, callback: @escaping ([NSDictionary], Int, Int, Int) -> Void)
     func deleteMediaForSelectedPeriod(earlierThanDate: String, successCallback: @escaping (() -> Void))
-    func deleteMediaForSelectedPercent(percent: Int, successCallback: @escaping (() -> Void))
     func deleteGallery(jid: String)
 }

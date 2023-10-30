@@ -37,8 +37,14 @@ extension CloudStorageViewController: UITableViewDelegate {
         
         let item = datasource[indexPath.section].children[indexPath.row]
         tableView.deselectRow(at: indexPath, animated: true)
+        if item.subtitle == "0 КБ" {
+            return
+        }
         switch item.key {
         case "delete_files":
+            if imagesUsed == "0 КБ" && videosUsed == "0 КБ" && audioUsed == "0 КБ" && filesUsed == "0 КБ" {
+                return
+            }
             let deleteItems: [ActionSheetPresenter.Item] = [
                 ActionSheetPresenter.Item(destructive: false, title: "15%", value: "15percent"),
                 ActionSheetPresenter.Item(destructive: false, title: "25%", value: "25percent"),
@@ -70,25 +76,25 @@ extension CloudStorageViewController: UITableViewDelegate {
                 }
             return
         case "images":
-            let viewController = CloudStorageGalleryViewController()
-            viewController.configure(jid: self.jid, .images)
+            let viewController = CloudStorageGalleryViewController(selectedType: .image, owner: self.jid)
             navigationController?.pushViewController(viewController, animated: true)
             return
         case "videos":
-            let viewController = CloudStorageGalleryViewController()
-            viewController.configure(jid: self.jid, .videos)
-            navigationController?.pushViewController(viewController, animated: true)
-            return
-        case "files":
-            let viewController = CloudStorageGalleryViewController()
-            viewController.configure(jid: self.jid, .files)
+            let viewController = CloudStorageGalleryViewController(selectedType: .video, owner: self.jid)
             navigationController?.pushViewController(viewController, animated: true)
             return
         case "audio":
-            let viewController = CloudStorageGalleryViewController()
-            viewController.configure(jid: self.jid, .voice)
+            let viewController = CloudStorageGalleryViewController(selectedType: .audio, owner: self.jid)
             navigationController?.pushViewController(viewController, animated: true)
             return
+        case "files":
+            let viewController = CloudStorageGalleryViewController(selectedType: .file, owner: self.jid)
+            navigationController?.pushViewController(viewController, animated: true)
+            return
+        case "avatars":
+            let viewController = CloudStorageGalleryViewController(selectedType: .avatar, owner: self.jid)
+            navigationController?.pushViewController(viewController, animated: true)
+            break
         default:
             break
         }

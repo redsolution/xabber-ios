@@ -177,7 +177,7 @@ func parseReferences(_ message: XMPPMessage, jid: String, owner: String, echo: B
                                               xmlns: "https://xabber.com/protocol/files"),
                 let file = fileSharing.element(forName: "file"),
                 let sources = fileSharing.element(forName: "sources"),
-                let uri = sources.elements(forName: "uri").compactMap({ return $0.stringValue }).first(where: { URL(string: $0) != nil }) else {
+                  let uri = sources.elements(forName: "uri").compactMap({ return $0.stringValue }).first(where: { URL(string: $0.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? $0) != nil }) else {
                     return nil
                 }
             if let encryptedElement = file.element(forName: "encrypted", xmlns: "urn:xmpp:esfs:0"),
@@ -200,7 +200,7 @@ func parseReferences(_ message: XMPPMessage, jid: String, owner: String, echo: B
                                                 xmlns: "https://xabber.com/protocol/files"),
                 let file = fileSharing.element(forName: "file"),
                 let sources = fileSharing.element(forName: "sources"),
-                let uri = sources.elements(forName: "uri").compactMap({ return $0.stringValue }).first(where: { URL(string: $0) != nil }) else {
+                  let uri = sources.elements(forName: "uri").compactMap({ return $0.stringValue }).first(where: { URL(string: $0.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? "") != nil }) else {
                     return nil
                 }
             
