@@ -109,7 +109,7 @@ extension NewEntityViewController {
         }()
         
         internal func updateAvatar(_ avatarKey: String) {
-            avatarView.kf.setImage(with: ImageResource(downloadURL: URL(string: avatarKey)!, cacheKey: avatarKey),
+            avatarView.kf.setImage(with: KF.ImageResource(downloadURL: URL(string: avatarKey)!, cacheKey: avatarKey),
                                    placeholder: nil,
                                    options: [.alsoPrefetchToMemory, .onlyFromCache],
                                    progressBlock: nil) { (result) in

@@ -305,10 +305,15 @@ class ChatListTableViewCell: UITableViewCell {
                                 groupchatNickname: String?,
                                 isSystem: Bool,
                                 isPinned: Bool = false,
-                                subRequest: Bool) {
+                                subRequest: Bool,
+                                avatarUrl: String?) {
 
-        DefaultAvatarManager.shared.getAvatar(jid: jid, owner: owner, size: 56) { image in
-            self.avatarView.image = image
+        DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 56) { image in
+            if let image = image {
+                self.avatarView.image = image
+            } else {
+                self.avatarView.setDefaultAvatar(for: username, owner: owner)
+            }
         }
         
         messageLabel.layoutFor(

@@ -21,6 +21,7 @@
 import Foundation
 import UIKit
 import Kingfisher
+import CocoaLumberjack
 
 class AccountNavButton: UIButton {
     
@@ -61,10 +62,28 @@ class AccountNavButton: UIButton {
         fatalError("init(coder:) has not been implemented")
     }
     
-    public func update(jid: String, status: ResourceStatus) {
-        DefaultAvatarManager.shared.getAvatar(jid: jid, owner: jid, size: 128) { image in
-            self.avatarView.image = image
+    public func update(jid: String, status: ResourceStatus, avatarUrl: String?) {
+        if let avatarUrl = avatarUrl {
+            
+        } else {
+            var url: String? = nil
+            do {
+                let realm = try WRealm.safe()
+                if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid) {
+                    url = instance.avatarMinUrl ?? instance.avatarMaxUrl ?? instance.oldschoolAvatarKey
+                }
+            } catch {
+                DDLogDebug("AccountNavButton: \(#function). \(error.localizedDescription)")
+            }
+            DefaultAvatarManager.shared.getAvatar(url: url, jid: jid, owner: jid, size: 128) { image in
+                if let image = image {
+                    self.avatarView.image = image
+                } else {
+                    self.avatarView.setDefaultAvatar(for: jid, owner: jid)
+                }
+            }
         }
+        
         statusView.setStatus(status: status, entity: .contact)
         statusView.border(1)
         self.layoutIfNeeded()

@@ -28,6 +28,7 @@ import XMPPFramework
 import CocoaLumberjack
 import TOInsetGroupedTableView
 import SwiftUI
+import CocoaLumberjack
 
 class SettingsViewController: BaseViewController {
     
@@ -259,6 +260,8 @@ class SettingsViewController: BaseViewController {
     internal var groupchatInvitationsCount: Int = 0
     internal var currentResource: String? = nil
     
+    var avatarUrl: String? = nil
+    
     var quota: String = ""
     var used: String = ""
     
@@ -300,18 +303,20 @@ class SettingsViewController: BaseViewController {
                         } else {
                             self.currentResource = nil
                         }
+                        self.headerView.configure(
+                            avatarUrl: item.avatarMaxUrl ?? item.avatarMinUrl ?? item.oldschoolAvatarKey,
+                            jid: self.jid,
+                            owner: self.jid,
+                            userId: nil,
+                            title: self.nickname,
+                            subtitle: self.jid,
+                            thirdLine: nil,
+                            titleColor: AccountColorManager.shared.primaryColor(for: self.jid)
+                        )
                     } else {
                         self.nickname = XMPPJID(string: self.jid)?.user ?? self.jid
                     }
-                    self.headerView.configure(
-                        jid: self.jid,
-                        owner: self.jid,
-                        userId: nil,
-                        title: self.nickname,
-                        subtitle: self.jid,
-                        thirdLine: nil,
-                        titleColor: AccountColorManager.shared.primaryColor(for: self.jid)
-                    )
+                    
                 }).disposed(by: bag)
            
             Observable
@@ -345,33 +350,6 @@ class SettingsViewController: BaseViewController {
                     }
                 }).disposed(by: bag)
             
-            SubscribtionsManager
-                .shared
-                .isSubscribtionsInfoUpdate
-                .asObservable()
-                .debounce(.milliseconds(50), scheduler: MainScheduler.asyncInstance)
-                .subscribe { _ in
-                    guard let section = self.datasource.firstIndex(where: {
-                        $0.childs.contains(where: { $0.key == .subscriptions })
-                    }) else {
-                        return
-                    }
-                    guard let row = self.datasource[section].childs.firstIndex(where: {
-                        $0.key == .subscriptions
-                    }) else {
-                        return
-                    }
-                    DispatchQueue.main.async {
-                        self.tableView.performBatchUpdates {
-                            self.tableView.reloadRows(at: [IndexPath(row: row, section: section)], with: .none)
-                        } completion: { _ in
-                            
-                        }
-                    }
-                }
-                .disposed(by: bag)
-
-            
             Observable
                 .changeset(from: self.accounts!)
                 .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
@@ -396,13 +374,6 @@ class SettingsViewController: BaseViewController {
                             )
                         }
                     }
-//                    if #available(iOS 11.0, *) {
-//                        self.tableView.performBatchUpdates(updateDatasource, completion: nil)
-//                    } else {
-//                        self.tableView.beginUpdates()
-//                        updateDatasource()
-//                        self.tableView.endUpdates()
-//                    }
                     self.load()
                     self.tableView.reloadData()
                 }).disposed(by: bag)
@@ -472,14 +443,26 @@ class SettingsViewController: BaseViewController {
             tableView.setEditing(false, animated: false)
             navigationBarButtonsConfigure(multiAccounts: false)
             headerViewConfig()
-                
-            self.headerView.configure(jid: self.jid,
-                                      owner: self.jid,
-                                      userId: nil,
-                                      title: self.nickname,
-                                      subtitle: self.jid,
-                                      thirdLine: nil,
-                                      titleColor: AccountColorManager.shared.primaryColor(for: self.jid))
+            
+            do {
+                let realm = try WRealm.safe()
+                if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: self.jid) {
+                    self.headerView.configure(
+                        avatarUrl: instance.avatarMaxUrl ?? instance.avatarMinUrl ?? instance.oldschoolAvatarKey,
+                        jid: self.jid,
+                        owner: self.jid,
+                        userId: nil,
+                        title: self.nickname,
+                        subtitle: self.jid,
+                        thirdLine: nil,
+                        titleColor: AccountColorManager.shared.primaryColor(for: self.jid)
+                    )
+                }
+            } catch {
+                DDLogDebug("SettingsViewController:\(#function). \(error.localizedDescription)")
+            }
+            
+            
             
             datasource.append(Datasource(section: .accountSettings, childs: [
                     Datasource(section: .accountSettings, title: "Profile, status, password", viewController: SimpleTableViewController.self, childs: [
@@ -508,6 +491,7 @@ class SettingsViewController: BaseViewController {
             }
         }
         
+        
         if isModal {
             return
         }
@@ -518,7 +502,7 @@ class SettingsViewController: BaseViewController {
                 title: Datasource.Section.privacy.description(),
                 subtitle: nil,
                 premiumOnly: false,
-                viewController: SimpleTableViewController.self,
+                viewController: DevicePrivacyViewController.self,
                 childs: []
               ),
                 Datasource(section: .interface, title: "Interface", viewController: SimpleTableViewController.self, childs: [
@@ -577,26 +561,40 @@ class SettingsViewController: BaseViewController {
                     ])
                 ], key: .passcode),
                 Datasource(section: .security, title: "Yubikey signature", viewController: YubikeySetupViewController.self, key: .yubikey),
-//                Datasource(section: .afterburn, title: "Burning messages", viewController: SimpleTableViewController.self,childs: [
-//                    Datasource(section: .afterburn, title: "", childs: [
-//                        Datasource(section: .afterburn, title: "Enabled", itemType: .toggle, toggle: (dict[Datasource.Keys.afterburnEnabled.rawValue] as? Bool) ?? false, key: .afterburnEnabled),
-////                        Datasource(section: .afterburn, title: "Default timer", itemType: .selector, values: ChatMarkersManager.BurnMessagesTimerValues.allVerboseValues(), key: .afterburnTimer),
-//                    ],key: .afterburnTimer)
-//                ], key: .afterburnTimer)
-//                Datasource(section: .afterburn, title: "Burning messages", viewController: SimpleTableViewController.self,childs: [
-//                    Datasource(section: .afterburn, title: "", childs: [
-//                        Datasource(section: .afterburn, title: "Enabled", itemType: .toggle, toggle: (dict[Datasource.Keys.afterburnEnabled.rawValue] as? Bool) ?? false, key: .afterburnEnabled),
-////                        Datasource(section: .afterburn, title: "Default timer", itemType: .selector, values: ChatMarkersManager.BurnMessagesTimerValues.allVerboseValues(), key: .afterburnTimer),
-//                    ],key: .afterburnTimer)
-//                ], key: .afterburnTimer)
             ]))
 
     }
     
     internal func configure() {
         self.navigationItem.backButtonTitle = "Settings".localizeString(id: "settings", arguments: [])
+        if let topOffset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
+            headerHeightMax += topOffset
+            headerHeightMin += topOffset
+        }
         view.addSubview(tableView)
         tableView.fillSuperview()
+        
+        do {
+            let realm = try WRealm.safe()
+            self.accounts = realm
+                .objects(AccountStorageItem.self)
+                .sorted(byKeyPath: "order", ascending: true)
+        } catch {
+            DDLogDebug("SettingsViewController: \(#function). \(error.localizedDescription)")
+        }
+        if let accounts = self.accounts, accounts.count == 1 {
+            let item = accounts.first!
+            self.nickname = item.username
+            self.jid = item.jid
+            XMPPUIActionManager.shared.performRequest(owner: self.jid) { stream, session in
+                session.devices?.requestList(stream)
+            } fail: {
+                AccountManager.shared.find(for: self.jid)?.action({ user, stream in
+                    user.devices.requestList(stream)
+                })
+            }
+        }
+        
         load()
         tableView.delegate = self
         tableView.dataSource = self
@@ -609,6 +607,14 @@ class SettingsViewController: BaseViewController {
                                                selector: #selector(reloadDatasource),
                                                name: .newMaskSelected,
                                                object: nil)
+        
+        DefaultAvatarManager.shared.getAvatar(url: self.avatarUrl, jid: jid, owner: jid, size: 128) { image in
+            if let image = image {
+                self.headerView.imageButton.setImage(image, for: .normal)
+            } else {
+                self.headerView.imageButton.setImage(UIImageView.getDefaultAvatar(for: self.jid, owner: self.jid, size: 256), for: .normal)
+            }
+        }
     }
     
     func headerViewConfig() {
@@ -634,32 +640,7 @@ class SettingsViewController: BaseViewController {
     
     override func viewDidLoad() {
         super.viewDidLoad()
-        if #available(iOS 11.0, *) {
-            if let topOffset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
-                headerHeightMax += topOffset
-                headerHeightMin += topOffset
-            }
-        }
-        do {
-            let realm = try Realm()
-            self.accounts = realm
-                .objects(AccountStorageItem.self)
-                .sorted(byKeyPath: "order", ascending: true)
-        } catch {
-            DDLogDebug("SettingsViewController: \(#function). \(error.localizedDescription)")
-        }
-        if let accounts = self.accounts, accounts.count == 1 {
-            let item = accounts.first!
-            self.nickname = item.username
-            self.jid = item.jid
-            XMPPUIActionManager.shared.performRequest(owner: self.jid) { stream, session in
-                session.devices?.requestList(stream)
-            } fail: {
-                AccountManager.shared.find(for: self.jid)?.action({ user, stream in
-                    user.devices.requestList(stream)
-                })
-            }
-        }
+        
         
         configure()
     }
@@ -682,9 +663,7 @@ class SettingsViewController: BaseViewController {
         navigationController?.navigationBar.shadowImage = UIImage()
         navigationController?.navigationBar.setNeedsLayout()
         
-        DefaultAvatarManager.shared.getAvatar(jid: jid, owner: jid, size: 128) { image in
-            self.headerView.imageButton.setImage(image, for: .normal)
-        }
+        
     }
     
     override func viewDidAppear(_ animated: Bool) {
@@ -728,7 +707,7 @@ class SettingsViewController: BaseViewController {
     private func getQuota() {
         func callback() {
             do {
-                let realm = try Realm()
+                let realm = try WRealm.safe()
                 guard let quotaItem = realm.object(ofType: AccountQuotaStorageItem.self,
                                                    forPrimaryKey: self.jid) else { return }
                 self.quota = quotaItem.quota

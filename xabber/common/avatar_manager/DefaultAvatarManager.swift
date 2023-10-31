@@ -48,267 +48,6 @@ class DefaultAvatarManager: NSObject {
         case original = 0
     }
     
-    struct SizedImage {
-        var image: UIImage? = nil
-        var url: String?
-        var size: ImageSize
-        
-        func key(jid: String, owner: String) -> String  {
-            if let url = self.url {
-                return url
-            }
-            return [jid, owner, "\(size.rawValue)"].prp()
-        }
-    }
-    
-    class AvatarItem: Equatable, Hashable {
-        static func == (lhs: DefaultAvatarManager.AvatarItem, rhs: DefaultAvatarManager.AvatarItem) -> Bool {
-            return lhs.jid == rhs.jid &&
-                lhs.owner == rhs.owner
-        }
-                
-        var jid: String
-        var owner: String
-        var images: [SizedImage] = []
-        var imageHash: String? = nil
-        var isGroupUser: Bool
-        var kind: AvatarStorageItem.Kind = .none
-        
-        init(jid: String, owner: String, isGroupUser: Bool = false) {
-            self.jid = jid
-            self.owner = owner
-            self.isGroupUser = isGroupUser
-            self.update()
-        }
-        
-        func hash(into hasher: inout Hasher) {
-            hasher.combine(jid)
-            hasher.combine(owner)
-        }
-        
-        public final func update() {
-            do {
-                let realm = try WRealm.safe()
-
-                if let i = realm.object(ofType: AvatarStorageItem.self, forPrimaryKey: AvatarStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
-                    self.imageHash = i.imageHash
-                    self.kind = i.kind
-                    if kind == .none {
-                        self.images = [self.createDefaultAvatar(checkName: true)]
-                    }
-                    var requested: Bool = false
-                    if let url = i.imageOriginal { requested = insertImage(url: url, size: .original) }
-                    if let url = i.image32  { requested = insertImage(url: url, size:  .px32) }
-                    if let url = i.image48  { requested = insertImage(url: url, size:  .px48) }
-                    if let url = i.image64  { requested = insertImage(url: url, size:  .px64) }
-                    if let url = i.image96  { requested = insertImage(url: url, size:  .px96) }
-                    if let url = i.image128 { requested = insertImage(url: url, size: .px128) }
-                    if let url = i.image192 { requested = insertImage(url: url, size: .px192) }
-                    if let url = i.image256 { requested = insertImage(url: url, size: .px256) }
-                    if let url = i.image384 { requested = insertImage(url: url, size: .px384) }
-                    if let url = i.image512 { requested = insertImage(url: url, size: .px512) }
-                    if !requested {
-                        self.images = [self.createDefaultAvatar(checkName: true)]
-                    }
-                } else {
-                    self.images = [self.createDefaultAvatar(checkName: true)]
-//                    self.createDefaultAvatar(checkName: false)
-                }
-            } catch {
-                DDLogDebug("DefaultAvatarManager: \(#function). \(error.localizedDescription)")
-//                self.createDefaultAvatar(checkName: false)
-            }
-            self.images = self.images.sorted(by: { $0.size.rawValue < $1.size.rawValue })
-        }
-        
-        private func insertImage(url urlRaw: String, size: ImageSize) -> Bool {
-//            var image = DefaultAvatarManager.SizedImage(url: urlRaw, size: size)
-            func download() {
-                if let url = URL(string: urlRaw) {
-                    ImageDownloader.default.downloadImage(with: url, options: KingfisherParsedOptionsInfo([
-                        .backgroundDecode,
-                        .downloadPriority(1.0),
-                        .callbackQueue(.dispatch(DispatchQueue.global(qos: .utility)))
-                    ])) {
-                        result in
-                        switch result {
-                            case .success(let value):
-                                let image = DefaultAvatarManager.SizedImage(image: value.image, url: urlRaw, size: size)
-                                ImageCache.default.store(
-                                    value.image,
-                                    forKey: image.key(jid: self.jid, owner: self.owner),
-                                    options: KingfisherParsedOptionsInfo([.callbackQueue(.dispatch(DispatchQueue.global(qos: .utility)))]),
-                                    toDisk: true
-                                )
-                                self.images.append(image)
-                            case .failure(_):
-                                if !self.images.contains(where: { $0.size == .original }) {
-                                    self.images.append(self.createDefaultAvatar(checkName: true))
-                                }
-                                
-                                break
-                        }
-                    }
-                }
-            }
-            
-            
-            ImageCache.default.retrieveImageInDiskCache(forKey: urlRaw) { result in
-                switch result {
-                    case .success(let value):
-                        guard let image = value else {
-                            download()
-                            return
-                        }
-                        self.images.append(DefaultAvatarManager.SizedImage(image: image, url: urlRaw, size: size))
-                    case .failure(_):
-                        download()
-                        break
-                }
-            }
-            return true
-        }
-        
-        public final func store(images: [SizedImage], hash: String, kind: AvatarStorageItem.Kind) {
-            func update(_ instance: AvatarStorageItem) {
-                if images.isEmpty {
-                    instance.imageHash = nil
-                    instance.image32 = nil
-                    instance.image48 = nil
-                    instance.image64 = nil
-                    instance.image96 = nil
-                    instance.image128 = nil
-                    instance.image192 = nil
-                    instance.image256 = nil
-                    instance.image384 = nil
-                    instance.image512 = nil
-                    instance.imageOriginal = nil
-                    instance.kind = .none
-                } else {
-                    instance.imageHash = hash
-                    instance.kind = kind
-                    images.forEach {
-                        switch $0.size {
-                            case .px32 : instance.image32 =  $0.key(jid: jid, owner: owner)
-                            case .px48 : instance.image48 =  $0.key(jid: jid, owner: owner)
-                            case .px64 : instance.image64 =  $0.key(jid: jid, owner: owner)
-                            case .px96 : instance.image96 =  $0.key(jid: jid, owner: owner)
-                            case .px128: instance.image128 = $0.key(jid: jid, owner: owner)
-                            case .px192: instance.image192 = $0.key(jid: jid, owner: owner)
-                            case .px256: instance.image256 = $0.key(jid: jid, owner: owner)
-                            case .px384: instance.image384 = $0.key(jid: jid, owner: owner)
-                            case .px512: instance.image512 = $0.key(jid: jid, owner: owner)
-                            case .original: instance.imageOriginal = $0.key(jid: jid, owner: owner)
-                        }
-                        if let urlRaw = $0.url, let url = URL(string: urlRaw) {
-                            ImageDownloader.default.downloadImage(with: url, options: KingfisherParsedOptionsInfo([
-                                .backgroundDecode,
-                                .downloadPriority(0.2),
-                                .lowDataMode(nil),
-                                .callbackQueue(.dispatch(DispatchQueue.global(qos: .background)))
-                            ]))
-                        }
-                        if let image = $0.image {
-                            ImageCache.default.store(
-                                image,
-                                forKey: $0.key(jid: jid, owner: owner),
-                                options: KingfisherParsedOptionsInfo([.callbackQueue(.dispatch(DispatchQueue.global(qos: .background)))]),
-                                toDisk: true
-                            )
-                        }
-                    }
-                }
-            }
-            
-            self.images = images
-            
-            do {
-                let realm = try WRealm.safe()
-                if let instance = realm.object(ofType: AvatarStorageItem.self,
-                                               forPrimaryKey: AvatarStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
-                    try realm.write {
-                        update(instance)
-                        realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: self.jid, owner: self.owner))?.avatar = instance
-                    }
-                } else {
-                    let instance = AvatarStorageItem()
-                    instance.jid = self.jid
-                    instance.owner = self.owner
-                    instance.primary = AvatarStorageItem.genPrimary(jid: self.jid, owner: self.owner)
-                    update(instance)
-                    try realm.write {
-                        realm.add(instance, update: .modified)
-                        realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: self.jid, owner: self.owner))?.avatar = instance
-                    }
-                }
-            } catch {
-                DDLogDebug("AvatarItem: \(#function). \(error.localizedDescription)")
-            }
-        }
-
-        
-        private final func createDefaultAvatar(checkName: Bool) -> SizedImage {
-            let conf = LetterAvatarBuilderConfiguration()
-            conf.useSingleLetter = true
-            if checkName {
-                do {
-                    let realm = try WRealm.safe()
-                    if isGroupUser {
-                        if let instance = realm.object(ofType: GroupchatUserStorageItem.self, forPrimaryKey: [jid, owner].prp()) {
-                            if instance.nickname.isNotEmpty {
-                                conf.username = instance
-                                    .nickname
-                                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                                    .uppercased()
-                            } else {
-                                conf.username = instance
-                                    .jid
-                                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                                    .uppercased()
-                            }
-                        }
-                    } else {
-                        if let instance = realm.object(ofType: RosterDisplayNameStorageItem.self, forPrimaryKey: [self.jid, self.owner].prp()) {
-                            conf.username = instance
-                                .displayName
-                                .trimmingCharacters(in: .whitespacesAndNewlines)
-                                .uppercased()
-                        } else {
-                            conf.username = self.jid
-                                .trimmingCharacters(in: .whitespacesAndNewlines)
-                                .uppercased()
-                        }
-                    }
-                } catch {
-                    DDLogDebug("DefaultAvatarManager: \(#function). \(error.localizedDescription)")
-                    conf.username = self.jid
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                        .uppercased()
-                }
-            } else {
-                conf.username = self.jid
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                    .uppercased()
-            }
-            let color = AccountColorManager.shared.palette(for: self.owner)
-            conf.backgroundColors = [color.tint700, color.tint600, color.tint500, color.tint400, color.tint300]
-            conf.size = CGSize(square: 128)
-            let image = UIImage.makeLetterAvatar(withConfiguration: conf)
-            
-            return SizedImage(image: image, size: .original)
-        }
-        
-        func retrieveDefaultAvatar(size: ImageSize, callback: ((UIImage?) -> Void)?) {
-            ImageCache.default.retrieveImage(forKey: [self.owner, self.jid, "\(ImageSize.original.rawValue)"].prp()) { result in
-                switch result {
-                case .success(let value): callback?(value.image)
-                case .failure(_): callback?(nil)
-                }
-            }
-        }
-    }
-    
-    
     open class var shared: DefaultAvatarManager {
         struct DefaultAvatarManagerSingleton {
             static let instance = DefaultAvatarManager()
@@ -327,266 +66,110 @@ class DefaultAvatarManager: NSObject {
     )
     
     internal var bag: DisposeBag = DisposeBag()
-    internal var imageCache: Set<AvatarItem> = Set<AvatarItem>()
-    
-    internal var dumbAvatar: UIImage
-    
+        
     override init() {
-        let conf = LetterAvatarBuilderConfiguration()
-        conf.backgroundColors = [AccountColorManager.shared.randomPalette().tint500]
-        conf.size = DefaultAvatarManager.defaultSize
-        
-        conf.username = ["💡","😃","👽","👻","🎃","🤖","👾","🦷","🧦","🍺"].randomElement() ?? "💡"
-        
-        dumbAvatar = UIImage.makeLetterAvatar(withConfiguration: conf)!
         super.init()
-        ImageCache.default.memoryStorage.config.expiration = .seconds(60*60*12)
-        ImageCache.default.memoryStorage.config.countLimit = 10000
+        ImageCache.default.memoryStorage.config.expiration = .seconds(60*60*1)
+        ImageCache.default.memoryStorage.config.countLimit = 1000
         ImageCache.default.diskStorage.config.expiration = .never
         ImageCache.default.diskStorage.config.sizeLimit = 0
-//        DispatchQueue.main.async {
-//            self.subscribe()
-//        }
     }
     
     public final func preheat() {
-        do {
-            let realm = try WRealm.safe()
-            let activeAccounts = realm.objects(AccountStorageItem.self).filter("enabled == true").toArray().compactMap { return $0.jid }
-            activeAccounts.forEach {
-                self.updateAvatar(jid: $0, owner: $0)
-            }
-            realm.objects(LastChatsStorageItem.self).filter("owner IN %@", activeAccounts).toArray().forEach {
-                self.updateAvatar(jid: $0.jid, owner: $0.owner)
-            }
-        } catch {
-            DDLogDebug("DefaultAvatarManager: \(#function). \(error.localizedDescription)")
-        }
-    }
-    
-    private final func subscribe() {
-        bag = DisposeBag()
-        do {
-            let realm = try WRealm.safe()
-            let asitems =  realm.objects(AvatarStorageItem.self)
-            print(asitems.toArray())
-            Observable
-                .changeset(from: realm.objects(AvatarStorageItem.self))
-                .subscribe { changes in
-                    let collection = changes.0
-                    guard !collection.isEmpty else {
-                        return
-                    }
-                    if let changeset = changes.1 {
-                        if changeset.deleted.isNotEmpty {
-                            changeset.deleted.forEach { index in
-                                let item = collection[index]
-                                self.imageCache.remove(AvatarItem(jid: item.jid,
-                                                                  owner: item.owner))
-                            }
-                        }
-                        if changeset.inserted.isNotEmpty {
-                            changeset.inserted.forEach { index in
-                                let item = collection[index]
-                                let avatarItem = AvatarItem(jid: item.jid, owner: item.owner)
-                                avatarItem.update()
-                                self.imageCache.insert(avatarItem)
-                            }
-                        }
-                        if changeset.updated.isNotEmpty {
-                            changeset.updated.forEach { index in
-                                let item = collection[index]
-                                self.imageCache
-                                    .first(where: { $0.jid == item.jid && $0.owner == item.owner })?
-                                    .update()
-                            }
-                        }
-                    } else {
-                        collection.forEach {
-                            let item = AvatarItem(jid: $0.jid, owner: $0.owner)
-                            item.update()
-                            self.imageCache.insert(item)
-                        }
-                    }
-                } onError: { error in
-                    DDLogDebug("DefaultAvatarManager: \(#function). \(error.localizedDescription)")
-                } onCompleted: {
-                    
-                } onDisposed: {
-                    
-                }
-                .disposed(by: bag)
 
-        } catch {
-            DDLogDebug("DefaultAvatarManager: \(#function)")
-        }
     }
     
-    private final func unsubscribe() {
-        bag = DisposeBag()
-    }
     
     public final func getGroupAvatar(user: String, jid: String, owner: String, size: CGFloat = 0, callback: ((UIImage?) -> Void)?) {
-        getAvatar(jid: [user, jid].prp(), owner: owner, size: size, callback: callback)
+        callback?(nil)
     }
     
-    public final func updateGroupAvatar(user: String, jid: String, owner: String) {
-        updateAvatar(jid: [user, jid].prp(), owner: owner)
+    public final func storeImage(for key: String, image: UIImage) {
+        ImageCache.default.store(image, forKey: key, options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory]))
     }
     
-    public final func storeGroupAvatar(user: String, jid: String, owner: String, hash: String, images: [SizedImage], kind: AvatarStorageItem.Kind) {
-        storeAvatar(jid: [user, jid].prp(), owner: owner, hash: hash, images: images, kind: kind)
-    }
-        
-    public final func deleteGroupAvatar(user: String, jid: String, owner: String) {
-        deleteAvatar(jid: [user, jid].prp(), owner: owner)
-    }
-    
-    public final func isImageCachedGroup(user: String, jid: String, owner: String, imageHash: String) -> Bool {
-        return isImageCached(jid: [user, jid].prp(), owner: owner, imageHash: imageHash)
-    }
-    
-    public final func getAvatar(jid: String, owner: String, size requiredSize: CGFloat = 0, callback: ((UIImage?) -> Void)?) {
-        var size: ImageSize = .original
-        let options: KingfisherOptionsInfo = [.alsoPrefetchToMemory, .downloadPriority(1.0)]
-        switch requiredSize {
-        case 32, 44, 48: size = .px96
-        case 56: size = .px192
-        case 128: size = .px384
-        case 144, 256: size = .px512
-        default: size = .original
-        }
-        func completionHandler(result: Result<ImageCacheResult, KingfisherError>) {
-            switch result {
-            case .success(let value):
-                if let image = value.image {
-                    callback?(image)
-                } else {
-                    if let item = self.imageCache.first(where: { $0.jid == jid && $0.owner == owner }) {
-                        item.retrieveDefaultAvatar(size: size, callback: callback)
-                        item.update()
-                    } else {
-                        let item = AvatarItem(jid: jid, owner: owner)
-                        item.retrieveDefaultAvatar(size: size, callback: callback)
-                        item.update()
+    public final func getAvatar(url: String?, jid: String, owner: String, size requiredSize: CGFloat = 0, callback: ((UIImage?) -> Void)?) {
+        if let url = url {
+            if ImageCache.default.isCached(forKey: url) {
+                ImageCache.default.retrieveImage(forKey: url, options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory]), callbackQueue: .mainAsync) { result in
+                    switch result {
+                        case .success(let image):
+                            callback?(image.image)
+                        default:
+                            callback?(nil)
                     }
                 }
-            case .failure(_):
-                callback?(self.dumbAvatar)
-            }
-        }
-        func getFrom(_ item: AvatarItem) {
-            if let index = item.images.firstIndex(where: { $0.size == size }) {
-                if let image = item.images[index].image {
-                    callback?(image)
-                } else {
-                    ImageCache
-                        .default
-                        .retrieveImage(
-                            forKey: item.images[index].key(jid: item.jid, owner: item.owner),
-                            options: options,
-//                            callbackQueue: .mainAsync,
-                            completionHandler: completionHandler
-                        )
-                }
             } else {
-                if let image = item.images.first?.image {
-                    callback?(image)
-                } else {
-                    ImageCache
-                        .default
-                        .retrieveImage(
-                            forKey: item.images.first?.key(jid: item.jid, owner: item.owner) ?? "dumb_avatar",
-                            options: options,
-//                            callbackQueue: .mainCurrentOrAsync,
-                            completionHandler: completionHandler
-                        )
+                callback?(nil)
+                guard let urlUnwr = URL(string: url) else {
+                    return
+                }
+                ImageDownloader.default.downloadImage(with: urlUnwr, options: KingfisherParsedOptionsInfo([.cacheOriginalImage, .alsoPrefetchToMemory, .callbackQueue(.untouch)])) { result in
+                    switch result {
+                        case .success(let image):
+                            ImageCache.default.store(image.image, forKey: url, options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory]))
+                            do {
+                                let realm = try WRealm.safe()
+                                if let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner)) {
+                                    try realm.write {
+                                        instance.updatedTS = Date().timeIntervalSince1970
+                                    }
+                                }
+                            } catch {
+                                DDLogDebug("DefaultAvatarManager: \(#function). \(error.localizedDescription)")
+                            }
+                        default:
+                            break
+                    }
                 }
             }
+//            if ImageCache.default.memoryStorage.isCached(forKey: url) {
+//                callback?(ImageCache.default.retrieveImageInMemoryCache(forKey: url))
+//            } else if ImageCache.default.diskStorage.isCached(forKey: url) {
+//                ImageCache.default.retrieveImageInDiskCache(forKey: url, options: [.alsoPrefetchToMemory, .onlyFromCache], callbackQueue: .mainAsync) { result in
+//                    switch result {
+//                        case .success(let image):
+//                            callback?(image)
+//                            if let image = image {
+//                                ImageCache.default.memoryStorage.store(value: image, forKey: url)
+//                            }
+//                        default:
+//                            callback?(nil)
+//                    }
+//                }
+//            } else {
+//                callback?(nil)
+//                ImageDownloader.default.downloadImage(with: URL(string: url)!, options: KingfisherParsedOptionsInfo([.cacheOriginalImage, .alsoPrefetchToMemory, .callbackQueue(.untouch)])) { result in
+//                    switch result {
+//                        case .success(let image):
+//                            ImageCache.default.store(image.image, forKey: url, options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory]))
+//                            do {
+//                                let realm = try WRealm.safe()
+//                                if let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner)) {
+//                                    try realm.write {
+//                                        instance.updatedTS = Date().timeIntervalSince1970
+//                                    }
+//                                }
+//                            } catch {
+//                                DDLogDebug("DefaultAvatarManager: \(#function). \(error.localizedDescription)")
+//                            }
+//                        default:
+//                            break
+//                    }
+//                }
+//            }
         }
-                
-        if let item = self.imageCache.first(where: { $0.jid == jid && $0.owner == owner }) {
-            getFrom(item)
-        } else {
-            let item = AvatarItem(jid: jid, owner: owner)
-            self.imageCache.update(with: item)
-            getFrom(item)
-        }
-    }
-    
-    public final func updateAvatar(jid: String, owner: String) {
-//        DefaultAvatarManager.queue.sync {
-            if let item = self.imageCache.first(where: { $0.jid == jid && $0.owner == owner }) {
-                item.update()
-            } else {
-                let item = AvatarItem(jid: jid, owner: owner)
-                self.imageCache.insert(item)
-            }
-//        }
-    }
-    
-    public final func storeAvatar(jid: String, owner: String, hash: String, images: [SizedImage], kind: AvatarStorageItem.Kind) {
-        if let item = imageCache.first(where: { $0.jid == jid && $0.owner == owner }) {
-            item.store(images: images, hash: hash, kind: kind)
-        } else {
-            let item = AvatarItem(jid: jid, owner: owner)
-            item.store(images: images, hash: hash, kind: kind)
-            imageCache.update(with: item)
-        }
-    }
-    
-    public func removeFromCache(jid: String, owner: String, url: String) {
-        ImageCache.default.removeImage(forKey: url)
-        if let index = imageCache.firstIndex(where: { $0.jid == jid && $0.owner == owner }) {
-            imageCache.remove(at: index)
-        }
+        callback?(nil)
     }
     
     public final func deleteAvatar(jid: String, owner: String) {
-        if let item = imageCache.first(where: { $0.jid == jid && $0.owner == owner }) {
-            item.store(images: [], hash: "", kind: .none)
-        } else {
-            let item = AvatarItem(jid: jid, owner: owner)
-            item.store(images: [], hash: "", kind: .none)
-            imageCache.insert(item)
-        }
-    }
-    
-    public final func isImageCached(jid: String, owner: String, imageHash: String) -> Bool {
-        do {
-            let realm = try WRealm.safe()
-            if let instance = realm.object(
-                ofType: AvatarStorageItem.self,
-                forPrimaryKey: AvatarStorageItem.genPrimary(jid: jid, owner: owner)
-            ) {
-                return instance.imageHash == imageHash
-            }
-        } catch {
-            DDLogDebug("DefaultAvatarManager: \(#function). \(error.localizedDescription)")
-        }
-        return false
         
-//        if let item = imageCache.first(where: { $0.jid == jid && $0.owner == owner }) {
-//            return item.imageHash == imageHash
-//        } else {
-//            let item = AvatarItem(jid: jid, owner: owner)
-//            imageCache.insert(item)
-//            return item.imageHash == imageHash
-//        }
-    }
-    
-    public final func getAvatarItem(jid: String, owner: String) -> AvatarItem {
-        if let item = imageCache.first(where: { $0.jid == jid && $0.owner == owner }) {
-            return item
-        } else {
-            let item = AvatarItem(jid: jid, owner: owner)
-            imageCache.insert(item)
-            return item
-        }
     }
     
     public final func deleteAllAvatars() {
         do {
+            try ImageCache.default.diskStorage.removeAll()
+            ImageCache.default.memoryStorage.removeAll()
             let realm = try WRealm.safe()
             let avatars =  realm.objects(AvatarStorageItem.self)
             try realm.write {

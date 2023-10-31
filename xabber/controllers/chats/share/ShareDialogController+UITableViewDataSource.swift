@@ -47,7 +47,8 @@ extension ShareDialogController: UITableViewDataSource {
             isAttachment: item.isAttachment,
             groupchatNickname: item.groupchatNickname,
             isSystem: item.isSystem,
-            subRequest: false
+            subRequest: false,
+            avatarUrl: nil
         )
         cell.setMask()
         return cell

@@ -180,8 +180,13 @@ extension ChatViewController {
                         .objects(RosterStorageItem.self)
                         .filter("owner == %@ AND jid == %@", self.owner, self.jid))
                     .subscribe(onNext: { (results) in
-                        DefaultAvatarManager.shared.getAvatar(jid: self.jid, owner: self.owner, size: 32) { image in
-                            self.avatar.image = image
+                        let avatarUrl = results.first?.avatarMinUrl ?? results.first?.avatarMaxUrl ?? results.first?.oldschoolAvatarKey
+                        DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: self.jid, owner: self.owner, size: 32) { image in
+                            if let image = image {
+                                self.avatar.image = image
+                            } else {
+                                self.avatar.setDefaultAvatar(for: self.jid, owner: self.owner)
+                            }
                         }
                     })
                     .disposed(by: bag)

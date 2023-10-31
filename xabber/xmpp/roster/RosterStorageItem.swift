@@ -63,7 +63,11 @@ class RosterStorageItem: Object {
     @objc dynamic var isSupportOmemo: Bool = true
     @objc dynamic var isOmemoDevicesListReceived: Bool = false
     
-    var avatar: AvatarStorageItem? = nil
+    @objc dynamic var oldschoolAvatarKey: String? = nil
+    @objc dynamic var avatarMaxUrl: String? = nil
+    @objc dynamic var avatarMinUrl: String? = nil
+    @objc dynamic var avatarUpdatedTS: Double = -1
+    @objc dynamic var updatedTS: Double = -1
     
     var groups: List<String> = List<String>()
     

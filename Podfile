@@ -24,7 +24,7 @@ use_frameworks!
 
 def main_pods
     pod 'Alamofire', '~> 4.9.1' #, '~> 4.7.2' # HTTP request/response library
-    pod 'RealmSwift', :git => 'https://github.com/realm/realm-swift.git', :tag => 'v10.35.0'
+    pod 'RealmSwift', :git => 'https://github.com/realm/realm-swift.git', :tag => 'v10.43.0'
     pod 'RxSwift'
     pod 'RxCocoa'
     pod 'RxRealm', :git => 'https://github.com/whspr/RxRealm.git', :branch => 'update_podspec'
@@ -65,7 +65,7 @@ end
 
 target 'XabberPushService' do
     inherit! :search_paths
-    pod 'RealmSwift', :git => 'https://github.com/realm/realm-swift.git', :tag => 'v10.35.0'
+#    pod 'RealmSwift', :git => 'https://github.com/realm/realm-swift.git', :tag => 'v10.35.0'
     pod 'SwiftKeychainWrapper'
     pod 'Starscream', :git => 'https://github.com/daltoniam/Starscream.git', :tag => '4.0.4' 
     pod 'KissXML'

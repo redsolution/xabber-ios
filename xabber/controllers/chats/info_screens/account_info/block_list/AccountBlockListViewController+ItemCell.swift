@@ -96,8 +96,12 @@ extension AccountBlockListViewController {
         
         open func configure(_ jid: String, owner: String, enabled: Bool) {
             usernameLabel.text = JidManager.shared.prepareJid(jid: jid)
-            DefaultAvatarManager.shared.getAvatar(jid: jid, owner: owner, size: 48) { image in
-                self.avatarView.image = image
+            DefaultAvatarManager.shared.getAvatar(url: nil, jid: jid, owner: owner, size: 48) { image in
+                if let image = image {
+                    self.avatarView.image = image
+                } else {
+                    self.avatarView.setDefaultAvatar(for: jid, owner: owner)
+                }
             }
         }
         

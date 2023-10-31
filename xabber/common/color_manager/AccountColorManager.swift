@@ -198,14 +198,6 @@ class AccountColorManager: NSObject {
             if let primaryAccount = collection.first {
                 primaryPalette = palette(for: primaryAccount.jid)
             }
-            realm
-                .objects(RosterStorageItem.self)
-                .filter("owner == %@", jid)
-                .compactMap { return $0.jid }
-                .forEach {
-                DefaultAvatarManager.shared.updateAvatar(jid: $0, owner: jid)
-            }
-//            DefaultAvatarManager.shared.updateAvatars(for: jid, palette: colorForKey(key).palette)
         } catch {
             DDLogDebug("cant update color for \(jid). \(#function)")
         }

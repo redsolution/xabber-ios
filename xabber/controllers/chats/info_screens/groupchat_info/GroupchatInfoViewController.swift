@@ -354,6 +354,7 @@ class GroupchatInfoViewController: BaseViewController {
                         self.nickname = XMPPJID(string: self.jid)?.user ?? self.jid
                     }
                     self.headerView.configure(
+                        avatarUrl: nil,
                         jid: self.jid,
                         owner: self.owner,
                         userId: nil,

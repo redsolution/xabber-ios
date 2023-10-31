@@ -52,6 +52,10 @@ class XMPPDeviceManager: AbstractXMPPManager {
         isAvailable = true
     }
     
+    override func onStreamPrepared(_ stream: XMPPStream) {
+        self.requestList(stream)
+    }
+    
     public final func update() {
         do {
             let realm = try WRealm.safe()

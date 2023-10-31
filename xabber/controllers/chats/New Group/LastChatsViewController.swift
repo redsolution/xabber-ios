@@ -79,6 +79,7 @@ class LastChatsViewController: BaseViewController {
         let isPinned: Bool
         let subRequest: Bool
         let isEncrypted: Bool
+        let avatarUrl: String?
         
         static func compareContent(_ a: LastChatsViewController.Datasource, _ b: LastChatsViewController.Datasource) -> Bool {
             return a.jid == b.jid
@@ -102,6 +103,7 @@ class LastChatsViewController: BaseViewController {
                     && a.isPinned == b.isPinned
                     && a.subRequest == b.subRequest
                     && a.isEncrypted == b.isEncrypted
+                    && a.avatarUrl == b.avatarUrl
         }
         
     }
@@ -408,7 +410,8 @@ class LastChatsViewController: BaseViewController {
                     isSystemMessage: false,
                     isPinned: false,
                     subRequest: false,
-                    isEncrypted: false
+                    isEncrypted: false,
+                    avatarUrl: nil
                 )
             }
         }
@@ -550,7 +553,8 @@ class LastChatsViewController: BaseViewController {
                     isSystemMessage: isSystemMessage,
                     isPinned: item.isPinned,
                     subRequest: (XMPPJID(string: item.jid)?.isServer ?? true) ? false :  subscriptionRequest,
-                    isEncrypted: [.omemo, .axolotl, .omemo1].contains(item.conversationType)
+                    isEncrypted: [.omemo, .axolotl, .omemo1].contains(item.conversationType),
+                    avatarUrl: item.rosterItem?.avatarMinUrl ?? item.rosterItem?.avatarMaxUrl ?? item.rosterItem?.oldschoolAvatarKey
                 )
             }
         } catch {
@@ -594,8 +598,10 @@ class LastChatsViewController: BaseViewController {
     private final func preprocessDataset() {
         if !canUpdateDataset { return }
         if showSkeleton.value {
+            self.canUpdateDataset = false
             self.datasource = self.mapDataset()
             self.tableView.reloadData()
+            self.canUpdateDataset = true
             return
         }
         self.updateQueue.sync {
@@ -690,7 +696,7 @@ class LastChatsViewController: BaseViewController {
             .shared
             .connectingUsers
             .asObservable()
-            .debounce(.milliseconds(250), scheduler: MainScheduler.asyncInstance)
+            .debounce(.milliseconds(70), scheduler: MainScheduler.asyncInstance)
             .subscribe(onNext: { (results) in
                 if results.isNotEmpty {
                     if !self.showSkeleton.value {
@@ -823,11 +829,11 @@ class LastChatsViewController: BaseViewController {
                     .objects(AccountStorageItem.self)
                     .filter("enabled == true")
                     .sorted(byKeyPath: "order", ascending: true))
-                .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
+//                .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
                 .subscribe(onNext: { (results) in
                     if let item = results.first {
                         self.topAccountJid = item.jid
-                        self.accountNavButton.update(jid: self.topAccountJid, status: item.resource?.status ?? .offline)
+                        self.accountNavButton.update(jid: self.topAccountJid, status: item.resource?.status ?? .offline, avatarUrl: nil)
                         self.unreadAllMessagesButton.isEnabled = AccountManager.shared.connectingUsers.value.isEmpty
                         UIView.animate(withDuration: 0.1) {
                             getAppTabBar()?.updateColor()
@@ -987,22 +993,22 @@ class LastChatsViewController: BaseViewController {
         runDatasetUpdateTask()
         self.tabBarController?.tabBar.isHidden = false
         self.tabBarController?.tabBar.layoutIfNeeded()
-        if !isFirstLayout {
+//        if !isFirstLayout {
             subscribe()
-        }
-        do {
-            let realm = try  WRealm.safe()
-            if let item = realm
-                .objects(AccountStorageItem.self)
-                .filter("enabled == true")
-                .sorted(byKeyPath: "order", ascending: true)
-                .first {
-                self.accountNavButton.update(jid: item.jid,
-                                             status: item.resource?.status ?? .offline)
-            }
-        } catch {
-            DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
-        }
+//        }
+//        do {
+//            let realm = try  WRealm.safe()
+//            if let item = realm
+//                .objects(AccountStorageItem.self)
+//                .filter("enabled == true")
+//                .sorted(byKeyPath: "order", ascending: true)
+//                .first {
+//                self.accountNavButton.update(jid: item.jid,
+//                                             status: item.resource?.status ?? .offline)
+//            }
+//        } catch {
+//            DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
+//        }
         if SignatureManager.shared.certificate != nil {
             self.securityButton.tintColor = .systemGreen
         } else {
@@ -1028,10 +1034,12 @@ class LastChatsViewController: BaseViewController {
             tableView.deselectRow(at: selected, animated: true)
         }
         NotifyManager.shared.setLastChats(displayed: true)
-        let center = UNUserNotificationCenter.current()
-        center.requestAuthorization(options: [.alert, .sound, .badge]) {
-            (granted, error) in
-            
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            let center = UNUserNotificationCenter.current()
+            center.requestAuthorization(options: [.alert, .sound, .badge]) {
+                (granted, error) in
+                
+            }
         }
         isFirstLayout = true
     }
@@ -1044,6 +1052,7 @@ class LastChatsViewController: BaseViewController {
     
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+        unsubscribe()
     }
     
     override func didReceiveMemoryWarning() {

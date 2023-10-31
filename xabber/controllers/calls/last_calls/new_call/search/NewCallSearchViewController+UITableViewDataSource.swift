@@ -27,7 +27,8 @@ extension NewCallSearchViewController: UITableViewDataSource {
         cell.configure(
             owner: item.owner,
             jid: item.jid,
-            title: item.username
+            title: item.username,
+            avatarUrl: item.avatarUrl
         )
         cell.setMask()
         

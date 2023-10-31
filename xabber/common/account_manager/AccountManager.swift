@@ -195,6 +195,7 @@ public class AccountManager: NSObject {
                     DDLogDebug("Add account \($0), autoconnect \(autoConnect)")
                     self.add(withJid: $0, autoConnect: autoConnect)
                 }
+            SubscribtionsManager.shared.updateXMPPAccountsState()
         } catch {
             DDLogDebug("cant load accounts list from db")
         }
@@ -231,6 +232,9 @@ public class AccountManager: NSObject {
         let newAccount = Account(jid: jid, queue: queue)
         self.users.append(newAccount)
         newAccount.asyncConnect()
+        
+        SubscribtionsManager.shared.updateXMPPAccountsState()
+        
         if let nickname = nickname {
             newAccount.username = nickname
         }
@@ -239,7 +243,14 @@ public class AccountManager: NSObject {
         newAccount.resource = AccountManager.defaultResource
         newAccount.create()
         newAccount.isNewAccount = isFromRegister
-        ApplicationStateManager.shared.checkApplicationBlockedState(for: jid)
+    }
+    
+    func reloadAccount(withJid jid: String, autoConnect: Bool = true) {
+        if let index = self.users.firstIndex(where: { $0.jid == jid }) {
+            self.users[index].disconnect(hard: true)
+            self.users.remove(at: index)
+        }
+        self.add(withJid: jid, autoConnect: autoConnect)
     }
     
     func add(withJid jid: String, autoConnect: Bool = true) {
@@ -265,7 +276,6 @@ public class AccountManager: NSObject {
         if autoConnect {
             newAccount.asyncConnect()
         }
-        ApplicationStateManager.shared.checkApplicationBlockedState(for: jid)
     }
     
     func isExist(jid: String) -> Bool {

@@ -67,7 +67,7 @@ class AvatarUploadManager: AbstractXMPPManager {
                   let uploadUrl = avatar.file,
                   let thumbnails = avatar.thumbnails else { return }
             
-            DefaultAvatarManager.shared.removeFromCache(jid: self.owner, owner: self.owner, url: uploadUrl)
+//            DefaultAvatarManager.shared.removeFromCache(jid: self.owner, owner: self.owner, url: uploadUrl)
             
             if let _ = UIImage(data: pngData) {
                 ImageCache.default.storeToDisk(pngData, forKey: uploadUrl)

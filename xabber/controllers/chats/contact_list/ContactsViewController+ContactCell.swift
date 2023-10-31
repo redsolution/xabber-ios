@@ -107,7 +107,7 @@ extension ContactsViewController {
             ])
         }
         
-        open func configure(title: String, subtitle: String, status: ResourceStatus, entity: RosterItemEntity, jid: String, owner: String, showAvatar: Bool) {
+        open func configure(title: String, subtitle: String, status: ResourceStatus, entity: RosterItemEntity, jid: String, owner: String, showAvatar: Bool, avatarUrl: String?) {
             titleLabel.text = title
             subtitleLabel.text = JidManager.shared.prepareJid(jid: subtitle)
             
@@ -121,8 +121,12 @@ extension ContactsViewController {
             }
             if showAvatar {
                 avatarView.isHidden = false
-                DefaultAvatarManager.shared.getAvatar(jid: jid, owner: owner, size: 48) { image in
-                    self.avatarView.image = image
+                DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 48) { image in
+                    if let image = image {
+                        self.avatarView.image = image
+                    } else {
+                        self.avatarView.setDefaultAvatar(for: jid, owner: owner)
+                    }
                 }
             } else {
                 avatarView.isHidden = true

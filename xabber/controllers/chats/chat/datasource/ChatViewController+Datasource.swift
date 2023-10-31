@@ -97,9 +97,16 @@ extension ChatViewController: MessagesDataSource {
             return nil
         }
         let item = datasource[indexPath.section]
+        switch item.kind {
+            case .initial(let value):
+                return nil
+            case .system(let value):
+                return nil
+            default:
+                break
+        }
         if item.isHasAttachedMessages { return nil }
         let dateString = self.messageDateFormatter.string(from: item.sentDate)
-        
         let attributedString: NSMutableAttributedString = NSMutableAttributedString()
         
         if item.editDate != nil {
@@ -110,27 +117,30 @@ extension ChatViewController: MessagesDataSource {
                 case .off, .none:
                     break
                 case .s5:
-                    attributedString.append(NSAttributedString(string: "5s "))
+                    attributedString.append(NSAttributedString(string: "5s ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
                 case .s10:
-                    attributedString.append(NSAttributedString(string: "10s "))
+                    attributedString.append(NSAttributedString(string: "10s ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
                 case .s15:
-                    attributedString.append(NSAttributedString(string: "15s "))
+                    attributedString.append(NSAttributedString(string: "15s ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
                 case .s30:
-                    attributedString.append(NSAttributedString(string: "30s "))
+                    attributedString.append(NSAttributedString(string: "30s ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
                 case .m1:
-                    attributedString.append(NSAttributedString(string: "1m "))
+                    attributedString.append(NSAttributedString(string: "1m ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
                 case .m5:
-                    attributedString.append(NSAttributedString(string: "5m "))
+                    attributedString.append(NSAttributedString(string: "5m ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
                 case .m10:
-                    attributedString.append(NSAttributedString(string: "10m "))
+                    attributedString.append(NSAttributedString(string: "10m ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
                 case .m15:
-                    attributedString.append(NSAttributedString(string: "15m "))
+                    attributedString.append(NSAttributedString(string: "15m ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
                 
             }
         }
-        
+        let start = attributedString.string.count
         attributedString.append(NSAttributedString(string: dateString))
         attributedString.addAttribute(.font, value: UIFont.systemFont(ofSize: 12, weight: .regular), range: NSRange(location: 0, length: attributedString.string.count))
+
+//        attributedString.addAttribute(.foregroundColor, value: UIColor.secondaryLabel.cgColor, range: NSRange(location: attributedString.string.count - dateString.count, length: dateString.count))
+//        attributedString.addAttribute(.foregroundColor, value: UIColor.secondaryLabel.cgColor, range: NSRange(location: start, length: dateString.count - 1))
         
         return attributedString
     }

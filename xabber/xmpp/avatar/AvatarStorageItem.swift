@@ -53,6 +53,8 @@ class AvatarStorageItem: Object {
     @objc dynamic var image512: String? = nil
     @objc dynamic var imageOriginal: String? = nil
     
+    @objc dynamic var isPrepared: Bool = false
+    
     override class func indexedProperties() -> [String] {
         return ["jid", "owner"]
     }

@@ -66,7 +66,6 @@ final class Account: NSObject {
     var vcards: VCardManager
     var avatarManager: XmppAvatarManager
     var ping: PingManager
-    //var uploads: UploadManager?
     var httpUploads: UploadManagerProtocol //HTTPUploadsManager
     var xUploads: UploadManagerProtocol //XabberUploadManager
     var avatarUploader: AvatarUploadManager
@@ -74,20 +73,18 @@ final class Account: NSObject {
     var chatStates: ChatStatesManager
     var chatMarkers: ChatMarkersManager
     var attention: AttentionManger
-//    var voipSignal: VoIPSignalManager
     var globalIndex: GlobalIndexManager
     var groupchats: GroupchatManager
     var deliveryManager: ReliableMessageDeliveryManager
     var msgDeleteManager: MessageDeleteManager
     var syncManager: ClientSynchronizationManager
     var x509Manager: X509XMPPManager
+    var omemo: OmemoManager
+    var deliveryReceipts: MessageDeliveryReceipts
     
     var smStorage: XMPPStreamManagementMemoryStorage
     var sm: XMPPStreamManagement
     
-    var omemo: OmemoManager
-    
-    var deliveryReceipts: MessageDeliveryReceipts
     
     var carbonsEnabled: Bool = false
     var pushWasReceived: Bool {
@@ -107,7 +104,6 @@ final class Account: NSObject {
 //  service data
     var delayedConnectTimer: Timer?
     var isPresenceUpdateRequestSend: Bool = false
-    var reconnectTimer: Timer?
     var watchConnectionTimer: Timer?
     
     var isRequestedAway: Bool = false
@@ -282,9 +278,47 @@ final class Account: NSObject {
             result in
             self.pushStatusMessage.accept(result)
         }
-        let deviceId = CredentialsManager.shared.getDeviceId(for: self.jid) ?? Int(arc4random() % 16380)
-        self.omemo.configureLocal(for: deviceId)
-        ApplicationStateManager.shared.checkApplicationBlockedState(for: self.jid)
+        
+//        ApplicationStateManager.shared.checkApplicationBlockedState(for: self.jid)
+    }
+    
+    func updateExtensions() {
+        if self.xmppStream.isDisconnected {
+            
+        }
+        let extensions: [AbstractXMPPManager] = [
+            self.devices,
+            self.xTokens,
+            self.disco,
+            self.presences,
+            self.messages,
+            self.roster,
+            self.mam,
+            self.carbons,
+            self.lastChats,
+            self.csi,
+            self.push,
+            self.vcards,
+            self.avatarManager,
+            self.ping,
+            self.avatarUploader,
+            self.blocked,
+            self.chatStates,
+            self.chatMarkers,
+            self.attention,
+            self.globalIndex,
+            self.groupchats,
+            self.deliveryManager,
+            self.msgDeleteManager,
+            self.syncManager,
+            self.x509Manager,
+            self.omemo,
+            self.deliveryReceipts
+        ]
+        extensions.forEach {
+            [unowned self] module in
+            module.onStreamPrepared(self.xmppStream)
+        }
     }
     
 /**
@@ -614,7 +648,7 @@ final class Account: NSObject {
 /**
  *    update creditionals and make reconnect. if success, error message is nil
  **/
-    func updateResource(_ resource: String, callback: ((String?) -> Void)) {
+    func updateResource(_ resource: String, callback: ((String?) -> Void)? = nil) {
         print(#function)
         disconnect(hard: true)
         do {
@@ -661,11 +695,11 @@ final class Account: NSObject {
             }
         } catch {
             DDLogDebug("cant update creditionals for account \(jid)")
-            callback("Error during password or resource update".localizeString(id: "error_during_password_resource_update", arguments: []))
+            callback?("Error during password or resource update".localizeString(id: "error_during_password_resource_update", arguments: []))
         }
         self.resource = resource.isEmpty ? AccountManager.defaultResource : resource
         self.asyncConnect()
-        callback(nil)
+        callback?(nil)
     }
     
 /**
@@ -690,7 +724,8 @@ final class Account: NSObject {
                 item.xTokenSupport = self.supportTokens
                 item.xTokenUID = self.tokenUid
                 item.createdAt = Date()
-                item.deviceName = NickGenerator.shared.genRandomNick()
+                self.deviceName = NickGenerator.shared.genRandomNick()
+                item.deviceName = self.deviceName
                 if let deviceId = self.devices.deviceId {
                     item.deviceUuid = deviceId
                 }
@@ -904,8 +939,18 @@ extension Account: XMPPReconnectDelegate {
     
     func xmppReconnect(_ sender: XMPPReconnect, shouldAttemptAutoReconnect connectionFlags: SCNetworkConnectionFlags) -> Bool {
         DDLogDebug("ShouldAttemptAutoReconnect. Connection flags \(connectionFlags)")
-        self.showReconnectStatus(connectionFlags: connectionFlags)
-        return true
+//        if UInt32(connectionFlags) == 3 {
+//            return false
+//        }
+//        self.showReconnectStatus(connectionFlags: connectionFlags)
+//        DispatchQueue.main.async {
+//            ToastPresenter(message: "Reconnect: flag \(UInt32(connectionFlags))").present(animated: true)
+//        }
+        if self.xmppStream.isAuthenticated {
+            return false
+        }
+        
+        return sender.autoReconnect
     }
     
 }

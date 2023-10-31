@@ -210,8 +210,9 @@ class ContactsViewController: BaseViewController {
         var entity: RosterItemEntity? = nil
         var collapsed: Bool? = nil
         var groupPrimary: String? = nil
+        var avatarUrl: String? = nil
         
-        init(_ kind: Kind, owner: String, jid: String? = nil, group: String? = nil, subtitle: String? = nil) {
+        init(_ kind: Kind, owner: String, jid: String? = nil, group: String? = nil, subtitle: String? = nil, avatarUrl: String? = nil) {
             self.kind = kind
             self.owner = owner
             self.jid = jid
@@ -227,6 +228,9 @@ class ContactsViewController: BaseViewController {
             if let group = group {
                 hasher.combine(group)
             }
+            if let title = title {
+                hasher.combine(title)
+            }
         }
         
         static func compareContent(_ a: ContactsViewController.Datasource, _ b: ContactsViewController.Datasource) -> Bool {
@@ -238,7 +242,8 @@ class ContactsViewController: BaseViewController {
             a.subtitle == b.subtitle &&
             a.status == b.status &&
             a.entity == b.entity &&
-            a.collapsed == b.collapsed
+            a.collapsed == b.collapsed &&
+            a.avatarUrl == b.avatarUrl
         }
     }
     
@@ -419,6 +424,7 @@ class ContactsViewController: BaseViewController {
                                                                  jid: contact.jid,
                                                                  group: item.name)
                                 let resource = contact.getPrimaryResource()
+                                out.avatarUrl = contact.avatarMinUrl ?? contact.avatarMaxUrl ?? contact.oldschoolAvatarKey
                                 out.title = contact.displayName
                                 out.status = resource?.status
                                 out.entity = resource?.entity
@@ -695,7 +701,7 @@ class ContactsViewController: BaseViewController {
                 .subscribe(onNext: { (results) in
                     if let item = results.first {
                         self.topAccountJid = item.jid
-                        self.accountNavButton.update(jid: self.topAccountJid, status: item.resource?.status ?? .offline)
+                        self.accountNavButton.update(jid: self.topAccountJid, status: item.resource?.status ?? .offline, avatarUrl: nil)
                     }
                 }).disposed(by: accountsBag)
             
@@ -824,7 +830,7 @@ class ContactsViewController: BaseViewController {
                 .first {
                 self.topAccountJid = item.jid
                 self.accountNavButton.update(jid: item.jid,
-                                             status: item.resource?.status ?? .offline)
+                                             status: item.resource?.status ?? .offline, avatarUrl: nil)
             }
             
         } catch {

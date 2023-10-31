@@ -183,8 +183,12 @@ extension SearchResultsViewController {
         
         func configure(jid: String, owner: String, username: String, message text: String, status: ResourceStatus, isGroupchat: Bool, isIncome: Bool, date: Date, accountColor: UIColor) {
             
-            DefaultAvatarManager.shared.getAvatar(jid: jid, owner: owner, size: 56) { image in
-                self.avatarView.image = image
+            DefaultAvatarManager.shared.getAvatar(url: nil, jid: jid, owner: owner, size: 56) { image in
+                if let image = image {
+                    self.avatarView.image = image
+                } else {
+                    self.avatarView.setDefaultAvatar(for: jid, owner: owner)
+                }
             }
             
             messageLabel.layoutFor(text, fromLabel: !isIncome)

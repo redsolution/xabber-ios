@@ -607,7 +607,7 @@ class GroupchatManager: AbstractXMPPManager {
             let hash = jpegData?.sha1().toHexString() ?? ""
             
             if groupAvatar {
-                DefaultAvatarManager.shared.storeAvatar(jid: groupchat, owner: owner, hash: hash, images: [DefaultAvatarManager.SizedImage(image: image, size: .original)], kind: .xabber)
+//                DefaultAvatarManager.shared.storeAvatar(jid: groupchat, owner: owner, hash: hash, images: [DefaultAvatarManager.SizedImage(image: image, size: .original)], kind: .xabber)
             } else {
                 do {
                     let realm = try  WRealm.safe()
@@ -615,7 +615,7 @@ class GroupchatManager: AbstractXMPPManager {
                     if userId.isEmpty {
                         effectiveUserID = realm.objects(GroupchatUserStorageItem.self).filter("groupchatId == %@ AND isMe == true", [groupchat, owner].prp()).first?.userId ?? ""
                     }
-                    DefaultAvatarManager.shared.storeGroupAvatar(user: effectiveUserID, jid: groupchat, owner: owner, hash: hash, images: [DefaultAvatarManager.SizedImage(image: image, size: .original)], kind: .xabber)
+//                    DefaultAvatarManager.shared.storeGroupAvatar(user: effectiveUserID, jid: groupchat, owner: owner, hash: hash, images: [DefaultAvatarManager.SizedImage(image: image, size: .original)], kind: .xabber)
                 } catch {
                     DDLogDebug("GroupchatManager: \(#function). \(error.localizedDescription)")
                 }
@@ -659,14 +659,14 @@ class GroupchatManager: AbstractXMPPManager {
             queryIds.insert(elementId)
             queueItems.insert(QueueItem(.resetAvatar, elementId: elementId, callback: callback))
             if groupAvatar {
-                DefaultAvatarManager.shared.deleteAvatar(jid: groupchat, owner: owner)
+//                DefaultAvatarManager.shared.deleteAvatar(jid: groupchat, owner: owner)
             } else {
                 do {
                     let realm = try  WRealm.safe()
                     if userId.isNotEmpty {
-                        DefaultAvatarManager.shared.deleteGroupAvatar(user: userId, jid: groupchat, owner: owner)
+//                        DefaultAvatarManager.shared.deleteGroupAvatar(user: userId, jid: groupchat, owner: owner)
                     } else if let userId = realm.objects(GroupchatUserStorageItem.self).filter("groupchatId == %@ AND isMe == true", [groupchat, owner].prp()).first?.userId {
-                        DefaultAvatarManager.shared.deleteGroupAvatar(user: userId, jid: groupchat, owner: owner)
+//                        DefaultAvatarManager.shared.deleteGroupAvatar(user: userId, jid: groupchat, owner: owner)
                     }
                 } catch {
                     DDLogDebug("GroupchatManager: \(#function). \(error.localizedDescription)")
@@ -2070,7 +2070,6 @@ class GroupchatManager: AbstractXMPPManager {
                     }
                     continue
                 }
-                DefaultAvatarManager.shared.updateAvatar(jid: jid, owner: owner)
                 if AccountManager.shared.find(for: owner)?.syncManager.isSynced() ?? true {
                     AccountManager.shared.find(for: owner)?.action({ (user, stream) in
                         user.vcards.requestItem(stream, jid: jid)

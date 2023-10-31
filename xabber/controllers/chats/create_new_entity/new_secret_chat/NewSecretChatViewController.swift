@@ -34,6 +34,7 @@ class NewSecretChatViewController: SimpleBaseViewController {
         let owner: String
         let jid: String
         let username: String
+        let avatarUrl: String?
     }
     
     internal var datasource: [Datasource] = []
@@ -79,7 +80,7 @@ class NewSecretChatViewController: SimpleBaseViewController {
             } catch {
                 
             }
-            return Datasource(owner: $0.owner, jid: $0.jid, username: $0.displayName)
+            return Datasource(owner: $0.owner, jid: $0.jid, username: $0.displayName, avatarUrl: nil)
         }
     }
     
@@ -120,7 +121,7 @@ extension NewSecretChatViewController: UITableViewDataSource {
             fatalError()
         }
         
-        cell.configure(owner: item.owner, jid: item.jid, username: item.username)
+        cell.configure(owner: item.owner, jid: item.jid, username: item.username, avatarUrl: item.avatarUrl)
         
         return cell
     }

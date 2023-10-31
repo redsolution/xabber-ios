@@ -38,31 +38,31 @@ extension MessageManager {
         senderBag = DisposeBag()
         stanzaQueue
             .asObservable()
-            .window(timeSpan: .milliseconds(500),
+            .window(timeSpan: .milliseconds(50),
                     count: 50,
                     scheduler: SerialDispatchQueueScheduler(queue: self.queue,
                                                               internalSerialQueueName: "messageSendingQueue"))
             .subscribe(onNext: { (collection) in
                 if self.stanzaQueue.value.isEmpty { return }
-                XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-                    if stream.isAuthenticated {
-                        let value = self.stanzaQueue.value
-                        value.forEach {
-                            stream.send($0)
-                        }
-                        self.stanzaQueue.accept(Array<XMPPMessage>())
-                    }
-                } fail: {
-                    AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                        if stream.isAuthenticated {
-                            let value = self.stanzaQueue.value
-                            value.forEach {
-                                stream.send($0)
-                            }
-                            self.stanzaQueue.accept(Array<XMPPMessage>())
-                        }
-                    })
-                }
+//                XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+//                    if stream.isAuthenticated {
+//                        let value = self.stanzaQueue.value
+//                        value.forEach {
+//                            stream.send($0)
+//                        }
+//                        self.stanzaQueue.accept(Array<XMPPMessage>())
+//                    }
+//                } fail: {
+//                    AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+//                        if stream.isAuthenticated {
+//                            let value = self.stanzaQueue.value
+//                            value.forEach {
+//                                stream.send($0)
+//                            }
+//                            self.stanzaQueue.accept(Array<XMPPMessage>())
+//                        }
+//                    })
+//                }
                 
             }, onError: { (error) in
                 print(error.localizedDescription)
@@ -111,11 +111,33 @@ extension MessageManager {
                                      elementID: item.messageId,
                                      child: nil)
             
+            let stanzaToSave = XMPPMessage(messageType: .chat,
+                                           to: XMPPJID(string: item.opponent, resource: resource),
+                                           elementID: item.messageId,
+                                           child: nil)
+            
             let conversationType = item.conversationType
             
-            childs.forEach { stanza.addChild($0) }
+            childs.forEach {
+                stanza.addChild($0)
+                stanzaToSave.addChild($0)
+            }
+            
             switch conversationType {
                 case .omemo, .omemo1, .axolotl:
+                    
+                    formForwardedMessages(item
+                        .inlineForwards
+                        .sorted(byKeyPath: "originalDate", ascending: true)
+                        .toArray()
+                        .compactMap { return $0.messageId })
+                        .forEach {
+                            stanzaToSave.addChild($0.referenceElement)
+                        }
+                    item.createReferences().forEach {
+                        stanzaToSave.addChild($0)
+                    }
+                    
                     let forwardedMessages = formForwardedMessages(item
                         .inlineForwards
                         .sorted(byKeyPath: "originalDate", ascending: true)
@@ -143,25 +165,31 @@ extension MessageManager {
                     encryptionElement.addAttribute(withName: "namespace", stringValue: conversationType.rawValue)
                     stanza.addChild(encryptionElement)
                     stanza.addBody("Message was encrypted by OMEMO".localizeString(id: "message_omemo_encryption", arguments: []))
-                    
+                    stanzaToSave.addBody(item.legacyBody)
                 default:
                     formForwardedMessages(item
                         .inlineForwards
                         .sorted(byKeyPath: "originalDate", ascending: true)
                         .toArray()
                         .compactMap { return $0.messageId })
-                        .forEach { stanza.addChild($0.referenceElement) }
+                        .forEach {
+                            stanza.addChild($0.referenceElement)
+                            stanzaToSave.addChild($0.referenceElement)
+                        }
                     
                     stanza.addBody(item.legacyBody)
-                    item.createReferences().forEach { stanza.addChild($0) }
+                    stanzaToSave.addBody(item.legacyBody)
+                    item.createReferences().forEach {
+                        stanza.addChild($0)
+                        stanzaToSave.addChild($0)
+                    }
             }
             
-//            if retry && item.displayAs != .text {
-//
-//            }
             stanza.addOriginId(item.messageId)
+            stanzaToSave.addOriginId(item.messageId)
             
             stanza.addAttribute(withName: "from", stringValue: owner)
+            stanzaToSave.addAttribute(withName: "from", stringValue: owner)
             let missRetryElementOnResend = item.messageErrorCode == "405"
             try realm.write {
                 if item.displayAs != .system {
@@ -199,8 +227,9 @@ extension MessageManager {
                 }
                 
                 if retry {
+                    
                     realm.object(ofType: MessageStanzaStorageItem.self, forPrimaryKey: item.primary)?
-                        .stanza = stanza.compactXMLString()
+                        .stanza = stanzaToSave.compactXMLString()
                     if let instance = realm.object(
                         ofType: LastChatsStorageItem.self,
                         forPrimaryKey: LastChatsStorageItem.genPrimary(
@@ -213,16 +242,38 @@ extension MessageManager {
                         instance.messageDate = Date()
                     }   
                 } else {
-                    item.originalStanza = stanza
+                    item.originalStanza = stanzaToSave
                     item.storeStanza()
                 }
             }
             AccountManager.shared.find(for: owner)?.unsafeAction({ (user, stream) in
                 stanza.addChild(user.chatMarkers.child)
-                var value = self.stanzaQueue.value
-                value.append(user.deliveryManager.apply(to: stanza, retry: retry, missRetryElement: missRetryElementOnResend
-                ))
-                self.stanzaQueue.accept(value)
+//                var value = self.stanzaQueue.value
+//                value.append(user.deliveryManager.apply(to: stanza, retry: retry, missRetryElement: missRetryElementOnResend
+//                ))
+                let stanzaToSend = user.deliveryManager.apply(to: stanza, retry: retry, missRetryElement: missRetryElementOnResend)
+//                self.stanzaQueue.accept(value)
+                XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+//                    if stream.isAuthenticated {
+//                        let value = self.stanzaQueue.value
+//                        value.forEach {
+//                            stream.send($0)
+//                        }
+//                        self.stanzaQueue.accept(Array<XMPPMessage>())
+//                    }
+                    stream.send(stanzaToSend)
+                } fail: {
+                    AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+//                        if stream.isAuthenticated {
+//                            let value = self.stanzaQueue.value
+//                            value.forEach {
+//                                stream.send($0)
+//                            }
+//                            self.stanzaQueue.accept(Array<XMPPMessage>())
+//                        }
+                        stream.send(stanzaToSend)
+                    })
+                }
             })
         } catch {
             DDLogDebug("cant send message \(primary)")
@@ -246,23 +297,24 @@ extension MessageManager {
             dateFormatter.dateFormat = "EEEE, MMMM d, yyyy"
             timeFormatter.dateFormat = "[HH:mm:ss]"
             
-            try forwarded.compactMap {
+            let preparedForwardedMessages = forwarded.compactMap {
                 return ForwardedMessagePrimaryWithNotmalMessage(
                     primary: $0,
                     stanzaPrimary: [$0, "stanza"].prp()
                 )
             }
             
-            try forwarded.map{ return [$0, "stanza"].prp() }.forEach {
+            try preparedForwardedMessages.forEach {
+                item in
                 var body: String? = nil
                 var stanza: DDXMLElement? = nil
                 var date: Date? = nil
-                if let instance = realm.object(ofType: MessageStanzaStorageItem.self, forPrimaryKey: $0) {
+                if let instance = realm.object(ofType: MessageStanzaStorageItem.self, forPrimaryKey: item.stanzaPrimary) {
                     let stanzaRaw = instance.stanza
                     let document = try DDXMLDocument(xmlString: "\(stanzaRaw)", options: 0)
                     guard let root = document.rootElement()?.copy() as? DDXMLElement else { fatalError() }
-                    let message = XMPPMessage(from: root)
                     
+                    let message = XMPPMessage(from: root)
                     
                     
                     body = ">\(dateFormatter.string(from: instance.timestamp))\n\(timeFormatter.string(from: instance.timestamp)) \(message.from?.bare ?? "")\n\(message.body ?? "")".trimmingCharacters(in: .whitespacesAndNewlines)//.xmlEscaping(reverse: false)
@@ -289,6 +341,8 @@ extension MessageManager {
                     forwardedElement.addChild(message)
                     refElement.addChild(forwardedElement)
                     stanza = refElement
+                    print(stanza!.prettyXMLString!)
+                    print(1)
                 }
                 if let body = body,
                     let stanza = stanza,

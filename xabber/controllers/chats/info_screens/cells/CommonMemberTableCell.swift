@@ -155,14 +155,17 @@ class CommonMemberTableCell: UITableViewCell {
     
     open func configure(jid: String, owner: String, userId: String?, title: String, badge: String, isMe: Bool, subtitle: String, status: ResourceStatus, entity: RosterItemEntity, role: GroupchatUserStorageItem.Role) {
         titleLabel.text = title
-//            badgeLabel.text = badge
         if let userId = userId {
             DefaultAvatarManager.shared.getGroupAvatar(user: userId, jid: jid, owner: owner, size: 48) { image in
                 self.avatarView.image = image
             }
         } else {
-            DefaultAvatarManager.shared.getAvatar(jid: jid, owner: owner, size: 48) { image in
-                self.avatarView.image = image
+            DefaultAvatarManager.shared.getAvatar(url: nil, jid: jid, owner: owner, size: 48) { image in
+                if let image = image {
+                    self.avatarView.image = image
+                } else {
+                    self.avatarView.setDefaultAvatar(for: jid, owner: owner)
+                }
             }
         }
         
@@ -170,13 +173,6 @@ class CommonMemberTableCell: UITableViewCell {
             .font: UIFont.preferredFont(forTextStyle: .caption1),
             .foregroundColor: MDCPalette.grey.tint600
         ])
-//            if isMe {
-//                let myString = NSAttributedString(string: " this is you", attributes: [
-//                    .font: UIFont.preferredFont(forTextStyle: .caption1).bold(),
-//                    .foregroundColor: MDCPalette.red.tint600
-//                ])
-//                attributedBadge.append(myString)
-//            }
         attributedBadge.addAttribute(NSAttributedString.Key.baselineOffset, value: -0.5, range: NSRange(0..<attributedBadge.string.count))
         badgeLabel.attributedText = attributedBadge
 //            subtitleLabel.text = subtitle

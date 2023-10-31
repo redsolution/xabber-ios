@@ -759,6 +759,7 @@ extension GroupchatContactInfoViewController: InfoScreenHeaderButtonDelegate {
                                                 completion: nil)
             } else {
                 self.headerView.configure(
+                    avatarUrl: nil, 
                     jid: self.jid,
                     owner: self.owner,
                     userId: self.userId,

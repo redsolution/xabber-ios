@@ -35,7 +35,7 @@ class AccountStorageItem: Object {
     @objc dynamic var savePassword: Bool = true
     @objc dynamic var manuallySetHost: Bool = false
     @objc dynamic var port: Int = 5222
-//    @objc dynamic var resource: String = ""
+    
     @objc dynamic var username: String = ""
     @objc dynamic var enabled: Bool = true
     @objc dynamic var node: String = ""
@@ -44,16 +44,12 @@ class AccountStorageItem: Object {
     @objc dynamic var statusMessage: String = ""
     
     @objc dynamic var colorKey: String = ""
-    
-    @objc dynamic var hasAvatar: Bool = false
-    
+        
     @objc dynamic var deviceUuid: String = ""
     @objc dynamic var xTokenUID: String = ""
     @objc dynamic var xTokenSupport: Bool = false
     @objc dynamic var clientSyncSupport: Bool = false
-    
-    @objc dynamic var pepAvatarId: String = ""
-    
+        
     @objc dynamic var resource: ResourceStorageItem? = nil
     
     @objc dynamic var isCollapsed: Bool = false
@@ -65,4 +61,10 @@ class AccountStorageItem: Object {
     @objc dynamic var createdAt: Date = Date()
     
     @objc dynamic var deviceName: String = ""
+    
+    @objc dynamic var oldschoolAvatarKey: String? = nil
+    @objc dynamic var avatarMaxUrl: String? = nil
+    @objc dynamic var avatarMinUrl: String? = nil
+    @objc dynamic var avatarUpdatedTS: Double = -1
+    @objc dynamic var updatedTS: Double = -1
 }

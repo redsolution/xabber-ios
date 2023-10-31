@@ -201,7 +201,7 @@ extension SettingsViewController: InfoScreenHeaderButtonDelegate {
                 }
             }, fail: {
                 AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                    DefaultAvatarManager.shared.deleteAvatar(jid: self.jid, owner: self.owner)
+                    DefaultAvatarManager.shared.deleteAvatar(jid: self.owner, owner: self.owner)
                     user.avatarUploader.sendClearMetadata(stream, hash: hash, stringUrl: url) {
                         DefaultAvatarManager.shared.deleteAvatar(jid: self.jid, owner: self.owner)
                         self.afterSettingAvatar(image: nil)

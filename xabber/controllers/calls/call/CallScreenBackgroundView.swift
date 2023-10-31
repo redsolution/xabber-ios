@@ -77,8 +77,12 @@ class CallScreenBackgroundView: UIView {
     }()
     
     private func loadImage() {
-        DefaultAvatarManager.shared.getAvatar(jid: self.jid, owner: self.owner) { image in
-            self.imageView.image = image
+        DefaultAvatarManager.shared.getAvatar(url: nil, jid: self.jid, owner: self.owner) { image in
+            if let image = image {
+                self.imageView.image = image
+            } else {
+                self.imageView.setDefaultAvatar(for: self.jid, owner: self.owner)
+            }
         }
         self.imageView.contentMode = .scaleAspectFill
         self.imageView.fillSuperview()

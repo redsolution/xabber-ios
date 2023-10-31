@@ -127,8 +127,12 @@ extension SearchResultsViewController {
             //            let start = CFAbsoluteTimeGetCurrent()
             
             
-            DefaultAvatarManager.shared.getAvatar(jid: jid, owner: owner, size: 48, callback: { image in
-                self.avatarView.image = image
+            DefaultAvatarManager.shared.getAvatar(url: nil, jid: jid, owner: owner, size: 48, callback: { image in
+                if let image = image {
+                    self.avatarView.image = image
+                } else {
+                    self.avatarView.setDefaultAvatar(for: jid, owner: owner)
+                }
             })
             
             usernameLabel.text = username

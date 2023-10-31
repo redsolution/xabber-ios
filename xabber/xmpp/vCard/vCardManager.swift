@@ -161,7 +161,6 @@ class VCardManager: AbstractXMPPManager {
                         .username = result
                 }
             }
-            DefaultAvatarManager.shared.updateAvatar(jid: owner, owner: owner)
         } catch {
             DDLogDebug("cant actualize username for account \(owner)")
         }
@@ -314,7 +313,6 @@ class VCardManager: AbstractXMPPManager {
                                 .username = username
                         }
                     }
-                    DefaultAvatarManager.shared.updateAvatar(jid: jid, owner: self.owner)
                 } else {
                     let instance = vCardStorageItem()
                     instance.jid = jid
@@ -344,7 +342,6 @@ class VCardManager: AbstractXMPPManager {
                             }
                         }
                     }
-                    DefaultAvatarManager.shared.updateAvatar(jid: jid, owner: self.owner)
                 }
                 if jid == self.owner {
                     self.actualizeAccountUsername()

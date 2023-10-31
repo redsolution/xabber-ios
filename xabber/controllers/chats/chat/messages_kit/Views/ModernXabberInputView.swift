@@ -679,10 +679,12 @@ class ModernXabberInputView: UIView {
         }
 
         UIView.animate(withDuration: 0.16, delay: 0.0, options: [.showHideTransitionViews]) {
-            if self.textField.text.isEmpty {
-                self.timerButton.isHidden = self.shouldHideTimer
-            } else {
-                self.timerButton.isHidden = true
+            if self.state == .normal {
+                if self.textField.text.isEmpty {
+                    self.timerButton.isHidden = self.shouldHideTimer
+                } else {
+                    self.timerButton.isHidden = true
+                }
             }
             if trimmedText.isNotEmpty {
                 self.changeSendButtonState(to: .send)

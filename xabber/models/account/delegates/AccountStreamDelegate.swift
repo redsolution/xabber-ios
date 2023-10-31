@@ -143,40 +143,41 @@ extension Account: XMPPStreamDelegate {
     func xmppStreamConnectDidTimeout(_ sender: XMPPStream) {
 //        resetStream()
 //        configureStream()
-        do {
-            try sender.connect(withTimeout: 1)
-        } catch {
-            self.delayedConnectTimer?.invalidate()
-            self.delayedConnectTimer = nil
-            if self.delayedConnectTimer == nil {
-                self.delayedConnectTimer = Timer(timeInterval: 3, target: self, selector: #selector(self.connect), userInfo: nil, repeats: false)
-                RunLoop.main.add(self.delayedConnectTimer!, forMode: RunLoop.Mode.default)
-            }
-        }
+        self.connect()
+//        do {
+////            try sender.connect(withTimeout: 1)
+//        } catch {
+//            self.delayedConnectTimer?.invalidate()
+//            self.delayedConnectTimer = nil
+//            if self.delayedConnectTimer == nil {
+//                self.delayedConnectTimer = Timer(timeInterval: 3, target: self, selector: #selector(self.connect), userInfo: nil, repeats: false)
+//                RunLoop.main.add(self.delayedConnectTimer!, forMode: RunLoop.Mode.default)
+//            }
+//        }
         
     }
     
-    func xmppStreamWillConnect(_ sender: XMPPStream) {
-        AccountManager.shared.markAsConnecting(jid: self.jid)
-        let reachabilityManager = NetworkReachabilityManager()
-        reachabilityManager?.startListening()
-        reachabilityManager?.listener = {
-            _ in
-            if let isNetworkReachable = reachabilityManager?.isReachable, isNetworkReachable == true {
-                if self.xmppStream.isDisconnected {
-//                    self.asyncConnect()
-                }
-            } else {
-//                self.statusMessage.accept("Wait for network")
-//                self.statusMessage.accept("Connecting")
-                if self.delayedConnectTimer == nil {
-                    self.delayedConnectTimer = Timer(timeInterval: 3, target: self, selector: #selector(self.connect), userInfo: nil, repeats: false)
-                    RunLoop.main.add(self.delayedConnectTimer!, forMode: RunLoop.Mode.default)
-                }
-            }
-        }
-        
-    }
+//    func xmppStreamWillConnect(_ sender: XMPPStream) {
+//        AccountManager.shared.markAsConnecting(jid: self.jid)
+//        let reachabilityManager = NetworkReachabilityManager()
+//        reachabilityManager?.startListening()
+//        reachabilityManager?.listener = {
+//            _ in
+//            if let isNetworkReachable = reachabilityManager?.isReachable, isNetworkReachable == true {
+//                if self.xmppStream.isDisconnected {
+////                    self.asyncConnect()
+//                }
+//            } else {
+////                self.statusMessage.accept("Wait for network")
+////                self.statusMessage.accept("Connecting")
+//                if self.delayedConnectTimer == nil {
+//                    self.delayedConnectTimer = Timer(timeInterval: 3, target: self, selector: #selector(self.connect), userInfo: nil, repeats: false)
+//                    RunLoop.main.add(self.delayedConnectTimer!, forMode: RunLoop.Mode.default)
+//                }
+//            }
+//        }
+//
+//    }
 
     func xmppStreamDidAuthenticate(_ sender: XMPPStream) {
         self.didAuthenticate()
@@ -204,11 +205,6 @@ extension Account: XMPPStreamDelegate {
     }
     
     func xmppStream(_ sender: XMPPStream, didNotAuthenticate error: DDXMLElement) {
-        CredentialsManager.shared.getItem(for: self.jid).release(error: true)
-        self.statusState.accept(.offline)
-        self.resetConfigs()
-//        self.xmppStream.abortConnecting()
-//        self.disconnect()
         self.didReceiveError(error)
     }
 
@@ -218,60 +214,23 @@ extension Account: XMPPStreamDelegate {
         self.statusState.accept(.offline)
         self.resetConfigs()
         self.carbonsEnabled = false
-//        self.lastChats.resetSyncedStatus()
-        self.groupchats.reset()
+        self.reconnect.manualStart()
     }
     
     func xmppStream(_ sender: XMPPStream, didReceiveError error: DDXMLElement) {
-        AccountManager.shared.changeNewUserState(for: sender.myJID?.bare ?? self.jid, to: .streamError(error.elements(forXmlns: "urn:ietf:params:xml:ns:xmpp-streams").first?.name ?? "error"))
-        if self.devices.isAvailable {
-            if error.element(forName: "conflict") != nil && error.element(forName: "conflict") != nil && error.element(forName: "text")?.stringValue == "Device was revoked"{
-                tokenWasInvalidated()
-//                sender.disconnect()
-//                sender.abortConnecting()
-                self.reconnect.autoReconnect = false
-                self.reconnectTimer?.invalidate()
-                self.reconnectTimer = nil
-            }
-        }
-        if error.element(forName: "policy-violation") != nil {
-            if AccountManager.shared.newAccountJid != sender.myJID?.bare {
-                ApplicationStateManager.shared.checkApplicationBlockedState(for: sender.myJID!.bare)
-            }
-            
-//            AccountManager.shared.disable(jid: self.jid)
-            self.reconnectTimer?.invalidate()
-            self.reconnectTimer = nil
-            self.delayedConnectTimer?.invalidate()
-            self.delayedConnectTimer = nil
-//            self.disconnect(hard: true)
-            self.reconnect.stop()
-            XMPPUIActionManager.shared.disable(self.jid)
-        }
+        self.didReceiveError(error)
     }
     
     func xmppStreamDidDisconnect(_ sender: XMPPStream, withError error: Error?) {
-        let nserror = error as NSError?
         CredentialsManager.shared.getItem(for: self.jid).release(error: false)
-        PushNotificationsManager.setAccountStateForPush(jid: self.jid, active: false)
-//        RunLoop.main.perform {
-//            self.presences.resetResources(commitTransaction: true)
-//        }
-        self.isPresenceUpdateRequestSend = false
-        self.resetModules()
-        self.resetConfigs()
         self.statusState.accept(.offline)
-        if ["kCFStreamErrorDomainNetServices", "kCFStreamErrorDomainNetDB"].contains(nserror?.domain ?? "none") {
-            self.statusMessage.accept("offline")
-            AccountManager.shared.changeNewUserState(for: self.jid, to: .failure("Server not found"))
-        } else {
-            self.statusMessage.accept("Offline")
-            if error != nil {
-                self.delayedConnectTimer = Timer(timeInterval: 3, target: self, selector: #selector(self.connect), userInfo: nil, repeats: false)
-                RunLoop.main.add(self.delayedConnectTimer!, forMode: RunLoop.Mode.default)
+        self.statusMessage.accept("Offline")
+        if let nserror = error as? NSError {
+            if ["kCFStreamErrorDomainNetServices", "kCFStreamErrorDomainNetDB"].contains(nserror.domain) {
+                AccountManager.shared.changeNewUserState(for: self.jid, to: .failure("Server not found"))
             }
         }
-//        ClientSynchronizationManager.makeAllChatsNotSynced(for: self.jid)
+        self.reconnect.manualStart()
     }
     
     func xmppStream(_ sender: XMPPStream, didSend iq: XMPPIQ) {
@@ -283,6 +242,7 @@ extension Account: XMPPStreamDelegate {
     func xmppStream(_ sender: XMPPStream, didReceive iq: XMPPIQ) -> Bool {
         switch true {
         case self.syncManager.read(withIQ: iq):
+            AccountManager.shared.markAsConnected(jid: jid)
             _ = self.syncManager.checkNextPage(sender, in: iq)
             break
         case self.avatarManager.read(withIQ: iq): break
@@ -291,10 +251,8 @@ extension Account: XMPPStreamDelegate {
             self.messages.storeMessagesNow()
             break
         case self.push.read(withIQ: iq):
-//            AccountManager.shared.markAsConnected(jid: jid)
             break
         case self.devices.read(withIQ: iq):
-//            AccountManager.shared.markAsConnected(jid: jid)
             self.omemo.checkInfo()
             break
         case self.xTokens.read(withIQ: iq): break
@@ -352,138 +310,132 @@ extension Account: XMPPStreamDelegate {
     }
     
     func xmppStream(_ sender: XMPPStream, didReceive message: XMPPMessage) {
-        print("MESSAGE RECV")
-//        DispatchQueue(
-//            label: "com.xabber.queue.m.\(message.elementID ?? xmppStream.generateUUID)",
-//            qos: .background,
-//            attributes: [],//.concurrent,
-//            autoreleaseFrequency: .workItem,
-//            target: queue
-//        ).async {
-            if SettingManager.logEnabled {
-                DDLogInfo("R. message: to \(message.to?.bare ?? "none"), from \(message.from?.bare ?? "none"), id \(message.elementID ?? "none")")
-            }
-            //pass delayed message from offline storage, cos it doesnt have unique stanza id
-            if message.delayedDeliveryReasonDescription == "Offline Storage" {
+
+        if SettingManager.logEnabled {
+            DDLogInfo("R. message: to \(message.to?.bare ?? "none"), from \(message.from?.bare ?? "none"), id \(message.elementID ?? "none")")
+        }
+        //pass delayed message from offline storage, cos it doesnt have unique stanza id
+        if message.delayedDeliveryReasonDescription == "Offline Storage" {
+            return
+        }
+        
+        switch message.messageType ?? .chat {
+            case .chat, .normal:
+
+            if self.groupchats.readMessage(withMessage: message) {
                 return
             }
-            
-            switch message.messageType ?? .chat {
-                case .chat, .normal:
-
-                if self.groupchats.readMessage(withMessage: message) {
-                    return
-                }
-                if self.chatStates.read(withMessage: message) {
-                    return
-                } else if isArchivedMessage(message) {
-                    
-                    if let bareMessage = getArchivedMessageContainer(message) {
-                        if VoIPManager.shared.onReceiveMessage(bareMessage, owner: self.jid, archivedDate: getDeliveryTime(bareMessage, owner: self.jid) ?? getDelayedDate(message)) {
-                            return
-                        } else if self.groupchats.readInvite(in: bareMessage, date: getDelayedDate(message) ?? Date(), isRead: nil) {
-                            return
-                        }
-                        if self.xTokens.receive(sender, withMessage: bareMessage) {
-                            
-                        }
-                    }
-                    if self.omemo.didReceiveOmemoMessage(message) {
+            if self.chatStates.read(withMessage: message) {
+                return
+            } else if isArchivedMessage(message) {
+                
+                if let bareMessage = getArchivedMessageContainer(message) {
+                    if VoIPManager.shared.onReceiveMessage(bareMessage, owner: self.jid, archivedDate: getDeliveryTime(bareMessage, owner: self.jid) ?? getDelayedDate(message)) {
                         return
-                    } else if self.chatMarkers.read(withMessage: message) {
-                        return
-                    } else {
-                        self.messages.receiveArchived(message)
-                    }
-                } else if isCarbonCopy(message) {
-                    if let bareMessage = getCarbonCopyMessageContainer(message) {
-                        if self.chatStates.read(withMessage: bareMessage) {
-                            return
-                        } else if VoIPManager.shared.onReceiveMessage(bareMessage, owner: self.jid, archivedDate: getDeliveryTime(bareMessage, owner: self.jid) ?? getDelayedDate(message), runtime: true, outgoing: true) {
-                            return
-                        }
-                    }
-                    if self.omemo.didReceiveOmemoMessage(message) {
-                        return
-                    } else {
-                        self.messages.receiveCarbon(message)
-                    }
-                    
-                } else if isCarbonForwarded(message) {
-                    if let bareMessage = getCarbonForwardedMessageContainer(message) {
-                        if VoIPManager.shared.onReceiveMessage(bareMessage, owner: self.jid, archivedDate: getDeliveryTime(bareMessage, owner: self.jid) ?? getDelayedDate(message), runtime: true, outgoing: true) {
-                            return
-                        } else if self.deliveryReceipts.read(withMessage: bareMessage) {
-                            return
-                        } else if self.chatMarkers.read(withMessage: message) {
-                            return
-                        } else if self.chatStates.read(withMessage: bareMessage) {
-                            return
-                        } else if self.groupchats.readInvite(in: bareMessage, date: getDelayedDate(message) ?? Date(), isRead: nil) {
-                            return
-                        }
-                    }
-                    if self.omemo.didReceiveOmemoMessage(message) {
-                        return
-                    } else {
-                        self.messages.receiveCarbonForwarded(message)
-                    }
-                } else {
-                    if VoIPManager.shared.onReceiveMessage(message, owner: self.jid, archivedDate: nil, runtime: true) {
+                    } else if self.groupchats.readInvite(in: bareMessage, date: getDelayedDate(message) ?? Date(), isRead: nil) {
                         return
                     }
-                    if self.deliveryReceipts.read(withMessage: message) {
-                        return
-                    }
-                    if self.chatMarkers.read(withMessage: message) {
-                        return
-                    }
-                    if self.groupchats.readInvite(in: message, date: Date(), isRead: false) {
-                        return
-                    }
-                    self.devices.readMessage(message: message)
-                    if self.xTokens.receive(sender, withMessage: message) {
+                    if self.xTokens.receive(sender, withMessage: bareMessage) {
                         
                     }
-                    if self.omemo.didReceiveOmemoMessage(message) {
+                }
+                if self.omemo.didReceiveOmemoMessage(message) {
+                    return
+                } else if self.chatMarkers.read(withMessage: message) {
+                    return
+                } else {
+                    self.messages.receiveArchived(message)
+                }
+            } else if isCarbonCopy(message) {
+                if let bareMessage = getCarbonCopyMessageContainer(message) {
+                    if self.chatStates.read(withMessage: bareMessage) {
                         return
-                    } else {
-                        self.messages.receiveRuntime(message)
+                    } else if self.chatMarkers.read(withMessage: bareMessage) {
+                        return
+                    } else if VoIPManager.shared.onReceiveMessage(bareMessage, owner: self.jid, archivedDate: getDeliveryTime(bareMessage, owner: self.jid) ?? getDelayedDate(message), runtime: true, outgoing: true) {
+                        return
                     }
                 }
-            case .groupchat:
-                break
-            case .headline:
-                if self.deliveryManager.read(headline: message) {
+                if self.omemo.didReceiveOmemoMessage(message) {
+                    return
+                } else {
+                    self.messages.receiveCarbon(message)
+                }
+                
+            } else if isCarbonForwarded(message) {
+                if let bareMessage = getCarbonForwardedMessageContainer(message) {
+                    if VoIPManager.shared.onReceiveMessage(bareMessage, owner: self.jid, archivedDate: getDeliveryTime(bareMessage, owner: self.jid) ?? getDelayedDate(message), runtime: true, outgoing: true) {
+                        return
+                    } else if self.deliveryReceipts.read(withMessage: bareMessage) {
+                        return
+                    } else if self.chatMarkers.read(withMessage: bareMessage) {
+                        return
+                    } else if self.chatStates.read(withMessage: bareMessage) {
+                        return
+                    } else if self.groupchats.readInvite(in: bareMessage, date: getDelayedDate(message) ?? Date(), isRead: nil) {
+                        return
+                    }
+                }
+                if self.omemo.didReceiveOmemoMessage(message) {
+                    return
+                } else {
+                    self.messages.receiveCarbonForwarded(message)
+                }
+            } else {
+                if VoIPManager.shared.onReceiveMessage(message, owner: self.jid, archivedDate: nil, runtime: true) {
                     return
                 }
-                if self.devices.readHeadline(message) {
+                if self.deliveryReceipts.read(withMessage: message) {
                     return
                 }
-                if self.x509Manager.readHeadline(message) {
+                if self.chatMarkers.read(withMessage: message) {
                     return
                 }
-                if self.omemo.onContactDeviceListReceiveHeadline(message) {
+                if self.groupchats.readInvite(in: message, date: Date(), isRead: false) {
                     return
                 }
-                if self.omemo.onContactDeviceReceiveHeadline(message) {
-                    return
+                self.devices.readMessage(message: message)
+                if self.xTokens.receive(sender, withMessage: message) {
+                    
                 }
-                if self.avatarManager.readMessage(message) {
+                if self.omemo.didReceiveOmemoMessage(message) {
                     return
-                }
-                if self.msgDeleteManager.read(headline: message) {
-                    return
-                }
-            case .error:
-                if self.deliveryManager.read(error: message) {
-                    return
-                }
-                if self.messages.read(error: message) {
-                    return
+                } else {
+                    self.messages.receiveRuntime(message)
                 }
             }
-//        }
+        case .groupchat:
+            break
+        case .headline:
+            if self.deliveryManager.read(headline: message) {
+                return
+            }
+            if self.devices.readHeadline(message) {
+                return
+            }
+            if self.x509Manager.readHeadline(message) {
+                return
+            }
+            if self.omemo.onContactDeviceListReceiveHeadline(message) {
+                return
+            }
+            if self.omemo.onContactDeviceReceiveHeadline(message) {
+                return
+            }
+            if self.avatarManager.readMessage(message) {
+                return
+            }
+            if self.msgDeleteManager.read(headline: message) {
+                return
+            }
+        case .error:
+            if self.deliveryManager.read(error: message) {
+                return
+            }
+            if self.messages.read(error: message) {
+                return
+            }
+        }
     }
 
     func xmppStream(_ sender: XMPPStream, willSend message: XMPPMessage) -> XMPPMessage? {
@@ -513,9 +465,9 @@ extension Account: XMPPStreamDelegate {
         }
     }
 
-    func xmppStreamWasTold(toAbortConnect sender: XMPPStream) {
-
-    }
+//    func xmppStreamWasTold(toAbortConnect sender: XMPPStream) {
+//
+//    }
     
     
     func xmppStream(_ sender: XMPPStream, willSecureWithSettings settings: NSMutableDictionary) {
@@ -555,23 +507,12 @@ extension Account: XMPPStreamDelegate {
     func xmppStreamResponseDeviceRegistration(_ iq: XMPPIQ) {
         _ = self.devices.read(withIQ: iq)
     }
-    
-    func xmppStream(_ sender: XMPPStream, didReceiveCustomElement element: DDXMLElement) {
-        if element.name == "resumed" {
-//            DispatchQueue.main.async {
-//                ToastPresenter(message: "Resumed received").present(animated: true)
-//            }
-        }
-    }
-    
 }
 
 
 extension Account: XMPPStreamManagementDelegate {
     func xmppStreamManagement(_ sender: XMPPStreamManagement, wasEnabled enabled: DDXMLElement) {
-//        DispatchQueue.main.async {
-//            ToastPresenter(message: "SM session enabled").present(animated: true)
-//        }
+        
     }
     
     func xmppStreamManagement(_ sender: XMPPStreamManagement, wasNotEnabled failed: DDXMLElement) {

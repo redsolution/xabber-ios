@@ -30,6 +30,9 @@ extension LastChatsViewController: UITableViewDelegate {
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        if self.showSkeleton.value {
+            return
+        }
         let index = showArchivedSection.value ? indexPath.row - 1 : indexPath.row
         if index < 0 {
             let vc = LastChatsViewController()

@@ -19,7 +19,8 @@
 //
 
 import Foundation
-import XMPPFramework
+import XMPPFramework.XMPPStream
+import XMPPFramework.XMPPIQ
 import RxSwift
 import RxCocoa
 
@@ -32,6 +33,10 @@ open class AbstractXMPPManager: NSObject {
         self.owner = owner
         queryIds = SynchronizedArray<String>()
         super.init()
+    }
+    
+    func onStreamPrepared(_ stream: XMPPStream) {
+        
     }
     
     func read(withIQ iq: XMPPIQ) -> Bool {

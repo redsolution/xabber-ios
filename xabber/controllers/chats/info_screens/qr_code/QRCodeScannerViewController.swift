@@ -182,6 +182,8 @@ class QRCodeScannerViewController: UIViewController, AVCaptureMetadataOutputObje
     private var dataLoaded: Bool = false
     private var hasError: Bool = false
     
+    internal var avatarUrl: String? = nil
+    
     private final func doAnimationsBlock(animated: Bool, block: @escaping (() -> Void)) {
         if animated {
             UIView.animate(
@@ -572,8 +574,12 @@ class QRCodeScannerViewController: UIViewController, AVCaptureMetadataOutputObje
     }
     
     private final func onUpdateAvatar() {
-        DefaultAvatarManager.shared.getAvatar(jid: self.jid, owner: self.owner, size: 256) { image in
-            self.avatarView.image = image
+        DefaultAvatarManager.shared.getAvatar(url: self.avatarUrl, jid: self.jid, owner: self.owner, size: 256) { image in
+            if let image = image {
+                self.avatarView.image = image
+            } else {
+                self.avatarView.setDefaultAvatar(for: self.jid, owner: self.owner)
+            }
         }
     }
     

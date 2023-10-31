@@ -20,28 +20,28 @@
 
 import Foundation
 
-
-class SubscribtionsListViewControllerTest: SimpleBaseViewController {
-    class Datasource {
-        enum Kind {
-            case profile
-            case subscribtion
-            case button
-        }
-        
-        var title: String
-        var subtitle: String
-        var kind: Kind
-        var isTimeField: Bool
-        
-        init(title: String, subtitle: String, kind: Kind, isTimeField: Bool = false) {
-            self.title = title
-            self.subtitle = subtitle
-            self.kind = kind
-            self.isTimeField = isTimeField
-        }
-    }
-    
-    
-    
-}
+//
+//class SubscribtionsListViewControllerTest: SimpleBaseViewController {
+//    class Datasource {
+//        enum Kind {
+//            case profile
+//            case subscribtion
+//            case button
+//        }
+//        
+//        var title: String
+//        var subtitle: String
+//        var kind: Kind
+//        var isTimeField: Bool
+//        
+//        init(title: String, subtitle: String, kind: Kind, isTimeField: Bool = false) {
+//            self.title = title
+//            self.subtitle = subtitle
+//            self.kind = kind
+//            self.isTimeField = isTimeField
+//        }
+//    }
+//    
+//    
+//    
+//}

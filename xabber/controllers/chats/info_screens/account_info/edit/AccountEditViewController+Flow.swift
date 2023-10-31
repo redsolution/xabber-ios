@@ -196,17 +196,17 @@ extension AccountEditViewController {
     }
     
     func afterSettingAvatar() {
-        let conf = LetterAvatarBuilderConfiguration()
-        conf.backgroundColors = [AccountColorManager.shared.palette(for: self.owner).tint500]
-        conf.size = DefaultAvatarManager.defaultSize
-        conf.username = "\(self.jid.first?.uppercased() ?? "")"
-        guard let image = UIImage.makeLetterAvatar(withConfiguration: conf) else { return }
-        DefaultAvatarManager.shared.dumbAvatar = image
+//        let conf = LetterAvatarBuilderConfiguration()
+//        conf.backgroundColors = [AccountColorManager.shared.palette(for: self.owner).tint500]
+//        conf.size = DefaultAvatarManager.defaultSize
+//        conf.username = "\(self.jid.first?.uppercased() ?? "")"
+//        guard let image = UIImage.makeLetterAvatar(withConfiguration: conf) else { return }
+//        DefaultAvatarManager.shared.dumbAvatar = image
         
         let cell = tableView.cellForRow(at: IndexPath.init(row: 0, section: 0)) as? ProfileCell
         cell?.hideDarkenedView()
         
-        didReceiveNewAvatar(image)
+//        didReceiveNewAvatar(image)
     }
     
     internal func askPermision(_ callback: @escaping ((Bool) -> Void)) {

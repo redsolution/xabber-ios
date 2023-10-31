@@ -461,7 +461,7 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
                           let videosStats = videos["used"] as? Int,
                           let files = json["files"] as? NSDictionary,
                           let filesStats = files["used"] as? Int,
-                          let voices = json["audio"] as? NSDictionary,
+                          let voices = json["voices"] as? NSDictionary,
                           let voicesStats = voices["used"] as? Int else { return }
                     
                     successCallback(imagesStats, videosStats, filesStats, voicesStats)
@@ -515,7 +515,9 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
     }
     
     private final func tokenWasExpired() {
-        
+        AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, stream in
+            self.getCode(fullJID: stream.myJID!.full)
+        })
     }
     
     public func deleteGallery(jid: String) {

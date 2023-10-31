@@ -52,7 +52,7 @@ extension GroupchatInviteViewController: UITableViewDataSource {
                            username: item.username,
                            status: item.status,
                            entity: .contact,
-                           avatarKey: item.jid,
+                           avatarUrl: nil,
                            selected: selectedJids.value.contains(item.jid),
                            failed: conflictJids.contains(item.jid))
             cell.setMask()

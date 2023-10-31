@@ -179,32 +179,43 @@ class ChatMarkersManager: AbstractXMPPManager {
     }
     
     
-    private func onDisplayed(_ message: XMPPMessage, date: Date? = nil) -> Bool {
+    private func onDisplayed(_ message: XMPPMessage, date archivedDate: Date? = nil) -> Bool {
         guard let displayed = message.element(forName: "displayed", xmlns: getPrimaryNamespace()),
-              let jid = message.from?.bare,
+              let jid = message.from?.bare == self.owner ? message.to?.bare : message.from?.bare,
               let messageId = displayed.attributeStringValue(forName: "id") else {
             return false
         }
-        
+        var date: Date? = archivedDate
+        if date == nil {
+            date = getDelayedDate(message)
+        }
+        if date == nil {
+            date = Date()
+        }
         do {
             let realm = try WRealm.safe()
             if let instance = realm
                 .objects(MessageStorageItem.self)
-                .filter("owner == %@ AND opponent == %@ AND messageId == %@ AND state_ < %@",
+                .filter("owner == %@ AND opponent == %@ AND messageId == %@",
                         self.owner,
                         jid,
-                        messageId,
-                        MessageStorageItem.MessageSendingState.read.rawValue).first {
+                        messageId).first {
                 print(instance.date)
                 let collection = realm
                     .objects(MessageStorageItem.self)
-                    .filter("owner == %@ AND opponent == %@ AND date <= %@ AND afterburnInterval > 0 AND burnDate < 0 AND state_ < %@",
+                    .filter("owner == %@ AND opponent == %@ AND date <= %@ AND burnDate < 0 AND state_ < %@",
                             self.owner,
                             jid,
                             instance.date,
                             MessageStorageItem.MessageSendingState.read.rawValue)
-                print(collection)
                 try realm.write {
+                    
+                    if let chatInstance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: self.owner, conversationType: instance.conversationType)) {
+                        if chatInstance.lastMessage?.primary == instance.primary {
+                            chatInstance.unread = 0
+                        }
+                    }
+                    
                     collection.forEach {
                         if $0.readDate < 0 {
                             $0.readDate = (date ?? Date()).timeIntervalSince1970

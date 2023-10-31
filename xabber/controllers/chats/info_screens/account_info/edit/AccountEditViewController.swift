@@ -76,7 +76,6 @@ class AccountEditViewController: BaseViewController {
     internal var tableViewBottomInset: CGFloat = 8 {
         didSet {
             tableView.contentInset.bottom = tableViewBottomInset
-            tableView.scrollIndicatorInsets.bottom = tableViewBottomInset
         }
     }
     
@@ -126,8 +125,12 @@ class AccountEditViewController: BaseViewController {
         do {
             let realm = try WRealm.safe()
             self.vcard = realm.object(ofType: vCardStorageItem.self, forPrimaryKey: jid) ?? vCardStorageItem()
-            DefaultAvatarManager.shared.getAvatar(jid: jid, owner: jid, size: 128) { image in
-                self.avatarImage = image
+            DefaultAvatarManager.shared.getAvatar(url: nil, jid: jid, owner: jid, size: 128) { image in
+                if let image = image {
+                    self.avatarImage = image
+                } else {
+                    self.avatarImage = UIImageView.getDefaultAvatar(for: self.jid, owner: self.jid, size: 128)
+                }
             }
 //            ImageCache.default.retrieveImage(forKey: self.jid, options: nil, callbackQueue: .mainAsync) { (results) in
 //                self.avatarImage = try! results.get().image

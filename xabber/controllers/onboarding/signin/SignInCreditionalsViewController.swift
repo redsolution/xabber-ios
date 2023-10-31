@@ -474,11 +474,7 @@ class SignInCreditionalsViewController: SimpleBaseViewController {
         super.configure()
         if isModal {
             self.navigationItem.setLeftBarButton(UIBarButtonItem(barButtonSystemItem: .cancel, target: self, action: #selector(close)), animated: true)
-            if #available(iOS 13.0, *) {
-                isModalInPresentation = true
-            } else {
-                // Fallback on earlier versions
-            }
+            isModalInPresentation = true
         }
         self.navigationController?.isNavigationBarHidden = false
         self.navigationController?.navigationBar.prefersLargeTitles = false
@@ -493,11 +489,7 @@ class SignInCreditionalsViewController: SimpleBaseViewController {
         self.passwordField.delegate = self
         self.loginField.addTarget(self, action: #selector(onLoginFieldDidChangeSelector), for: .editingChanged)
         self.passwordField.addTarget(self, action: #selector(onPasswordFieldDidChangeSelection), for: .editingChanged)
-//        XabberAPIManager.shared.getAvailableHosts { hosts in
-//            self.host = hosts.first
-//        }
         self.host = CommonConfigManager.shared.get().allowed_hosts.first!
-        
     }
     
     @objc
@@ -510,10 +502,8 @@ class SignInCreditionalsViewController: SimpleBaseViewController {
         do {
             try XMPPRegistrationManager.shared.start(host: XMPPRegistrationManager.getDefaultHost())
         } catch {
-            print(error.localizedDescription)
+            DDLogDebug("SignInCreditionalsViewController: \(#function). \(error.localizedDescription)")
         }
-        
-        
     }
     
     private final func subscribeOnNewAccountState() {
@@ -553,34 +543,34 @@ class SignInCreditionalsViewController: SimpleBaseViewController {
                             self.accountStateBag = DisposeBag()
                             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                                 self.title = " "
-                                if ApplicationStateManager.shared.isSubscribtionsShowed {
-                                   return
-                                }
-                                if CommonConfigManager.shared.config.locked_host.isNotEmpty {
-                                    let subscribtion = SubscribtionsManager.shared.subscribtionEnd
-                                    if subscribtion != nil {
-                                        let vc = PasscodeViewController(isOnboarding: true)
-                                        self.navigationController?.pushViewController(vc, animated: true)
-                                    } else {
-                                        let vc = SignUpEnableNotificationsViewController()
-                                        self.navigationController?.pushViewController(vc, animated: true)
-                                    }
-                                } else {
+                                if CommonConfigManager.shared.config.show_server_features {
                                     let vc = SignInServerFeaturesViewController()
                                     vc.features = value
                                     vc.host = self.host
                                     vc.jid = self.loginFieldValue
                                     vc.isModal = self.isModal
                                     self.navigationController?.setViewControllers([vc], animated: true)
+                                } else {
+                                    let vc = SignUpEnableNotificationsViewController()
+                                    self.navigationController?.setViewControllers([vc], animated: true)
                                 }
                             }
                             break
                         case .dataLoaded:
                             break
-                        case .streamError(_):
+                        case .streamError(let error):
                             self.accountStateBag = DisposeBag()
                             self.unsubscribe()
-                            ApplicationStateManager.shared.checkApplicationBlockedState(for: self.loginFieldValue)
+                            if error == "policy-violation" {
+                                if CommonConfigManager.shared.config.should_block_application_when_subscribtion_end {
+                                    self.title = " "
+                                    let vc = SignUpEnableNotificationsViewController()
+                                    self.navigationController?.setViewControllers([vc], animated: true)
+                                } else {
+                                    self.accountStateBag = DisposeBag()
+                                    self.unsubscribe()
+                                }
+                            }
                             
                         case .failure(let error):
                             AccountManager.shared.find(for: self.loginFieldValue)?.disconnect(hard: true)

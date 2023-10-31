@@ -701,12 +701,18 @@ class ChatViewController: MessagesViewController {
             name: UIApplication.didEnterBackgroundNotification,
             object: UIApplication.shared
         )
-        NotificationCenter.default.addObserver(self, selector: #selector(self.didReceiveEndOfFixHistoryTask), name: XMPPBackgroundTask.endFixHistoryTask, object: nil)
-        NotificationCenter.default.addObserver(self,
-                                               selector: #selector(reloadDatasource),
-                                               name: .newMaskSelected,
-                                               object: nil)
-        
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(self.didReceiveEndOfFixHistoryTask),
+            name: XMPPBackgroundTask.endFixHistoryTask,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(reloadDatasource),
+            name: .newMaskSelected,
+            object: nil
+        )
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(self.keyboardWillShowNotification(_:)),
@@ -736,22 +742,24 @@ class ChatViewController: MessagesViewController {
     
     @objc
     private func willEnterForeground() {
-        print(#function)
         NotifyManager.shared.currentDialog = [self.jid, self.owner].prp()
-//        AccountManager.shared.startBackgroundUpdateChat(owner: self.owner, jid: self.jid, conversationType: self.conversationType)
-        XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { stream, session in
-            session.mam?.syncChat(stream, jid: self.jid, conversationType: self.conversationType)
-        }) {
-            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                user.mam.syncChat(stream, jid: self.jid, conversationType: self.conversationType)
-            })
-        }
         appInBackground = false
+        
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 1) {
+            XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { stream, session in
+                session.mam?.syncChat(stream, jid: self.jid, conversationType: self.conversationType)
+                session.messages?.readLastMessage(jid: self.jid, conversationType: self.conversationType)
+            }) {
+                AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                    user.mam.syncChat(stream, jid: self.jid, conversationType: self.conversationType)
+                    user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
+                })
+            }
+        }
     }
     
     @objc
     private func didEnterBackground() {
-        print(#function)
         appInBackground = true
         NotifyManager.shared.currentDialog = nil
         do {
@@ -840,7 +848,15 @@ class ChatViewController: MessagesViewController {
         userBarButton.gradient.colors = [UIColor.white.cgColor,
                                          AccountColorManager.shared.palette(for: self.owner).tint700.cgColor]
         
-        
+        if [.omemo, .omemo1, .axolotl].contains(self.conversationType) {
+            self.xabberInputView.timerButton.isHidden = self.xabberInputView.shouldHideTimer
+            self.xabberInputView.timerButton.isEnabled = true
+            self.xabberInputView.shouldHideTimer = false
+        } else {
+            self.xabberInputView.shouldHideTimer = true
+            self.xabberInputView.timerButton.isHidden = true
+            self.xabberInputView.timerButton.isEnabled = false
+        }
         
         
     }
@@ -856,15 +872,7 @@ class ChatViewController: MessagesViewController {
             self.addObservers()
             let realm = try WRealm.safe()
             let chat = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid, owner: self.owner, conversationType: self.conversationType))
-            if [.omemo, .omemo1, .axolotl].contains(self.conversationType) {
-                self.xabberInputView.timerButton.isHidden = false
-                self.xabberInputView.timerButton.isEnabled = true
-                self.xabberInputView.shouldHideTimer = false
-            } else {
-                self.xabberInputView.shouldHideTimer = true
-                self.xabberInputView.timerButton.isHidden = true
-                self.xabberInputView.timerButton.isEnabled = false
-            }
+            
             self.xabberInputView.textField.text = chat?.draftMessage
             self.xabberInputView.textViewDidChange()
             self.showSkeletonObserver.accept(!(chat?.isSynced ?? true))
@@ -921,13 +929,14 @@ class ChatViewController: MessagesViewController {
                 }
             }
         }
-        
-        XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { stream, session in
-            session.mam?.syncChat(stream, jid: self.jid, conversationType: self.conversationType)
-        }) {
-            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                user.mam.syncChat(stream, jid: self.jid, conversationType: self.conversationType)
-            })
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 1) {
+            XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { stream, session in
+                session.mam?.syncChat(stream, jid: self.jid, conversationType: self.conversationType)
+            }) {
+                AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                    user.mam.syncChat(stream, jid: self.jid, conversationType: self.conversationType)
+                })
+            }
         }
         do {
             let realm = try WRealm.safe()
@@ -1039,12 +1048,9 @@ class ChatViewController: MessagesViewController {
     
     internal final func scrollToLastUnreadMessage(select: Bool = false) {
         do {
-//            if self.isSkeletonHided { return }
-//            if self.showSkeletonObserver.value { return }
             let realm = try WRealm.safe()
             if let unreadId = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid, owner: self.owner, conversationType: self.conversationType))?.lastReadId {
                 if let primary = realm.objects(MessageStorageItem.self).filter("owner == %@ AND opponent == %@ AND archivedId == %@", self.owner, self.jid, unreadId).first?.primary {
-//                    self.scrollToMessage(primary: primary)
                     if let index = self.messagesObserver?.firstIndex(where: { $0.primary == primary }), index != 0 {
                         if self.messagesCollectionView.indexPathsForVisibleItems.compactMap({ return $0.section }).contains(index) {
                             return
@@ -1052,12 +1058,6 @@ class ChatViewController: MessagesViewController {
                         let offset = (0...index).compactMap ({
                             return (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?.sizeForItem(at: IndexPath(row: 0, section: $0)).height
                         }).reduce(0, +) - ((self.view.bounds.height / 4) * 3)
-//                        let layout = (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)
-//                        let offset = self
-//                            .datasource
-//                            .prefix(index)
-//                            .compactMap{ return layout?.cache.get(for: $0.messageId)?.height }
-//                            .reduce(0, +) + (self.view.bounds.height / 3)
                         self.messagesCollectionView.setContentOffset(CGPoint(x: 0, y: offset), animated: false)
                     }
                 }

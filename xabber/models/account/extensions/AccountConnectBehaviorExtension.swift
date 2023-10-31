@@ -83,42 +83,94 @@ extension Account {
     }
     
     func didReceiveError(_ error: DDXMLElement) {
-        if error.element(forName: "credentials-expired") != nil {
-            tokenWasInvalidated()
-            return
+        func failToConnect(_ errorName: String) {
+            self.reconnect.autoReconnect = false
+            self.disconnect(hard: true)
+            switch errorName {
+                case "conflict":
+                    if self.devices.isAvailable {
+                        self.tokenWasInvalidated()
+                    } else {
+                        self.updateResource("\(self.resource)\(arc4random() % 16380)")
+                    }
+                case "credentials-expired":
+                    self.tokenWasInvalidated()
+                case "policy-violation":
+                    if CommonConfigManager.shared.config.should_block_application_when_subscribtion_end {
+                        SubscribtionsManager.shared.checkXMPPAccountState(jid: self.jid) {
+                            result in
+                            if result {
+                                self.statusMessage.accept(error.element(forName: "text")?.stringValue ?? "Offline")
+                            } else {
+                                self.statusMessage.accept("Subscription expired")
+                                DispatchQueue.main.async {
+                                    SubscribtionsPresenter().present(animated: true)
+                                }
+                            }
+                        }
+                    } else {
+                        self.statusMessage.accept(error.element(forName: "text")?.stringValue ?? "Offline")
+                    }
+                case "not-authorized":
+                    self.statusMessage.accept("Incorrect username or password")
+                    if self.jid != AccountManager.shared.newAccountJid {
+                        self.tokenShouldUpdate()
+                    }
+                    AccountManager
+                        .shared
+                        .changeNewUserState(for: self.jid, to: .failure(self.statusMessage.value))
+                default:
+                    self.statusMessage.accept("Offline")
+                    AccountManager
+                        .shared
+                        .changeNewUserState(for: self.jid, to: .failure(error.element(forName: "text")?.stringValue ?? "Unknown error"))
+            }
         }
         
-        self.statusMessage.accept("Offline")
-        if error.element(forName: "not-authorized") != nil {
-            if self.devices.isAvailable {
-                self.tokenShouldUpdate()
-                self.reconnectTimer?.invalidate()
-                self.reconnectTimer = nil
-                self.reconnect.autoReconnect = false
-                self.xmppStream.disconnect()
-                self.xmppStream.asyncSocket.disconnect()
-            } else {
-                if error.element(forName: "not-authorized") != nil {
-                    self.statusMessage.accept("Incorrect username or password")
-                } else {
-                    self.statusMessage.accept("Offline")
-                }
-                AccountManager
-                    .shared
-                    .changeNewUserState(for: self.jid, to: .failure(self.statusMessage.value))
+        func tryToReconnect(_ errorName: String) {
+            self.reconnect.autoReconnect = true
+            self.queue.asyncAfter(deadline: .now() + 1) {
+                self.reconnect.manualStart()
             }
-        } else {
-            AccountManager
-                .shared
-                .changeNewUserState(for: self.jid, to: .failure(error.element(forName: "text")?.stringValue ?? "Unknown error"))
-            self.groupchats.reset()
         }
+        
+        if let errorName = error
+            .elements(forXmlns: "urn:ietf:params:xml:ns:xmpp-streams")
+            .filter({ $0.name != "text" })
+            .first?
+            .name {
+            switch errorName {
+                case "conflict",
+                    "credentials-expired",
+                    "policy-violation",
+                    "not-authorized":
+                    failToConnect(errorName)
+                default:
+                    tryToReconnect(errorName)
+            }
+        }
+        if let errorName = error
+            .elements(forXmlns: "urn:ietf:params:xml:ns:xmpp-sasl")
+            .filter({ $0.name != "text" })
+            .first?
+            .name {
+            switch errorName {
+                case "conflict",
+                    "credentials-expired",
+                    "policy-violation",
+                    "not-authorized":
+                    failToConnect(errorName)
+                default:
+                    tryToReconnect(errorName)
+            }
+        }
+        CredentialsManager.shared.getItem(for: self.jid).release(error: true)
+        self.resetConfigs()
     }
     
     public final func tokenShouldUpdate() {
-        self.reconnectTimer?.invalidate()
-        self.reconnectTimer = nil
         self.reconnect.autoReconnect = false
+        self.disconnect(hard: true)
         DispatchQueue.main.async {
             CredentialsExpiredPresenter(jid: self.jid).present(animated: true)
         }
@@ -129,6 +181,10 @@ extension Account {
     }
     
     public final func didReceiveRoster() {
+        self.queue.asyncAfter(deadline: .now() + 1) {
+            self.updateExtensions()
+            self.presence()
+        }
         if sm.canResumeStream() {
             return
         }
@@ -154,9 +210,7 @@ extension Account {
             if xmppStream.myPresence == nil {
                 self.requestInitialMAM()
             }
-            self.queue.asyncAfter(deadline: .now() + 2) {
-                self.presence()
-            }
+            
         }
     }
 }

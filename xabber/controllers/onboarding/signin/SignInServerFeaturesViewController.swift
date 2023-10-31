@@ -846,8 +846,7 @@ class SignInServerFeaturesViewController: UIViewController {
         if isModal {
             self.dismiss(animated: true, completion: nil)
         } else {
-            let subscribtion = SubscribtionsManager.shared.subscribtionEnd
-            if subscribtion != nil {
+            if CommonConfigManager.shared.config.required_touch_id_or_password {
                 let vc = PasscodeViewController(isOnboarding: true)
                 self.navigationController?.pushViewController(vc, animated: true)
             } else {

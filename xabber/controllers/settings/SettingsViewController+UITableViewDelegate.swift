@@ -58,14 +58,14 @@ extension SettingsViewController: UITableViewDelegate {
         
         let menuItem = datasource[indexPath.section].childs[indexPath.row]
         
-        let subscribtion = SubscribtionsManager.shared.subscribtionEnd
-        
-        if menuItem.premiumOnly {
-            guard subscribtion != nil else {
-                self.view.makeToast("Premium account only")
-                return
-            }
-        }
+//        let subscribtion = SubscribtionsManager.shared.subscribtionEnd
+//        
+//        if menuItem.premiumOnly {
+//            guard subscribtion != nil else {
+//                self.view.makeToast("Premium account only")
+//                return
+//            }
+//        }
         
         
         if let key = menuItem.key {
@@ -89,9 +89,9 @@ extension SettingsViewController: UITableViewDelegate {
                 return
                 
             case .subscriptions:
-                let vc = SubscriptionsTableViewController(style: .insetGrouped)
-                vc.jid = self.jid
-                Store.shared.delegate = vc
+                let vc = SubscribtionsListViewController()
+                vc.owner = self.jid
+                vc.controllerCloseReason = .navigationStack
                 navigationController?.pushViewController(vc, animated: true)
                 return
                 

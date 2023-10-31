@@ -283,17 +283,24 @@ class MessageContentCell: MessageCollectionViewCell {
             avatarView.isHidden = false
             if let userId = avatarMeta.userId {
                 DefaultAvatarManager.shared.getGroupAvatar(user: userId, jid: avatarMeta.jid, owner: avatarMeta.owner, size: 32) { image in
-                    self.avatarView.image = image
+                    if let image = image {
+                        self.avatarView.image = image
+                    } else {
+                        self.avatarView.setDefaultAvatar(for: avatarMeta.jid, owner: avatarMeta.owner)
+                    }
                 }
             } else {
-                DefaultAvatarManager.shared.getAvatar(jid: avatarMeta.jid, owner: avatarMeta.owner, size: 32) { image in
-                    self.avatarView.image = image
+                DefaultAvatarManager.shared.getAvatar(url: nil, jid: avatarMeta.jid, owner: avatarMeta.owner, size: 32) { image in
+                    if let image = image {
+                        self.avatarView.image = image
+                    } else {
+                        self.avatarView.setDefaultAvatar(for: avatarMeta.jid, owner: avatarMeta.owner)
+                    }
                 }
             }
         } else {
             avatarView.isHidden = true
         }
-        
         
         self.isBurnedMessage = displayDelegate.isBurnedMessage(at: indexPath)
         let messageColor = displayDelegate.backgroundColor(for: message, at: indexPath, in: messagesCollectionView)
@@ -316,20 +323,7 @@ class MessageContentCell: MessageCollectionViewCell {
 
         self.contentView.backgroundColor = .clear
         drawDeliveryIndicator(at: indexPath, in: messagesCollectionView)
-//        forwardBackground.isHidden = !dataSource.showForwardingBackground(at: indexPath)
-        
         drawSelectionMode()
-        
-//        let bottomLabelFrame = messageBottomLabel.frame
-//        if isBurnedMessage {
-//            let newBottomFrame = CGRect(
-//                x: bottomLabelFrame.origin.x - 26,
-//                y: bottomLabelFrame.origin.y,
-//                width: bottomLabelFrame.width + 26,
-//                height: bottomLabelFrame.height
-//            )
-//            messageBottomLabel.frame = newBottomFrame
-//        }
     }
 
     open func hilghlightCell(color: UIColor, duration: TimeInterval) {
@@ -600,7 +594,7 @@ class MessageContentCell: MessageCollectionViewCell {
         
         messageBottomLabel.textAlignment = .right
         messageBottomLabel.frame = CGRect(origin: origin, size: size)
-        messageBottomLabel.textColor = MDCPalette.grey.tint600
+//        messageBottomLabel.textColor = MDCPalette.grey.tint600
     }
     
     func layoutReplyIcon() {

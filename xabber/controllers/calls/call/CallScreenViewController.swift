@@ -345,8 +345,12 @@ class CallScreenViewController: BaseViewController {
                                                         width: initialAvatarSize.width - 8,
                                                         height: initialAvatarSize.height - 8))
         avatarImageView.contentMode = .scaleAspectFill
-        DefaultAvatarManager.shared.getAvatar(jid: self.jid, owner: self.owner, size: 144) { image in
-            avatarImageView.image = image
+        DefaultAvatarManager.shared.getAvatar(url: nil, jid: self.jid, owner: self.owner, size: 144) { image in
+            if let image = image {
+                avatarImageView.image = image
+            } else {
+                avatarImageView.setDefaultAvatar(for: self.jid, owner: self.owner)
+            }
         }
         layoutAvatarSubview(avatarImageView)
         avatarView.addSubview(avatarImageView)

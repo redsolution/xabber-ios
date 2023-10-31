@@ -104,11 +104,15 @@ class ContactListTableViewCell: BaseTableCell {
         subtitileLabel.text = nil
     }
     
-    public final func configure(owner: String, jid: String, username: String) {
+    public final func configure(owner: String, jid: String, username: String, avatarUrl: String?) {
         self.titleLabel.text = username
         self.subtitileLabel.text = jid
-        DefaultAvatarManager.shared.getAvatar(jid: jid, owner: owner) { image in
-            self.avatarView.image = image
+        DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner) { image in
+            if let image = image {
+                self.avatarView.image = image
+            } else {
+                self.avatarView.setDefaultAvatar(for: jid, owner: owner)
+            }
         }
     }
 }

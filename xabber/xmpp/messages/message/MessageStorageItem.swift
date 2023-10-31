@@ -880,7 +880,13 @@ class MessageStorageItem: Object {
                             if let timer = self.references.first?.metadata?["ephemeral-timer"] as? Int {
                                 instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
                                 instance.afterburnInterval = Double(timer)
+                            } else {
+                                if self.afterburnInterval > 0 {
+                                    instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
+                                    instance.afterburnInterval = self.afterburnInterval
+                                }
                             }
+                            
 //                            instance.isSynced = true
                             if isInvite && !isRead {
                                 if instance.rosterItem?.subscribtion != .both {
@@ -896,7 +902,6 @@ class MessageStorageItem: Object {
                         })
                     }
                 } else {
-                    print("OOOOO2", #function, opponent, conversationType.rawValue, self)
                     let instance = LastChatsStorageItem()
                     instance.jid = self.opponent
                     instance.conversationType = self.conversationType
@@ -918,6 +923,14 @@ class MessageStorageItem: Object {
                         date: Date(),
                         isRead: true
                     )
+                    
+                    if let timer = self.references.first?.metadata?["ephemeral-timer"] as? Int {
+                        instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
+                        instance.afterburnInterval = Double(timer)
+                    } else {
+                        instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
+                        instance.afterburnInterval = self.afterburnInterval
+                    }
                                         
                     try transaction(commit: commitTransaction, callback: {
                         if instance.isInvalidated { return }
@@ -931,7 +944,7 @@ class MessageStorageItem: Object {
                             instance.rosterItem = rosterItem
                             
                         } else {
-                            DefaultAvatarManager.shared.updateAvatar(jid: self.opponent, owner: self.owner)
+//                            DefaultAvatarManager.shared.updateAvatar(jid: self.opponent, owner: self.owner)
                             let rosterItem = RosterStorageItem()
                             rosterItem.owner = self.owner
                             rosterItem.jid = self.opponent
@@ -959,7 +972,7 @@ class MessageStorageItem: Object {
                         }
                     })
                     if needGenAvatar {
-                        DefaultAvatarManager.shared.updateAvatar(jid: self.opponent, owner: self.owner)
+//                        DefaultAvatarManager.shared.updateAvatar(jid: self.opponent, owner: self.owner)
                     }
                 }
                 if !silentNotifications {

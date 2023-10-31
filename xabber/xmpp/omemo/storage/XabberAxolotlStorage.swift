@@ -57,15 +57,10 @@ class XabberAxolotlStorage: NSObject, SignalStore {
         if let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: deviceId)) {
             return
         }
-//        if CredentialsManager.shared.getDeviceId(for: owner) != nil {
-//            return
-//        }
         self.deviceId = deviceId
         CredentialsManager.shared.setRegistrationId(Int(arc4random() % 16380), for: self.owner)
         CredentialsManager.shared.setDeviceId(self.deviceId, for: owner)
         let keyHelper = SignalKeyHelper(context: context)!
-//        do {
-//            let realm = try WRealm.safe()
         let instance = SignalIdentityStorageItem()
         instance.owner = self.owner
         instance.jid = self.owner
@@ -138,11 +133,6 @@ class XabberAxolotlStorage: NSObject, SignalStore {
         }
         
         realm.refresh()
-            
-    //        deviceInstance.fingerprint = Data(identityKey.publicKey.serialize()).formattedFingerprint()
-//        } catch {
-//            DDLogDebug("XabberAxolotlStorage: \(#function). \(error.localizedDescription)")
-//        }
     }
     
     func localDeviceId() -> Int {

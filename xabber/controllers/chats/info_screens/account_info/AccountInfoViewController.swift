@@ -272,19 +272,22 @@ class AccountInfoViewController: BaseViewController {
                         } else {
                             self.currentResource = nil
                         }
+                        self.headerView.configure(
+                            avatarUrl: item.avatarMaxUrl ?? item.avatarMinUrl ?? item.oldschoolAvatarKey,
+                            jid: self.jid,
+                            owner: self.jid,
+                            userId: nil,
+                            title: self.nickname,
+                            subtitle: self.jid,
+                            thirdLine: nil,
+                            titleColor: AccountColorManager.shared.primaryColor(for: self.jid)
+                        )
                         self.updateDatasource()
                     } else {
                         self.nickname = XMPPJID(string: self.jid)?.user ?? self.jid
                     }
-                    self.headerView.configure(
-                        jid: self.jid,
-                        owner: self.jid,
-                        userId: nil,
-                        title: self.nickname,
-                        subtitle: self.jid,
-                        thirdLine: nil,
-                        titleColor: AccountColorManager.shared.primaryColor(for: self.jid)
-                    )
+                    
+                    
                 }).disposed(by: bag)
             
             Observable
@@ -469,9 +472,7 @@ class AccountInfoViewController: BaseViewController {
         XMPPUIActionManager.shared.open(owner: self.jid)
         self.tableView.reloadData()
         
-        DefaultAvatarManager.shared.getAvatar(jid: jid, owner: jid, size: 128) { image in
-            self.headerView.imageButton.setImage(image, for: .normal)
-        }
+        
     }
     
     override func viewDidAppear(_ animated: Bool) {

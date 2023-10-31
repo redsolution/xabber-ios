@@ -28,10 +28,7 @@ import SwiftKeychainWrapper
 import Alamofire
 import CocoaLumberjack
 
-public struct SubscribtionsSecretStore: Codable {
-    var uuid_ns: String
-    var api_url: String
-}
+
 
 class ApplicationStateManager: NSObject {
     
@@ -141,62 +138,7 @@ class ApplicationStateManager: NSObject {
     private final func postBlockApplication() {
         
     }
-    
-    public final func checkApplicationBlockedState(for jid: String, callback: (() -> Void)? = nil) {
-        
-        guard let path = Bundle.main.path(forResource: "subscribtions_secret", ofType: "plist"),
-              let xml = FileManager.default.contents(atPath: path),
-              let store = try? PropertyListDecoder().decode(SubscribtionsSecretStore.self, from: xml) else {
-              return
-        }
-        
-        let url = store.api_url + "/v1/accounts/\(jid.uuidString().lowercased())/"
-        
-        Alamofire
-            .request(
-                url,
-                method: .get,
-                parameters: [:],
-                encoding: URLEncoding.default,
-                headers: ["Cache-Control": "no-cache"]
-            ).responseJSON {
-                response in
-                switch response.result {
-                case .success(let value):
-                    guard let dict = value as? NSDictionary else {
-                        callback?()
-                        return
-                    }
-                    let expiresDateRaw: String? = dict["expires"] as? String
-                    if let expiresDateRaw = expiresDateRaw,
-                       let expiresDate = Date.parseXMPPFormattedString(expiresDateRaw) {
-                        SubscribtionsManager.shared.accountExpirationDate = expiresDate
-                        if Date().timeIntervalSinceReferenceDate > expiresDate.timeIntervalSinceReferenceDate {
-                            self.blockApplication(date: expiresDate)
-                        } else {
-                            self.unblockApplication(date: expiresDate)
-                        }
-                    }
-                    if let subscribtionsListRaw = dict["subscriptions"] as? Array<NSDictionary> {
-                        let subscribtionsList: [SubscribtionsManager.AppSubscribtions] = subscribtionsListRaw.compactMap{
-                            if let product_id = $0["product_id"] as? String,
-                               let expiresRaw = $0["expires"] as? String,
-                               let expires = Date.parseXMPPFormattedString(expiresRaw) {
-                                return SubscribtionsManager.AppSubscribtions(product_id: product_id, expires: expires)
-                            }
-                            return nil
-                        }
-                        SubscribtionsManager.shared.subscribtionsList = subscribtionsList
-                    }
-                    SubscribtionsManager.shared.setSubscribtionsInfoUpdated()
-                    callback?()
-                case .failure(let error):
-                    DDLogDebug(error.localizedDescription)
-                    callback?()
-                }
-            }
-    }
-    
+
     private final func tokenWasInvalidated(for jid: String) {
         func show(_ jid: String, in viewController: UIViewController) {
             XTokenInvalidatePresenter().present(
@@ -250,9 +192,9 @@ class ApplicationStateManager: NSObject {
     
     public final func prepare() {
         addObservers()
-        Store.shared.prepare()
         VoIPManager.shared.prepare()
         SignatureManager.shared.prepare()
+        SubscribtionsManager.shared.prepare()
         AccountColorManager.shared.load()
         DefaultAvatarManager.shared.preheat()
         MusicBox.shared.prepare()
@@ -265,6 +207,14 @@ class ApplicationStateManager: NSObject {
         }
         if CommonConfigManager.shared.config.required_touch_id_or_password {
             self.runPincodeTask()
+        }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 3) {
+            try? AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .default, options: .defaultToSpeaker)
+            if #available(iOS 13.0, *) {
+                try? AVAudioSession
+                    .sharedInstance()
+                    .setAllowHapticsAndSystemSoundsDuringRecording(true)
+            }
         }
     }
     

@@ -372,15 +372,13 @@ class InfoScreenHeaderView: UIView {
         print(self.imageButton.frame)
     }
     
-    public final func configure(jid: String, owner: String, userId: String?, title: String?, subtitle: String?, thirdLine: String? = nil, titleColor: UIColor? = nil) {
-        if let userId = userId {
-            DefaultAvatarManager.shared.getGroupAvatar(user: userId, jid: jid, owner: owner, size: 128) { image in
-                self.imageButton.setImage(image?.resize(targetSize: CGSize(square: 128)), for: .normal)
-            }
-            
-        } else {
-            DefaultAvatarManager.shared.getAvatar(jid: jid, owner: owner, size: 128) { image in
-                self.imageButton.setImage(image?.resize(targetSize: CGSize(square: 128)), for: .normal)
+    public final func configure(avatarUrl: String?, jid: String, owner: String, userId: String?, title: String?, subtitle: String?, thirdLine: String? = nil, titleColor: UIColor? = nil) {
+
+        DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 256) { image in
+            if let image = image {
+                self.imageButton.setImage(image, for: .normal)
+            } else {
+                self.imageButton.setImage(UIImageView.getDefaultAvatar(for: jid, owner: owner, size: 256), for: .normal)
             }
         }
         

@@ -100,7 +100,7 @@ class NewCallSearchViewController: BaseViewController {
             self.datasource = contacts.compactMap({ (item) -> NewCallViewController.Datasource? in
                 switch item.getPrimaryResource()?.entity ?? .contact {
                 case .contact:
-                    return NewCallViewController.Datasource(owner: item.owner, jid: item.jid, username: item.displayName)
+                        return NewCallViewController.Datasource(owner: item.owner, jid: item.jid, username: item.displayName, avatarUrl: nil)
                 default:
                     return nil
                 }

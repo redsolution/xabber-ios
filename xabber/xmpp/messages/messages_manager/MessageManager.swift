@@ -185,11 +185,24 @@ class MessageManager: AbstractXMPPManager {
                 }
                 let stanzaId = message.archivedId
                 NotifyManager.shared.clearNotifications(forMessage: [stanzaId])
+                let collection = realm.objects(MessageStorageItem.self).filter("owner == %@ AND opponent == %@ AND conversationType_ == %@ AND date < %@", self.owner, message.opponent, message.conversationType_, message.date)
                 if !realm.isInWriteTransaction {
                     try realm.write {
                         if message.isInvalidated { return }
                         message.isRead = true
                         message.state = .read
+                        collection.forEach {
+                            $0.isRead = true
+                            $0.state = .read
+                            if $0.readDate < 0 {
+                                $0.readDate = Date().timeIntervalSince1970
+                            }
+                            if $0.afterburnInterval > 0 {
+                                if $0.burnDate < 0 {
+                                    $0.burnDate = Date().timeIntervalSince1970 + $0.afterburnInterval
+                                }
+                            }
+                        }
                     }
                 }
                 if let instance = realm.object(ofType: LastChatsStorageItem.self,

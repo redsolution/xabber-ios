@@ -71,7 +71,8 @@ extension LastChatsViewController: UITableViewDataSource {
                 groupchatNickname: item.userNickname,
                 isSystem: item.isSystemMessage,
                 isPinned: item.isPinned,
-                subRequest: item.subRequest
+                subRequest: item.subRequest,
+                avatarUrl: item.avatarUrl
             )
             cell.setMask()
             

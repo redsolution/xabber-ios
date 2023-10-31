@@ -102,12 +102,12 @@ class XMPPUIActionManager: NSObject {
 //                return
 //            }
 //        }
-        if self.currentJid == owner {
+        if self.currentJid == owner && self.stream.isAuthenticated {
             return
         }
         print("UI CONNECTION OPEN!!!!!!")
         if self.currentJid != nil {
-            self.close()
+            self.close(disconnect: true)
         }
         self.stream = XMPPStream()
         self.stream.addDelegate(self, delegateQueue: self.queue)
@@ -138,6 +138,7 @@ class XMPPUIActionManager: NSObject {
 //        self.stream.skipStartSession = true
         self.stream.keepAliveInterval = 60
 //        self.stream.que
+        self.reconnect?.activate(self.stream)
         queue.async {
             do {
                 try self.stream.connect(withTimeout: 5)
@@ -236,14 +237,12 @@ class XMPPUIActionManager: NSObject {
         self.open(owner: owner, force: false)
 //        print("UI STREAM STATE", stream.isConnected, "is in auth process:", stream.isAuthenticating, "auth", stream.isAuthenticated)
         
-        if !self.stream.isConnected {
+        if !self.stream.isAuthenticated {
             if retryCounter > 3 {
-//                print("UI RETRY COUNTER FAIL")
                 fail()
                 return
             } else {
-//                print("UI RETRY COUNTER", retryCounter)
-                if !self.stream.isConnecting {
+                if !(self.stream.isConnecting || self.stream.isAuthenticating || self.stream.isConnected) {
                     self.restore()
                 }
                 self.queue.asyncAfter(deadline: .now() + 2) {
@@ -252,20 +251,7 @@ class XMPPUIActionManager: NSObject {
             }
             return
         }
-        if retryCounter > 3 {
-            fail()
-            return
-        } else {
-            if !self.stream.isAuthenticated {
-//                print("UI RETRY COUNTER, CANT SEND STANZAS", retryCounter)
-                self.queue.asyncAfter(deadline: .now() + 1) {
-                    self.performRequest(owner: owner, action: action, fail: fail, retryCounter: retryCounter + 1)
-                    return
-                }
-            } else {
-                action(self.stream, self)
-            }
-        }
+        action(self.stream, self)
     }
     
     func tokenWasInvalidated() {

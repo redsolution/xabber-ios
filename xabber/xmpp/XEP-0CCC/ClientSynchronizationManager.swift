@@ -24,7 +24,7 @@ import RealmSwift
 
 class ClientSynchronizationManager: AbstractXMPPManager {
     
-    public let pageSize: Int = 50
+    public let pageSize: Int = 60
     
     open var isAvailable: Bool = false
     open var version: String = ""
@@ -385,16 +385,14 @@ class ClientSynchronizationManager: AbstractXMPPManager {
 //    </iq>
     
     internal func readSnapshot(_ iq: XMPPIQ) -> Bool {
-        guard let elementId = iq.elementID,
-                  queryIds.contains(elementId), // TODO: fixme, bad instruction
-              let query = iq.element(forName: "query", xmlns: ClientSynchronizationManager.primaryNamespace),
+        guard let query = iq.element(forName: "query", xmlns: ClientSynchronizationManager.primaryNamespace),
               let stamp = query.attributeStringValue(forName: "stamp") else {
                 return false
         }
         if temporaryVer == nil {
             temporaryVer = stamp
         }
-//        AccountManager.shared.markAsConnected(jid: self.owner)
+        
         AccountManager.shared.changeNewUserState(for: self.owner, to: .dataLoaded)
         let afterElement = query.element(forName: "set")?.element(forName: "last")
         if !isPresenceSended {
@@ -420,12 +418,10 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             })
         }
         let conversationsItems = updateOmemoMessages(query).elements(forName: "conversation")
-//        DispatchQueue.main.async {
-//            ToastPresenter(message: "Sync element count: \(conversationsItems.count)").present(animated: true)
-//        }
+
         RunLoop.main.perform {
             do {
-                let realm = try  WRealm.safe()
+                let realm = try WRealm.safe()
                 
                 var accountCreateDate: Date? = nil
                 if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: self.owner) {
@@ -433,14 +429,12 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 }
                 
                 realm.writeAsync {
+                    
                     conversationsItems.forEach { self.readInvites($0) }
                     
                     AccountManager.shared.find(for: self.owner)?.messages.processQueue(Set(conversationsItems.compactMap { self.readConversation($0, accountCreateDate: accountCreateDate) })) {
                         if let results = $0 {
                             AccountManager.shared.find(for: self.owner)?.messages.unsafeSave(results)
-                        }
-                        DispatchQueue.global(qos: .default).asyncAfter(deadline: .now() + 0.8) {
-                            AccountManager.shared.markAsConnected(jid: self.owner)
                         }
                     }
                 }
@@ -581,9 +575,9 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     
     internal func readConversation(_ conversation: DDXMLElement, accountCreateDate: Date? = nil) -> MessageManager.MessageQueueItem? {
         guard let jid = conversation.attributeStringValue(forName: "jid"),
-                  jid.isNotEmpty else {
-                      return nil
-            }
+              jid.isNotEmpty else {
+            return nil
+        }
 
         let stamp = conversation.attributeDoubleValue(forName: "stamp")
         let metadata = conversation
@@ -611,7 +605,6 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 instance.rosterItem = rosterItem
                 rosterItem.associatedLastChat = instance
             } else {
-//                DefaultAvatarManager.shared.updateAvatarIfNeeded(for: jid, owner: owner)
                 let rosterItem = RosterStorageItem()
                 rosterItem.owner = owner
                 rosterItem.jid = jid
@@ -620,8 +613,6 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 rosterItem.associatedLastChat = instance
                 realm.add(rosterItem)
                 instance.rosterItem = rosterItem
-//                needGenAvatar = true
-                DefaultAvatarManager.shared.updateAvatar(jid: jid, owner: owner)
             }
             instance.rosterItem = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: [jid, owner].prp())
             instance.setPrimary(withOwner: owner)
@@ -646,6 +637,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 }
                 return nil
             }
+            
             if conversation.element(forName: "deleted") != nil || conversationStatus == "deleted" {
                 if let instance = realm.object(
                     ofType: LastChatsStorageItem.self,
@@ -658,7 +650,6 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 return nil
             }
             
-            
             if let messageElement = metadata.element(forName: "last-message")?.element(forName: "message") {
                 if (AccountManager.shared.find(for: owner)?.groupchats.isInvite(XMPPMessage(from: messageElement)) ?? false) {
                     return nil
@@ -670,14 +661,11 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 forPrimaryKey: LastChatsStorageItem.genPrimary(
                     jid: jid,
                     owner: self.owner,
-                    conversationType: conversationType)) == nil
-            
+                    conversationType: conversationType)
+            ) == nil
             
             let instance = try getChat(realm, jid: jid, conversationType: conversationType)
-            
             instance.conversationType_ = conversationType.rawValue
-                                    
-            
             let mute = conversation.attributeDoubleValue(forName: "mute", withDefaultValue: -1)
             instance.muteExpired = mute
             
@@ -691,7 +679,6 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 .element(forName: "retract")?
                 .attributeStringValue(forName: "version"),
                 retractVersion != "0" {
-//                instance.retractVersion = retractVersion
                 if conversationType == .group && !isNewChatInstance {
                     if AccountManager.shared.activeUsers.value.count == 1 {
                         XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
@@ -712,15 +699,8 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             instance.displayedId = metadata.element(forName: "displayed")?.attributeStringValue(forName: "id")
             instance.deliveredId = metadata.element(forName: "delivered")?.attributeStringValue(forName: "id")
             instance.lastReadId = metadata.element(forName: "unread")?.attributeStringValue(forName: "after")
-//            if !instance.isPrereaded {
-                instance.unread = metadata.element(forName: "unread")?.attributeIntegerValue(forName: "count") ?? 0
-                
-//            }
+            instance.unread = metadata.element(forName: "unread")?.attributeIntegerValue(forName: "count") ?? 0
             instance.isPrereaded = false
-//            else {
-//                instance.unread = 0 // TODO: Fix it, redmine 75176
-//            }
-//            instance.isSynced = true
 
             if conversationStatus == "archived" {
                 instance.isArchived = true
@@ -736,9 +716,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                     timestamp = date.timeIntervalSince1970
                 }
             }
-            if instance.messageDate.compare(conversationDate) == .orderedAscending {
-                instance.messageDate = conversationDate
-            }
+            instance.messageDate = conversationDate
             let unreadAfterTS = metadata.element(forName: "unread")?.attributeDoubleValue(forName: "after")
 
             if let interval = unreadAfterTS {
@@ -779,11 +757,9 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                         groupchatStorageItem.jid = jid
                         groupchatStorageItem.owner = owner
                         groupchatStorageItem.primary = GroupChatStorageItem.genPrimary(jid: jid, owner: owner)
-//                        groupchatStorageItem.privacy = entity == .incognitoChat ? .publicChat : .incognito
                         groupchatStorageItem.members = 1
                         realm.add(groupchatStorageItem, update: .modified)
                     }
-//
                 }
                 if jid == XMPPJID(string: owner)?.domain {
                     let resourceInstance = ResourceStorageItem()
@@ -820,7 +796,6 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             
             if let messageElement = metadata.element(forName: "last-message")?.element(forName: "message") {
                 if let date = getDeliveryDate(XMPPMessage(from: messageElement)) {
-                    instance.messageDate = date
                     if [.omemo, .axolotl, .omemo1].contains(conversationType), let accountCreateDate = accountCreateDate {
                         if date.timeIntervalSince1970 < accountCreateDate.timeIntervalSince1970 {
                             instance.isFreshNotEmptyEncryptedChat = true
@@ -844,10 +819,6 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                     state = .read
                 }
                 let readDate = state == .read ? nil : Date(timeIntervalSince1970: stamp / 1000000)
-//                else if let lastUnread = unreadAfterTS,
-//                    round(lastUnread / 1000000) >= round(timestamp / 1000000) {
-//                    state = .read
-//                }
                 
                 if !(AccountManager
                         .shared
@@ -861,29 +832,19 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                           [self.owner, jid].contains(to) else {
                         return nil
                     }
-//                    let modifiedMessageStanza = AccountManager.shared.find(for: owner)?.omemo.modifyOmemoStanza(message: messageStanza)
-//                    if let modifiedMessageStanza = modifiedMessageStanza {
                     if instance.lastMessageId != getUniqueMessageId(messageStanza, owner: self.owner) {
                         instance.isSynced = false
                     }
-                    
-//                    if [.omemo, .omemo1, .axolotl].contains(instance.conversationType) {
-//
-//                        AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, stream in
-//                            user.mam.getLastMessage(stream, jid: instance.jid, conversationType: instance.conversationType)
-//                        })
-//                    }
-                        return AccountManager
-                            .shared
-                            .find(for: owner)?
-                            .messages
-                            .receiveClientSyncRaw(messageStanza,
-                                                  groupchatUserCard: userCard,
-                                                  isRead: instance.unread == 0,
-                                                  state: state,
-                                                  date: Date(timeIntervalSince1970: timestamp / 1000000),
-                                                  readDate: readDate)
-//                    }
+                    return AccountManager
+                        .shared
+                        .find(for: owner)?
+                        .messages
+                        .receiveClientSyncRaw(messageStanza,
+                                              groupchatUserCard: userCard,
+                                              isRead: instance.unread == 0,
+                                              state: state,
+                                              date: Date(timeIntervalSince1970: timestamp),
+                                              readDate: readDate)
                 }
             } else {
                 if let retractVersion = conversation
@@ -896,9 +857,6 @@ class ClientSynchronizationManager: AbstractXMPPManager {
 //                        instance.lastMessage = nil
 //                    }
                 }
-//                else {
-//                    instance.lastMessage = nil
-//                }
             }
         } catch {
             DDLogDebug("ClientSynchronizationManager: \(#function). \(error.localizedDescription)")

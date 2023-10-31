@@ -138,6 +138,16 @@ class ContactInfoViewController: BaseViewController {
                 .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
                 .subscribe(onNext: { (results) in
                     if let item = results.first {
+                        self.headerView.configure(
+                            avatarUrl: item.avatarMaxUrl ?? item.avatarMinUrl ?? item.oldschoolAvatarKey,
+                            jid: self.jid,
+                            owner: self.owner,
+                            userId: nil,
+                            title: self.nickname,
+                            subtitle: self.jid,
+                            thirdLine: nil,
+                            titleColor: AccountColorManager.shared.primaryColor(for: self.owner)
+                        )
                         self.nickname = item.displayName
                         if item.subscribtion == .undefined {
                             self.isDeleted = true
@@ -152,18 +162,20 @@ class ContactInfoViewController: BaseViewController {
                     } else {
                         self.nickname = self.jid
                         self.isDeleted = true
+                        self.headerView.configure(
+                            avatarUrl: nil,
+                            jid: self.jid,
+                            owner: self.owner,
+                            userId: nil,
+                            title: self.nickname,
+                            subtitle: self.jid,
+                            thirdLine: nil,
+                            titleColor: AccountColorManager.shared.primaryColor(for: self.owner)
+                        )
                     }
                     
                     
-                    self.headerView.configure(
-                        jid: self.jid,
-                        owner: self.owner,
-                        userId: nil,
-                        title: self.nickname,
-                        subtitle: self.jid,
-                        thirdLine: nil,
-                        titleColor: AccountColorManager.shared.primaryColor(for: self.owner)
-                    )
+                    
                 }).disposed(by: bag)
                         
             Observable

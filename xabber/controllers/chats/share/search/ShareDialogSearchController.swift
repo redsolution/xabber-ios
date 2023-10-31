@@ -259,7 +259,8 @@ extension ShareDialogSearchController: UITableViewDataSource {
             isAttachment: item.isAttachment,
             groupchatNickname: item.groupchatNickname,
             isSystem: item.isSystem,
-            subRequest: false
+            subRequest: false,
+            avatarUrl: nil
         )
         return cell
     }

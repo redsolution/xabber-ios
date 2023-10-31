@@ -29,9 +29,10 @@ struct SubscribtionsPresenter {
             return
         }
         ApplicationStateManager.shared.isSubscribtionsShowed = true
-        let vc = SubscriptionsTableViewController()
-        vc.jid = AccountManager.shared.users.first?.jid ?? ""
-        vc.isModal = true
+        let vc = SubscribtionsListViewController()
+        vc.controllerCloseReason = .modal
+        vc.owner = AccountManager.shared.users.first?.jid ?? ""
+//        vc.isModal = true
         let nvc = UINavigationController()
         nvc.viewControllers = [vc]
         if var topController = UIApplication.shared.keyWindow?.rootViewController {

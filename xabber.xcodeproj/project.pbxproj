@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 52;
+	objectVersion = 54;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -160,9 +160,9 @@
 		661BBA3A238FD35A00BE4A80 /* GroupchatInviteViewController+ContactCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 661BBA39238FD35A00BE4A80 /* GroupchatInviteViewController+ContactCell.swift */; };
 		661BBA3C238FF59A00BE4A80 /* GroupchatInviteViewController+HeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 661BBA3B238FF59A00BE4A80 /* GroupchatInviteViewController+HeaderView.swift */; };
 		661CDADB242778C300347E14 /* RosterDisplayNameStorageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 661CDADA242778C300347E14 /* RosterDisplayNameStorageItem.swift */; };
-		661CDADC24277B2900347E14 /* RosterDisplayNameStorageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 661CDADA242778C300347E14 /* RosterDisplayNameStorageItem.swift */; };
 		661D24F326CBEAD600031AF9 /* GroupchatInfoEditItemViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 661D24F226CBEAD600031AF9 /* GroupchatInfoEditItemViewController.swift */; };
 		661D6CEC23C8851C00E36EC1 /* ChatViewController+PinMessageBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 661D6CEB23C8851C00E36EC1 /* ChatViewController+PinMessageBar.swift */; };
+		661D8E122ACADD2700990FDF /* DevicePrivacyViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 661D8E112ACADD2700990FDF /* DevicePrivacyViewController.swift */; };
 		6620094121F89D2F00941CE5 /* PresenceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6620094021F89D2F00941CE5 /* PresenceManager.swift */; };
 		662058482383CBD3000B0E11 /* NewEntityViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662058472383CBD3000B0E11 /* NewEntityViewController.swift */; };
 		6620584A2383CF64000B0E11 /* NewEntityViewController+ItemCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662058492383CF64000B0E11 /* NewEntityViewController+ItemCell.swift */; };
@@ -299,7 +299,6 @@
 		6650132523548F4900916558 /* TrustCertificatePresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6650132423548F4900916558 /* TrustCertificatePresenter.swift */; };
 		66520E6923858C0E00430953 /* CreateNewGroupViewController+GroupInfoCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66520E6823858C0E00430953 /* CreateNewGroupViewController+GroupInfoCell.swift */; };
 		6652EB45203BF95B0088C8FA /* ImageToBase64.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6652EB44203BF95B0088C8FA /* ImageToBase64.swift */; };
-		6653120929D1AF9300671D0A /* OmemoManagerAxolotl+Bundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6653120829D1AF9300671D0A /* OmemoManagerAxolotl+Bundle.swift */; };
 		6653DF5021ABBD3000DA4352 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6653DF4F21ABBD2F00DA4352 /* AppDelegate.swift */; };
 		665451A922A8EA750077635D /* AccountEditViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 665451A822A8EA750077635D /* AccountEditViewController.swift */; };
 		665451AD22A8F3D40077635D /* AccountEditViewController+UITableViewDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 665451AC22A8F3D40077635D /* AccountEditViewController+UITableViewDelegate.swift */; };
@@ -315,7 +314,6 @@
 		665451C222A945600077635D /* AccountNewStatusViewController+BaseStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 665451C122A945600077635D /* AccountNewStatusViewController+BaseStatus.swift */; };
 		665451C422A9456C0077635D /* AccountNewStatusViewController+CustomStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 665451C322A9456C0077635D /* AccountNewStatusViewController+CustomStatus.swift */; };
 		665451C622A94EF70077635D /* AccountNewStatusViewController+UITExtFieldDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 665451C522A94EF70077635D /* AccountNewStatusViewController+UITExtFieldDelegate.swift */; };
-		6658915D2861DE9A008BA80C /* OmemoManager+DecryptMessagePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6658915C2861DE9A008BA80C /* OmemoManager+DecryptMessagePipeline.swift */; };
 		6658A3DD2371B1A300642020 /* ChatViewController+Navbar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6658A3DC2371B1A300642020 /* ChatViewController+Navbar.swift */; };
 		665935892114325000C60EDA /* AvatarStorageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 665935882114325000C60EDA /* AvatarStorageItem.swift */; };
 		66595D6E2844AB760099223C /* X509StorageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66595D6D2844AB760099223C /* X509StorageItem.swift */; };
@@ -412,7 +410,6 @@
 		6689B4B624AB183D00A993BD /* LastChatsViewController+PullDownTableHeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6689B4B524AB183D00A993BD /* LastChatsViewController+PullDownTableHeaderView.swift */; };
 		6689B4B824AB1C2200A993BD /* LastChatsViewController+AccountNavButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6689B4B724AB1C2200A993BD /* LastChatsViewController+AccountNavButton.swift */; };
 		668B705A283F64C100BE4879 /* OmemoManager+BundlePublication.swift in Sources */ = {isa = PBXBuildFile; fileRef = 668B7059283F64C100BE4879 /* OmemoManager+BundlePublication.swift */; };
-		668B705C283F660500BE4879 /* OmemoManager+OwnBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 668B705B283F660500BE4879 /* OmemoManager+OwnBundle.swift */; };
 		668B705E283F819000BE4879 /* LastChatsViewController+SignatureManagerDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 668B705D283F819000BE4879 /* LastChatsViewController+SignatureManagerDelegate.swift */; };
 		668D32BF257622050079BE57 /* VoIPCall.swift in Sources */ = {isa = PBXBuildFile; fileRef = 668D32BE257622050079BE57 /* VoIPCall.swift */; };
 		6695786427A1317A00A6C4AB /* OmemoManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6695786327A1317A00A6C4AB /* OmemoManager.swift */; };
@@ -428,7 +425,6 @@
 		6696B6CD2215770600D6D437 /* OpusAudioRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6696B6C42215770600D6D437 /* OpusAudioRecorder.swift */; };
 		6696B6CE2215770600D6D437 /* OpusAudio.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6696B6C52215770600D6D437 /* OpusAudio.swift */; };
 		6697B13C24768C6300861AE8 /* ShowedNotificationRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6697B13B24768C6300861AE8 /* ShowedNotificationRequests.swift */; };
-		6697B13D24768F2800861AE8 /* ShowedNotificationRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6697B13B24768C6300861AE8 /* ShowedNotificationRequests.swift */; };
 		6697CF6F206D081D006CA2DF /* ChatStates.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6697CF6E206D081D006CA2DF /* ChatStates.swift */; };
 		6697DB64224D047B007E7584 /* APNSManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6697DB63224D047B007E7584 /* APNSManager.swift */; };
 		6697DDE122D31C3200C5FB27 /* LastChatsViewController+UITableViewDatasource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6697DDE022D31C3200C5FB27 /* LastChatsViewController+UITableViewDatasource.swift */; };
@@ -576,7 +572,6 @@
 		66BA99B72420B71D00D20CE2 /* XabberPushService.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 66BA99B02420B71D00D20CE2 /* XabberPushService.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		66BA99C02420BE3B00D20CE2 /* AccountStorageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66BA99BF2420BE3B00D20CE2 /* AccountStorageItem.swift */; };
 		66BA99C32420D46600D20CE2 /* PushMessageTemporaryStorageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66BA99C22420D46600D20CE2 /* PushMessageTemporaryStorageItem.swift */; };
-		66BA99C42420D6A600D20CE2 /* PushMessageTemporaryStorageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66BA99C22420D46600D20CE2 /* PushMessageTemporaryStorageItem.swift */; };
 		66BC5C7825CD238500CEC418 /* NewCallSearchViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66BC5C7725CD238500CEC418 /* NewCallSearchViewController.swift */; };
 		66BC5C7D25CD23AA00CEC418 /* NewCallSearchViewController+UITableViewDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66BC5C7C25CD23AA00CEC418 /* NewCallSearchViewController+UITableViewDelegate.swift */; };
 		66BC5C8225CD23C100CEC418 /* NewCallSearchViewController+UITableViewDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66BC5C8125CD23C100CEC418 /* NewCallSearchViewController+UITableViewDataSource.swift */; };
@@ -607,9 +602,6 @@
 		66C8CA7B2510AA6C00CA7271 /* XMPPBackgroundTask+Delegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C8CA7A2510AA6C00CA7271 /* XMPPBackgroundTask+Delegate.swift */; };
 		66C8EEBF2477B3FE002125F9 /* UIViewController+Keyboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C8EEBE2477B3FE002125F9 /* UIViewController+Keyboard.swift */; };
 		66C98F3726DF86850055F1EE /* GroupChatMessagesByUserViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C98F3626DF86850055F1EE /* GroupChatMessagesByUserViewController.swift */; };
-		66C9B43B29CC30CC0032F042 /* OmemoManagerAxolotl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C9B43A29CC30CC0032F042 /* OmemoManagerAxolotl.swift */; };
-		66C9B43D29CC6B880032F042 /* SignedPreKeyItemRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C9B43C29CC6B880032F042 /* SignedPreKeyItemRecord.swift */; };
-		66C9B43E29CC6DEF0032F042 /* SignedPreKeyItemRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C9B43C29CC6B880032F042 /* SignedPreKeyItemRecord.swift */; };
 		66C9FD6B2227F21200120A54 /* AudioManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C9FD6A2227F21200120A54 /* AudioManager.swift */; };
 		66C9FFAF283271E600376AF6 /* YUDeviceTypeEnum.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C9FFAE283271E600376AF6 /* YUDeviceTypeEnum.swift */; };
 		66C9FFB0283271EF00376AF6 /* YUDeviceTypeEnum.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C9FFAE283271E600376AF6 /* YUDeviceTypeEnum.swift */; };
@@ -620,6 +612,7 @@
 		66CB16C321F9C9D100CB03C2 /* ChatViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66CB16C221F9C9D100CB03C2 /* ChatViewController.swift */; };
 		66CB2F7126C533F30085F311 /* vCardInfoViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66CB2F7026C533F30085F311 /* vCardInfoViewController.swift */; };
 		66CC78272613495400482F08 /* MessageArchiveManager+BackgroundHistoryLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66CC78262613495400482F08 /* MessageArchiveManager+BackgroundHistoryLoader.swift */; };
+		66CD4D512ACD937900F53799 /* SubscribtionsListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66CD4D502ACD937900F53799 /* SubscribtionsListViewController.swift */; };
 		66CDBEDC279EBE2900B2CC6F /* NewSecretChatViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66CDBEDB279EBE2900B2CC6F /* NewSecretChatViewController.swift */; };
 		66CDBEDE279EC0C400B2CC6F /* ContactListTableViewCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66CDBEDD279EC0C400B2CC6F /* ContactListTableViewCell.swift */; };
 		66D016BB2574D80B007857EE /* VoIPManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66D016BA2574D80B007857EE /* VoIPManager.swift */; };
@@ -682,7 +675,6 @@
 		66EAF7FA2407EB8000207AD3 /* UIEdgeInsets+Init.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66EAF7F92407EB8000207AD3 /* UIEdgeInsets+Init.swift */; };
 		66EB6A7A238D659E0024531C /* TextViewPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66EB6A79238D659E0024531C /* TextViewPresenter.swift */; };
 		66EBBE8A2278270600E9D620 /* IceCandidate+Decoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66EBBE892278270600E9D620 /* IceCandidate+Decoder.swift */; };
-		66ECBE35243DA1FC00BF6922 /* TemporaryMessageStanzaStorageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 666D80322439C4D500BD33B1 /* TemporaryMessageStanzaStorageItem.swift */; };
 		66ECBE38243DC86100BF6922 /* MessageManager+TemporaryReceiver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66ECBE37243DC86100BF6922 /* MessageManager+TemporaryReceiver.swift */; };
 		66ED0D462488CDA10053CBEF /* ContactInfoViewController- UITableViewDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66ED0D452488CDA00053CBEF /* ContactInfoViewController- UITableViewDataSource.swift */; };
 		66ED0D482488CE140053CBEF /* ContactInfoViewController- UITableViewDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66ED0D472488CE140053CBEF /* ContactInfoViewController- UITableViewDelegate.swift */; };
@@ -696,6 +688,7 @@
 		66F6A66022D5C554007B7A29 /* LastChatsViewController+EmptyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F6A65F22D5C554007B7A29 /* LastChatsViewController+EmptyView.swift */; };
 		66F7511D23E2ADDE00A26CE9 /* ChatViewController+HighPrioritySubscribtions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F7511C23E2ADDE00A26CE9 /* ChatViewController+HighPrioritySubscribtions.swift */; };
 		66F7511F23E2AE0D00A26CE9 /* ChatViewController+LowPrioritySubscribtions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F7511E23E2AE0D00A26CE9 /* ChatViewController+LowPrioritySubscribtions.swift */; };
+		66F7EAB02AE696FA00F915AD /* UIImage+Avatar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F7EAAF2AE696FA00F915AD /* UIImage+Avatar.swift */; };
 		66F85B1423DECFC200899797 /* ChatViewController+AudioMessages.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F85B1323DECFC200899797 /* ChatViewController+AudioMessages.swift */; };
 		66F9071A2260B76400F64A37 /* APNSManager+Network.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F907192260B76400F64A37 /* APNSManager+Network.swift */; };
 		66F985D7231E37400013A0BD /* MessageReferenceStorageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F985D6231E37400013A0BD /* MessageReferenceStorageItem.swift */; };
@@ -1137,6 +1130,7 @@
 		661CDADA242778C300347E14 /* RosterDisplayNameStorageItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RosterDisplayNameStorageItem.swift; sourceTree = "<group>"; };
 		661D24F226CBEAD600031AF9 /* GroupchatInfoEditItemViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupchatInfoEditItemViewController.swift; sourceTree = "<group>"; };
 		661D6CEB23C8851C00E36EC1 /* ChatViewController+PinMessageBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewController+PinMessageBar.swift"; sourceTree = "<group>"; };
+		661D8E112ACADD2700990FDF /* DevicePrivacyViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicePrivacyViewController.swift; sourceTree = "<group>"; };
 		6620094021F89D2F00941CE5 /* PresenceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresenceManager.swift; sourceTree = "<group>"; };
 		662058472383CBD3000B0E11 /* NewEntityViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewEntityViewController.swift; sourceTree = "<group>"; };
 		662058492383CF64000B0E11 /* NewEntityViewController+ItemCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NewEntityViewController+ItemCell.swift"; sourceTree = "<group>"; };
@@ -1271,7 +1265,6 @@
 		6650132423548F4900916558 /* TrustCertificatePresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrustCertificatePresenter.swift; sourceTree = "<group>"; };
 		66520E6823858C0E00430953 /* CreateNewGroupViewController+GroupInfoCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CreateNewGroupViewController+GroupInfoCell.swift"; sourceTree = "<group>"; };
 		6652EB44203BF95B0088C8FA /* ImageToBase64.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageToBase64.swift; sourceTree = "<group>"; };
-		6653120829D1AF9300671D0A /* OmemoManagerAxolotl+Bundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "OmemoManagerAxolotl+Bundle.swift"; sourceTree = "<group>"; };
 		6653DF4F21ABBD2F00DA4352 /* AppDelegate.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		665451A822A8EA750077635D /* AccountEditViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountEditViewController.swift; sourceTree = "<group>"; };
 		665451AC22A8F3D40077635D /* AccountEditViewController+UITableViewDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AccountEditViewController+UITableViewDelegate.swift"; sourceTree = "<group>"; };
@@ -1287,7 +1280,6 @@
 		665451C122A945600077635D /* AccountNewStatusViewController+BaseStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AccountNewStatusViewController+BaseStatus.swift"; sourceTree = "<group>"; };
 		665451C322A9456C0077635D /* AccountNewStatusViewController+CustomStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AccountNewStatusViewController+CustomStatus.swift"; sourceTree = "<group>"; };
 		665451C522A94EF70077635D /* AccountNewStatusViewController+UITExtFieldDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AccountNewStatusViewController+UITExtFieldDelegate.swift"; sourceTree = "<group>"; };
-		6658915C2861DE9A008BA80C /* OmemoManager+DecryptMessagePipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "OmemoManager+DecryptMessagePipeline.swift"; sourceTree = "<group>"; };
 		6658A3DC2371B1A300642020 /* ChatViewController+Navbar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewController+Navbar.swift"; sourceTree = "<group>"; };
 		665935882114325000C60EDA /* AvatarStorageItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarStorageItem.swift; sourceTree = "<group>"; };
 		66595D6D2844AB760099223C /* X509StorageItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = X509StorageItem.swift; sourceTree = "<group>"; };
@@ -1386,7 +1378,6 @@
 		6689B4B524AB183D00A993BD /* LastChatsViewController+PullDownTableHeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LastChatsViewController+PullDownTableHeaderView.swift"; sourceTree = "<group>"; };
 		6689B4B724AB1C2200A993BD /* LastChatsViewController+AccountNavButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LastChatsViewController+AccountNavButton.swift"; sourceTree = "<group>"; };
 		668B7059283F64C100BE4879 /* OmemoManager+BundlePublication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "OmemoManager+BundlePublication.swift"; sourceTree = "<group>"; };
-		668B705B283F660500BE4879 /* OmemoManager+OwnBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "OmemoManager+OwnBundle.swift"; sourceTree = "<group>"; };
 		668B705D283F819000BE4879 /* LastChatsViewController+SignatureManagerDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LastChatsViewController+SignatureManagerDelegate.swift"; sourceTree = "<group>"; };
 		668D32BE257622050079BE57 /* VoIPCall.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoIPCall.swift; sourceTree = "<group>"; };
 		668E9EFF24210DE000CE832C /* XabberPushService.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = XabberPushService.entitlements; sourceTree = "<group>"; };
@@ -1589,8 +1580,6 @@
 		66C8CA7A2510AA6C00CA7271 /* XMPPBackgroundTask+Delegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "XMPPBackgroundTask+Delegate.swift"; sourceTree = "<group>"; };
 		66C8EEBE2477B3FE002125F9 /* UIViewController+Keyboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIViewController+Keyboard.swift"; sourceTree = "<group>"; };
 		66C98F3626DF86850055F1EE /* GroupChatMessagesByUserViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupChatMessagesByUserViewController.swift; sourceTree = "<group>"; };
-		66C9B43A29CC30CC0032F042 /* OmemoManagerAxolotl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OmemoManagerAxolotl.swift; sourceTree = "<group>"; };
-		66C9B43C29CC6B880032F042 /* SignedPreKeyItemRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignedPreKeyItemRecord.swift; sourceTree = "<group>"; };
 		66C9FD6A2227F21200120A54 /* AudioManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioManager.swift; sourceTree = "<group>"; };
 		66C9FFAE283271E600376AF6 /* YUDeviceTypeEnum.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YUDeviceTypeEnum.swift; sourceTree = "<group>"; };
 		66CA2513212D465B005530DD /* UILabelLineHeightExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UILabelLineHeightExtension.swift; sourceTree = "<group>"; };
@@ -1600,6 +1589,7 @@
 		66CB16C221F9C9D100CB03C2 /* ChatViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatViewController.swift; sourceTree = "<group>"; };
 		66CB2F7026C533F30085F311 /* vCardInfoViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = vCardInfoViewController.swift; sourceTree = "<group>"; };
 		66CC78262613495400482F08 /* MessageArchiveManager+BackgroundHistoryLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MessageArchiveManager+BackgroundHistoryLoader.swift"; sourceTree = "<group>"; };
+		66CD4D502ACD937900F53799 /* SubscribtionsListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscribtionsListViewController.swift; sourceTree = "<group>"; };
 		66CDBEDB279EBE2900B2CC6F /* NewSecretChatViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewSecretChatViewController.swift; sourceTree = "<group>"; };
 		66CDBEDD279EC0C400B2CC6F /* ContactListTableViewCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactListTableViewCell.swift; sourceTree = "<group>"; };
 		66D016BA2574D80B007857EE /* VoIPManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoIPManager.swift; sourceTree = "<group>"; };
@@ -1672,6 +1662,7 @@
 		66F6A65F22D5C554007B7A29 /* LastChatsViewController+EmptyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LastChatsViewController+EmptyView.swift"; sourceTree = "<group>"; };
 		66F7511C23E2ADDE00A26CE9 /* ChatViewController+HighPrioritySubscribtions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewController+HighPrioritySubscribtions.swift"; sourceTree = "<group>"; };
 		66F7511E23E2AE0D00A26CE9 /* ChatViewController+LowPrioritySubscribtions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewController+LowPrioritySubscribtions.swift"; sourceTree = "<group>"; };
+		66F7EAAF2AE696FA00F915AD /* UIImage+Avatar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIImage+Avatar.swift"; sourceTree = "<group>"; };
 		66F85B1323DECFC200899797 /* ChatViewController+AudioMessages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewController+AudioMessages.swift"; sourceTree = "<group>"; };
 		66F907192260B76400F64A37 /* APNSManager+Network.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "APNSManager+Network.swift"; sourceTree = "<group>"; };
 		66F985D6231E37400013A0BD /* MessageReferenceStorageItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageReferenceStorageItem.swift; sourceTree = "<group>"; };
@@ -1877,6 +1868,7 @@
 				4DB325A0290FB186005364DD /* ProductCell.swift */,
 				664CFF30291E788900CDB62C /* SubscribtionTopInfoTableViewCell.swift */,
 				66EFC5B82923C98700398D77 /* SubscribtionsListViewControllerTest.swift */,
+				66CD4D502ACD937900F53799 /* SubscribtionsListViewController.swift */,
 			);
 			path = Subscriptions;
 			sourceTree = "<group>";
@@ -2242,6 +2234,14 @@
 				4D683D23285DE04200FFCB25 /* AccountInfoViewController+QuotaCellDelegate.swift */,
 			);
 			path = account_info;
+			sourceTree = "<group>";
+		};
+		661D8E102ACADD0600990FDF /* device_privacy */ = {
+			isa = PBXGroup;
+			children = (
+				661D8E112ACADD2700990FDF /* DevicePrivacyViewController.swift */,
+			);
+			path = device_privacy;
 			sourceTree = "<group>";
 		};
 		662058462383CBB7000B0E11 /* create_new_entity */ = {
@@ -3113,13 +3113,10 @@
 		6695786227A1317A00A6C4AB /* omemo */ = {
 			isa = PBXGroup;
 			children = (
-				66C9B43929CC30B40032F042 /* axolotl */,
 				66A15B4A281C084200FC1E65 /* storage */,
 				6695786327A1317A00A6C4AB /* OmemoManager.swift */,
 				66A15B48281C002700FC1E65 /* OmemoManager+Encryption.swift */,
-				6658915C2861DE9A008BA80C /* OmemoManager+DecryptMessagePipeline.swift */,
 				668B7059283F64C100BE4879 /* OmemoManager+BundlePublication.swift */,
-				668B705B283F660500BE4879 /* OmemoManager+OwnBundle.swift */,
 			);
 			path = omemo;
 			sourceTree = "<group>";
@@ -3336,6 +3333,7 @@
 				667C0A7B21F83BF300B73C60 /* UIImageCircular.swift */,
 				66A3169022AE770B00EA0773 /* UIImageToBase64.swift */,
 				66A57583248A45CD0073216B /* UIImage+Resize.swift */,
+				66F7EAAF2AE696FA00F915AD /* UIImage+Avatar.swift */,
 			);
 			path = UIImage;
 			sourceTree = "<group>";
@@ -3422,6 +3420,7 @@
 		669F726E209C223600E757DB /* settings */ = {
 			isa = PBXGroup;
 			children = (
+				661D8E102ACADD0600990FDF /* device_privacy */,
 				66E843D82A72A28400EC72E1 /* burn_messages */,
 				4DFF74FF2851E5170036AE0D /* SelectorViewController */,
 				4D0AD0C32850A31F00C3D9DE /* SimpleTableViewController */,
@@ -3506,7 +3505,6 @@
 				66A15B4F281C087200FC1E65 /* SignalDeviceStorageItem.swift */,
 				66A15B4D281C086100FC1E65 /* SignalPreKeyStorageItem.swift */,
 				66C8442C29B75590006055B2 /* XabberAxolotlStorage.swift */,
-				66C9B43C29CC6B880032F042 /* SignedPreKeyItemRecord.swift */,
 			);
 			path = storage;
 			sourceTree = "<group>";
@@ -3828,15 +3826,6 @@
 				66C8EEBE2477B3FE002125F9 /* UIViewController+Keyboard.swift */,
 			);
 			path = UIViewController;
-			sourceTree = "<group>";
-		};
-		66C9B43929CC30B40032F042 /* axolotl */ = {
-			isa = PBXGroup;
-			children = (
-				66C9B43A29CC30CC0032F042 /* OmemoManagerAxolotl.swift */,
-				6653120829D1AF9300671D0A /* OmemoManagerAxolotl+Bundle.swift */,
-			);
-			path = axolotl;
 			sourceTree = "<group>";
 		};
 		66CA2512212D463A005530DD /* UILabel */ = {
@@ -4748,7 +4737,6 @@
 				6620584A2383CF64000B0E11 /* NewEntityViewController+ItemCell.swift in Sources */,
 				66DED55922AA60E7008E5710 /* AccountColorViewController+InfoCell.swift in Sources */,
 				6658A3DD2371B1A300642020 /* ChatViewController+Navbar.swift in Sources */,
-				6658915D2861DE9A008BA80C /* OmemoManager+DecryptMessagePipeline.swift in Sources */,
 				66D2577B2355E64C00CB8AC1 /* DeleteMessagePresenter.swift in Sources */,
 				669C182826F2054100352973 /* LastChatsViewController+Flow.swift in Sources */,
 				66FD8EF422B3714300693944 /* AccountConnectionViewController.swift in Sources */,
@@ -4923,6 +4911,7 @@
 				660A460A22C4E5170047347D /* AddContactViewController+Keyboard.swift in Sources */,
 				66999CBC27DA1D370046CED3 /* ButtonTableViewCell.swift.swift in Sources */,
 				66E667FB238BCBD0002F8B8A /* GroupchatSettingsViewController+UITableViewDelegate.swift in Sources */,
+				66CD4D512ACD937900F53799 /* SubscribtionsListViewController.swift in Sources */,
 				6643F33221C2650E00333229 /* MessagesDataSource.swift in Sources */,
 				665D33D522D8A2F40034F74E /* LastCallsViewController+XabberTabBarDelegate.swift in Sources */,
 				66B4D09823A8AC22008B2C64 /* GroupchatDefaultRightsViewController.swift in Sources */,
@@ -4968,6 +4957,7 @@
 				66520E6923858C0E00430953 /* CreateNewGroupViewController+GroupInfoCell.swift in Sources */,
 				660AE35F238574CA00E7FC00 /* CreateNewGroupViewController+DescriptionCell.swift in Sources */,
 				660B4A4C28C8A72300C39903 /* CredentialsExpiredViewController.swift in Sources */,
+				66F7EAB02AE696FA00F915AD /* UIImage+Avatar.swift in Sources */,
 				660AE357238564CF00E7FC00 /* CreateNewGroupViewController.swift in Sources */,
 				66F7511D23E2ADDE00A26CE9 /* ChatViewController+HighPrioritySubscribtions.swift in Sources */,
 				666520DF237174120095D5B1 /* SystemMessageSizeCalculator.swift in Sources */,
@@ -5119,6 +5109,7 @@
 				6679826E24E5769F003C3815 /* InitialMessageSizeCalculator.swift in Sources */,
 				66999CB827DA0B520046CED3 /* AccountEncryptionInfoViewController.swift in Sources */,
 				4DC843C528A9FAD200F61AEE /* PasscodeEdtitView.swift in Sources */,
+				661D8E122ACADD2700990FDF /* DevicePrivacyViewController.swift in Sources */,
 				66CB16C321F9C9D100CB03C2 /* ChatViewController.swift in Sources */,
 				66B7992022E08167001589A5 /* SearchResultsViewController+UITableViewDatasource.swift in Sources */,
 				1A999D8627DF497A0093A011 /* CloudStorageViewController.swift in Sources */,
@@ -5187,7 +5178,6 @@
 				1AA11F3D27E1F9A900E8C75A /* AccountMasksManager.swift in Sources */,
 				66DA45552297EC5C00F300A7 /* XAccountErrorAlert.swift in Sources */,
 				66CB16C121F9C28E00CB03C2 /* ResultsExtension.swift in Sources */,
-				66C9B43D29CC6B880032F042 /* SignedPreKeyItemRecord.swift in Sources */,
 				6643F32521C2650E00333229 /* LabelAlignment.swift in Sources */,
 				6643F31C21C2650E00333229 /* MessageContainerView.swift in Sources */,
 				4D63943C28607A2F0063A07E /* AccountInfoViewController+Flow.swift in Sources */,
@@ -5222,7 +5212,6 @@
 				6678DFFB2497813400B3640B /* GroupchatContactInfoViewController+UITableViewDelegate.swift in Sources */,
 				6644E27C213D0FBA001726DD /* NavBarController.swift in Sources */,
 				66E6A14C248FAEB9006F6968 /* GroupchatInfoViewController+InfoScreenHeaderButtonDelegate.swift in Sources */,
-				668B705C283F660500BE4879 /* OmemoManager+OwnBundle.swift in Sources */,
 				660A45FE22C4D60B0047347D /* AddContactViewController+AccountSelectDelegate.swift in Sources */,
 				4D9C8FD928534E45003E35BE /* SettingsViewController+InfoScreenHeaderButtonDelegate.swift in Sources */,
 				1A939B2A27E49EC100014E43 /* MasksSelectionViewController+TableViewDelegate.swift in Sources */,
@@ -5255,7 +5244,6 @@
 				66FD8EFC22B371B600693944 /* AccountConnectionViewController+UITextFieldDelegate.swift in Sources */,
 				1A9B584127B39489004DD787 /* FilesMediaCollectionCell.swift in Sources */,
 				66ED0D482488CE140053CBEF /* ContactInfoViewController- UITableViewDelegate.swift in Sources */,
-				66C9B43B29CC30CC0032F042 /* OmemoManagerAxolotl.swift in Sources */,
 				66E843DA2A72A29B00EC72E1 /* BurnMessagesSettingsViewController.swift in Sources */,
 				665451B122A916070077635D /* AccountEditViewController+ProfileCell.swift in Sources */,
 				66F985D7231E37400013A0BD /* MessageReferenceStorageItem.swift in Sources */,
@@ -5288,7 +5276,6 @@
 				666201FA22B3E1D800FB2A44 /* AccountBlockListViewController+UITableViewDelegate.swift in Sources */,
 				66E125782487E3B2005D096B /* ContactsViewController+AddContactDelegate.swift in Sources */,
 				660A45F922C4BC7B0047347D /* AddContactViewController+Flow.swift in Sources */,
-				6653120929D1AF9300671D0A /* OmemoManagerAxolotl+Bundle.swift in Sources */,
 				4DB325A1290FB186005364DD /* ProductCell.swift in Sources */,
 				66B6E9682419208300602626 /* SubforwardsViewController+DataSource.swift in Sources */,
 				4D683D1E285DDFF000FFCB25 /* AccountInfoViewController+UITableViewDelegate.swift in Sources */,
@@ -5423,17 +5410,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				660FBBBF2465A47D0014B8FD /* UNNotificationAttachment+Download.swift in Sources */,
-				66C9B43E29CC6DEF0032F042 /* SignedPreKeyItemRecord.swift in Sources */,
 				66B48FDB26F85B600088D6A4 /* ArrayExtension.swift in Sources */,
 				1AA2148D2809454D0051D073 /* TranslationsManager.swift in Sources */,
 				669CBE2F264D11CD00FA59C1 /* MessagesParser.swift in Sources */,
 				66F9C760242398F00040F5AF /* WebsocketManager.swift in Sources */,
 				66365E862626D59600151F27 /* NetworkManager.swift in Sources */,
-				661CDADC24277B2900347E14 /* RosterDisplayNameStorageItem.swift in Sources */,
 				66E8C9BC29EFF2E400D307D5 /* nanoid.swift in Sources */,
 				66C9FFB0283271EF00376AF6 /* YUDeviceTypeEnum.swift in Sources */,
 				669CBE2B264D11C700FA59C1 /* AbstractXMPPParser.swift in Sources */,
-				6697B13D24768F2800861AE8 /* ShowedNotificationRequests.swift in Sources */,
 				6634209D27562E3D00063010 /* SynchronizedArray.swift in Sources */,
 				66F9C75E242398F00040F5AF /* WebsocketManager+Delegate.swift in Sources */,
 				6634209C27562DAB00063010 /* CredentialsManager.swift in Sources */,
@@ -5442,8 +5426,6 @@
 				1AA2148C2809454A0051D073 /* StringExtensions.swift in Sources */,
 				66F9C75F242398F00040F5AF /* WebsocketManager+Protocol.swift in Sources */,
 				6634209B27562B5F00063010 /* HOTPAuth.swift in Sources */,
-				66BA99C42420D6A600D20CE2 /* PushMessageTemporaryStorageItem.swift in Sources */,
-				66ECBE35243DA1FC00BF6922 /* TemporaryMessageStanzaStorageItem.swift in Sources */,
 				66E1017524A4DE4700E324CC /* ImageToBase64.swift in Sources */,
 				66BA99B32420B71D00D20CE2 /* NotificationService.swift in Sources */,
 				1AA2148E2809454F0051D073 /* SettingManager.swift in Sources */,
@@ -5845,7 +5827,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_OPTIMIZATION = time;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
-				CLANG_USE_OPTIMIZATION_PROFILE = NO;
+				CLANG_USE_OPTIMIZATION_PROFILE = YES;
 				CLANG_WARN_DOCUMENTATION_COMMENTS = NO;
 				CODE_SIGN_ENTITLEMENTS = xabber/xabber.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
@@ -5903,7 +5885,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_OPTIMIZATION = time;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
-				CLANG_USE_OPTIMIZATION_PROFILE = NO;
+				CLANG_USE_OPTIMIZATION_PROFILE = YES;
 				CLANG_WARN_DOCUMENTATION_COMMENTS = NO;
 				CODE_SIGN_ENTITLEMENTS = xabber/xabber.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
@@ -5916,7 +5898,7 @@
 					"$(inherited)",
 					"$(PROJECT_DIR)",
 				);
-				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_OPTIMIZATION_LEVEL = 1;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"$(inherited)",
 					"COCOAPODS=1",
@@ -5945,7 +5927,7 @@
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_DISABLE_SAFETY_CHECKS = YES;
 				SWIFT_OBJC_BRIDGING_HEADER = "xabber/xabber-Bridging-Header.h";
-				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -5960,7 +5942,7 @@
 				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
 				CODE_SIGN_STYLE = Automatic;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = AD6GMDVS2Y;
+				DEVELOPMENT_TEAM = 4T7NT6425K;
 				INFOPLIST_FILE = xabberTests/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 13.5;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -5986,7 +5968,7 @@
 				CLANG_ENABLE_OBJC_WEAK = YES;
 				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = AD6GMDVS2Y;
+				DEVELOPMENT_TEAM = 4T7NT6425K;
 				INFOPLIST_FILE = xabberTests/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 13.5;
 				LD_RUNPATH_SEARCH_PATHS = (

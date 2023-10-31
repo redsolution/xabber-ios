@@ -179,7 +179,7 @@ class LastCallsViewController: BaseViewController {
                     if let item = results.first {
                         self.topAccountJid = item.jid
                         self.accountNavButton.update(jid: self.topAccountJid,
-                                                     status: item.resource?.status ?? .offline)
+                                                     status: item.resource?.status ?? .offline, avatarUrl: nil)
                         UIView.animate(withDuration: 0.1) {
                             getAppTabBar()?.updateColor()
                             self.customTitleLabel.textColor = AccountColorManager.shared.topColor()
@@ -356,7 +356,7 @@ class LastCallsViewController: BaseViewController {
                 .sorted(byKeyPath: "order", ascending: true)
                 .first {
                 self.accountNavButton.update(jid: item.jid,
-                                             status: item.resource?.status ?? .offline)
+                                             status: item.resource?.status ?? .offline, avatarUrl: nil)
             }
             
         } catch {

@@ -197,13 +197,12 @@ class SignUpSelectAvatarViewController: SignUpBaseViewController {
     }
     
     private final func goNext() {
-        let subscribtion = SubscribtionsManager.shared.subscribtionEnd
-        if subscribtion != nil {
+        if CommonConfigManager.shared.config.required_touch_id_or_password {
             let vc = PasscodeViewController(isOnboarding: true)
-            self.navigationController?.pushViewController(vc, animated: true)
+            self.navigationController?.setViewControllers([vc], animated: true)
         } else {
             let vc = SignUpEnableNotificationsViewController()
-            self.navigationController?.pushViewController(vc, animated: true)
+            self.navigationController?.setViewControllers([vc], animated: true)
         }
     }
     

@@ -130,9 +130,13 @@ extension NewCallViewController {
         
         internal var onCallButtonPress: ((String, String) -> Void)? = nil
         
-        func configureAvatar(_ jid: String) {
-            DefaultAvatarManager.shared.getAvatar(jid: jid, owner: owner, size: 48) { image in
-                self.avatarView.image = image
+        func configureAvatar(_ jid: String, avatarUrl: String?) {
+            DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 48) { image in
+                if let image = image {
+                    self.avatarView.image = image
+                } else {
+                    self.avatarView.setDefaultAvatar(for: jid, owner: self.owner)
+                }
             }
         }
         
@@ -153,10 +157,10 @@ extension NewCallViewController {
             
         }
         
-        func configure(owner: String, jid: String, title: String) {
+        func configure(owner: String, jid: String, title: String, avatarUrl: String?) {
             self.jid = jid
             self.owner = owner
-            self.configureAvatar(jid)
+            self.configureAvatar(jid, avatarUrl: avatarUrl)
             titleLabel.text = title
             subtitleLabel.text = jid
         }

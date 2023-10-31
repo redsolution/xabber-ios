@@ -274,7 +274,41 @@ class MessageSizeCalculator: CellSizeCalculator {
                         size.width = authorSize.width + 16
                     }
                     size.height += 20
-                case .images, .videos:
+                case .images:
+                    let items = item
+                        .references
+                        .filter({ $0.mimeType == MimeIconTypes.image.rawValue })
+                    
+                    if items.count == 1 {
+                        if let item = items.first,
+                           let imageSize = item.sizeInPx {
+                            var calculatedWidth = imageSize.width
+                            var calculatedHeight = imageSize.height
+                            
+                            if imageSize.width > maxWidthInlines {
+                                calculatedWidth = maxWidthInlines
+                                calculatedHeight = maxWidthInlines * imageSize.height / imageSize.width
+                                if calculatedHeight > maxWidthInlines {
+                                    calculatedWidth = maxWidthInlines * calculatedWidth / calculatedHeight
+                                    calculatedHeight = maxWidthInlines
+                                }
+                            } else if imageSize.height > maxWidthInlines {
+                                calculatedHeight = maxWidthInlines
+                                calculatedWidth = maxWidthInlines * imageSize.width / imageSize.height
+                                if calculatedWidth > maxWidthInlines {
+                                    calculatedHeight = maxWidthInlines * calculatedHeight / calculatedWidth
+                                    calculatedWidth = maxWidthInlines
+                                }
+                            }
+                            size = CGSize(width: max(120, calculatedWidth), height: max(120, calculatedHeight))
+                        } else {
+                            size = CGSize(width: maxWidthInlines, height: maxWidthInlines + 20)
+                        }
+                    } else {
+                        size = CGSize(width: maxWidthInlines, height: maxWidthInlines + 20)
+                    }
+                
+                case .videos:
                     size = CGSize(width: maxWidthInlines, height: maxWidthInlines + 20)
                 case .files:
                     let count = item

@@ -133,7 +133,6 @@ extension LastCallsViewController {
             button.tintColor = MDCPalette.grey.tint500
             button.layer.cornerRadius = button.frame.width / 2
             button.layer.masksToBounds = true
-            button.imageEdgeInsets = UIEdgeInsets(square: 6)
             
             return button
         }()
@@ -161,8 +160,12 @@ extension LastCallsViewController {
         func configure(owner: String, jid: String, body: String, username: String, date: Date, outgoing: Bool, state: MessageStorageItem.VoIPCallState, duration: TimeInterval) {
             self.jid = jid
             self.owner = owner
-            DefaultAvatarManager.shared.getAvatar(jid: jid, owner: owner, size: 48) { image in
-                self.avatarView.image = image
+            DefaultAvatarManager.shared.getAvatar(url: nil, jid: jid, owner: owner, size: 48) { image in
+                if let image = image {
+                    self.avatarView.image = image
+                } else {
+                    self.avatarView.setDefaultAvatar(for: jid, owner: owner)
+                }
             }
             titleLabel.text = JidManager.shared.prepareJid(jid: username)
             

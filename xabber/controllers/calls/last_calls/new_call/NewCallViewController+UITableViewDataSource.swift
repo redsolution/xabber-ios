@@ -40,7 +40,8 @@ extension NewCallViewController: UITableViewDataSource {
         cell.configure(
             owner: item.owner,
             jid: item.jid,
-            title: item.username
+            title: item.username,
+            avatarUrl: nil
         )
         cell.setMask()
         

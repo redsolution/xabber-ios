@@ -245,6 +245,7 @@ class GroupchatContactInfoViewController: BaseViewController {
                         
                     }
                     self.headerView.configure(
+                        avatarUrl: nil,
                         jid: self.jid,
                         owner: self.owner,
                         userId: self.userId,

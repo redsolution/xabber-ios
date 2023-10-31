@@ -45,6 +45,7 @@ class SimpleBaseViewController: BaseViewController {
         } else {
             view.backgroundColor = .white
         }
+        self.navigationItem.backButtonDisplayMode = .minimal
     }
     
     public func subscribe() {

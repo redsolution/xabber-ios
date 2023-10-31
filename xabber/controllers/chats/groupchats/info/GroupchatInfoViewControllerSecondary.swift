@@ -29,6 +29,7 @@ import CocoaLumberjack
 import Kingfisher
 import TOInsetGroupedTableView
 import Toast_Swift
+import AVFoundation
 
 class GroupchatInfoViewControllerSecondary: SimpleBaseViewController {
     
@@ -254,8 +255,12 @@ class GroupchatInfoViewControllerSecondary: SimpleBaseViewController {
     
     override func subscribe() {
         super.subscribe()
-        DefaultAvatarManager.shared.getAvatar(jid: self.jid, owner: self.owner) { image in
-            self.avatar = image
+        DefaultAvatarManager.shared.getAvatar(url: nil, jid: self.jid, owner: self.owner) { image in
+            if let image = image {
+                self.avatar = image
+            } else {
+                self.avatar = UIImageView.getDefaultAvatar(for: self.jid, owner: self.owner, size: 128)
+            }
         }
         do {
             let realm = try WRealm.safe()
@@ -1061,8 +1066,12 @@ extension GroupchatInfoViewControllerSecondary {
                                                 animated: true,
                                                 completion: nil)
             } else {
-                DefaultAvatarManager.shared.getAvatar(jid: self.jid, owner: self.owner, size: 128) { image in
-                    self.avatar = image
+                DefaultAvatarManager.shared.getAvatar(url: nil, jid: self.jid, owner: self.owner, size: 128) { image in
+                    if let image = image {
+                        self.avatar = image
+                    } else {
+                        self.avatar = UIImageView.getDefaultAvatar(for: self.jid, owner: self.owner, size: 128)
+                    }
                 }
                 self.subscribe()
                 self.tableView.reloadData()

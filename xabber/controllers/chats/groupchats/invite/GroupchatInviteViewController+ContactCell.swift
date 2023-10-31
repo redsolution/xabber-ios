@@ -103,7 +103,7 @@ extension GroupchatInviteViewController {
             statusIndicator.widthAnchor.constraint(equalToConstant: 12).isActive = true
         }
         
-        open func configure(_ jid: String, owner: String, username: String, status: ResourceStatus, entity: RosterItemEntity, avatarKey: String, selected: Bool, failed: Bool) {
+        open func configure(_ jid: String, owner: String, username: String, status: ResourceStatus, entity: RosterItemEntity, avatarUrl: String?, selected: Bool, failed: Bool) {
             usernameLabel.text = username
             statusLabel.text = jid
             
@@ -115,8 +115,12 @@ extension GroupchatInviteViewController {
                 statusIndicator.border(0.1)
                 statusIndicator.setStatus(status: status, entity: entity)
             }
-            DefaultAvatarManager.shared.getAvatar(jid: jid, owner: owner, size: 48, callback: { image in
-                self.avatarView.image = image
+            DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 48, callback: { image in
+                if let image = image {
+                    self.avatarView.image = image
+                } else {
+                    self.avatarView.setDefaultAvatar(for: jid, owner: owner)
+                }
             })
             if failed {
                 usernameLabel.textColor = MDCPalette.red.tint500

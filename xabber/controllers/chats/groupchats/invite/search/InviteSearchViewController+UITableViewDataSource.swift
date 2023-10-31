@@ -37,14 +37,16 @@ extension InviteSearchViewController: UITableViewDataSource {
         }
         let primaryResource = item.getPrimaryResource()
         
-        cell.configure(item.jid,
-                       owner: item.owner,
-                       username: item.displayName,
-                       status: primaryResource?.status ?? .offline,
-                       entity: primaryResource?.entity ?? .contact,
-                       avatarKey: item.jid,
-                       selected: false,
-                       failed: false)
+        cell.configure(
+            item.jid,
+            owner: item.owner,
+            username: item.displayName,
+            status: primaryResource?.status ?? .offline,
+            entity: primaryResource?.entity ?? .contact,
+            avatarUrl: nil,
+            selected: false,
+            failed: false
+        )
         
         return cell
     }

@@ -29,6 +29,7 @@ class NewCallViewController: BaseViewController {
         let owner: String
         let jid: String
         let username: String
+        let avatarUrl: String?
     }
     
     internal let tableView: UITableView = {
@@ -76,7 +77,7 @@ class NewCallViewController: BaseViewController {
             self.datasource = contacts.compactMap({ (item) -> Datasource? in
                 switch item.getPrimaryResource()?.entity ?? .contact {
                 case .contact:
-                    return Datasource(owner: item.owner, jid: item.jid, username: item.displayName)
+                        return Datasource(owner: item.owner, jid: item.jid, username: item.displayName, avatarUrl: nil)
                 default:
                     return nil
                 }

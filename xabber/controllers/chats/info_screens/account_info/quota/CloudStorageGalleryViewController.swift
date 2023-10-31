@@ -58,13 +58,13 @@ class CloudStorageGalleryViewController: BaseViewController {
         self.owner = ""
         self.footerView.selectedKind = selectedKind
         
-        optionButton = UIBarButtonItem(image: #imageLiteral(resourceName: "ellipsis.circle").withRenderingMode(.alwaysTemplate), style: .plain, target: self, action: #selector(optionButtonTapped))
+        
+        optionButton = UIBarButtonItem(image: UIImage(systemName: "ellipsis.circle")?.withRenderingMode(.alwaysTemplate), style: .plain, target: self, action: #selector(optionButtonTapped))
         navigationItem.setRightBarButtonItems([optionButton!], animated: false)
         
         tableView.contentInset = UIEdgeInsets(top: -52, bottom: 0, left: 0, right: 0)
         view.addSubview(tableView)
         tableView.fillSuperview()
-        
         footerView.jid = self.jid
         footerView.owner = self.owner
         footerView.infoVCDelegate = self

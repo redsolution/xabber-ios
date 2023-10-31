@@ -58,6 +58,7 @@ class CommonConfigManager: NSObject {
         var afterburn_at_default: Bool
         var afterburn_default_interval: Int
         var server_registration_url: String
+        var show_server_features: Bool
     }
     
     var config: CommonConfig

@@ -99,16 +99,14 @@ extension SettingsViewController: UITableViewDataSource {
                 case .subscriptions:
                     let cell = UITableViewCell(style: .value1, reuseIdentifier: "value1CellReuseID")
                     cell.textLabel?.text = item.title
-                    let trial = SubscribtionsManager.shared.trialEnd
-                    let subscribtion = SubscribtionsManager.shared.subscribtionEnd
-                    if trial != nil {
-                        cell.detailTextLabel?.text = "Trial"// until \(dateFormatter.string(from: date))"
-                    } else if subscribtion != nil {
-                        cell.detailTextLabel?.text = "Premium"// at \(dateFormatter.string(from: date))"
-                    } else {
-                        cell.detailTextLabel?.text = "Expired" // at \(dateFormatter.string(from: date))"
+                    switch SubscribtionsManager.shared.getState(account: self.jid) {
+                        case .active:
+                            cell.detailTextLabel?.text = "Premium"
+                        case .expired:
+                            cell.detailTextLabel?.text = "Expired"
+                        case .trial:
+                            cell.detailTextLabel?.text = "Trial"
                     }
-                    
                     cell.accessoryType = .disclosureIndicator
                     return cell
                 

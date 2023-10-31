@@ -84,7 +84,15 @@ open class OmemoManager: AbstractXMPPManager {
         super.init(withOwner: owner)
     }
     
-    public final func configureLocal(for deviceId: Int) {
+    override func onStreamPrepared(_ stream: XMPPStream) {
+        if stream.isDisconnected {
+            return
+        }
+        let deviceId = CredentialsManager.shared.getDeviceId(for: self.owner) ?? Int(arc4random() % 16380)
+        self.configureLocal(stream, for: deviceId)
+    }
+    
+    public final func configureLocal(_ stream: XMPPStream, for deviceId: Int) {
         do {
             let realm = try WRealm.safe()
             let collection = realm.objects(SignalDeviceStorageItem.self)
@@ -94,9 +102,7 @@ open class OmemoManager: AbstractXMPPManager {
                 }
             }
             try self.localStore.create(for: deviceId, context: self.signalContext)
-            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                user.omemo.updateMyDevice(stream)
-            })
+            self.updateMyDevice(stream)
         } catch {
             DDLogDebug("OmemoManager: \(#function). \(error.localizedDescription)")
         }

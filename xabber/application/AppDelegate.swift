@@ -36,7 +36,7 @@ func getAppVersion() -> String {
 }
 
 @UIApplicationMain
- class AppDelegate: UIResponder, UIApplicationDelegate {
+class AppDelegate: UIResponder, UIApplicationDelegate {
 
     var window: UIWindow?
     var pushRegistry: PKPushRegistry!
@@ -89,9 +89,8 @@ func getAppVersion() -> String {
             window?.rootViewController = navigationController
         }
         
-        ApplicationStateManager.shared.prepare()
-        
         AccountManager.shared.load(!self.isPushKit)
+        ApplicationStateManager.shared.prepare()
         
         self.getNotificationSettings()
         
@@ -103,14 +102,7 @@ func getAppVersion() -> String {
             }
         }
         
-        DispatchQueue.global().asyncAfter(deadline: .now() + 3) {
-            try? AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .default, options: .defaultToSpeaker)
-            if #available(iOS 13.0, *) {
-                try? AVAudioSession
-                    .sharedInstance()
-                    .setAllowHapticsAndSystemSoundsDuringRecording(true)
-            }
-        }
+        
         
         
         NotificationCenter.default.addObserver(self,

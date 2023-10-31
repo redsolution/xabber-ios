@@ -202,22 +202,29 @@ extension OmemoManager {
     
     public final func updateMyDevice(_ stream: XMPPStream) {
         self.shouldPublicate = true
-        if (AccountManager.shared.find(for: self.owner)?.isNewAccount ?? false) {
-            try? self.publicateOwnDevice(stream, createNode: true)
+        if !(AccountManager.shared.find(for: self.owner)?.devices.isAvailable ?? true) {
+            self.getOwnDevices(stream)
         } else {
-            if !(AccountManager.shared.find(for: self.owner)?.devices.isAvailable ?? true) {
-                try self.getOwnDevices(stream)
-            } else {
-                try? self.publicateOwnDevice(stream, createNode: false)
-            }
+            try? self.publicateOwnDevice(stream, createNode: true)
         }
+//        if (AccountManager.shared.find(for: self.owner)?.isNewAccount ?? false) {
+//            try? self.publicateOwnDevice(stream, createNode: true)
+//        } else {
+//            if !(AccountManager.shared.find(for: self.owner)?.devices.isAvailable ?? true) {
+//                self.getOwnDevices(stream)
+//            } else {
+//                try? self.publicateOwnDevice(stream, createNode: false)
+//            }
+//        }
     }
     
     public final func publicateOwnDevice(_ xmppStream: XMPPStream, createNode: Bool) throws {
-        self.createNode(xmppStream, node: .device)
-        self.createNode(xmppStream, node: .bundle)
-        self.configureNode(xmppStream, node: .device)
-        self.configureNode(xmppStream, node: .bundle)
+        if createNode {
+            self.createNode(xmppStream, node: .device)
+            self.createNode(xmppStream, node: .bundle)
+            self.configureNode(xmppStream, node: .device)
+            self.configureNode(xmppStream, node: .bundle)
+        }
         try self.sendOwnDeviceBundle(xmppStream, createNode: createNode)
         if !(AccountManager.shared.find(for: self.owner)?.devices.isAvailable ?? true) {
             try self.sendOwnDevice(xmppStream, createNode: createNode)

@@ -38,13 +38,16 @@ extension ContactsViewController: UITableViewDataSource {
                                                            for: indexPath) as? ContactCell else {
                 fatalError()
             }
-            cell.configure(title: item.title ?? "",
-                           subtitle: item.subtitle ?? "",
-                           status: item.status ?? .offline,
-                           entity: item.entity ?? .contact,
-                           jid: item.jid ?? item.owner,
-                           owner: item.owner,
-                           showAvatar: self.showAvatars)
+            cell.configure(
+                title: item.title ?? "",
+                subtitle: item.subtitle ?? "",
+                status: item.status ?? .offline,
+                entity: item.entity ?? .contact,
+                jid: item.jid ?? item.owner,
+                owner: item.owner,
+                showAvatar: self.showAvatars,
+                avatarUrl: item.avatarUrl
+            )
             cell.setMask()
             return cell
         case .group:

@@ -282,12 +282,9 @@ extension ChatViewController {
             .invalidateLastMessageCachedSize(primary: datasource.last?.primary)
         let heightBeforeUpdate = self.messagesCollectionView.contentSize.height
         let offsetBeforeUpdate = self.messagesCollectionView.contentOffset.y
-
-        self.messagesCollectionView.performBatchUpdates({
-            prepare()
-//            if !changes.replaces.isEmpty {
-//                self.messagesCollectionView.reconfigureItems(at: changes.replaces.compactMap { return IndexPath(row: 0, section: $0) })
-//            }
+        
+        prepare()
+         self.messagesCollectionView.performBatchUpdates({
             if !changes.deletes.isEmpty {
                 self.messagesCollectionView.deleteSections(changes.deletes)
             }
@@ -311,11 +308,9 @@ extension ChatViewController {
             if !changes.replaces.isEmpty {
                 self.messagesCollectionView.reconfigureItems(at: changes.replaces.compactMap { return IndexPath(row: 0, section: $0) })
             }
-//            self.messagesCollectionView.collectionViewLayout.invalidateLayout()
             if self.shouldUpdatePreviousMessage {
                 self.shouldUpdatePreviousMessage = false
                 self.messagesCollectionView.reconfigureItems(at: [IndexPath(row: 0, section: 1)])
-//                self.messagesCollectionView.reconfigureItems(at: self.messagesCollectionView.indexPathsForVisibleItems)
             }
             let additionalOffset = self.messagesCollectionView.contentSize.height - heightBeforeUpdate
             if self.shouldChangeOffsetOnUpdate {
@@ -346,13 +341,11 @@ extension ChatViewController {
             let newDataset = self.mapDataset(count: self.messagesCount)
             let changes = diff(old: self.datasource, new: newDataset)
             let indexSet = self.convertChangeset(changes: changes)
-//            RunLoop.current.perform {
-                DispatchQueue.main.async {
-                    self.apply(changes: indexSet, shouldScrollToLastMessage: shouldScrollToLastMessage) {
-                        self.datasource = newDataset
-                    }
+            DispatchQueue.main.async {
+                self.apply(changes: indexSet, shouldScrollToLastMessage: shouldScrollToLastMessage) {
+                    self.datasource = newDataset
                 }
-//            }
+            }
         }
     }
     

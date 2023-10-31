@@ -161,28 +161,30 @@ class ReliableMessageDeliveryManager: AbstractXMPPManager {
     
     internal func readNotification(_ message: XMPPMessage) -> Bool {
         guard let received = message.element(forName: "received", xmlns: getPrimaryNamespace()),
-            let elementId = received.element(forName: "origin-id")?.attributeStringValue(forName: "id") else {
+            let elementId = received.element(forName: "origin-id")?.attributeStringValue(forName: "id"),
+            let stanzaId = received.element(forName: "stanza-id")?.attributeStringValue(forName: "id") else {
                 return false
         }
         do {
             let realm = try  WRealm.safe()
-            if let instance = realm
-                .objects(MessageStorageItem.self)
-                .filter("owner == %@ AND messageId == %@", owner, elementId)
-                .first {
-                    try realm.write {
-                        if instance.state == .sending {
-                            instance.state = .sended
-                        }
-                        if let stamp = received.element(forName: "time")?.attributeStringValue(forName: "stamp")?.xmppDate {
-                            instance.date = stamp
-                            instance.sentDate = stamp
-                        }
-                        instance.archivedId = getStanzaId(message, owner: owner)
+            if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: MessageStorageItem.genPrimary(messageId: elementId, owner: owner)) {
+                try realm.write {
+                    if instance.state == .sending {
+                        instance.state = .sended
                     }
+                    if let stamp = received.element(forName: "time")?.attributeStringValue(forName: "stamp")?.xmppDate {
+                        instance.date = stamp
+                        instance.sentDate = stamp
+                    }
+                    instance.archivedId = stanzaId
+                }
+            } else {
+                print(message.prettyXMLString!)
+                print(1488)
             }
         } catch {
             DDLogDebug("\(#function). Cant load message for messageId: \(elementId). \(error.localizedDescription)")
+            
         }
         return true
     }
