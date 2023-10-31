@@ -206,27 +206,10 @@ extension SettingsViewController: UITableViewDelegate {
         if (accounts?.count ?? 0) <= 1 { return sourceIndexPath }
         if sourceIndexPath.section != proposedDestinationIndexPath.section {
             return sourceIndexPath
-//            var row = 0
-//            if sourceIndexPath.section < proposedDestinationIndexPath.section {
-//                row = self.tableView(tableView, numberOfRowsInSection: sourceIndexPath.section) - 1
-//            }
-//            return IndexPath(row: row, section: sourceIndexPath.section)
         }
         if proposedDestinationIndexPath.row == (accounts?.count ?? 0) {
             return sourceIndexPath
         }
         return proposedDestinationIndexPath
     }
-    
-//    override func tableView(_ tableView: UITableView, targetIndexPathForMoveFromRowAt sourceIndexPath: IndexPath, toProposedIndexPath proposedDestinationIndexPath: IndexPath) -> IndexPath {
-//        if sourceIndexPath.section != proposedDestinationIndexPath.section {
-//            var row = 0
-//            if sourceIndexPath.section < proposedDestinationIndexPath.section {
-//                row = self.tableView(tableView, numberOfRowsInSection: sourceIndexPath.section) - 1
-//            }
-//            return IndexPath(row: row, section: sourceIndexPath.section)
-//        }
-//        return proposedDestinationIndexPath
-//    }
-    
 }

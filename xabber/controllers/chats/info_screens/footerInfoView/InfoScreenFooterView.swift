@@ -441,22 +441,6 @@ class InfoScreenFooterView: UIView {
                 predicate = NSPredicate(format: "jid == %@ AND owner == %@ AND kind_ == %@ AND mimeType == %@ AND hasError == false", self.jid, self.owner, MessageReferenceStorageItem.Kind.media.rawValue, "video")
             }
         case .files:
-//            let mimeTypes: [String] = mimeIcon.compactMap ({
-//                item -> String? in
-//                if item.value == .document ||
-//                   item.value == .pdf ||
-//                   item.value == .table ||
-//                   item.value == .presentation ||
-//                   item.value == .archive ||
-//                   item.value == .audio ||
-//                   item.value == .file {
-//                     let start = item.key.lastIndex(of: "/") ?? item.key.startIndex
-//                     let mimeType = String(item.key[start..<item.key.endIndex]).replacingOccurrences(of: "/", with: "")
-//
-//                     return mimeType
-//                }
-//                return nil
-//            })
             let mimeTypes: [String] = ["document", "pdf", "table", "presentation", "archive", "audio", "file"]
             if self.jid != "" && self.owner == "" {
                 predicate = NSPredicate(format: "owner == %@ AND kind_ == %@ AND mimeType IN %@ AND hasError == false", self.jid, MessageReferenceStorageItem.Kind.media.rawValue, mimeTypes)

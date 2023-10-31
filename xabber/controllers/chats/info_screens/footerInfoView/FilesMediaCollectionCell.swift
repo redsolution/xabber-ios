@@ -75,7 +75,6 @@ class FilesMediaCollectionCell: UICollectionViewCell {
         button.layer.cornerRadius = button.frame.width / 2
         button.layer.masksToBounds = true
         button.imageEdgeInsets = UIEdgeInsets(square: 10)
-        
         return button
     }()
     
@@ -123,11 +122,32 @@ class FilesMediaCollectionCell: UICollectionViewCell {
     
     let separatorLine: UIView = {
         let view = UIView()
-        view.backgroundColor = .systemGray
+        view.backgroundColor = .systemGray5
         view.translatesAutoresizingMaskIntoConstraints = false
         
         return view
     }()
+    
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        
+        primaryStack.removeFromSuperview()
+        separatorLine.removeFromSuperview()
+        primaryStack.arrangedSubviews.forEach { view in
+            view.removeFromSuperview()
+        }
+        contentStackView.arrangedSubviews.forEach { view in
+            view.removeFromSuperview()
+        }
+        nameAndDateStack.arrangedSubviews.forEach { view in
+            view.removeFromSuperview()
+        }
+        fileNameStack.arrangedSubviews.forEach { view in
+            view.removeFromSuperview()
+        }
+        
+        iconButton.imageView?.image = nil
+    }
     
     
     internal func setup(mimeType: String, sender: String, date: String, time: String, sizeInBytes: String, filename: String) {
@@ -147,6 +167,8 @@ class FilesMediaCollectionCell: UICollectionViewCell {
         fileNameStack.addArrangedSubview(fileNameLabel)
         fileNameStack.addArrangedSubview(fileSizeLabel)
         
+        bringSubviewToFront(contentView)
+        
         activateConstraints()
         configure(mimeType: mimeType, sender: sender, date: date, time: time, sizeInBytes: sizeInBytes, filename: filename)
     }
@@ -160,7 +182,7 @@ class FilesMediaCollectionCell: UICollectionViewCell {
         fileSizeLabel.text = ", " + sizeInBytes
         
 
-        switch MimeIconTypes(rawValue: mimeType) {
+        switch mimeIcon[mimeType] {
         case .image:
             iconButton.setImage(#imageLiteral(resourceName: "image").withRenderingMode(.alwaysTemplate), for: .normal)
         case .audio:
@@ -181,6 +203,8 @@ class FilesMediaCollectionCell: UICollectionViewCell {
             iconButton.setImage(#imageLiteral(resourceName: "file").withRenderingMode(.alwaysTemplate), for: .normal)
         case .none:
             iconButton.setImage(#imageLiteral(resourceName: "file").withRenderingMode(.alwaysTemplate), for: .normal)
+        default:
+            iconButton.setImage(#imageLiteral(resourceName: "image").withRenderingMode(.alwaysTemplate), for: .normal)
         }
     }
     
@@ -199,10 +223,23 @@ class FilesMediaCollectionCell: UICollectionViewCell {
             fileSizeLabel.rightAnchor.constraint(equalTo: fileNameStack.rightAnchor),
             
             separatorLine.leftAnchor.constraint(equalTo: nameAndDateStack.leftAnchor),
-//            separatorLine.rightAnchor.constraintEq(equalToC: contentStackView.frame.width),
-            separatorLine.widthAnchor.constraint(equalToConstant: separatorLine.superview!.frame.width - iconButton.frame.width - 2 * InfoScreenFooterView.cellSpacing),
+            separatorLine.rightAnchor.constraint(equalTo: rightAnchor),
             separatorLine.bottomAnchor.constraint(equalTo: bottomAnchor),
             separatorLine.heightAnchor.constraint(equalToConstant: 0.5)
         ])
+    }
+    
+    func editModeDisabled() {
+        deselect()
+    }
+    
+    func select() {
+        iconButton.backgroundColor = MDCPalette.grey.tint100
+        primaryStack.backgroundColor = .systemGray5
+    }
+    
+    func deselect() {
+        iconButton.backgroundColor = MDCPalette.grey.tint300
+        primaryStack.backgroundColor = .white
     }
 }

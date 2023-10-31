@@ -113,21 +113,21 @@ class MessageReferenceStorageItem: Object {
         var uploadUrl: URL? {
             get {
                 guard let uri = self.metadata?["putUri"] as? String else { return nil }
-                return URL(string: uri)
+                return URL(string: uri.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? "")
             }
         }
         
         var localFileUrl: URL? {
             get {
                 guard let uri = self.metadata?["localFileUri"] as? String else { return nil }
-                return URL(string: uri)
+                return URL(string: uri.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? "")
             }
         }
         
         var downloadUrl: URL? {
             get {
                 guard let uri = self.metadata?["uri"] as? String else { return nil }
-                return URL(string: uri)
+                return URL(string: uri.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? "")
             }
         }
         
@@ -250,7 +250,7 @@ class MessageReferenceStorageItem: Object {
     var uploadUrl: URL? {
         get {
             guard let uri = self.metadata?["putUri"] as? String else { return nil }
-            return URL(string: uri)
+            return URL(string: uri.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? "")
         } set {
             if let uri = newValue?.absoluteString {
                 self.metadata?["putUri"] = uri
@@ -261,7 +261,7 @@ class MessageReferenceStorageItem: Object {
     var localFileUrl: URL? {
         get {
             guard let uri = self.metadata?["localFileUri"] as? String else { return nil }
-            return URL(string: uri)
+            return URL(string: uri.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? "")
         } set {
             if let uri = newValue?.absoluteString {
                 self.metadata?["localFileUri"] = uri
@@ -272,7 +272,7 @@ class MessageReferenceStorageItem: Object {
     var downloadUrl: URL? {
         get {
             guard let uri = self.url else { return nil }
-            return URL(string: uri)
+            return URL(string: uri.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? "")
         }
         set {
             if let uri = newValue?.absoluteString {
@@ -564,7 +564,7 @@ class MessageReferenceStorageItem: Object {
         switch kind {
         case .voice:
             guard let uri = metadata?["uri"] as? String,
-                let url = URL(string: uri) else {
+                  let url = URL(string: uri.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? "") else {
                     return
             }
             if OpusAudio.shared.isCached(url) && self.isDownloaded { return }

@@ -111,7 +111,7 @@ extension FileDeletionConfirmation: UITableViewDataSource {
         let headerView = UITableViewHeaderFooterView()
         let label = UILabel()
         label.font = UIFont.preferredFont(forTextStyle: .body)
-        label.text = "You are about to delete files from your cloud storage. Press the button below to review the list of file`s that are about to be deleted."
+        label.text = "You are about to delete files from your cloud storage. Press the button below to review the list of files that are about to be deleted."
         label.numberOfLines = 0
         headerView.addSubview(label)
         label.fillSuperviewWithOffset(top: 0, bottom: 35, left: 16, right: 16)

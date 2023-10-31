@@ -51,18 +51,25 @@ extension CloudStorageDeleteViewController: UICollectionViewDataSource {
             return cell
         case .video:
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: VideosMediaCollectionCell.cellName, for: indexPath) as! VideosMediaCollectionCell
-            cell.setup(videoCacheKey: item.videoPreviewKey, videoDuration: item.video_duration ?? "")
+            cell.setup(videoCacheKey: item.videoPreviewKey, videoDuration: item.videoDuration ?? "")
             return cell
         case .file:
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: FilesMediaCollectionCell.cellName, for: indexPath) as! FilesMediaCollectionCell
-            cell.setup(mimeType: item.mimeType!, sender: item.senderName ?? "", date: item.date ?? "", time: item.time ?? "", sizeInBytes: item.size ?? "", filename: item.fileName!)
+            cell.setup(mimeType: item.mimeType!, sender: item.senderName ?? "", date: item.date ?? "", time: item.time ?? "", sizeInBytes: String(item.size!), filename: item.fileName!)
+            cell.senderNameLabel.text = cell.fileNameLabel.text
+            cell.fileNameLabel.isHidden = true
+            cell.fileSizeLabel.text = item.size
             if indexPath.row == datasource[indexPath.section].count - 1 {
                 cell.separatorLine.removeFromSuperview()
             }
             return cell
         case .voice:
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: VoiceMediaCollectionCell.cellName, for: indexPath) as! VoiceMediaCollectionCell
-            cell.setup(withReference: item.voiceModel!, date: item.date!, send_time: item.time!, senderName: item.senderName!, owner: "", sizeInBytes: item.size!)
+            cell.setup(withReference: item.voiceModel, date: item.date!, send_time: item.time!, sizeInBytes: item.size!, url: item.uri)
+            if item.meters == nil {
+                cell.audioView.configure(.paused, meters: [0.0, 0.0], loading: false, duration: item.audioDuration ?? "", senderName: item.fileName ?? "Audio message", date: item.date!, send_time: item.time!, sizeInBytes: item.size ?? "? КБ")
+            }
+            cell.audioView.durationLabel.text = cell.sizeInBytes
             if indexPath.row == datasource[indexPath.section].count - 1 {
                 cell.audioView.separatorLine.removeFromSuperview()
             }

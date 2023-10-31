@@ -607,16 +607,16 @@ extension ChatViewController: MessageCellDelegate {
             }
             
             if let uri = item.metadata?["uri"] as? String,
-                let url = URL(string: uri) {
+                let url = URL(string: uri.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? "") {
                 if OpusAudio.shared.currentPlayedFileUri != uri {
                     OpusAudio.shared.resetPlayer()
                 }
                 OpusAudio.shared.getPlayer(for: url)
             } else if let uri = item.metadata?["uriEmbded"] as? String,
-                let url = URL(string: uri) {
+                      let url = URL(string: uri.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? "") {
                 if !OpusAudio.shared.getPlayerForPreview(for: url) {
                     if let uri = item.metadata?["uri"] as? String,
-                        let url = URL(string: uri) {
+                        let url = URL(string: uri.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? "") {
                         OpusAudio.shared.getPlayer(for: url)
                     } else {
                         return

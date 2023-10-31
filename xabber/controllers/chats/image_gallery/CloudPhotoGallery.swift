@@ -11,7 +11,7 @@ import Foundation
 public class CloudPhotoGallery: PhotoGallery {
     var tappedCloudPhotoDelegate: TappedPhotoInCloudGallery?
     
-    func setupDelegate(photoGalleryDelegate: CloudInfoScreenView) {
+    func setupDelegate(photoGalleryDelegate: CloudStorageShowFilesViewController) {
         self.tappedCloudPhotoDelegate = photoGalleryDelegate
     }
     

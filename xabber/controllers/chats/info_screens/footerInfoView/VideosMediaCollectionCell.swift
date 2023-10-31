@@ -73,7 +73,7 @@ class VideosMediaCollectionCell: UICollectionViewCell {
     
     let activityIndicator: UIActivityIndicatorView = {
         let indicator = UIActivityIndicatorView()
-        indicator.style = .white
+        indicator.style = .medium
         indicator.hidesWhenStopped = true
         indicator.translatesAutoresizingMaskIntoConstraints = false
         
@@ -88,12 +88,44 @@ class VideosMediaCollectionCell: UICollectionViewCell {
         return view
     }()
     
+    let selectedVideoView: UIImageView = {
+        let view = UIImageView()
+        view.image = nil
+        view.backgroundColor = UIColor.black.withAlphaComponent(0.2)
+        view.layer.borderColor = MDCPalette.grey.tint100.cgColor
+        view.layer.masksToBounds = true
+        
+        view.isHidden = true
+        return view
+    }()
+    
+    let videoWithoutPreviewIcon: UIImageView = {
+        let view = UIImageView()
+        view.image = #imageLiteral(resourceName: "file-video").withRenderingMode(.alwaysTemplate)
+        view.tintColor = .white
+        view.backgroundColor = .clear
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.isHidden = true
+        return view
+    }()
+    
     override func prepareForReuse() {
         super.prepareForReuse()
         imageView.image = nil
+        selectedVideoView.removeFromSuperview()
     }
     
     internal func setup(videoCacheKey key: String?, videoDuration: String) {
+        addSubview(imageView)
+        addSubview(activityIndicator)
+        imageView.addSubview(videoPlayIconBackground)
+        imageView.addSubview(videoWithoutPreviewIcon)
+        videoPlayIconBackground.addSubview(videoPlayIcon)
+        imageView.addSubview(videoDurationLabel)
+        imageView.addSubview(selectedVideoView)
+        selectedVideoView.frame = CGRect(x: contentView.frame.width - 28, y: 4, width: 22, height: 22)
+        selectedVideoView.layer.cornerRadius = selectedVideoView.frame.height / 2
+        contentView.bringSubviewToFront(selectedVideoView)
         videoDurationLabel.text = videoDuration
         makeConstraints()
         imageView.layer.cornerRadius = 3
@@ -113,6 +145,11 @@ class VideosMediaCollectionCell: UICollectionViewCell {
             
             activityIndicator.centerXAnchor.constraint(equalTo: centerXAnchor),
             activityIndicator.centerYAnchor.constraint(equalTo: centerYAnchor),
+            
+            videoWithoutPreviewIcon.centerXAnchor.constraint(equalTo: centerXAnchor),
+            videoWithoutPreviewIcon.centerYAnchor.constraint(equalTo: centerYAnchor),
+            videoWithoutPreviewIcon.heightAnchor.constraint(equalToConstant: 32),
+            videoWithoutPreviewIcon.widthAnchor.constraint(equalToConstant: 32),
             
             videoPlayIconBackground.centerXAnchor.constraint(equalTo: centerXAnchor),
             videoPlayIconBackground.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -150,14 +187,6 @@ class VideosMediaCollectionCell: UICollectionViewCell {
         }
     }
     
-    private final func setup() {
-        addSubview(imageView)
-        addSubview(activityIndicator)
-        imageView.addSubview(videoPlayIconBackground)
-        videoPlayIconBackground.addSubview(videoPlayIcon)
-        imageView.addSubview(videoDurationLabel)
-    }
-    
     private func setCellWithVideo(key: String) {
         activityIndicator.stopAnimating()
         videoPlayIconBackground.isHidden = false
@@ -166,22 +195,16 @@ class VideosMediaCollectionCell: UICollectionViewCell {
     }
     
     private func setCellWithoutVideo(keyIsNotNil: Bool = true) {
+//        if !keyIsNotNil {
+//            activityIndicator.startAnimating()
+//            activityIndicator.isHidden = false
+//        }
         if !keyIsNotNil {
-            activityIndicator.startAnimating()
-            activityIndicator.isHidden = false
+            activityIndicator.stopAnimating()
+            videoWithoutPreviewIcon.isHidden = false
         }
         videoPlayIconBackground.isHidden = true
         videoPlayIcon.isHidden = true
-    }
-    
-    public override init(frame: CGRect) {
-        super.init(frame: frame)
-        setup()
-    }
-    
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        setup()
     }
     
     func activateErrorImage() {
@@ -193,5 +216,26 @@ class VideosMediaCollectionCell: UICollectionViewCell {
             errorImageView.widthAnchor.constraint(equalToConstant: 24),
             errorImageView.heightAnchor.constraint(equalToConstant: 24)
         ])
+    }
+    
+    func editModeEnabled() {
+        selectedVideoView.isHidden = false
+    }
+    
+    func editModeDisabled() {
+        selectedVideoView.isHidden = true
+        deselect()
+    }
+    
+    func select() {
+        selectedVideoView.image = #imageLiteral(resourceName: "check-circle").withRenderingMode(.alwaysTemplate)
+        selectedVideoView.tintColor = .systemBlue
+        selectedVideoView.backgroundColor = UIColor.white
+    }
+    
+    func deselect() {
+        selectedVideoView.image = nil
+        selectedVideoView.backgroundColor = UIColor.black.withAlphaComponent(0.2)
+        selectedVideoView.layer.borderColor = MDCPalette.grey.tint100.cgColor
     }
 }

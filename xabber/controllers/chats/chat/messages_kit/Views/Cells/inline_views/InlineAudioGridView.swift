@@ -185,7 +185,7 @@ class InlineAudioGridView: InlineMediaBaseView {
         prepareGrid(references).enumerated().forEach {
             index, cell in
             if let uri = items[index].metadata?["uri"] as? String,
-                let url = URL(string: uri) {
+               let url = URL(string: uri.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? "") {
                 let view = AudioView(frame: cell)
                 addSubview(view)
                 view.configure(.paused,

@@ -127,6 +127,8 @@ class InlineFilesGridView: InlineMediaBaseView {
                 iconButton.setImage(#imageLiteral(resourceName: "file").withRenderingMode(.alwaysTemplate), for: .normal)
             case .none:
                 iconButton.setImage(#imageLiteral(resourceName: "file").withRenderingMode(.alwaysTemplate), for: .normal)
+            default:
+                iconButton.setImage(#imageLiteral(resourceName: "image").withRenderingMode(.alwaysTemplate), for: .normal)
             }
             filenameLabel.text = filename
             sizeLabel.text = size

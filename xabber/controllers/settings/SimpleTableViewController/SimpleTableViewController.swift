@@ -79,6 +79,7 @@ class SimpleTableViewController: BaseViewController {
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        self.navigationItem.title = datasource?.title
         self.tabBarController?.tabBar.isHidden = true
         self.navigationController?.isNavigationBarHidden = false
         self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
@@ -149,14 +150,6 @@ extension SimpleTableViewController: UITableViewDataSource {
                 cell.detailTextLabel?.text = "+ \(displayedAttempts)"
                 cell.accessoryType = .disclosureIndicator
                 return cell
-            
-//            case .showAttempts:
-//                guard let cell = tableView.dequeueReusableCell(withIdentifier: SwitchCell.cellName, for: indexPath) as? SwitchCell else {
-//                    return UITableViewCell(frame: .zero)
-//                }
-//                cell.switchCallback = onBoolItemDidChange
-//                cell.configure(key: key.rawValue, for: menuItem.title ?? "", active: menuItem.toggle)
-//                return cell
                 
             default:
                 break

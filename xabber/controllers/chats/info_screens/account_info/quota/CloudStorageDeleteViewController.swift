@@ -8,54 +8,12 @@
 
 import Foundation
 import UIKit
-import TOInsetGroupedTableView
-import RxSwift
 import CocoaLumberjack
 
-class CloudStorageDeleteViewController: BaseViewController {
-    struct Datasource {
-        enum Kind {
-            case image
-            case video
-            case file
-            case voice
-            case undefined
-        }
-        
-        var uri: String? = nil
-        var thumbnail: String? = nil
-        var kind: Kind
-        var videoPreviewKey: String? = nil
-        var video_duration: String? = nil
-        var mimeType: String? = nil
-        var fileName: String? = nil
-        var voiceModel: MessageReferenceStorageItem.Model? = nil
-        var date: String? = nil
-        var time: String? = nil
-        var size: String? = nil
-        var senderName: String? = nil
-    }
-    
+class CloudStorageDeleteViewController: CloudStorageShowFilesViewController {
     var dateOfLastFile: String? = nil
-    
-    var percent: Int = 0
-    
-    var totalPages: Int = 0
-    
-    var items: [NSDictionary] = []
-
     var datasource: [[Datasource]] = []
-    
-    var currentPage: Int = 1
-    
-    lazy var spinner: UIActivityIndicatorView = {
-        let activityIndicator = UIActivityIndicatorView(style: .medium)
-        activityIndicator.color = UIColor.gray
-        activityIndicator.hidesWhenStopped = true
-        activityIndicator.translatesAutoresizingMaskIntoConstraints = false
-        
-        return activityIndicator
-    }()
+    let percent: Int
     
     let collectionView: UICollectionView = {
         let collection = UICollectionView(frame: .zero, collectionViewLayout: UICollectionViewLayout.init())
@@ -71,29 +29,48 @@ class CloudStorageDeleteViewController: BaseViewController {
         collection.register(VoiceMediaCollectionCell.self, forCellWithReuseIdentifier: VoiceMediaCollectionCell.cellName)
         collection.register(UICollectionReusableView.self, forSupplementaryViewOfKind: UICollectionView.elementKindSectionHeader, withReuseIdentifier: "headerView")
         collection.register(UICollectionViewCell.self, forCellWithReuseIdentifier: "deleteButton")
-        collection.register(UICollectionViewCell.self, forCellWithReuseIdentifier: "moreButton")
         collection.backgroundColor = .systemGroupedBackground
         
         return collection
     }()
     
-    convenience init(percent: Int, owner: String, items: [NSDictionary], totalPages: Int) {
-        self.init()
+    init(percent: Int, owner: String, items: [NSDictionary], totalPages: Int) {
         self.percent = percent
-        self.owner = owner
-        self.items = items
-        self.totalPages = totalPages
+        super.init(owner: owner, items: items, totalPages: totalPages)
+        
+        guard let account = AccountManager.shared.find(for: owner),
+              let uploader = account.getDefaultUploader() as? UploadManagerExtendedProtocol else {
+                  return
+              }
+        if totalPages == 1 {
+            self.spinner.removeFromSuperview()
+            self.spinner.stopAnimating()
+            self.configureCollections()
+        } else {
+            for page in 2..<totalPages + 1 {
+                uploader.getFilesToDeleteByPercent(percent: percent, page: page) { items, totalObjects, objPerPage, pages in
+                    if items.isEmpty {
+                        return
+                    }
+                    self.items += items
+                    if page == pages {
+                        self.spinner.removeFromSuperview()
+                        self.spinner.stopAnimating()
+                        self.configureCollections()
+                        self.collectionView.reloadData()
+                    }
+                }
+            }
+        }
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
     
     internal func configureCollections() {
-        var urls: [String] = []
-        
         if items.isEmpty {
             return
-        }
-        
-        items.forEach { item in
-            urls.append(item["file"] as! String)
         }
         
         let date = DateFormatter()
@@ -105,50 +82,83 @@ class CloudStorageDeleteViewController: BaseViewController {
         var files: [Datasource] = []
         var voices: [Datasource] = []
 
-        do {
-            let realm = try WRealm.safe()
-
-            let predicate = NSPredicate(format: "url IN %@", urls)
-            let collection = realm
-                .objects(MessageReferenceStorageItem.self)
-                .filter(predicate)
-                .sorted(byKeyPath: "sentDate", ascending: false)
-            collection.forEach { item in
-                switch item.mimeType {
-                case "image":
-                    images.append(Datasource(uri: item.url!,
-                                             kind: .image,
-                                             mimeType: item.mimeType))
-                case "video":
-                    videos.append(Datasource(uri: item.url!,
-                                             kind: .video,
-                                             videoPreviewKey: item.videoPreviewKey,
-                                             video_duration: item.video_duration))
-                default:
-                    if item.kind == .voice {
-                        let voiceModel = item.loadModel()
-                        let senderData = PhotoGallery.getSenderName(messageId: item.messageId)
-                        voices.append(Datasource(uri: item.url!,
-                                                 kind: .voice,
-                                                 voiceModel: voiceModel,
-                                                 date: senderData.date,
-                                                 time: senderData.time,
-                                                 size: item.sizeInBytes,
-                                                 senderName: senderData.senderName))
-                        return
-                    }
-                    let senderData = PhotoGallery.getSenderName(messageId: item.messageId)
-                    files.append(Datasource(kind: .file,
-                                            mimeType: item.mimeType,
-                                            fileName: item.name ?? (item.downloadUrl?.lastPathComponent ?? "File".localizeString(id: "chat_message_file", arguments: [])),
-                                            date: senderData.date,
-                                            time: senderData.time,
-                                            size: item.sizeInBytes,
-                                            senderName: senderData.senderName))
-                }
+        items.forEach { item in
+            let url = item["file"] as? String
+            
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
+            guard let createdAt = item["created_at"] as? String,
+                  let dateToSort = dateFormatter.date(from: createdAt) else {
+                return
             }
-        } catch {
-            DDLogDebug("InfoScreenFooterView: \(#function). \(error.localizedDescription)")
+            
+            guard var mediaType = item["media_type"] as? String else { return }
+            if mediaType.contains(";") {
+                mediaType = String(mediaType.prefix(upTo: mediaType.firstIndex(of: ";")!))
+            }
+            switch mimeIcon[mediaType] {
+            case .image:
+                images.append(Datasource(uri: url?.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed),
+                                         kind: .image,
+                                         mimeType: "image",
+                                         dateFormatted: dateToSort,
+                                         fileId: item["id"] as? Int))
+            case .video:
+                let metadata = item["metadata"] as? NSDictionary
+                let videoDuration = metadata?["duration"] as? String
+                let videoPreviewKey = metadata?["video_preview_key"] as? String
+                
+                videos.append(Datasource(uri: url?.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed),
+                                         kind: .video,
+                                         videoPreviewKey: videoPreviewKey,
+                                         videoDuration: videoDuration,
+                                         mimeType: "video",
+                                         dateFormatted: dateToSort,
+                                         fileId: item["id"] as? Int))
+            case .audio:
+                let metadata = item["metadata"] as? NSDictionary
+                let audioDuration = metadata?["duration"] as? String
+                let meters = metadata?["meters"] as? String
+                
+                let dateAndTime = PhotoGallery.prepareDate(date: dateToSort)
+                let date = dateAndTime.date
+                let time = dateAndTime.send_time
+                
+                guard let fileSizeBytes = item["size"] else { return }
+                let fileSize = AccountQuotaStorageItem.beautify(size: fileSizeBytes as! Int)
+                
+                voices.append(Datasource(uri: url?.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed),
+                                         kind: .voice,
+                                         audioDuration: audioDuration,
+                                         meters: meters,
+                                         mimeType: "voice",
+                                         fileName: item["name"] as? String,
+                                         dateFormatted: dateToSort,
+                                         date: date,
+                                         time: time,
+                                         size: fileSize,
+                                         fileId: item["id"] as? Int))
+                break
+                
+            default:
+                let dateAndTime = PhotoGallery.prepareDate(date: dateToSort)
+                let date = dateAndTime.date
+                let time = dateAndTime.send_time
+                
+                guard let fileSizeBytes = item["size"] else { return }
+                let fileSize = AccountQuotaStorageItem.beautify(size: fileSizeBytes as! Int)
+                
+                files.append(Datasource(uri: url?.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed),
+                                        kind: .file,
+                                        mimeType: "file",
+                                        fileName: item["name"] as? String,
+                                        dateFormatted: dateToSort,
+                                        date: date,
+                                        time: time,
+                                        size: fileSize,
+                                        fileId: item["id"] as? Int))
+                break
+            }
         }
         
         datasource = []
@@ -175,28 +185,17 @@ class CloudStorageDeleteViewController: BaseViewController {
         spinner.centerXAnchor.constraint(equalTo: view.centerXAnchor).isActive = true
         spinner.centerYAnchor.constraint(equalTo: view.centerYAnchor).isActive = true
         
-        guard let account = AccountManager.shared.find(for: owner),
-              let uploader = account.getDefaultUploader() as? UploadManagerExtendedProtocol else {
-            return
-        }
-        
-        for page in 1..<totalPages + 1 {
-            uploader.getFilesToDeleteByPercent(percent: percent, page: page) { items, totalObjects, objPerPage, pages in
-                if items.isEmpty {
-                    return
-                }
-                self.items += items
-                if page == pages {
-                    self.spinner.removeFromSuperview()
-                    self.spinner.stopAnimating()
-                    self.configureCollections()
-                    self.collectionView.reloadData()
-                }
-            }
-        }
-        
         self.navigationItem.title = "Delete files"
         self.navigationController?.navigationBar.prefersLargeTitles = true
+    }
+    
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        
+        if datasource.isNotEmpty && spinner.isAnimating {
+            spinner.removeFromSuperview()
+            spinner.stopAnimating()
+        }
     }
     
     override func viewWillDisappear(_ animated: Bool) {

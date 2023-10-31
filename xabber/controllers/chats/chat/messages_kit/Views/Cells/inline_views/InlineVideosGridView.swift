@@ -149,7 +149,7 @@ class InlineVideosGridView: InlineMediaBaseView {
         let urls = references
 //            .filter({ $0.mimeType == MimeIconTypes.image.rawValue })
             .compactMap { return $0.metadata?["uri"] as? String }
-            .compactMap { return URL(string: $0) }
+            .compactMap { return URL(string: $0.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? "") }
         prepareGrid(references).enumerated().forEach {
             index, cell in
             if index < urls.count {
