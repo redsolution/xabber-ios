@@ -337,7 +337,7 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
         }
         
         datasource.sort(by: { $0.dateFormatted! > $1.dateFormatted! })
-        optionButton = UIBarButtonItem(image: #imageLiteral(resourceName: "ellipsis.circle").withRenderingMode(.alwaysTemplate), style: .plain, target: self, action: #selector(optionButtonTapped))
+        optionButton = UIBarButtonItem(image: UIImage(systemName: "ellipsis.circle")!.withRenderingMode(.alwaysTemplate), style: .plain, target: self, action: #selector(optionButtonTapped))
         navigationItem.setRightBarButton(optionButton, animated: false)
         
         view.addSubview(collectionView)

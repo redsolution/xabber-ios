@@ -627,16 +627,23 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             let conversationType = ConversationType(rawValue: conversation.attributeStringValue(forName: "type") ?? "none") ?? .regular
             
             if metadata.element(forName: "last-message")?.element(forName: "message") == nil {
-                if let instance = realm.object(
-                    ofType: LastChatsStorageItem.self,
-                    forPrimaryKey: LastChatsStorageItem.genPrimary(
-                        jid: jid,
-                        owner: self.owner,
-                        conversationType: conversationType)) {
-                    realm.delete(instance)
+                if conversation.element(forName: "presence")?.attributeStringValue(forName: "type") == "subscribe" {
+                    if conversationType != ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) {
+                        return nil
+                    }
                 }
-                return nil
+//                if let instance = realm.object(
+//                    ofType: LastChatsStorageItem.self,
+//                    forPrimaryKey: LastChatsStorageItem.genPrimary(
+//                        jid: jid,
+//                        owner: self.owner,
+//                        conversationType: conversationType)) {
+//                    realm.delete(instance)
+//                }
+//                return nil
             }
+
+            
             
             if conversation.element(forName: "deleted") != nil || conversationStatus == "deleted" {
                 if let instance = realm.object(

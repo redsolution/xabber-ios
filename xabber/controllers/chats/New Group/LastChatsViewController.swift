@@ -824,23 +824,23 @@ class LastChatsViewController: BaseViewController {
         
         do {
             let realm = try  WRealm.safe()
+            let collection = realm
+                .objects(AccountStorageItem.self)
+                .filter("enabled == true")
+                .sorted(byKeyPath: "order", ascending: true)
             Observable
-                .collection(from: realm
-                    .objects(AccountStorageItem.self)
-                    .filter("enabled == true")
-                    .sorted(byKeyPath: "order", ascending: true))
-//                .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
+                .collection(from: collection)
+                .debounce(.milliseconds(500), scheduler: MainScheduler.asyncInstance)
+                .skip(1)
                 .subscribe(onNext: { (results) in
                     if let item = results.first {
                         self.topAccountJid = item.jid
                         self.accountNavButton.update(jid: self.topAccountJid, status: item.resource?.status ?? .offline, avatarUrl: nil)
                         self.unreadAllMessagesButton.isEnabled = AccountManager.shared.connectingUsers.value.isEmpty
-                        UIView.animate(withDuration: 0.1) {
-                            getAppTabBar()?.updateColor()
-                            self.customTitleLabel.textColor = AccountColorManager.shared.topColor()
-                            self.addButton.tintColor = AccountColorManager.shared.topColor()
-                            self.unreadAllMessagesButton.backgroundColor = AccountManager.shared.connectingUsers.value.isNotEmpty ? MDCPalette.grey.tint500 : AccountColorManager.shared.topPalette().tint500
-                        }
+                        getAppTabBar()?.updateColor()
+                        self.customTitleLabel.textColor = AccountColorManager.shared.topColor()
+                        self.addButton.tintColor = AccountColorManager.shared.topColor()
+                        self.unreadAllMessagesButton.backgroundColor = AccountManager.shared.connectingUsers.value.isNotEmpty ? MDCPalette.grey.tint500 : AccountColorManager.shared.topPalette().tint500
                     }
                 }).disposed(by: bag)
         } catch {
@@ -910,10 +910,22 @@ class LastChatsViewController: BaseViewController {
         }
         do {
             let realm = try  WRealm.safe()
-            enabledAccounts
-                .accept(Set(realm.objects(AccountStorageItem.self)
-                    .filter("enabled == %@", true).compactMap { return $0.jid }))
+            let collection = realm
+                .objects(AccountStorageItem.self)
+                .filter("enabled == true")
+                .sorted(byKeyPath: "order", ascending: true)
             
+            enabledAccounts.accept(Set(collection.compactMap { return $0.jid }))
+            
+            if let item = collection.first {
+                self.topAccountJid = item.jid
+                self.accountNavButton.update(jid: self.topAccountJid, status: item.resource?.status ?? .offline, avatarUrl: nil)
+                self.unreadAllMessagesButton.isEnabled = AccountManager.shared.connectingUsers.value.isEmpty
+                getAppTabBar()?.updateColor()
+                self.customTitleLabel.textColor = AccountColorManager.shared.topColor()
+                self.addButton.tintColor = AccountColorManager.shared.topColor()
+                self.unreadAllMessagesButton.backgroundColor = AccountManager.shared.connectingUsers.value.isNotEmpty ? MDCPalette.grey.tint500 : AccountColorManager.shared.topPalette().tint500
+            }
             
             
         } catch {
@@ -974,6 +986,7 @@ class LastChatsViewController: BaseViewController {
 //        } catch {
 //            DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
 //        }
+        
     }
     
     override func reloadDatasource() {

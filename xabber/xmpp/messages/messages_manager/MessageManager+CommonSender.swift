@@ -180,8 +180,9 @@ extension MessageManager {
                     stanza.addBody(item.legacyBody)
                     stanzaToSave.addBody(item.legacyBody)
                     item.createReferences().forEach {
-                        stanza.addChild($0)
-                        stanzaToSave.addChild($0)
+                        
+                        stanza.addChild($0.copy() as! DDXMLElement)
+                        stanzaToSave.addChild($0.copy() as! DDXMLElement)
                     }
             }
             

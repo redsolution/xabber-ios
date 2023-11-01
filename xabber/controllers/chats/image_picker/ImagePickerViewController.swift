@@ -166,7 +166,7 @@ class ImagePickerViewController: UIViewController {
                                                           contentMode: PHImageContentMode.aspectFit,
                                                           options: options,
                                                           resultHandler: { (image, info) in
-                        if let url = URL(string: [UUID().uuidString, "png"].joined(separator: ".")),
+                        if let url = URL(string: [UUID().uuidString, "jpg"].joined(separator: ".")),
                             let image = image {
                             self.media.append(self.addImageBy(url, image: image))
                         }
@@ -526,12 +526,12 @@ extension ImagePickerViewController: UIImagePickerControllerDelegate {
         item.jid = self.jid
         item.conversationType = self.conversationType
         item.mimeType = MimeIcon(MimeType(url: url).value).value.rawValue
-        item.temporaryData = image.pngData()
+        item.temporaryData = image.jpegData(compressionQuality: 0.9)
         item.metadata = [
             "name": "Image".localizeString(id: "chat_message_image", arguments: []),
             "filename": url.lastPathComponent,
             "size": item.temporaryData?.count ?? 0,
-            "media-type": MimeType(url: url).value,
+            "media-type": "image/jpeg",
             "uri": url.absoluteString,
             "width": image.size.width,
             "height": image.size.height,
@@ -576,7 +576,7 @@ extension ImagePickerViewController: UIImagePickerControllerDelegate {
                 }
             } else {
                 let image = imageRaw.fixOrientation().safeResize(to: 768)
-                let imageUrl = url ?? URL(string: [UUID().uuidString, "png"].joined(separator: "."))!
+                let imageUrl = url ?? URL(string: [UUID().uuidString, ".jpg"].joined(separator: "."))!
                 media.append(addImageBy(imageUrl, image: image))
                 picker.dismiss(animated: true) {
                     DispatchQueue.main.async {

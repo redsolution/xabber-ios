@@ -518,7 +518,7 @@ class ChatViewController: MessagesViewController {
         subscribtionBarView.fillSuperview()
         self.subscribtionBarView.isHidden = true
         subscribtionBar.frame = CGRect(x: 0, y: 0, width: view.frame.width, height: 64)
-//        view.addSubview(subscribtionBar)
+        view.addSubview(subscribtionBar)
         
         subscribtionBar.isHidden = true
     }
