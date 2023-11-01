@@ -47,7 +47,7 @@ extension CloudStorageViewController: UITableViewDataSource {
             listContentConfiguration.text = item.title
             listContentConfiguration.textProperties.color = .systemRed
             listContentConfiguration.textProperties.alignment = .center
-            if imagesUsed == "0 КБ" && videosUsed == "0 КБ" && audioUsed == "0 КБ" && filesUsed == "0 КБ" {
+            if imagesUsed == "0 KiB" && videosUsed == "0 KiB" && audioUsed == "0 KiB" && filesUsed == "0 KiB" {
                 cell.selectionStyle = UITableViewCell.SelectionStyle.none
                 listContentConfiguration.textProperties.color = .systemGray
             } else {
@@ -59,9 +59,7 @@ extension CloudStorageViewController: UITableViewDataSource {
             let cell = UITableViewCell(style: .value1, reuseIdentifier: "value1CellReuseID")
             cell.textLabel?.text = item.title
             cell.detailTextLabel?.text = item.subtitle
-            if item.subtitle != "0 КБ" {
-                cell.accessoryType = .disclosureIndicator
-            }
+            cell.accessoryType = .disclosureIndicator
             return cell
         }
     }

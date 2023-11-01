@@ -132,6 +132,7 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
         view.register(VideosMediaCollectionCell.self, forCellWithReuseIdentifier: VideosMediaCollectionCell.cellName)
         view.register(FilesMediaCollectionCell.self, forCellWithReuseIdentifier: FilesMediaCollectionCell.cellName)
         view.register(VoiceMediaCollectionCell.self, forCellWithReuseIdentifier: VoiceMediaCollectionCell.cellName)
+        view.register(NoFilesMediaCollectionCell.self, forCellWithReuseIdentifier: NoFilesMediaCollectionCell.cellName)
         view.backgroundColor = .systemGroupedBackground
         return view
     }()
@@ -181,6 +182,12 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
             return
         }
         uploader.getFilesOfType(type: selectedType, page: 1) { items, totalObjects, objPerPage, totalPages in
+            if items.isEmpty {
+                self.spinner.removeFromSuperview()
+                self.spinner.stopAnimating()
+                self.configureCollections()
+                return
+            }
             self.totalPages = totalPages
             self.items = items
             if totalPages == 1 {
@@ -210,9 +217,8 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
     
     func configureCollections() {
         if items.isEmpty {
-            return
+            datasource.append(Datasource(kind: .undefined))
         }
-        
         switch selectedType {
         case .image:
             self.navigationItem.title = "Images"
@@ -338,6 +344,9 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
         
         datasource.sort(by: { $0.dateFormatted! > $1.dateFormatted! })
         optionButton = UIBarButtonItem(image: UIImage(systemName: "ellipsis.circle")!.withRenderingMode(.alwaysTemplate), style: .plain, target: self, action: #selector(optionButtonTapped))
+        if items.isEmpty {
+            optionButton?.isEnabled = false
+        }
         navigationItem.setRightBarButton(optionButton, animated: false)
         
         view.addSubview(collectionView)
@@ -386,6 +395,16 @@ extension CloudStorageGalleryViewController: UICollectionViewDataSource {
     }
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         let item = datasource[indexPath.row]
+        if item.kind == .undefined {
+            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: NoFilesMediaCollectionCell.cellName, for: indexPath) as! NoFilesMediaCollectionCell
+            cell.setup()
+            if selectedType == .audio {
+                cell.label.text = "No voice messages"
+            } else {
+                cell.label.text = "No \(selectedType.rawValue)s"
+            }
+            return cell
+        }
         switch selectedType {
         case .image, .avatar:
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: PhotosMediaCollectionCell.cellName, for: indexPath) as! PhotosMediaCollectionCell
@@ -432,8 +451,8 @@ extension CloudStorageGalleryViewController: UICollectionViewDataSource {
             if collectionView.isEditing {
                 if cell.isSelected {
                     if indexPath.item > 0 {
-                        let lastCell = collectionView.cellForItem(at: IndexPath(item: indexPath.item - 1, section: indexPath.section)) as! VoiceMediaCollectionCell
-                        lastCell.audioView.separatorLine.isHidden = true
+                        let lastCell = collectionView.cellForItem(at: IndexPath(item: indexPath.item - 1, section: indexPath.section)) as? VoiceMediaCollectionCell
+                        lastCell?.audioView.separatorLine.isHidden = true
                     }
                     cell.select()
                 } else {
@@ -495,6 +514,9 @@ extension CloudStorageGalleryViewController: UICollectionViewDataSource {
 
 extension CloudStorageGalleryViewController: UICollectionViewDelegateFlowLayout {
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
+        if items.isEmpty {
+            return CGSize(width: view.frame.width - InfoScreenFooterView.cellSpacing * 2, height: 60)
+        }
         switch selectedType {
         case .image, .video, .avatar:
             let layout = collectionViewLayout as! UICollectionViewFlowLayout

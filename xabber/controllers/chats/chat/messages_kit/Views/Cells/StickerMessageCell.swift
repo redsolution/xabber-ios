@@ -67,7 +67,7 @@ class StickerMessageCell: MessageContentCell {
             }
             imageView.kf.indicatorType = .activity
             imageView.kf.setImage(
-                with: KF.ImageResource(downloadURL: url),
+                with: ImageResource(downloadURL: url),
                 placeholder: InlineGridImagePlaceholderView(frame: CGRect(origin: .zero,
                                                                           size: imageView.frame.size)),
                 options: []

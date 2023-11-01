@@ -84,8 +84,11 @@ class CloudStorageViewController: BaseViewController {
             Datasource(.text, title: "Files".localizeString(id: "files", arguments: []),
                        subtitle: filesUsed, key: "files"),
             Datasource(.text, title: "Voice".localizeString(id: "voice", arguments: []),
-                       subtitle: audioUsed, key: "audio"),
-            Datasource(.text, title: "Avatars".localizeString(id: "avatars", arguments: []), subtitle: "Not included", key: "avatars")
+                       subtitle: audioUsed, key: "audio")
+        ]))
+        
+        datasource.append(Datasource(.text, title: "", children: [
+            Datasource(.text, title: "Avatars".localizeString(id: "avatars", arguments: []), key: "avatars")
         ]))
         
         datasource.append(Datasource(.text, title: "", children: [

@@ -94,7 +94,7 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
     
     //MARK: - Uploads user's file on the server, receives file's and thumbnail's urls
     //MARK: - It is called in Account if the user doesn't have any token yet
-    private func uploadFile(message primary: String, data: Data, filename: String, mimeType: String, metadata: [String: String]? = nil, successCallback: @escaping ((String, String?, Int, String, String, URL, Int, Int) -> Void), failCallback: @escaping ((Error?) -> Void), errorCallback: @escaping ((Int?) -> Void)) {
+    private func uploadFile(message primary: String, data: Data, filename: String, mimeType: String? = nil, metadata: [String: String]? = nil, successCallback: @escaping ((String, String?, Int, String, String, URL, Int, Int) -> Void), failCallback: @escaping ((Error?) -> Void), errorCallback: @escaping ((Int?) -> Void)) {
         
         guard isAvailable(), let node = node else {
             failCallback(UploadError.notAvailable)
@@ -113,18 +113,19 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
         ]
         print("TOKEN:\n\(token)")
         
-        let mime: String = mimeType
-        guard let metadata = metadata else { return }
+        let mime: String = mimeType ?? ""
         var jsonMetadata: Data? = nil
-        do {
-            jsonMetadata = try JSONSerialization.data(withJSONObject: metadata)
-        } catch {
-            DDLogDebug("XabberUploadManager: \(#function). \(error.localizedDescription)")
+        if let metadata = metadata {
+            do {
+                jsonMetadata = try JSONSerialization.data(withJSONObject: metadata)
+            } catch {
+                DDLogDebug("XabberUploadManager: \(#function). \(error.localizedDescription)")
+            }
         }
         
         Alamofire.upload(
             multipartFormData: { formData in
-                formData.append(data, withName: "file", fileName: filename, mimeType: mimeType)
+                formData.append(data, withName: "file", fileName: filename, mimeType: mimeType ?? "")
                 formData.append(mime.data(using: .utf8)!, withName: "media_type")
                 //Takes type of file, e.g. "audio" from "audio/ogg"
                 
@@ -207,30 +208,33 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
                     reference in
                     if reference.localFileUrl != nil {
                         do {
+                            var metadata: [String: String]? = nil
+                            var mimeType: String? = nil
                             let referencePrimary = reference.primary
-                            var metadata: [String: String] = [:]
-                            switch reference.mimeType {
-                            case "image":
-                                break
-                            case "video":
-                                let videoDuration = reference.loadModel()?.duration
-                                let videoPreviewKey = reference.videoPreviewKey
-                                metadata["duration"] = videoDuration
-                                metadata["video_preview_key"] = videoPreviewKey
-                                break
-                            case "voice":
-                                let meteringLevels = reference.metadata?["meters"]
-                                let audioDuration = reference.metadata?["duration"]
-                                metadata["meters"] = meteringLevels as? String
-                                metadata["duration"] = audioDuration as? String
-                                break
-                            default:
-                                break
+                            guard let filename = reference.filename else { return }
+                            if reference.conversationType_ != ClientSynchronizationManager.ConversationType.omemo.rawValue && reference.conversationType_ != ClientSynchronizationManager.ConversationType.omemo1.rawValue && reference.conversationType_ != ClientSynchronizationManager.ConversationType.axolotl.rawValue {
+                                guard let mimeType = reference.metadata?["media-type"] else { return }
+                                switch reference.mimeType {
+                                case "image":
+                                    break
+                                case "video":
+                                    let videoDuration = reference.loadModel()?.duration
+                                    let videoPreviewKey = reference.videoPreviewKey
+                                    metadata?["duration"] = videoDuration
+                                    metadata?["video_preview_key"] = videoPreviewKey
+                                    break
+                                case "voice":
+                                    let meteringLevels = reference.metadata?["meters"]
+                                    let audioDuration = reference.metadata?["duration"]
+                                    metadata?["meters"] = meteringLevels as? String
+                                    metadata?["duration"] = audioDuration as? String
+                                    break
+                                default:
+                                    break
+                                }
                             }
                             
                             var data = try Data(contentsOf: reference.localFileUrl! as URL)
-                            guard let filename = reference.filename,
-                                  let mimeType = reference.metadata?["media-type"] else { return }
                             let encryptionKeyb64 = reference.metadata?["encryption-key"] as? String
                             let ivb64 = reference.metadata?["iv"] as? String
                             if CommonConfigManager.shared.config.use_file_enryption_by_default {
@@ -253,7 +257,7 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
                                 message: primary,
                                 data: data,
                                 filename: filename,
-                                mimeType: mimeType as! String,
+                                mimeType: mimeType,
                                 metadata: metadata,
                                 successCallback: {
                                     (getUrl, thumbnailUrl, fileID, name, hash, uploadUrl, quota, used) in
@@ -664,9 +668,7 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
                           let totalObjects = json["total_objects"] as? Int,
                           let objPerPage = json["obj_per_page"] as? Int,
                           let totalPages = json["total_pages"] as? Int else { return }
-                    if totalObjects > 0 {
-                        callback(json["items"] as! [NSDictionary], totalObjects, objPerPage, totalPages)
-                    }
+                    callback(json["items"] as! [NSDictionary], totalObjects, objPerPage, totalPages)
                 case .failure(let value):
                     DDLogDebug("XabberUploadManager: \(#function). \(value.localizedDescription)")
                     return
