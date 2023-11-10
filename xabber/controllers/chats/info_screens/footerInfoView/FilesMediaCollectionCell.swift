@@ -78,12 +78,13 @@ class FilesMediaCollectionCell: UICollectionViewCell {
         return button
     }()
     
-    let senderNameLabel: UILabel = {
+    var senderNameLabel: UILabel = {
         let label = UILabel()
         label.font = UIFont.systemFont(ofSize: 16)
         label.textColor = .black
         label.textAlignment = .left
         label.translatesAutoresizingMaskIntoConstraints = false
+        label.setContentHuggingPriority(UILayoutPriority(700), for: .horizontal)
         
         return label
     }()
@@ -104,7 +105,6 @@ class FilesMediaCollectionCell: UICollectionViewCell {
         label.textColor = .black
         label.textAlignment = .left
         label.translatesAutoresizingMaskIntoConstraints = false
-        label.setContentHuggingPriority(UILayoutPriority(900), for: .horizontal)
         
         return label
     }()
@@ -115,7 +115,6 @@ class FilesMediaCollectionCell: UICollectionViewCell {
         label.textColor = MDCPalette.grey.tint500
         label.textAlignment = .left
         label.translatesAutoresizingMaskIntoConstraints = false
-        label.setContentHuggingPriority(UILayoutPriority(700), for: .horizontal)
         
         return label
     }()
@@ -145,6 +144,7 @@ class FilesMediaCollectionCell: UICollectionViewCell {
         fileNameStack.arrangedSubviews.forEach { view in
             view.removeFromSuperview()
         }
+        senderNameLabel = .init(frame: .zero)
         
         iconButton.imageView?.image = nil
     }

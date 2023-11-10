@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 54;
+	objectVersion = 52;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -3413,7 +3413,6 @@
 			isa = PBXGroup;
 			children = (
 				661D8E102ACADD0600990FDF /* device_privacy */,
-				66E843D82A72A28400EC72E1 /* burn_messages */,
 				4DFF74FF2851E5170036AE0D /* SelectorViewController */,
 				4D0AD0C32850A31F00C3D9DE /* SimpleTableViewController */,
 				1A939B2627E49D5B00014E43 /* masksSelection */,
@@ -5226,7 +5225,6 @@
 				66FD8EFC22B371B600693944 /* AccountConnectionViewController+UITextFieldDelegate.swift in Sources */,
 				1A9B584127B39489004DD787 /* FilesMediaCollectionCell.swift in Sources */,
 				66ED0D482488CE140053CBEF /* ContactInfoViewController- UITableViewDelegate.swift in Sources */,
-				66E843DA2A72A29B00EC72E1 /* BurnMessagesSettingsViewController.swift in Sources */,
 				665451B122A916070077635D /* AccountEditViewController+ProfileCell.swift in Sources */,
 				66F985D7231E37400013A0BD /* MessageReferenceStorageItem.swift in Sources */,
 				6643F30E21C2650E00333229 /* UIColor+Extensions.swift in Sources */,
@@ -5809,7 +5807,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_OPTIMIZATION = time;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
-				CLANG_USE_OPTIMIZATION_PROFILE = YES;
+				CLANG_USE_OPTIMIZATION_PROFILE = NO;
 				CLANG_WARN_DOCUMENTATION_COMMENTS = NO;
 				CODE_SIGN_ENTITLEMENTS = xabber/xabber.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
@@ -5867,7 +5865,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_OPTIMIZATION = time;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
-				CLANG_USE_OPTIMIZATION_PROFILE = YES;
+				CLANG_USE_OPTIMIZATION_PROFILE = NO;
 				CLANG_WARN_DOCUMENTATION_COMMENTS = NO;
 				CODE_SIGN_ENTITLEMENTS = xabber/xabber.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";

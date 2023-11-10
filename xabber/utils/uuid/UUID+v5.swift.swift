@@ -47,7 +47,7 @@ extension UUID {
     
     init(name: String, nameSpace: String) {
         // Get UUID bytes from name space:
-        var spaceUID = UUID(uuidString: nameSpace)!.uuid
+        var spaceUID = UUID(uuidString: nameSpace)?.uuid
         var data = withUnsafePointer(to: &spaceUID) { [count =  MemoryLayout.size(ofValue: spaceUID)] in
             Data(bytes: $0, count: count)
         }

@@ -162,7 +162,7 @@ class PhotoGalleryCell: UICollectionViewCell {
     func configureForNewImageUrl(animated: Bool = true) {
         guard let url = imageUrl else { return }
         imageView.kf.indicatorType = .activity
-        let resource = KF.ImageResource(downloadURL: url)
+        let resource = ImageResource(downloadURL: url)
         ImageCache.default.retrieveImage(forKey: resource.cacheKey) { result in
             switch result {
             case .success(let value):

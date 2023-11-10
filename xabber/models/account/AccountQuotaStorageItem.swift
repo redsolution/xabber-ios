@@ -77,8 +77,10 @@ class AccountQuotaStorageItem: Object {
         return formatter
             .string(fromByteCount: Int64(size))
             .replacingOccurrences(of: ",", with: ".")
-//            .replacingOccurrences(of: "MB", with: "MiB")
-//            .replacingOccurrences(of: "KB", with: "KiB")
+            .replacingOccurrences(of: "MB", with: "MiB")
+            .replacingOccurrences(of: "МБ", with: "MiB")
+            .replacingOccurrences(of: "KB", with: "KiB")
+            .replacingOccurrences(of: "КБ", with: "KiB")
             .replacingOccurrences(of: "Zero", with: "0")
         
     }
