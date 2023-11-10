@@ -528,6 +528,7 @@ extension SubscribtionsListViewController {
             self.tableView.reloadData()
             return
         }
+        (UIApplication.shared.delegate as? AppDelegate)?.excludeBlur = true
         let indexPath = IndexPath(row: index, section: 1)
         SubscribtionsManager.shared.purchase(
             jid: self.owner,
@@ -546,6 +547,7 @@ extension SubscribtionsListViewController {
                     }
                     SubscribtionsManager.shared.confirmPurchaise(jid: self.owner, productId: productId) {
                         result in
+                        (UIApplication.shared.delegate as? AppDelegate)?.excludeBlur = false
                         if result {
                             AccountManager.shared.reloadAccount(withJid: self.owner, autoConnect: true)
                             DispatchQueue.main.async {
@@ -565,6 +567,7 @@ extension SubscribtionsListViewController {
                         }
                     }
                 } else {
+                    (UIApplication.shared.delegate as? AppDelegate)?.excludeBlur = false
                     DispatchQueue.main.async {
                         let cellsForUpdate = [
                             IndexPath(row: 0, section: 0),
@@ -578,7 +581,6 @@ extension SubscribtionsListViewController {
                         ToastPresenter(message: "Error: fail purchaise").present(animated: true)
                     }
                 }
-                
             }
     }
     

@@ -95,7 +95,7 @@ class DeviceInfoTableCell: UITableViewCell {
         ])
     }
     
-    func configure(fingerprint: String? = nil, client: String, device: String, description descr: String, ip: String, lastAuth: Date, current: Bool, editable: Bool, isOnline: Bool, trustState: SignalDeviceStorageItem.TrustState? = nil, hasBundle: Bool? = nil) {
+    func configure(fingerprint: String? = nil, client: String, device: String, description descr: String, ip: String, lastAuth: Date, current: Bool, editable: Bool, isOnline: Bool, trustState: SignalDeviceStorageItem.TrustState? = nil, hasBundle: Bool? = nil, isTrustebByCertificate: Bool = false) {
         let dateFormatter = DateFormatter()
         if Calendar.current.isDateInToday(lastAuth) {
             dateFormatter.dateStyle = .none
@@ -137,7 +137,7 @@ class DeviceInfoTableCell: UITableViewCell {
             case .Ignore:
                 self.trustIconView.tintColor = .gray
             case .trusted:
-                self.authDateLabel.text = (self.authDateLabel.text ?? "") + " Trusted"
+                self.authDateLabel.text = (self.authDateLabel.text ?? "") + (isTrustebByCertificate ? "Signed" : " Trusted")
                 self.authDateLabel.textColor = .systemGreen
                 self.trustIconView.tintColor = .systemGreen
             case .fingerprintChanged:

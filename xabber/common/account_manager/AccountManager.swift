@@ -58,7 +58,7 @@ public class AccountManager: NSObject {
         
     }
     
-    static let defaultResource = "xabber-ios-\(String(describing: String(describing: UIDevice.current.identifierForVendor!).split(separator: "-").first!))"
+    static let defaultResource = "\(CommonConfigManager.shared.config.app_name.lowercased())-ios-\(String(describing: String(describing: UIDevice.current.identifierForVendor!).split(separator: "-").first!))"
     
     var newAccountJid: String = ""
     var newAccountObservable: BehaviorRelay<UserObserver> = BehaviorRelay(value: UserObserver(jid: "", state: .none))
@@ -115,15 +115,15 @@ public class AccountManager: NSObject {
     @objc
     private func willEnterForeground() {
         self.prepareForForeground()
-        let appDelegate = UIApplication.shared.delegate as? AppDelegate
-        appDelegate?.presentPasscodeOrRemoveBlurredScreen()
+//        let appDelegate = UIApplication.shared.delegate as? AppDelegate
+//        appDelegate?.presentPasscodeOrRemoveBlurredScreen()
     }
     
     @objc
     private func willEnterBackground() {
         self.prepareForBackground()
-        let appDelegate = UIApplication.shared.delegate as? AppDelegate
-        appDelegate?.addBlurredScreen()
+//        let appDelegate = UIApplication.shared.delegate as? AppDelegate
+//        appDelegate?.addBlurredScreen()
     }
     
     private func removeObservers() {
@@ -400,6 +400,11 @@ public class AccountManager: NSObject {
             var value = self.connectingUsers.value
             value.remove(jid)
             self.connectingUsers.accept(value)
+        }
+        if newAccountJid == jid {
+            self.find(for: jid)?.queue.asyncAfter(deadline: .now() + 2) {
+                self.newAccountJid = ""
+            }
         }
     }
     

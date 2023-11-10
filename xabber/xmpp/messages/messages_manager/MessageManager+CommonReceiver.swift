@@ -350,7 +350,7 @@ extension MessageManager {
             } else {
                 item.state = .none
                 do {
-                    let realm = try  WRealm.safe()
+                    let realm = try WRealm.safe()
                     if let chat = realm.object(
                         ofType: LastChatsStorageItem.self,
                         forPrimaryKey: LastChatsStorageItem.genPrimary(

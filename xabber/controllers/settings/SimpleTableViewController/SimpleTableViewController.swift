@@ -312,7 +312,6 @@ extension SimpleTableViewController: UITableViewDelegate {
                         let seconds = minutes * 60
                         SettingManager.shared.saveItem(for: "", scope: .security, key: key.rawValue, value: seconds)
                         ApplicationStateManager.shared.period = TimeInterval(seconds)
-                        ApplicationStateManager.shared.prepare()
                         self.tableView.reloadRows(at: [indexPath], with: .none)
                     })
                     alert.addAction(action)
@@ -364,7 +363,7 @@ extension SimpleTableViewController: UITableViewDelegate {
                 let alertMessage: String
                 
                 if CommonConfigManager.shared.config.locked_host.isNotEmpty {
-                    alertMessage = "Enter your password to permanently delete \(self.jid) from Xabber.\n\nThis action can not be undone."
+                    alertMessage = "Enter your password to permanently delete \(self.jid) from Clandestino.\n\nThis action can not be undone."
                 } else {
                     if let host = XMPPJID(string: self.jid)?.domain {
                         alertMessage = "Enter your password to permanently delete \(self.jid) from \(host).\n\nThis action can not be undone."

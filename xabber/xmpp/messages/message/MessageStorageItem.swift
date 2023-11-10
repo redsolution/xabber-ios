@@ -887,7 +887,6 @@ class MessageStorageItem: Object {
                                 }
                             }
                             
-//                            instance.isSynced = true
                             if isInvite && !isRead {
                                 if instance.rosterItem?.subscribtion != .both {
                                     instance.rosterItem?.ask = .in
@@ -931,7 +930,9 @@ class MessageStorageItem: Object {
                         instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
                         instance.afterburnInterval = self.afterburnInterval
                     }
-                                        
+                    if self.displayAs == .initial && [.omemo, .omemo1, .axolotl].contains(self.conversationType) {
+                        instance.isFreshNotEmptyEncryptedChat = true
+                    }
                     try transaction(commit: commitTransaction, callback: {
                         if instance.isInvalidated { return }
                         realm.add(instance, update: .modified)
@@ -994,6 +995,7 @@ class MessageStorageItem: Object {
                         )
                     }
                 }
+                realm.refresh()
                 return true
             }
         } catch {

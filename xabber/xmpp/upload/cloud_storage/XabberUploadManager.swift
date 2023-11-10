@@ -354,6 +354,7 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
                     message.references.forEach({
                         $0.hasError = true
                     })
+                    realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: message.opponent, owner: message.owner, conversationType: message.conversationType))?.hasErrorInChat = true
                 }
             }
         } catch {

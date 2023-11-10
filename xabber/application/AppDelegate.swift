@@ -43,6 +43,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var logFileManager: DDLogFileManager?
     
     var isPushKit: Bool = false
+    var excludeBlur: Bool = false
      
     var blurEffectView: UIVisualEffectView?
      
@@ -137,9 +138,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     
     func applicationWillResignActive(_ application: UIApplication) {
         DDLogError("resign")
+        addBlurredScreen()
     }
 
     func addBlurredScreen() {
+        guard self.excludeBlur == false else { return }
         guard self.blurEffectView == nil,
            !ApplicationStateManager.shared.isPincodeShowed else {
             return
@@ -168,7 +171,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func applicationDidBecomeActive(_ application: UIApplication) {
         DDLogError("did become active")
-//        removeBlurredScreen()
+        removeBlurredScreen()
     }
      
      func presentPasscodeOrRemoveBlurredScreen() {

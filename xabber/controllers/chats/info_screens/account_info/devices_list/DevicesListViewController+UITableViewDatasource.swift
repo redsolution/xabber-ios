@@ -73,8 +73,10 @@ extension DevicesListViewController: UITableViewDataSource {
             }
             let deviceItem = devices[indexPath.row]
             var trustState: SignalDeviceStorageItem.TrustState? = nil
-                if let omemoDevice = omemoDevices.first(where: { $0.deviceId == deviceItem.omemoDeviceId }) {
+            var isTrustedByCert: Bool = false
+            if let omemoDevice = omemoDevices.first(where: { $0.deviceId == deviceItem.omemoDeviceId }) {
                 trustState = omemoDevice.state
+                isTrustedByCert = omemoDevice.isTrustedByCertificate
             }
             let hasBundle = deviceItem.encryptionEnabled
             cell.configure(
@@ -87,7 +89,8 @@ extension DevicesListViewController: UITableViewDataSource {
                 editable: false,
                 isOnline: deviceItem.resource != nil,
                 trustState: hasBundle ? trustState : nil,
-                hasBundle: hasBundle
+                hasBundle: hasBundle,
+                isTrustebByCertificate: isTrustedByCert
             )
             return cell
         case .broken:
@@ -104,7 +107,8 @@ extension DevicesListViewController: UITableViewDataSource {
                 current: false,
                 editable: false,
                 isOnline: false,
-                trustState: brokenItem.state
+                trustState: brokenItem.state,
+                isTrustebByCertificate: brokenItem.isTrustedByCertificate
             )
             return cell
         }

@@ -700,16 +700,25 @@ class ModernXabberInputView: UIView {
         case send
     }
     
+    public var isSendButtonEnabled: Bool = false
+    
     final func changeSendButtonState(to state: SendButtonState) {
         self.sendButtonState = state
         switch state {
             case .record:
-                self.sendButton.setImage(#imageLiteral(resourceName: "microphone").withRenderingMode(.alwaysTemplate), for: .normal)
-                self.sendButton.tintColor = .secondaryLabel
+//                self.sendButton.setImage(#imageLiteral(resourceName: "microphone").withRenderingMode(.alwaysTemplate), for: .normal)
+                self.sendButton.setImage(#imageLiteral(resourceName: "send").withRenderingMode(.alwaysTemplate), for: .normal)
+                self.sendButton.tintColor = self.isSendButtonEnabled ? self.accountPalette.tint600 : .secondaryLabel
+                self.sendButton.isEnabled = self.isSendButtonEnabled
             case .send:
                 self.sendButton.setImage(#imageLiteral(resourceName: "send").withRenderingMode(.alwaysTemplate), for: .normal)
-                self.sendButton.tintColor = self.accountPalette.tint600
+                self.sendButton.tintColor = self.isSendButtonEnabled ? self.accountPalette.tint600 : .secondaryLabel
+                self.sendButton.isEnabled = self.isSendButtonEnabled
         }
+    }
+    
+    final public func updateSendButtonState() {
+        self.changeSendButtonState(to: self.sendButtonState)
     }
     
     

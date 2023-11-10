@@ -318,13 +318,12 @@ class XMPPDeviceManager: AbstractXMPPManager {
         message.element(forName: "device", xmlns: getPrimaryNamespace()) != nil else {
             return
         }
-        XMPPUIActionManager.shared.performRequest(owner: owner) { stream, session in
-            session.devices?.requestList(stream)
-        } fail: {
-            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+            if AccountManager.shared.newAccountJid != self.owner {
                 user.devices.requestList(stream)
-            })
-        }
+                user.omemo.getOwnDevices(stream)
+            }
+        })
     }
     
     /*<message xmlns="jabber:client" to="andrew@clandestino.chat/clandestino-ios-3F02F22F" from="clandestino.chat" type="headline" id="1437221776883290598">
@@ -424,7 +423,7 @@ class XMPPDeviceManager: AbstractXMPPManager {
         
         CredentialsManager.shared.setItem(for: owner, secret: secret)
         let deviceInfo = [[UIDevice.modelName, ","].joined(),  "iOS", UIDevice.current.systemVersion].joined(separator: " ")
-        let clientInfo = "Xabber"
+        let clientInfo = CommonConfigManager.shared.config.app_name
         let descr = UIDevice.current.name
         let instance = DeviceStorageItem()
         instance.configure(

@@ -215,6 +215,25 @@ class XmppAvatarManager: AbstractXMPPManager {
                 DDLogDebug("XMPPAvatarManager: \(#function). \(error.localizedDescription)")
             }
         } else {
+            do {
+                let avatarKey = [id, owner].prp()
+                let realm = try WRealm.safe()
+                if jid == self.owner {
+                    if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: self.owner) {
+                        if instance.oldschoolAvatarKey == avatarKey {
+                            return true
+                        }
+                    }
+                } else {
+                    if let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: self.owner)) {
+                        if instance.oldschoolAvatarKey == avatarKey {
+                            return true
+                        }
+                    }
+                }
+            } catch {
+                DDLogDebug("XmppAvatarManager: \(#function). \(error.localizedDescription)")
+            }
             AccountManager.shared.find(for: self.owner)?.action({ user, stream in
                 user.avatarManager.self.requestPubSubItem(stream, node: .data, jid: jid, by: id)
             })

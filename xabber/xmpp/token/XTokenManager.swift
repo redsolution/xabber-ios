@@ -141,7 +141,7 @@ class XTokenManager: AbstractXMPPManager {
     
     open func genTokenBody() -> DDXMLElement {
         let deviceInfo = [[UIDevice.modelName, ","].joined(),  "iOS", UIDevice.current.systemVersion].joined(separator: " ")
-        let clientInfo = "Xabber"
+        let clientInfo = CommonConfigManager.shared.config.app_name
         let client = DDXMLElement(name: "client", stringValue: clientInfo)
         let device = DDXMLElement(name: "device", stringValue: deviceInfo)
         let descr = DDXMLElement(name: "description", stringValue: UIDevice.current.name)
@@ -285,7 +285,7 @@ class XTokenManager: AbstractXMPPManager {
         
         CredentialsManager.shared.setItem(for: owner, token: token)
         let deviceInfo = [[UIDevice.modelName, ","].joined(),  "iOS", UIDevice.current.systemVersion].joined(separator: " ")
-        let clientInfo = "Xabber"
+        let clientInfo = CommonConfigManager.shared.config.app_name
         let descr = UIDevice.current.name
         let instance = DeviceStorageItem()
         instance.configure(
@@ -372,7 +372,7 @@ class XTokenManager: AbstractXMPPManager {
     
     public final func update(_ xmppStream: XMPPStream, descr newDescr: String?) {
         let deviceInfo = [[UIDevice.modelName, ","].joined(),  "iOS", UIDevice.current.systemVersion].joined(separator: " ")
-        let clientInfo = "Xabber"
+        let clientInfo = CommonConfigManager.shared.config.app_name
         let client = DDXMLElement(name: "client", stringValue: clientInfo)
         let device = DDXMLElement(name: "device", stringValue: deviceInfo)
         let descr = DDXMLElement(name: "description", stringValue: newDescr)

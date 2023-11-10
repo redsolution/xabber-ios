@@ -192,7 +192,7 @@ final class Account: NSObject {
     func configureStream() {
         self.xmppStream.shouldRequestXToken = false
         self.xmppStream.shouldRegisterDevice = false
-        self.xmppStream.xabberClientInfo = "Xabber"
+        self.xmppStream.xabberClientInfo = CommonConfigManager.shared.config.app_name
         self.xmppStream.xabberPublicLabel = self.deviceName
         self.xmppStream.xabberDeviceInfo = [[UIDevice.modelName, ","].joined(),  "iOS", UIDevice.current.systemVersion].joined(separator: " ")
         self.xmppStream.myJID = XMPPJID(string: jid, resource: AccountManager.defaultResource)
@@ -360,6 +360,7 @@ final class Account: NSObject {
 //            Account§Manager.shared.markAsConnecting(jid: self.jid)
         }
         do {
+            AccountManager.shared.markAsConnecting(jid: self.jid)
             try self.xmppStream.connect(withTimeout: 1)
         } catch {
             DDLogDebug("cant conenct: \(error.localizedDescription)")
@@ -935,6 +936,7 @@ extension Account: XMPPReconnectDelegate {
         self.resetModules()
         self.statusMessage.accept("Offline")
         self.showReconnectStatus(connectionFlags: connectionFlags)
+        AccountManager.shared.markAsConnecting(jid: self.jid)
     }
     
     func xmppReconnect(_ sender: XMPPReconnect, shouldAttemptAutoReconnect connectionFlags: SCNetworkConnectionFlags) -> Bool {
@@ -950,6 +952,7 @@ extension Account: XMPPReconnectDelegate {
             return false
         }
         
+        AccountManager.shared.markAsConnecting(jid: self.jid)
         return sender.autoReconnect
     }
     

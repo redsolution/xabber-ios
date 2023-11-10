@@ -295,7 +295,7 @@ class NotificationService: UNNotificationServiceExtension {
         if let bestAttemptContent = bestAttemptContent {
             guard let body = request.content.userInfo["body"] as? String,
                 let payload = parse(payload: body) else {
-                bestAttemptContent.title = "Xabber"
+                bestAttemptContent.title = CommonConfigManager.shared.config.app_name
                 bestAttemptContent.body = "st1 New message"
                 contentHandler(bestAttemptContent)
                 return
@@ -307,7 +307,7 @@ class NotificationService: UNNotificationServiceExtension {
             let creditionals = getAccounts(request.content.userInfo)
             guard let username = creditionals["username"] as? String,
                 let host = creditionals["host"] as? String else {
-                    bestAttemptContent.title = "Xabber"
+                    bestAttemptContent.title = CommonConfigManager.shared.config.app_name
                     bestAttemptContent.body = "st2 New \(payload.action.rawValue)"
                     contentHandler(bestAttemptContent)
                     return
@@ -340,7 +340,7 @@ class NotificationService: UNNotificationServiceExtension {
     }
     
     internal func onHide(_ payload: PayloadData) {
-        bestAttemptContent?.title = "Xabber"
+        bestAttemptContent?.title = CommonConfigManager.shared.config.app_name
         bestAttemptContent?.body = "New \(payload.action.rawValue)"
         contentHandler?(bestAttemptContent!)
     }
@@ -357,7 +357,7 @@ class NotificationService: UNNotificationServiceExtension {
         
         guard let secret = creditionals["secret"] as? String,
             password.isNotEmpty || token.isNotEmpty else {
-                bestAttemptContent?.title = "Xabber"
+                bestAttemptContent?.title = CommonConfigManager.shared.config.app_name
                 bestAttemptContent?.body = "st3 \(password), \(creditionals) \(payload.action.rawValue)"
                 contentHandler?(bestAttemptContent!)
             return
@@ -398,7 +398,7 @@ class NotificationService: UNNotificationServiceExtension {
         guard password.isNotEmpty || token.isNotEmpty,
             let content = self.bestAttemptContent,
             let secret = creditionals["secret"] as? String else {
-            bestAttemptContent?.title = "Xabber"
+            bestAttemptContent?.title = CommonConfigManager.shared.config.app_name
             bestAttemptContent?.body = "Incoming chat request"
             contentHandler?(bestAttemptContent!)
             return

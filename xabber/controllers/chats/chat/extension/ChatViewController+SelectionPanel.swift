@@ -59,6 +59,12 @@ extension ChatViewController: MessagesSelectionPanelActionDelegate {
     }
     
     @objc
+    func onDeleteAllMessagesButtonTouchDown(_ sender: UIBarButtonItem) {
+        deleteAllMessages()
+        cancelSelection()
+    }
+    
+    @objc
     func onDeleteMessagesButtonTouchDown(_ sender: UIBarButtonItem) {
         let toDeleteIds = forwardedIds.value
         deleteMessages(forIds: toDeleteIds)
@@ -200,6 +206,56 @@ extension ChatViewController: MessagesSelectionPanelActionDelegate {
         cancelSelection()
     }
     
+    internal func deleteAllMessages() {
+        ActionSheetPresenter().present(
+            in: self,
+            title: nil,
+            message: "Do you want to clear chat history",
+            cancel: "Cancel",
+            values: [ActionSheetPresenter.Item(destructive: true, title: "Clear", value: "delete")],
+            animated: true) { value in
+                switch value {
+                    case "delete":
+                        DispatchQueue.main.async {
+                            self.view.makeToastActivity(ToastPosition.center)
+                        }
+                        XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
+                            session.retract?.deleteAllMessages(
+                                stream,
+                                jid: self.jid,
+                                conversationType: self.conversationType,
+                                callback: { (errorMessage, success) in
+                                    LastChats.updateErrorState(for: self.jid, owner: self.owner, conversationType: self.conversationType)
+                                    DispatchQueue.main.async {
+                                        self.view.hideToastActivity()
+                                        if let error = errorMessage {
+                                            self.showToast(error: error)
+                                        }
+                                    }
+                                })
+                        }, fail: {
+                            AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
+                                user.msgDeleteManager
+                                    .deleteAllMessages(
+                                        stream,
+                                        jid: self.jid,
+                                        conversationType: self.conversationType,
+                                        callback: { (errorMessage, success) in
+                                            LastChats.updateErrorState(for: self.jid, owner: self.owner, conversationType: self.conversationType)
+                                            DispatchQueue.main.async {
+                                                self.view.hideToastActivity()
+                                                if let error = errorMessage {
+                                                    self.showToast(error: error)
+                                                }
+                                            }
+                                        })
+                            })
+                        })
+                    default: break
+                }
+            }
+    }
+    
     internal func deleteMessages(forIds toDeleteIds: Set<String>) {
         DeleteMessagePresenter(username: self.opponentSender.displayName, groupchat: self.groupchat, sended: true)
             .present(in: self, animated: true) { (result) in
@@ -239,6 +295,7 @@ extension ChatViewController: MessagesSelectionPanelActionDelegate {
                                 stream,
                                 primary: primary,
                                 jid: self.groupchat ? self.jid : "",
+                                conversationType: self.conversationType,
                                 symmetric: result,
                                 callback: { (errorMessage, success) in
                                     DispatchQueue.main.async {
@@ -254,6 +311,7 @@ extension ChatViewController: MessagesSelectionPanelActionDelegate {
                                     .deleteMessage(stream,
                                                    primary: primary,
                                                    jid: self.groupchat ? self.jid : "",
+                                                   conversationType: self.conversationType,
                                                    symmetric: result)
                                 {
                                     (errorMessage, success) in
@@ -267,6 +325,7 @@ extension ChatViewController: MessagesSelectionPanelActionDelegate {
                             })
                         })
                     }
+                    LastChats.updateErrorState(for: self.jid, owner: self.owner, conversationType: self.conversationType)
                 }
             }
     }

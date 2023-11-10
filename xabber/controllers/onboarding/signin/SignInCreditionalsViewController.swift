@@ -697,7 +697,7 @@ class SignInCreditionalsViewController: SimpleBaseViewController {
         setupPlaceholder("john.doe", isPassword: false)
         setupPlaceholder("password".localizeString(id: "dialog_jingle_message__password", arguments: []), isPassword: true)
         //Subtitle should be HTML to be attributed properly
-        let subtitle = "If you don't have an account yet, press here to sign up for a Xabber account."
+        let subtitle = "If you don't have an account yet, press here to sign up for a Clandestino account."
             .localizeHTML(id: "dialog_jingle_message__message_sign_up", arguments: [])
 //            .localizeString(id: "dialog_jingle_message__message_sign_up", arguments: [])
         

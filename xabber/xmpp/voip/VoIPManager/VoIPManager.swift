@@ -90,7 +90,7 @@ class VoIPManager: NSObject {
     public var cameraResolution: BehaviorRelay<CameraResolution> = BehaviorRelay(value: CameraResolution(height: 640, width: 480))
     
     static func providerConfiguration() -> CXProviderConfiguration {
-        let configuration = CXProviderConfiguration(localizedName: "Xabber")
+        let configuration = CXProviderConfiguration(localizedName: CommonConfigManager.shared.config.app_name)
         configuration.maximumCallGroups = 1
         configuration.maximumCallsPerCallGroup = 1
         configuration.supportsVideo = true

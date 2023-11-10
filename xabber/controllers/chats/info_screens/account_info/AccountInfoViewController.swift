@@ -189,7 +189,7 @@ class AccountInfoViewController: BaseViewController {
         if !(tokens?.isEmpty ?? true) {
             tokensDatasource.append(TokensDatasource(.token,
                                          title: "Active sessions".localizeString(id: "settings_account__label_active_sessions", arguments: []),
-                                         value: "You can terminate sessions you don`t need. Official Xabber clients wipe all user data from the device upon session termination.".localizeString(id: "account_settings_terminate_description", arguments: []), /* learn more - https://www.xabber.com/devicemanagement/   */
+                                         value: "You can terminate sessions you don`t need. Official Clandestino clients wipe all user data from the device upon session termination.".localizeString(id: "account_settings_terminate_description", arguments: []), /* learn more - https://www.xabber.com/devicemanagement/   */
                        editable: false,
                        childs: []))
         }

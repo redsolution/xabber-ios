@@ -111,10 +111,11 @@ class MessageDeleteManager: AbstractXMPPManager {
     }
     
     internal func readRetractAllNotify(_ message: XMPPMessage) -> Bool {
-        guard let retract = message.element(forName: "retract-all"),
-            retract.xmlns() == [getPrimaryNamespace(), "notify"].joined(separator: "#"),
-            let user = retract.attributeStringValue(forName: "conversation"),
-            let version = retract.attributeStringValue(forName: "version") else {
+        guard let retract = message.element(forName: "retract-all", xmlns: [getPrimaryNamespace(), "notify"].joined(separator: "#")),
+              let jid = retract.attributeStringValue(forName: "conversation"),
+              let conversationTypeRaw = retract.attributeStringValue(forName: "type"),
+              let conversationType = ClientSynchronizationManager.ConversationType(rawValue: conversationTypeRaw) ?? ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type),
+              let version = retract.attributeStringValue(forName: "version") else {
                 return false
         }
         updateVersion(version)
@@ -122,24 +123,26 @@ class MessageDeleteManager: AbstractXMPPManager {
             let realm = try  WRealm.safe()
             let messages = realm
                 .objects(MessageStorageItem.self)
-                .filter("owner == %@ AND opponent == %@ AND messageType != %@", owner, user, MessageStorageItem.MessageDisplayType.initial.rawValue)
+                .filter("owner == %@ AND opponent == %@ AND messageType != %@ AND conversationType_ == %@", owner, jid, MessageStorageItem.MessageDisplayType.initial.rawValue, conversationTypeRaw)
             let instance = realm
                 .object(
                     ofType: LastChatsStorageItem.self,
                     forPrimaryKey: LastChatsStorageItem.genPrimary(
-                        jid: user,
+                        jid: jid,
                         owner: self.owner,
-                        conversationType: .omemo
+                        conversationType: conversationType
                     )
                 )
+            let references = realm.objects(MessageReferenceStorageItem.self).filter("jid == %@ AND conversationType_ == %@", jid, conversationTypeRaw)
             if messages.isEmpty { return false }
             try realm.write {
                 if !(instance?.isInvalidated ?? true) {
                     instance?.lastMessage = nil
                     instance?.retractVersion = version
+                    instance?.isSynced = false
                 }
                 realm.delete(messages)
-                realm.delete(realm.objects(MessageReferenceStorageItem.self).filter("jid == %@", user))
+                realm.delete(references)
             }
         } catch {
             DDLogDebug("MessageDeleteManager: \(#function). \(error.localizedDescription)")
@@ -161,9 +164,11 @@ class MessageDeleteManager: AbstractXMPPManager {
     
     internal func readRetractMessageNotify(_ message: XMPPMessage) -> Bool {
         guard let retract = message.element(forName: "retract-message"),
-            let conversation = retract.attributeStringValue(forName: "conversation"),
-            let stanzaId = retract.attributeStringValue(forName: "id"),
-            let version = retract.attributeStringValue(forName: "version") else {
+              let conversation = retract.attributeStringValue(forName: "conversation"),
+              let conversationTypeRaw = retract.attributeStringValue(forName: "type"),
+              let conversationType = ClientSynchronizationManager.ConversationType(rawValue: conversationTypeRaw) ?? ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type),
+              let stanzaId = retract.attributeStringValue(forName: "id"),
+              let version = retract.attributeStringValue(forName: "version") else {
                 return false
         }
         updateVersion(version)
@@ -171,16 +176,8 @@ class MessageDeleteManager: AbstractXMPPManager {
             let realm = try  WRealm.safe()
             if let instance = realm
                 .objects(MessageStorageItem.self)
-                .filter("owner == %@ AND opponent == %@ AND archivedId == %@", owner, conversation, stanzaId)
+                .filter("owner == %@ AND opponent == %@ AND archivedId == %@ AND conversationType_ == %@", owner, conversation, stanzaId, conversationTypeRaw)
                 .first {
-                let primary = instance.primary
-                instance.references.forEach {
-                    guard let fileID = $0.fileID,
-                          let account = AccountManager.shared.find(for: self.owner),
-                          let uploader = account.getDefaultUploader() as? UploadManagerExtendedProtocol else { return }
-                    uploader.deleteMediaFromServer(fileID: fileID)
-                }
-                
                 try realm.write {
                     realm.delete(instance)
                     if let lastChat = realm.object(
@@ -188,19 +185,28 @@ class MessageDeleteManager: AbstractXMPPManager {
                         forPrimaryKey: LastChatsStorageItem.genPrimary(
                             jid: conversation,
                             owner: self.owner,
-                            conversationType: .omemo
+                            conversationType: conversationType
                         )
                     ) {
-                        lastChat.lastMessage = realm
+                        let lastMessage = realm
                             .objects(MessageStorageItem.self)
-                            .filter("owner == %@ AND opponent == %@ AND isDeleted == false",
-                                    self.owner,
-                                    conversation)
+                            .filter(
+                                "owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@",
+                                self.owner,
+                                conversation,
+                                conversationTypeRaw
+                            )
                             .sorted(byKeyPath: "date", ascending: false)
                             .first
+                        lastChat.lastMessage = lastMessage
+                        if let date = lastMessage?.date {
+                            lastChat.messageDate = date
+                        }
+                        lastChat.isSynced = false
                         lastChat.retractVersion = version
                     }
                 }
+                LastChats.updateErrorState(for: conversation, owner: self.owner, conversationType: conversationType)
             } else {
                 if (AccountManager.shared.find(for: self.owner)?.messages.messagesQueue.value.contains(where: {
                     return getStanzaId($0.message, owner: self.owner) == stanzaId
@@ -217,11 +223,13 @@ class MessageDeleteManager: AbstractXMPPManager {
     
     internal func readRewriteNotify(_ message: XMPPMessage) -> Bool {
         guard let replace = message.element(forName: "replace"),
-            let version = replace.attributeStringValue(forName: "version"),
-            let conversation = replace.attributeStringValue(forName: "conversation"),
-            let messageContainer = replace.element(forName: "message"),
-            let stanzaId = replace.attributeStringValue(forName: "id"),
-            let editDate = messageContainer.element(forName: "replaced")?.attributeStringValue(forName: "stamp")?.xmppDate else {
+              let version = replace.attributeStringValue(forName: "version"),
+              let conversation = replace.attributeStringValue(forName: "conversation"),
+              let conversationTypeRaw = replace.attributeStringValue(forName: "type"),
+              let conversationType = ClientSynchronizationManager.ConversationType(rawValue: conversationTypeRaw) ?? ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type),
+              let messageContainer = replace.element(forName: "message"),
+              let stanzaId = replace.attributeStringValue(forName: "id"),
+              let editDate = messageContainer.element(forName: "replaced")?.attributeStringValue(forName: "stamp")?.xmppDate else {
                 return false
         }
         updateVersion(version)
@@ -238,7 +246,7 @@ class MessageDeleteManager: AbstractXMPPManager {
                                 forPrimaryKey: LastChatsStorageItem.genPrimary(
                                     jid: conversation,
                                     owner: self.owner,
-                                    conversationType: .omemo
+                                    conversationType: conversationType
                                 )
                         )?
                         .retractVersion = version
@@ -290,7 +298,9 @@ class MessageDeleteManager: AbstractXMPPManager {
                             instance.messageError = errorMessage
                             instance.isDeleted = false
                         }
+                        LastChats.updateErrorState(for: instance.opponent, owner: self.owner, conversationType: instance.conversationType)
                     }
+                    
                 } catch {
                     DDLogDebug("MessageDeleteManager: \(#function). \(error.localizedDescription)")
                 }
@@ -299,11 +309,6 @@ class MessageDeleteManager: AbstractXMPPManager {
         }
         return true
     }
-    
-    /*
-     <iq xmlns="jabber:client" lang="ru" to="igor.boldin@redsolution.com/xabber-ios-D3F373EF" from="igor.boldin@redsolution.com" type="result" id="D53D7523-606C-4F44-9CD5-187421795C4A">
-       <query xmlns="https://xabber.com/protocol/rewrite" version="734"/>
-     </iq>**/
     
     private final func readEnabled(_ iq: XMPPIQ) -> Bool {
         guard let query = iq.element(forName: "query", xmlns: getPrimaryNamespace()),
@@ -328,17 +333,18 @@ class MessageDeleteManager: AbstractXMPPManager {
         return true
     }
     
-    open func deleteMessage(_ xmppStream: XMPPStream, primary: String, jid: String, symmetric: Bool, callback: ((String?, Bool) -> Void)?) {
+    open func deleteMessage(_ xmppStream: XMPPStream, primary: String, jid: String, conversationType: ClientSynchronizationManager.ConversationType, symmetric: Bool, callback: ((String?, Bool) -> Void)?) {
         func send(_ messageId: String, elementId: String, to archiveJid: XMPPJID?) {
             let retract = DDXMLElement(name: "retract-message", xmlns: getPrimaryNamespace())
             retract.addAttribute(withName: "symmetric", stringValue: symmetric ? "true" : "false" )
             retract.addAttribute(withName: "id", stringValue: messageId)
+            retract.addAttribute(withName: "type", stringValue: conversationType.rawValue)
             xmppStream.send(XMPPIQ(iqType: .set, to: archiveJid, elementID: elementId, child: retract))
         }
         do {
             let realm = try  WRealm.safe()
             if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
-                let elementId = xmppStream.generateUUID
+                let elementId = "RRR: \(NanoID.new(8))"
                 send(instance.archivedId, elementId: elementId, to: jid.isEmpty ? nil : XMPPJID(string: jid))
                 queryIds.insert(elementId)
                 guard instance.archivedId.isNotEmpty else {
@@ -357,12 +363,8 @@ class MessageDeleteManager: AbstractXMPPManager {
         let retract = DDXMLElement(name: "retract-all", xmlns: getPrimaryNamespace())
         retract.addAttribute(withName: "conversation", stringValue: jid)
         retract.addAttribute(withName: "symmetric", boolValue: false)
-        switch conversationType {
-        case .omemo, .omemo1, .axolotl:
-            retract.addAttribute(withName: "type", stringValue: "encrypted")
-        default: break
-        }
-        let elementId = xmppStream.generateUUID
+        retract.addAttribute(withName: "type", stringValue: conversationType.rawValue)
+        let elementId = "RRR: \(NanoID.new(8))"
         xmppStream.send(XMPPIQ(iqType: .set, to: nil, elementID: elementId, child: retract))
         queryIds.insert(elementId)
         itemsQuery.insert(Item("", kind: .retract, messageId: "", iqId: elementId, callback: callback))
@@ -371,9 +373,10 @@ class MessageDeleteManager: AbstractXMPPManager {
             try realm.write {
                 realm
                     .objects(MessageStorageItem.self)
-                    .filter("owner == %@ AND opponent == %@ AND conversationType_ == %@", owner, jid, conversationType.rawValue)
+                    .filter("owner == %@ AND opponent == %@ AND conversationType_ == %@ AND messageType != %@", owner, jid, conversationType.rawValue, MessageStorageItem.MessageDisplayType.initial.rawValue)
                     .forEach { $0.isDeleted = true }
             }
+            LastChats.updateErrorState(for: jid, owner: self.owner, conversationType: conversationType)
         } catch {
             DDLogDebug("MessageDeleteManager: \(#function). \(error.localizedDescription)")
         }
@@ -385,7 +388,7 @@ class MessageDeleteManager: AbstractXMPPManager {
         let retract = DDXMLElement(name: "retract-user", xmlns: getPrimaryNamespace())
         retract.addAttribute(withName: "symmetric", stringValue: "true")
         retract.addAttribute(withName: "id", stringValue: userId)
-        let elementId = xmppStream.generateUUID
+        let elementId = "RRR: \(NanoID.new(8))"
         xmppStream.send(XMPPIQ(iqType: .set, to: XMPPJID(string: chat), elementID: elementId, child: retract))
         queryIds.insert(elementId)
         itemsQuery.insert(Item("", kind: .retract, messageId: "", iqId: elementId, callback: callback))
@@ -395,16 +398,17 @@ class MessageDeleteManager: AbstractXMPPManager {
         let retract = DDXMLElement(name: "retract-all", xmlns: getPrimaryNamespace())
         retract.addAttribute(withName: "symmetric", stringValue: "true")
         retract.addAttribute(withName: "conversation", stringValue: chat)
-        let elementId = xmppStream.generateUUID
+        let elementId = "RRR: \(NanoID.new(8))"
         xmppStream.send(XMPPIQ(iqType: .set, to: XMPPJID(string: chat), elementID: elementId, child: retract))
         queryIds.insert(elementId)
         itemsQuery.insert(Item("", kind: .retract, messageId: "", iqId: elementId, callback: callback))
     }
     
-    open func editMessage(_ xmppStream: XMPPStream, primary: String, editedMessage: XMPPMessage) {
+    open func editMessage(_ xmppStream: XMPPStream, primary: String, editedMessage: XMPPMessage, conversationType: ClientSynchronizationManager.ConversationType) {
         func send(_ messageId: String, elementId: String, to archiveJid: String) {
             let replace = DDXMLElement(name: "replace", xmlns: getPrimaryNamespace())
             replace.addAttribute(withName: "id", stringValue: messageId)
+            replace.addAttribute(withName: "type", stringValue: conversationType.rawValue)
             replace.addChild(editedMessage)
             
             let iq = XMPPIQ(iqType: .set, to: nil, elementID: elementId, child: replace)
@@ -416,7 +420,7 @@ class MessageDeleteManager: AbstractXMPPManager {
         do {
             let realm = try  WRealm.safe()
             if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
-                let elementId = xmppStream.generateUUID
+                let elementId = "RRR: \(NanoID.new(8))"
                 send(instance.archivedId, elementId: elementId, to: instance.groupchatMetadata != nil ? instance.opponent : self.owner)
                 queryIds.insert(elementId)
             }
@@ -435,7 +439,7 @@ class MessageDeleteManager: AbstractXMPPManager {
         if let maxItems = maxItems {
             activate.addAttribute(withName: "less-than", integerValue: maxItems)
         }
-        let elementId = xmppStream.generateUUID
+        let elementId = "RRR: \(NanoID.new(8))"
         xmppStream.send(XMPPIQ(iqType: .get, to: nil, elementID: elementId, child: activate))
         queryIds.insert(elementId)
     }
@@ -449,7 +453,7 @@ class MessageDeleteManager: AbstractXMPPManager {
                 forPrimaryKey: LastChatsStorageItem.genPrimary(
                     jid: jid,
                     owner: self.owner,
-                    conversationType: .omemo
+                    conversationType: .group
                 )
             )?.retractVersion {
                 version = retractVersion

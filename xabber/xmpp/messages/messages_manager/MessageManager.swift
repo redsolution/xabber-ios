@@ -79,6 +79,7 @@ class MessageManager: AbstractXMPPManager {
                                 $0.references.forEach({
                                     $0.hasError = true
                                 })
+                                realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: $0.opponent, owner: $0.owner, conversationType: $0.conversationType))?.hasErrorInChat = true
                             }
                         }
                     }
@@ -137,6 +138,7 @@ class MessageManager: AbstractXMPPManager {
                     collection.forEach {
                         $0.state = .error
                         $0.messageError = "Stream was disconnected".localizeString(id: "stream_was_disconnected_error", arguments: [])
+                        realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: $0.opponent, owner: $0.owner, conversationType: $0.conversationType))?.hasErrorInChat = true
                     }
                 }
             } catch {
@@ -169,6 +171,12 @@ class MessageManager: AbstractXMPPManager {
             let realm = try WRealm.safe()
             if let primary = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: conversationType))?.lastMessage?.primary {
                 self.readMessage(primary, last: true)
+            } else {
+                if let instance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: conversationType)) {
+                    try realm.write {
+                        instance.unread = 0
+                    }
+                }
             }
         } catch {
             DDLogDebug("MessageManager: \(#function). \(error.localizedDescription)")
@@ -180,6 +188,23 @@ class MessageManager: AbstractXMPPManager {
             let realm = try  WRealm.safe()
             if let message = realm.object(ofType: MessageStorageItem.self,
                                            forPrimaryKey: primary) {
+                if let instance = realm.object(ofType: LastChatsStorageItem.self,
+                                               forPrimaryKey: LastChatsStorageItem.genPrimary(
+                                                jid: message.opponent,
+                                                owner: self.owner,
+                                                conversationType: message.conversationType)),
+                   instance.unread > 0 {
+                    if !realm.isInWriteTransaction {
+                        try realm.write {
+                            if instance.isInvalidated { return }
+                            if last {
+                                instance.unread = 0
+                            } else {
+                                instance.unread -= 1
+                            }
+                        }
+                    }
+                }
                 if message.outgoing {
                     return
                 }
@@ -205,32 +230,18 @@ class MessageManager: AbstractXMPPManager {
                         }
                     }
                 }
-                if let instance = realm.object(ofType: LastChatsStorageItem.self,
-                                               forPrimaryKey: LastChatsStorageItem.genPrimary(
-                                                jid: message.opponent,
-                                                owner: self.owner,
-                                                conversationType: message.conversationType)),
-                   instance.unread > 0 {
-                    if !realm.isInWriteTransaction {
-                        try realm.write {
-                            if instance.isInvalidated { return }
-                            if last {
-                                instance.unread = 0
-                            } else {
-                                instance.unread -= 1
-                            }
-                        }
-                    }
-                }
+                
+                
             }
             
+            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                user.chatMarkers.displayed(stream, message: primary)
+            })
         } catch {
             DDLogDebug("MessageManager: \(#function). \(error.localizedDescription)")
         }
         
-        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-            user.chatMarkers.displayed(stream, message: primary)
-        })
+        
     }
     
     internal func getForwardedAuthorNicknameGroupchat(_ references: [DDXMLElement]) -> String? {
@@ -287,6 +298,7 @@ class MessageManager: AbstractXMPPManager {
                     instance.references.forEach({
                         $0.hasError = true
                     })
+                    realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: instance.opponent, owner: instance.owner, conversationType: instance.conversationType))?.hasErrorInChat = true
                 }
             }
         } catch {
@@ -337,6 +349,7 @@ class MessageManager: AbstractXMPPManager {
                     instance.references.forEach({
                         $0.hasError = true
                     })
+                    realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: instance.opponent, owner: instance.owner, conversationType: instance.conversationType))?.hasErrorInChat = true
                 }
             }
         } catch {

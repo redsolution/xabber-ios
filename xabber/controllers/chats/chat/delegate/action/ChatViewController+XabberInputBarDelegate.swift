@@ -268,7 +268,6 @@ extension ChatViewController: XabberInputBarDelegate {
                         forwarded: forwarded,
                         conversationType: self.conversationType
                     )
-                    
                     if let primary = self.messagesObserver?.first?.primary {
                         (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
                             .invalidateLastMessageCachedSize(primary: primary)
@@ -278,10 +277,21 @@ extension ChatViewController: XabberInputBarDelegate {
                     self.messagesCount += 1
                     self.shouldUpdatePreviousMessage = true
                     self.runDatasetUpdateTask()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        self.messagesCollectionView.scrollToTop(animated: true)
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+//                        self.canUpdateDataset = true
+                        self.shouldUpdatePreviousMessage = true
+                        self.runDatasetUpdateTask()
+                    }
                 })
             }
         }
         if showSkeletonObserver.value {
+            return
+        }
+        if !self.isSkeletonHided {
             return
         }
         

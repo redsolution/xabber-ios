@@ -62,6 +62,9 @@ class DeviceDetailViewController: SimpleBaseViewController {
     
     private var currentDeviceDescription: String? = nil
     
+    internal var dangerInEncryption: Bool = false
+    internal var issuedFor: String? = nil
+    
     private let tableView: UITableView = {
         let view = InsetGroupedTableView(frame: .zero)
         
@@ -93,17 +96,17 @@ class DeviceDetailViewController: SimpleBaseViewController {
         super.loadDatasource()
         do {
             let realm = try WRealm.safe()
-            guard let tokenInstance = realm.object(ofType: DeviceStorageItem.self, forPrimaryKey: [uid, jid].prp()) else {
+            guard let deviceInstance = realm.object(ofType: DeviceStorageItem.self, forPrimaryKey: [uid, jid].prp()) else {
                 return
             }
-            self.omemoDeviceID = tokenInstance.omemoDeviceId
+            self.omemoDeviceID = deviceInstance.omemoDeviceId
             let resourceInstance = realm.objects(AccountStorageItem.self).filter("jid == %@", jid)
             
-            let deviceTitle = tokenInstance.descr.isNotEmpty ? tokenInstance.descr : tokenInstance.client
-            let deviceDescr = tokenInstance.descr.isNotEmpty ? tokenInstance.descr : nil
+            let deviceTitle = deviceInstance.descr.isNotEmpty ? deviceInstance.descr : deviceInstance.client
+            let deviceDescr = deviceInstance.descr.isNotEmpty ? deviceInstance.descr : nil
             
             self.currentDeviceDescription = deviceDescr
-            self.resource = tokenInstance.resource
+            self.resource = deviceInstance.resource
             
             if let resource = self.resource {
                 if let instance = realm.object(ofType: ResourceStorageItem.self, forPrimaryKey: ResourceStorageItem.genPrimary(jid: self.jid, owner: self.jid, resource: resource)) {
@@ -116,16 +119,20 @@ class DeviceDetailViewController: SimpleBaseViewController {
                 Datasource(title: "Bundle not found", value: "", key: "omemo_bundle_not_found")
             ]
             
-            if tokenInstance.encryptionEnabled {
+            if deviceInstance.encryptionEnabled {
                 
-                if let omemoDevice = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.jid, deviceId: tokenInstance.omemoDeviceId)),
-                   realm.object(ofType: SignalIdentityStorageItem.self, forPrimaryKey: SignalIdentityStorageItem.genRpimary(owner: self.owner, jid: self.jid, deviceId: tokenInstance.omemoDeviceId)) != nil {
+                if let omemoDevice = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.jid, deviceId: deviceInstance.omemoDeviceId)),
+                   realm.object(ofType: SignalIdentityStorageItem.self, forPrimaryKey: SignalIdentityStorageItem.genRpimary(owner: self.owner, jid: self.jid, deviceId: deviceInstance.omemoDeviceId)) != nil {
                     var trustElement: Datasource
                     switch omemoDevice.state {
                     case .Ignore:
                         trustElement = Datasource(title: "Device ignored", value: "Ignored", key: "omemo_state_ignore")
                     case .trusted:
-                        trustElement = Datasource(title: "Device trusted", value: "Trusted", key: "omemo_state_trusted")
+                            trustElement = Datasource(
+                                title: omemoDevice.isTrustedByCertificate ? "Device signed" : "Device trusted",
+                                value: omemoDevice.isTrustedByCertificate ? "Signed" : "Trusted",
+                                key: "omemo_state_trusted"
+                            )
                     case .fingerprintChanged:
                         trustElement = Datasource(title: "Fingerprint changed", value: "Fingerprint changed", key: "omemo_state_fingerprint_changed")
                     case .unknown:
@@ -136,6 +143,17 @@ class DeviceDetailViewController: SimpleBaseViewController {
                         Datasource(title: "Fingerprint", value: omemoDevice.fingerprint, key: "omemo_fingerprint")
                         
                     ]
+                    if omemoDevice.signature != nil {
+                        self.dangerInEncryption = omemoDevice.signedBy != self.jid
+                        self.issuedFor = omemoDevice.signedBy
+                        encryptionDatasource.append(
+                            Datasource(
+                                title: omemoDevice.signedBy == self.jid ? "Verified by" : "Not verified",
+                                value: omemoDevice.signedBy == self.jid ? "Clandestino" : "",
+                                key: "omemo_signed_by"
+                            )
+                        )
+                    }
                     if !canEdit {
                         encryptionDatasource.append(trustElement)
                     }
@@ -153,16 +171,16 @@ class DeviceDetailViewController: SimpleBaseViewController {
                     ],
                     [
                         Datasource(title: "Last seen".localizeString(id: "device__info__status__label_last_seen", arguments: []),
-                                   value:  dateFormatter.string(from: tokenInstance.authDate), key: "status"),
+                                   value:  dateFormatter.string(from: deviceInstance.authDate), key: "status"),
                         Datasource(title: "Device".localizeString(id: "device", arguments: []),
-                                   value: tokenInstance.device, key: "device"),
+                                   value: deviceInstance.device, key: "device"),
                         Datasource(title: "Client".localizeString(id: "device__info__client__label", arguments: []),
-                                   value: tokenInstance.client, key: "client"),
+                                   value: deviceInstance.client, key: "client"),
                         Datasource(title: "Resource".localizeString(id: "account_resource", arguments: []),
                                    value: resourceInstance.first?.resource?.resource, key: "resource"),
-                        Datasource(title: "IP", value: tokenInstance.ip, key: "ip"),
+                        Datasource(title: "IP", value: deviceInstance.ip, key: "ip"),
                         Datasource(title: "Expires at".localizeString(id: "device__info__expire__label", arguments: []),
-                                   value: dateFormatter.string(from: tokenInstance.expire), key: "expire")
+                                   value: dateFormatter.string(from: deviceInstance.expire), key: "expire")
                     ],
                     encryptionDatasource,
                     [
@@ -178,14 +196,14 @@ class DeviceDetailViewController: SimpleBaseViewController {
                 datasource = [
                     [
                         Datasource(title: "Last seen".localizeString(id: "device__info__status__label_last_seen", arguments: []),
-                                   value: dateFormatter.string(from: tokenInstance.authDate), key: "status"),
+                                   value: dateFormatter.string(from: deviceInstance.authDate), key: "status"),
                         Datasource(title: "Device".localizeString(id: "device", arguments: []),
-                                   value: tokenInstance.device, key: "device"),
+                                   value: deviceInstance.device, key: "device"),
                         Datasource(title: "Client".localizeString(id: "contact_viewer_client", arguments: []),
-                                   value: tokenInstance.client, key: "client"),
-                        Datasource(title: "IP", value: tokenInstance.ip, key: "ip"),
+                                   value: deviceInstance.client, key: "client"),
+                        Datasource(title: "IP", value: deviceInstance.ip, key: "ip"),
                         Datasource(title: "Expires at".localizeString(id: "device__info__expire__label", arguments: []),
-                                   value: dateFormatter.string(from: tokenInstance.expire), key: "expire")
+                                   value: dateFormatter.string(from: deviceInstance.expire), key: "expire")
                     ],
                     encryptionDatasource,
                     [
@@ -298,6 +316,29 @@ extension DeviceDetailViewController: UITableViewDelegate {
             nvc.modalTransitionStyle = .coverVertical
             self.definesPresentationContext = true
             self.present(nvc, animated: true, completion: nil)
+        case "omemo_signed_by":
+            if self.dangerInEncryption {
+                ActionSheetPresenter().present(
+                    in: self,
+                    title: "Encription not secured",
+                    message: "Encryption key signed by certificate issued for \(self.issuedFor ?? "unknown user")",
+                    cancel: "Close",
+                    values: [],
+                    animated: true) { _ in
+                        
+                    }
+            } else {
+                ActionSheetPresenter().present(
+                    in: self,
+                    title: "Encription secured",
+                    message: "Encryption key verified by certificate issued by Clandestino for \(self.issuedFor ?? "")",
+                    cancel: "Close",
+                    values: [],
+                    animated: true) { _ in
+                        
+                    }
+            }
+            
         case "omemo_state_trusted":
             let items: [ActionSheetPresenter.Item] = [
                 ActionSheetPresenter.Item(destructive: true, title: "Delete", value: "delete")

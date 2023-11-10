@@ -166,6 +166,50 @@ class PresenceManager: AbstractXMPPManager {
         } catch {
             DDLogDebug("PresenceManager: \(#function). \(error.localizedDescription)")
         }
+        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+            user.omemo.getContactDevices(stream, jid: jid)
+        })
+        
+        do {
+            let realm = try  WRealm.safe()
+            if let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: [jid, owner].prp()) {
+                try realm.write {
+                    instance.ask = .out
+                }
+            } else {
+                let instance = RosterStorageItem()
+                instance.owner = self.owner
+                instance.jid = jid
+                instance.primary = RosterStorageItem.genPrimary(jid: jid, owner: owner)
+                instance.subscribtion = .undefined
+                instance.ask = .out
+                try realm.write {
+                    if realm.object(ofType: RosterStorageItem.self, forPrimaryKey: [jid, owner].prp()) != nil { return }
+                    realm.add(instance)
+                }
+            }
+                        
+            let initialMessage = MessageStorageItem()
+            initialMessage.configureInitialMessage(
+                self.owner,
+                opponent: jid,
+                conversationType: ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular,
+                text: "",
+                date: Date(),
+                isRead: true
+            )
+            
+            try realm.write {
+                if let message = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: initialMessage.primary) {
+                    realm.delete(message)
+                    _ = initialMessage.save(commitTransaction: false)
+                } else {
+                    _ = initialMessage.save(commitTransaction: false)
+                }
+            }
+        } catch {
+            DDLogDebug("PresenceManager: \(#function). \(error.localizedDescription)")
+        }
     }
     
     internal func receiveError(_ presence: XMPPPresence) -> Bool {
@@ -449,7 +493,6 @@ class PresenceManager: AbstractXMPPManager {
         do {
             let realm = try  WRealm.safe()
             if let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: [jid, owner].prp()) {
-                NotifyManager.shared.update(withSubscription: "", opponent: jid, owner: owner, displayName: "")
                 try realm.write {
                     instance.ask = .in
                 }
@@ -482,10 +525,8 @@ class PresenceManager: AbstractXMPPManager {
             
             try realm.write {
                 if let message = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: initialMessage.primary) {
- //                   if message.isDeleted {
-                        realm.delete(message)
-                        _ = initialMessage.save(commitTransaction: false)
-   //                 }
+                    realm.delete(message)
+                    _ = initialMessage.save(commitTransaction: false)
                 } else {
                     _ = initialMessage.save(commitTransaction: false)
                 }

@@ -133,7 +133,7 @@ class DevicesListViewController: BaseViewController {
         if devices.isNotEmpty {
             datasource.append(Datasource(.token,
                                          title: "Active devices".localizeString(id: "settings_account__label_active_sessions", arguments: []),
-                                         value: "You can terminate sessions you don`t need. Official Xabber clients wipe all user data from the device upon session termination.".localizeString(id: "account_settings_terminate_description", arguments: []),
+                                         value: "You can terminate sessions you don`t need. Official Clandestino clients wipe all user data from the device upon session termination.".localizeString(id: "account_settings_terminate_description", arguments: []),
                        editable: false,
                        childs: []))
         }
@@ -166,7 +166,7 @@ class DevicesListViewController: BaseViewController {
                     .filter("owner == %@ AND uid != %@", jid, currentDevice)
                     .sorted(byKeyPath: "authDate", ascending: false))
 //                .skip(1)
-                .debounce(.milliseconds(220), scheduler: MainScheduler.asyncInstance)
+//                .debounce(.milliseconds(220), scheduler: MainScheduler.asyncInstance)
                 .subscribe(onNext: { (results) in
                     self.load()
                     self.update()
@@ -177,8 +177,8 @@ class DevicesListViewController: BaseViewController {
                 .changeset(from: realm
                     .objects(SignalDeviceStorageItem.self)
                     .filter("owner == %@ AND jid == %@", jid, jid))
-//                .skip(2)
-                .debounce(.milliseconds(200), scheduler: MainScheduler.asyncInstance)
+                .skip(1)
+//                .debounce(.milliseconds(200), scheduler: MainScheduler.asyncInstance)
                 .subscribe(onNext: { (results) in
                     self.load()
                     self.update()

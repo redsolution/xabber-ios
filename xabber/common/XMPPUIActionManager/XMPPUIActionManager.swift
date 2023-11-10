@@ -255,8 +255,63 @@ class XMPPUIActionManager: NSObject {
     }
     
     func tokenWasInvalidated() {
-        NotificationCenter.default.post(name: ApplicationStateManager.tokenWasExpired, object: self.currentJid!)
-        self.close(soft: false, disconnect: true)
+        NotificationCenter.default.post(name: ApplicationStateManager.tokenWasExpired, object: self.stream.myJID!.bare)
+    }
+    
+    func didReceiveError(_ error: DDXMLElement) {
+        func failToConnect(_ errorName: String) {
+            CredentialsManager.shared.getItem(for: self.currentJid!).release(error: true)
+            self.close(disconnect: true)
+            switch errorName {
+                case "conflict":
+                    if (AccountManager.shared.find(for: self.stream.myJID!.bare)?.devices.isAvailable ?? false) {
+                        self.tokenWasInvalidated()
+                    }
+                case "credentials-expired":
+                    self.tokenWasInvalidated()
+                case "policy-violation":
+                    self.disable(self.stream.myJID!.bare)
+                case "not-authorized":
+                    break
+                default:
+                    break
+            }
+        }
+        
+        func tryToReconnect(_ errorName: String) {
+            self.restore()
+        }
+        
+        if let errorName = error
+            .elements(forXmlns: "urn:ietf:params:xml:ns:xmpp-streams")
+            .filter({ $0.name != "text" })
+            .first?
+            .name {
+            switch errorName {
+                case "conflict",
+                    "credentials-expired",
+                    "policy-violation",
+                    "not-authorized":
+                    failToConnect(errorName)
+                default:
+                    tryToReconnect(errorName)
+            }
+        }
+        if let errorName = error
+            .elements(forXmlns: "urn:ietf:params:xml:ns:xmpp-sasl")
+            .filter({ $0.name != "text" })
+            .first?
+            .name {
+            switch errorName {
+                case "conflict",
+                    "credentials-expired",
+                    "policy-violation",
+                    "not-authorized":
+                    failToConnect(errorName)
+                default:
+                    tryToReconnect(errorName)
+            }
+        }
     }
     
     deinit {

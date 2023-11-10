@@ -455,6 +455,8 @@ class ChatViewController: MessagesViewController {
     
     internal var xabberInputView: ModernXabberInputView!
     
+    internal var shouldRequestChatInfo: Bool = false
+    
     @objc
     internal func showInfo() {
         let vc: BaseViewController
@@ -493,7 +495,7 @@ class ChatViewController: MessagesViewController {
         self.cancelSelectionBarButton.target = self
         self.cancelSelectionBarButton.action = #selector(onCancelSelection)
         self.deleteSelectionBarButton.target = self
-        self.deleteSelectionBarButton.action = #selector(onDeleteMessagesButtonTouchDown)
+        self.deleteSelectionBarButton.action = #selector(onDeleteAllMessagesButtonTouchDown)
     }
         
     internal func configureRecordingPanel() {
@@ -741,7 +743,7 @@ class ChatViewController: MessagesViewController {
     }
     
     @objc
-    private func willEnterForeground() {
+    internal func willEnterForeground() {
         NotifyManager.shared.currentDialog = [self.jid, self.owner].prp()
         appInBackground = false
         
@@ -906,6 +908,8 @@ class ChatViewController: MessagesViewController {
         AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
             user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
         })
+        self.xabberInputView.isSendButtonEnabled = false
+        self.xabberInputView.updateSendButtonState()
     }
     
     override func viewDidAppear(_ animated: Bool) {
@@ -994,7 +998,7 @@ class ChatViewController: MessagesViewController {
         AccountManager.shared.find(for: owner)?.mam.allowHistoryFixTask = false
                 
 //        self.topMenuShowObserver.accept(false)
-        
+        LastChats.updateErrorState(for: self.jid, owner: self.owner, conversationType: self.conversationType)
         do {
             let realm = try WRealm.safe()
             try realm.write {
@@ -1019,11 +1023,11 @@ class ChatViewController: MessagesViewController {
         do {
             let realm = try  WRealm.safe()
             let dataset: Results<MessageStorageItem>
-            realm.refresh()
             dataset = realm
                 .objects(MessageStorageItem.self)
                 .filter ("owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@", self.owner, self.jid, self.conversationType.rawValue)
                 .sorted (byKeyPath: "date", ascending: false)
+            realm.refresh()
             return dataset
         } catch {
             fatalError()
@@ -1034,11 +1038,11 @@ class ChatViewController: MessagesViewController {
         DispatchQueue.main.async {
             do {
                 let realm = try  WRealm.safe()
-                
                 self.messagesObserver = realm
                     .objects(MessageStorageItem.self)
                     .filter("owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@", self.owner, self.jid, self.conversationType.rawValue)
                     .sorted(byKeyPath: "date", ascending: false)
+                realm.refresh()
                 self.subscribeOnDatasetChanges()
             } catch {
                 DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")

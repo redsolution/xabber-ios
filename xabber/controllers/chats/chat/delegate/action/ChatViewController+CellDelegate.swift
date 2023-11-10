@@ -60,6 +60,7 @@ extension ChatViewController: MessageCellDelegate {
         
         if item.messageError == "cert_error" || item.messageError == "omemo" {
             let vc = MessageSigningInfoViewController()
+            vc.conversationType = self.conversationType
             vc.messagePrimary = primary
             vc.jid = self.jid
             vc.owner = self.owner
@@ -113,6 +114,7 @@ extension ChatViewController: MessageCellDelegate {
                     instance.messageError = nil
                 }
             }
+            LastChats.updateErrorState(for: self.jid, owner: self.owner, conversationType: self.conversationType)
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
@@ -129,6 +131,7 @@ extension ChatViewController: MessageCellDelegate {
                     realm.delete(instance)
                 }
             }
+            LastChats.updateErrorState(for: self.jid, owner: self.owner, conversationType: self.conversationType)
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }

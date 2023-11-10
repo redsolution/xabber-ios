@@ -544,19 +544,19 @@ class SignInServerFeaturesViewController: UIViewController {
 //
 //        let httpText = NSMutableAttributedString(string: "File upload is not supported. Without file upload, you will not be able to send images, voice messages and other media to your contacts. It is not recommended to use Xabber on servers without file upload support.").localizeHTML(id: "signin_file_upload_error", arguments: [])
         
-        let syncText = "Quick synchronization is not supported. This feature allows robust work on mobile devices and greatly improves user experience. It is not recommended to use Xabber on servers without quick synchronization.".localizeHTML(id: "signin_quick_synchronization_error", arguments: [])
+        let syncText = "Quick synchronization is not supported. This feature allows robust work on mobile devices and greatly improves user experience. It is not recommended to use Clandestino on servers without quick synchronization.".localizeHTML(id: "signin_quick_synchronization_error", arguments: [])
         
-        let pushText = "Push notifications are not supported. Your device won’t be able to receive incoming messages when Xabber is not active. It is not recommended to use Xabber on this server.".localizeHTML(id: "signin_push_notifications_error", arguments: [])
+        let pushText = "Push notifications are not supported. Your device won’t be able to receive incoming messages when Clandestino is not active. It is not recommended to use Clandestino on this server.".localizeHTML(id: "signin_push_notifications_error", arguments: [])
         
-        let mamText = "Message Archive is not supported. Without Message Archive you can’t synchronize chat history between server and connected clients.  Xabber can not be used on servers that do not support message archive.".localizeHTML(id: "signin_message_archive_error", arguments: [])
+        let mamText = "Message Archive is not supported. Without Message Archive you can’t synchronize chat history between server and connected clients.  Clandestino can not be used on servers that do not support message archive.".localizeHTML(id: "signin_message_archive_error", arguments: [])
         
         let rewriteText = "Message editing is not supported. You will not be able to edit or delete messages from this server’s Message Archive.".localizeHTML(id: "signin_message_editing_error", arguments: [])
         
-        let devicesText = "Xabber tokens are not supported. Without Xabber tokens you can’t revoke access from compromised devices. Account password will be stored locally and can be potentially stolen. ".localizeHTML(id: "signin_tokens_error", arguments: [])
+        let devicesText = "Clandestino tokens are not supported. Without Clandestino tokens you can’t revoke access from compromised devices. Account password will be stored locally and can be potentially stolen. ".localizeHTML(id: "signin_tokens_error", arguments: [])
         
-        let pubsubText = "PubSub is not supported. Without publish-subscribe, you can’t use modern encryption, set user avatar, etc. It is not recommended to use Xabber on this server.".localizeHTML(id: "signin_pubsub_error", arguments: [])
+        let pubsubText = "PubSub is not supported. Without publish-subscribe, you can’t use modern encryption, set user avatar, etc. It is not recommended to use Clandestino on this server.".localizeHTML(id: "signin_pubsub_error", arguments: [])
         
-        let httpText = "File upload is not supported. Without file upload, you will not be able to send images, voice messages and other media to your contacts. It is not recommended to use Xabber on servers without file upload support.".localizeHTML(id: "signin_file_upload_error", arguments: [])
+        let httpText = "File upload is not supported. Without file upload, you will not be able to send images, voice messages and other media to your contacts. It is not recommended to use Clandestino on servers without file upload support.".localizeHTML(id: "signin_file_upload_error", arguments: [])
         
 //        [syncText, pushText, mamText, rewriteText, devicesText, pubsubText, httpText].forEach({
 //            item in
@@ -607,7 +607,7 @@ class SignInServerFeaturesViewController: UIViewController {
                        attributedText: httpText),
             Datasource(key: "subtitle",
                        kind: .subtitle,
-                       title: "Ask to register on xabber.com if his xmpp server is old.".localizeString(id: "signin_ask_to_register", arguments: [])),
+                       title: "Ask to register on clandestino.chat if his xmpp server is old.".localizeString(id: "signin_ask_to_register", arguments: [])),
             Datasource(key: "registerButton", kind: .button, title: "Create new account"
                         .localizeString(id: "xmpp_login__button_sign_up", arguments: [])),
             Datasource(key: "connectButton", kind: .button, title: "Let's rock!"
@@ -813,7 +813,7 @@ class SignInServerFeaturesViewController: UIViewController {
                         .firstIndex(where: { $0.key == "registerButton" }) else {
                     return
                 }
-                self.datasource[subtitleIndex].attributedText = NSAttributedString(string: "This server does not support message archive. It is impossible for Xabber to work without message archive, so we suggest creating a new account on a fully-compatible Clandestno server.".localizeString(id: "signin_no_message_archive", arguments: []),
+                self.datasource[subtitleIndex].attributedText = NSAttributedString(string: "This server does not support message archive. It is impossible for Clandestino to work without message archive, so we suggest creating a new account on a fully-compatible Clandestno server.".localizeString(id: "signin_no_message_archive", arguments: []),
                             attributes: [.paragraphStyle: paragraph, .foregroundColor: MDCPalette.red.tint800, .font: UIFont.systemFont(ofSize: 15)])
                 self.datasource[registerButtonIndex].value = true
                 self.tableView.performBatchUpdates {

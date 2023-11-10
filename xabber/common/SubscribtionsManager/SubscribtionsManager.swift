@@ -154,7 +154,7 @@ class SubscribtionsManager: NSObject {
             callback?(false)
             return
         }
-        
+        self.loadProductList()
         let url = [api_url, "/v1/accounts/\(jid.uuid().uuidString.lowercased())/"].joined()
         Alamofire
             .request(

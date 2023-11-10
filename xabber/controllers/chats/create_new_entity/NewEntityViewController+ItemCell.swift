@@ -94,15 +94,15 @@ extension NewEntityViewController {
             } else {
                 accessoryType = .none
             }
-            if last {
-                separatorView.frame = CGRect(x: 0, y: self.frame.height - 1, width: self.frame.width, height: 0.5)
-            } else {
-                separatorView.frame = CGRect(x: 56, y: self.frame.height - 1, width: self.frame.width - 56, height: 0.5)
-            }
-            separatorInset = UIEdgeInsets(top: 0, bottom: 0, left: 60, right: 0)
 //            if last {
-//                separatorInset = .zero
+//                separatorView.frame = CGRect(x: 0, y: self.frame.height - 1, width: self.frame.width, height: 0.5)
+//            } else {
+//                separatorView.frame = CGRect(x: 56, y: self.frame.height - 1, width: self.frame.width - 56, height: 0.5)
 //            }
+            separatorInset = UIEdgeInsets(top: 0, bottom: 0, left: 60, right: 0)
+            if last {
+                separatorInset = .zero
+            }
             
         }
         

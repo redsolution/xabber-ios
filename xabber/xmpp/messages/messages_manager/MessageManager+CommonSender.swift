@@ -95,7 +95,7 @@ extension MessageManager {
     
     internal func processSender(item primary: String, retry: Bool = false, childs: [DDXMLElement] = []) {
         do {
-            let realm = try  WRealm.safe()
+            let realm = try WRealm.safe()
             guard let item = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) else {
                 return
             }
@@ -131,9 +131,8 @@ extension MessageManager {
                         .sorted(byKeyPath: "originalDate", ascending: true)
                         .toArray()
                         .compactMap { return $0.messageId })
-                        .forEach {
-                            stanzaToSave.addChild($0.referenceElement)
-                        }
+                        .forEach { stanzaToSave.addChild($0.referenceElement) }
+                    
                     item.createReferences().forEach {
                         stanzaToSave.addChild($0)
                     }
@@ -180,7 +179,6 @@ extension MessageManager {
                     stanza.addBody(item.legacyBody)
                     stanzaToSave.addBody(item.legacyBody)
                     item.createReferences().forEach {
-                        
                         stanza.addChild($0.copy() as! DDXMLElement)
                         stanzaToSave.addChild($0.copy() as! DDXMLElement)
                     }
@@ -228,7 +226,6 @@ extension MessageManager {
                 }
                 
                 if retry {
-                    
                     realm.object(ofType: MessageStanzaStorageItem.self, forPrimaryKey: item.primary)?
                         .stanza = stanzaToSave.compactXMLString()
                     if let instance = realm.object(
@@ -241,7 +238,7 @@ extension MessageManager {
                     ) {
                         instance.lastMessage = item
                         instance.messageDate = Date()
-                    }   
+                    }
                 } else {
                     item.originalStanza = stanzaToSave
                     item.storeStanza()
@@ -249,33 +246,16 @@ extension MessageManager {
             }
             AccountManager.shared.find(for: owner)?.unsafeAction({ (user, stream) in
                 stanza.addChild(user.chatMarkers.child)
-//                var value = self.stanzaQueue.value
-//                value.append(user.deliveryManager.apply(to: stanza, retry: retry, missRetryElement: missRetryElementOnResend
-//                ))
                 let stanzaToSend = user.deliveryManager.apply(to: stanza, retry: retry, missRetryElement: missRetryElementOnResend)
-//                self.stanzaQueue.accept(value)
                 XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-//                    if stream.isAuthenticated {
-//                        let value = self.stanzaQueue.value
-//                        value.forEach {
-//                            stream.send($0)
-//                        }
-//                        self.stanzaQueue.accept(Array<XMPPMessage>())
-//                    }
                     stream.send(stanzaToSend)
                 } fail: {
                     AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-//                        if stream.isAuthenticated {
-//                            let value = self.stanzaQueue.value
-//                            value.forEach {
-//                                stream.send($0)
-//                            }
-//                            self.stanzaQueue.accept(Array<XMPPMessage>())
-//                        }
                         stream.send(stanzaToSend)
                     })
                 }
             })
+            LastChats.updateErrorState(for: item.opponent, owner: self.owner, conversationType: item.conversationType)
         } catch {
             DDLogDebug("cant send message \(primary)")
         }
@@ -290,7 +270,7 @@ extension MessageManager {
         var out: [ForwardedMessageItem] = []
         var legacyBody: String = ""
         do {
-            let realm = try  WRealm.safe()
+            let realm = try WRealm.safe()
             
             let dateFormatter: DateFormatter = DateFormatter()
             let timeFormatter: DateFormatter = DateFormatter()
@@ -418,6 +398,7 @@ extension MessageManager {
                 stanzaIdElement.addAttribute(withName: "id",
                                              stringValue: stanzaId)
                 message.addChild(stanzaIdElement)
+                let conversationType = instance.conversationType
                 try realm.write {
                     instance.legacyBody = body
                     instance.body = body
@@ -430,10 +411,10 @@ extension MessageManager {
                     
                 }
                 XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
-                    session.retract?.editMessage(stream, primary: primary, editedMessage: message)
+                    session.retract?.editMessage(stream, primary: primary, editedMessage: message, conversationType: conversationType)
                 }, fail: {
                     AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                        user.msgDeleteManager.editMessage(stream, primary: primary, editedMessage: message)
+                        user.msgDeleteManager.editMessage(stream, primary: primary, editedMessage: message, conversationType: conversationType)
                     })
                 })
             }
@@ -607,6 +588,7 @@ extension MessageManager {
                     if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
                         try realm.write {
                             instance.state = .error
+                            realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: instance.opponent, owner: instance.owner, conversationType: instance.conversationType))?.hasErrorInChat = true
                         }
                     }
                 } catch {

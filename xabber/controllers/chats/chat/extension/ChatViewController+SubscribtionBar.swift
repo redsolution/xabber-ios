@@ -376,11 +376,23 @@ extension ChatViewController {
         hideSubscribtionBar(animated: true)
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
             user.presences.unsubscribed(stream, jid: self.jid)
+            
             do {
                 let realm = try WRealm.safe()
                 if let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
                     try realm.write {
                         instance.ask = .none
+                    }
+                }
+                let collection = realm.objects(MessageStorageItem.self).filter("owner == %@ AND opponent == %@ AND messageType != %@", self.owner, self.jid, MessageStorageItem.MessageDisplayType.initial.rawValue)
+                if collection.isEmpty {
+                    let lastChats = realm.objects(LastChatsStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid)
+                    try realm.write {
+                        lastChats.forEach { realm.delete($0) }
+                    }
+                    _ = user.syncManager.update(stream, jid: self.jid, conversationType: self.conversationType, status: .deleted)
+                    if self.conversationType != .regular {
+                        _ = user.syncManager.update(stream, jid: self.jid, conversationType: .regular, status: .deleted)
                     }
                 }
             } catch {

@@ -250,6 +250,15 @@ class ChatListTableViewCell: UITableViewCell {
         return view
     }()
     
+    let errorIndicator: UIImageView = {
+        let view = UIImageView()
+        
+        view.image = #imageLiteral(resourceName: "alert-circle").withRenderingMode(.alwaysTemplate)
+        view.tintColor = MDCPalette.red.tint500
+        
+        return view
+    }()
+    
     let accountIndicator: UIView = {
         let view = UIView()
         
@@ -306,7 +315,8 @@ class ChatListTableViewCell: UITableViewCell {
                                 isSystem: Bool,
                                 isPinned: Bool = false,
                                 subRequest: Bool,
-                                avatarUrl: String?) {
+                                avatarUrl: String?,
+                                hasErrorInChat: Bool) {
 
         DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 56) { image in
             if let image = image {
@@ -398,9 +408,8 @@ class ChatListTableViewCell: UITableViewCell {
                 deliveryIndicator.image = #imageLiteral(resourceName: "check-all").withRenderingMode(.alwaysTemplate)
                 deliveryIndicator.tintColor = MDCPalette.green.tint500
             case .error:
-                deliveryIndicator.image = #imageLiteral(resourceName: "alert-circle").withRenderingMode(.alwaysTemplate)
+                deliveryIndicator.image = #imageLiteral(resourceName: "close").withRenderingMode(.alwaysTemplate)
                 deliveryIndicator.tintColor = MDCPalette.red.tint500
-                contentView.backgroundColor = UIColor(red: 255/255, green: 235/255, blue: 238/255, alpha: 1.0)
             case .none:
                 deliveryIndicator.isHidden = true
                 break
@@ -416,6 +425,14 @@ class ChatListTableViewCell: UITableViewCell {
             } else {
                 badgeView.isHidden = true
             }
+        }
+        
+        if hasErrorInChat {
+            self.contentView.backgroundColor = UIColor(red: 255/255, green: 235/255, blue: 238/255, alpha: 1.0)
+            self.errorIndicator.isHidden = false
+        } else {
+            self.errorIndicator.isHidden = true
+            self.contentView.backgroundColor = .systemBackground
         }
         
         if subRequest {
@@ -435,8 +452,6 @@ class ChatListTableViewCell: UITableViewCell {
         
         badgeView.backgroundColor = badgeColor
         subBadgeView.backgroundColor = badgeColor
-        
-        
     }
     
     func setMask() {
@@ -464,13 +479,12 @@ class ChatListTableViewCell: UITableViewCell {
         badgeView.isHidden = true
         subBadgeView.isHidden = true
         avatarView.image = nil
+        errorIndicator.isHidden = true
         
-        if #available(iOS 13.0, *) {
-            self.contentView.backgroundColor = .systemBackground
-        } else {
-            self.contentView.backgroundColor = .white
-        }
+        self.contentView.backgroundColor = .systemBackground
+
         badgeString = ""
+        badgeView.setTitle(nil, for: .normal)
         if bottomStack.layoutMargins.right > 8 {
             bottomStack.layoutMargins = UIEdgeInsets(top: 0, bottom: 0, left: 0, right: 8)
         }
@@ -486,8 +500,9 @@ class ChatListTableViewCell: UITableViewCell {
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
 
-        self.layer.shouldRasterize = true
-        self.layer.rasterizationScale = UIScreen.main.scale
+//        self.layer.shouldRasterize = true
+//        self.layer.rasterizationScale = UIScreen.main.scale
+        
         contentView.addSubview(infoStack)
         infoStack.fillSuperviewWithOffset(top: 0, bottom: 4, left: 2, right: 0)
         
@@ -517,9 +532,9 @@ class ChatListTableViewCell: UITableViewCell {
         bottomStack.addArrangedSubview(badgeStack)
         
         badgeStack.addArrangedSubview(subBadgeView)
-//        badgeStack.addArrangedSubview(deliveryIndicator)
         badgeStack.addArrangedSubview(badgeView)
         badgeStack.addArrangedSubview(pinnedIndicator)
+        badgeStack.addArrangedSubview(errorIndicator)
         
         userImageView.addSubview(avatarView)
         userImageView.addSubview(statusIndicator)
@@ -529,6 +544,7 @@ class ChatListTableViewCell: UITableViewCell {
         encryptedIndicator.isHidden = true
         badgeView.isHidden = true
         subBadgeView.isHidden = true
+        errorIndicator.isHidden = true
         
         self.selectionStyle = .none
         separatorInset = UIEdgeInsets(top: 0, bottom: 0, left: 74, right: 0)
@@ -559,6 +575,9 @@ class ChatListTableViewCell: UITableViewCell {
             
             subBadgeView.widthAnchor.constraint(equalToConstant:  20),
             subBadgeView.heightAnchor.constraint(equalToConstant: 20),
+            
+            errorIndicator.widthAnchor.constraint(equalToConstant: 24),
+            errorIndicator.heightAnchor.constraint(equalToConstant: 24),
         ])
     }
     
@@ -579,8 +598,6 @@ class ChatListTableViewCell: UITableViewCell {
 fileprivate extension UILabel {
 
     func layoutFor(_ text: String, isDraft: Bool, groupchatNickname: String?, color: UIColor?, isSystem: Bool) {
-    //        self.lineBreakMode = .byWordWrapping
-    //        self.numberOfLines = 0
         if #available(iOS 13.0, *) {
             self.textColor = .secondaryLabel
         } else {
@@ -601,11 +618,6 @@ fileprivate extension UILabel {
                 NSAttributedString.Key.font: UIFont.systemFont(ofSize: 14)
             ])
         }
-    //        else if let nickname = groupchatNickname {
-    //            textString = NSMutableAttributedString(string: [nickname, text].joined(separator: "\n"), attributes: [
-    //                NSAttributedString.Key.font: UIFont.systemFont(ofSize: 14)
-    //            ])
-    //        }
         let textRange = NSRange(location: 0, length: textString.length)
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineSpacing = 1.43
@@ -615,10 +627,6 @@ fileprivate extension UILabel {
             let draftRange = NSRange(location: 0, length: NSString(string: "Draft".localizeString(id: "draft", arguments: [])).length)
             textString.addAttribute(.foregroundColor, value: MDCPalette.red.tint700, range: draftRange)
         }
-    //        else if let nickname = groupchatNickname {
-    //            let nicknameRange = NSRange(location: 0, length: NSString(string: nickname).length)
-    //            textString.addAttribute(.foregroundColor, value: MDCPalette.grey.tint800, range: nicknameRange)
-    //        }
         if let color = color, !isDraft {
             let fullRange = NSRange(location: 0, length: textString.length)
             textString.addAttribute(.foregroundColor, value: color, range: fullRange)

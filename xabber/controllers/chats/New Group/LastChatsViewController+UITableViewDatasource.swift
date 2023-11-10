@@ -72,7 +72,8 @@ extension LastChatsViewController: UITableViewDataSource {
                 isSystem: item.isSystemMessage,
                 isPinned: item.isPinned,
                 subRequest: item.subRequest,
-                avatarUrl: item.avatarUrl
+                avatarUrl: item.avatarUrl,
+                hasErrorInChat: item.hasErrorInChat
             )
             cell.setMask()
             

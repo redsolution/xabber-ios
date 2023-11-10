@@ -434,7 +434,7 @@ class PasscodeOrBiometricViewController: SimpleBaseViewController {
             FeedbackManager.shared.tap()
             let context = LAContext()
             context.localizedCancelTitle = "Enter passcode"
-            let reason = "Unlock Xabber"
+            let reason = "Unlock \(CommonConfigManager.shared.config.app_name)"
             context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason ) { success, error in
                 if success {
                     defer {

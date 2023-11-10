@@ -358,7 +358,7 @@ extension ChatViewController {
         self.messagesBag = DisposeBag()
         Observable
             .collection(from: self.messagesObserver!)
-            .debounce(.milliseconds(500), scheduler: MainScheduler.asyncInstance)
+            .debounce(.milliseconds(300), scheduler: MainScheduler.asyncInstance)
             .subscribe { (result) in
                 if !self.isSkeletonHided { return }
                 if self.showSkeletonObserver.value { return }

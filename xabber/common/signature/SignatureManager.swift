@@ -55,6 +55,12 @@ class SignatureManager: NSObject {
         case signature
     }
     
+    
+    struct BundleSignedInfo {
+        let signedBy: String
+        let signedAt: Double
+    }
+    
     class MessageError {
         var hasError: Bool = true
         var certValid: Bool = false
@@ -150,6 +156,10 @@ class SignatureManager: NSObject {
             let element = DDXMLElement(name: "signature", xmlns: SignatureManager.xmlns)
             element.stringValue = signature
             
+            if let stamp = CredentialsManager.shared.getSignatureTimestamp() {
+                element.addAttribute(withName: "stamp", doubleValue: round(stamp))
+            }
+            
             return element
         }
     }
@@ -164,7 +174,7 @@ class SignatureManager: NSObject {
         super.init()
         guard let path = Bundle.main.path(forResource: "root", ofType: "crt"),
               let rootUrl = URL(string: path),
-              let data = try? Data(contentsOf: rootUrl) as? CFData,
+              let data = try? Data(contentsOf: rootUrl) as CFData,
               let crt = SecCertificateCreateWithData(nil, data) else {
                   return
               }
@@ -199,6 +209,54 @@ class SignatureManager: NSObject {
 
     }
     
+    public func checkBundleSignature(owner: String, for jid: String, signature: DDXMLElement?) throws -> BundleSignedInfo? {
+        
+        guard let sign = signature?.stringValue,
+            let en = Data(base64Encoded: sign) else {
+            return nil
+        }
+        guard let tsRaw = signature?.attributeDoubleValue(forName: "stamp"),
+              let ts = "\(tsRaw)".data(using: .utf8) else {
+            return nil
+        }
+        
+        let realm = try WRealm.safe()
+        
+        guard let certData = realm.object(ofType: X509StorageItem.self, forPrimaryKey: X509StorageItem.genRpimary(owner: owner, jid: jid))?.certData else {
+            return nil
+        }
+        
+        guard let cert = SecCertificateCreateWithData(nil, certData as CFData) else {
+            return nil
+        }
+        
+        guard let certificate = self.certificate else {
+            return nil
+        }
+        
+        if let key = SecCertificateCopyKey(certificate) {
+            guard SecKeyIsAlgorithmSupported(key, .verify, .rsaSignatureMessagePKCS1v15SHA512) else {
+                return nil
+            }
+            var error: Unmanaged<CFError>?
+            let verf = SecKeyVerifySignature(
+                key,
+                .rsaSignatureMessagePKCS1v15SHA512,
+                ts as CFData,
+                en as CFData,
+                &error
+            )
+            if !verf { return nil }
+        }
+        
+        var cfName: CFString?
+        SecCertificateCopyCommonName(cert, &cfName)
+        if let cn = cfName as String? {
+            return BundleSignedInfo(signedBy: cn, signedAt: tsRaw)
+        }
+        return nil
+    }
+    
     public func checkSignature(owner: String, for jid: String, signature: DDXMLElement?, messageDate: Date) throws -> MessageError {
         let result = MessageError()
         
@@ -206,8 +264,8 @@ class SignatureManager: NSObject {
             let en = Data(base64Encoded: sign) else {
             return result
         }
-        guard let tsRaw = signature?.attributeStringValue(forName: "stamp"),
-              let ts = tsRaw.data(using: .utf8) else {
+        guard let tsRaw = signature?.attributeDoubleValue(forName: "stamp"),
+              let ts = "\(tsRaw)".data(using: .utf8) else {
             return result
         }
         result.signed = true
@@ -236,25 +294,26 @@ class SignatureManager: NSObject {
         }
         
         
-//        guard let certificate = self.certificate else {
-//            return result
-//        }
+        guard let certificate = self.certificate else {
+            return result
+        }
 
-//        if let key = SecCertificateCopyKey(certificate) {
-//            guard SecKeyIsAlgorithmSupported(key, .verify, .rsaSignatureMessagePKCS1v15SHA512) else {
-//                return result
-//            }
-//            result.signDecrypted = true
-//            var error: Unmanaged<CFError>?
-//            let verf = SecKeyVerifySignature(
-//                key,
-//                .rsaSignatureMessagePKCS1v15SHA512,
-//                ts as CFData,
-//                en as CFData,
-//                &error
-//            )
-//            result.signValid = verf
-//        }
+        if let key = SecCertificateCopyKey(certificate) {
+            guard SecKeyIsAlgorithmSupported(key, .verify, .rsaSignatureMessagePKCS1v15SHA512) else {
+                return result
+            }
+            result.signDecrypted = true
+            print(tsRaw, ts, ts.bytes)
+            var error: Unmanaged<CFError>?
+            let verf = SecKeyVerifySignature(
+                key,
+                .rsaSignatureMessagePKCS1v15SHA512,
+                ts as CFData,
+                en as CFData,
+                &error
+            )
+            result.signValid = verf
+        }
         
         return result
     }
@@ -437,7 +496,7 @@ extension SignatureManager: YKFManagerDelegate {
                         self.stopConnection(connection, with: "Connection error. Please try again", error: true)
                         return
                     }
-                    let stamp = Date().timeIntervalSince1970
+                    let stamp = Double(UInt32(Date().timeIntervalSince1970))
                     guard let ts = "\(stamp)".data(using: .utf8) else {
                         return
                     }
@@ -451,6 +510,7 @@ extension SignatureManager: YKFManagerDelegate {
                             return
                         }
                         var errorPointer: Unmanaged<CFError>?
+                        print(stamp, ts, ts.bytes)
                         guard let cert = SignatureManager.shared.certificate,
                               let publicKey = SecCertificateCopyKey(cert),
                               let signature = result,

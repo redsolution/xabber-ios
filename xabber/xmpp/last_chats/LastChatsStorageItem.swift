@@ -82,6 +82,8 @@ class LastChatsStorageItem: Object {
     @objc dynamic var isAllHistoryLoaded: Bool = false
     @objc dynamic var isFreshNotEmptyEncryptedChat: Bool = false
     
+    @objc dynamic var hasErrorInChat: Bool = false
+    
     
     @objc dynamic var conversationType_: String = ClientSynchronizationManager.ConversationType.omemo.rawValue
     

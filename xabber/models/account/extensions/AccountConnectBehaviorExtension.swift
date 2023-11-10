@@ -52,6 +52,7 @@ extension Account {
             DispatchQueue.main.async {
                 ToastPresenter(message: "SM did resume").present(animated: true)
             }
+//            _ = self.syncManager.sync(self.xmppStream)
         } else {
             DispatchQueue.main.async {
                 ToastPresenter(message: "Synchronization").present(animated: true)
@@ -194,7 +195,6 @@ extension Account {
         if !self.isSynced,
            !self.syncManager.isAvailable {
             self.isSynced = true
-//            AccountManager.shared.markAsConnected(jid: self.jid)
             self.queue.asyncAfter(deadline: .now() + 2) {
                 AccountManager.shared.changeNewUserState(for: self.jid, to: .dataLoaded)
             }

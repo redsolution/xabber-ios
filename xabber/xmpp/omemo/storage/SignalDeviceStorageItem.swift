@@ -43,6 +43,10 @@ class SignalDeviceStorageItem: Object {
     @objc dynamic var updateDate: Date = Date()
     @objc dynamic var fingerprint: String = ""
     @objc dynamic var freshlyUpdated: Bool = false
+    @objc dynamic var isTrustedByCertificate: Bool = false
+    @objc dynamic var signature: String? = nil
+    @objc dynamic var signedBy: String? = nil
+    @objc dynamic var signedAt: Double = -1
     
 
     var state: TrustState {

@@ -717,6 +717,14 @@ extension OmemoManager {
           }
                 
         let signed: Bool = bundle.element(forName: "signature", xmlns: SignatureManager.xmlns) != nil
+        var signedInfo: SignatureManager.BundleSignedInfo? = nil
+        if let signature = bundle.element(forName: "signature", xmlns: SignatureManager.xmlns) {
+            signedInfo = try SignatureManager.shared.checkBundleSignature(
+                owner: self.owner,
+                for: jid,
+                signature: signature
+            )
+        }
         
         let realm = try WRealm.safe()
         
@@ -754,9 +762,19 @@ extension OmemoManager {
                 realm.writeAsync {
                     if instance.isInvalidated { return }
                     instance.fingerprint = ik_data?.formattedFingerprint() ?? ""
-                    if signed {
+                    if let signedInfo = signedInfo,
+                       signedInfo.signedBy == jid {
                         instance.state = .trusted
+                        instance.isTrustedByCertificate = true
+                        instance.signedAt = signedInfo.signedAt
+                        instance.signedBy = signedInfo.signedBy
+                    } else {
+                        instance.isTrustedByCertificate = false
+                        instance.signedAt = -1
+                        instance.signedBy = nil
                     }
+                    
+                    
                 }
             }
         } else {
@@ -777,11 +795,24 @@ extension OmemoManager {
                                                forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: jid, deviceId: cDeviceId)) {
                     let ik_data = Data(base64Encoded: ik_b64, options: .ignoreUnknownCharacters)
                     instance.fingerprint = ik_data?.formattedFingerprint() ?? ""
-                    if signed {
+                    if let signedInfo = signedInfo,
+                       signedInfo.signedBy == jid {
                         instance.state = .trusted
+                        instance.isTrustedByCertificate = true
+                        instance.signedAt = signedInfo.signedAt
+                        instance.signedBy = signedInfo.signedBy
+                    } else {
+                        instance.isTrustedByCertificate = false
+                        instance.signedAt = -1
+                        instance.signedBy = nil
                     }
                 }
             }
+        }
+        if jid == self.owner {
+            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                user.devices.requestList(stream)
+            })
         }
         return true
     }

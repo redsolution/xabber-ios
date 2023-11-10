@@ -580,9 +580,11 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         }
 
         let stamp = conversation.attributeDoubleValue(forName: "stamp")
-        let metadata = conversation
+        guard let metadata = conversation
             .elements(forName: "metadata")
-            .first(where: { $0.attributeStringValue(forName: "node") == "https://xabber.com/protocol/synchronization" }) ?? DDXMLElement(name: "metadata")
+            .first(where: { $0.attributeStringValue(forName: "node") == "https://xabber.com/protocol/synchronization" }) else {
+            fatalError()
+        }
         func getChat(_ realm: Realm, jid: String, conversationType: ConversationType) throws -> LastChatsStorageItem {
             if let instance = realm.object(
                 ofType: LastChatsStorageItem.self,
@@ -799,6 +801,12 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                                     trustedSource: true,
                                     messageAction: nil,
                                     commitTransaction: false)
+            }
+            
+            if [.omemo, .axolotl, .omemo1].contains(conversationType),
+               metadata.element(forName: "last-message")?.element(forName: "message") == nil {
+                instance.isFreshNotEmptyEncryptedChat = true
+                instance.isSynced = false
             }
             
             if let messageElement = metadata.element(forName: "last-message")?.element(forName: "message") {

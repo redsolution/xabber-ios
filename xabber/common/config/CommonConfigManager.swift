@@ -59,6 +59,7 @@ class CommonConfigManager: NSObject {
         var afterburn_default_interval: Int
         var server_registration_url: String
         var show_server_features: Bool
+        var blur_screen_when_enter_background: Bool
     }
     
     var config: CommonConfig

@@ -118,6 +118,7 @@ class ReliableMessageDeliveryManager: AbstractXMPPManager {
                     instance.references.forEach({
                         $0.hasError = true
                     })
+                    realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: instance.opponent, owner: instance.owner, conversationType: instance.conversationType))?.hasErrorInChat = true
                 }
                 return true
             }
@@ -178,6 +179,7 @@ class ReliableMessageDeliveryManager: AbstractXMPPManager {
                     }
                     instance.archivedId = stanzaId
                 }
+                realm.refresh() 
             } else {
                 print(message.prettyXMLString!)
                 print(1488)

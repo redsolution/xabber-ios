@@ -176,16 +176,9 @@ class PushNotificationsManager: AbstractXMPPManager {
     }
     
     override func read(withIQ iq: XMPPIQ) -> Bool {
-//        if 
         return readPushRegistrationResult(iq)
     }
-    
-    /*<iq xmlns="jabber:client" lang="en" to="igor.boldin@xmppdev01.xabber.com/xabber-ios-3F02F22F" from="igor.boldin@xmppdev01.xabber.com" type="result" id="583871B8-4373-4BC2-BEC2-58A839372F73">
-     <x xmlns="jabber:x:oob">
-       <url>https://@HOST@:5444/iq</url>
-     </x>
-   </iq>*/
-    
+        
     private final func readPushRegistrationResult(_ iq: XMPPIQ) -> Bool {
         guard let elementId = iq.elementID,
            queryIds.contains(elementId),

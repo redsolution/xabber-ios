@@ -91,4 +91,26 @@ class LastChats: AbstractXMPPManager {
         }
     }
     
+    
+    static func updateErrorState(for jid: String, owner: String, conversationType: ClientSynchronizationManager.ConversationType) {
+        do {
+            let realm = try WRealm.safe()
+            let collection = realm
+                .objects(MessageStorageItem.self)
+                .filter(
+                    "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND state_ == %@ AND messageType != %@",
+                    owner,
+                    jid,
+                    conversationType.rawValue,
+                    MessageStorageItem.MessageSendingState.error.rawValue,
+                    MessageStorageItem.MessageDisplayType.system.rawValue
+                )
+            let instance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: conversationType))
+            try realm.write {
+                instance?.hasErrorInChat = !collection.isEmpty
+            }
+        } catch {
+            DDLogDebug("LastChats: \(#function). \(error.localizedDescription)")
+        }
+    }
 }

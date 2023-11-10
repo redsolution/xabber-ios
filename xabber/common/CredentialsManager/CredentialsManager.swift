@@ -114,7 +114,8 @@ class CredentialsManager: NSObject {
             }
         }
         
-        var callbacks: SynchronizedArray<SynchronizedArrayCallbackItem> = SynchronizedArray()
+//        var callbacks: SynchronizedArray<SynchronizedArrayCallbackItem> = SynchronizedArray()
+        var callbacks: Array<SynchronizedArrayCallbackItem> = Array()
         var isFirstTokenIssued: Bool = false {
             didSet {
                 print("Token fpr \(jid) firstIssued: \(isFirstTokenIssued)")
@@ -136,8 +137,12 @@ class CredentialsManager: NSObject {
             }
         }
         
-        public final func updateKind() {
+        public final func updateKind(to predefinedKind: Kind? = nil) {
             print(#function)
+            if let kind = predefinedKind {
+                self.kind = kind
+                return
+            }
             self.kind = .password
             if self.retrieveCreditionals(for: [jid, Kind.token.rawValue].prp()) != nil {
                 self.kind = .token
@@ -176,11 +181,13 @@ class CredentialsManager: NSObject {
             isInvalidate = error
             if error {
                 isBlocked = false
-                callbacks = SynchronizedArray()
+//                callbacks = SynchronizedArray()
+                callbacks = Array()
             } else {
                 isBlocked = false
                 if callbacks.isNotEmpty {
-                    callbacks.removeFirst { $0?.callback?() } // здесь случается crash
+//                    callbacks.removeFirst { $0?.callback?() } // здесь случается crash
+                    callbacks.removeFirst().callback?()
                 }
             }
         }
@@ -195,9 +202,9 @@ class CredentialsManager: NSObject {
                 let newCounter = counter + 1
                 self.counter = newCounter
                 self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(newCounter)")
-                self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(newCounter)")
+//                self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(newCounter)")
             } else {
-                print("FATAL ERROR", #function)
+                print("FATAL ERROR", #function, self.retrieveCreditionals(for: [jid, "counter"].prp()))
             }
         }
         
@@ -261,7 +268,8 @@ class CredentialsManager: NSObject {
             print(#function)
             let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
                                            accessGroup: CredentialsManager.uniqueAccessGroup())
-            _ = keychain.set(value, forKey: key, withAccessibility: .always)
+            let result = keychain.set(value, forKey: key, withAccessibility: .always)
+            print(result)
         }
         
         private func retrieveCreditionals(for key: String) -> String? {

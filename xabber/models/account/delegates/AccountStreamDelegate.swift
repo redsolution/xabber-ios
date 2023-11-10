@@ -141,43 +141,8 @@ extension Account: XMPPStreamDelegate {
     }
 
     func xmppStreamConnectDidTimeout(_ sender: XMPPStream) {
-//        resetStream()
-//        configureStream()
         self.connect()
-//        do {
-////            try sender.connect(withTimeout: 1)
-//        } catch {
-//            self.delayedConnectTimer?.invalidate()
-//            self.delayedConnectTimer = nil
-//            if self.delayedConnectTimer == nil {
-//                self.delayedConnectTimer = Timer(timeInterval: 3, target: self, selector: #selector(self.connect), userInfo: nil, repeats: false)
-//                RunLoop.main.add(self.delayedConnectTimer!, forMode: RunLoop.Mode.default)
-//            }
-//        }
-        
     }
-    
-//    func xmppStreamWillConnect(_ sender: XMPPStream) {
-//        AccountManager.shared.markAsConnecting(jid: self.jid)
-//        let reachabilityManager = NetworkReachabilityManager()
-//        reachabilityManager?.startListening()
-//        reachabilityManager?.listener = {
-//            _ in
-//            if let isNetworkReachable = reachabilityManager?.isReachable, isNetworkReachable == true {
-//                if self.xmppStream.isDisconnected {
-////                    self.asyncConnect()
-//                }
-//            } else {
-////                self.statusMessage.accept("Wait for network")
-////                self.statusMessage.accept("Connecting")
-//                if self.delayedConnectTimer == nil {
-//                    self.delayedConnectTimer = Timer(timeInterval: 3, target: self, selector: #selector(self.connect), userInfo: nil, repeats: false)
-//                    RunLoop.main.add(self.delayedConnectTimer!, forMode: RunLoop.Mode.default)
-//                }
-//            }
-//        }
-//
-//    }
 
     func xmppStreamDidAuthenticate(_ sender: XMPPStream) {
         self.didAuthenticate()
@@ -207,7 +172,7 @@ extension Account: XMPPStreamDelegate {
     func xmppStream(_ sender: XMPPStream, didNotAuthenticate error: DDXMLElement) {
         self.didReceiveError(error)
     }
-
+    
     func xmppStreamWasTold(toDisconnect sender: XMPPStream) {
 //        self.statusMessage.accept("Disconnect")
         self.statusMessage.accept("Offline")

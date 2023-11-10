@@ -130,6 +130,8 @@ class MessageSigningInfoViewController: SimpleBaseViewController {
     open var isFromOnboarding: Bool = true
     open var isModal: Bool = false
     
+    open var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
+    
     public var messagePrimary: String = ""
     
     class Datasource {
@@ -212,7 +214,7 @@ class MessageSigningInfoViewController: SimpleBaseViewController {
             
             if let value = message.errorMetadata?["certConfirmed"] as? Bool {
                 certDatasource.append(Datasource(
-                    title: "Certificate signed by Xabber",
+                    title: "Certificate signed by \(CommonConfigManager.shared.config.app_name)",
                     subtitle: "",
                     kind: .checkmark,
                     value: value
@@ -377,6 +379,7 @@ extension MessageSigningInfoViewController: UITableViewDelegate {
                                         stream,
                                         primary: self.messagePrimary,
                                         jid: "",
+                                        conversationType: self.conversationType,
                                         symmetric: result,
                                         callback: { (errorMessage, success) in
                                             DispatchQueue.main.async {
@@ -394,6 +397,7 @@ extension MessageSigningInfoViewController: UITableViewDelegate {
                                             .deleteMessage(stream,
                                                            primary: self.messagePrimary,
                                                            jid: "",
+                                                           conversationType: self.conversationType,
                                                            symmetric: result)
                                             { (errorMessage, success) in
                                                 DispatchQueue.main.async {

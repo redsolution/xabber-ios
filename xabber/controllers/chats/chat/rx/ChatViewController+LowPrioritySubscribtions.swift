@@ -314,6 +314,38 @@ extension ChatViewController {
                     
                 }
                 
+                let badMessageCollection = realm
+                    .objects(MessageStorageItem.self)
+                    .filter(
+                        "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND messageType != %@ AND (state_ == %@ OR state_ == %@)",
+                        self.owner,
+                        self.jid,
+                        self.conversationType.rawValue,
+                        MessageStorageItem.MessageDisplayType.system.rawValue,
+                        MessageStorageItem.MessageSendingState.sending.rawValue,
+                        MessageStorageItem.MessageSendingState.error.rawValue
+                    )
+                
+                Observable
+                    .collection(from: badMessageCollection)
+                    .debounce(.milliseconds(5), scheduler: MainScheduler.asyncInstance)
+                    .subscribe(onNext: { results in
+                        if self.isSkeletonHided {
+                            self.xabberInputView.isSendButtonEnabled = results.isEmpty
+                            self.xabberInputView.updateSendButtonState()
+                        } else {
+                            self.xabberInputView.isSendButtonEnabled = false
+                            self.xabberInputView.updateSendButtonState()
+                        }
+                    }, onError: { _ in
+                        
+                    }, onCompleted: {
+                        
+                    }, onDisposed: {
+                        
+                    })
+                    .disposed(by: bag)
+                
                 let myUntrustedDevicesCollection = realm
                     .objects(SignalDeviceStorageItem.self)
                     .filter("owner == %@ AND jid == %@ AND state_ != %@", self.owner, self.owner, SignalDeviceStorageItem.TrustState.trusted.rawValue)
@@ -350,15 +382,17 @@ extension ChatViewController {
         }
         self.showSkeletonObserver
             .asObservable()
-            .debounce(.milliseconds(200), scheduler: MainScheduler.asyncInstance)
+            .debounce(.milliseconds(5), scheduler: MainScheduler.asyncInstance)
             .subscribe { value in
                 self.isSkeletonHided = !value
-                if !value {
+//                if !value {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                         self.canUpdateDataset = true
                         self.runDatasetUpdateTask(shouldScrollToLastMessage: true)
+                        self.xabberInputView.isSendButtonEnabled = !value
+                        self.xabberInputView.updateSendButtonState()
                     }
-                }
+//                }
 //                self.messagesCollectionView.isScrollEnabled = !value
 //                self.messagesCollectionView.isUserInteractionEnabled = !value
             } onError: { _ in
@@ -382,6 +416,43 @@ extension ChatViewController {
                     DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
                 }
             }.disposed(by: self.bag)
+        
+        AccountManager
+            .shared
+            .connectingUsers
+            .asObservable()
+//            .debounce(.milliseconds(50), scheduler: MainScheduler.asyncInstance)
+            .subscribe { result in
+                print(result, "AAAAAAAAAAAAAAAAAA")
+            if result.contains(self.owner) {
+                if !self.shouldRequestChatInfo {
+                    do {
+                        let realm = try WRealm.safe()
+                        if let instance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid, owner: self.owner, conversationType: self.conversationType)) {
+                            try realm.write {
+                                instance.isSynced = false
+                            }
+                        }
+                    } catch {
+                        DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+                    }
+//                    self.showSkeletonObserver.accept(true)
+                    self.shouldRequestChatInfo = true
+                }
+            } else {
+                if self.shouldRequestChatInfo {
+                    self.willEnterForeground()
+                    self.shouldRequestChatInfo = false
+                }
+            }
+        } onError: { _ in
+            
+        } onCompleted: {
+            
+        } onDisposed: {
+            
+        }.disposed(by: self.bag)
+
         
     }
     

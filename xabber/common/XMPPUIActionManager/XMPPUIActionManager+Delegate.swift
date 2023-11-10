@@ -121,32 +121,24 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
     }
     
     func xmppStream(_ sender: XMPPStream, didNotAuthenticate error: DDXMLElement) {
-        guard let jid = sender.myJID?.bare else { return }
-        print(#function, error)
-        CredentialsManager.shared.getItem(for: jid).release(error: true)
-        if (AccountManager.shared.find(for: sender.myJID!.bare)?.devices.isAvailable ?? false) {
-            if error.element(forName: "credentials-expired") != nil {
-                tokenWasInvalidated()
-                sender.disconnect()
-//                sender.abortConnecting()
-            }
-        }
+        self.didReceiveError(error)
 //        else {
 //            self.restore()
 //        }
     }
     
     func xmppStream(_ sender: XMPPStream, didReceiveError error: DDXMLElement) {
-        if error.element(forName: "policy-violation") != nil {
-            self.disable(self.currentJid ?? "")
-        }
-        if (AccountManager.shared.find(for: sender.myJID!.bare)?.devices.isAvailable ?? false) {
-            if error.element(forName: "conflict") != nil && error.element(forName: "text")?.stringValue == "Device was revoked" {
-                tokenWasInvalidated()
-                sender.disconnect()
-//                sender.abortConnecting()
-            }
-        }
+//        if error.element(forName: "policy-violation") != nil {
+//            self.disable(self.currentJid ?? "")
+//        }
+//        if (AccountManager.shared.find(for: sender.myJID!.bare)?.devices.isAvailable ?? false) {
+//            if error.element(forName: "conflict") != nil && error.element(forName: "text")?.stringValue == "Device was revoked" {
+//                tokenWasInvalidated()
+//                sender.disconnect()
+////                sender.abortConnecting()
+//            }
+//        }
+        self.didReceiveError(error)
     }
     
 //    func xmppStream(_ sender: XMPPStream, willSend iq: XMPPIQ) -> XMPPIQ? {

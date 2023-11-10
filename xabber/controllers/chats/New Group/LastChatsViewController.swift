@@ -80,6 +80,7 @@ class LastChatsViewController: BaseViewController {
         let subRequest: Bool
         let isEncrypted: Bool
         let avatarUrl: String?
+        let hasErrorInChat: Bool
         
         static func compareContent(_ a: LastChatsViewController.Datasource, _ b: LastChatsViewController.Datasource) -> Bool {
             return a.jid == b.jid
@@ -104,6 +105,7 @@ class LastChatsViewController: BaseViewController {
                     && a.subRequest == b.subRequest
                     && a.isEncrypted == b.isEncrypted
                     && a.avatarUrl == b.avatarUrl
+                    && a.hasErrorInChat == b.hasErrorInChat
         }
         
     }
@@ -174,6 +176,7 @@ class LastChatsViewController: BaseViewController {
         button.tintColor = .white
         button.layer.cornerRadius = 18
         button.setTitle("Mark all as read".localizeString(id: "mark_all_as_read_button", arguments: []), for: .normal)
+        button.isHidden = true
         
         return button
     }()
@@ -319,14 +322,23 @@ class LastChatsViewController: BaseViewController {
             
             datasetBag = DisposeBag()
             
-            self.showSkeleton.asObservable().subscribe { _ in
-                self.runDatasetUpdateTask()
-            }.disposed(by: self.bag)
+            self.showSkeleton
+                .asObservable()
+//                .debounce(.milliseconds(50), scheduler: MainScheduler.asyncInstance)
+                .skip(1)
+                .subscribe { _ in
+                    
+                    print(#function, "show skeleton")
+                    self.runDatasetUpdateTask()
+                }
+                .disposed(by: self.bag)
             
             Observable
                 .collection(from: chatsObserver!)
                 .debounce(.milliseconds(400), scheduler: MainScheduler.asyncInstance)
+                .skip(1)
                 .subscribe { (results) in
+                    print(#function, "show skeleton")
                     self.runDatasetUpdateTask()
                 } onError: { (error) in
                     DDLogDebug("LastChatsViewController: \(#function). RX error: \(error.localizedDescription)")
@@ -354,7 +366,7 @@ class LastChatsViewController: BaseViewController {
                     }
                     if self.filter.value == .unread {
                         UIView.animate(withDuration: 0.1) {
-                            self.unreadAllMessagesButton.isHidden = results.filter{ $0.unread != 0 }.isEmpty
+                            self.unreadAllMessagesButton.isHidden = self.filter.value == .unread ? results.filter{ $0.unread != 0 }.isEmpty : false
                             self.unreadAllMessagesButton.isEnabled = AccountManager.shared.connectingUsers.value.isEmpty
                             self.unreadAllMessagesButton.backgroundColor = AccountManager.shared.connectingUsers.value.isNotEmpty ? MDCPalette.grey.tint500 : AccountColorManager.shared.topPalette().tint500
                         }
@@ -411,7 +423,8 @@ class LastChatsViewController: BaseViewController {
                     isPinned: false,
                     subRequest: false,
                     isEncrypted: false,
-                    avatarUrl: nil
+                    avatarUrl: nil,
+                    hasErrorInChat: false
                 )
             }
         }
@@ -544,7 +557,7 @@ class LastChatsViewController: BaseViewController {
                     status: primaryResource?.status ?? .offline,
                     entity: primaryResource?.entity ?? .contact,
                     conversationType: item.conversationType,
-                    unread: item.unread,
+                    unread: item.lastMessage?.outgoing ?? false ? 0 : item.unread,
                     unreadString: isInvite ? "1" : nil,
                     color: AccountManager.shared.users.count <= 1 ? .clear : AccountColorManager.shared.primaryColor(for: item.owner),
                     isDraft: isDraft,
@@ -554,7 +567,8 @@ class LastChatsViewController: BaseViewController {
                     isPinned: item.isPinned,
                     subRequest: (XMPPJID(string: item.jid)?.isServer ?? true) ? false :  subscriptionRequest,
                     isEncrypted: [.omemo, .axolotl, .omemo1].contains(item.conversationType),
-                    avatarUrl: item.rosterItem?.avatarMinUrl ?? item.rosterItem?.avatarMaxUrl ?? item.rosterItem?.oldschoolAvatarKey
+                    avatarUrl: item.rosterItem?.avatarMinUrl ?? item.rosterItem?.avatarMaxUrl ?? item.rosterItem?.oldschoolAvatarKey,
+                    hasErrorInChat: item.hasErrorInChat
                 )
             }
         } catch {
@@ -696,7 +710,7 @@ class LastChatsViewController: BaseViewController {
             .shared
             .connectingUsers
             .asObservable()
-            .debounce(.milliseconds(70), scheduler: MainScheduler.asyncInstance)
+//            .debounce(.milliseconds(70), scheduler: MainScheduler.asyncInstance)
             .subscribe(onNext: { (results) in
                 if results.isNotEmpty {
                     if !self.showSkeleton.value {
@@ -733,7 +747,7 @@ class LastChatsViewController: BaseViewController {
         
         filter
             .asObservable()
-            .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
+            .debounce(.milliseconds(1), scheduler: MainScheduler.asyncInstance)
             .subscribe(onNext: { (value) in
                 switch value {
                 case .chats:
@@ -1001,27 +1015,9 @@ class LastChatsViewController: BaseViewController {
         navigationController?.navigationBar.shadowImage = nil
         NotifyManager.shared.setLastChats(displayed: true)
         isAppeared = true
-//        self.tableView.reloadData()
-        canUpdateDataset = true
-        runDatasetUpdateTask()
         self.tabBarController?.tabBar.isHidden = false
         self.tabBarController?.tabBar.layoutIfNeeded()
-//        if !isFirstLayout {
-            subscribe()
-//        }
-//        do {
-//            let realm = try  WRealm.safe()
-//            if let item = realm
-//                .objects(AccountStorageItem.self)
-//                .filter("enabled == true")
-//                .sorted(byKeyPath: "order", ascending: true)
-//                .first {
-//                self.accountNavButton.update(jid: item.jid,
-//                                             status: item.resource?.status ?? .offline)
-//            }
-//        } catch {
-//            DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
-//        }
+        subscribe()
         if SignatureManager.shared.certificate != nil {
             self.securityButton.tintColor = .systemGreen
         } else {

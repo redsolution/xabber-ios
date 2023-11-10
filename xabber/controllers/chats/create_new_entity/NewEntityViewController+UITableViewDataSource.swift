@@ -66,7 +66,7 @@ extension NewEntityViewController: UITableViewDataSource {
                            title: "Scan QR Code".localizeString(id: "scan_qr_code", arguments: []),
                            icon: #imageLiteral(resourceName: "qrcode-scan").withRenderingMode(.alwaysTemplate),
                            editable: true,
-                           last: true)
+                           last: false)
             
             return cell
         case 2:
