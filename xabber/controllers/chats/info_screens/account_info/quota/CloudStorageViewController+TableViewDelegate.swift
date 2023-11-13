@@ -45,17 +45,18 @@ extension CloudStorageViewController: UITableViewDelegate {
             if imagesUsed == "0 КБ" && videosUsed == "0 КБ" && audioUsed == "0 КБ" && filesUsed == "0 КБ" {
                 return
             }
+            let freeQuotaAsPercentage = Int(100 * (quota - usedQuota) / quota)
             let deleteItems: [ActionSheetPresenter.Item] = [
-                ActionSheetPresenter.Item(destructive: false, title: "15%", value: "15percent"),
-                ActionSheetPresenter.Item(destructive: false, title: "25%", value: "25percent"),
-                ActionSheetPresenter.Item(destructive: false, title: "50%", value: "50percent"),
-                ActionSheetPresenter.Item(destructive: false, title: "All files", value: "100percent")
+                ActionSheetPresenter.Item(destructive: false, title: "Free up 15% of space", value: "15percent", isEnabled: freeQuotaAsPercentage < 15 ? true : false),
+                ActionSheetPresenter.Item(destructive: false, title: "Free up 25% of space", value: "25percent", isEnabled: freeQuotaAsPercentage < 25 ? true : false),
+                ActionSheetPresenter.Item(destructive: false, title: "Free up 50% of space", value: "50percent", isEnabled: freeQuotaAsPercentage < 50 ? true : false),
+                ActionSheetPresenter.Item(destructive: false, title: "Free up 100% of space", value: "100percent", isEnabled: freeQuotaAsPercentage < 100 ? true : false)
             ]
             
             ActionSheetPresenter()
                 .present(in: self,
                          title: "Free up space".localizeString(id: "account_delete_files_message", arguments: []),
-                         message: "Choose how many files will be deleted to free up space (as a percentage)".localizeString(id: "account_which_files_to_delete", arguments: []),
+                         message: "Select how much space you want to free up on your cloud storage:".localizeString(id: "account_which_files_to_delete", arguments: []), // "Choose how many files will be deleted to free up space (as a percentage)"
                          cancel: "Cancel".localizeString(id: "cancel", arguments: []),
                          values: deleteItems,
                          animated: true
