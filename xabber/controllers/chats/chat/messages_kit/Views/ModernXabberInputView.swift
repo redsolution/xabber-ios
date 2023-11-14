@@ -522,7 +522,7 @@ class ModernXabberInputView: UIView {
                 self.timerButton.isHidden =     self.shouldHideTimer
                 self.sendButton.isHidden =      false
                 self.stateButton.isHidden =     true
-                self.sendButton.isEnabled =     true
+//                self.sendButton.isEnabled =     true
                 self.selectionPanel.isHidden =  true
             case .identityVerification:
                 self.state = state
@@ -531,7 +531,7 @@ class ModernXabberInputView: UIView {
                 self.timerButton.isHidden =     true
                 self.sendButton.isHidden =      true
                 self.stateButton.isHidden =     false
-                self.sendButton.isEnabled =     true
+//                self.sendButton.isEnabled =     true
                 self.selectionPanel.isHidden =  true
                 self.stateButton.setTitle("Identity verification", for: .normal)
                 self.stateButton.setTitleColor(.systemBlue, for: .normal)
@@ -542,13 +542,13 @@ class ModernXabberInputView: UIView {
                 self.timerButton.isHidden =     true
                 self.sendButton.isHidden =      true
                 self.stateButton.isHidden =     false
-                self.sendButton.isEnabled =     true
+//                self.sendButton.isEnabled =     true
                 self.selectionPanel.isHidden =  true
                 self.stateButton.setTitle("Check devices", for: .normal)
                 self.stateButton.setTitleColor(.systemBlue, for: .normal)
             case .skeleton:
                 self.state = state
-                self.sendButton.isEnabled =     false
+//                self.sendButton.isEnabled =     false
                 self.selectionPanel.isHidden =  true
             case .selection:
                 self.attachButton.isHidden =    true
@@ -708,8 +708,8 @@ class ModernXabberInputView: UIView {
             case .record:
 //                self.sendButton.setImage(#imageLiteral(resourceName: "microphone").withRenderingMode(.alwaysTemplate), for: .normal)
                 self.sendButton.setImage(#imageLiteral(resourceName: "send").withRenderingMode(.alwaysTemplate), for: .normal)
-                self.sendButton.tintColor = self.isSendButtonEnabled ? self.accountPalette.tint600 : .secondaryLabel
-                self.sendButton.isEnabled = self.isSendButtonEnabled
+                self.sendButton.tintColor = .secondaryLabel
+                self.sendButton.isEnabled = false //self.isSendButtonEnabled
             case .send:
                 self.sendButton.setImage(#imageLiteral(resourceName: "send").withRenderingMode(.alwaysTemplate), for: .normal)
                 self.sendButton.tintColor = self.isSendButtonEnabled ? self.accountPalette.tint600 : .secondaryLabel

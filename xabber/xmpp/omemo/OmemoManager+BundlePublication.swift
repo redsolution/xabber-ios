@@ -113,7 +113,7 @@ extension OmemoManager {
         let ik = DDXMLElement(name: "ik", stringValue: bundleRecord.identityKey)
         bundle.addChild(ik)
         
-        if let sign = SignatureManager.shared.bundleSignatureElement {
+        if let sign = SignatureManager.shared.signatureElement {
             if let secCert = SignatureManager.shared.certificate {
                 let certData = SecCertificateCopyData(secCert) as CFData
                 

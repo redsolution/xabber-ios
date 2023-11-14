@@ -113,10 +113,14 @@ class MessageManager: AbstractXMPPManager {
                     .objects(MessageStorageItem.self)
                     .filter("owner == %@ AND state_ IN %@", self.owner, [MessageStorageItem.MessageSendingState.sending.rawValue, MessageStorageItem.MessageSendingState.uploading.rawValue])
                 var toEdit: Set<String> = Set<String>()
+                var toResend: Set<String> = Set<String>()
                 sendingMessages.forEach {
                     message in
                     if [.quote, .text].contains(message.displayAs) {
-                        if Date().timeIntervalSince(message.date) > 60 {
+                        if Date().timeIntervalSince(message.date) > 10 {
+                            let primary = message.primary
+                            toResend.insert(primary)
+                        } else if Date().timeIntervalSince(message.date) > 60 {
                             let primary = message.primary
                             toEdit.insert(primary)
                         }
@@ -129,6 +133,14 @@ class MessageManager: AbstractXMPPManager {
                             toEdit.insert(primary)
                         }
                     }
+                }
+                if toResend.isNotEmpty {
+                    AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                        toResend.forEach {
+                            primary in
+                            user.messages.retrySending(item: primary)
+                        }
+                    })
                 }
                 if toEdit.isEmpty { return }
                 let collection = realm

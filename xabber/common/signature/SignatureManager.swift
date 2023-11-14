@@ -147,22 +147,22 @@ class SignatureManager: NSObject {
         }
     }
     
-    public var bundleSignatureElement: DDXMLElement? {
-        get {
-            guard let signature = self.signature else {
-                return nil
-            }
-
-            let element = DDXMLElement(name: "signature", xmlns: SignatureManager.xmlns)
-            element.stringValue = signature
-            
-            if let stamp = CredentialsManager.shared.getSignatureTimestamp() {
-                element.addAttribute(withName: "stamp", doubleValue: round(stamp))
-            }
-            
-            return element
-        }
-    }
+//    public var bundleSignatureElement: DDXMLElement? {
+//        get {
+//            guard let signature = self.signature else {
+//                return nil
+//            }
+//
+//            let element = DDXMLElement(name: "signature", xmlns: SignatureManager.xmlns)
+//            element.stringValue = signature
+//            
+//            if let stamp = CredentialsManager.shared.getSignatureTimestamp() {
+//                element.addAttribute(withName: "stamp", doubleValue: round(stamp))
+//            }
+//            
+//            return element
+//        }
+//    }
     
     public var isSignatureSetted: Bool {
         get {
@@ -230,11 +230,11 @@ class SignatureManager: NSObject {
             return nil
         }
         
-        guard let certificate = self.certificate else {
-            return nil
-        }
+//        guard let certificate = self.certificate else {
+//            return nil
+//        }
         
-        if let key = SecCertificateCopyKey(certificate) {
+        if let key = SecCertificateCopyKey(cert) {
             guard SecKeyIsAlgorithmSupported(key, .verify, .rsaSignatureMessagePKCS1v15SHA512) else {
                 return nil
             }
@@ -294,11 +294,11 @@ class SignatureManager: NSObject {
         }
         
         
-        guard let certificate = self.certificate else {
-            return result
-        }
+//        guard let certificate = self.certificate else {
+//            return result
+//        }
 
-        if let key = SecCertificateCopyKey(certificate) {
+        if let key = SecCertificateCopyKey(cert) {
             guard SecKeyIsAlgorithmSupported(key, .verify, .rsaSignatureMessagePKCS1v15SHA512) else {
                 return result
             }

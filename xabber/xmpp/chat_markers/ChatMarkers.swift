@@ -262,6 +262,12 @@ class ChatMarkersManager: AbstractXMPPManager {
         do {
             let realm = try WRealm.safe()
             if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primaryKey) {
+                if instance.displayAs == .initial {
+                    return
+                }
+                if instance.outgoing {
+                    return
+                }
                 let elementId = "ChatMarkers: \(NanoID.new(8))"
                 let displayed = DDXMLElement(name: "displayed", xmlns: getPrimaryNamespace())
                 displayed.addAttribute(withName: "id", stringValue: instance.messageId)

@@ -235,7 +235,8 @@ extension ChatViewController {
                 searchString:  searchString,
                 errorMetadata: item.errorMetadata,
                 burnDate: item.burnDate,
-                afterburnInterval: item.afterburnInterval
+                afterburnInterval: item.afterburnInterval,
+                archivedId: item.archivedId
             )
         }
     }
@@ -310,7 +311,18 @@ extension ChatViewController {
             }
             if self.shouldUpdatePreviousMessage {
                 self.shouldUpdatePreviousMessage = false
-                self.messagesCollectionView.reconfigureItems(at: [IndexPath(row: 0, section: 1)])
+//                self.messagesCollectionView.reconfigureItems(at: [IndexPath(row: 0, section: 1)])
+                var reconfigureSizeItems: Set<String> = Set()
+                self.messagesCollectionView.indexPathsForVisibleItems.forEach {
+                    indexPath in
+                    reconfigureSizeItems.insert(self.datasource[indexPath.section].primary)
+                }
+                reconfigureSizeItems.forEach {
+                    primary in
+                    (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
+                            .invalidateLastMessageCachedSize(primary: primary)
+                }
+                self.messagesCollectionView.reconfigureItems(at: self.messagesCollectionView.indexPathsForVisibleItems)
             }
             let additionalOffset = self.messagesCollectionView.contentSize.height - heightBeforeUpdate
             if self.shouldChangeOffsetOnUpdate {

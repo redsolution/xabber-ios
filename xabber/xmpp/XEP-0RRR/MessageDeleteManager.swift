@@ -139,7 +139,7 @@ class MessageDeleteManager: AbstractXMPPManager {
                 if !(instance?.isInvalidated ?? true) {
                     instance?.lastMessage = nil
                     instance?.retractVersion = version
-                    instance?.isSynced = false
+//                    instance?.isSynced = false
                 }
                 realm.delete(messages)
                 realm.delete(references)
@@ -202,7 +202,7 @@ class MessageDeleteManager: AbstractXMPPManager {
                         if let date = lastMessage?.date {
                             lastChat.messageDate = date
                         }
-                        lastChat.isSynced = false
+//                        lastChat.isSynced = false
                         lastChat.retractVersion = version
                     }
                 }
@@ -280,25 +280,43 @@ class MessageDeleteManager: AbstractXMPPManager {
             let error = iq.element(forName: "error") else {
                 return false
         }
+        var deleteAnyway: Bool = false
         var errorMessage: String? = nil
-        if error.element(forName: "not-allowed") != nil { errorMessage = "not allowed".localizeString(id: "not_allowed_error", arguments: []) }
-        else if error.element(forName: "not-acceptable") != nil { errorMessage = "not acceptable".localizeString(id: "not_acceptable_error", arguments: []) }
-        else if error.element(forName: "item-not-found") != nil { errorMessage = "message not found".localizeString(id: "message_not_found_error", arguments: []) }
+        if error.element(forName: "not-allowed") != nil {
+            errorMessage = "not allowed".localizeString(id: "not_allowed_error", arguments: [])
+        }
+        else if error.element(forName: "not-acceptable") != nil {
+            errorMessage = "not acceptable".localizeString(id: "not_acceptable_error", arguments: [])
+        }
+        else if error.element(forName: "item-not-found") != nil {
+            errorMessage = "message not found".localizeString(id: "message_not_found_error", arguments: [])
+            deleteAnyway = true
+        }
         if let errorText = error.element(forName: "text")?.stringValue {
             errorMessage = errorText
         }
         queryIds.remove(elementId)
         if let item = itemsQuery.first(where: { $0.iqId == elementId }) {
-            item.callback?(["Can`t delete message:".localizeString(id: "cant_delete_message_first_part", arguments: []), errorMessage ?? "unexpected error".localizeString(id: "unexpected_error", arguments: [])].joined(separator: " "), false)
+            if deleteAnyway {
+                item.callback?(nil, true)
+            } else {
+                item.callback?(["Can`t delete message:".localizeString(id: "cant_delete_message_first_part", arguments: []), errorMessage ?? "unexpected error".localizeString(id: "unexpected_error", arguments: [])].joined(separator: " "), false)
+            }
             if item.messagePrimary.isNotEmpty {
                 do {
                     let realm = try  WRealm.safe()
                     if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: item.messagePrimary) {
+                        let jid = instance.opponent
+                        let conversationType = instance.conversationType
                         try realm.write {
-                            instance.messageError = errorMessage
-                            instance.isDeleted = false
+                            if deleteAnyway {
+                                realm.delete(instance)
+                            } else {
+                                instance.messageError = errorMessage
+                                instance.isDeleted = false
+                            }
                         }
-                        LastChats.updateErrorState(for: instance.opponent, owner: self.owner, conversationType: instance.conversationType)
+                        LastChats.updateErrorState(for: jid, owner: self.owner, conversationType: conversationType)
                     }
                     
                 } catch {

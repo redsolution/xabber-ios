@@ -716,9 +716,9 @@ extension OmemoManager {
             throw OmemoManagerError.bundleNotFound
           }
                 
-        let signed: Bool = bundle.element(forName: "signature", xmlns: SignatureManager.xmlns) != nil
+        let signed: Bool = bundle.element(forName: "time-signature", xmlns: SignatureManager.xmlns) != nil
         var signedInfo: SignatureManager.BundleSignedInfo? = nil
-        if let signature = bundle.element(forName: "signature", xmlns: SignatureManager.xmlns) {
+        if let signature = bundle.element(forName: "time-signature", xmlns: SignatureManager.xmlns) {
             signedInfo = try SignatureManager.shared.checkBundleSignature(
                 owner: self.owner,
                 for: jid,
@@ -762,6 +762,7 @@ extension OmemoManager {
                 realm.writeAsync {
                     if instance.isInvalidated { return }
                     instance.fingerprint = ik_data?.formattedFingerprint() ?? ""
+                    instance.signature = bundle.element(forName: "time-signature", xmlns: SignatureManager.xmlns)?.xmlString
                     if let signedInfo = signedInfo,
                        signedInfo.signedBy == jid {
                         instance.state = .trusted
@@ -795,6 +796,7 @@ extension OmemoManager {
                                                forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: jid, deviceId: cDeviceId)) {
                     let ik_data = Data(base64Encoded: ik_b64, options: .ignoreUnknownCharacters)
                     instance.fingerprint = ik_data?.formattedFingerprint() ?? ""
+                    instance.signature = bundle.element(forName: "time-signature", xmlns: SignatureManager.xmlns)?.xmlString
                     if let signedInfo = signedInfo,
                        signedInfo.signedBy == jid {
                         instance.state = .trusted

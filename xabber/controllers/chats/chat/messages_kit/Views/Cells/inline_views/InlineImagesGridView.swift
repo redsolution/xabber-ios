@@ -148,7 +148,7 @@ class InlineImagesGridView: InlineMediaBaseView {
                 if let refItem = references[index].metadata,
                    let keyb64 = refItem["encryption-key"] as? String,
                    let ivb64 = refItem["iv"] as? String {
-                    imageView.kf.setImage(with: ImageResource(downloadURL: urls[index]),
+                    imageView.kf.setImage(with: KF.ImageResource(downloadURL: urls[index]),
                                           placeholder: InlineGridImagePlaceholderView(frame: CGRect(origin: .zero,
                                                                                                     size: cell.size)),
                                           options: [.encryptionKey(keyb64), .iv(ivb64)]) { result in
@@ -164,7 +164,7 @@ class InlineImagesGridView: InlineMediaBaseView {
                         }
                     }
                 } else {
-                    imageView.kf.setImage(with: ImageResource(downloadURL: urls[index]),
+                    imageView.kf.setImage(with: KF.ImageResource(downloadURL: urls[index]),
                                           placeholder: InlineGridImagePlaceholderView(frame: CGRect(origin: .zero,
                                                                                                     size: cell.size)),
                                           options: []) { result in

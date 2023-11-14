@@ -25,6 +25,7 @@ import CocoaLumberjack
 import Toast_Swift
 import LetterAvatarKit
 import MaterialComponents.MDCPalettes
+import AVFoundation
 
 extension GroupchatContactInfoViewController: InfoScreenHeaderButtonDelegate {
     

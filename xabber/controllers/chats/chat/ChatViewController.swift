@@ -97,6 +97,7 @@ class ChatViewController: MessagesViewController {
         var errorMetadata: [String: Any]? = nil
         var burnDate: Double
         var afterburnInterval: Double
+        var archivedId:  String?
         
         static func compareContent(_ a: ChatViewController.Datasource, _ b: ChatViewController.Datasource) -> Bool {
             return a.primary == b.primary &&
@@ -110,6 +111,7 @@ class ChatViewController: MessagesViewController {
                 a.isDownloaded == b.isDownloaded &&
                 a.searchString == b.searchString &&
                 a.burnDate == b.burnDate &&
+                a.archivedId == b.archivedId &&
                 ChatViewController.Datasource.iconForMetadata(for: a.errorMetadata) == ChatViewController.Datasource.iconForMetadata(for: b.errorMetadata)
         }
         
@@ -859,8 +861,12 @@ class ChatViewController: MessagesViewController {
             self.xabberInputView.timerButton.isHidden = true
             self.xabberInputView.timerButton.isEnabled = false
         }
-        
-        
+        do {
+            try self.subscribe()
+            self.lowPrioritySubscribtions()
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        }
     }
     
     override func reloadDatasource() {
@@ -870,7 +876,7 @@ class ChatViewController: MessagesViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         do {
-            try self.subscribe()
+            
             self.addObservers()
             let realm = try WRealm.safe()
             let chat = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid, owner: self.owner, conversationType: self.conversationType))
@@ -914,7 +920,6 @@ class ChatViewController: MessagesViewController {
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        self.lowPrioritySubscribtions()
         self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
         self.navigationController?.navigationBar.shadowImage = nil
         self.navigationController?.navigationBar.superview?.bringSubviewToFront(self.navigationController!.navigationBar)
@@ -1005,7 +1010,7 @@ class ChatViewController: MessagesViewController {
                 realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid, owner: self.owner, conversationType: self.conversationType))?.lastReadId = self.messagesObserver?.first?.messageId
             }
         } catch {
-            
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
     }
     
@@ -1013,7 +1018,7 @@ class ChatViewController: MessagesViewController {
         super.viewDidDisappear(animated)
         
 //        self.topMenuShowObserver.accept(false)
-        unsubscribe()
+//        unsubscribe()
         XMPPUIActionManager.shared.mam?.endLoadHistory(jid: self.jid, conversationType: conversationType)
         AccountManager.shared.find(for: self.owner)?.mam.endLoadHistory(jid: self.jid, conversationType: conversationType)
         removeObservers()
@@ -1023,11 +1028,11 @@ class ChatViewController: MessagesViewController {
         do {
             let realm = try  WRealm.safe()
             let dataset: Results<MessageStorageItem>
+            realm.refresh()
             dataset = realm
                 .objects(MessageStorageItem.self)
                 .filter ("owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@", self.owner, self.jid, self.conversationType.rawValue)
                 .sorted (byKeyPath: "date", ascending: false)
-            realm.refresh()
             return dataset
         } catch {
             fatalError()
@@ -1073,7 +1078,6 @@ class ChatViewController: MessagesViewController {
     
     deinit {
         self.unsubscribe()
-        self.removeObservers()
         self.removeObservers()
         self.clearMemoryCache()
     }

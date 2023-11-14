@@ -137,7 +137,7 @@ class DeviceInfoTableCell: UITableViewCell {
             case .Ignore:
                 self.trustIconView.tintColor = .gray
             case .trusted:
-                self.authDateLabel.text = (self.authDateLabel.text ?? "") + (isTrustebByCertificate ? "Signed" : " Trusted")
+                self.authDateLabel.text = (self.authDateLabel.text ?? "") + (isTrustebByCertificate ? " Signed" : " Trusted")
                 self.authDateLabel.textColor = .systemGreen
                 self.trustIconView.tintColor = .systemGreen
             case .fingerprintChanged:

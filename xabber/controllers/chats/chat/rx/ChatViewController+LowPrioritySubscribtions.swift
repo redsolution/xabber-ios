@@ -421,28 +421,19 @@ extension ChatViewController {
             .shared
             .connectingUsers
             .asObservable()
-//            .debounce(.milliseconds(50), scheduler: MainScheduler.asyncInstance)
             .subscribe { result in
-                print(result, "AAAAAAAAAAAAAAAAAA")
             if result.contains(self.owner) {
                 if !self.shouldRequestChatInfo {
-                    do {
-                        let realm = try WRealm.safe()
-                        if let instance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid, owner: self.owner, conversationType: self.conversationType)) {
-                            try realm.write {
-                                instance.isSynced = false
-                            }
-                        }
-                    } catch {
-                        DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-                    }
-//                    self.showSkeletonObserver.accept(true)
+                    self.xabberInputView.isSendButtonEnabled = false
+                    self.xabberInputView.updateSendButtonState()
                     self.shouldRequestChatInfo = true
                 }
             } else {
                 if self.shouldRequestChatInfo {
                     self.willEnterForeground()
                     self.shouldRequestChatInfo = false
+                    self.xabberInputView.isSendButtonEnabled = true
+                    self.xabberInputView.updateSendButtonState()
                 }
             }
         } onError: { _ in

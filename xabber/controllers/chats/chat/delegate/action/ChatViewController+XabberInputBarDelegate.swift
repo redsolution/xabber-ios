@@ -55,13 +55,11 @@ extension ChatViewController: XabberInputBarDelegate {
     func onUpdateSignature() {
         SignatureManager.shared.delegate = self
         FeedbackManager.shared.tap()
-        if #available(iOS 13.0, *) {
-            if YubiKitDeviceCapabilities.supportsISO7816NFCTags {
-                YubiKitExternalLocalization.nfcScanAlertMessage = "Generate digital signature for message"
-                YubiKitManager.shared.startNFCConnection()
-                YubiKitManager.shared.delegate = SignatureManager.shared
-                SignatureManager.shared.currentAction = .signature
-            }
+        if YubiKitDeviceCapabilities.supportsISO7816NFCTags {
+            YubiKitExternalLocalization.nfcScanAlertMessage = "Generate digital signature for message"
+            YubiKitManager.shared.startNFCConnection()
+            YubiKitManager.shared.delegate = SignatureManager.shared
+            SignatureManager.shared.currentAction = .signature
         }
     }
     
@@ -249,6 +247,8 @@ extension ChatViewController: XabberInputBarDelegate {
             let forwarded: [String] = self.attachedMessagesIds.value
             self.draftMessageText.accept(nil)
             canUpdateDataset = true
+            self.shouldChangeOffsetOnUpdate = false
+            self.messagesCollectionView.scrollToTop(animated: true)
             if let editedMessage = editMessageId.value,
                 editedMessage.isNotEmpty {
                 let primary = editedMessage
@@ -277,9 +277,9 @@ extension ChatViewController: XabberInputBarDelegate {
                     self.messagesCount += 1
                     self.shouldUpdatePreviousMessage = true
                     self.runDatasetUpdateTask()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                        self.messagesCollectionView.scrollToTop(animated: true)
-                    }
+//                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+//                        self.messagesCollectionView.scrollToTop(animated: true)
+//                    }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
 //                        self.canUpdateDataset = true
                         self.shouldUpdatePreviousMessage = true

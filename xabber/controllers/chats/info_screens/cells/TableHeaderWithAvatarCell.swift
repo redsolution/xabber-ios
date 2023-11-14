@@ -98,7 +98,7 @@ class TableHeaderWithAvatarCell: UITableViewCell {
             self.avatarView.contentMode = .scaleAspectFill
         } else {
             self.avatarView.contentMode = .scaleAspectFill
-            self.avatarView.kf.setImage(with: ImageResource(downloadURL: url, cacheKey: jid), for: .normal, placeholder: nil, options: [.onlyFromCache], progressBlock: nil) { result in
+            self.avatarView.kf.setImage(with: KF.ImageResource(downloadURL: url, cacheKey: jid), for: .normal, placeholder: nil, options: [.onlyFromCache], progressBlock: nil) { result in
                 self.avatarView.contentMode = .scaleAspectFill
                 
                 switch result {

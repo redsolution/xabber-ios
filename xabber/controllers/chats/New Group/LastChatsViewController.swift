@@ -251,6 +251,7 @@ class LastChatsViewController: BaseViewController {
     
     internal let updateQueue: DispatchQueue = DispatchQueue(label: "com.xabber.background.lastchats", qos: .background)
     
+    internal var isSkeletonShowed: Bool = false
     
     internal func updateTitle(_ value: Filter) {
         if AccountManager.shared.connectingUsers.value.isNotEmpty {
@@ -712,6 +713,12 @@ class LastChatsViewController: BaseViewController {
             .asObservable()
 //            .debounce(.milliseconds(70), scheduler: MainScheduler.asyncInstance)
             .subscribe(onNext: { (results) in
+                self.updateTitle(self.filter.value)
+                self.unreadAllMessagesButton.isEnabled = AccountManager.shared.connectingUsers.value.isEmpty
+                UIView.animate(withDuration: 0.1) {
+                    self.unreadAllMessagesButton.backgroundColor = AccountManager.shared.connectingUsers.value.isNotEmpty ? MDCPalette.grey.tint500 : AccountColorManager.shared.topPalette().tint500
+                }
+                if self.isSkeletonShowed { return }
                 if results.isNotEmpty {
                     if !self.showSkeleton.value {
                         self.showSkeleton.accept(true)
@@ -719,13 +726,10 @@ class LastChatsViewController: BaseViewController {
                 } else {
                     if self.showSkeleton.value {
                         self.showSkeleton.accept(false)
+                        self.isSkeletonShowed = true
                     }
                 }
-                self.updateTitle(self.filter.value)
-                self.unreadAllMessagesButton.isEnabled = AccountManager.shared.connectingUsers.value.isEmpty
-                UIView.animate(withDuration: 0.1) {
-                    self.unreadAllMessagesButton.backgroundColor = AccountManager.shared.connectingUsers.value.isNotEmpty ? MDCPalette.grey.tint500 : AccountColorManager.shared.topPalette().tint500
-                }
+                
             })
             .disposed(by: bag)
         

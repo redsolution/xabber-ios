@@ -59,7 +59,9 @@ extension APNSManager {
                 }
                 switch json.action{
                 case "regjid":
-                    try? self.register(json, completionHandler: nil)
+                    if !voip {
+                        try? self.register(json, completionHandler: nil)
+                    }
                     break
                 default: break
                 }
