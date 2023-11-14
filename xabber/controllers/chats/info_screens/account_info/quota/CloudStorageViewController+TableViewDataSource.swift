@@ -50,6 +50,8 @@ extension CloudStorageViewController: UITableViewDataSource {
             if imagesUsed == "0 KiB" && videosUsed == "0 KiB" && audioUsed == "0 KiB" && filesUsed == "0 KiB" {
                 cell.selectionStyle = UITableViewCell.SelectionStyle.none
                 listContentConfiguration.textProperties.color = .systemGray
+            } else if (100 * usedQuota / quota) < 80 {
+                listContentConfiguration.textProperties.color = .systemBlue
             } else {
                 listContentConfiguration.textProperties.color = .systemRed
             }

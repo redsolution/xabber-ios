@@ -477,6 +477,7 @@ extension CloudStorageGalleryViewController: UICollectionViewDataSource {
         default:
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: FilesMediaCollectionCell.cellName, for: indexPath) as! FilesMediaCollectionCell
             cell.setup(mimeType: item.mimeType ?? "file", sender: item.senderName ?? "", date: item.date ?? "", time: item.time ?? "", sizeInBytes: String(item.size!), filename: item.fileName ?? "")
+            
             cell.senderNameLabel.text = cell.fileNameLabel.text
             cell.fileNameLabel.isHidden = true
             cell.fileSizeLabel.text = item.size

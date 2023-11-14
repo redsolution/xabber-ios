@@ -33,6 +33,14 @@ class ActionSheetPresenter {
         let destructive: Bool
         let title: String
         let value: String
+        let isEnabled: Bool?
+        
+        init(destructive: Bool, title: String, value: String, isEnabled: Bool? = nil) {
+            self.destructive = destructive
+            self.title = title
+            self.value = value
+            self.isEnabled = isEnabled
+        }
     }
     
     public var alert: XabberAlertController? = nil
@@ -43,9 +51,11 @@ class ActionSheetPresenter {
         self.alert = XabberAlertController(title: title, message: message, preferredStyle: .actionSheet)
         values.forEach {
             item in
-            alert?.addAction(UIAlertAction(title: item.title, style: item.destructive ? .destructive : .default, handler: { (action) in
+            let action = UIAlertAction(title: item.title, style: item.destructive ? .destructive : .default, handler: { (action) in
                 completion(item.value)
-            }))
+            })
+            action.isEnabled = (item.isEnabled ?? true) ? true : false
+            alert?.addAction(action)
         }
         if let cancel = cancel {
             alert?.addAction(UIAlertAction(title: cancel, style: .cancel, handler: { (action) in

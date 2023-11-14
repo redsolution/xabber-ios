@@ -213,21 +213,24 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
                             let referencePrimary = reference.primary
                             guard let filename = reference.filename else { return }
                             if reference.conversationType_ != ClientSynchronizationManager.ConversationType.omemo.rawValue && reference.conversationType_ != ClientSynchronizationManager.ConversationType.omemo1.rawValue && reference.conversationType_ != ClientSynchronizationManager.ConversationType.axolotl.rawValue {
-                                guard let mimeType = reference.metadata?["media-type"] else { return }
+                                guard let mediaType = reference.metadata?["media-type"] else { return }
+                                mimeType = mediaType as? String
                                 switch reference.mimeType {
                                 case "image":
                                     break
                                 case "video":
                                     let videoDuration = reference.loadModel()?.duration
                                     let videoPreviewKey = reference.videoPreviewKey
-                                    metadata?["duration"] = videoDuration
-                                    metadata?["video_preview_key"] = videoPreviewKey
+                                    metadata = [:]
+                                    metadata!["duration"] = videoDuration
+                                    metadata!["video_preview_key"] = videoPreviewKey
                                     break
                                 case "voice":
                                     let meteringLevels = reference.metadata?["meters"]
                                     let audioDuration = reference.metadata?["duration"]
-                                    metadata?["meters"] = meteringLevels as? String
-                                    metadata?["duration"] = audioDuration as? String
+                                    metadata = [:]
+                                    metadata!["meters"] = meteringLevels as? String
+                                    metadata!["duration"] = audioDuration as? String
                                     break
                                 default:
                                     break
