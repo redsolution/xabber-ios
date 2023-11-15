@@ -38,6 +38,11 @@ class CloudStorageDeleteViewController: CloudStorageShowFilesViewController {
         self.percent = percent
         super.init(owner: owner, items: items, totalPages: totalPages)
         
+        spinner.startAnimating()
+        view.addSubview(spinner)
+        spinner.centerXAnchor.constraint(equalTo: view.centerXAnchor).isActive = true
+        spinner.centerYAnchor.constraint(equalTo: view.centerYAnchor).isActive = true
+        
         guard let account = AccountManager.shared.find(for: owner),
               let uploader = account.getDefaultUploader() as? UploadManagerExtendedProtocol else {
                   return
@@ -92,11 +97,21 @@ class CloudStorageDeleteViewController: CloudStorageShowFilesViewController {
                 return
             }
             
-            guard var mediaType = item["media_type"] as? String else { return }
-            if mediaType.contains(";") {
-                mediaType = String(mediaType.prefix(upTo: mediaType.firstIndex(of: ";")!))
+            var mediaType: String?
+            let fileMimeIconType: MimeIconTypes
+            if let type = item["media_type"] as? String
+            {
+                if type.contains(";") {
+                    mediaType = String(type.prefix(upTo: type.firstIndex(of: ";")!))
+                } else {
+                    mediaType = type
+                }
+                fileMimeIconType = mimeIcon[mediaType!] ?? .file
+            } else {
+                fileMimeIconType = .file
             }
-            switch mimeIcon[mediaType] {
+            
+            switch fileMimeIconType {
             case .image:
                 images.append(Datasource(uri: url?.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed),
                                          kind: .image,
@@ -180,10 +195,10 @@ class CloudStorageDeleteViewController: CloudStorageShowFilesViewController {
         super.viewWillAppear(animated)
         
         view.backgroundColor = .systemGroupedBackground
-        spinner.startAnimating()
-        view.addSubview(spinner)
-        spinner.centerXAnchor.constraint(equalTo: view.centerXAnchor).isActive = true
-        spinner.centerYAnchor.constraint(equalTo: view.centerYAnchor).isActive = true
+//        spinner.startAnimating()
+//        view.addSubview(spinner)
+//        spinner.centerXAnchor.constraint(equalTo: view.centerXAnchor).isActive = true
+//        spinner.centerYAnchor.constraint(equalTo: view.centerYAnchor).isActive = true
         
         self.navigationItem.title = "Delete files"
         self.navigationController?.navigationBar.prefersLargeTitles = true
