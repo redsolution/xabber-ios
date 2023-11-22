@@ -150,15 +150,10 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
                 if items.isEmpty {
                     self.spinner.removeFromSuperview()
                     self.spinner.stopAnimating()
-                    let alertView = UIAlertController(title: "", message: "Avatar storage is empty", preferredStyle: UIAlertController.Style.alert)
-                    alertView.addAction(UIAlertAction(title: "Close", style: UIAlertAction.Style.cancel, handler: {_ in
-                        self.navigationController?.popViewController(animated: true)
-                        let lastViewController = self.navigationController?.visibleViewController as! CloudStorageViewController
-                        lastViewController.tableView.reloadData()
-                    }))
-                    self.present(alertView, animated: true)
+                    self.configureCollections()
                     return
                 }
+                
                 self.totalPages = totalPages
                 self.items = items
                 if totalPages == 1 {
@@ -361,6 +356,7 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         
+        self.navigationController?.navigationBar.prefersLargeTitles = true
         view.backgroundColor = .systemGroupedBackground
         spinner.startAnimating()
         view.addSubview(spinner)
@@ -446,7 +442,7 @@ extension CloudStorageGalleryViewController: UICollectionViewDataSource {
             }
             cell.audioView.durationLabel.text = cell.sizeInBytes
             if indexPath.row == datasource.count - 1 {
-                cell.audioView.separatorLine.removeFromSuperview()
+                cell.audioView.separatorLine.isHidden = true
             }
             if collectionView.isEditing {
                 if cell.isSelected {
@@ -482,7 +478,7 @@ extension CloudStorageGalleryViewController: UICollectionViewDataSource {
             cell.fileNameLabel.isHidden = true
             cell.fileSizeLabel.text = item.size
             if indexPath.row == datasource.count - 1 {
-                cell.separatorLine.removeFromSuperview()
+                cell.separatorLine.isHidden = true
             }
             if collectionView.isEditing {
                 if cell.isSelected {

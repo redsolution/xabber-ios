@@ -36,6 +36,17 @@ class FileDeletionConfirmation: BaseViewController {
         self.init()
         self.percent = percent
         self.owner = owner
+        
+        guard let account = AccountManager.shared.find(for: self.owner),
+              let uploader = account.getDefaultUploader() as? UploadManagerExtendedProtocol else { return }
+        uploader.getFilesToDeleteByPercent(percent: self.percent, page: 1) { items, totalObjects, objPerPage, pages in
+            self.totalPages = pages
+            self.items = items
+            self.dateOfLastFile = items[0]["created_at"] as? String
+            self.spinner.removeFromSuperview()
+            self.spinner.stopAnimating()
+            self.configure()
+        }
     }
     
     func configure() {
@@ -50,6 +61,7 @@ class FileDeletionConfirmation: BaseViewController {
         
         self.navigationItem.title = "Delete files"
         self.navigationController?.navigationBar.prefersLargeTitles = true
+        self.navigationItem.backButtonDisplayMode = .minimal
         
         view.backgroundColor = .systemGroupedBackground
         spinner.startAnimating()
@@ -57,22 +69,21 @@ class FileDeletionConfirmation: BaseViewController {
         spinner.centerXAnchor.constraint(equalTo: view.centerXAnchor).isActive = true
         spinner.centerYAnchor.constraint(equalTo: view.centerYAnchor).isActive = true
         
-        guard let account = AccountManager.shared.find(for: self.owner),
-              let uploader = account.getDefaultUploader() as? UploadManagerExtendedProtocol else { return }
-        uploader.getFilesToDeleteByPercent(percent: self.percent, page: 1) { items, totalObjects, objPerPage, pages in
-            self.totalPages = pages
-            self.items = items
-            self.dateOfLastFile = items[0]["created_at"] as? String
-            self.spinner.removeFromSuperview()
-            self.spinner.stopAnimating()
-            self.configure()
-        }
+        
     }
     
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        self.navigationItem.title = ""
         self.navigationController?.navigationBar.prefersLargeTitles = false
+    }
+    
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        
+        if items.isNotEmpty && spinner.isAnimating {
+            spinner.removeFromSuperview()
+            spinner.stopAnimating()
+        }
     }
 }
 
@@ -123,6 +134,7 @@ extension FileDeletionConfirmation: UITableViewDelegate {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         if indexPath.section == 0 {
+            self.navigationItem.title = ""
             let viewController = CloudStorageDeleteViewController(percent: percent, owner: self.owner, items: self.items, totalPages: self.totalPages)
             self.navigationController?.pushViewController(viewController, animated: true)
             self.navigationController?.viewControllers.remove(at: (self.navigationController?.viewControllers.count)! - 2)

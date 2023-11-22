@@ -60,7 +60,7 @@ extension CloudStorageDeleteViewController: UICollectionViewDataSource {
             cell.fileNameLabel.isHidden = true
             cell.fileSizeLabel.text = item.size
             if indexPath.row == datasource[indexPath.section].count - 1 {
-                cell.separatorLine.removeFromSuperview()
+                cell.separatorLine.isHidden = true
             }
             return cell
         case .voice:
@@ -71,7 +71,7 @@ extension CloudStorageDeleteViewController: UICollectionViewDataSource {
             }
             cell.audioView.durationLabel.text = cell.sizeInBytes
             if indexPath.row == datasource[indexPath.section].count - 1 {
-                cell.audioView.separatorLine.removeFromSuperview()
+                cell.audioView.separatorLine.isHidden = true
             }
             return cell
         default:
