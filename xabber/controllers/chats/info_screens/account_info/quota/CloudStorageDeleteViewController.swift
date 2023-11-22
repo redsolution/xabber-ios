@@ -189,16 +189,14 @@ class CloudStorageDeleteViewController: CloudStorageShowFilesViewController {
         collectionView.fillSuperview()
         collectionView.dataSource = self
         collectionView.delegate = self
+        spinner.removeFromSuperview()
+        spinner.stopAnimating()
     }
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         
         view.backgroundColor = .systemGroupedBackground
-//        spinner.startAnimating()
-//        view.addSubview(spinner)
-//        spinner.centerXAnchor.constraint(equalTo: view.centerXAnchor).isActive = true
-//        spinner.centerYAnchor.constraint(equalTo: view.centerYAnchor).isActive = true
         
         self.navigationItem.title = "Delete files"
         self.navigationController?.navigationBar.prefersLargeTitles = true
