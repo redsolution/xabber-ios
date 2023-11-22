@@ -357,6 +357,7 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
                 try realm.write {
                     if message.isInvalidated { return }
                     message.messageError = errorText
+                    message.messageErrorCode = "\(errorCode ?? 500)"
                     message.state = .error
                     message.references.forEach({
                         $0.hasError = true

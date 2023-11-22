@@ -893,20 +893,34 @@ class ChatViewController: MessagesViewController {
                     self.onUpdateTimeSignatureBlockState(!SignatureManager.shared.isSignatureValid())
                 }
                 let realm = try Realm()
-                if realm.objects(SignalDeviceStorageItem.self)
+                var blockState: Bool = realm.objects(SignalDeviceStorageItem.self)
                     .filter("owner == %@ AND jid == %@ AND state_ == %@", self.owner, self.jid, SignalDeviceStorageItem.TrustState.trusted.rawValue)
-                    .count == 0 {
-                    self.onUpdateTrustedDevicesBlockState(true)
-                } else if realm
-                    .objects(SignalDeviceStorageItem.self)
-                    .filter(
-                        "owner == %@ AND jid == %@ AND state_ != %@",
-                        self.owner,
-                        self.owner,
-                        SignalDeviceStorageItem.TrustState.trusted.rawValue)
-                        .count > 0 {
-                    self.onUpdateTrustedDevicesBlockState(true)
+                    .count == 0
+                if !blockState {
+                    blockState = realm
+                        .objects(SignalDeviceStorageItem.self)
+                        .filter(
+                            "owner == %@ AND jid == %@ AND state_ != %@",
+                            self.owner,
+                            self.owner,
+                            SignalDeviceStorageItem.TrustState.trusted.rawValue)
+                            .count > 0
                 }
+                self.onUpdateTrustedDevicesBlockState(blockState)
+//                if realm.objects(SignalDeviceStorageItem.self)
+//                    .filter("owner == %@ AND jid == %@ AND state_ == %@", self.owner, self.jid, SignalDeviceStorageItem.TrustState.trusted.rawValue)
+//                    .count == 0 {
+//                    
+//                } else if realm
+//                    .objects(SignalDeviceStorageItem.self)
+//                    .filter(
+//                        "owner == %@ AND jid == %@ AND state_ != %@",
+//                        self.owner,
+//                        self.owner,
+//                        SignalDeviceStorageItem.TrustState.trusted.rawValue)
+//                        .count > 0 {
+//                    self.onUpdateTrustedDevicesBlockState(true)
+//                }
             }
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")

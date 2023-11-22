@@ -52,12 +52,14 @@ extension DevicesListViewController {
             ActionSheetPresenter.Item(destructive: true, title: "Terminate all other sessions".localizeString(id: "account_terminate_all_other_sessions", arguments: []), value: "terminate")
         ]
         
+        let hasConnection = !AccountManager.shared.connectingUsers.value.contains(self.jid)
+        
         ActionSheetPresenter().present(
             in: self,
-            title: nil,
-            message: nil,
+            title: hasConnection ? nil : "No connection",
+            message: hasConnection ? nil : "Please wait while connection established",
             cancel: "Cancel".localizeString(id: "cancel", arguments: []),
-            values: items,
+            values: hasConnection ? items : [],
             animated: true) { value in
             switch value {
             case "terminate":

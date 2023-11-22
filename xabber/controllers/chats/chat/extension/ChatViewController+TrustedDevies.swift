@@ -113,6 +113,7 @@ extension ChatViewController {
                 self.hideTrustedDevicesBlockingPanel()
             }
         }
+        self.updateTitle()
     }
     
     private func showTrustedDevicesBlockingPanel() {

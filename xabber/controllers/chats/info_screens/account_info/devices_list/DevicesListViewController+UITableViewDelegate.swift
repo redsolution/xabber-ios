@@ -57,24 +57,38 @@ extension DevicesListViewController: UITableViewDelegate {
                 self.quitAccount()
             }
         case .broken:
-            
-            YesNoPresenter().present(
-                in: self,
-                style: .actionSheet,
-                title: "Delete broken device",
-                message: "",
-                yesText: "Delete",
-                dangerYes: true,
-                noText: "Cancel",
-                animated: true) { value in
-                    if value {
-                        let item = self.brokenOmemoDevices[indexPath.row]
-                        let deviceId = item.deviceId
-                        AccountManager.shared.find(for: self.jid)?.unsafeAction({ user, stream in
-                            user.omemo.deleteDevice(deviceId: deviceId)
-                        })
-                    }
+                let hasConnection = !AccountManager.shared.connectingUsers.value.contains(self.jid)
+                if hasConnection {
+                    YesNoPresenter().present(
+                        in: self,
+                        style: .actionSheet,
+                        title: "Delete broken device",
+                        message: "",
+                        yesText: "Delete",
+                        dangerYes: true,
+                        noText: "Cancel",
+                        animated: true) { value in
+                            if value {
+                                let item = self.brokenOmemoDevices[indexPath.row]
+                                let deviceId = item.deviceId
+                                AccountManager.shared.find(for: self.jid)?.unsafeAction({ user, stream in
+                                    user.omemo.deleteDevice(deviceId: deviceId)
+                                })
+                            }
+                        }
+                } else {
+                    ActionSheetPresenter().present(
+                        in: self,
+                        title: "No connection",
+                        message: "Please wait while connection established",
+                        cancel: "Cancel".localizeString(id: "cancel", arguments: []),
+                        values: [],
+                        animated: true) { _ in
+                            
+                        }
                 }
+                
+            
         }
     }
     
@@ -105,15 +119,32 @@ extension DevicesListViewController: UITableViewDelegate {
             return [revokeAction]
         }
         let revokeAction = UITableViewRowAction(style: .destructive, title: "Revoke token".localizeString(id: "settings_account_revoke_token", arguments: [])) { (action, indexPath) in
-            let item = self.devices[indexPath.row]
-            let uid = item.uid
-            XMPPUIActionManager.shared.performRequest(owner: self.jid) { stream, session in
-                session.devices?.revoke(stream, uids: [uid])
-            } fail: {
-                AccountManager.shared.find(for: self.jid)?.action({ (user, stream) in
-                    user.devices.revoke(stream, uids: [uid])
-                })
+            
+            let hasConnection = !AccountManager.shared.connectingUsers.value.contains(self.jid)
+            if hasConnection {
+                let item = self.devices[indexPath.row]
+                let uid = item.uid
+                XMPPUIActionManager.shared.performRequest(owner: self.jid) { stream, session in
+                    session.devices?.revoke(stream, uids: [uid])
+                } fail: {
+                    AccountManager.shared.find(for: self.jid)?.action({ (user, stream) in
+                        user.devices.revoke(stream, uids: [uid])
+                    })
+                }
+            } else {
+                ActionSheetPresenter().present(
+                    in: self,
+                    title: "No connection",
+                    message: "Please wait while connection established",
+                    cancel: "Cancel".localizeString(id: "cancel", arguments: []),
+                    values: [],
+                    animated: true) { _ in
+                        
+                    }
             }
+            
+            
+            
         }
         return [revokeAction]
     }

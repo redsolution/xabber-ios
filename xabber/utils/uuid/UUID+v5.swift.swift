@@ -45,31 +45,56 @@ extension UUID {
         return value.uuid_ns
     }
     
-    init(name: String, nameSpace: String) {
-        // Get UUID bytes from name space:
-        var spaceUID = UUID(uuidString: nameSpace)?.uuid
-        var data = withUnsafePointer(to: &spaceUID) { [count =  MemoryLayout.size(ofValue: spaceUID)] in
-            Data(bytes: $0, count: count)
+    init?(namespaceString ns: String, name: String) {
+        
+        guard let uuns = UUID(uuidString: ns) else {
+            return nil
         }
-
-        // Append name string in UTF-8 encoding:
-        data.append(contentsOf: name.utf8)
-
-        // Compute digest (MD5 or SHA1, depending on the version):
-        var digest = [UInt8](repeating: 0, count:Int(CC_SHA1_DIGEST_LENGTH))
-        data.withUnsafeBytes { (ptr: UnsafeRawBufferPointer) -> Void in
-            _ = CC_SHA1(ptr.baseAddress, CC_LONG(data.count), &digest)
-        }
-
-        // Set version bits:
-        digest[6] &= 0x0F
-        digest[6] |= 5 << 4
-        // Set variant bits:
-        digest[8] &= 0x3F
-        digest[8] |= 0x80
-
-        // Create UUID from digest:
-        self = NSUUID(uuidBytes: digest) as UUID
+        
+        self.init(namespace: uuns, name: name)
     }
     
+    init?(namespace ns: UUID, name: String) {
+        
+        if name.isEmpty {
+            return nil
+        }
+        
+        let nsdata = Data(ns.byteArray())
+        guard let nameData = name.data(using: .utf8) else {
+            return nil
+        }
+        
+        let concatData = NSMutableData()
+        concatData.append(nsdata)
+        concatData.append(nameData)
+        
+        var digest = [UInt8](repeating: 0, count: Int(CC_SHA1_DIGEST_LENGTH))
+        CC_SHA1(concatData.bytes, CC_LONG(concatData.length), &digest)
+        
+        // set UUID version to 5
+        digest[6] = ((digest[6] & 0x0F) | 0x50)
+        
+        // set variant accordingly to RFC4122 (reserved)
+        digest[8] = ((digest[8] & 0x3F) | 0x80)
+        
+        // build uuid_t tuple
+        let uuid_t = (digest[0], digest[1], digest[2], digest[3], digest[4], digest[5], digest[6], digest[7], digest[8], digest[9], digest[10], digest[11], digest[12], digest[13], digest[14], digest[15])
+        
+        self.init(uuid: uuid_t)
+    }
+    
+    private func byteArray() -> [UInt8] {
+        
+        let innerIterator = Mirror(reflecting: self.uuid).children
+        
+        var result = [UInt8]()
+        for item in innerIterator {
+            if let value = item.value as? UInt8 {
+                result.append(value)
+            }
+        }
+        
+        return result
+    }
 }

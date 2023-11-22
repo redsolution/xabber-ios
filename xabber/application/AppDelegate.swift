@@ -139,6 +139,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func applicationWillResignActive(_ application: UIApplication) {
         DDLogError("resign")
         addBlurredScreen()
+        AccountManager.shared.load()
     }
 
     func addBlurredScreen() {

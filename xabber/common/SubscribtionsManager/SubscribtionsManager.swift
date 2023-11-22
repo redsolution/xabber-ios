@@ -165,16 +165,18 @@ class SubscribtionsManager: NSObject {
                 headers: ["Cache-Control": "no-cache"]
             ).responseJSON {
                 response in
+                print(response)
+                if (response.response?.statusCode ?? 500) >= 301 {
+                    callback?(false)
+                    return
+                }
                 switch response.result {
                     case .success(let value):
                         guard let dict = value as? NSDictionary else {
                             callback?(false)
                             return
                         }
-                        guard let status = dict["status"] as? String else {
-                            callback?(false)
-                            return
-                        }
+                        let status = dict["status"] as? String ?? "EXPIRED"
                         print(dict)
                         self.accounts = self.accounts.filter({ $0.jid != jid })
                         if let expiresRaw = dict["expires"] as? String,

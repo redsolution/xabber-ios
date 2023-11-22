@@ -259,7 +259,7 @@ final class Account: NSObject {
         self.reconnect.addDelegate(self, delegateQueue: self.queue)
         self.reconnect.autoReconnect = true
         self.reconnect.reconnectDelay = 1
-        self.reconnect.reconnectTimerInterval = 1
+        self.reconnect.reconnectTimerInterval = 2
 
         self.sm.autoResume = true
         self.sm.activate(self.xmppStream)

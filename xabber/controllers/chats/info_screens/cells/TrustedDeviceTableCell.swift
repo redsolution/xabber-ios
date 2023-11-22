@@ -87,6 +87,17 @@ class TrustedDeviceTableCell: UITableViewCell {
         return view
     }()
     
+    var signedLabel: UILabel = {
+        let label = UILabel()
+        
+        label.text = "Signed"
+        label.textColor = .systemGreen
+        label.isHidden = true
+        label.textAlignment = .right
+        
+        return label
+    }()
+    
     open var callback: ((Bool, Int) -> Void)? = nil
     
     private func activateConstraints() {
@@ -95,11 +106,18 @@ class TrustedDeviceTableCell: UITableViewCell {
         fingerprintLabel.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 0.9).isActive = true
     }
     
-    func configure(name: String, state: SignalDeviceStorageItem.TrustState, fingerprint: String, devieId: String, editable: Bool) {
+    func configure(name: String, state: SignalDeviceStorageItem.TrustState, fingerprint: String, devieId: String, editable: Bool, signed: Bool = false) {
         if state == .trusted {
             stateSwitch.isOn = true
         } else {
             stateSwitch.isOn = false
+        }
+        if signed {
+            stateSwitch.isHidden = true
+            signedLabel.isHidden = false
+        } else {
+            stateSwitch.isHidden = false
+            signedLabel.isHidden = true
         }
         fingerprintLabel.text = fingerprint
         if #available(iOS 13.0, *) {
@@ -109,7 +127,9 @@ class TrustedDeviceTableCell: UITableViewCell {
         }
         clientLabel.text = name
         deviceLabel.text = devieId
-        self.stateSwitch.isHidden = !editable
+        if !signed {
+            self.stateSwitch.isHidden = !editable
+        }
     }
     
     func setupSubviews() {
@@ -119,6 +139,7 @@ class TrustedDeviceTableCell: UITableViewCell {
         
         topStack.addArrangedSubview(clientLabel)
         topStack.addArrangedSubview(stateSwitch)
+        topStack.addArrangedSubview(signedLabel)
         
         stack.addArrangedSubview(topStack)
         stack.addArrangedSubview(fingerprintLabel)

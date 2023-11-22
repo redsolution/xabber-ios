@@ -75,18 +75,27 @@ extension ChatViewController: MessageCellDelegate {
                 ActionSheetPresenter.Item(destructive: false, title: "Retry", value: "retry"),
                 ActionSheetPresenter.Item(destructive: true, title: "Delete", value: "delete"),
             ]
+            let itemsWithQuota = [
+                ActionSheetPresenter.Item(destructive: false, title: "Retry", value: "retry"),
+                ActionSheetPresenter.Item(destructive: false, title: "Manage quota", value: "quota"),
+                ActionSheetPresenter.Item(destructive: true, title: "Delete", value: "delete"),
+            ]
             ActionSheetPresenter().present(
                 in: self,
                 title: "Message sending error",
                 message: errorMessage,
                 cancel: "Cancel",
-                values: items,
+                values: item.messageErrorCode == "403" ? itemsWithQuota : items,
                 animated: true) { value in
                     switch value {
                         case "retry":
                             self.retryMessageSend(primary)
                         case "delete":
                             self.deleteSendingMessage(primary)
+                        case "quota":
+                            let vc = CloudStorageViewController()
+                            vc.configure(jid: self.owner)
+                            self.navigationController?.pushViewController(vc, animated: true)
                         default:
                             break
                     }

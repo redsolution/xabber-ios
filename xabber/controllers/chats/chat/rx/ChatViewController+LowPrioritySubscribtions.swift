@@ -331,7 +331,11 @@ extension ChatViewController {
                     .debounce(.milliseconds(5), scheduler: MainScheduler.asyncInstance)
                     .subscribe(onNext: { results in
                         if self.isSkeletonHided {
-                            self.xabberInputView.isSendButtonEnabled = results.isEmpty
+                            if AccountManager.shared.connectingUsers.value.contains(self.owner) {
+                                self.xabberInputView.isSendButtonEnabled = false
+                            } else {
+                                self.xabberInputView.isSendButtonEnabled = results.isEmpty
+                            }
                             self.xabberInputView.updateSendButtonState()
                         } else {
                             self.xabberInputView.isSendButtonEnabled = false
@@ -352,7 +356,7 @@ extension ChatViewController {
                 
                 
                 Observable.collection(from: myUntrustedDevicesCollection)
-                    .debounce(.milliseconds(200), scheduler: MainScheduler.asyncInstance)
+//                    .debounce(.milliseconds(200), scheduler: MainScheduler.asyncInstance)
                     .subscribe { results in
                         self.titleLabel.attributedText = self.updateTitle()
                         if !results.isEmpty {
@@ -389,7 +393,11 @@ extension ChatViewController {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                         self.canUpdateDataset = true
                         self.runDatasetUpdateTask(shouldScrollToLastMessage: true)
-                        self.xabberInputView.isSendButtonEnabled = !value
+                        if AccountManager.shared.connectingUsers.value.contains(self.owner) {
+                            self.xabberInputView.isSendButtonEnabled = false
+                        } else {
+                            self.xabberInputView.isSendButtonEnabled = !value
+                        }
                         self.xabberInputView.updateSendButtonState()
                     }
 //                }

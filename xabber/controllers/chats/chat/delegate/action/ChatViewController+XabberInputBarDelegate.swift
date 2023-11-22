@@ -312,7 +312,7 @@ extension ChatViewController: XabberInputBarDelegate {
                         in: self,
                         title: "Untrusted device warning",
                         message: "The recipient has added a new device for which you haven't yet performed an identity verification. If you send the message right now, it will be possible to decipher the message contents on this new device. It is recommended that you perform an identity verification now.",
-                        cancel: nil,
+                        cancel: "Cancel",
                         values: items,
                         animated: true) { value in
                             switch value {

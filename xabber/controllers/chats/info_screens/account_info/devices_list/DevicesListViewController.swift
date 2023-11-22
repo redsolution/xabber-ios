@@ -67,7 +67,7 @@ class DevicesListViewController: BaseViewController {
     internal var currentDevice: String = ""
     internal var deviceInstance: DeviceStorageItem? = nil
     internal var omemoDevices: Array<SignalDeviceStorageItem> = []
-    internal var brokenOmemoDevices: [SignalDeviceStorageItem] = []
+    internal var brokenOmemoDevices: Array<SignalDeviceStorageItem> = []
     internal var omemoBundles: [SignalIdentityStorageItem] = []
     
     internal let tableView: UITableView = {

@@ -157,7 +157,7 @@ class XMPPDeviceManager: AbstractXMPPManager {
             }
             let collection = realm.objects(DeviceStorageItem.self).filter("owner == %@ AND uid != %@", owner, currentToken)
             let deviceIds: [Int] = collection.compactMap {
-                return Int($0.uid.prefix(8))
+                return $0.omemoDeviceId
             }
             try realm.write {
                 realm.delete(collection)
@@ -191,11 +191,12 @@ class XMPPDeviceManager: AbstractXMPPManager {
 //                    query.append(instance)
 //                }
 //            }
-            let deviceIds: [Int] = uids.compactMap {
-                return Int($0.prefix(8))
+            let collection = realm.objects(DeviceStorageItem.self).filter("uid IN %@", uids)
+            let deviceIds: [Int] = collection.compactMap {
+                return $0.omemoDeviceId
             }
             try realm.write {
-                realm.delete(realm.objects(DeviceStorageItem.self).filter("uid IN %@", uids))
+                realm.delete(collection)
                 realm.delete(realm.objects(SignalDeviceStorageItem.self).filter("deviceId IN %@", deviceIds))
                 realm.delete(realm.objects(SignalIdentityStorageItem.self).filter("deviceId IN %@", deviceIds))
             }
@@ -298,9 +299,9 @@ class XMPPDeviceManager: AbstractXMPPManager {
                 let realm = try WRealm.safe()
                 if !(realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner))?.isOmemoDevicesListReceived ?? false) {
                     if realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: owner, jid: jid, deviceId: deviceIdInteger)) == nil {
-                        AccountManager.shared.find(for: owner)?.action({ user, stream in
-                            user.omemo.getContactDevices(stream, jid: jid)
-                        })
+//                        AccountManager.shared.find(for: owner)?.action({ user, stream in
+//                            user.omemo.getContactDevices(stream, jid: jid)
+//                        })
                     }
                 }
             } catch {
@@ -318,7 +319,7 @@ class XMPPDeviceManager: AbstractXMPPManager {
         message.element(forName: "device", xmlns: getPrimaryNamespace()) != nil else {
             return
         }
-        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+        AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, stream in
             if AccountManager.shared.newAccountJid != self.owner {
                 user.devices.requestList(stream)
                 user.omemo.getOwnDevices(stream)

@@ -43,8 +43,9 @@ class TrustedDevicesViewController: SimpleBaseViewController {
         var editable: Bool
         var subtitle: String?
         var key: String
+        var signed: Bool
         
-        init(_ kind: Kind, name: String, state: SignalDeviceStorageItem.TrustState, fingerprint: String, deviceId: Int, editable: Bool, subtitle: String? = nil, key: String = "") {
+        init(_ kind: Kind, name: String, state: SignalDeviceStorageItem.TrustState, fingerprint: String, deviceId: Int, editable: Bool, subtitle: String? = nil, key: String = "", signed: Bool = false) {
             self.kind = kind
             self.name = name
             self.state = state
@@ -53,6 +54,7 @@ class TrustedDevicesViewController: SimpleBaseViewController {
             self.editable = editable
             self.subtitle = subtitle
             self.key = key
+            self.signed = signed
         }
     }
     
@@ -167,7 +169,8 @@ class TrustedDevicesViewController: SimpleBaseViewController {
                         state: $0.state,
                         fingerprint: $0.fingerprint,
                         deviceId: $0.deviceId,
-                        editable: true
+                        editable: true,
+                        signed: $0.isTrustedByCertificate
                     )
                 }
             ]
@@ -266,7 +269,7 @@ extension TrustedDevicesViewController: UITableViewDataSource {
                     return UITableViewCell(frame: .zero)
             }
             
-            cell.configure(name: item.name, state: item.state, fingerprint: item.fingerprint, devieId: "\(item.deviceId)", editable: item.editable)
+            cell.configure(name: item.name, state: item.state, fingerprint: item.fingerprint, devieId: "\(item.deviceId)", editable: item.editable, signed: item.signed)
             cell.deviceId = item.deviceId
             cell.callback = self.trustStateChanged
 

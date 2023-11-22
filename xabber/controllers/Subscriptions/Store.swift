@@ -24,11 +24,11 @@ import StoreKit
 extension String {
     
     func uuidString() -> String {
-        return UUID(name: self, nameSpace: UUID.getNSForXMPPUUIDV5()).uuidString
+        return UUID(namespaceString: UUID.getNSForXMPPUUIDV5(), name: self)!.uuidString
     }
     
     func uuid() -> UUID {
-        return UUID(name: self, nameSpace: UUID.getNSForXMPPUUIDV5())
+        return UUID(namespaceString: UUID.getNSForXMPPUUIDV5(), name: self)!
     }
 }
 
