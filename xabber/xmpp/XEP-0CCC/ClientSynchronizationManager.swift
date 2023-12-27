@@ -815,6 +815,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                         if date.timeIntervalSince1970 < accountCreateDate.timeIntervalSince1970 {
                             instance.isFreshNotEmptyEncryptedChat = true
                             instance.isSynced = false
+                            instance.lastMessageId = getOriginId(XMPPMessage(from: messageElement)) ?? XMPPMessage(from: messageElement).elementID ?? getStanzaId(XMPPMessage(from: messageElement), owner: self.owner)
                             return nil
                         }
                     }
@@ -833,8 +834,25 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 } else if instance.displayedId == stanzaId {
                     state = .read
                 }
-                let readDate = state == .read ? nil : Date(timeIntervalSince1970: stamp / 1000000)
                 
+                var realReadDate: Date? = nil
+                if let readTSRaw = Double(instance.lastReadId ?? "0"),
+                   readTSRaw > 0 {
+                    let readTS = readTSRaw / 1000000
+                    if readTS >= timestamp {
+                        state = .read
+                    }
+                    realReadDate = Date(timeIntervalSince1970: readTS)
+                    
+                }
+                
+                let readDate = state == .read ? nil : realReadDate ??  Date(timeIntervalSince1970: stamp / 1000000)
+                
+//                if let readDate = readDate {
+//                    AccountManager.shared.find(for: self.owner)?.messages.updateReadDate(for: metadata.element(forName: "unread")?.attributeStringValue(forName: "after") ?? stanzaId, jid: jid, date: readDate)
+//                } else {
+//                    AccountManager.shared.find(for: self.owner)?.messages.updateReadDate(for: metadata.element(forName: "unread")?.attributeStringValue(forName: "after") ?? stanzaId, jid: jid, date: realReadDate)
+//                }
                 if !(AccountManager
                         .shared
                         .find(for: owner)?

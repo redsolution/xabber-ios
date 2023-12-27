@@ -22,6 +22,7 @@ import Foundation
 import Alamofire
 import CocoaLumberjack
 import KissXML
+import CryptoKit
 
 extension APNSManager {
     
@@ -43,8 +44,11 @@ extension APNSManager {
             "Content-Type" : "application/json"
         ]
         
+        let hashString = [String(describing: UIDevice.current.identifierForVendor!), CommonConfigManager.shared.config.app_name].prp()
+        
+        
         let params: [String: String] = [
-            "target": [jid, String(describing: UIDevice.current.identifierForVendor!)].joined(separator: "/"),
+            "target": [jid, hashString].joined(separator: "/"),
             "endpoint_key": voip ? voipToken : deviceToken,
             "provider": voip ? "apns.voip" : "apns",
         ]
@@ -87,10 +91,10 @@ extension APNSManager {
             "Authorization" : APNSManager.authKey(),
             "Content-Type" : "application/json"
         ]
-        
+        let hashString = [String(describing: UIDevice.current.identifierForVendor!), CommonConfigManager.shared.config.app_name].prp()
         
         let params = [
-            "target": [jid, String(describing: UIDevice.current.identifierForVendor!)].joined(separator: "/"),
+            "target": [jid, hashString].joined(separator: "/"),
             "endpoint_key": voip ? VoIPtoken : deviceToken
         ]
         Alamofire.request(url, method: .delete, parameters: params, encoding: JSONEncoding.default, headers: headers)

@@ -100,6 +100,16 @@ class X509XMPPManager: AbstractXMPPManager {
                         try realm.write {
                             realm.add(instance)
                         }
+                    } else {
+                        if let instance = realm.object(ofType: X509StorageItem.self, forPrimaryKey: X509StorageItem.genRpimary(owner: self.owner, jid: self.owner)) {
+                            try realm.write {
+                                instance.owner = self.owner
+                                instance.jid = self.owner
+                                instance.certData = derData
+                                instance.stamp = Double(Date().timeIntervalSince1970)
+                                realm.add(instance)
+                            }
+                        }
                     }
                 } catch {
                     DDLogDebug("X509XMPPManager: \(#function). \(error.localizedDescription)")
@@ -171,48 +181,57 @@ class X509XMPPManager: AbstractXMPPManager {
                     instance.primary = X509StorageItem.genRpimary(owner: self.owner, jid: jid)
                     instance.certData = certData
                     instance.stamp = Double(Date().timeIntervalSince1970)
-                    let messagesCollection = realm
-                        .objects(MessageStorageItem.self)
-                        .filter("owner == %@ AND opponent == %@ and conversationType_ == %@",
-                                self.owner,
-                                jid,
-                                ClientSynchronizationManager.ConversationType.omemo.rawValue)
-                    let bundlesCollection = realm
-                        .objects(SignalDeviceStorageItem.self)
-                        .filter("owner == %@ AND jid == %@", self.owner, jid)
                     try realm.write {
                         realm.add(instance, update: .modified)
-                        try messagesCollection.forEach {
-                            message in
-                            guard let containerString = message.envelopeContainer else {
-                                return
-                            }
-                            let document = try DDXMLDocument(xmlString: containerString, options: 0)
-                            if let sign = document.rootElement() {
-                                message.errorMetadata = try SignatureManager
-                                    .shared
-                                    .checkSignature(
-                                        owner: self.owner,
-                                        for: jid,
-                                        signature: sign,
-                                        messageDate: message.date
-                                    ).errorMetadata
-                            }
+                    }
+                } else {
+                    if let instance = realm.object(ofType: X509StorageItem.self, forPrimaryKey: X509StorageItem.genRpimary(owner: self.owner, jid: jid)) {
+                        try realm.write {
+                            instance.certData = certData
+                            instance.stamp = Double(Date().timeIntervalSince1970)
                         }
-                        try bundlesCollection.forEach {
-                            bundle in
-                            guard let containerString = bundle.signature else {
-                                return
-                            }
-                            let document = try DDXMLDocument(xmlString: containerString, options: 0)
-                            if let sign = document.rootElement() {
-                                let result = try SignatureManager.shared.checkBundleSignature(
+                    }
+                }
+                let messagesCollection = realm
+                    .objects(MessageStorageItem.self)
+                    .filter("owner == %@ AND opponent == %@ and conversationType_ == %@",
+                            self.owner,
+                            jid,
+                            ClientSynchronizationManager.ConversationType.omemo.rawValue)
+                let bundlesCollection = realm
+                    .objects(SignalDeviceStorageItem.self)
+                    .filter("owner == %@ AND jid == %@", self.owner, jid)
+                try realm.write {
+                    try messagesCollection.forEach {
+                        message in
+                        guard let containerString = message.envelopeContainer else {
+                            return
+                        }
+                        let document = try DDXMLDocument(xmlString: containerString, options: 0)
+                        if let sign = document.rootElement() {
+                            message.errorMetadata = try SignatureManager
+                                .shared
+                                .checkSignature(
                                     owner: self.owner,
                                     for: jid,
-                                    signature: sign)
-                                bundle.signedBy = result?.signedBy
-                                bundle.signedAt = result?.signedAt ?? -1
-                            }
+                                    signature: sign,
+                                    messageDate: message.date
+                                ).errorMetadata
+                        }
+                    }
+                    try bundlesCollection.forEach {
+                        bundle in
+                        guard let containerString = bundle.signature else {
+                            return
+                        }
+                        let document = try DDXMLDocument(xmlString: containerString, options: 0)
+                        if let sign = document.rootElement() {
+                            let result = try SignatureManager.shared.checkBundleSignature(
+                                owner: self.owner,
+                                for: jid,
+                                signature: sign)
+                            bundle.signedBy = result?.signedBy
+                            bundle.signedAt = result?.signedAt ?? -1
                         }
                     }
                 }

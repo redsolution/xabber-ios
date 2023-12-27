@@ -179,42 +179,40 @@ extension AccountInfoViewController: InfoScreenHeaderButtonDelegate {
     }
     
     func onClearAvatar() {
-        do {
+//        do {
             self.beforeSettingAvatar()
 
-            let realm = try WRealm.safe()
+//            let realm = try WRealm.safe()
             
             if owner == "" {
                 owner = jid
             }
             
-            guard let avatar = realm.object(ofType: AvatarStorageItem.self,
-                                            forPrimaryKey: [jid, owner].prp()),
-                  let url = avatar.uploadUrl,
-                  let previousHash = avatar.imageHash,
-                  let uuidFirstPart = UUID().uuidString.split(separator: "_").first else { return }
-            let hash = previousHash + "#" + uuidFirstPart
-            
-            XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
-                session.avatarUploader?.sendClearMetadata(stream, hash: hash, stringUrl: url) {
-                    DefaultAvatarManager.shared.deleteAvatar(jid: self.jid, owner: self.owner)
-                    self.afterSettingAvatar(image: nil)
-                }
-            }, fail: {
+//            guard let avatar = realm.object(ofType: AvatarStorageItem.self,
+//                                            forPrimaryKey: [jid, owner].prp()),
+//                  let url = avatar.uploadUrl,
+//                  let previousHash = avatar.imageHash,
+//                  let uuidFirstPart = UUID().uuidString.split(separator: "_").first else { return }
+//            let hash = previousHash + "#" + uuidFirstPart
+//            
+//            XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
+//                session.avatarUploader?.sendClearMetadata(stream) {
+//                    self.afterSettingAvatar(image: nil)
+//                }
+//            }, fail: {
                 AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                    DefaultAvatarManager.shared.deleteAvatar(jid: self.jid, owner: self.owner)
-                    user.avatarUploader.sendClearMetadata(stream, hash: hash, stringUrl: url) {
-                        DefaultAvatarManager.shared.deleteAvatar(jid: self.jid, owner: self.owner)
+                    user.avatarUploader.sendClearMetadata(stream) {
                         self.afterSettingAvatar(image: nil)
                     }
                 })
-            })
-        } catch {
-            DDLogDebug("AccountInfoViewController+InfoScreenHeaderButtonDelegate: \(#function). \(error.localizedDescription)")
-        }
+//            })
+//        } catch {
+//            DDLogDebug("AccountInfoViewController+InfoScreenHeaderButtonDelegate: \(#function). \(error.localizedDescription)")
+//        }
     }
     
     func onUpdateAvatar(_ image: UIImage?) {
+        
         AccountManager.shared.find(for: jid)?.action({ (user, stream) in
             self.beforeSettingAvatar()
             user.avatarUploader.setAvatar(image: image, successCallback: {
@@ -225,7 +223,30 @@ extension AccountInfoViewController: InfoScreenHeaderButtonDelegate {
                     }
                 }
             }, failureCallback: {
+                status, error in
                 self.afterSettingAvatar(image: nil)
+                DispatchQueue.main.async {
+                    let errorMessage = "Unable to send file: out of Cloud Storage"//item.messageError
+                    let itemsWithQuota = [
+                        ActionSheetPresenter.Item(destructive: false, title: "Manage Cloud Storage", value: "quota")
+                    ]
+                    ActionSheetPresenter().present(
+                        in: self,
+                        title: "Avatar upload error",
+                        message: errorMessage,
+                        cancel: "Cancel",
+                        values: itemsWithQuota,
+                        animated: true) { value in
+                            switch value {
+                                case "quota":
+                                    let vc = CloudStorageViewController()
+                                    vc.configure(jid: self.jid)
+                                    self.navigationController?.pushViewController(vc, animated: true)
+                                default:
+                                    break
+                            }
+                        }
+                }
                 DDLogDebug("AccountInfoVC, InfoScreenButtonDelegate: \(#function). Fail to set avatar.")
             })
         })
@@ -241,13 +262,13 @@ extension AccountInfoViewController: InfoScreenHeaderButtonDelegate {
     func afterSettingAvatar(image: UIImage?) {
         DispatchQueue.main.async {
             if image == nil {
-                let conf = LetterAvatarBuilderConfiguration()
-                conf.backgroundColors = [AccountColorManager.shared.palette(for: self.owner).tint500]
-                conf.size = DefaultAvatarManager.defaultSize
-                conf.username = "\(self.jid.first?.uppercased() ?? "")"
-                guard let image = UIImage.makeLetterAvatar(withConfiguration: conf) else { return }
-//                DefaultAvatarManager.shared.dumbAvatar = image
-                self.headerView.imageButton.setImage(image.resize(targetSize: CGSize(square: 128)), for: .normal)
+//                let conf = LetterAvatarBuilderConfiguration()
+//                conf.backgroundColors = [AccountColorManager.shared.palette(for: self.owner).tint500]
+//                conf.size = DefaultAvatarManager.defaultSize
+//                conf.username = "\(self.jid.first?.uppercased() ?? "")"
+//                guard let image = UIImage.makeLetterAvatar(withConfiguration: conf) else { return }
+////                DefaultAvatarManager.shared.dumbAvatar = image
+                self.headerView.imageButton.setImage(UIImageView.getDefaultAvatar(for: self.jid, owner: self.jid, size: 256), for: .normal)
             } else {
                 self.headerView.imageButton.setImage(image?.resize(targetSize: CGSize(square: 128)), for: .normal)
             }

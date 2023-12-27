@@ -48,7 +48,7 @@ extension AppDelegate : UNUserNotificationCenterDelegate {
             } else {
                 if NotifyManager.shared.isLastChatsDisplayed() {
                     if notificationInAppSound {
-                        completionHandler([.sound])
+                        completionHandler([])
                     } else {
                         completionHandler([])
                     }

@@ -63,7 +63,7 @@ target 'xabberTests' do
     main_pods
 end
 
-target 'XabberPushService' do
+target 'xabber_push_extension' do
     inherit! :search_paths
 #    pod 'RealmSwift', :git => 'https://github.com/realm/realm-swift.git', :tag => 'v10.35.0'
     pod 'SwiftKeychainWrapper'

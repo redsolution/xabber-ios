@@ -84,8 +84,15 @@ class ChatMarkersManager: AbstractXMPPManager {
     
     override init(withOwner owner: String) {
         super.init(withOwner: owner)
+        updateDeleteEphemeralMessagesTimer()
+    }
+    
+    public func updateDeleteEphemeralMessagesTimer() {
         self.deleteEphemeralMessages()
         if CommonConfigManager.shared.config.afterburn_at_default {
+            self.afterburnTimer?.fire()
+            self.afterburnTimer?.invalidate()
+            self.afterburnTimer = nil
             self.afterburnTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true, block: { _ in
                 self.deleteEphemeralMessages()
             })
@@ -94,13 +101,19 @@ class ChatMarkersManager: AbstractXMPPManager {
         }
     }
     
-    private func deleteEphemeralMessages() {
+    public func deleteEphemeralMessages() {
         do {
             let realm = try WRealm.safe()
             let collection = realm
                 .objects(MessageStorageItem.self)
-                .filter("owner == %@ AND afterburnInterval > 0 AND state_ == %@ AND isDeleted == false AND burnDate < %@", self.owner, MessageStorageItem.MessageSendingState.read.rawValue, Date().timeIntervalSince1970)
-            if collection.isEmpty {
+                .filter("owner == %@ AND afterburnInterval > 0 AND isRead == true AND isDeleted == false AND burnDate < %@", self.owner, Date().timeIntervalSince1970)
+//            let badMessagesCollection = realm
+//                .objects(MessageStorageItem.self)
+//                .filter("owner == %@ AND burnDate <= %@ AND burnDate > 0 AND afterburnInterval > 0 AND isDeleted == %@",
+//                        self.owner,
+//                        Date().timeIntervalSince1970,
+//                        false)
+            if collection.isEmpty {//|| badMessagesCollection.isEmpty {
                 return
             }
             let jids = Set(collection.compactMap { return $0.opponent })
@@ -118,7 +131,7 @@ class ChatMarkersManager: AbstractXMPPManager {
                         .sorted(byKeyPath: "date", ascending: false)
                         .first
                     $0.lastMessage = lastMessage
-                    $0.lastMessageId = lastMessage?.primary ?? ""
+                    $0.lastMessageId = lastMessage?.messageId ?? ""
                 }
             }
         } catch {
@@ -190,8 +203,9 @@ class ChatMarkersManager: AbstractXMPPManager {
             date = getDelayedDate(message)
         }
         if date == nil {
-            date = Date()
+            date = getDeliveryTime(message, owner: self.owner) ?? Date()
         }
+        AccountManager.shared.find(for: self.owner)?.messages.updateReadDate(for: messageId, jid: jid, date: date ?? Date())
         do {
             let realm = try WRealm.safe()
             if let instance = realm
@@ -200,22 +214,29 @@ class ChatMarkersManager: AbstractXMPPManager {
                         self.owner,
                         jid,
                         messageId).first {
-                print(instance.date)
                 let collection = realm
                     .objects(MessageStorageItem.self)
-                    .filter("owner == %@ AND opponent == %@ AND date <= %@ AND burnDate < 0 AND state_ < %@",
+                    .filter("owner == %@ AND opponent == %@ AND date <= %@ AND burnDate < 0 AND isRead == true",
                             self.owner,
                             jid,
-                            instance.date,
-                            MessageStorageItem.MessageSendingState.read.rawValue)
+                            instance.date)
+//                            MessageStorageItem.MessageSendingState.read.rawValue)
+                
                 try realm.write {
-                    
                     if let chatInstance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: self.owner, conversationType: instance.conversationType)) {
                         if chatInstance.lastMessage?.primary == instance.primary {
                             chatInstance.unread = 0
                         }
                     }
-                    
+                    if instance.isInvalidated { return }
+                    if instance.readDate <= 1 && instance.burnDate <= 1 {
+                        if instance.afterburnInterval > 0 {
+                            instance.readDate = Date().timeIntervalSince1970
+                            instance.burnDate = Date().timeIntervalSince1970 + instance.afterburnInterval
+                        }
+                    }
+                    instance.state = .read
+                    instance.isRead = true
                     collection.forEach {
                         if $0.readDate < 0 {
                             $0.readDate = (date ?? Date()).timeIntervalSince1970
@@ -233,8 +254,28 @@ class ChatMarkersManager: AbstractXMPPManager {
         } catch {
             DDLogDebug("ChatMarkersManager: \(#function). \(error.localizedDescription)")
         }
+        self.deleteEphemeralMessages()
         
         return true
+    }
+    
+    private func onCarbonsSentDisplayed(_ message: XMPPMessage) -> Bool {
+        guard isCarbonCopy(message),
+              let bareMessage = getCarbonCopyMessageContainer(message) else {
+            return false
+        }
+        let date = getDelayedDate(message)
+        return self.onDisplayed(bareMessage, date: date)
+    }
+    
+    
+    private func onCarbonsForwardedDisplayed(_ message: XMPPMessage) -> Bool {
+        guard isCarbonForwarded(message),
+              let bareMessage = getCarbonForwardedMessageContainer(message) else {
+            return false
+        }
+        let date = getDelayedDate(message)
+        return self.onDisplayed(bareMessage, date: date)
     }
     
     private func onArchivedDisplayed(_ message: XMPPMessage) -> Bool {
@@ -249,6 +290,8 @@ class ChatMarkersManager: AbstractXMPPManager {
     
     public func read(withMessage message: XMPPMessage) -> Bool {
         switch true {
+            case self.onCarbonsSentDisplayed(message): return true
+            case self.onCarbonsForwardedDisplayed(message): return true
             case self.onArchivedDisplayed(message): return true
             case self.onReceived(message): return true
             case self.onDisplayed(message): return true
@@ -256,6 +299,13 @@ class ChatMarkersManager: AbstractXMPPManager {
             case self.setReceived(message): return true
             default: return false
         }
+    }
+    
+    func displayedById(_ xmppStream: XMPPStream, jid: String, messageId: String) {
+        let displayed = DDXMLElement(name: "displayed", xmlns: getPrimaryNamespace())
+        displayed.addAttribute(withName: "id", stringValue: messageId)
+        let message = XMPPMessage(messageType: .chat, to: XMPPJID(string: jid), elementID: "ChatMarkers: \(NanoID.new(8))", child: displayed)
+        xmppStream.send(message)
     }
     
     func displayed(_ xmppStream: XMPPStream, message primaryKey: String) {
@@ -300,14 +350,18 @@ class ChatMarkersManager: AbstractXMPPManager {
                             instance.date)
                 try realm.write {
                     if instance.isInvalidated { return }
-                    if instance.afterburnInterval > 0 {
-                        instance.readDate = Date().timeIntervalSince1970
-                        instance.burnDate = Date().timeIntervalSince1970 + instance.afterburnInterval
+                    if instance.readDate <= 1 && instance.burnDate <= 1 {
+                        if instance.afterburnInterval > 0 {
+                            instance.readDate = Date().timeIntervalSince1970
+                            instance.burnDate = Date().timeIntervalSince1970 + instance.afterburnInterval
+                        }
                     }
                     collection.forEach {
-                        if $0.afterburnInterval > 0 {
-                            $0.readDate = Date().timeIntervalSince1970
-                            $0.burnDate = Date().timeIntervalSince1970 + $0.afterburnInterval
+                        if $0.readDate <= 1 && $0.burnDate <= 1 {
+                            if $0.afterburnInterval > 0 {
+                                $0.readDate = Date().timeIntervalSince1970
+                                $0.burnDate = Date().timeIntervalSince1970 + $0.afterburnInterval
+                            }
                         }
                     }
                 }

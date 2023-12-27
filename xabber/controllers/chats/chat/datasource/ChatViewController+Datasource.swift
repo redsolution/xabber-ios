@@ -42,6 +42,9 @@ extension ChatViewController: MessagesDataSource {
     }
     
     func messageForItem(at indexPath: IndexPath, in messagesCollectionView: MessagesCollectionView) -> MessageType {
+        if self.datasource.count < indexPath.section {
+            fatalError("Fatal error: ChatViewController:\(#function):l46. Count \(self.datasource.count)")
+        }
         return self.datasource[indexPath.section]
     }
     

@@ -73,7 +73,7 @@ func getStanzaId(_ message: XMPPMessage, owner: String) -> String {
 func getOriginId(_ message: XMPPMessage) -> String? {
     return message
         .element(forName: "origin-id")?
-        .attributeStringValue(forName: "id")
+        .attributeStringValue(forName: "id") ?? message.elementID
 }
 
 func getStanzaIdAuthor(_ message: XMPPMessage) -> String? {
@@ -230,6 +230,11 @@ func getDelayedDate(_ message: XMPPMessage) -> Date? {
     }
     if date == nil {
         if let dateString = message.element(forName: "result")?.element(forName: "forwarded")?.element(forName: "delay")?.attributeStringValue(forName: "stamp") {
+            date = dateString.xmppDate
+        }
+    }
+    if date == nil {
+        if let dateString = message.element(forName: "delay")?.attributeStringValue(forName: "stamp") {
             date = dateString.xmppDate
         }
     }

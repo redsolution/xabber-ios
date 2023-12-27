@@ -372,13 +372,18 @@ class InfoScreenHeaderView: UIView {
         print(self.imageButton.frame)
     }
     
+    var currentUrl: String? = ""
+    
     public final func configure(avatarUrl: String?, jid: String, owner: String, userId: String?, title: String?, subtitle: String?, thirdLine: String? = nil, titleColor: UIColor? = nil) {
-
-        DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 256) { image in
-            if let image = image {
-                self.imageButton.setImage(image, for: .normal)
-            } else {
-                self.imageButton.setImage(UIImageView.getDefaultAvatar(for: jid, owner: owner, size: 256), for: .normal)
+        print("AAAAAAAAAAAAAAF", avatarUrl)
+        if currentUrl != avatarUrl {
+            DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 256) { image in
+                if let image = image {
+                    self.imageButton.setImage(image, for: .normal)
+                    self.currentUrl = avatarUrl
+                } else {
+                    self.imageButton.setImage(UIImageView.getDefaultAvatar(for: jid, owner: owner, size: 256), for: .normal)
+                }
             }
         }
         
@@ -467,7 +472,7 @@ class InfoScreenHeaderView: UIView {
     }
     
     internal func hideDarkenedView() {
-            self.darkenedView.alpha = 0
+        self.darkenedView.alpha = 0
     }
     
     override init(frame: CGRect) {

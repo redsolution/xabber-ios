@@ -224,7 +224,30 @@ class SignUpSelectAvatarViewController: SignUpBaseViewController {
                     }
                 }
             }, failureCallback: {
+                status, error in
                 
+                DispatchQueue.main.async {
+                    let errorMessage = "Unable to send file: out of Cloud Storage"//item.messageError
+                    let itemsWithQuota = [
+                        ActionSheetPresenter.Item(destructive: false, title: "Manage Cloud Storage", value: "quota")
+                    ]
+                    ActionSheetPresenter().present(
+                        in: self,
+                        title: "Avatar upload error",
+                        message: errorMessage,
+                        cancel: "Cancel",
+                        values: itemsWithQuota,
+                        animated: true) { value in
+                            switch value {
+                                case "quota":
+                                    let vc = CloudStorageViewController()
+                                    vc.configure(jid: self.owner)
+                                    self.navigationController?.pushViewController(vc, animated: true)
+                                default:
+                                    break
+                            }
+                        }
+                }
                 DDLogDebug("AccountInfoVC, InfoScreenButtonDelegate: \(#function). Fail to set avatar.")
             })
         })

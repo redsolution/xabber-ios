@@ -631,27 +631,30 @@ class MessageStorageItem: Object {
             $0.sentDate = Date()
             if CommonConfigManager.shared.config.use_file_enryption_by_default {
                 
-                var key = Data(count: 32)
-         
-                key.withUnsafeMutableBytes { (bytes) -> Void in
-                    _ = SecRandomCopyBytes(kSecRandomDefault, 32, bytes.baseAddress!)
+                if [.omemo, .omemo1, .axolotl].contains($0.conversationType) {
+                    
+                    var key = Data(count: 32)
+                    
+                    key.withUnsafeMutableBytes { (bytes) -> Void in
+                        _ = SecRandomCopyBytes(kSecRandomDefault, 32, bytes.baseAddress!)
+                    }
+                    
+                    let salt = Array<UInt8>(repeating: 0, count: 32)
+                    
+                    let hkdf = try HKDF(
+                        password: key.bytes,
+                        salt: salt,
+                        info: Array("Files encryption".data(using: .utf8)!),
+                        keyLength: key.bytes.count,
+                        variant: .sha256
+                    ).calculate()
+                    
+                    let encryptionKey: Array<UInt8> = Array(hkdf.prefix(16))
+                    let iv: Array<UInt8> = Array(hkdf.suffix(16))
+                    
+                    $0.metadata?["encryption-key"] = encryptionKey.toBase64()
+                    $0.metadata?["iv"] = iv.toBase64()
                 }
-                
-                let salt = Array<UInt8>(repeating: 0, count: 32)
-                
-                let hkdf = try HKDF(
-                    password: key.bytes,
-                    salt: salt,
-                    info: Array("Files encryption".data(using: .utf8)!),
-                    keyLength: key.bytes.count,
-                    variant: .sha256
-                ).calculate()
-                
-                let encryptionKey: Array<UInt8> = Array(hkdf.prefix(16))
-                let iv: Array<UInt8> = Array(hkdf.suffix(16))
-                
-                $0.metadata?["encryption-key"] = encryptionKey.toBase64()
-                $0.metadata?["iv"] = iv.toBase64()
             }
         }
         
@@ -875,7 +878,11 @@ class MessageStorageItem: Object {
                         try transaction(commit: commitTransaction, callback: {
 //                            instance.messagesCount += 1
                             instance.messageDate = self.sentDate
-                            instance.lastMessage = self
+                            if !self.isDeleted {
+                                instance.lastMessage = self
+                            } else {
+                                realm.add(instance)
+                            }
                             instance.lastMessageId = self.messageId
                             if let timer = self.references.first?.metadata?["ephemeral-timer"] as? Int {
                                 instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
@@ -908,7 +915,7 @@ class MessageStorageItem: Object {
                     var needGenAvatar: Bool = false
                     instance.messageDate = self.sentDate
                     instance.lastMessage = self
-                    instance.isSynced = false
+                    instance.isSynced = [.omemo, .omemo1, .axolotl].contains(self.conversationType)
                     instance.lastMessageId = self.messageId
                     instance.messagesCount += 1
                     
@@ -938,6 +945,8 @@ class MessageStorageItem: Object {
                         realm.add(instance, update: .modified)
                         if realm.object(ofType: MessageStorageItem.self, forPrimaryKey: initialMessage.primary) == nil {
                             realm.add(initialMessage)
+                        } else {
+                            realm.object(ofType: MessageStorageItem.self, forPrimaryKey: initialMessage.primary)?.isDeleted = false
                         }
                         if let rosterItem = realm
                             .object(ofType: RosterStorageItem.self,
@@ -977,22 +986,24 @@ class MessageStorageItem: Object {
                     }
                 }
                 if !silentNotifications {
-                    if notify && !self.isRead && !self.outgoing && self.archivedId.isNotEmpty && self.displayAs != .system {
-                        let imageUrl: String? = self.displayAs == .images ? references.filter({ $0.kind == .media }).first?.metadata?["uri"] as? String : nil
-                        NotifyManager.shared.update(
-                            withMessage: self.displayedBody(entity: .contact),
-                            messageId: self.archivedId,
-                            username: self.groupchatMetadata?["nickname"] as? String,
-                            opponent: self.opponent,
-                            owner: self.owner,
-                            date: self.date,
-                            displayName: realm
-                                .object(ofType: RosterStorageItem.self,
-                                        forPrimaryKey: [self.opponent, owner].prp())?
-                                .displayName ?? self.opponent,
-                            imageUrl: imageUrl,
-                            conversationType: self.conversationType
-                        )
+                    if self.date.timeIntervalSince1970 > (Date().timeIntervalSince1970 - 10) {
+                        if notify && !self.isRead && !self.outgoing && self.archivedId.isNotEmpty && self.displayAs != .system {
+                            let imageUrl: String? = self.displayAs == .images ? references.filter({ $0.kind == .media }).first?.metadata?["uri"] as? String : nil
+                            NotifyManager.shared.update(
+                                withMessage: self.displayedBody(entity: .contact),
+                                messageId: self.archivedId,
+                                username: self.groupchatMetadata?["nickname"] as? String,
+                                opponent: self.opponent,
+                                owner: self.owner,
+                                date: self.date,
+                                displayName: realm
+                                    .object(ofType: RosterStorageItem.self,
+                                            forPrimaryKey: [self.opponent, owner].prp())?
+                                    .displayName ?? self.opponent,
+                                imageUrl: imageUrl,
+                                conversationType: self.conversationType
+                            )
+                        }
                     }
                 }
                 realm.refresh()
@@ -1171,6 +1182,7 @@ class MessageStorageItem: Object {
     
     public final func createRefBody(_ attrs: [NSAttributedString.Key: Any], searchedText: String? = nil, searchedTextColor: UIColor? = nil) -> NSAttributedString {
         let string = NSMutableAttributedString(string: body)
+//        let string = NSMutableAttributedString(string: "\(self.body), \(self.isRead), \(Date(timeIntervalSince1970: self.burnDate))")
         string.addAttributes(attrs, range: NSRange(location: 0, length: string.length))
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byWordWrapping

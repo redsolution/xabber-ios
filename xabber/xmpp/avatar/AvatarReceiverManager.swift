@@ -191,20 +191,26 @@ class XmppAvatarManager: AbstractXMPPManager {
                 }
                 if jid == self.owner {
                     if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: self.owner) {
+                        if instance.oldschoolAvatarKey == id {
+                            return true
+                        }
                         try realm.write {
                             instance.avatarMaxUrl = maxUrl
                             instance.avatarMinUrl = minUrl
-                            instance.oldschoolAvatarKey = nil
+                            instance.oldschoolAvatarKey = id
                             instance.avatarUpdatedTS = Date().timeIntervalSince1970
                             instance.updatedTS = Date().timeIntervalSince1970
                         }
                     }
                 } else {
                     if let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: self.owner)) {
+                        if instance.oldschoolAvatarKey == id {
+                            return true
+                        }
                         try realm.write {
                             instance.avatarMaxUrl = maxUrl
                             instance.avatarMinUrl = minUrl
-                            instance.oldschoolAvatarKey = nil
+                            instance.oldschoolAvatarKey = id
                             instance.avatarUpdatedTS = Date().timeIntervalSince1970
                             instance.updatedTS = Date().timeIntervalSince1970
                         }

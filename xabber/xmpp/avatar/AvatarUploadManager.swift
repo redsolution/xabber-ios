@@ -56,118 +56,113 @@ class AvatarUploadManager: AbstractXMPPManager {
         return node.isNotEmpty
     }
     
-    fileprivate func posAvatarUpdate(image pngData: Data, mimeType: String, avatar avatarPrimary: String, callback callSuccessCallback: (() -> Void)? = nil) {
-        uploadAvatar(data: pngData,
-                     filename: "\(UUID().uuidString).png",
+    fileprivate func posAvatarUpdate(image imageData: Data, mimeType: String, callback successCallback: (() -> Void)? = nil, failCallback: ((Int, String) -> Void)? = nil) {
+        uploadAvatar(data: imageData,
+                     filename: "\(NanoID.new(5)).png",
                      mimeType: mimeType,
-                     //successCallback: { (uploadUrl, hash, size, thumbnails) in
                      successCallback: { (avatar) in
+
             
-            guard let hash = avatar.hash,
-                  let uploadUrl = avatar.file,
-                  let thumbnails = avatar.thumbnails else { return }
-            
-//            DefaultAvatarManager.shared.removeFromCache(jid: self.owner, owner: self.owner, url: uploadUrl)
-            
-            if let _ = UIImage(data: pngData) {
-                ImageCache.default.storeToDisk(pngData, forKey: uploadUrl)
-                for thumbnail in thumbnails {
-                    if let height = thumbnail.height,
-                       let width = thumbnail.width,
-                       let url = thumbnail.url,
-                       let image = UIImage(data: pngData)?.resize(targetSize: CGSize(square: CGFloat(height))) {
-                        ImageCache.default.store(image, forKey: url)
-                    }
-                }
-            }
-            
-            AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                user.avatarUploader.sendImageMetadata(stream, avatar: avatar)
-            })
             
             do {
                 let realm = try WRealm.safe()
-                
-                if let avatarItem = realm.object(ofType: AvatarStorageItem.self,
-                                                 forPrimaryKey: avatarPrimary) {
-                    try realm.write {
-                        if avatarItem.isInvalidated { return }
-                        avatarItem.uploadUrl = uploadUrl
-                        avatarItem.imageHash = hash
-                        avatarItem.image32 = thumbnails.first(where: { $0.url!.contains("/32_") })?.url
-                        avatarItem.image48 = thumbnails.first(where: { $0.url!.contains("/48_") })?.url
-                        avatarItem.image64 = thumbnails.first(where: { $0.url!.contains("/64_") })?.url
-                        avatarItem.image96 = thumbnails.first(where: { $0.url!.contains("/96_") })?.url
-                        avatarItem.image128 = thumbnails.first(where: { $0.url!.contains("/128_") })?.url
-                        avatarItem.image192 = thumbnails.first(where: { $0.url!.contains("/192_") })?.url
-                        avatarItem.image256 = thumbnails.first(where: { $0.url!.contains("/256_") })?.url
-                        avatarItem.image384 = thumbnails.first(where: { $0.url!.contains("/384_") })?.url
-                        avatarItem.image512 = thumbnails.first(where: { $0.url!.contains("/512_") })?.url
-                    }
-                } else {
-                    let instance = AvatarStorageItem()
-                    instance.primary = avatarPrimary
-                    instance.owner = self.owner
-                    instance.jid = self.owner
-                    
-                    instance.uploadUrl = uploadUrl
-                    instance.imageHash = hash
-                    instance.image32 = thumbnails.first(where: { $0.url!.contains("/32_") })?.url
-                    instance.image48 = thumbnails.first(where: { $0.url!.contains("/48_") })?.url
-                    instance.image64 = thumbnails.first(where: { $0.url!.contains("/64_") })?.url
-                    instance.image96 = thumbnails.first(where: { $0.url!.contains("/96_") })?.url
-                    instance.image128 = thumbnails.first(where: { $0.url!.contains("/128_") })?.url
-                    instance.image192 = thumbnails.first(where: { $0.url!.contains("/192_") })?.url
-                    instance.image256 = thumbnails.first(where: { $0.url!.contains("/256_") })?.url
-                    instance.image384 = thumbnails.first(where: { $0.url!.contains("/384_") })?.url
-                    instance.image512 = thumbnails.first(where: { $0.url!.contains("/512_") })?.url
-                    try realm.write {
-                        realm.add(instance)
+                var maxUrl: String = avatar.file
+                var minUrl: String? = nil
+                avatar.thumbnails.forEach {
+                    thumb in
+                    let thumbUrl = thumb.url
+                    let width = thumb.width
+                    if width >= 512 {
+                        maxUrl = thumbUrl
+                        return
+                    } else if width >= 256 {
+                        maxUrl = thumbUrl
+                        return
                     }
                 }
-                callSuccessCallback?()
+                
+                avatar.thumbnails.forEach {
+                    thumb in
+                    let thumbUrl = thumb.url
+                    let width = thumb.width
+                    if width < 256 && width >= 128 {
+                        minUrl = thumbUrl
+                        return
+                    } else if width < 128 {
+                        minUrl = thumbUrl
+                        return
+                    }
+                }
+                if let image = UIImage(data: imageData) {
+                    ImageCache.default.store(image, forKey: maxUrl, options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory]))
+                    let thumbImage = image.resize(targetSize: CGSize(square: 256))
+                    if let thumb = thumbImage.pngData(),
+                       let minUrl = minUrl {
+                        ImageCache.default.store(thumbImage, forKey: minUrl, options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory]))
+                    }
+                }
+                
+                successCallback?()
+                
+                if let account = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: self.owner) {
+                    try realm.write {
+                        account.oldschoolAvatarKey = avatar.hash
+                        account.avatarUpdatedTS = Date().timeIntervalSince1970
+                        account.avatarMaxUrl = maxUrl
+                        account.avatarMinUrl = minUrl
+                    }
+                }
+                
+                AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
+                    user.avatarUploader.sendImageMetadata(stream, avatar: avatar)
+                })
+                
             } catch {
                 DDLogDebug("AvatarUploadManager: \(#function). \(error.localizedDescription)")
             }
-        }, failCallback: { fail_error in
-            DDLogDebug("AvatarUploadManager: \(#function). \(fail_error.localizedDescription)")
+        }, failCallback: { status, failError in
+            failCallback?(status, failError)
+            DDLogDebug("AvatarUploadManager: \(#function). \(failError)")
         })
     }
     
-    public final func setAvatar(image: UIImage?, successCallback: (() -> Void)? = nil, failureCallback: (() -> Void)? = nil) {
-        guard let pngData = image?.pngData() else { return }
+    public final func setAvatar(image: UIImage?, successCallback: (() -> Void)? = nil, failureCallback: ((Int, String) -> Void)? = nil) {
+        guard let imageData = image?.pngData() else { return }
 
         posAvatarUpdate(
-            image: pngData,
+            image: imageData,
             mimeType: "image/png",
-            avatar: AvatarStorageItem.genPrimary(jid: self.owner, owner: self.owner),
-            callback: successCallback
+            callback: successCallback,
+            failCallback: failureCallback
         )
     }
     
     struct Thumbnail: Codable {
-        let height: Int?
-        let url: String?
-        let width: Int?
+        let height: Int
+        let url: String
+        let width: Int
     }
     
     struct AvatarResponse: Codable {
-        let created_at: String?
-        let file: String?
-        let hash: String?
-        let name: String?
-        let quota: Int?
-        let used: Int?
-        let size: Int?
-        let thumbnails: [Thumbnail]?
+        let file: String
+        let hash: String
+        let name: String
+        let quota: Int
+        let used: Int
+        let size: Int
+        let thumbnails: [Thumbnail]
+    }
+    
+    struct AvatarErrorResponse: Codable {
+        let status: Int
+        let error: String
     }
     //MARK: - Sends avatar to the server, receives its thumbnails' urls
     private func uploadAvatar(data: Data, filename: String, mimeType: String,
-                              //successCallback: @escaping ((String, String, Int, [Thumbnail]) -> Void),
                               successCallback: @escaping ((AvatarResponse) -> Void),
-                              failCallback: @escaping ((Error) -> Void), needsThumb: Bool = true) {
+                              failCallback: @escaping ((Int, String) -> Void)) {
         guard isAvailable(), let node = self.node else {
-            failCallback(UploadError.notAvailable)
+            failCallback(400, "File upload not available")
             return
         }
         
@@ -180,34 +175,45 @@ class AvatarUploadManager: AbstractXMPPManager {
         let headers: [String: String] = [
             "Authorization" : "Bearer \(token)",
         ]
-        
+        let createThumbnail: Bool = true
         Alamofire
             .upload(multipartFormData: { formData in
-                formData.append(data, withName: "some_file_name.png", fileName: filename, mimeType: mimeType)
+                formData.append(data, withName: "file", fileName: filename, mimeType: mimeType)
                 formData.append("\(mimeType)".data(using: .utf8)!, withName: "media_type")
-                formData.append(String(needsThumb).data(using: .utf8)!, withName: "create_thumbnail")
+                formData.append(String(createThumbnail).data(using: .utf8)!, withName: "create_thumbnail")
             },
-                        usingThreshold: SessionManager.multipartFormDataEncodingMemoryThreshold,
-                        to: url,
-                        method: .post,
-                        headers: headers) { result in
+            usingThreshold: SessionManager.multipartFormDataEncodingMemoryThreshold,
+            to: url,
+            method: .post,
+            headers: headers) { result in
                 switch result {
                 case .success(request: let request, streamingFromDisk: _, streamFileURL: _):
                     request.responseData(queue: .global(qos: .background)) { response in
                         do {
-                            guard let data = response.value else { return }
-                            let avatar =  try JSONDecoder().decode(AvatarResponse.self, from: data)
-                            if let used = avatar.used, let quota = avatar.quota {
-                                self.saveQuotaInRealm(quota: quota, used: used)
+                            if (response.response?.statusCode ?? 400) < 300 {
+                                guard let data = response.value else {
+                                    failCallback(400, "Unexpected error")
+                                    return
+                                }
+                                let avatar =  try JSONDecoder().decode(AvatarResponse.self, from: data)
+                                self.saveQuotaInRealm(quota: avatar.quota, used: avatar.used)
+                                successCallback(avatar)
+                            } else {
+                                guard let data = response.value else {
+                                    failCallback(400, "Unexpected error")
+                                    return
+                                }
+                                let errorResponse = try JSONDecoder().decode(AvatarErrorResponse.self, from: data)
+                                failCallback(errorResponse.status, errorResponse.error)
                             }
-                            successCallback(avatar)
                         } catch {
+                            failCallback(400, "Unexpected error")
                             DDLogDebug("AvatarUploadManager: \(#function). can't decode response)")
                         }
                     }
                 case .failure(let error):
                     DDLogDebug("AvatarUploadManager: \(#function). \(error.localizedDescription)")
-                    failCallback(error)
+                    failCallback(400, "Unexpected error")
                 }
             }
     }
@@ -217,7 +223,7 @@ class AvatarUploadManager: AbstractXMPPManager {
             if item.value == .image {
                 let start = item.key.lastIndex(of: "/") ?? item.key.startIndex
                 if url.contains(item.key[start...].replacingOccurrences(of: "/", with: "")) {
-                    return  item.key
+                    return item.key
                 }
             }
         }
@@ -226,33 +232,23 @@ class AvatarUploadManager: AbstractXMPPManager {
     //public func sendImageMetadata(_ xmppStream: XMPPStream, mainUrl: String, hash: String, size: Int, thumbnails: [Thumbnail], jid: String? = nil) {
     public func sendImageMetadata(_ xmppStream: XMPPStream, avatar: AvatarResponse) {
         
-        let elementId = xmppStream.generateUUID
+        let elementId = "Avatar: \(NanoID.new(8))"
         let metadata = DDXMLElement(name: "metadata", xmlns: "urn:xmpp:avatar:metadata")
         let info = DDXMLElement(name: "info")
         
-        guard let bytes = avatar.size,
-              let url = avatar.file,
-              let id = avatar.hash,
-              let thumbnails = avatar.thumbnails else { return }
+        info.addAttribute(withName: "bytes", integerValue: avatar.size)
+        info.addAttribute(withName: "url", stringValue: avatar.file)
+        info.addAttribute(withName: "id", stringValue: avatar.hash)
+        info.addAttribute(withName: "type", stringValue: "image/png")
         
-        info.addAttribute(withName: "bytes", stringValue: String(bytes))
-        info.addAttribute(withName: "url", stringValue: url)
-        info.addAttribute(withName: "id", stringValue: id)
-        let type  = getImageTypeMetaData(url: url)
-        info.addAttribute(withName: "type", stringValue: type)
-        info.addAttribute(withName: "height", stringValue: "original")
-        info.addAttribute(withName: "width", stringValue: "original")
-        
-        for thumbnail in thumbnails {
-            guard let url = thumbnail.url,
-                  let width = thumbnail.width,
-                  let height = thumbnail.height else { continue }
+        avatar.thumbnails.forEach {
+            thumbnail in
             let thumbnailInfo = DDXMLElement(name: "thumbnail", xmlns: "urn:xmpp:thumbs:1")
-            thumbnailInfo.addAttribute(withName: "url", stringValue: url)
-            let type = getImageTypeMetaData(url: thumbnail.url!)
+            thumbnailInfo.addAttribute(withName: "url", stringValue: thumbnail.url)
+            let type = getImageTypeMetaData(url: thumbnail.url)
             thumbnailInfo.addAttribute(withName: "media-type", stringValue: type)
-            thumbnailInfo.addAttribute(withName: "width", stringValue: String(width))
-            thumbnailInfo.addAttribute(withName: "height", stringValue: String(height))
+            thumbnailInfo.addAttribute(withName: "width", integerValue: thumbnail.width)
+            thumbnailInfo.addAttribute(withName: "height", integerValue: thumbnail.height)
             info.addChild(thumbnailInfo)
         }
         
@@ -260,11 +256,12 @@ class AvatarUploadManager: AbstractXMPPManager {
         
         let item = DDXMLElement(name: "item")
         item.addChild(metadata)
-        item.addAttribute(DDXMLNode.attribute(withName: "id", stringValue: id) as! DDXMLNode)
+        item.addAttribute(withName: "id", stringValue: avatar.hash)
         
         let publish = DDXMLElement(name: "publish")
         publish.addChild(item)
-        publish.addAttribute(DDXMLNode.attribute(withName: "node", stringValue: "urn:xmpp:avatar:metadata") as! DDXMLNode)
+        publish.addAttribute(withName: "node", stringValue: "urn:xmpp:avatar:metadata")
+        
         
         let pubsub = DDXMLElement(name: "pubsub")
         pubsub.addChild(publish)
@@ -275,26 +272,38 @@ class AvatarUploadManager: AbstractXMPPManager {
         queryIds.insert(elementId)
     }
     
-    public func sendClearMetadata(_ xmppStream: XMPPStream, hash: String, stringUrl: String, finishCallback: (() -> Void)) {
-        let elementId = xmppStream.generateUUID
-        let metadata = DDXMLElement(name: "metadata", xmlns: "urn:xmpp:avatar:metadata")
-        
-        let item = DDXMLElement(name: "item")
-        item.addChild(metadata)
-        item.addAttribute(DDXMLNode.attribute(withName: "id", stringValue: hash) as! DDXMLNode)
-        
-        let publish = DDXMLElement(name: "publish")
-        publish.addChild(item)
-        publish.addAttribute(DDXMLNode.attribute(withName: "node", stringValue: "urn:xmpp:avatar:metadata") as! DDXMLNode)
-        
-        let pubsub = DDXMLElement(name: "pubsub")
-        pubsub.addChild(publish)
-        pubsub.setXmlns("http://jabber.org/protocol/pubsub")
-        
-        let iq = XMPPIQ(iqType: .set, to: nil, elementID: elementId, child: pubsub)
-        xmppStream.send(iq)
-        queryIds.insert(elementId)
-        
+    public func sendClearMetadata(_ xmppStream: XMPPStream, finishCallback: (() -> Void)) {
+        do {
+            let realm = try WRealm.safe()
+            if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: self.owner) {
+                let elementId = xmppStream.generateUUID
+                let metadata = DDXMLElement(name: "metadata", xmlns: "urn:xmpp:avatar:metadata")
+                
+                let item = DDXMLElement(name: "item")
+                item.addChild(metadata)
+                item.addAttribute(DDXMLNode.attribute(withName: "id", stringValue: NanoID.new(8)) as! DDXMLNode)
+                
+                let publish = DDXMLElement(name: "publish")
+                publish.addChild(item)
+                publish.addAttribute(DDXMLNode.attribute(withName: "node", stringValue: "urn:xmpp:avatar:metadata") as! DDXMLNode)
+                
+                let pubsub = DDXMLElement(name: "pubsub")
+                pubsub.addChild(publish)
+                pubsub.setXmlns("http://jabber.org/protocol/pubsub")
+                
+                let iq = XMPPIQ(iqType: .set, to: nil, elementID: elementId, child: pubsub)
+                xmppStream.send(iq)
+                queryIds.insert(elementId)
+                try realm.write {
+                    instance.avatarMaxUrl = nil
+                    instance.avatarMinUrl = nil
+                    instance.avatarUpdatedTS = Date().timeIntervalSince1970
+                    instance.oldschoolAvatarKey = nil
+                }
+            }
+        } catch {
+            
+        }
         finishCallback()
     }
     

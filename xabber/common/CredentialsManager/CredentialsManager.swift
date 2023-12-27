@@ -25,6 +25,7 @@
 import Foundation
 import SwiftKeychainWrapper
 import Curve25519Kit
+import Realm
 
 class CredentialsManager: NSObject {
     open class var shared: CredentialsManager {
@@ -124,11 +125,20 @@ class CredentialsManager: NSObject {
         
         init(jid: String) {
             self.jid = jid
-            if let counterRaw = self.retrieveCreditionals(for: [jid, "counter"].prp()),
-               let counter = UInt64(counterRaw) {
-                self.isFirstTokenIssued = false
-                self.counter = counter
+            do {
+                let realm = try WRealm.safe()
+                if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid) {
+                    self.counter = UInt64(instance.counter)!
+                    self.isFirstTokenIssued = false
+                }
+            } catch {
+                
             }
+//            if let counterRaw = self.retrieveCreditionals(for: [jid, "counter"].prp()),
+//               let counter = UInt64(counterRaw) {
+//                self.isFirstTokenIssued = false
+////                self.counter = counter
+//            }
             if self.retrieveCreditionals(for: [jid, Kind.token.rawValue].prp()) != nil {
                 self.kind = .token
             }
@@ -178,16 +188,16 @@ class CredentialsManager: NSObject {
         
         public final func release(error: Bool) {
             print("RELEASE SECRET FOR \(self.jid)")
-            isInvalidate = error
-            if error {
-                isBlocked = false
-//                callbacks = SynchronizedArray()
-                callbacks = Array()
-            } else {
-                isBlocked = false
-                if callbacks.isNotEmpty {
-//                    callbacks.removeFirst { $0?.callback?() } // здесь случается crash
-                    callbacks.removeFirst().callback?()
+            DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {
+                self.isInvalidate = error
+                if error {
+                    self.isBlocked = false
+                    self.callbacks = Array()
+                } else {
+                    self.isBlocked = false
+                    if self.callbacks.isNotEmpty {
+                        self.callbacks.removeFirst().callback?()
+                    }
                 }
             }
         }
@@ -197,15 +207,31 @@ class CredentialsManager: NSObject {
 //            if kind == .password {
 //                return
 //            }
-            if let counterRaw = self.retrieveCreditionals(for: [jid, "counter"].prp()),
-               let counter = UInt64(counterRaw) {
-                let newCounter = counter + 1
-                self.counter = newCounter
-                self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(newCounter)")
-//                self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(newCounter)")
-            } else {
-                print("FATAL ERROR", #function, self.retrieveCreditionals(for: [jid, "counter"].prp()))
+            do {
+                let realm = try WRealm.safe()
+                if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid) {
+                    let counter = UInt64(instance.counter)!
+                    let newCounter = counter + 1
+                    try realm.write {
+                        realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid)?.counter = "\(newCounter)"
+                    }
+                    self.counter = newCounter
+                    DispatchQueue.main.async {
+                        ToastPresenter(message: "Increment counter: \(newCounter)").present(animated: true)
+                    }
+                }
+            } catch {
+                
             }
+//            if let counterRaw = self.retrieveCreditionals(for: [jid, "counter"].prp()),
+//               let counter = UInt64(counterRaw) {
+//                let newCounter = counter + 1
+//                self.counter = newCounter
+//                self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(newCounter)")
+////                self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(newCounter)")
+//            } else {
+//                print("FATAL ERROR", #function, self.retrieveCreditionals(for: [jid, "counter"].prp()))
+//            }
         }
         
         public func decrementCounter() {
@@ -213,17 +239,34 @@ class CredentialsManager: NSObject {
 //            if kind == .password {
 //                return
 //            }
-            if let counterRaw = self.retrieveCreditionals(for: [jid, "counter"].prp()),
-               let counter = UInt64(counterRaw) {
-                if counter > 1 {
-                    let newCounter = counter - 1
-                    self.counter = newCounter
-                    self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(newCounter)")
-                    self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(newCounter)")
+            do {
+                let realm = try WRealm.safe()
+                if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid) {
+                    let counter = UInt64(instance.counter)!
+                    if counter > 1 {
+                        let newCounter = counter - 1
+                        self.counter = newCounter
+                        try realm.write {
+                            realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid)?.counter = "\(newCounter)"
+                        }
+                        ToastPresenter(message: "Increment counter: \(newCounter)").present(animated: true)
+                    }
+                    
                 }
-            } else {
-                print("FATAL ERROR", #function)
+            } catch {
+                
             }
+//            if let counterRaw = self.retrieveCreditionals(for: [jid, "counter"].prp()),
+//               let counter = UInt64(counterRaw) {
+//                if counter > 1 {
+//                    let newCounter = counter - 1
+//                    self.counter = newCounter
+//                    self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(newCounter)")
+//                    self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(newCounter)")
+//                }
+//            } else {
+//                print("FATAL ERROR", #function)
+//            }
             
         }
         
@@ -232,12 +275,24 @@ class CredentialsManager: NSObject {
             return self.retrieveCreditionals(for: [jid, Kind.secret.rawValue].prp())
         }
         
+        func storeCounterToRealm(_ value: UInt64) {
+            do {
+                let realm = try WRealm.safe()
+                try realm.write {
+                    realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid)?.counter = "\(value)"
+                }
+            } catch {
+                
+            }
+        }
+        
         public func storeSecret(_ value: String) {
             self.isFirstTokenIssued = true
             self.counter = 1
             self.kind = .secret
             self.storeCreditionals(for: [jid, Kind.secret.rawValue].prp(), value: value)
-            self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(1)")
+//            self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(1)")
+            self.storeCounterToRealm(self.counter)
             self.removeCreditionals(for: [jid, Kind.password.rawValue].prp())
             self.removeCreditionals(for: [jid, Kind.token.rawValue].prp())
         }
@@ -248,7 +303,8 @@ class CredentialsManager: NSObject {
             self.counter = 1
             self.kind = .token
             self.storeCreditionals(for: [jid, Kind.token.rawValue].prp(), value: value)
-            self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(1)")
+//            self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(1)")
+            self.storeCounterToRealm(self.counter)
             self.removeCreditionals(for: [jid, Kind.password.rawValue].prp())
             self.removeCreditionals(for: [jid, Kind.secret.rawValue].prp())
         }
@@ -261,7 +317,7 @@ class CredentialsManager: NSObject {
             if !keepSecret {
                 self.removeCreditionals(for: [jid, Kind.secret.rawValue].prp())
             }
-            self.removeCreditionals(for: [jid, "counter"].prp())
+//            self.removeCreditionals(for: [jid, "counter"].prp())
         }
         
         private func storeCreditionals(for key: String, value: String) {

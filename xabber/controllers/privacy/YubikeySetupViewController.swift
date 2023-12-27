@@ -87,7 +87,7 @@ class YubikeySetupViewController: SimpleBaseViewController {
             ]
         } else {
             signatureDatasource = [
-                Datasource(title: "Signature not setted", subtitle: "", kind: .lbael),
+                Datasource(title: "Signature not set", subtitle: "", kind: .lbael),
                 Datasource(title: "Update signature", subtitle: "", kind: .button("sign"))
             ]
         }

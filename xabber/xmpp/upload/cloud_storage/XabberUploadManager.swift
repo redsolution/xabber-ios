@@ -78,6 +78,11 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
         case unexpected
     }
     
+    struct UploadErrorResponse: Codable {
+        let status: Int
+        let error: String
+    }
+    
     private final func checkResponse(_ code: Int?, success: (() -> Void)? = nil, fail: ((Error?) -> Void)? = nil) {
         guard let code = code else {
             fail?(nil)
@@ -240,20 +245,24 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
                             var data = try Data(contentsOf: reference.localFileUrl! as URL)
                             let encryptionKeyb64 = reference.metadata?["encryption-key"] as? String
                             let ivb64 = reference.metadata?["iv"] as? String
+                            var encryptedFiles = false
                             if CommonConfigManager.shared.config.use_file_enryption_by_default {
-                                guard let encryptionKeyb64 = encryptionKeyb64,
-                                      let ivb64 = ivb64 else {
-                                    return
+                                if [.omemo, .omemo1, .axolotl].contains(reference.conversationType) {
+                                    guard let encryptionKeyb64 = encryptionKeyb64,
+                                          let ivb64 = ivb64 else {
+                                        return
+                                    }
+                                    let encryptionKey = Array<UInt8>(base64: encryptionKeyb64)
+                                    let iv = Array<UInt8>(base64: ivb64)
+                                    let encrypted = try! data.encrypt(key: encryptionKey, iv: iv)
+                                    
+                                    guard let encrypted = encrypted else {
+                                        return
+                                    }
+                                    
+                                    data = encrypted
+                                    encryptedFiles = true
                                 }
-                                let encryptionKey = Array<UInt8>(base64: encryptionKeyb64)
-                                let iv = Array<UInt8>(base64: ivb64)
-                                let encrypted = try! data.encrypt(key: encryptionKey, iv: iv)
-                                
-                                guard let encrypted = encrypted else {
-                                    return
-                                }
-                                
-                                data = encrypted
                             }
                             
                             uploadFile(
@@ -267,29 +276,7 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
                                     //Receives file's name and hash, which were used to delete the file
                                     //Now fileID is used for deletion
                                     
-                                    if CommonConfigManager.shared.config.use_file_enryption_by_default {
-                                        do {
-                                            guard let encryptionKeyb64 = encryptionKeyb64,
-                                                  let ivb64 = ivb64 else {
-                                                return
-                                            }
-                                            let encryptionKey = Array<UInt8>(base64: encryptionKeyb64)
-                                            let iv = Array<UInt8>(base64: ivb64)
-                                            guard let decryptedData = try Data.decrypt(data, key: encryptionKey, iv: iv) else {
-                                                return
-                                            }
-                                            if let _ = UIImage(data: decryptedData) {
-                                                ImageCache.default.storeToDisk(decryptedData, forKey: getUrl)
-                                            }
-                                        } catch {
-                                            print(error)
-                                        }
-                                        
-                                    } else {
-                                        if let _ = UIImage(data: data) {
-                                            ImageCache.default.storeToDisk(data, forKey: getUrl)
-                                        }
-                                    }
+                                    
                                     
                                     
                                     //Writing upload_url, get_url and thumbnail (if exists) in realm
@@ -310,7 +297,29 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
                                             }
                                         }
                                         callSuccessCallback()
-                                        
+                                        if encryptedFiles  {
+                                            do {
+                                                guard let encryptionKeyb64 = encryptionKeyb64,
+                                                      let ivb64 = ivb64 else {
+                                                    return
+                                                }
+                                                let encryptionKey = Array<UInt8>(base64: encryptionKeyb64)
+                                                let iv = Array<UInt8>(base64: ivb64)
+                                                guard let decryptedData = try Data.decrypt(data, key: encryptionKey, iv: iv) else {
+                                                    return
+                                                }
+                                                if let _ = UIImage(data: decryptedData) {
+                                                    ImageCache.default.storeToDisk(decryptedData, forKey: getUrl)
+                                                }
+                                            } catch {
+                                                print(error)
+                                            }
+                                            
+                                        } else {
+                                            if let _ = UIImage(data: data) {
+                                                ImageCache.default.storeToDisk(data, forKey: getUrl)
+                                            }
+                                        }
                                     } catch {
                                         DDLogDebug("XabberUploadManager: \(#function). \(error.localizedDescription)")
                                     }

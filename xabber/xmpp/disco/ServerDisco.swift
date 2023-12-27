@@ -25,7 +25,7 @@ import XMPPFramework
 
 class ServerDiscoManager: AbstractXMPPManager {
     
-    static let clientName: String = "Xabber"
+    static let clientName: String = CommonConfigManager.shared.config.app_name
     
     var hasCachedFeatures: Bool = false
     var features: SynchronizedArray<String> = SynchronizedArray<String>()
@@ -377,7 +377,7 @@ class ServerDiscoManager: AbstractXMPPManager {
     }
     
     func readIdentityRequest(withIQ iq: XMPPIQ) -> Bool {
-        if iq.attributeStringValue(forName: "type") == "get" {
+        if iq.iqType == .get {
             if iq.element(forName: "query")?.xmlns() == "http://jabber.org/protocol/disco#info" {
                 guard let from = iq.from else { return false }
                 guard let elementId = iq.elementID else { return false }

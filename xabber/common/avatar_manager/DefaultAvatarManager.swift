@@ -94,6 +94,7 @@ class DefaultAvatarManager: NSObject {
                 ImageCache.default.retrieveImage(forKey: url, options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory]), callbackQueue: .mainAsync) { result in
                     switch result {
                         case .success(let image):
+                            print("rgthio", image.image == nil)
                             callback?(image.image)
                         default:
                             callback?(nil)
@@ -108,15 +109,20 @@ class DefaultAvatarManager: NSObject {
                     switch result {
                         case .success(let image):
                             ImageCache.default.store(image.image, forKey: url, options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory]))
-                            do {
-                                let realm = try WRealm.safe()
-                                if let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner)) {
-                                    try realm.write {
-                                        instance.updatedTS = Date().timeIntervalSince1970
+                            DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
+                                do {
+                                    let realm = try WRealm.safe()
+                                    let collectionChats = realm.objects(LastChatsStorageItem.self).filter("jid == %@ AND owner == %@", jid, owner)
+                                    if let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner)) {
+                                        try realm.write {
+                                            instance.updatedTS = Date().timeIntervalSince1970
+                                            collectionChats.forEach { $0.updateTS = Date().timeIntervalSince1970 }
+                                        }
                                     }
+                                    
+                                } catch {
+                                    DDLogDebug("DefaultAvatarManager: \(#function). \(error.localizedDescription)")
                                 }
-                            } catch {
-                                DDLogDebug("DefaultAvatarManager: \(#function). \(error.localizedDescription)")
                             }
                         default:
                             break

@@ -82,6 +82,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         
         if AccountManager.shared.emptyAccountsList() {
             CredentialsManager.shared.clearKeyachain()
+            AccountManager.shared.connectingUsers.accept(Set<String>())
             let vc = OnboardingViewController()
             
             let navigationController = UINavigationController(rootViewController: vc)

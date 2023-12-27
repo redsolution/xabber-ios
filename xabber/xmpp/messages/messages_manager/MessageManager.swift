@@ -31,9 +31,46 @@ class MessageManager: AbstractXMPPManager {
         let to: String
     }
     
+    struct PrereadedMessagesItem: Hashable, Equatable {
+        static func == (lhs: PrereadedMessagesItem, rhs: PrereadedMessagesItem) -> Bool {
+            return lhs.messageId == rhs.messageId && lhs.jid == rhs.jid
+        }
+        let messageId: String
+        let date: Date
+        let jid: String
+        
+        func hash(into hasher: inout Hasher) {
+            hasher.combine(messageId)
+            hasher.combine(jid)
+        }
+    }
+    
+    class PrereadedConversationItem: Hashable, Equatable {
+        static func == (lhs: PrereadedConversationItem, rhs: PrereadedConversationItem) -> Bool {
+            return lhs.conversationType == rhs.conversationType && lhs.jid == rhs.jid
+        }
+        
+        var conversationType: ClientSynchronizationManager.ConversationType
+        var date: Date
+        var jid: String
+        
+        init(conversationType: ClientSynchronizationManager.ConversationType, date: Date, jid: String) {
+            self.conversationType = conversationType
+            self.date = date
+            self.jid = jid
+        }
+        
+        func hash(into hasher: inout Hasher) {
+            hasher.combine(conversationType.rawValue)
+            hasher.combine(jid)
+        }
+    }
+    
+    var prereadedMessages: Array<PrereadedMessagesItem> = Array()
+    var prereadedConversation: Array<PrereadedConversationItem> = Array()
+    
     var queue: DispatchQueue
     
-//    var previousId: String = ""
     
     internal var receiverSubscribtion: Disposable? = nil
     internal var receiverBag: DisposeBag = DisposeBag()
@@ -41,10 +78,8 @@ class MessageManager: AbstractXMPPManager {
     
     internal var senderBag: DisposeBag = DisposeBag()
     
-//    internal var scheduledMessages: Set<ScheduledMessage> = Set<ScheduledMessage>()
     internal var stanzaQueue: BehaviorRelay<Array<XMPPMessage>> = BehaviorRelay<Array<XMPPMessage>>(value: Array<XMPPMessage>())
     
-//    internal var sendingMessages: Results<MessageStorageItem>? = nil
     internal var updateSendingMessagesTimer: Timer? = nil
     
     
@@ -56,37 +91,34 @@ class MessageManager: AbstractXMPPManager {
             autoreleaseFrequency: .never,
             target: nil
         )
-//        self.queue = DispatchQueue.global(qos: .background)
         
         super.init(withOwner: owner)
         subscribe(activeStream)
         if activeStream {
-//            self.queue.async {
-                do {
-                    let realm = try  WRealm.safe()
-                    let states = [
-                        MessageStorageItem.MessageSendingState.sending.rawValue,
-                        MessageStorageItem.MessageSendingState.uploading.rawValue,
-                    ]
-                    let collection = realm
-                        .objects(MessageStorageItem.self)
-                        .filter("owner == %@ AND state_ IN %@", self.owner, states)
-                    if !realm.isInWriteTransaction {
-                        try realm.write {
-                            collection.forEach {
-                                $0.state = .error
-                                $0.messageError = "Internal error".localizeString(id: "message_manager_error_internal", arguments: [])
-                                $0.references.forEach({
-                                    $0.hasError = true
-                                })
-                                realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: $0.opponent, owner: $0.owner, conversationType: $0.conversationType))?.hasErrorInChat = true
-                            }
+            do {
+                let realm = try  WRealm.safe()
+                let states = [
+                    MessageStorageItem.MessageSendingState.sending.rawValue,
+                    MessageStorageItem.MessageSendingState.uploading.rawValue,
+                ]
+                let collection = realm
+                    .objects(MessageStorageItem.self)
+                    .filter("owner == %@ AND state_ IN %@", self.owner, states)
+                if !realm.isInWriteTransaction {
+                    try realm.write {
+                        collection.forEach {
+                            $0.state = .error
+                            $0.messageError = "Internal error".localizeString(id: "message_manager_error_internal", arguments: [])
+                            $0.references.forEach({
+                                $0.hasError = true
+                            })
+                            realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: $0.opponent, owner: $0.owner, conversationType: $0.conversationType))?.hasErrorInChat = true
                         }
                     }
-                } catch {
-                    DDLogDebug("MessageManager: \(#function). \(error.localizedDescription)")
                 }
-//            }
+            } catch {
+                DDLogDebug("MessageManager: \(#function). \(error.localizedDescription)")
+            }
         }
     }
     
@@ -95,9 +127,6 @@ class MessageManager: AbstractXMPPManager {
     }
     
     internal func subscribe(_ activeStream: Bool) {
-//        if activeStream {
-//            checkTemporaryMessages()
-//        }
         subscribeReceiver()
         subscribeSender()
         if self.updateSendingMessagesTimer != nil {
@@ -188,6 +217,10 @@ class MessageManager: AbstractXMPPManager {
                     try realm.write {
                         instance.unread = 0
                     }
+                    let messageId = instance.lastMessageId
+                    AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, stream in
+                        user.chatMarkers.displayedById(stream, jid: jid, messageId: messageId)
+                    })
                 }
             }
         } catch {
@@ -245,6 +278,8 @@ class MessageManager: AbstractXMPPManager {
                 
                 
             }
+            
+//            self.
             
             AccountManager.shared.find(for: self.owner)?.action({ user, stream in
                 user.chatMarkers.displayed(stream, message: primary)

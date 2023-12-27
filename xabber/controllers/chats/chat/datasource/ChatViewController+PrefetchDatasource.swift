@@ -60,7 +60,7 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
     
     func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
         if self.showSkeletonObserver.value { return }
-        if NotifyManager.shared.currentDialog == nil { return }
+//        if NotifyManager.shared.currentDialog == nil { return }
         if let path = scrollItemIndexPath,
         indexPath.section == path.section {
             scrollItemIndexPath = nil
@@ -73,20 +73,25 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
                 self.toolsButtonStateObserver.accept(.hidden)
             }
         }
-        if (messagesObserver?.count ?? 0) < indexPath.section { return }
-        guard let primary = messagesObserver?[indexPath.section].primary else { return }
-        DispatchQueue.global(qos: .background).async {
-            MessageReferenceStorageItem.prepareVoice(message: primary)
-            MessageReferenceStorageItem.prepareVideo(message: primary)
+        guard let primary = messagesObserver?[indexPath.section].primary else {
+            AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
+                user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
+            })
+            return
         }
         if !(messagesObserver?[indexPath.section].isRead ?? true) {
-            if NotifyManager.shared.isLastChatsDisplayed() { return }
-            if self.appInBackground { return }
             AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
                 user.messages.readMessage(primary,
                                           last: false)
             })
         }
+        if (messagesObserver?.count ?? 0) < indexPath.section { return }
+        
+        DispatchQueue.global(qos: .background).async {
+            MessageReferenceStorageItem.prepareVoice(message: primary)
+            MessageReferenceStorageItem.prepareVideo(message: primary)
+        }
+        
     }
     
 }

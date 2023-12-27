@@ -102,7 +102,7 @@ class XMPPUIActionManager: NSObject {
 //                return
 //            }
 //        }
-        if self.currentJid == owner && self.stream.isAuthenticated {
+        if self.currentJid == owner && (self.stream.isAuthenticated || self.stream.isConnected || self.stream.isConnecting) {
             return
         }
         print("UI CONNECTION OPEN!!!!!!")
@@ -121,7 +121,7 @@ class XMPPUIActionManager: NSObject {
         self.deliveryManager = ReliableMessageDeliveryManager(withOwner: owner)
         self.messages = MessageManager(withOwner: owner, activeStream: false)
         self.mam = MessageArchiveManager(withOwner: owner)
-        self.chatMarkers = ChatMarkersManager(withOwner: owner)
+//        self.chatMarkers = ChatMarkersManager(withOwner: owner)
         self.vcardManager = VCardManager(withOwner: owner)
         self.presences = PresenceManager(withOwner: owner, withoutSubscribtion: true)
         self.blocked = BlockManager(withOwner: owner)
@@ -166,7 +166,7 @@ class XMPPUIActionManager: NSObject {
         self.deliveryManager = nil
         self.messages = nil
         self.mam = nil
-        self.chatMarkers = nil
+//        self.chatMarkers = nil
         self.roster = nil
         self.presences = nil
         self.retract = nil
@@ -226,7 +226,7 @@ class XMPPUIActionManager: NSObject {
             self.stream.startTLSPolicy = XMPPStreamStartTLSPolicy.allowed
             self.stream.keepAliveInterval = 10
             do {
-                try self.stream.connect(withTimeout: 3)
+                try self.stream.connect(withTimeout: 5)
             } catch {
                 DDLogDebug("XMPPActionManager: \(#function). \(error.localizedDescription)")
             }
@@ -255,7 +255,7 @@ class XMPPUIActionManager: NSObject {
     }
     
     func tokenWasInvalidated() {
-        NotificationCenter.default.post(name: ApplicationStateManager.tokenWasExpired, object: self.stream.myJID!.bare)
+//        NotificationCenter.default.post(name: ApplicationStateManager.tokenWasExpired, object: self.stream.myJID!.bare)
     }
     
     func didReceiveError(_ error: DDXMLElement) {

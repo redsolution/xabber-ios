@@ -53,7 +53,7 @@ extension OmemoManager {
             ],
             [
                 "var": "pubsub#max_items",
-                "value": "32"
+                "value": node == .update ? "1" : "32"
             ]
         ]
         
@@ -153,14 +153,17 @@ extension OmemoManager {
         publish.addChild(item)
         pubsub.addChild(publish)
         let elementId = xmppStream.generateUUID
+//        self.sendRetractOwnDevice(xmppStream)
         xmppStream.send(XMPPIQ(iqType: .set, to: nil, elementID: elementId, child: pubsub))
         try realm.write {
             if bundleRecord.isInvalidated {
                 return
             }
             bundleRecord.isPublicated = true
+            realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: localStore.localDeviceId()))?.isPublicated = true
         }
         self.queryIds.insert(elementId)
+//        self.sendEncryptionInfoPubsubUpdate(xmppStream)
     }
     
     internal final func sendOwnDevice(_ xmppStream: XMPPStream, createNode: Bool) throws {
@@ -200,6 +203,19 @@ extension OmemoManager {
         self.queryIds.insert(elementId)
     }
     
+    public final func sendRetractOwnDevice(_ xmppStream: XMPPStream) {
+        let pubsub = DDXMLElement(name: "pubsub", xmlns: "http://jabber.org/protocol/pubsub")
+        let retract = DDXMLElement(name: "retract")
+        retract.addAttribute(withName: "node", stringValue: NodeType.bundle.rawValue)
+        let item = DDXMLElement(name: "item")
+        item.addAttribute(withName: "id", integerValue: Int(self.localStore.localDeviceId()))
+        retract.addChild(item)
+        pubsub.addChild(retract)
+        let elementId = xmppStream.generateUUID
+        xmppStream.send(XMPPIQ(iqType: .set, to: nil, elementID: elementId, child: pubsub))
+        self.queryIds.insert(elementId)
+    }
+    
     public final func updateMyDevice(_ stream: XMPPStream) {
         self.shouldPublicate = true
         if !(AccountManager.shared.find(for: self.owner)?.devices.isAvailable ?? true) {
@@ -207,15 +223,6 @@ extension OmemoManager {
         } else {
             try? self.publicateOwnDevice(stream, createNode: true)
         }
-//        if (AccountManager.shared.find(for: self.owner)?.isNewAccount ?? false) {
-//            try? self.publicateOwnDevice(stream, createNode: true)
-//        } else {
-//            if !(AccountManager.shared.find(for: self.owner)?.devices.isAvailable ?? true) {
-//                self.getOwnDevices(stream)
-//            } else {
-//                try? self.publicateOwnDevice(stream, createNode: false)
-//            }
-//        }
     }
     
     public final func publicateOwnDevice(_ xmppStream: XMPPStream, createNode: Bool) throws {

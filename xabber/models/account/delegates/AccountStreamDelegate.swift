@@ -315,13 +315,13 @@ extension Account: XMPPStreamDelegate {
                 if let bareMessage = getCarbonCopyMessageContainer(message) {
                     if self.chatStates.read(withMessage: bareMessage) {
                         return
-                    } else if self.chatMarkers.read(withMessage: bareMessage) {
-                        return
                     } else if VoIPManager.shared.onReceiveMessage(bareMessage, owner: self.jid, archivedDate: getDeliveryTime(bareMessage, owner: self.jid) ?? getDelayedDate(message), runtime: true, outgoing: true) {
                         return
                     }
                 }
                 if self.omemo.didReceiveOmemoMessage(message) {
+                    return
+                } else if self.chatMarkers.read(withMessage: message) {
                     return
                 } else {
                     self.messages.receiveCarbon(message)
@@ -333,8 +333,6 @@ extension Account: XMPPStreamDelegate {
                         return
                     } else if self.deliveryReceipts.read(withMessage: bareMessage) {
                         return
-                    } else if self.chatMarkers.read(withMessage: bareMessage) {
-                        return
                     } else if self.chatStates.read(withMessage: bareMessage) {
                         return
                     } else if self.groupchats.readInvite(in: bareMessage, date: getDelayedDate(message) ?? Date(), isRead: nil) {
@@ -343,17 +341,19 @@ extension Account: XMPPStreamDelegate {
                 }
                 if self.omemo.didReceiveOmemoMessage(message) {
                     return
+                } else if self.chatMarkers.read(withMessage: message) {
+                    return
                 } else {
                     self.messages.receiveCarbonForwarded(message)
                 }
             } else {
+                if self.chatMarkers.read(withMessage: message) {
+                    return
+                }
                 if VoIPManager.shared.onReceiveMessage(message, owner: self.jid, archivedDate: nil, runtime: true) {
                     return
                 }
                 if self.deliveryReceipts.read(withMessage: message) {
-                    return
-                }
-                if self.chatMarkers.read(withMessage: message) {
                     return
                 }
                 if self.groupchats.readInvite(in: message, date: Date(), isRead: false) {
@@ -385,6 +385,9 @@ extension Account: XMPPStreamDelegate {
                 return
             }
             if self.omemo.onContactDeviceReceiveHeadline(message) {
+                return
+            }
+            if self.omemo.onEncryptionUpdateReceiveHeadline(message) {
                 return
             }
             if self.avatarManager.readMessage(message) {

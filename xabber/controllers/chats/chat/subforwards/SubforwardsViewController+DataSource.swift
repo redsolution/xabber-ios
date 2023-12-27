@@ -90,7 +90,8 @@ extension SubforwardsViewController: MessagesDataSource {
 //            isDownloaded: true,
             state: .none,
             burnDate: -1,
-            afterburnInterval: -1
+            afterburnInterval: -1,
+            isRead: true
         )
     }
     

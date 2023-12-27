@@ -168,21 +168,42 @@ class ReliableMessageDeliveryManager: AbstractXMPPManager {
         }
         do {
             let realm = try  WRealm.safe()
+            realm.refresh()
             if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: MessageStorageItem.genPrimary(messageId: elementId, owner: owner)) {
                 try realm.write {
-                    if instance.state == .sending {
-                        instance.state = .sended
+                    realm.objects(MessageStorageItem.self).filter("owner == %@ AND messageId == %@", self.owner, elementId).forEach {
+                        instance in
+                        if instance.state == .sending {
+                            instance.state = .sended
+                        }
+                        if let stamp = received.element(forName: "time")?.attributeStringValue(forName: "stamp")?.xmppDate {
+                            instance.date = stamp
+                            instance.sentDate = stamp
+                        }
+                        instance.archivedId = stanzaId
                     }
-                    if let stamp = received.element(forName: "time")?.attributeStringValue(forName: "stamp")?.xmppDate {
-                        instance.date = stamp
-                        instance.sentDate = stamp
-                    }
-                    instance.archivedId = stanzaId
                 }
-                realm.refresh() 
             } else {
-                print(message.prettyXMLString!)
-                print(1488)
+                AccountManager.shared.find(for: self.owner)?.queue.asyncAfter(deadline: .now() + 1) {
+                    do {
+                        let realm = try WRealm.safe()
+                        try realm.write {
+                            realm.objects(MessageStorageItem.self).filter("owner == %@ AND messageId == %@", self.owner, elementId).forEach {
+                                instance in
+                                if instance.state == .sending {
+                                    instance.state = .sended
+                                }
+                                if let stamp = received.element(forName: "time")?.attributeStringValue(forName: "stamp")?.xmppDate {
+                                    instance.date = stamp
+                                    instance.sentDate = stamp
+                                }
+                                instance.archivedId = stanzaId
+                            }
+                        }
+                    } catch {
+                        
+                    }
+                }
             }
         } catch {
             DDLogDebug("\(#function). Cant load message for messageId: \(elementId). \(error.localizedDescription)")

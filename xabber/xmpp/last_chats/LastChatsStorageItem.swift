@@ -84,6 +84,7 @@ class LastChatsStorageItem: Object {
     
     @objc dynamic var hasErrorInChat: Bool = false
     
+    @objc dynamic var updateTS: Double = 0
     
     @objc dynamic var conversationType_: String = ClientSynchronizationManager.ConversationType.omemo.rawValue
     

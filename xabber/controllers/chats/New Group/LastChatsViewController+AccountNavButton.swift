@@ -62,22 +62,24 @@ class AccountNavButton: UIButton {
         fatalError("init(coder:) has not been implemented")
     }
     
-    public func update(jid: String, status: ResourceStatus, avatarUrl: String?) {
-        if let avatarUrl = avatarUrl {
-            
-        } else {
-            var url: String? = nil
-            do {
-                let realm = try WRealm.safe()
-                if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid) {
-                    url = instance.avatarMinUrl ?? instance.avatarMaxUrl ?? instance.oldschoolAvatarKey
-                }
-            } catch {
-                DDLogDebug("AccountNavButton: \(#function). \(error.localizedDescription)")
+    var avatarUrl: String? = ""
+    
+    public func update(jid: String, status: ResourceStatus) {
+        var url: String? = nil
+        do {
+            let realm = try WRealm.safe()
+            if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid) {
+                url = instance.avatarMinUrl ?? instance.avatarMaxUrl ?? instance.oldschoolAvatarKey
             }
+        } catch {
+            DDLogDebug("AccountNavButton: \(#function). \(error.localizedDescription)")
+        }
+        if avatarUrl != url {
+            print(url)
             DefaultAvatarManager.shared.getAvatar(url: url, jid: jid, owner: jid, size: 128) { image in
                 if let image = image {
                     self.avatarView.image = image
+                    self.avatarUrl = url
                 } else {
                     self.avatarView.setDefaultAvatar(for: jid, owner: jid)
                 }

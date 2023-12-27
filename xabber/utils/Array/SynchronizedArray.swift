@@ -20,23 +20,7 @@
 
 import Foundation
 
-public class SynchronizedArrayCallbackItem: Equatable, Hashable {
-    public static func == (lhs: SynchronizedArrayCallbackItem, rhs: SynchronizedArrayCallbackItem) -> Bool {
-        return lhs.uuid == rhs.uuid
-    }
-    
-    private var uuid: String
-    public var callback: (() -> Void)?
-    
-    init(_ callback: (() -> Void)?) {
-        self.uuid = UUID().uuidString
-        self.callback = callback
-    }
-    
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(uuid)
-    }
-}
+
 
 /// A thread-safe array.
 public class SynchronizedArray<Element: Equatable> {

@@ -144,11 +144,13 @@ extension MessageManager {
                         .compactMap { return $0.messageId })
                         .compactMap { $0.referenceElement }
                     let references = item.createReferences()
+                    
                     guard let payload = AccountManager.shared.find(for: self.owner)?.omemo.prepareStanzaContent(
                         message: item.legacyBody,
                         date: item.sentDate,
                         jid: item.opponent,
-                        additionalContent: [forwardedMessages, references].flatMap({ $0 })
+                        additionalContent: [forwardedMessages, references].flatMap({ $0 }),
+                        ignoreTimeSignature: item.displayAs == .system
                     ) else {
                         return
                     }
@@ -215,14 +217,16 @@ extension MessageManager {
                     )
                 )?.isSynced ?? false
                 
-                if SignatureManager.shared.isSignatureSetted {
-                    item.errorMetadata = (try? SignatureManager.shared.checkSignature(
-                        owner: self.owner,
-                        for: self.owner,
-                        signature: SignatureManager.shared.signatureElement,
-                        messageDate: item.sentDate
-                    ).errorMetadata) ?? SignatureManager.MessageError().errorMetadata
-                    item.messageError = "cert_error"
+                if [.omemo, .omemo1, .axolotl].contains(item.conversationType) && item.displayAs != .system {
+                    if SignatureManager.shared.isSignatureSetted {
+                        item.errorMetadata = (try? SignatureManager.shared.checkSignature(
+                            owner: self.owner,
+                            for: self.owner,
+                            signature: SignatureManager.shared.signatureElement,
+                            messageDate: item.sentDate
+                        ).errorMetadata) ?? SignatureManager.MessageError().errorMetadata
+                        item.messageError = "cert_error"
+                    }
                 }
                 
                 if retry {
@@ -450,6 +454,15 @@ extension MessageManager {
                 instance.messageId = UUID().uuidString
             }
             instance.updatePrimary()
+            let prevMessageInstance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: self.owner, conversationType: conversationType))?.lastMessage
+            let prevMessageId = prevMessageInstance?.messageId
+            if let prevMessageId = prevMessageId {
+                if !(prevMessageInstance?.outgoing ?? true) {
+                    AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, stream in
+                        user.chatMarkers.displayed(stream, message: prevMessageId)
+                    })
+                }
+            }
             try realm.write {
                 _ = instance.save(commitTransaction: false)
                 let chat = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: self.owner, conversationType: conversationType))

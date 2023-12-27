@@ -561,6 +561,9 @@ class MessageReferenceStorageItem: Object {
     }
     
     func prepare() {
+        if isDownloaded {
+            return
+        }
         switch kind {
         case .voice:
             guard let uri = metadata?["uri"] as? String,
@@ -577,7 +580,7 @@ class MessageReferenceStorageItem: Object {
                     let realm = try  WRealm.safe()
                     let instances = realm
                         .objects(MessageReferenceStorageItem.self)
-                        .filter("messageId == %@ AND jid == %@ AND metadata_ == %@", messageId, jid, metadata_)
+                        .filter("messageId == %@ AND jid == %@ AND metadata_ == %@ AND isDownloaded == %@", messageId, jid, metadata_, false)
                     try realm.write {
                         for instance in instances {
                             instance.isDownloaded = true
@@ -592,6 +595,7 @@ class MessageReferenceStorageItem: Object {
             }
         case .media:
             if mimeType == "video" {
+                
                 if CommonConfigManager.shared.config.use_file_enryption_by_default {
                     let primary = self.primary
                     do {

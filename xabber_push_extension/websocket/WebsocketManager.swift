@@ -108,7 +108,7 @@ public class WebsocketManager {
     
     private func isStreamOpen(received stanza: DDXMLElement) -> String? {
 //        if let error = stanza.forName("error") {
-//            
+//
 //        }
         return nil
     }
@@ -541,7 +541,7 @@ public class WebsocketManager {
                         if let file = ref.elements(forName: "file-sharing").first?.elements(forName: "file").first,
                             let uri = ref.elements(forName: "file-sharing").first?.elements(forName: "sources").first?.elements(forName: "uri").compactMap({ return $0.stringValue }).first(where: { URL(string: $0) != nil }) {
                             if let mediaType = file.elements(forName: "media-type").first?.stringValue,
-                                MimeIcon(mediaType).value == .image {
+                                mediaType == "image" {
                                 if !payload.keys.contains("imageUrls") {
                                     payload["imageUrls"] = uri
                                 }

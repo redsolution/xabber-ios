@@ -199,13 +199,13 @@ class SignatureManager: NSObject {
         guard let jid = AccountManager.shared.users.first?.jid else {
             return
         }
-        XMPPUIActionManager.shared.performRequest(owner: jid) { stream, session in
-            session.x509?.publicateCertificate(stream, remove: true)
-        } fail: {
+//        XMPPUIActionManager.shared.performRequest(owner: jid) { stream, session in
+//            session.x509?.publicateCertificate(stream, remove: true)
+//        } fail: {
             AccountManager.shared.find(for: jid)?.action({ user, stream in
                 user.x509Manager.publicateCertificate(stream, remove: true)
             })
-        }
+//        }
 
     }
     
@@ -337,13 +337,9 @@ class SignatureManager: NSObject {
             let data = SecCertificateCopyData(certificate)
             CredentialsManager.shared.storeCertificate(data)
             
-            XMPPUIActionManager.shared.performRequest(owner: jid) { stream, session in
-                session.x509?.publicateCertificate(stream, remove: false)
-            } fail: {
-                AccountManager.shared.find(for: jid)?.action({ user, stream in
-                    user.x509Manager.publicateCertificate(stream, remove: false)
-                })
-            }
+            AccountManager.shared.find(for: jid)?.action({ user, stream in
+                user.x509Manager.publicateCertificate(stream, remove: false)
+            })
         }
         
         

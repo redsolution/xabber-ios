@@ -161,6 +161,11 @@ class RosterManager: AbstractXMPPManager {
             queryIds.remove(elementId)
         }
         
+        if iq.iqType == .set {
+            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                user.presence()
+            })
+        }
 //        if !isInitialRosterReceived && iq.iqType == .result {
 //            isInitialRosterReceived = true
 //            AccountManager.shared.find(for: owner)?.didReceiveRoster()

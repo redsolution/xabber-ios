@@ -276,9 +276,10 @@ class NotificationService: UNNotificationServiceExtension {
     private func retrieveCreditionals(for key: String) -> String? {
         //let uniqueServiceName = "clandestino.keychain"
         //let uniqueAccessGroup = "group.clandestino"
-        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
-        return keychain.string(forKey: key)
+//        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
+//                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+//        return keychain.string(forKey: key)
+        return nil
     }
     
     override func didReceive(_ request: UNNotificationRequest, withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
@@ -287,39 +288,42 @@ class NotificationService: UNNotificationServiceExtension {
         bestAttemptContent = (request.content.mutableCopy() as? UNMutableNotificationContent)
         identifier = request.identifier
         bestAttemptContent?.sound = .default
-        
-        payload = "\(request.content.userInfo)"
-//        print(payload)
-//        print(bestAttemptContent)
-        
-        if let bestAttemptContent = bestAttemptContent {
-            guard let body = request.content.userInfo["body"] as? String,
-                let payload = parse(payload: body) else {
-                bestAttemptContent.title = CommonConfigManager.shared.config.app_name
-                bestAttemptContent.body = "st1 New message"
-                contentHandler(bestAttemptContent)
-                return
-            }
-            
-//            print("REQUEST USER INFO")
-//            print(request.content.userInfo)
-            
-            let creditionals = getAccounts(request.content.userInfo)
-            guard let username = creditionals["username"] as? String,
-                let host = creditionals["host"] as? String else {
-                    bestAttemptContent.title = CommonConfigManager.shared.config.app_name
-                    bestAttemptContent.body = "st2 New \(payload.action.rawValue)"
-                    contentHandler(bestAttemptContent)
-                    return
-            }
-            self.owner = [username, host].joined(separator: "@")
-            notificationType = payload.action
-            action(for: payload)
-        } else {
-            self.contentHandler = nil
-            UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [identifier])
-            UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [identifier])
-        }
+        bestAttemptContent?.title = CommonConfigManager.shared.config.app_name
+        bestAttemptContent?.body = "New message"
+        contentHandler(bestAttemptContent!)
+        return
+//        payload = "\(request.content.userInfo)"
+////        print(payload)
+////        print(bestAttemptContent)
+//
+//        if let bestAttemptContent = bestAttemptContent {
+//            guard let body = request.content.userInfo["body"] as? String,
+//                let payload = parse(payload: body) else {
+//                bestAttemptContent.title = CommonConfigManager.shared.config.app_name
+//                bestAttemptContent.body = "New message"
+//                contentHandler(bestAttemptContent)
+//                return
+//            }
+//
+////            print("REQUEST USER INFO")
+////            print(request.content.userInfo)
+//
+//            let creditionals = getAccounts(request.content.userInfo)
+//            guard let username = creditionals["username"] as? String,
+//                let host = creditionals["host"] as? String else {
+//                    bestAttemptContent.title = CommonConfigManager.shared.config.app_name
+//                    bestAttemptContent.body = "New message"
+//                    contentHandler(bestAttemptContent)
+//                    return
+//            }
+//            self.owner = [username, host].joined(separator: "@")
+//            notificationType = payload.action
+//            action(for: payload)
+//        } else {
+//            self.contentHandler = nil
+//            UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [identifier])
+//            UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [identifier])
+//        }
     }
     
     override func serviceExtensionTimeWillExpire() {
@@ -358,7 +362,7 @@ class NotificationService: UNNotificationServiceExtension {
         guard let secret = creditionals["secret"] as? String,
             password.isNotEmpty || token.isNotEmpty else {
                 bestAttemptContent?.title = CommonConfigManager.shared.config.app_name
-                bestAttemptContent?.body = "st3 \(password), \(creditionals) \(payload.action.rawValue)"
+                bestAttemptContent?.body = "New message"
                 contentHandler?(bestAttemptContent!)
             return
         }
@@ -440,7 +444,7 @@ class NotificationService: UNNotificationServiceExtension {
             .removePendingNotificationRequests(withIdentifiers: [identifier])
         if let content = bestAttemptContent {
             content.body = self.payload
-            content.subtitle = "Chat marker".localizeString(id: "chat_marker", arguments: [])
+            content.subtitle = "Chat marker"//.localizeString(id: "chat_marker", arguments: [])
             contentHandler?(content)
         }
     }
@@ -593,11 +597,11 @@ extension NotificationService: PushPayloadDelegate {
                     bestAttemptContent.title = inviteToJid
                     switch inviteKind {
                     case .group:
-                        bestAttemptContent.body = "Invitation to public group from \(displayName)".localizeString(id: "public_group_invitation", arguments: ["\(displayName)"])
+                        bestAttemptContent.body = "Invitation to public group from \(displayName)"//.localizeString(id: "public_group_invitation", arguments: ["\(displayName)"])
                     case .incognito:
-                        bestAttemptContent.body = "Invitation to incognito group from \(displayName)".localizeString(id: "incognito_group_invitation", arguments: [])
+                        bestAttemptContent.body = "Invitation to incognito group from \(displayName)"//.localizeString(id: "incognito_group_invitation", arguments: [])
                     case .peerToPeer:
-                        bestAttemptContent.body = "Invitation to private chat".localizeString(id: "chat_message_private_invitation", arguments: [])
+                        bestAttemptContent.body = "Invitation to private chat"//.localizeString(id: "chat_message_private_invitation", arguments: [])
                     }
                     self.bestAttemptContent = bestAttemptContent
                     self.ws?.prevPayload = payload
@@ -620,7 +624,7 @@ extension NotificationService: PushPayloadDelegate {
                 }
                 if let groupchatFrom = payload["groupchatFrom"] {
                     if groupchatFrom == owner {
-                        bestAttemptContent.subtitle = "Group carbons".localizeString(id: "group_carbons", arguments: [])
+                        bestAttemptContent.subtitle = "Group carbons"//.localizeString(id: "group_carbons", arguments: [])
                     }
                 }
                 if let from = payload["from"] {
@@ -628,7 +632,7 @@ extension NotificationService: PushPayloadDelegate {
                     bestAttemptContent.userInfo["owner"] = owner
                     bestAttemptContent.threadIdentifier = [owner, from].joined(separator: "_")
                     if from == owner {
-                        bestAttemptContent.subtitle = "Carbon message".localizeString(id: "carbon_message", arguments: [])
+                        bestAttemptContent.subtitle = "Carbon message"//.localizeString(id: "carbon_message", arguments: [])
                     }
                     bestAttemptContent.title = from
 //                    do {
@@ -654,12 +658,14 @@ extension NotificationService: PushPayloadDelegate {
                         .compactMap{ return "\($0)" }
                         .compactMap{ return URL(string: $0) }
                     let attaches = urls.compactMap { url -> UNNotificationAttachment? in
-                        if let data = try? Data(contentsOf: url),
-                            let image = UIImage(data: data) {
-                            return UNNotificationAttachment.create(identifier: url.lastPathComponent,
-                                                                   image: image,
-                                                                   options: nil)
-                        }
+//                        `if let data = try? Data(contentsOf: url),
+//                            let image = UIImage(data: data) {
+//                            return UNNotificationAttachment(
+//                                identifier: url.lastPathComponent,
+//                                image: image,
+//                                options: nil
+//                            )
+//                        }`
                         return nil
                     }
                     bestAttemptContent.attachments = attaches
@@ -707,14 +713,14 @@ extension NotificationService: PushPayloadDelegate {
         content.categoryIdentifier = "com.xabber.ios.invite"
         content.sound = .default
         if let base64String = payload["avatarBase64"] {
-            if let image = base64ToImage(base64String),
-                let attach = UNNotificationAttachment.create(
-                    identifier: payload["nickname"] ?? payload["from"] ?? "avatar",
-                    image: image,
-                    options: nil
-                ) {
-                content.attachments = [attach]
-            }
+//            if let image = base64ToImage(base64String),
+//                let attach = UNNotificationAttachment(
+//                    identifier: payload["nickname"] ?? payload["from"] ?? "avatar",
+//                    image: image,
+//                    options: nil
+//                ) {
+//                content.attachments = [attach]
+//            }
         }
         self.contentHandler?(content)
     }
@@ -748,9 +754,9 @@ extension NotificationService: PushPayloadDelegate {
         content.subtitle = "PUSH"
         if let nickname = nickname,
             let from = payload["from"] {
-            content.body = "\(nickname) (\(from)) asks to see your presence information".localizeString(id: "chat_contact_asks_presence_information", arguments: ["\(nickname)", "\(from)"])
+            content.body = "\(nickname) (\(from)) asks to see your presence information"//.localizeString(id: "chat_contact_asks_presence_information", arguments: ["\(nickname)", "\(from)"])
         } else {
-            content.body = "\(payload["from"] ?? "Someone") asks to see your presence information".localizeString(id: "person_asks_to_see_presence", arguments: ["\(payload["from"] ?? "Someone")"])
+            content.body = "\(payload["from"] ?? "Someone") asks to see your presence information"//.localizeString(id: "person_asks_to_see_presence", arguments: ["\(payload["from"] ?? "Someone")"])
         }
         
         content.userInfo["owner"] = owner
@@ -761,14 +767,14 @@ extension NotificationService: PushPayloadDelegate {
         }
         
         if let base64String = payload["avatarBase64"] {
-            if let image = base64ToImage(base64String),
-                let attach = UNNotificationAttachment.create(
-                    identifier: payload["nickname"] ?? payload["from"] ?? "avatar",
-                    image: image,
-                    options: nil
-                ) {
-                content.attachments = [attach]
-            }
+//            if let image = base64ToImage(base64String),
+//                let attach = UNNotificationAttachment(
+//                    identifier: payload["nickname"] ?? payload["from"] ?? "avatar",
+//                    image: image,
+//                    options: nil
+//                ) {
+//                content.attachments = [attach]
+//            }
         }
         
         content.sound = .default

@@ -102,20 +102,20 @@ extension ChatViewController {
     }
     
     internal func startWatchingSignatureTimer() {
-        if CommonConfigManager.shared.config.required_time_signature_for_messages {
-            self.watchSignatureTimer?.fire()
-            self.watchSignatureTimer?.invalidate()
-            self.watchSignatureTimer = nil
-            self.watchSignatureTimer = Timer.scheduledTimer(
-                timeInterval: 0.5,
-                target: self,
-                selector: #selector(watchIfSignatureInvalidated),
-                userInfo: nil,
-                repeats: true
-            )
-            RunLoop.main.add(self.watchSignatureTimer!, forMode: .default)
-            self.watchSignatureTimer?.fire()
-        }
+//        if CommonConfigManager.shared.config.required_time_signature_for_messages {
+        self.watchSignatureTimer?.fire()
+        self.watchSignatureTimer?.invalidate()
+        self.watchSignatureTimer = nil
+        self.watchSignatureTimer = Timer.scheduledTimer(
+            timeInterval: 0.5,
+            target: self,
+            selector: #selector(watchIfSignatureInvalidated),
+            userInfo: nil,
+            repeats: true
+        )
+        RunLoop.main.add(self.watchSignatureTimer!, forMode: .default)
+        self.watchSignatureTimer?.fire()
+//        }
     }
     
     @objc
@@ -145,18 +145,46 @@ extension ChatViewController {
     
     private func showTimeSignatureBlockingPanel() {
         self.isTimeSignatureBlockingPanelopen = true
-        self.xabberInputView.changeState(to: .identityVerification)
+        self.xabberInputView.changeState(to: .updateSignature)
     }
     
     private func hideTimeSignatureBlockingPanel() {
-        self.isTimeSignatureBlockingPanelopen = false
-        self.xabberInputView.changeState(to: .normal)
+//        if !self.isTrustedDevicesBlockingPanelopen {
+            self.isTimeSignatureBlockingPanelopen = false
+            self.isTrustedDevicesBlockingPanelopen = false
+            do {
+                let realm = try WRealm.safe()
+                let myUntrustedDevicesCollection = realm
+                    .objects(SignalDeviceStorageItem.self)
+                    .filter("owner == %@ AND jid == %@ AND state_ != %@", self.owner, self.owner, SignalDeviceStorageItem.TrustState.trusted.rawValue)
+                
+                let theirUntrustDevicesCollection = realm
+                    .objects(SignalDeviceStorageItem.self)
+                    .filter("owner == %@ AND jid == %@", self.owner, self.jid)
+                
+                if theirUntrustDevicesCollection.isEmpty {
+                    self.onUpdateTrustedDevicesBlockState(true, identityVerification: myUntrustedDevicesCollection.isEmpty)
+                } else {
+                    self.onUpdateTrustedDevicesBlockState(!myUntrustedDevicesCollection.isEmpty, identityVerification: false)
+                }
+                    
+                self.titleLabel.attributedText = self.updateTitle()
+                self.titleLabel.sizeToFit()
+                self.titleLabel.layoutIfNeeded()
+                
+            } catch {
+                
+            }
+            
+//            self.xabberInputView.changeState(to: .normal)
+//            self.isTrustedDevicesBlockingPanelopen = false
+//        }
     }
     
     internal func configureCertificateUpdateTimer() {
         if CommonConfigManager.shared.config.required_time_signature_for_messages {
             self.certificateUpdateTimer = Timer.scheduledTimer(
-                timeInterval: 4,
+                timeInterval: 1,
                 target: self,
                 selector: #selector(self.onCertificateUpdateTimerFire),
                 userInfo: nil,

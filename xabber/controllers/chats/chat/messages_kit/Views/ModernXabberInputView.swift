@@ -22,6 +22,7 @@ protocol XabberInputBarDelegate: AnyObject {
     func onHeightChanged(to height: CGFloat, bar barHeight: CGFloat)
     func onCheckDevices()
     func onUpdateSignature()
+    func onIdentityVerification()
     func onTextDidChange(to text: String?)
 }
 
@@ -308,6 +309,7 @@ class ModernXabberInputView: UIView {
     enum InputBarState {
         case normal
         case identityVerification
+        case updateSignature
         case checkDevices
         case skeleton
         case selection
@@ -524,6 +526,17 @@ class ModernXabberInputView: UIView {
                 self.stateButton.isHidden =     true
 //                self.sendButton.isEnabled =     true
                 self.selectionPanel.isHidden =  true
+            case .updateSignature:
+                self.state = state
+                self.attachButton.isHidden =    true
+                self.textField.isHidden =       true
+                self.timerButton.isHidden =     true
+                self.sendButton.isHidden =      true
+                self.stateButton.isHidden =     false
+//                self.sendButton.isEnabled =     true
+                self.selectionPanel.isHidden =  true
+                self.stateButton.setTitle("Update signature", for: .normal)
+                self.stateButton.setTitleColor(.systemBlue, for: .normal)
             case .identityVerification:
                 self.state = state
                 self.attachButton.isHidden =    true
@@ -709,11 +722,13 @@ class ModernXabberInputView: UIView {
 //                self.sendButton.setImage(#imageLiteral(resourceName: "microphone").withRenderingMode(.alwaysTemplate), for: .normal)
                 self.sendButton.setImage(#imageLiteral(resourceName: "send").withRenderingMode(.alwaysTemplate), for: .normal)
                 self.sendButton.tintColor = .secondaryLabel
+                self.attachButton.isEnabled = self.isSendButtonEnabled
                 self.sendButton.isEnabled = false //self.isSendButtonEnabled
             case .send:
                 self.sendButton.setImage(#imageLiteral(resourceName: "send").withRenderingMode(.alwaysTemplate), for: .normal)
                 self.sendButton.tintColor = self.isSendButtonEnabled ? self.accountPalette.tint600 : .secondaryLabel
                 self.sendButton.isEnabled = self.isSendButtonEnabled
+                self.attachButton.isEnabled = self.isSendButtonEnabled
         }
     }
     
@@ -785,7 +800,7 @@ class ModernXabberInputView: UIView {
         }
         
         let requiredHeight = inputTextViewHeight
-        print("requiredHeight", requiredHeight)
+//        print("requiredHeight", requiredHeight)
 //        self.delegate?.heightDidChange(self, to: requiredHeight)
         return CGSize(width: UIView.noIntrinsicMetric, height: requiredHeight)
     }
@@ -805,8 +820,8 @@ class ModernXabberInputView: UIView {
         switch self.sendButtonState {
             case .send:
                 self.delegate?.sendButtonTouchUp(with: textField.text)
-                self.message = ""
-                self.textField.text = ""
+//                self.message = ""
+//                self.textField.text = ""
             case .record:
                 break
         }
@@ -815,10 +830,12 @@ class ModernXabberInputView: UIView {
     @objc
     private func onStateButtonTouchUp(_ sender: UIButton) {
         switch state {
-            case .identityVerification:
+            case .updateSignature:
                 self.delegate?.onUpdateSignature()
             case .checkDevices:
                 self.delegate?.onCheckDevices()
+            case .identityVerification:
+                self.delegate?.onIdentityVerification()
             default: break
         }
     }

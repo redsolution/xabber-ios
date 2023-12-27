@@ -89,7 +89,6 @@ extension ChatViewController {
 //            self.xabberInputBar.layoutIfNeeded()
 //        }
         let presenter = ActionSheetPresenter()
-        presenter.cancelAction = self.onCancelInvite
         presenter.completion = self.onCompleteInvite
 //        self.initialtp[
 //        additionalTopInset = 274
@@ -101,7 +100,8 @@ extension ChatViewController {
             message: message,
             cancel: "Cancel".localizeString(id: "cancel", arguments: []),
             values: values,
-            animated: false) { (value) in
+            animated: false,
+            cancelAction: onCancelInvite) { (value) in
             self.onInviteActionSelected()
             switch value {
             case "accept":

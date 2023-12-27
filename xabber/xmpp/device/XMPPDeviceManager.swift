@@ -337,9 +337,9 @@ class XMPPDeviceManager: AbstractXMPPManager {
               let deviceId = message.element(forName: "revoke", xmlns: getPrimaryNamespace())?.element(forName: "device")?.attributeStringValue(forName: "id") else {
             return false
         }
-//        if self.deviceId == deviceId {
-//            AccountManager.shared.find(for: self.owner)?.tokenWasInvalidated()
-//        }
+        if self.deviceId == deviceId {
+            AccountManager.shared.find(for: self.owner)?.tokenWasInvalidated()
+        }
         return true
     }
     

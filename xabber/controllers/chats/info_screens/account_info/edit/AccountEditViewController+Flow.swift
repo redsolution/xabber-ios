@@ -155,40 +155,40 @@ extension AccountEditViewController {
     internal func clearAvatar() {
 //        self.avatarImage = nil
         
-        do {
+//        do {
             let cell = tableView.cellForRow(at: IndexPath.init(row: 0, section: 0)) as? ProfileCell
             cell?.showDarkenedView()
 
-            let realm = try WRealm.safe()
+//            let realm = try WRealm.safe()
             
             if owner == "" {
                 owner = jid
             }
-            
-            guard let avatar = realm.object(ofType: AvatarStorageItem.self,
-                                            forPrimaryKey: [jid, owner].prp()),
-                  let url = avatar.uploadUrl,
-                  let previousHash = avatar.imageHash,
-                  let uuidFirstPart = UUID().uuidString.split(separator: "_").first else { return }
-            let hash = previousHash + "#" + uuidFirstPart
-            
-            XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
-                session.avatarUploader?.sendClearMetadata(stream, hash: hash, stringUrl: url) {
-                    DefaultAvatarManager.shared.deleteAvatar(jid: self.jid, owner: self.owner)
-                    self.afterSettingAvatar()
-                }
-            }, fail: {
+//            
+//            guard let avatar = realm.object(ofType: AvatarStorageItem.self,
+//                                            forPrimaryKey: [jid, owner].prp()),
+//                  let url = avatar.uploadUrl,
+//                  let previousHash = avatar.imageHash,
+//                  let uuidFirstPart = UUID().uuidString.split(separator: "_").first else { return }
+//            let hash = previousHash + "#" + uuidFirstPart
+//            
+//            XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
+//                session.avatarUploader?.sendClearMetadata(stream) {
+//                    DefaultAvatarManager.shared.deleteAvatar(jid: self.jid, owner: self.owner)
+//                    self.afterSettingAvatar()
+//                }
+//            }, fail: {
                 AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                    DefaultAvatarManager.shared.deleteAvatar(jid: self.jid, owner: self.owner)
-                    user.avatarUploader.sendClearMetadata(stream, hash: hash, stringUrl: url) {
-                        DefaultAvatarManager.shared.deleteAvatar(jid: self.jid, owner: self.owner)
+//                    DefaultAvatarManager.shared.deleteAvatar(jid: self.jid, owner: self.owner)
+                    user.avatarUploader.sendClearMetadata(stream) {
+//                        DefaultAvatarManager.shared.deleteAvatar(jid: self.jid, owner: self.owner)
                         self.afterSettingAvatar()
                     }
                 })
-            })
-        } catch {
-            DDLogDebug("AccountInfoViewController+InfoScreenHeaderButtonDelegate: \(#function). \(error.localizedDescription)")
-        }
+//            })
+//        } catch {
+//            DDLogDebug("AccountInfoViewController+InfoScreenHeaderButtonDelegate: \(#function). \(error.localizedDescription)")
+//        }
         
         self.tableView.reloadData()
         doneButtonActive.accept(true)
@@ -235,7 +235,9 @@ extension AccountEditViewController {
         }
         func afterSettingAvatar(image: UIImage?) {
             DispatchQueue.main.async {
-                self.avatarImage = image
+                if let image = image {
+                    self.avatarImage = image
+                }
                 cell?.hideDarkenedView()
                 self.tableView.reloadRows(at: [IndexPath.init(row: 0, section: 0)], with: .none)
             }
@@ -250,7 +252,30 @@ extension AccountEditViewController {
                 user.avatarUploader.setAvatar(image: image, successCallback: {
                     afterSettingAvatar(image: image)
                 }, failureCallback: {
+                    status, error in
                     afterSettingAvatar(image: nil)
+                    DispatchQueue.main.async {
+                        let errorMessage = "Unable to send file: out of Cloud Storage"//item.messageError
+                        let itemsWithQuota = [
+                            ActionSheetPresenter.Item(destructive: false, title: "Manage Cloud Storage", value: "quota")
+                        ]
+                        ActionSheetPresenter().present(
+                            in: self,
+                            title: "Avatar upload error",
+                            message: errorMessage,
+                            cancel: "Cancel",
+                            values: itemsWithQuota,
+                            animated: true) { value in
+                                switch value {
+                                    case "quota":
+                                        let vc = CloudStorageViewController()
+                                        vc.configure(jid: self.jid)
+                                        self.navigationController?.pushViewController(vc, animated: true)
+                                    default:
+                                        break
+                                }
+                            }
+                    }
                     DDLogDebug("AccountEditViewController+Flow: \(#function). Eror with uploading avatar.")
                 })
             }

@@ -56,16 +56,13 @@ class NetworkManager: NSObject {
         if token.isNotEmpty {
             request.addValue("Bearer \(self.token)", forHTTPHeaderField: "Authorization")
         } else if password.isNotEmpty {
-            let cridentials = "\(jid):\(password)".toBase64()
-            request.addValue("Basic \(cridentials)", forHTTPHeaderField: "Authorization")
+            let credentials = "\(jid):\(password)".toBase64()
+            request.addValue("Basic \(credentials)", forHTTPHeaderField: "Authorization")
         } else {
             fatalError()
         }
 //        print("request", request, request.httpMethod, request.httpBody, request.allHTTPHeaderFields)
         let task = URLSession.shared.dataTask(with: request) { (data, response, error) in
-//            print(String(data: data!, encoding: .utf8))
-//            print(response)
-//            print(error)
             if let data = data,
                let message = String(data: data, encoding: .utf8),
                let document = try? DDXMLDocument(xmlString: "<root>\(message)</root>", options: 0),
@@ -144,7 +141,7 @@ class NetworkManager: NSObject {
                         if let file = ref.elements(forName: "file-sharing").first?.elements(forName: "file").first,
                             let uri = ref.elements(forName: "file-sharing").first?.elements(forName: "sources").first?.elements(forName: "uri").compactMap({ return $0.stringValue }).first(where: { URL(string: $0) != nil }) {
                             if let mediaType = file.elements(forName: "media-type").first?.stringValue,
-                                MimeIcon(mediaType).value == .image {
+                               mediaType == "image" {
                                 if !payload.keys.contains("imageUrls") {
                                     payload["imageUrls"] = uri
                                 }

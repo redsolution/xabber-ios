@@ -124,6 +124,10 @@ public class AccountManager: NSObject {
         self.prepareForBackground()
 //        let appDelegate = UIApplication.shared.delegate as? AppDelegate
 //        appDelegate?.addBlurredScreen()
+        self.users.forEach {
+            $0.disconnect(hard: true)
+        }
+        XMPPUIActionManager.shared.close(disconnect: true)
     }
     
     private func removeObservers() {
@@ -276,6 +280,14 @@ public class AccountManager: NSObject {
         if autoConnect {
             newAccount.asyncConnect()
         }
+        let jids = Set(self.users.compactMap { $0.jid })
+        let connectingUsers = self.connectingUsers.value
+        connectingUsers.forEach {
+            jid in
+            if !jids.contains(jid) {
+                self.markAsConnected(jid: jid)
+            }
+        }
     }
     
     func isExist(jid: String) -> Bool {
@@ -354,6 +366,10 @@ public class AccountManager: NSObject {
             CredentialsManager.shared.clearKeyachain()
         }
         
+        var connecting = self.connectingUsers.value
+        connecting.remove(jid)
+        self.connectingUsers.accept(connecting)
+        
         do {
             if let index = users.firstIndex(where: { $0.jid == jid }) {
                 autoreleasepool { () -> Void in
@@ -384,7 +400,10 @@ public class AccountManager: NSObject {
         } catch {
             DDLogDebug("AccountManager: \(#function). \(error.localizedDescription)")
         }
-        ApplicationStateManager.shared.expiredTokenAccountsList.remove(jid)
+        if let index = ApplicationStateManager.shared.expiredTokenAccountsList.firstIndex(where: { $0.jid == jid }) {
+            ApplicationStateManager.shared.expiredTokenAccountsList.remove(at: index)
+        }
+//        ApplicationStateManager.shared.expiredTokenAccountsList.remove(jid)
     }
     
     func changeNewUserState(for jid: String, to state: UserObserver.State) {

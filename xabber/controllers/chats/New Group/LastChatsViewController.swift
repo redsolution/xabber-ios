@@ -81,6 +81,7 @@ class LastChatsViewController: BaseViewController {
         let isEncrypted: Bool
         let avatarUrl: String?
         let hasErrorInChat: Bool
+        let updateTS: Double
         
         static func compareContent(_ a: LastChatsViewController.Datasource, _ b: LastChatsViewController.Datasource) -> Bool {
             return a.jid == b.jid
@@ -106,6 +107,7 @@ class LastChatsViewController: BaseViewController {
                     && a.isEncrypted == b.isEncrypted
                     && a.avatarUrl == b.avatarUrl
                     && a.hasErrorInChat == b.hasErrorInChat
+                    && a.updateTS == b.updateTS
         }
         
     }
@@ -254,12 +256,20 @@ class LastChatsViewController: BaseViewController {
     internal var isSkeletonShowed: Bool = false
     
     internal func updateTitle(_ value: Filter) {
-        if AccountManager.shared.connectingUsers.value.isNotEmpty {
-            customTitleLabel.text = "Connecting...".localizeString(id: "account_state_connecting", arguments: [])
-            customTitleLabel.sizeToFit()
-            customTitleLabel.layoutIfNeeded()
-            return
+        do {
+            let realm = try WRealm.safe()
+            let accounts = Set(realm.objects(AccountStorageItem.self).toArray().compactMap { return $0.jid })
+            let filteredConnectingUsers = AccountManager.shared.connectingUsers.value.filter({ accounts.contains($0) })
+            if filteredConnectingUsers.isNotEmpty {
+                customTitleLabel.text = "Connecting...".localizeString(id: "account_state_connecting", arguments: [])
+                customTitleLabel.sizeToFit()
+                customTitleLabel.layoutIfNeeded()
+                return
+            }
+        } catch {
+            
         }
+        
         switch value {
         case .chats:
             customTitleLabel.text = "Chats".localizeString(id: "toolbar__menu_item__chats", arguments: [])
@@ -425,7 +435,8 @@ class LastChatsViewController: BaseViewController {
                     subRequest: false,
                     isEncrypted: false,
                     avatarUrl: nil,
-                    hasErrorInChat: false
+                    hasErrorInChat: false,
+                    updateTS: 0
                 )
             }
         }
@@ -435,16 +446,55 @@ class LastChatsViewController: BaseViewController {
             var pinnedChatsSorting: Bool = false
             switch self.filter.value {
             case .chats:
-                predicate = NSPredicate(format: "isArchived == %@ AND owner IN %@", argumentArray: [false, Array(enabledAccounts.value)])
+                if let lockedType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) {
+                    predicate = NSPredicate(
+                        format: "isArchived == %@ AND owner IN %@ AND (conversationType_ == %@ OR jid IN %@)",
+                        argumentArray: [
+                            false,
+                            Array(enabledAccounts.value),
+                            lockedType.rawValue,
+                            Array(enabledAccounts.value).compactMap({XMPPJID(string: $0)!.domain})
+                        ]
+                    )
+                } else {
+                    predicate = NSPredicate(format: "isArchived == %@ AND owner IN %@", argumentArray: [false, Array(enabledAccounts.value)])
+                }
                 pinnedChatsSorting = true
             case .unread:
-                predicate = NSPredicate(format: "isArchived == %@ AND (unread > %@ OR rosterItem.ask_ IN %@) AND owner IN %@",
-                                        argumentArray: [false,
-                                                        0,
-                                                        [RosterStorageItem.Ask.in.rawValue, RosterStorageItem.Ask.both.rawValue],
-                                                        Array(enabledAccounts.value)])
+                if let lockedType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) {
+                    predicate = NSPredicate(
+                        format: "isArchived == %@ AND owner IN %@ AND (conversationType_ == %@ OR jid IN %@) AND (unread > %@ OR rosterItem.ask_ IN %@)",
+                        argumentArray: [
+                            false,
+                            Array(enabledAccounts.value),
+                            lockedType.rawValue,
+                            Array(enabledAccounts.value).compactMap({XMPPJID(string: $0)!.domain}),
+                            0,
+                            [RosterStorageItem.Ask.in.rawValue, RosterStorageItem.Ask.both.rawValue],
+                        ]
+                    )
+                } else {
+                    predicate = NSPredicate(format: "isArchived == %@ AND (unread > %@ OR rosterItem.ask_ IN %@) AND owner IN %@",
+                                            argumentArray: [false,
+                                                            0,
+                                                            [RosterStorageItem.Ask.in.rawValue, RosterStorageItem.Ask.both.rawValue],
+                                                            Array(enabledAccounts.value)])
+                    
+                }
             case .archived:
-                predicate = NSPredicate(format: "isArchived == %@ AND owner IN %@", argumentArray: [true, Array(enabledAccounts.value)])
+                if let lockedType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) {
+                    predicate = NSPredicate(
+                        format: "isArchived == %@ AND owner IN %@ AND (conversationType_ == %@ OR jid IN %@)",
+                        argumentArray: [
+                            true,
+                            Array(enabledAccounts.value),
+                            lockedType.rawValue,
+                            Array(enabledAccounts.value).compactMap({XMPPJID(string: $0)!.domain})
+                        ]
+                    )
+                } else {
+                    predicate = NSPredicate(format: "isArchived == %@ AND owner IN %@", argumentArray: [true, Array(enabledAccounts.value)])
+                }
             }
             var collection = realm
                 .objects(LastChatsStorageItem.self)
@@ -569,7 +619,8 @@ class LastChatsViewController: BaseViewController {
                     subRequest: (XMPPJID(string: item.jid)?.isServer ?? true) ? false :  subscriptionRequest,
                     isEncrypted: [.omemo, .axolotl, .omemo1].contains(item.conversationType),
                     avatarUrl: item.rosterItem?.avatarMinUrl ?? item.rosterItem?.avatarMaxUrl ?? item.rosterItem?.oldschoolAvatarKey,
-                    hasErrorInChat: item.hasErrorInChat
+                    hasErrorInChat: item.hasErrorInChat,
+                    updateTS: item.updateTS
                 )
             }
         } catch {
@@ -713,22 +764,30 @@ class LastChatsViewController: BaseViewController {
             .asObservable()
 //            .debounce(.milliseconds(70), scheduler: MainScheduler.asyncInstance)
             .subscribe(onNext: { (results) in
-                self.updateTitle(self.filter.value)
-                self.unreadAllMessagesButton.isEnabled = AccountManager.shared.connectingUsers.value.isEmpty
-                UIView.animate(withDuration: 0.1) {
-                    self.unreadAllMessagesButton.backgroundColor = AccountManager.shared.connectingUsers.value.isNotEmpty ? MDCPalette.grey.tint500 : AccountColorManager.shared.topPalette().tint500
-                }
-                if self.isSkeletonShowed { return }
-                if results.isNotEmpty {
-                    if !self.showSkeleton.value {
-                        self.showSkeleton.accept(true)
+                do {
+                    let realm = try WRealm.safe()
+                    let accounts = Set(realm.objects(AccountStorageItem.self).toArray().compactMap { return $0.jid })
+                    let filteredConnectingUsers = results.filter({ accounts.contains($0) })
+                    self.updateTitle(self.filter.value)
+                    self.unreadAllMessagesButton.isEnabled = filteredConnectingUsers.isEmpty
+                    UIView.animate(withDuration: 0.1) {
+                        self.unreadAllMessagesButton.backgroundColor = filteredConnectingUsers.isNotEmpty ? MDCPalette.grey.tint500 : AccountColorManager.shared.topPalette().tint500
                     }
-                } else {
-                    if self.showSkeleton.value {
-                        self.showSkeleton.accept(false)
-                        self.isSkeletonShowed = true
+                    if self.isSkeletonShowed { return }
+                    if filteredConnectingUsers.isNotEmpty {
+                        if !self.showSkeleton.value {
+                            self.showSkeleton.accept(true)
+                        }
+                    } else {
+                        if self.showSkeleton.value {
+                            self.showSkeleton.accept(false)
+                            self.isSkeletonShowed = true
+                        }
                     }
+                } catch {
+                    
                 }
+                
                 
             })
             .disposed(by: bag)
@@ -846,6 +905,7 @@ class LastChatsViewController: BaseViewController {
                 .objects(AccountStorageItem.self)
                 .filter("enabled == true")
                 .sorted(byKeyPath: "order", ascending: true)
+            self.accountNavButton.update(jid: self.topAccountJid, status: collection.first?.resource?.status ?? .offline)
             Observable
                 .collection(from: collection)
                 .debounce(.milliseconds(500), scheduler: MainScheduler.asyncInstance)
@@ -853,7 +913,7 @@ class LastChatsViewController: BaseViewController {
                 .subscribe(onNext: { (results) in
                     if let item = results.first {
                         self.topAccountJid = item.jid
-                        self.accountNavButton.update(jid: self.topAccountJid, status: item.resource?.status ?? .offline, avatarUrl: nil)
+                        self.accountNavButton.update(jid: self.topAccountJid, status: item.resource?.status ?? .offline)
                         self.unreadAllMessagesButton.isEnabled = AccountManager.shared.connectingUsers.value.isEmpty
                         getAppTabBar()?.updateColor()
                         self.customTitleLabel.textColor = AccountColorManager.shared.topColor()
@@ -937,7 +997,7 @@ class LastChatsViewController: BaseViewController {
             
             if let item = collection.first {
                 self.topAccountJid = item.jid
-                self.accountNavButton.update(jid: self.topAccountJid, status: item.resource?.status ?? .offline, avatarUrl: nil)
+                self.accountNavButton.update(jid: self.topAccountJid, status: item.resource?.status ?? .offline)
                 self.unreadAllMessagesButton.isEnabled = AccountManager.shared.connectingUsers.value.isEmpty
                 getAppTabBar()?.updateColor()
                 self.customTitleLabel.textColor = AccountColorManager.shared.topColor()

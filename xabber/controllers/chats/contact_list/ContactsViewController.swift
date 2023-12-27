@@ -701,7 +701,7 @@ class ContactsViewController: BaseViewController {
                 .subscribe(onNext: { (results) in
                     if let item = results.first {
                         self.topAccountJid = item.jid
-                        self.accountNavButton.update(jid: self.topAccountJid, status: item.resource?.status ?? .offline, avatarUrl: nil)
+                        self.accountNavButton.update(jid: self.topAccountJid, status: item.resource?.status ?? .offline)
                     }
                 }).disposed(by: accountsBag)
             
@@ -829,8 +829,7 @@ class ContactsViewController: BaseViewController {
                 .sorted(byKeyPath: "order", ascending: true)
                 .first {
                 self.topAccountJid = item.jid
-                self.accountNavButton.update(jid: item.jid,
-                                             status: item.resource?.status ?? .offline, avatarUrl: nil)
+                self.accountNavButton.update(jid: item.jid, status: item.resource?.status ?? .offline)
             }
             
         } catch {

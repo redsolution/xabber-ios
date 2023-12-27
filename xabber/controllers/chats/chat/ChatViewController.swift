@@ -98,6 +98,7 @@ class ChatViewController: MessagesViewController {
         var burnDate: Double
         var afterburnInterval: Double
         var archivedId:  String?
+        var isRead: Bool
         
         static func compareContent(_ a: ChatViewController.Datasource, _ b: ChatViewController.Datasource) -> Bool {
             return a.primary == b.primary &&
@@ -112,6 +113,7 @@ class ChatViewController: MessagesViewController {
                 a.searchString == b.searchString &&
                 a.burnDate == b.burnDate &&
                 a.archivedId == b.archivedId &&
+                a.isRead == b.isRead &&
                 ChatViewController.Datasource.iconForMetadata(for: a.errorMetadata) == ChatViewController.Datasource.iconForMetadata(for: b.errorMetadata)
         }
         
@@ -673,15 +675,7 @@ class ChatViewController: MessagesViewController {
                 }
             })
         }
-        if CommonConfigManager.shared.config.required_time_signature_for_messages {
-            XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-                session.x509?.retrieveCert(stream, for: self.jid)
-            } fail: {
-                AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                    user.x509Manager.retrieveCert(stream, for: self.jid)
-                })
-            }
-        }
+        
         
         
     }
@@ -748,22 +742,17 @@ class ChatViewController: MessagesViewController {
     internal func willEnterForeground() {
         NotifyManager.shared.currentDialog = [self.jid, self.owner].prp()
         appInBackground = false
-        
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 1) {
-            XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { stream, session in
-                session.mam?.syncChat(stream, jid: self.jid, conversationType: self.conversationType)
-                session.messages?.readLastMessage(jid: self.jid, conversationType: self.conversationType)
-            }) {
-                AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                    user.mam.syncChat(stream, jid: self.jid, conversationType: self.conversationType)
-                    user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
-                })
-            }
+        AccountManager.shared.find(for: self.owner)?.chatMarkers.updateDeleteEphemeralMessagesTimer()
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2) {
+            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
+            })
         }
     }
     
     @objc
     private func didEnterBackground() {
+//        self.unsubscribe()
         appInBackground = true
         NotifyManager.shared.currentDialog = nil
         do {
@@ -807,16 +796,6 @@ class ChatViewController: MessagesViewController {
             } else {
                 opponentSender = Sender(id: jid, displayName: jid)
             }
-//            if let lastChat = realm.object(
-//                ofType: LastChatsStorageItem.self,
-//                forPrimaryKey: LastChatsStorageItem.genPrimary(
-//                    jid: self.jid,
-//                    owner: self.owner,
-//                    conversationType: self.conversationType
-//                )
-//            ) {
-//                self.previousDraftMessageText = lastChat.draftMessage
-//            }            
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
@@ -843,7 +822,7 @@ class ChatViewController: MessagesViewController {
         super.viewDidLoad()
         self.loadDatasource()
         self.configure()
-        self.addObservers()
+//        self.addObservers()
         self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
         self.navigationController?.navigationBar.shadowImage = nil
         self.navigationController?.navigationBar.superview?.bringSubviewToFront(self.navigationController!.navigationBar)
@@ -861,12 +840,7 @@ class ChatViewController: MessagesViewController {
             self.xabberInputView.timerButton.isHidden = true
             self.xabberInputView.timerButton.isEnabled = false
         }
-        do {
-            try self.subscribe()
-            self.lowPrioritySubscribtions()
-        } catch {
-            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-        }
+        
     }
     
     override func reloadDatasource() {
@@ -875,58 +849,46 @@ class ChatViewController: MessagesViewController {
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        if [.omemo, .omemo1, .axolotl].contains(conversationType) {
+            self.startWatchingSignatureTimer()
+            if SignatureManager.shared.isSignatureSetted {
+                self.onUpdateTimeSignatureBlockState(!SignatureManager.shared.isSignatureValid())
+            }
+        }
         do {
-            
+            try self.subscribe()
+            self.lowPrioritySubscribtions()
             self.addObservers()
             let realm = try WRealm.safe()
             let chat = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid, owner: self.owner, conversationType: self.conversationType))
             
+//            if (chat?.isFreshNotEmptyEncryptedChat ?? false) {
+//                if (chat?.unread ?? 0) > 0 {
+                    let messageId = chat?.lastMessageId ?? ""
+                    AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                        user.chatMarkers.displayedById(stream, jid: self.jid, messageId: messageId)
+                    })
+                    try realm.write {
+                        chat?.unread = 0
+                    }
+//                }
+//            }
+            
             self.xabberInputView.textField.text = chat?.draftMessage
             self.xabberInputView.textViewDidChange()
-            self.showSkeletonObserver.accept(!(chat?.isSynced ?? true))
-            self.isSkeletonHided = !self.showSkeletonObserver.value
+//            self.showSkeletonObserver.accept(!(chat?.isSynced ?? true))
+//            self.isSkeletonHided = !self.showSkeletonObserver.value
             self.initializeDataset()
             
-            if [.omemo, .omemo1, .axolotl].contains(conversationType) {
-                self.startWatchingSignatureTimer()
-                if SignatureManager.shared.certificate != nil {
-                    self.onUpdateTimeSignatureBlockState(!SignatureManager.shared.isSignatureValid())
-                }
-                let realm = try Realm()
-                var blockState: Bool = realm.objects(SignalDeviceStorageItem.self)
-                    .filter("owner == %@ AND jid == %@ AND state_ == %@", self.owner, self.jid, SignalDeviceStorageItem.TrustState.trusted.rawValue)
-                    .count == 0
-                if !blockState {
-                    blockState = realm
-                        .objects(SignalDeviceStorageItem.self)
-                        .filter(
-                            "owner == %@ AND jid == %@ AND state_ != %@",
-                            self.owner,
-                            self.owner,
-                            SignalDeviceStorageItem.TrustState.trusted.rawValue)
-                            .count > 0
-                }
-                self.onUpdateTrustedDevicesBlockState(blockState)
-//                if realm.objects(SignalDeviceStorageItem.self)
-//                    .filter("owner == %@ AND jid == %@ AND state_ == %@", self.owner, self.jid, SignalDeviceStorageItem.TrustState.trusted.rawValue)
-//                    .count == 0 {
-//                    
-//                } else if realm
-//                    .objects(SignalDeviceStorageItem.self)
-//                    .filter(
-//                        "owner == %@ AND jid == %@ AND state_ != %@",
-//                        self.owner,
-//                        self.owner,
-//                        SignalDeviceStorageItem.TrustState.trusted.rawValue)
-//                        .count > 0 {
-//                    self.onUpdateTrustedDevicesBlockState(true)
-//                }
-            }
+            
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
         AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
             user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
+            if CommonConfigManager.shared.config.required_time_signature_for_messages {
+                user.x509Manager.retrieveCert(stream, for: self.jid)
+            }
         })
         self.xabberInputView.isSendButtonEnabled = false
         self.xabberInputView.updateSendButtonState()
@@ -934,24 +896,14 @@ class ChatViewController: MessagesViewController {
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        
         self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
         self.navigationController?.navigationBar.shadowImage = nil
         self.navigationController?.navigationBar.superview?.bringSubviewToFront(self.navigationController!.navigationBar)
         self.navigationController?.navigationBar.layoutIfNeeded()
         
         self.canLoadPage = true
-        self.messagesCollectionView.indexPathsForVisibleItems.forEach {
-            if (self.messagesObserver?.count ?? 0) <= $0.section { return }
-            self.messagesObserver?[$0.section].references.forEach { item in
-                let messageId = item.messageId
-                let jid = item.jid
-                let metadata = item.metadata_
-                MessageReferenceStorageItem.prepareVoice(for: messageId, jid: jid, metadata: metadata)
-                if item.mimeType == "video" {
-                    MessageReferenceStorageItem.prepareVideo(messageId: messageId, jid: jid, metadata: metadata)
-                }
-            }
-        }
+
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 1) {
             XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { stream, session in
                 session.mam?.syncChat(stream, jid: self.jid, conversationType: self.conversationType)
@@ -961,6 +913,7 @@ class ChatViewController: MessagesViewController {
                 })
             }
         }
+        
         do {
             let realm = try WRealm.safe()
             if !(realm.object(
@@ -976,35 +929,21 @@ class ChatViewController: MessagesViewController {
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
-        if [.omemo, .omemo1, .axolotl].contains(self.conversationType) {
-            self.omemoDeviceListTimer?.fire()
-            self.omemoDeviceListTimer?.invalidate()
-            self.omemoDeviceListTimer = nil
-            self.omemoDeviceListTimer = Timer.scheduledTimer(
-                timeInterval: 30,
-                target: self,
-                selector: #selector(omemoDeviceListPolling),
-                userInfo: nil,
-                repeats: true
-            )
-//            self.xabberInputView.timerButton.isHidden = false
-//            self.xabberInputView.timerButton.isEnabled = true
-//            self.xabberInputView.shouldHideTimer = false
-            RunLoop.main.add(self.omemoDeviceListTimer!, forMode: .default)
-        } else {
-//            self.xabberInputView.shouldHideTimer = true
-//            self.xabberInputView.timerButton.isHidden = true
-//            self.xabberInputView.timerButton.isEnabled = false
-        }
         self.xabberInputView.update(screenHeight: self.view.bounds.height, keyboardHeight: 0)
+        var inputHeight: CGFloat = 49
+        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
+            inputHeight += bottomInset
+        }
+        self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 100, right: 0)
     }
     
-    @objc
-    private func omemoDeviceListPolling(_ sennder: AnyObject) {
-        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-            user.omemo.getContactDevices(stream, jid: self.jid, force: true)
-        })
-    }
+//    @objc
+//    private func omemoDeviceListPolling(_ sennder: AnyObject) {
+////        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+////            user.omemo.getContactDevices(stream, jid: self.jid, force: true)
+////            user.omemo.getAllContactsBundle(stream, jid: self.jid)
+////        })
+//    }
     
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
@@ -1026,16 +965,17 @@ class ChatViewController: MessagesViewController {
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
+        
+        unsubscribe()
+        removeObservers()
     }
     
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         
 //        self.topMenuShowObserver.accept(false)
-//        unsubscribe()
         XMPPUIActionManager.shared.mam?.endLoadHistory(jid: self.jid, conversationType: conversationType)
         AccountManager.shared.find(for: self.owner)?.mam.endLoadHistory(jid: self.jid, conversationType: conversationType)
-        removeObservers()
     }
     
     open func prepareDataset() -> Results<MessageStorageItem> {

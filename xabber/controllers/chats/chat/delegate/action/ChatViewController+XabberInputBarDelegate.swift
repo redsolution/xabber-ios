@@ -52,6 +52,13 @@ extension ChatViewController: UIPickerViewDataSource {
 
 extension ChatViewController: XabberInputBarDelegate {
     
+    func onIdentityVerification() {
+        let vc = TrustedDevicesViewController()
+        vc.jid = self.jid
+        vc.owner = self.owner
+        self.navigationController?.pushViewController(vc, animated: true)
+    }
+    
     func onUpdateSignature() {
         SignatureManager.shared.delegate = self
         FeedbackManager.shared.tap()
@@ -64,10 +71,9 @@ extension ChatViewController: XabberInputBarDelegate {
     }
     
     func onCheckDevices() {
-        let vc = TrustedDevicesViewController()
-        vc.jid = self.jid
-        vc.owner = self.owner
-        self.navigationController?.pushViewController(vc, animated: true)
+        let vc = DevicesListViewController()
+        vc.configure(for: self.owner)
+        navigationController?.pushViewController(vc, animated: true)
     }
     
     func onHeightChanged(to height: CGFloat, bar barHeight: CGFloat) {
@@ -86,8 +92,96 @@ extension ChatViewController: XabberInputBarDelegate {
     
     func onAfterburnButtonTouchUp() {
         print(#function)
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            let items = ChatMarkersManager.BurnMessagesTimerValues.values().compactMap {
+                return ActionSheetPresenter.Item(destructive: false, title: ChatMarkersManager.BurnMessagesTimerValues.verbose($0), value: "\($0.rawValue)", isEnabled: true)
+            }
+            
+            ActionSheetPresenter().present(
+                in: self,
+                title: "Burn message after",
+                message: nil,
+                cancel: "Cancel",
+                values: items,
+                animated: true) { value in
+                    let rawValue = Int(value)
+                    let selectedInterval = ChatMarkersManager.BurnMessagesTimerValues(rawValue: rawValue ?? 0) ?? .off
+                    do {
+                        let realm = try WRealm.safe()
+                        if let instance = realm.object(
+                            ofType: LastChatsStorageItem.self,
+                            forPrimaryKey: LastChatsStorageItem.genPrimary(
+                                jid: self.jid,
+                                owner: self.owner,
+                                conversationType: self.conversationType)) {
+                            if instance.afterburnInterval == Double(selectedInterval.rawValue) {
+                                return
+                            }
+                            if selectedInterval == .off && instance.afterburnInterval <= 0 {
+                                return
+                            }
+                            try realm.write {
+                                if instance.isInvalidated { return }
+                                instance.afterburnInterval = Double(selectedInterval.rawValue)
+                            }
+                        }
+                    } catch {
+                        DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+                    }
+                    let item = MessageReferenceStorageItem()
+                    item.kind = .systemMessage
+                    item.owner = self.owner
+                    item.jid = self.jid
+                    item.conversationType = self.conversationType
+                    item.isDownloaded = true
+                    item.begin = 0
+                    item.end = 0
+                    item.metadata = [
+                        "ephemeral-timer": selectedInterval.rawValue,
+                    ]
+                    item.primary = UUID().uuidString
+                    var body = "Self-destruct timer was set to \(ChatMarkersManager.BurnMessagesTimerValues.verbose(selectedInterval))"
+                    if selectedInterval == .off {
+                        body = "Self-destruct timer was disabled"
+                    }
+                    AccountManager.shared.find(for: self.owner)?.messages.sendSystemMessage(
+                        body,
+                        attachments: [item],
+                        to: self.jid,
+                        conversationType: self.conversationType
+                    )
+                    UIView.performWithoutAnimation {
+                        switch selectedInterval {
+                            case .off:
+                                self.xabberInputView.timerButton.setImage(UIImage(systemName: "stopwatch"), for: .normal)
+                            case .s5:
+                                self.xabberInputView.timerButton.setImage(UIImage(systemName: "5.circle"), for: .normal)
+                            case .s10:
+                                self.xabberInputView.timerButton.setImage(UIImage(systemName: "10.circle"), for: .normal)
+                            case .s15:
+                                self.xabberInputView.timerButton.setImage(UIImage(systemName: "15.circle"), for: .normal)
+                            case .s30:
+                                self.xabberInputView.timerButton.setImage(UIImage(systemName: "30.circle"), for: .normal)
+                            case .m1:
+                                self.xabberInputView.timerButton.setImage(UIImage(systemName: "1.square"), for: .normal)
+                            case .m5:
+                                self.xabberInputView.timerButton.setImage(UIImage(systemName: "5.square"), for: .normal)
+                            case .m10:
+                                self.xabberInputView.timerButton.setImage(UIImage(systemName: "10.square"), for: .normal)
+                            case .m15:
+                                self.xabberInputView.timerButton.setImage(UIImage(systemName: "15.square"), for: .normal)
+                        }
+                    }
+                    FeedbackManager.shared.generate(feedback: .success)
+                    self.canUpdateDataset = true
+                    self.messagesCount += 1
+                    self.shouldUpdatePreviousMessage = true
+                    self.runDatasetUpdateTask()
+                }
+            return
+        }
         
-        let message = "\n\n\n\n\n\n"
+        let message = "\n\n\n\n\n\n\n\n"
         let alert = UIAlertController(title: "Burn message after", message: message, preferredStyle: UIAlertController.Style.actionSheet)
          
         let picker = UIPickerView(frame: CGRect(x: 0, y: 20, width: alert.view.frame.width - 16, height: 140))
@@ -110,11 +204,17 @@ extension ChatViewController: XabberInputBarDelegate {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
         
-        
-        
-        
-        //Add the picker to the alert controller
         alert.view.addSubview(picker)
+//        alert.iPadPopoverControllerInit(viewController: self)
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            alert.modalPresentationStyle = .popover
+            if let popoverController = alert.popoverPresentationController {
+                popoverController.sourceView = self.view
+                popoverController.sourceRect = CGRect(x: self.view.bounds.midX, y: self.view.bounds.midY, width: 0, height: 0)
+                popoverController.permittedArrowDirections = []
+                popoverController.canOverlapSourceViewRect = true
+            }
+        }
         let okAction = UIAlertAction(title: "Done", style: .default, handler: {
             (alert: UIAlertAction!) -> Void in
             let selectedInterval = ChatMarkersManager.BurnMessagesTimerValues.values()[self.selectedAfterburnId]
@@ -127,6 +227,9 @@ extension ChatViewController: XabberInputBarDelegate {
                         owner: self.owner,
                         conversationType: self.conversationType)) {
                     if instance.afterburnInterval == Double(selectedInterval.rawValue) {
+                        return
+                    }
+                    if selectedInterval == .off && instance.afterburnInterval <= 0 {
                         return
                     }
                     try realm.write {
@@ -244,6 +347,8 @@ extension ChatViewController: XabberInputBarDelegate {
     
     func sendButtonTouchUp( with text: String) {
         func sendMessage(_ text: String) {
+            self.xabberInputView.textField.text = ""
+            self.xabberInputView.textViewDidChange()
             let forwarded: [String] = self.attachedMessagesIds.value
             self.draftMessageText.accept(nil)
             canUpdateDataset = true
@@ -287,6 +392,7 @@ extension ChatViewController: XabberInputBarDelegate {
                     }
                 })
             }
+            self.clearAttachments()
         }
         if showSkeletonObserver.value {
             return
@@ -300,7 +406,7 @@ extension ChatViewController: XabberInputBarDelegate {
                 let realm = try WRealm.safe()
                 let collection = realm
                     .objects(SignalDeviceStorageItem.self)
-                    .filter("owner == %@ AND jid == %@ AND state_ == %@", self.owner, self.jid, SignalDeviceStorageItem.TrustState.unknown.rawValue)
+                    .filter("owner == %@ AND jid == %@ AND (state_ == %@ OR state_ == %@)", self.owner, self.jid, SignalDeviceStorageItem.TrustState.unknown.rawValue, SignalDeviceStorageItem.TrustState.Ignore.rawValue)
                 if collection.isEmpty {
                     sendMessage(text)
                 } else {
@@ -314,7 +420,8 @@ extension ChatViewController: XabberInputBarDelegate {
                         message: "The recipient has added a new device for which you haven't yet performed an identity verification. If you send the message right now, it will be possible to decipher the message contents on this new device. It is recommended that you perform an identity verification now.",
                         cancel: "Cancel",
                         values: items,
-                        animated: true) { value in
+                        animated: true, cancelAction: {
+                        }) { value in
                             switch value {
                                 case "identity":
                                     do {
@@ -346,6 +453,5 @@ extension ChatViewController: XabberInputBarDelegate {
         }
         
         
-        self.clearAttachments()
     }
 }

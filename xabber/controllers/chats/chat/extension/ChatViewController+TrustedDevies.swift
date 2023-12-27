@@ -103,20 +103,22 @@ extension ChatViewController {
     }
     
     
-    internal func onUpdateTrustedDevicesBlockState(_ isBlocked: Bool) {
+    internal func onUpdateTrustedDevicesBlockState(_ isBlocked: Bool, identityVerification: Bool) {
         if isBlocked {
-            if !isTrustedDevicesBlockingPanelopen {
-                self.showTrustedDevicesBlockingPanel()
-            }
+//            if !isTrustedDevicesBlockingPanelopen {
+                self.showTrustedDevicesBlockingPanel(identityVerification: identityVerification)
+//            }
         } else {
-            if isTrustedDevicesBlockingPanelopen {
+//            if isTrustedDevicesBlockingPanelopen {
                 self.hideTrustedDevicesBlockingPanel()
-            }
+//            }
         }
-        self.updateTitle()
+        self.titleLabel.attributedText = self.updateTitle()
+        self.titleLabel.sizeToFit()
+        self.titleLabel.layoutIfNeeded()
     }
     
-    private func showTrustedDevicesBlockingPanel() {
+    private func showTrustedDevicesBlockingPanel(identityVerification: Bool) {
 //        if UIDevice.needBottomOffset {
 //            self.trustedDevicesBlockingPanel.frame = CGRect(x: 0, y: -8, width: self.view.frame.width, height: 84)
 //        } else {
@@ -125,14 +127,18 @@ extension ChatViewController {
 //
 //        self.xabberInputBar.addSubview(self.trustedDevicesBlockingPanel)
 //        self.xabberInputBar.bringSubviewToFront(self.trustedDevicesBlockingPanel)
-
-        self.xabberInputView.changeState(to: .checkDevices)
-        self.isTrustedDevicesBlockingPanelopen = true
+        if !self.isTimeSignatureBlockingPanelopen {
+            self.xabberInputView.changeState(to: identityVerification ? .identityVerification : .checkDevices)
+            self.isTrustedDevicesBlockingPanelopen = true
+        }
     }
     
     private func hideTrustedDevicesBlockingPanel() {
-        self.xabberInputView.changeState(to: .normal)
-        self.isTrustedDevicesBlockingPanelopen = false
+        if !self.isTimeSignatureBlockingPanelopen {
+            self.xabberInputView.changeState(to: .normal)
+            self.isTrustedDevicesBlockingPanelopen = false
+            self.isTimeSignatureBlockingPanelopen = false
+        }
 //        self.trustedDevicesBlockingPanel.removeFromSuperview()
     }
 }

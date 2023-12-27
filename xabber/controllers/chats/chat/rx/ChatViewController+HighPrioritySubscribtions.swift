@@ -111,8 +111,9 @@ extension ChatViewController {
                         self.contactStatus = status
                         self.statusLabel.layoutIfNeeded()
                     }
-                    
+                    self.titleLabel.sizeToFit()
                     self.titleLabel.layoutIfNeeded()
+                    
                 })
                 .disposed(by: bag)
         }
@@ -123,7 +124,7 @@ extension ChatViewController {
         
         Observable
             .collection(from: lastChatsObservedCollection)
-            .debounce(.milliseconds(50), scheduler: MainScheduler.asyncInstance)
+            .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
             .subscribe(onNext: { (results) in
                 guard let item = results.first else {
                     return

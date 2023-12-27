@@ -40,6 +40,8 @@ class CommonConfigManager: NSObject {
         var required_touch_id_or_password: Bool
         var onboarding_subtitle_text: String
         var app_name: String
+        var bundle_id: String
+        var push_bundle_id: String
         var domain: String
         var allow_registration: Bool
         var locked_host: String

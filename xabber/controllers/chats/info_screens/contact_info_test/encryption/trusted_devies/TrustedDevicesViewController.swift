@@ -95,6 +95,7 @@ class TrustedDevicesViewController: SimpleBaseViewController {
     @objc
     private func refresh(_ sender: AnyObject) {
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+            user.omemo.isRefreshRequest = true
             user.omemo.getContactDevices(stream, jid: self.jid, force: true)
         })
         refreshControl.endRefreshing()
@@ -105,7 +106,10 @@ class TrustedDevicesViewController: SimpleBaseViewController {
         do {
             let realm = try Realm()
             let theirs = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid)
-            Observable.collection(from: theirs).debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance).subscribe { results in
+            Observable
+                .collection(from: theirs)
+                .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
+                .subscribe { results in
                 DispatchQueue.main.async {
                     self.loadDatasource()
                     self.tableView.reloadData()
@@ -162,7 +166,7 @@ class TrustedDevicesViewController: SimpleBaseViewController {
             datasource = [
                 mineDatasource,
                 theirs.compactMap {
-                    if $0.fingerprint.isEmpty { return nil }
+//                    if $0.fingerprint.isEmpty { return nil }
                     return Datasource(
                         .device,
                         name: $0.name ?? "\($0.deviceId)",
@@ -236,6 +240,9 @@ extension TrustedDevicesViewController: UITableViewDataSource {
         if section == 0 {
             return "My device"
         } else if section == 1 {
+            if datasource[section].isEmpty {
+                return "Сontact hasn't published keys yet"
+            }
             return "Contact`s devices"
         } else {
             return nil

@@ -172,9 +172,12 @@ class ImagePickerViewController: UIViewController {
                         }
                     })
                 }
-                user.messages.sendMediaMessage(self.media, to: self.jid, forwarded: self.forwardedMessages, conversationType: self.conversationType)
+                DispatchQueue.global(qos: .userInitiated).async {
+                    user.messages.sendMediaMessage(self.media, to: self.jid, forwarded: self.forwardedMessages, conversationType: self.conversationType)
+                    
+                    self.delegate?.onSendMessage()
+                }
                 
-                self.delegate?.onSendMessage()
             })
 //        }
         self.dismissModal()

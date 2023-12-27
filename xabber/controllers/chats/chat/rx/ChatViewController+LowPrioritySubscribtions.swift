@@ -304,6 +304,8 @@ extension ChatViewController {
                         .subscribe { results in
                             self.contactWithSigningCertificate = !results.isEmpty
                             self.titleLabel.attributedText = self.updateTitle()
+                            self.titleLabel.sizeToFit()
+                            self.titleLabel.layoutIfNeeded()
                         } onError: { error in
                             
                         } onCompleted: {
@@ -354,24 +356,49 @@ extension ChatViewController {
                     .objects(SignalDeviceStorageItem.self)
                     .filter("owner == %@ AND jid == %@ AND state_ != %@", self.owner, self.owner, SignalDeviceStorageItem.TrustState.trusted.rawValue)
                 
+                let theirUntrustDevicesCollection = realm
+                    .objects(SignalDeviceStorageItem.self)
+                    .filter("owner == %@ AND jid == %@", self.owner, self.jid)
                 
-                Observable.collection(from: myUntrustedDevicesCollection)
-//                    .debounce(.milliseconds(200), scheduler: MainScheduler.asyncInstance)
+                Observable
+                    .collection(from: myUntrustedDevicesCollection)
+                    .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
                     .subscribe { results in
-                        self.titleLabel.attributedText = self.updateTitle()
                         if !results.isEmpty {
-                            self.onUpdateTrustedDevicesBlockState(true)
+                            self.onUpdateTrustedDevicesBlockState(true, identityVerification: false)
                         } else {
-                            do {
-                                let realm = try Realm()
-                                let collection = realm
-                                    .objects(SignalDeviceStorageItem.self)
-                                    .filter("owner == %@ AND jid == %@ AND state_ == %@", self.owner, self.jid, SignalDeviceStorageItem.TrustState.trusted.rawValue)
-                                self.onUpdateTrustedDevicesBlockState(collection.isEmpty)
-                            } catch {
-                                DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-                            }
+                            self.onUpdateTrustedDevicesBlockState(false, identityVerification: false)
                         }
+                    } onError: { error in
+                        
+                    } onCompleted: {
+                        
+                    } onDisposed: {
+                        
+                    }.disposed(by: self.bag)
+                
+                Observable
+                    .collection(from: theirUntrustDevicesCollection)
+                    .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
+                    .subscribe { results in
+                        do {
+                            let realm = try WRealm.safe()
+                            let myUntrustedDevicesCollection = realm
+                                .objects(SignalDeviceStorageItem.self)
+                                .filter("owner == %@ AND jid == %@ AND state_ != %@", self.owner, self.owner, SignalDeviceStorageItem.TrustState.trusted.rawValue)
+                            
+                            if results.isEmpty {
+                                self.onUpdateTrustedDevicesBlockState(true, identityVerification: myUntrustedDevicesCollection.isEmpty)
+                            } else {
+                                self.onUpdateTrustedDevicesBlockState(!myUntrustedDevicesCollection.isEmpty, identityVerification: false)
+                            }
+                        } catch {
+                            
+                        }
+                        
+                        self.titleLabel.attributedText = self.updateTitle()
+                        self.titleLabel.sizeToFit()
+                        self.titleLabel.layoutIfNeeded()
                     } onError: { error in
                         
                     } onCompleted: {
@@ -387,22 +414,39 @@ extension ChatViewController {
         self.showSkeletonObserver
             .asObservable()
             .debounce(.milliseconds(5), scheduler: MainScheduler.asyncInstance)
+//            .skip(1)
             .subscribe { value in
+
                 self.isSkeletonHided = !value
-//                if !value {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                        self.canUpdateDataset = true
-                        self.runDatasetUpdateTask(shouldScrollToLastMessage: true)
-                        if AccountManager.shared.connectingUsers.value.contains(self.owner) {
+                self.canUpdateDataset = true
+                self.runDatasetUpdateTask(shouldScrollToLastMessage: true)
+                if AccountManager.shared.connectingUsers.value.contains(self.owner) {
+                    self.xabberInputView.isSendButtonEnabled = false
+                } else {
+                    do {
+                        let realm = try WRealm.safe()
+                        let badMessageCollection = realm
+                            .objects(MessageStorageItem.self)
+                            .filter(
+                                "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND messageType != %@ AND (state_ == %@ OR state_ == %@)",
+                                self.owner,
+                                self.jid,
+                                self.conversationType.rawValue,
+                                MessageStorageItem.MessageDisplayType.system.rawValue,
+                                MessageStorageItem.MessageSendingState.sending.rawValue,
+                                MessageStorageItem.MessageSendingState.error.rawValue
+                            )
+                        if value {
                             self.xabberInputView.isSendButtonEnabled = false
                         } else {
-                            self.xabberInputView.isSendButtonEnabled = !value
+                            self.xabberInputView.isSendButtonEnabled = badMessageCollection.isEmpty
                         }
-                        self.xabberInputView.updateSendButtonState()
+                    } catch {
+                        
                     }
-//                }
-//                self.messagesCollectionView.isScrollEnabled = !value
-//                self.messagesCollectionView.isUserInteractionEnabled = !value
+                    
+                }
+                self.xabberInputView.updateSendButtonState()
             } onError: { _ in
                 
             } onCompleted: {
@@ -440,7 +484,28 @@ extension ChatViewController {
                 if self.shouldRequestChatInfo {
                     self.willEnterForeground()
                     self.shouldRequestChatInfo = false
-                    self.xabberInputView.isSendButtonEnabled = true
+                    do {
+                        let realm = try WRealm.safe()
+                        let badMessageCollection = realm
+                            .objects(MessageStorageItem.self)
+                            .filter(
+                                "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND messageType != %@ AND (state_ == %@ OR state_ == %@)",
+                                self.owner,
+                                self.jid,
+                                self.conversationType.rawValue,
+                                MessageStorageItem.MessageDisplayType.system.rawValue,
+                                MessageStorageItem.MessageSendingState.sending.rawValue,
+                                MessageStorageItem.MessageSendingState.error.rawValue
+                            )
+                        if self.showSkeletonObserver.value {
+                            self.xabberInputView.isSendButtonEnabled = false
+                        } else {
+                            self.xabberInputView.isSendButtonEnabled = badMessageCollection.isEmpty
+                        }
+                    } catch {
+                        
+                    }
+//                    self.xabberInputView.isSendButtonEnabled = true
                     self.xabberInputView.updateSendButtonState()
                 }
             }

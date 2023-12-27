@@ -31,7 +31,9 @@ open class OmemoManager: AbstractXMPPManager {
     override func namespaces() -> [String] {
         return [
             OmemoManager.xmlns,
-            [OmemoManager.xmlns, "devices+notify"].joined(separator: ":")
+            [NodeType.device.rawValue, "notify"].joined(separator: "+"),
+            [NodeType.bundle.rawValue, "notify"].joined(separator: "+"),
+//            [NodeType.update.rawValue, "notify"].joined(separator: "+")
         ]
     }
 
@@ -56,6 +58,7 @@ open class OmemoManager: AbstractXMPPManager {
     internal var signalContext: SignalContext
     
     internal var myDeviceRequestElementId: String? = nil
+    var isRefreshRequest: Bool = false
     
 //    internal var preKeys: [PreKeyStoreItem] = []
     
@@ -102,6 +105,10 @@ open class OmemoManager: AbstractXMPPManager {
                 }
             }
             try self.localStore.create(for: deviceId, context: self.signalContext)
+            
+            if (realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: deviceId))?.isPublicated ?? false) {
+                return
+            }
             self.updateMyDevice(stream)
         } catch {
             DDLogDebug("OmemoManager: \(#function). \(error.localizedDescription)")
@@ -179,7 +186,7 @@ open class OmemoManager: AbstractXMPPManager {
         }
     }
     
-    public final func prepareStanzaContent(message: String, date: Date, jid: String, additionalContent: [DDXMLElement]) -> String? {
+    public final func prepareStanzaContent(message: String, date: Date, jid: String, additionalContent: [DDXMLElement], ignoreTimeSignature: Bool) -> String? {
         
         let envelope = DDXMLElement(name: "envelope", xmlns: "urn:xmpp:sce:1")
         let content = DDXMLElement(name: "content")
@@ -187,8 +194,10 @@ open class OmemoManager: AbstractXMPPManager {
         body.stringValue = message
         envelope.addChild(content)
         additionalContent.forEach { content.addChild($0) }
-        if let signature = SignatureManager.shared.signatureElement {
-            content.addChild(signature)
+        if !ignoreTimeSignature {
+            if let signature = SignatureManager.shared.signatureElement {
+                content.addChild(signature)
+            }
         }
         content.addChild(body)
         let from = DDXMLElement(name: "from")
@@ -250,6 +259,7 @@ extension OmemoManager {
     public enum NodeType: String {
         case device = "urn:xmpp:omemo:2:devices"
         case bundle = "urn:xmpp:omemo:2:bundles"
+        case update = "urn:xmpp:omemo:2:bundles:update"
     }
     
     public final func subscribeNode(_ xmppStream: XMPPStream, jid: String, node: NodeType) {
@@ -274,7 +284,20 @@ extension OmemoManager {
         let iq = XMPPIQ(iqType: .set, to: XMPPJID(string: jid), elementID: elementId, child: pubsub)
         xmppStream.send(iq)
     }
-        
+     
+    public final func getAllContactsBundle(_ xmppStream: XMPPStream, jid: String) {
+        do {
+            let realm = try WRealm.safe()
+            realm
+                .objects(SignalIdentityStorageItem.self)
+                .filter("owner == %@ AND jid == %@", self.owner, jid)
+                .compactMap { return $0.deviceId }
+                .forEach { self.getContactBundle(xmppStream, jid: jid, deviceId: $0, force: true) }
+        } catch {
+            DDLogDebug("OmemoManager: \(#function). \(error.localizedDescription)")
+        }
+    }
+    
     public func getContactDevices(_ xmppStream: XMPPStream, jid: String, force: Bool = false) {
         if !force {
             do {
@@ -298,7 +321,7 @@ extension OmemoManager {
         }
         let pubsub = DDXMLElement(name: "pubsub", xmlns: "http://jabber.org/protocol/pubsub")
         let items = DDXMLElement(name: "items")
-        items.addAttribute(withName: "node", stringValue: "\(getPrimaryNamespace()):devices")
+        items.addAttribute(withName: "node", stringValue: NodeType.device.rawValue)
         pubsub.addChild(items)
         let elementId = xmppStream.generateUUID
         let iq = XMPPIQ(iqType: .get, to: jid == owner ? nil : XMPPJID(string: jid), elementID: elementId, child: pubsub)
@@ -306,24 +329,25 @@ extension OmemoManager {
         self.queryIds.append(elementId)
     }
     
-    public func getContactBundle(_ xmppStream: XMPPStream, jid: String, deviceId: Int) {
+    public func getContactBundle(_ xmppStream: XMPPStream, jid: String, deviceId: Int, force: Bool = false) {
         let elementId = xmppStream.generateUUID
         if self.localStore.localDeviceId() == deviceId {
             self.myDeviceRequestElementId = elementId
         }
-        
-        do {
-            let realm = try WRealm.safe()
-            if realm.object(ofType: SignalIdentityStorageItem.self, forPrimaryKey: SignalIdentityStorageItem.genRpimary(owner: self.owner, jid: jid, deviceId: Int(deviceId) )) != nil{
-                return
+        if !force {
+            do {
+                let realm = try WRealm.safe()
+                if realm.object(ofType: SignalIdentityStorageItem.self, forPrimaryKey: SignalIdentityStorageItem.genRpimary(owner: self.owner, jid: jid, deviceId: Int(deviceId) )) != nil{
+                    return
+                }
+            } catch {
+                DDLogDebug("OmemoManager: \(#function). \(error.localizedDescription)")
             }
-        } catch {
-            DDLogDebug("OmemoManager: \(#function). \(error.localizedDescription)")
         }
         
         let pubsub = DDXMLElement(name: "pubsub", xmlns: "http://jabber.org/protocol/pubsub")
         let items = DDXMLElement(name: "items")
-        items.addAttribute(withName: "node", stringValue: "\(getPrimaryNamespace()):bundles")
+        items.addAttribute(withName: "node", stringValue: NodeType.bundle.rawValue)
         let item = DDXMLElement(name: "item")
         item.addAttribute(withName: "id", integerValue: deviceId)
         items.addChild(item)
@@ -339,7 +363,7 @@ extension OmemoManager {
               let jid = iq.from?.bare,
               let pubsub = iq.element(forName: "pubsub", xmlns: "http://jabber.org/protocol/pubsub"),
               let items = pubsub.element(forName: "items"),
-              items.attributeStringValue(forName: "node") == "\(getPrimaryNamespace()):devices",
+              items.attributeStringValue(forName: "node") == NodeType.device.rawValue,
               let error = iq.element(forName: "error") else {
                   return false
               }
@@ -386,7 +410,7 @@ extension OmemoManager {
         guard let jid = iq.from?.bare,
               let pubsub = iq.element(forName: "pubsub", xmlns: "http://jabber.org/protocol/pubsub"),
               let items = pubsub.element(forName: "items"),
-              items.attributeStringValue(forName: "node") == "\(getPrimaryNamespace()):devices" else {
+              items.attributeStringValue(forName: "node") == NodeType.device.rawValue else {
                   return false
               }
         guard let item = items.element(forName: "item") else {
@@ -414,7 +438,7 @@ extension OmemoManager {
         guard let jid = message.from?.bare,
               let event = message.element(forName: "event", xmlns: "http://jabber.org/protocol/pubsub#event"),
               let items = event.element(forName: "items"),
-              items.attributeStringValue(forName: "node") == "\(getPrimaryNamespace()):devices" else {
+              items.attributeStringValue(forName: "node") == NodeType.device.rawValue else {
             return false
         }
         
@@ -445,7 +469,58 @@ extension OmemoManager {
             return true
         }
         return onContactDeviceListReceiveItem(item, jid: jid, fromMessage: true)
-     }
+    }
+    
+    public final func onEncryptionUpdateReceiveHeadline(_ message: XMPPMessage) -> Bool {
+        guard let jid = message.from?.bare,
+              let event = message.element(forName: "event", xmlns: "http://jabber.org/protocol/pubsub#event"),
+              let items = event.element(forName: "items"),
+              items.attributeStringValue(forName: "node") == NodeType.update.rawValue else {
+            return false
+        }
+        
+        guard let item = items.element(forName: "item") else {
+            return true
+        }
+        
+        let itemId = item.attributeDoubleValue(forName: "id")
+        if itemId > 0 {
+            do {
+                let realm = try WRealm.safe()
+                
+                if jid == self.owner {
+                    let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid)
+                    if (instance?.encryptionUpdatedTS ?? 0) <= 1 { return true }
+                    if (instance?.encryptionUpdatedTS ?? 0) < itemId {
+                        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, _ in
+                            self.getAllContactsBundle(stream, jid: jid)
+                        } fail: {
+                            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                                user.omemo.getAllContactsBundle(stream, jid: jid)
+                            })
+                        }
+                    }
+                } else {
+                    let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: self.owner))
+                    if (instance?.encryptionUpdatedTS ?? 0) <= 1 { return true }
+                    if (instance?.encryptionUpdatedTS ?? 0) < itemId {
+                        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, _ in
+                            self.getAllContactsBundle(stream, jid: jid)
+                        } fail: {
+                            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                                user.omemo.getAllContactsBundle(stream, jid: jid)
+                            })
+                        }
+                    }
+                }
+            } catch {
+                DDLogDebug("OmemoManager: \(#function). \(error.localizedDescription)")
+            }
+            
+        }
+        
+        return true
+    }
     
     private func onContactDeviceListReceiveItem(_ item: DDXMLElement, jid: String, fromMessage: Bool = false) -> Bool {
         guard let devices = item.element(forName: "devices", xmlns: getPrimaryNamespace())?.elements(forName: "device") else {
@@ -509,30 +584,31 @@ extension OmemoManager {
             devices.forEach {
                 device in
                 let id = device.attributeIntegerValue(forName: "id")
-                XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-                    self.getContactBundle(stream, jid: jid, deviceId: id)
-                } fail: {
-                    AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                        user.omemo.getContactBundle(stream, jid: jid, deviceId: id)
-                    })
-                }
+                AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                    user.omemo.getContactBundle(stream, jid: jid, deviceId: id, force: self.isRefreshRequest)
+                })
             }
+            
+            self.isRefreshRequest = false
+            
             if jid == self.owner && self.shouldPublicate && !fromMessage {
-                XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, _ in
-                    try? self.publicateOwnDevice(stream, createNode: false)
-                } fail: {
+//                XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, _ in
+//                    try? self.publicateOwnDevice(stream, createNode: false)
+//                } fail: {
                     AccountManager.shared.find(for: self.owner)?.action({ user, stream in
                         try? user.omemo.publicateOwnDevice(stream, createNode: false)
                     })
-                }
+//                }
+                let account = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid)
                 try realm.write {
-                    realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid)?
-                        .isOmemoDevicesListReceived = true
+                    account?.isOmemoDevicesListReceived = true
+                    account?.encryptionUpdatedTS = Date().timeIntervalSince1970
                 }
             } else {
+                let contact = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: self.owner))
                 try realm.write {
-                    realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: self.owner))?
-                        .isOmemoDevicesListReceived = true
+                    contact?.isOmemoDevicesListReceived = true
+                    contact?.encryptionUpdatedTS = Date().timeIntervalSince1970
                 }
             }
         } catch {
@@ -546,7 +622,7 @@ extension OmemoManager {
               let from = iq.from?.bare,
               let pubsub = iq.element(forName: "pubsub", xmlns: "http://jabber.org/protocol/pubsub"),
               let items = pubsub.element(forName: "items"),
-              items.attributeStringValue(forName: "node") == "\(getPrimaryNamespace()):bundles",
+              items.attributeStringValue(forName: "node") == NodeType.bundle.rawValue,
               let error = iq.element(forName: "error"),
               error.attributeStringValue(forName: "code") == "404" else {
                   return false
@@ -569,18 +645,10 @@ extension OmemoManager {
                     realm.delete(instance)
                 }
             }
-            
-            XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-                try? self.sendOwnDevice(stream, createNode: false)
-                self.deleteDeviceOrBundle(stream, jid: nil, itemId: deviceId, node: .bundle)
-            } fail: {
-                AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                    try? user.omemo.sendOwnDevice(stream, createNode: false)
-                    user.omemo.deleteDeviceOrBundle(stream, jid: nil, itemId: deviceId, node: .bundle)
-                })
-            }
-
-            
+            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                try? user.omemo.sendOwnDevice(stream, createNode: false)
+                user.omemo.deleteDeviceOrBundle(stream, jid: nil, itemId: deviceId, node: .bundle)
+            })
         } catch {
             DDLogDebug("OmemoManager: \(#function). \(error.localizedDescription)")
         }
@@ -634,23 +702,19 @@ extension OmemoManager {
             }
             return true
         }
-        
+
         RunLoop.main.perform {
             let itemId = item.attributeIntegerValue(forName: "id")
             do {
                 try _ = self.onContactBundleReceive(items: items, jid: from)
             } catch {
-                if from != self.owner { return }
-                XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { stream, session in
-                    self.deleteDeviceOrBundle(stream, jid: iq.from, itemId: itemId, node: .bundle)
-                }) {
-                    AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                if from == self.owner {
+                    AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, stream in
                         user.omemo.deleteDeviceOrBundle(stream, jid: iq.from, itemId: itemId, node: .bundle)
                     })
                 }
             }
         }
-        
         
         return true
     }
@@ -659,10 +723,10 @@ extension OmemoManager {
         guard let from = message.from?.bare,
               let event = message.element(forName: "event", xmlns: "http://jabber.org/protocol/pubsub#event"),
               let items = event.element(forName: "items"),
-              items.attributeStringValue(forName: "node") == "\(getPrimaryNamespace()):bundles" else {
+              items.attributeStringValue(forName: "node") == NodeType.bundle.rawValue else {
                   return false
               }
-        guard let item = items.element(forName: "item") else {
+        guard let item  = items.element(forName: "item") else {
             return false
         }
         RunLoop.main.perform {
@@ -671,13 +735,9 @@ extension OmemoManager {
                 try _ = self.onContactBundleReceive(items: items, jid: from)
             } catch {
                 if from != self.owner { return }
-                XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { stream, session in
-                    self.deleteDeviceOrBundle(stream, jid: message.from, itemId: itemId, node: .bundle)
-                }) {
-                    AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                        user.omemo.deleteDeviceOrBundle(stream, jid: message.from, itemId: itemId, node: .bundle)
-                    })
-                }
+                AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, stream in
+                    user.omemo.deleteDeviceOrBundle(stream, jid: message.from, itemId: itemId, node: .bundle)
+                })
             }
         }
         
@@ -716,7 +776,7 @@ extension OmemoManager {
             throw OmemoManagerError.bundleNotFound
           }
                 
-        let signed: Bool = bundle.element(forName: "time-signature", xmlns: SignatureManager.xmlns) != nil
+//        let signed: Bool = bundle.element(forName: "time-signature", xmlns: SignatureManager.xmlns) != nil
         var signedInfo: SignatureManager.BundleSignedInfo? = nil
         if let signature = bundle.element(forName: "time-signature", xmlns: SignatureManager.xmlns) {
             signedInfo = try SignatureManager.shared.checkBundleSignature(
@@ -774,8 +834,31 @@ extension OmemoManager {
                         instance.signedAt = -1
                         instance.signedBy = nil
                     }
-                    
-                    
+                }
+            } else {
+                let ik_data = Data(base64Encoded: ik_b64, options: .ignoreUnknownCharacters)
+                let instance = SignalDeviceStorageItem()
+                instance.owner = self.owner
+                instance.jid = jid
+                instance.primary = SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: jid, deviceId: cDeviceId)
+                instance.deviceId = Int(cDeviceId)
+                instance.state = .unknown
+                instance.freshlyUpdated = true
+                instance.fingerprint = ik_data?.formattedFingerprint() ?? ""
+                instance.signature = bundle.element(forName: "time-signature", xmlns: SignatureManager.xmlns)?.xmlString
+                if let signedInfo = signedInfo,
+                   signedInfo.signedBy == jid {
+                    instance.state = .trusted
+                    instance.isTrustedByCertificate = true
+                    instance.signedAt = signedInfo.signedAt
+                    instance.signedBy = signedInfo.signedBy
+                } else {
+                    instance.isTrustedByCertificate = false
+                    instance.signedAt = -1
+                    instance.signedBy = nil
+                }
+                try realm.write {
+                    realm.add(instance)
                 }
             }
         } else {
@@ -808,6 +891,29 @@ extension OmemoManager {
                         instance.signedAt = -1
                         instance.signedBy = nil
                     }
+                } else {
+                    let ik_data = Data(base64Encoded: ik_b64, options: .ignoreUnknownCharacters)
+                    let instance = SignalDeviceStorageItem()
+                    instance.owner = self.owner
+                    instance.jid = jid
+                    instance.primary = SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: jid, deviceId: cDeviceId)
+                    instance.deviceId = Int(cDeviceId)
+                    instance.state = .unknown
+                    instance.freshlyUpdated = true
+                    instance.fingerprint = ik_data?.formattedFingerprint() ?? ""
+                    instance.signature = bundle.element(forName: "time-signature", xmlns: SignatureManager.xmlns)?.xmlString
+                    if let signedInfo = signedInfo,
+                       signedInfo.signedBy == jid {
+                        instance.state = .trusted
+                        instance.isTrustedByCertificate = true
+                        instance.signedAt = signedInfo.signedAt
+                        instance.signedBy = signedInfo.signedBy
+                    } else {
+                        instance.isTrustedByCertificate = false
+                        instance.signedAt = -1
+                        instance.signedBy = nil
+                    }
+                    realm.add(instance)
                 }
             }
         }
@@ -846,7 +952,7 @@ extension OmemoManager {
                     .first(where: { $0.attributeStringValue(forName: "node") == "https://xabber.com/protocol/synchronization" })?
                     .element(forName: "last-message")?
                     .element(forName: "message")?
-                    .addChild(DDXMLElement(name: "body", stringValue: body ?? "Failed to decrypt"))
+                    .addChild(DDXMLElement(name: "body", stringValue: body ?? "Failed to decrypt \(content?.prettyXMLString ?? "no content")"))
                 
                 if let content = content?.element(forName: "content") {
                     content.children?.forEach {
@@ -887,7 +993,7 @@ extension OmemoManager {
             let content = try self.decryptMessage(message)
             let body = content?.element(forName: "content")?.element(forName: "body")?.stringValue
             message.remove(forName: "body")
-            message.addBody(body ?? "Failed to decrypt")
+            message.addBody(body ?? "Failed to decrypt \(content?.prettyXMLString ?? "no content")")
             if let content = content?.element(forName: "content") {
                 content.children?.forEach {
                     if $0.name != "body" {
@@ -898,7 +1004,6 @@ extension OmemoManager {
                 resultElement.addAttribute(withName: "result", boolValue: true)
                 message.addChild(resultElement)
             }
-            print("========", #function, message.prettyXMLString!)
         } catch {
             DDLogDebug("OmemoManager: \(#function). \(error.localizedDescription)")
         }
@@ -916,7 +1021,7 @@ extension OmemoManager {
                 let body = content?.element(forName: "content")?.element(forName: "body")?.stringValue
                 
                 message.element(forName: "result")?.element(forName: "forwarded")?.element(forName: "message")?.remove(forName: "body")
-                message.element(forName: "result")?.element(forName: "forwarded")?.element(forName: "message")?.addChild(DDXMLElement(name: "body", stringValue: body ?? "Failed to decrypt"))
+                message.element(forName: "result")?.element(forName: "forwarded")?.element(forName: "message")?.addChild(DDXMLElement(name: "body", stringValue: body ?? "Failed to decrypt \(content?.prettyXMLString ?? "no content")"))
                 if let content = content?.element(forName: "content") {
                     content.children?.forEach {
                         if $0.name != "body" {
@@ -927,7 +1032,6 @@ extension OmemoManager {
                     resultElement.addAttribute(withName: "result", boolValue: true)
                     message.addChild(resultElement)
                 }
-                print("========, archive", #function, message.prettyXMLString!)
                 return message
             } catch {
                 DDLogDebug("OmemoManager: \(#function). \(error.localizedDescription)")
@@ -940,7 +1044,7 @@ extension OmemoManager {
                 let content = try self.decryptMessage(message)
                 let body = content?.element(forName: "content")?.element(forName: "body")?.stringValue
                 message.remove(forName: "body")
-                message.addBody(body ?? "Failed to decrypt")
+                message.addBody(body ?? "Failed to decrypt \(content?.prettyXMLString ?? "no content")")
                 if let content = content?.element(forName: "content") {
                     content.children?.forEach {
                         if $0.name != "body" {
@@ -951,7 +1055,6 @@ extension OmemoManager {
                     resultElement.addAttribute(withName: "result", boolValue: true)
                     message.addChild(resultElement)
                 }
-                print("======== chat", #function, message.prettyXMLString!)
                 return message
             } catch {
                 DDLogDebug("OmemoManager: \(#function). \(error.localizedDescription)")
@@ -961,8 +1064,6 @@ extension OmemoManager {
     }
     
     func didReceiveOmemoMessage(_ message: XMPPMessage, fromCCC: Bool = false) -> Bool {
-        
-        
         if isArchivedMessage(message) {
             do {
                 guard let bareMessage = getArchivedMessageContainer(message),
@@ -973,7 +1074,7 @@ extension OmemoManager {
                 let body = content?.element(forName: "content")?.element(forName: "body")?.stringValue
 
                 message.element(forName: "result")?.element(forName: "forwarded")?.element(forName: "message")?.remove(forName: "body")
-                message.element(forName: "result")?.element(forName: "forwarded")?.element(forName: "message")?.addChild(DDXMLElement(name: "body", stringValue: body ?? "Failed to decrypt"))
+                message.element(forName: "result")?.element(forName: "forwarded")?.element(forName: "message")?.addChild(DDXMLElement(name: "body", stringValue: body ?? "Failed to decrypt \(content?.prettyXMLString ?? "no content")"))
                 if let content = content?.element(forName: "content") {
                     content.children?.forEach {
                         if $0.name != "body" {
@@ -984,7 +1085,6 @@ extension OmemoManager {
                     resultElement.addAttribute(withName: "result", boolValue: true)
                     message.element(forName: "result")?.element(forName: "forwarded")?.element(forName: "message")?.addChild(resultElement)
                 }
-                print("======== archive", #function, message.prettyXMLString!)
                 AccountManager.shared.find(for: self.owner)?.messages.receiveArchived(message)
             } catch {
                 DDLogDebug("OmemoManager: \(#function). \(error.localizedDescription)")
@@ -998,9 +1098,9 @@ extension OmemoManager {
                       }
                 let content = try self.decryptMessage(bareMessage)
                 let body = content?.element(forName: "content")?.element(forName: "body")?.stringValue
-                
+                if body == nil { return true }
                 message.element(forName: "sent")?.element(forName: "forwarded")?.element(forName: "message")?.remove(forName: "body")
-                message.element(forName: "sent")?.element(forName: "forwarded")?.element(forName: "message")?.addChild(DDXMLElement(name: "body", stringValue: body ?? "Failed to decrypt"))
+                message.element(forName: "sent")?.element(forName: "forwarded")?.element(forName: "message")?.addChild(DDXMLElement(name: "body", stringValue: body ?? "Failed to decrypt \(content?.prettyXMLString ?? "no content")"))
                 if let content = content?.element(forName: "content") {
                     content.children?.forEach {
                         if $0.name != "body" {
@@ -1011,7 +1111,6 @@ extension OmemoManager {
                     resultElement.addAttribute(withName: "result", boolValue: true)
                     message.element(forName: "sent")?.element(forName: "forwarded")?.element(forName: "message")?.addChild(resultElement)
                 }
-                print("======== carbon sent", #function, message.prettyXMLString!)
                 AccountManager.shared.find(for: self.owner)?.messages.receiveCarbon(message)
             } catch {
 //                fatalError(error.localizedDescription)
@@ -1028,12 +1127,8 @@ extension OmemoManager {
                 let body = content?.element(forName: "content")?.element(forName: "body")?.stringValue
                 
                 
-//                print("BODY OMEMO 121212", body!, content!.prettyXMLString!)
                 message.element(forName: "received")?.element(forName: "forwarded")?.element(forName: "message")?.remove(forName: "body")
-                message.element(forName: "received")?.element(forName: "forwarded")?.element(forName: "message")?.addChild(DDXMLElement(name: "body", stringValue: body ?? "Failed to decrypt"))
-//                if let content = content {
-//                    message.element(forName: "received")?.element(forName: "forwarded")?.element(forName: "message")?.addChild(content)
-//                }
+                message.element(forName: "received")?.element(forName: "forwarded")?.element(forName: "message")?.addChild(DDXMLElement(name: "body", stringValue: body ?? "Failed to decrypt \(content?.prettyXMLString ?? "no content")"))
                 if let content = content?.element(forName: "content") {
                     content.children?.forEach {
                         if $0.name != "body" {
@@ -1044,7 +1139,6 @@ extension OmemoManager {
                     resultElement.addAttribute(withName: "result", boolValue: true)
                     message.element(forName: "received")?.element(forName: "forwarded")?.element(forName: "message")?.addChild(resultElement)
                 }
-                print("======== forwarded", #function, message.prettyXMLString!)
                 AccountManager.shared.find(for: self.owner)?.messages.receiveCarbonForwarded(message)
             } catch {
 //                fatalError(error.localizedDescription)
@@ -1059,7 +1153,7 @@ extension OmemoManager {
                 let content = try self.decryptMessage(message)
                 let body = content?.element(forName: "content")?.element(forName: "body")?.stringValue
                 message.remove(forName: "body")
-                message.addBody(body ?? "Failed to decrypt")
+                message.addBody(body ?? "Failed to decrypt \(content?.prettyXMLString ?? "no content")")
 //                if let content = content {
 //                    message.addChild(content)
 //                }
@@ -1073,7 +1167,6 @@ extension OmemoManager {
                     resultElement.addAttribute(withName: "result", boolValue: true)
                     message.addChild(resultElement)
                 }
-                print("======== chat", #function, message.prettyXMLString!)
                 AccountManager.shared.find(for: self.owner)?.messages.receiveRuntime(message)
             } catch {
 //                fatalError(error.localizedDescription)
@@ -1106,7 +1199,6 @@ extension OmemoManager {
             .elements(forName: "key")
             .first(where: { $0.attributeIntegerValue(forName: "rid") == self.localStore.localDeviceId() })
         
-        print(keyElement)
         
         let keyExchange = keyElement?.attributeBoolValue(forName: "kex") ?? false
         guard let ratchetInfo = keyElement?.stringValue else {
@@ -1115,8 +1207,6 @@ extension OmemoManager {
         
         let unratchedData = try self.doubleUnratched(ratchetInfo, jid: from, deviceId: senderDeviceId, keyExchange: keyExchange)
         
-        print(unratchedData)
-
         let key = Data(unratchedData!.prefix(32))
         let hmac = Data(unratchedData!.suffix(16))
         
@@ -1137,8 +1227,6 @@ extension OmemoManager {
         
         let symKey = SymmetricKey(data: Data(authKey))
         let hmacCalculated = CryptoKit.HMAC<SHA256>.authenticationCode(for: Data(payloadData), using: symKey)
-        print(Array<UInt8>(hmac).description)
-        print(Array<UInt8>(hmacCalculated).description)
         guard Array<UInt8>(hmac) == Array<UInt8>(hmacCalculated.prefix(16)) else {
             return nil
         }
@@ -1147,126 +1235,12 @@ extension OmemoManager {
         let aes = try AES(key: encryptionKey, blockMode: gcm, padding: .pkcs7)
         let decrypted = try aes.decrypt(payloadData.bytes)
 
-        print(String(data: Data(decrypted), encoding: .utf8))
         let doceument = try DDXMLDocument(xmlString: String(data: Data(decrypted), encoding: .utf8)!, options: 0)
         let element = doceument.rootElement()
         element?.detach()
         
         return element
     }
-        
-    func decryptMessageT(_ message: XMPPMessage) throws -> String?  {
-        guard let from = message.from?.bare,
-              let encryptedElement = message.element(forName: "encrypted", xmlns: getPrimaryNamespace()),
-              let headerElement = encryptedElement.element(forName: "header") else {
-                  print(1)
-                  return nil
-              }
-        let sid = headerElement.attributeIntValue(forName: "sid")
-        print(encryptedElement.prettyXMLString!)
-        let keyElement = headerElement
-            .elements(forName: "keys")
-            .filter({ $0.attributeStringValue(forName: "jid") == self.owner })
-            .first?
-            .elements(forName: "key")
-            .first
-
-        print(keyElement)
-
-        guard let keyElementValue = keyElement?.stringValue else {
-            print(2)
-            return nil
-        }
-
-        guard let keyElementData = Data(base64Encoded: keyElementValue) else {
-            print(3)
-            return nil
-        }
-//
-//        print(self.contacts.filter({ $0.jid == from }).first?.devices.filter({ $0.id == UInt32(sid) }))
-//
-//
-//
-//        self.contacts.filter({ $0.jid == from }).first?.devices.filter({ $0.id == UInt32(sid) }).first?.remotes.forEach {
-//            remote in
-//            do {
-//                let session = try Session(local: self.local!, remote: remote)
-//                let decrypted = try session.decrypt_d(message: keyElementValue)
-//                print(decrypted)
-//            } catch {
-//                print(error.localizedDescription)
-//            }
-//        }
-//
-//        guard let remote = self.contacts.filter({ $0.jid == from }).first?.devices.filter({ $0.id == UInt32(sid) }).first?.remotes.first else {
-//            print(4)
-//            return nil
-//        }
-//
-//        print(remote)
-//
-//        let session = try Session(local: self.local!, remoteAddress: remote.protoclAddress)
-//        let session = try Session(local: self.local!, remoteAddress: remote.protoclAddress)
-
-//        let ses = try session.store.loadSession(for: remote.protoclAddress, context: NullContext())
-//        print(ses?.hasCurrentState)
-//
-//        print(try session.store.isTrustedIdentity(remote.identityKeyPairPublicKey, for: remote.protoclAddress, direction: .receiving, context: NullContext()))
-//        let session = try Session(local: self.local!, remoteAddress: ProtocolAddress(name: from, deviceId: UInt32(sid)))
-        let decrypted = Array(keyElementData)
-
-        let key = decrypted
-//        let key = Array(decrypted.prefix(32))
-//        let tag = Array(decrypted.suffix(16))
-
-        guard let iv_raw = headerElement.element(forName: "iv")?.stringValue,
-              let iv = Data(base64Encoded: iv_raw) else {
-                  print(5)
-                  return nil
-              }
-
-        guard let encryptedPayload = encryptedElement.element(forName: "payload")?.stringValue,
-              let encryptedData = Data(base64Encoded: encryptedPayload) else {
-                  print(6)
-                  return nil
-              }
-
-        let gcm = GCM(iv: Array(iv), mode: .combined)
-        let aes = try AES(key: Array(key), blockMode: gcm, padding: .noPadding)
-        let body = try aes.decrypt(Array(encryptedData))
-        print(body)
-//        let encrypted = try aes.decr
-//        let tag = gcm.authenticationTag
-
-
-        return String(bytes: body, encoding: .utf8)
-    }
     
-//    static func remove(for owner: String, commitTransaction: Bool) {
-//        func transaction(_ block: () -> Void) throws {
-//            let realm = try WRealm.safe()
-//            
-//            if commitTransaction {
-//                try realm.write {
-//                    block()
-//                }
-//            } else {
-//                block()
-//            }
-//        }
-//        do {
-//            let realm = try WRealm.safe()
-//            let identityCollection = realm.objects(SignalIdentityStorageItem.self).filter("owner == %@",  owner)
-//            let devicesCollection = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@",  owner)
-//            let preKeysCollection = realm.objects(SignalPreKeysStorageItem.self).filter("owner == %@",  owner)
-//            try transaction {
-//                realm.delete(identityCollection)
-//                realm.delete(devicesCollection)
-//                realm.delete(preKeysCollection)
-//            }
-//        } catch {
-//            DDLogDebug("OmemoManager: \(#function). \(error.localizedDescription)")
-//        }
-//     }
          
 }

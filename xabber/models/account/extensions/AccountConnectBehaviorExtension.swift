@@ -48,15 +48,18 @@ extension Account {
         XMPPUIActionManager.shared.open(owner: self.jid, force: true)
         if self.sm.didResume {
             AccountManager.shared.markAsConnected(jid: self.jid)
-            self.presence()
-            DispatchQueue.main.async {
-                ToastPresenter(message: "SM did resume").present(animated: true)
-            }
+//            self.presence()
+//            DispatchQueue.main.async {
+//                ToastPresenter(message: "SM did resume").present(animated: true)
+//            }
+//            self.push.enable(xmppStream: self.xmppStream) { _ in
+//                
+//            }
 //            _ = self.syncManager.sync(self.xmppStream)
         } else {
-            DispatchQueue.main.async {
-                ToastPresenter(message: "Synchronization").present(animated: true)
-            }
+//            DispatchQueue.main.async {
+//                ToastPresenter(message: "Synchronization").present(animated: true)
+//            }
             self.configureExtensions()
             self.disco.configure(self.xmppStream)
             if self.roster.version != nil {
@@ -113,6 +116,10 @@ extension Account {
                         self.statusMessage.accept(error.element(forName: "text")?.stringValue ?? "Offline")
                     }
                 case "not-authorized":
+                    if error.element(forName: "text")?.stringValue == "Device was revoked" {
+                        self.tokenWasInvalidated()
+                        return
+                    }
                     self.statusMessage.accept("Incorrect username or password")
                     if self.jid != AccountManager.shared.newAccountJid {
                         self.tokenShouldUpdate()
@@ -183,8 +190,10 @@ extension Account {
     
     public final func didReceiveRoster() {
         self.queue.asyncAfter(deadline: .now() + 1) {
-            self.updateExtensions()
             self.presence()
+            self.queue.asyncAfter(deadline: .now() + 1) {
+                self.updateExtensions()
+            }
         }
         if sm.canResumeStream() {
             return

@@ -122,12 +122,20 @@ class PushNotificationsManager: AbstractXMPPManager {
         })
     }
     
+    var enabled: Bool = false
+    
     func enable(xmppStream: XMPPStream, callback: (Bool)->Void) {
         guard let jid = xmppStream.myJID,
             node.isNotEmpty else {
                 callback(false)
                 return
         }
+        
+        if enabled {
+            callback(true)
+            return
+        }
+        
         let elementId = xmppStream.generateUUID
         
         let secret = "iAPfsdcpEduGqwPBQTPpPQroMYlCNhUA" //String.randomString(length: 32, includeNumber: false)
@@ -157,6 +165,7 @@ class PushNotificationsManager: AbstractXMPPManager {
         
         queryIds.insert(elementId)
         callback(true)
+        enabled = true
     }
     
     func disable(xmppStream: XMPPStream) {

@@ -361,7 +361,7 @@ final class Account: NSObject {
         }
         do {
             AccountManager.shared.markAsConnecting(jid: self.jid)
-            try self.xmppStream.connect(withTimeout: 1)
+            try self.xmppStream.connect(withTimeout: 5)
         } catch {
             DDLogDebug("cant conenct: \(error.localizedDescription)")
             self.statusMessage.accept("Offline")
@@ -369,7 +369,7 @@ final class Account: NSObject {
             AccountManager.shared.markAsConnected(jid: self.jid)
             if self.delayedConnectTimer == nil {
                 self.delayedConnectTimer?.invalidate()
-                self.delayedConnectTimer = Timer(timeInterval: 2, target: self, selector: #selector(self.connect), userInfo: nil, repeats: false)
+                self.delayedConnectTimer = Timer(timeInterval: 1, target: self, selector: #selector(self.connect), userInfo: nil, repeats: false)
                 RunLoop.main.add(self.delayedConnectTimer!, forMode: RunLoop.Mode.default)
             }
         }
@@ -397,6 +397,7 @@ final class Account: NSObject {
             self.xmppStream.disconnect()
 //            self.xmppStream.asyncSocket.disconnect()
         } else {
+            self.reconnect.autoReconnect = false
             self.xmppStream.send(XMPPPresence(type: .unavailable))
             self.xmppStream.disconnectAfterSending()
 //            self.xmppStream.asyncSocket.disconnectAfterReadingAndWriting()
@@ -879,7 +880,7 @@ final class Account: NSObject {
  **/
     func action(_ toExecute: @escaping ((Account, XMPPStream) -> Void)) {
         self.queue.async {
-            [unowned self] in
+//            [unowned self] in
             toExecute(self, self.xmppStream)
         }
     }

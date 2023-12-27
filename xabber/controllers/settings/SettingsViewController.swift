@@ -246,6 +246,7 @@ class SettingsViewController: BaseViewController {
     
     internal let headerView: InfoScreenHeaderView = {
         let view = InfoScreenHeaderView(frame: .zero)
+        
         return view
     }()
     
@@ -289,11 +290,14 @@ class SettingsViewController: BaseViewController {
             
             tableView.reloadData()
             
+            let accountsObserver = realm
+                .objects(AccountStorageItem.self)
+                .filter("jid == %@", jid)
+            
             Observable
-                .collection(from: realm
-                    .objects(AccountStorageItem.self)
-                    .filter("jid == %@", jid))
-                .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
+                .collection(from: accountsObserver)
+                .debounce(.milliseconds(700), scheduler: MainScheduler.asyncInstance)
+                .skip(1)
                 .subscribe(onNext: { (results) in
                     if let item = results.first {
                         self.nickname = item.username
@@ -319,6 +323,28 @@ class SettingsViewController: BaseViewController {
                     
                 }).disposed(by: bag)
            
+            if let item = accountsObserver.first {
+                self.nickname = item.username
+
+                if item.enabled {
+                    self.currentResource = item.resource?.resource
+                } else {
+                    self.currentResource = nil
+                }
+                self.headerView.configure(
+                    avatarUrl: item.avatarMaxUrl ?? item.avatarMinUrl ?? item.oldschoolAvatarKey,
+                    jid: self.jid,
+                    owner: self.jid,
+                    userId: nil,
+                    title: self.nickname,
+                    subtitle: self.jid,
+                    thirdLine: nil,
+                    titleColor: AccountColorManager.shared.primaryColor(for: self.jid)
+                )
+            } else {
+                self.nickname = XMPPJID(string: self.jid)?.user ?? self.jid
+            }
+            
             Observable
                 .changeset(from: self.resources!)
                 .debounce(.milliseconds(12), scheduler: MainScheduler.asyncInstance)
@@ -608,13 +634,31 @@ class SettingsViewController: BaseViewController {
                                                name: .newMaskSelected,
                                                object: nil)
         
-        DefaultAvatarManager.shared.getAvatar(url: self.avatarUrl, jid: jid, owner: jid, size: 128) { image in
-            if let image = image {
-                self.headerView.imageButton.setImage(image, for: .normal)
-            } else {
-                self.headerView.imageButton.setImage(UIImageView.getDefaultAvatar(for: self.jid, owner: self.jid, size: 256), for: .normal)
-            }
-        }
+//        do {
+//            let realm = try WRealm.safe()
+//            if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: self.jid) {
+//                self.headerView.configure(
+//                    avatarUrl: instance.avatarMaxUrl ?? instance.avatarMinUrl ?? instance.oldschoolAvatarKey,
+//                    jid: self.jid,
+//                    owner: self.jid,
+//                    userId: nil,
+//                    title: self.nickname,
+//                    subtitle: self.jid,
+//                    thirdLine: nil,
+//                    titleColor: AccountColorManager.shared.primaryColor(for: self.jid)
+//                )
+//            }
+//        } catch {
+//            DDLogDebug("SettingsViewController:\(#function). \(error.localizedDescription)")
+//        }
+        
+//        DefaultAvatarManager.shared.getAvatar(url: self.avatarUrl, jid: jid, owner: jid, size: 128) { image in
+//            if let image = image {
+//                self.headerView.imageButton.setImage(image, for: .normal)
+//            } else {
+//                self.headerView.imageButton.setImage(UIImageView.getDefaultAvatar(for: self.jid, owner: self.jid, size: 256), for: .normal)
+//            }
+//        }
     }
     
     func headerViewConfig() {

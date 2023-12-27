@@ -39,26 +39,22 @@ extension ChatViewController {
         if [.omemo, .omemo1, .axolotl].contains(self.conversationType) {
             do {
                 let realm = try WRealm.safe()
-                let collectionOwner = realm
-                    .objects(SignalDeviceStorageItem.self)
-                    .filter("jid == %@ AND owner == %@ AND state_ != %@", owner, owner, SignalDeviceStorageItem.TrustState.trusted.rawValue).count
                 let collectionJid = realm
                     .objects(SignalDeviceStorageItem.self)
-                    .filter("jid == %@ AND owner == %@ AND state_ != %@", jid, owner, SignalDeviceStorageItem.TrustState.trusted.rawValue).count
-                if collectionOwner > 0 {
+                    .filter("jid == %@ AND owner == %@", jid, owner)
+                if collectionJid.toArray().filter({ $0.state != .trusted }).count > 0 {
                     color = .systemYellow
                     indicatorAttach.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withTintColor(.systemYellow)
                     attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
-                } else if collectionJid > 0 {
-                    color = .systemYellow
-                    indicatorAttach.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withTintColor(.systemYellow)
+                } else if collectionJid.count == 0 {
+                    color = .systemBlue
+                    indicatorAttach.image = UIImage(systemName: "questionmark.diamond.fill")?.withTintColor(.systemBlue)
                     attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
                 } else {
                     color = .systemGreen
                     indicatorAttach.image = UIImage(systemName: "lock.fill")?.withTintColor(.systemGreen)
                     attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
                 }
-                
             } catch {
                 DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
             }

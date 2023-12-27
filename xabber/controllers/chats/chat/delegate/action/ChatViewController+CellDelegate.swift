@@ -70,14 +70,14 @@ extension ChatViewController: MessageCellDelegate {
             self.definesPresentationContext = true
             self.present(nvc, animated: true, completion: nil)
         } else {
-            let errorMessage = item.messageError
+            let errorMessage = "Unable to send file: out of Cloud Storage"//item.messageError
             let items = [
                 ActionSheetPresenter.Item(destructive: false, title: "Retry", value: "retry"),
                 ActionSheetPresenter.Item(destructive: true, title: "Delete", value: "delete"),
             ]
             let itemsWithQuota = [
-                ActionSheetPresenter.Item(destructive: false, title: "Retry", value: "retry"),
-                ActionSheetPresenter.Item(destructive: false, title: "Manage quota", value: "quota"),
+                ActionSheetPresenter.Item(destructive: false, title: self.blockInputFieldByTimeSignature.value ? "Update signature" :  "Retry", value: "retry"),
+                ActionSheetPresenter.Item(destructive: false, title: "Manage Cloud Storage", value: "quota"),
                 ActionSheetPresenter.Item(destructive: true, title: "Delete", value: "delete"),
             ]
             ActionSheetPresenter().present(
@@ -85,7 +85,7 @@ extension ChatViewController: MessageCellDelegate {
                 title: "Message sending error",
                 message: errorMessage,
                 cancel: "Cancel",
-                values: item.messageErrorCode == "403" ? itemsWithQuota : items,
+                values: ["403", "400"].contains(item.messageErrorCode) ? itemsWithQuota : items,
                 animated: true) { value in
                     switch value {
                         case "retry":
@@ -115,21 +115,25 @@ extension ChatViewController: MessageCellDelegate {
     }
     
     private func retryMessageSend(_ primary: String) {
-        do {
-            let realm = try WRealm.safe()
-            if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
-                try realm.write {
-                    instance.state = .sending
-                    instance.messageError = nil
+        if self.blockInputFieldByTimeSignature.value  {
+            onSignButtonTouchUpInside()
+        } else {
+            do {
+                let realm = try WRealm.safe()
+                if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
+                    try realm.write {
+                        instance.state = .sending
+                        instance.messageError = nil
+                    }
                 }
+                LastChats.updateErrorState(for: self.jid, owner: self.owner, conversationType: self.conversationType)
+            } catch {
+                DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
             }
-            LastChats.updateErrorState(for: self.jid, owner: self.owner, conversationType: self.conversationType)
-        } catch {
-            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                user.messages.retrySending(item: primary)
+            })
         }
-        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-            user.messages.retrySending(item: primary)
-        })
     }
     
     private func deleteSendingMessage(_ primary: String) {

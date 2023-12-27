@@ -46,8 +46,9 @@ extension MessageManager {
         var queryId: String? = nil
         var groupchatUserCard: DDXMLElement? = nil
         var readDate: Date? = nil
+        var messageId: String? = nil
         
-        init(_ message: XMPPMessage, archivedFrom: String?, isRead: Bool, date: Date, state: MessageStorageItem.MessageSendingState, forceUnreadState: Bool? = nil, clientSyncMessage: Bool = false, queryId: String?, groupchatUserCard: DDXMLElement? = nil, readDate: Date? = nil) {
+        init(_ message: XMPPMessage, messageId: String?, archivedFrom: String?, isRead: Bool, date: Date, state: MessageStorageItem.MessageSendingState, forceUnreadState: Bool? = nil, clientSyncMessage: Bool = false, queryId: String?, groupchatUserCard: DDXMLElement? = nil, readDate: Date? = nil) {
             self.message = message
             self.archivedFrom = archivedFrom
             self.isRead = isRead
@@ -58,6 +59,7 @@ extension MessageManager {
             self.groupchatUserCard = groupchatUserCard
             self.queryId = queryId
             self.readDate = readDate
+            self.messageId = messageId
         }
         
         func hash(into hasher: inout Hasher) {
@@ -74,6 +76,7 @@ extension MessageManager {
     public func receiveClientSyncRaw(_ message: XMPPMessage, groupchatUserCard: DDXMLElement?, isRead: Bool, state: MessageStorageItem.MessageSendingState, date: Date, readDate: Date? = nil) -> MessageQueueItem? {
         return MessageQueueItem(
             message,
+            messageId: getOriginId(message),
             archivedFrom: message.from?.bare,
             isRead: isRead,
             date: date,
@@ -88,6 +91,7 @@ extension MessageManager {
     
     public func receiveClientSync(_ message: XMPPMessage, isRead: Bool, state: MessageStorageItem.MessageSendingState, date: Date) {
         enqueue(MessageQueueItem(message,
+                                 messageId: getOriginId(message),
                                  archivedFrom: message.from?.bare,
                                  isRead: isRead,
                                  date: date,
@@ -102,6 +106,7 @@ extension MessageManager {
         if let date = getDelayedDate(message),
             let messageBare = getArchivedMessageContainer(message) {
              return MessageQueueItem(messageBare,
+                                     messageId: getOriginId(messageBare),
                                      archivedFrom: message.from?.bare,
                                      isRead: message.from?.bare == owner ? true : false,
                                      date: getDeliveryTime(messageBare, owner: owner) ?? date,
@@ -116,6 +121,7 @@ extension MessageManager {
         if let date = getDelayedDate(message),
             let messageBare = getArchivedMessageContainer(message) {
             enqueue(MessageQueueItem(messageBare,
+                                     messageId: getOriginId(messageBare),
                                      archivedFrom: message.from?.bare,
                                      isRead: true,
                                      date: getDeliveryTime(messageBare, owner: owner) ?? date,
@@ -127,6 +133,7 @@ extension MessageManager {
     public func receiveCarbon(_ message: XMPPMessage) {
         if let messageBare = getCarbonCopyMessageContainer(message) {
             enqueue(MessageQueueItem(messageBare,
+                                     messageId: getOriginId(messageBare),
                                      archivedFrom: message.from?.bare,
                                      isRead: true,
                                      date: getDeliveryTime(messageBare, owner: owner) ?? Date(),
@@ -138,6 +145,7 @@ extension MessageManager {
     public func receiveCarbonForwarded(_ message: XMPPMessage) {
         if let messageBare = getCarbonForwardedMessageContainer(message) {
             enqueue(MessageQueueItem(messageBare,
+                                     messageId: getOriginId(messageBare),
                                      archivedFrom: message.from?.bare,
                                      isRead: false,
                                      date: getDeliveryTime(messageBare, owner: owner) ?? Date(),
@@ -148,6 +156,7 @@ extension MessageManager {
     
     public func receiveRuntime(_ message: XMPPMessage) {
         enqueue(MessageQueueItem(message,
+                                 messageId: getOriginId(message),
                                  archivedFrom: message.from?.bare,
                                  isRead: false,
                                  date: getDeliveryTime(message, owner: owner) ?? Date(),
@@ -174,10 +183,14 @@ extension MessageManager {
                 DDLogDebug("MessageManager: \(#function). \(error.localizedDescription)")
             }
         }
-        
-        
-        
-        
+    }
+    
+    
+    
+    public func updateReadDate(for messageId: String, jid: String, date: Date) {
+//        RunLoop.current.perform {
+        self.prereadedMessages.append(PrereadedMessagesItem(messageId: messageId, date: date, jid: jid))
+//        }
         
     }
     
@@ -197,7 +210,7 @@ extension MessageManager {
 //        self.receiverSubscribtion =
         self.messagesQueue
             .asObservable()
-            .debounce(.milliseconds(500),
+            .debounce(.milliseconds(1000),
                       scheduler: SerialDispatchQueueScheduler(
                         queue: self.queue,
                         internalSerialQueueName: "com.xabber.msgQueue"))
@@ -207,6 +220,7 @@ extension MessageManager {
                         self.save(messages)
                     }
                 })
+                AccountManager.shared.find(for: self.owner)?.chatMarkers.deleteEphemeralMessages()
                 }, onError: { (error) in
                     DDLogDebug(error.localizedDescription)
                 }, onCompleted: {
@@ -396,15 +410,7 @@ extension MessageManager {
             instance.envelopeContainer = envelopeContainer
             instance.updatePrimary()
             instance.afterburnInterval = afterburnInterval
-            if let readDate = item.readDate,
-               afterburnInterval > 0 {
-                instance.isRead = true
-                instance.readDate = readDate.timeIntervalSince1970
-                instance.burnDate = readDate.timeIntervalSince1970 + afterburnInterval
-                if instance.burnDate < Date().timeIntervalSince1970 {
-                    instance.isDeleted = true
-                }
-            }
+            
             if hasSignElement {
                 instance.errorMetadata = errorMetadata
             }
@@ -425,19 +431,54 @@ extension MessageManager {
             }
             
             instance.previousId = getPreviousId(item.message)
-            print("PIPELINED", item.message)
+//            print("PIPELINED", item.message)
             
-            if !errorMetadata.isEmpty {
-                if omemoError {
-                    instance.messageError = "omemo"
-//                    instance.state = .error
-                } else {
-                    if hasSignElement {
-                        instance.messageError = "cert_error"
-//                        instance.state = .error
+            
+            if isEncryptedMessage {
+                if !errorMetadata.isEmpty {
+                    if omemoError {
+                        instance.messageError = "omemo"
+                        //                    instance.state = .error
+                    } else {
+                        if hasSignElement {
+                            instance.messageError = "cert_error"
+                            //                        instance.state = .error
+                        }
                     }
                 }
             }
+            
+            let conversationType = instance.conversationType
+            
+            let readDate = item.isRead ? item.readDate ?? prereadedMessages.first(where: { item.messageId == $0.messageId })?.date ?? prereadedConversation.first(where: { $0.jid == opponent && $0.conversationType == conversationType })?.date : nil
+            
+
+            if let readDate = readDate,
+               afterburnInterval > 0 {
+                instance.isRead = true
+                if !item.originalOutgoing {
+                    instance.state = .read
+                }
+                instance.readDate = readDate.timeIntervalSince1970
+                instance.burnDate = readDate.timeIntervalSince1970 + afterburnInterval
+                
+                if let index = self.prereadedConversation.firstIndex(where: {$0.jid == opponent && $0.conversationType == conversationType}) {
+                    if self.prereadedConversation[index].date < item.date {
+                        self.prereadedConversation[index].date = item.date
+                    }
+                } else {
+                    self.prereadedConversation.append(PrereadedConversationItem(conversationType: conversationType, date: item.date, jid: opponent))
+                }
+                
+                if instance.burnDate <= Date().timeIntervalSince1970 {
+                    instance.isDeleted = true
+                    instance.body = ""
+                    instance.legacyBody = ""
+//                    instance.errorMetadata_ = ""
+//                    instance.messageError = nil
+                }
+            }
+            
             out.insert(instance)
         }
         callback(Array(out).sorted(by: { $0.date < $1.date}))
@@ -474,6 +515,7 @@ extension MessageManager {
                 self.save(messages)
             }
         })
+        AccountManager.shared.find(for: self.owner)?.chatMarkers.deleteEphemeralMessages()
     }
     
     func save(_ messages: [MessageStorageItem], silentNotifications: Bool = false) {
@@ -488,6 +530,7 @@ extension MessageManager {
                             }
                         }
                     }
+                AccountManager.shared.find(for: self.owner)?.chatMarkers.deleteEphemeralMessages()
     //            }
             } catch {
                 DDLogDebug("cant save messages colelction")

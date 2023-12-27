@@ -55,8 +55,31 @@ class ApplicationStateManager: NSObject {
     
     var period: TimeInterval = 0
     
+    class ExpiredTokenAccountItem: Equatable, Hashable {
+        static func == (lhs: ApplicationStateManager.ExpiredTokenAccountItem, rhs: ApplicationStateManager.ExpiredTokenAccountItem) -> Bool {
+            return lhs.jid == rhs.jid
+        }
+        
+        var jid: String
+        var retryRemained: Int = 3
+        
+        init(jid: String) {
+            self.jid = jid
+            retryRemained = 3
+        }
+        
+        func canRetry() -> Bool {
+            self.retryRemained = self.retryRemained - 1
+            return self.retryRemained > 0
+        }
+        
+        func hash(into hasher: inout Hasher) {
+            hasher.combine(jid)
+        }
+    }
+    
     static let tokenWasExpired = Notification.Name("com.xabber.device.expired")
-    public var expiredTokenAccountsList: Set<String> = Set<String>()
+    public var expiredTokenAccountsList: Array<ExpiredTokenAccountItem> = Array<ExpiredTokenAccountItem>()
     
     public var state: State {
         get {
@@ -184,9 +207,12 @@ class ApplicationStateManager: NSObject {
         guard let jid = notification.object as? String else {
             return
         }
-        if !self.expiredTokenAccountsList.contains(jid) {
-            self.expiredTokenAccountsList.insert(jid)
-            self.tokenWasInvalidated(for: jid)
+        if let index = self.expiredTokenAccountsList.firstIndex(where: { $0.jid == jid }) {
+            if !self.expiredTokenAccountsList[index].canRetry() {
+                self.tokenWasInvalidated(for: jid)
+            }
+        } else {
+            self.expiredTokenAccountsList.append(ExpiredTokenAccountItem(jid: jid))
         }
     }
     

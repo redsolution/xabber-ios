@@ -80,7 +80,8 @@ extension ChatViewController {
                     searchString: nil,
                     errorMetadata: [:],
                     burnDate: -1,
-                    afterburnInterval: -1
+                    afterburnInterval: -1,
+                    isRead: true
                 )
             }
         }
@@ -236,7 +237,8 @@ extension ChatViewController {
                 errorMetadata: item.errorMetadata,
                 burnDate: item.burnDate,
                 afterburnInterval: item.afterburnInterval,
-                archivedId: item.archivedId
+                archivedId: item.archivedId,
+                isRead: item.isRead
             )
         }
     }
@@ -322,7 +324,10 @@ extension ChatViewController {
                     (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
                             .invalidateLastMessageCachedSize(primary: primary)
                 }
-                self.messagesCollectionView.reconfigureItems(at: self.messagesCollectionView.indexPathsForVisibleItems)
+                UIView.performWithoutAnimation {
+                    self.messagesCollectionView.reloadItems(at: self.messagesCollectionView.indexPathsForVisibleItems)
+                }
+                
             }
             let additionalOffset = self.messagesCollectionView.contentSize.height - heightBeforeUpdate
             if self.shouldChangeOffsetOnUpdate {
@@ -348,17 +353,17 @@ extension ChatViewController {
     
     private final func preprocessDataset(shouldScrollToLastMessage: Bool = false) {
         if !canUpdateDataset { return }
-        self.updateQueue.async {
+//        self.updateQueue.async {
             self.canUpdateDataset = false
             let newDataset = self.mapDataset(count: self.messagesCount)
             let changes = diff(old: self.datasource, new: newDataset)
             let indexSet = self.convertChangeset(changes: changes)
-            DispatchQueue.main.async {
+//            DispatchQueue.main.async {
                 self.apply(changes: indexSet, shouldScrollToLastMessage: shouldScrollToLastMessage) {
                     self.datasource = newDataset
                 }
-            }
-        }
+//            }
+//        }
     }
     
     private final func postprocessDataset() {
@@ -370,7 +375,7 @@ extension ChatViewController {
         self.messagesBag = DisposeBag()
         Observable
             .collection(from: self.messagesObserver!)
-            .debounce(.milliseconds(300), scheduler: MainScheduler.asyncInstance)
+            .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
             .subscribe { (result) in
                 if !self.isSkeletonHided { return }
                 if self.showSkeletonObserver.value { return }

@@ -68,6 +68,8 @@ class RosterStorageItem: Object {
     @objc dynamic var avatarMinUrl: String? = nil
     @objc dynamic var avatarUpdatedTS: Double = -1
     @objc dynamic var updatedTS: Double = -1
+    @objc dynamic var encryptionUpdatedTS: Double = -1
+    
     
     var groups: List<String> = List<String>()
     

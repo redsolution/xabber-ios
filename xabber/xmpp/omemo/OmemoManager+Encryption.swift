@@ -107,7 +107,6 @@ extension OmemoManager {
         
         let cipherText = try! cipher.encryptData(hmac)
         
-        print("Omemo fixed: -1", cipherText.type.rawValue)
         
         let needKex: Bool = cipherText.type == .preKeyMessage
         
@@ -174,10 +173,11 @@ extension OmemoManager {
         
         try realm
             .objects(SignalDeviceStorageItem.self)
-            .filter("owner == %@ AND jid == %@ AND state_ == %@",
+            .filter("owner == %@ AND jid == %@ AND (state_ == %@ OR state_ == %@)",
                     self.owner,
                     jid,
-                    SignalDeviceStorageItem.TrustState.trusted.rawValue)
+                    SignalDeviceStorageItem.TrustState.trusted.rawValue,
+                    SignalDeviceStorageItem.TrustState.unknown.rawValue)
             .toArray()
             .compactMap { return try doubleRatchet(hmac: Data(keyData), jid: jid, deviceId: $0.deviceId) }
             .forEach { remoteKeysElement.addChild($0) }

@@ -63,13 +63,9 @@ extension DevicesListViewController {
             animated: true) { value in
             switch value {
             case "terminate":
-                XMPPUIActionManager.shared.performRequest(owner: self.jid) { stream, session in
-                    session.devices?.revokeAll(stream)
-                } fail: {
-                    AccountManager.shared.find(for: self.jid)?.action({ user, stream in
-                        user.devices.revokeAll(stream)
-                    })
-                }
+                AccountManager.shared.find(for: self.jid)?.action({ user, stream in
+                    user.devices.revokeAll(stream)
+                })
             default:
                 break
             }
