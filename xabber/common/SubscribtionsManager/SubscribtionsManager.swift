@@ -150,9 +150,11 @@ class SubscribtionsManager: NSObject {
     }
     
     public final func updateXMPPAccountsState() {
-        AccountManager.shared.users.forEach {
-            user in
-            self.checkXMPPAccountState(jid: user.jid)
+        if CommonConfigManager.shared.config.should_block_application_when_subscribtion_end {
+            AccountManager.shared.users.forEach {
+                user in
+                self.checkXMPPAccountState(jid: user.jid)
+            }
         }
     }
     

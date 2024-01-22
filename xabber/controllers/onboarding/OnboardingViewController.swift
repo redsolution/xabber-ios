@@ -133,7 +133,7 @@ class OnboardingViewController: SimpleBaseViewController {
         container.addArrangedSubview(stack)
         stack.addArrangedSubview(logoView)
         stack.addArrangedSubview(titleLabel)
-        stack.addArrangedSubview(titleImage)
+//        stack.addArrangedSubview(titleImage)
         stack.addArrangedSubview(subtitleLabel)
         stack.addArrangedSubview(UIStackView())
         stack.addArrangedSubview(signInButton)
@@ -166,9 +166,9 @@ class OnboardingViewController: SimpleBaseViewController {
         super.localizeResources()
         logoView.image = #imageLiteral(resourceName: "onboarding_logo_128pt")
         titleImage.image = #imageLiteral(resourceName: "onboarding_logo_name_contrast_164pt")
-        titleLabel.text = ""
+        titleLabel.text = "Xabber"
         titleLabel.sizeToFit()
-        subtitleLabel.text = "Secure chat".localizeString(id: "chat_type_secure", arguments: [])
+        subtitleLabel.text = CommonConfigManager.shared.config.onboarding_subtitle_text//"Secure chat".localizeString(id: "chat_type_secure", arguments: [])
         subtitleLabel.sizeToFit()
         signInButton.setTitle("Connect existing account".localizeString(id: "xmpp_login__button_sign_in", arguments: []), for: .normal)
         signUpButton.setTitle("Create new account".localizeString(id: "xmpp_login__button_sign_up", arguments: []), for: .normal)
