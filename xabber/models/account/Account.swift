@@ -379,7 +379,16 @@ final class Account: NSObject {
 /**
  *    open XMPPStream in special thread
  **/
-    func asyncConnect() {
+    func asyncConnect(shouldReregisterDFevice: Bool = false) {
+        if shouldReregisterDFevice {
+            if let deviceId = self.devices.deviceId {
+                self.resetStream()
+                self.xmppStream.xabberDeviceId = deviceId
+                self.sm.storage.removeAll(for: self.xmppStream)
+                self.smStorage.removeAll(for: self.xmppStream)
+                self.smStorage.setResumptionId(nil, timeout: 0, lastDisconnect: nil, for: self.xmppStream)
+            }
+        }
         self.configureStream()
         self.connect()
     }
@@ -594,6 +603,9 @@ final class Account: NSObject {
                 self.push.node = item.node
                 self.push.service = item.service
             }
+            if  self.deviceName.isEmpty {
+                self.deviceName = NickGenerator.shared.genRandomNick()
+            }
         } catch {
             DDLogDebug("cant load user \(self.jid) from db")
         }
@@ -726,7 +738,7 @@ final class Account: NSObject {
                 item.xTokenSupport = self.supportTokens
                 item.xTokenUID = self.tokenUid
                 item.createdAt = Date()
-                self.deviceName = NickGenerator.shared.genRandomNick()
+                
                 item.deviceName = self.deviceName
                 if let deviceId = self.devices.deviceId {
                     item.deviceUuid = deviceId

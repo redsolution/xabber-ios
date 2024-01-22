@@ -266,7 +266,8 @@ class CredentialsExpiredViewController: SimpleBaseViewController {
         }
         CredentialsManager.shared.setItem(for: self.owner, password: passwordFieldValue, keepSecret: true)
         CredentialsManager.shared.getItem(for: self.owner).updateKind(to: .password)
-        AccountManager.shared.find(for: self.owner)?.asyncConnect()
+        
+        AccountManager.shared.find(for: self.owner)?.asyncConnect(shouldReregisterDFevice: true)
         self.dismiss(animated: true)
     }
     

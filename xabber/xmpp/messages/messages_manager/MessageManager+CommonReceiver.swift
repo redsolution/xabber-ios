@@ -134,11 +134,38 @@ extension MessageManager {
         if let messageBare = getCarbonCopyMessageContainer(message) {
             enqueue(MessageQueueItem(messageBare,
                                      messageId: getOriginId(messageBare),
-                                     archivedFrom: message.from?.bare,
+                                     archivedFrom: messageBare.from?.bare,
                                      isRead: true,
                                      date: getDeliveryTime(messageBare, owner: owner) ?? Date(),
                                      state: .sended,
                                      queryId: getMAMQueryId(message)))
+            guard let from = messageBare.from?.bare else { return }
+            do {
+                let conversationType = conversationTypeByMessage(message)
+                let realm = try WRealm.safe()
+                try realm.write {
+                    realm
+                        .objects(MessageStorageItem.self)
+                        .filter("owner == %@ AND opponent == %@ AND state_ == %@ AND date <= %@ AND conversationType_ == %@",
+                                owner,
+                                from,
+                                MessageStorageItem.MessageSendingState.deliver.rawValue,
+                                getDeliveryTime(message, owner: owner) ?? Date(),
+                                conversationType.rawValue)
+                        .forEach {
+                            $0.state = .read
+                            $0.isRead = true
+                            if $0.burnDate <= 1 {
+                                if $0.afterburnInterval > 0 {
+                                    $0.readDate = Date().timeIntervalSince1970
+                                    $0.burnDate = Date().timeIntervalSince1970 + $0.afterburnInterval
+                                }
+                            }
+                        }
+                }
+            } catch {
+                DDLogDebug("MessageManager: \(#function). \(error.localizedDescription)")
+            }
         }
     }
     
@@ -171,13 +198,22 @@ extension MessageManager {
                 try realm.write {
                     realm
                         .objects(MessageStorageItem.self)
-                        .filter("owner == %@ AND opponent == %@ AND outgoing == true AND state_ == %@ AND date <= %@ AND conversationType_ == %@",
+                        .filter("owner == %@ AND opponent == %@ AND state_ == %@ AND date <= %@ AND conversationType_ == %@",
                                 owner,
                                 from,
                                 MessageStorageItem.MessageSendingState.deliver.rawValue,
                                 getDeliveryTime(message, owner: owner) ?? Date(),
                                 conversationType.rawValue)
-                        .forEach { $0.state = .read}
+                        .forEach {
+                            $0.state = .read
+                            $0.isRead = true
+                            if $0.burnDate <= 1 {
+                                if $0.afterburnInterval > 0 {
+                                    $0.readDate = Date().timeIntervalSince1970
+                                    $0.burnDate = Date().timeIntervalSince1970 + $0.afterburnInterval
+                                }
+                            }
+                        }
                 }
             } catch {
                 DDLogDebug("MessageManager: \(#function). \(error.localizedDescription)")
@@ -187,9 +223,9 @@ extension MessageManager {
     
     
     
-    public func updateReadDate(for messageId: String, jid: String, date: Date) {
+    public func updateReadDate(for messageId: String, stanzaId: String, jid: String, date: Date) {
 //        RunLoop.current.perform {
-        self.prereadedMessages.append(PrereadedMessagesItem(messageId: messageId, date: date, jid: jid))
+        self.prereadedMessages.append(PrereadedMessagesItem(messageId: messageId, stanzaId: stanzaId, date: date, jid: jid))
 //        }
         
     }
@@ -210,7 +246,7 @@ extension MessageManager {
 //        self.receiverSubscribtion =
         self.messagesQueue
             .asObservable()
-            .debounce(.milliseconds(1000),
+            .debounce(.nanoseconds(1),
                       scheduler: SerialDispatchQueueScheduler(
                         queue: self.queue,
                         internalSerialQueueName: "com.xabber.msgQueue"))
@@ -317,9 +353,15 @@ extension MessageManager {
                 item.originalOutgoing = from == owner
             }
             
-            if item.originalOutgoing || item.state == .read {
-                item.isRead = true
+//            if item.originalOutgoing || item.state == .read {
+//                item.isRead = true
                 RunLoop.main.perform {
+                    let readDate = item.readDate ?? self.prereadedMessages.first(where: { item.messageId == $0.messageId })?.date
+                    if item.date < (readDate ?? Date()) {
+                        item.isRead = true
+                    } else {
+                        item.isRead = item.state == .read
+                    }
                     do {
                         let realm = try  WRealm.safe()
                         if let chat = realm.object(
@@ -330,6 +372,7 @@ extension MessageManager {
                                 conversationType: conversationTypeByMessage(item.message)
                             )
                         ) {
+                            
                             if chat.lastMessage != nil {
                                 var stanzaIDs: Set<String> = Set<String>()
                                 if item.date.timeIntervalSinceReferenceDate > chat.messageDate.timeIntervalSinceReferenceDate {
@@ -340,9 +383,9 @@ extension MessageManager {
                                             .forEach {
                                                 stanzaIDs.insert($0.archivedId)
                                                 $0.isRead = true
-                                                if $0.afterburnInterval > 0 && $0.burnDate < 0 {
+                                                if $0.afterburnInterval > 0 && $0.burnDate <= 1 {
                                                     
-                                                    if let readDate = item.readDate {
+                                                    if let readDate = readDate {
                                                         $0.readDate = readDate.timeIntervalSince1970
                                                         $0.burnDate = readDate.timeIntervalSince1970 + afterburnInterval
                                                         if (readDate.timeIntervalSince1970 + afterburnInterval) < Date().timeIntervalSince1970 {
@@ -360,34 +403,6 @@ extension MessageManager {
                         DDLogDebug("cant read unreaded messages")
                     }
                 }
-                
-            } else {
-                item.state = .none
-                do {
-                    let realm = try WRealm.safe()
-                    if let chat = realm.object(
-                        ofType: LastChatsStorageItem.self,
-                        forPrimaryKey: LastChatsStorageItem.genPrimary(
-                            jid: item.originalFrom,
-                            owner: self.owner,
-                            conversationType: conversationTypeByMessage(item.message)
-                        )
-                    ) {
-                        if chat.lastMessage == nil {
-                            item.isRead = false
-                        } else {
-                            if item.date.timeIntervalSinceReferenceDate < chat.messageDate.timeIntervalSinceReferenceDate {
-                                item.isRead = true
-                            } else {
-                                item.isRead = false
-                            }
-                        }
-                    }
-                } catch {
-                    DDLogDebug("cant update unread state for message \(item.message.elementID ?? "")")
-                }
-            }
-            
             if parseSystemMessageMetadata(item.message) != nil {
                 instance.configureSystemMessage(item.message,
                                                 owner: owner,
@@ -452,7 +467,15 @@ extension MessageManager {
             
             let readDate = item.isRead ? item.readDate ?? prereadedMessages.first(where: { item.messageId == $0.messageId })?.date ?? prereadedConversation.first(where: { $0.jid == opponent && $0.conversationType == conversationType })?.date : nil
             
-
+            if afterburnInterval > 0 {
+                if isEncryptedMessage {
+                    if !errorMetadata.isEmpty {
+                        if omemoError {
+                            instance.isDeleted = true
+                        }
+                    }
+                }
+            }
             if let readDate = readDate,
                afterburnInterval > 0 {
                 instance.isRead = true
@@ -462,13 +485,13 @@ extension MessageManager {
                 instance.readDate = readDate.timeIntervalSince1970
                 instance.burnDate = readDate.timeIntervalSince1970 + afterburnInterval
                 
-                if let index = self.prereadedConversation.firstIndex(where: {$0.jid == opponent && $0.conversationType == conversationType}) {
-                    if self.prereadedConversation[index].date < item.date {
-                        self.prereadedConversation[index].date = item.date
-                    }
-                } else {
-                    self.prereadedConversation.append(PrereadedConversationItem(conversationType: conversationType, date: item.date, jid: opponent))
-                }
+//                if let index = self.prereadedConversation.firstIndex(where: {$0.jid == opponent && $0.conversationType == conversationType}) {
+//                    if self.prereadedConversation[index].date < item.date {
+//                        self.prereadedConversation[index].date = item.date
+//                    }
+//                } else {
+//                    self.prereadedConversation.append(PrereadedConversationItem(conversationType: conversationType, date: item.date, jid: opponent))
+//                }
                 
                 if instance.burnDate <= Date().timeIntervalSince1970 {
                     instance.isDeleted = true

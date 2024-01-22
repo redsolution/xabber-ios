@@ -62,6 +62,7 @@ class CommonConfigManager: NSObject {
         var server_registration_url: String
         var show_server_features: Bool
         var blur_screen_when_enter_background: Bool
+        var support_subscribtions: Bool
     }
     
     var config: CommonConfig

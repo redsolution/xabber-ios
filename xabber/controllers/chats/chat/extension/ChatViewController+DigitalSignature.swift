@@ -146,6 +146,8 @@ extension ChatViewController {
     private func showTimeSignatureBlockingPanel() {
         self.isTimeSignatureBlockingPanelopen = true
         self.xabberInputView.changeState(to: .updateSignature)
+        self.draftMessageText.accept(nil)
+        self.xabberInputView.textField.text = nil
     }
     
     private func hideTimeSignatureBlockingPanel() {

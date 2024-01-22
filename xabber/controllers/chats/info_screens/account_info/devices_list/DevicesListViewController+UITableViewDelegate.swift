@@ -124,13 +124,13 @@ extension DevicesListViewController: UITableViewDelegate {
             if hasConnection {
                 let item = self.devices[indexPath.row]
                 let uid = item.uid
-                XMPPUIActionManager.shared.performRequest(owner: self.jid) { stream, session in
-                    session.devices?.revoke(stream, uids: [uid])
-                } fail: {
-                    AccountManager.shared.find(for: self.jid)?.action({ (user, stream) in
-                        user.devices.revoke(stream, uids: [uid])
-                    })
-                }
+//                XMPPUIActionManager.shared.performRequest(owner: self.jid) { stream, session in
+//                    session.devices?.revoke(stream, uids: [uid])
+//                } fail: {
+                AccountManager.shared.find(for: self.jid)?.action({ (user, stream) in
+                    user.devices.revoke(stream, uids: [uid])
+                })
+//                }
             } else {
                 ActionSheetPresenter().present(
                     in: self,

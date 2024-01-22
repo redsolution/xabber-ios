@@ -207,7 +207,8 @@ class CredentialsManager: NSObject {
 //            if kind == .password {
 //                return
 //            }
-            do {
+//            return
+            do  {
                 let realm = try WRealm.safe()
                 if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid) {
                     let counter = UInt64(instance.counter)!

@@ -572,22 +572,39 @@ class SettingsViewController: BaseViewController {
                 Datasource(section: .settings, title: "Debug", key: .developer),
                 Datasource(section: .settings, title: "Language", key: .languages)
             ]))
+        if CommonConfigManager.shared.config.use_yubikey {
+            datasource.append(Datasource(section: .security, title: Datasource.Section.security.description(), subtitle: Datasource.Section.security.secondaryDescription(), childs: [
+                    Datasource(section: .security, title: "Passcode lock *", premiumOnly: true, viewController: SimpleTableViewController.self, childs: [
+                        Datasource(section: .security, subtitle: "If you forget your passcode, you'll need to reinstall the app.\n\nIf you premium subscription expire, passcode will be reset.", childs: [
+                            Datasource(section: .security, title: "Turn passcode Off", key: .turnPasscodeOff),
+                            Datasource(section: .security, title: "Change Passcode", viewController: PasscodeViewController.self),
+                            Datasource(section: .security, title: "Biometrics", key: .turnBiometricsOnOff)]),
+                        Datasource(section: .security, childs: [
+                            Datasource(section: .autolock, title: "Auto-Lock", key: .passcodeTimer),
+                            Datasource(section: .autolock, title: "Attempts", key: .passcodeAttempts),
+                            Datasource(section: .autolock, title: "Displayed attempts", key: .displayedAttempts),
+                            Datasource(section: .autolock, title: "Show attempts left", itemType: .toggle, toggle: (dict[Datasource.Keys.showAttempts.rawValue] as? Bool) ?? false, key: .showAttempts)
+                        ])
+                    ], key: .passcode),
+                    Datasource(section: .security, title: "Yubikey signature", viewController: YubikeySetupViewController.self, key: .yubikey),
+                ]))
+        } else {
+            datasource.append(Datasource(section: .security, title: Datasource.Section.security.description(), subtitle: Datasource.Section.security.secondaryDescription(), childs: [
+                    Datasource(section: .security, title: "Passcode lock *", premiumOnly: true, viewController: SimpleTableViewController.self, childs: [
+                        Datasource(section: .security, subtitle: "If you forget your passcode, you'll need to reinstall the app.\n\nIf you premium subscription expire, passcode will be reset.", childs: [
+                            Datasource(section: .security, title: "Turn passcode Off", key: .turnPasscodeOff),
+                            Datasource(section: .security, title: "Change Passcode", viewController: PasscodeViewController.self),
+                            Datasource(section: .security, title: "Biometrics", key: .turnBiometricsOnOff)]),
+                        Datasource(section: .security, childs: [
+                            Datasource(section: .autolock, title: "Auto-Lock", key: .passcodeTimer),
+                            Datasource(section: .autolock, title: "Attempts", key: .passcodeAttempts),
+                            Datasource(section: .autolock, title: "Displayed attempts", key: .displayedAttempts),
+                            Datasource(section: .autolock, title: "Show attempts left", itemType: .toggle, toggle: (dict[Datasource.Keys.showAttempts.rawValue] as? Bool) ?? false, key: .showAttempts)
+                        ])
+                    ], key: .passcode)
+                ]))
+        }
         
-        datasource.append(Datasource(section: .security, title: Datasource.Section.security.description(), subtitle: Datasource.Section.security.secondaryDescription(), childs: [
-                Datasource(section: .security, title: "Passcode lock *", premiumOnly: true, viewController: SimpleTableViewController.self, childs: [
-                    Datasource(section: .security, subtitle: "If you forget your passcode, you'll need to reinstall the app.\n\nIf you premium subscription expire, passcode will be reset.", childs: [
-                        Datasource(section: .security, title: "Turn passcode Off", key: .turnPasscodeOff),
-                        Datasource(section: .security, title: "Change Passcode", viewController: PasscodeViewController.self),
-                        Datasource(section: .security, title: "Biometrics", key: .turnBiometricsOnOff)]),
-                    Datasource(section: .security, childs: [
-                        Datasource(section: .autolock, title: "Auto-Lock", key: .passcodeTimer),
-                        Datasource(section: .autolock, title: "Attempts", key: .passcodeAttempts),
-                        Datasource(section: .autolock, title: "Displayed attempts", key: .displayedAttempts),
-                        Datasource(section: .autolock, title: "Show attempts left", itemType: .toggle, toggle: (dict[Datasource.Keys.showAttempts.rawValue] as? Bool) ?? false, key: .showAttempts)
-                    ])
-                ], key: .passcode),
-                Datasource(section: .security, title: "Yubikey signature", viewController: YubikeySetupViewController.self, key: .yubikey),
-            ]))
 
     }
     

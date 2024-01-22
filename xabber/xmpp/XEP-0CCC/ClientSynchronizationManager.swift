@@ -35,6 +35,8 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     internal var acountSynced: Bool = false
     private var ignorePush: Bool = false
     
+    internal var firstSync: Bool = true
+    
     enum ConversationStatus: String {
         case archived = "archived"
         case active = "active"
@@ -410,6 +412,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             self.version = stamp
             SettingManager.shared.saveItem(for: owner, scope: .clientSynchronization, key: "version", value: version)
             
+            self.firstSync = false
             acountSynced = true
             self.temporaryVer = nil
             
@@ -806,7 +809,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             if [.omemo, .axolotl, .omemo1].contains(conversationType),
                metadata.element(forName: "last-message")?.element(forName: "message") == nil {
                 instance.isFreshNotEmptyEncryptedChat = true
-                instance.isSynced = false
+                instance.isSynced = !firstSync
             }
             
             if let messageElement = metadata.element(forName: "last-message")?.element(forName: "message") {
@@ -814,10 +817,13 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                     if [.omemo, .axolotl, .omemo1].contains(conversationType), let accountCreateDate = accountCreateDate {
                         if date.timeIntervalSince1970 < accountCreateDate.timeIntervalSince1970 {
                             instance.isFreshNotEmptyEncryptedChat = true
-                            instance.isSynced = false
+                            instance.isSynced = !firstSync
                             instance.lastMessageId = getOriginId(XMPPMessage(from: messageElement)) ?? XMPPMessage(from: messageElement).elementID ?? getStanzaId(XMPPMessage(from: messageElement), owner: self.owner)
                             return nil
                         }
+                    }
+                    if !self.firstSync {
+                        return nil
                     }
                 }
                 
@@ -829,30 +835,14 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 }
                 let stanzaId = getStanzaId(XMPPMessage(from: messageElement), owner: self.owner)
                 var state: MessageStorageItem.MessageSendingState = .sended
-                if instance.deliveredId == stanzaId {
-                    state = .deliver
-                } else if instance.displayedId == stanzaId {
+                if (metadata.element(forName: "unread")?.attributeIntegerValue(forName: "count") ?? 0) == 0 {
                     state = .read
-                }
+                } else if instance.deliveredId == stanzaId {
+                    state = .deliver
+                } 
                 
-                var realReadDate: Date? = nil
-                if let readTSRaw = Double(instance.lastReadId ?? "0"),
-                   readTSRaw > 0 {
-                    let readTS = readTSRaw / 1000000
-                    if readTS >= timestamp {
-                        state = .read
-                    }
-                    realReadDate = Date(timeIntervalSince1970: readTS)
-                    
-                }
+                let readDate = state != .read ? nil : Date(timeIntervalSince1970: stamp / 1000000)
                 
-                let readDate = state == .read ? nil : realReadDate ??  Date(timeIntervalSince1970: stamp / 1000000)
-                
-//                if let readDate = readDate {
-//                    AccountManager.shared.find(for: self.owner)?.messages.updateReadDate(for: metadata.element(forName: "unread")?.attributeStringValue(forName: "after") ?? stanzaId, jid: jid, date: readDate)
-//                } else {
-//                    AccountManager.shared.find(for: self.owner)?.messages.updateReadDate(for: metadata.element(forName: "unread")?.attributeStringValue(forName: "after") ?? stanzaId, jid: jid, date: realReadDate)
-//                }
                 if !(AccountManager
                         .shared
                         .find(for: owner)?
@@ -866,7 +856,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                         return nil
                     }
                     if instance.lastMessageId != getUniqueMessageId(messageStanza, owner: self.owner) {
-                        instance.isSynced = false
+                        instance.isSynced = !firstSync
                     }
                     return AccountManager
                         .shared

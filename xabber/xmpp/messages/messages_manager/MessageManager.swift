@@ -33,14 +33,16 @@ class MessageManager: AbstractXMPPManager {
     
     struct PrereadedMessagesItem: Hashable, Equatable {
         static func == (lhs: PrereadedMessagesItem, rhs: PrereadedMessagesItem) -> Bool {
-            return lhs.messageId == rhs.messageId && lhs.jid == rhs.jid
+            return lhs.messageId == rhs.messageId && lhs.jid == rhs.jid && lhs.stanzaId == rhs.stanzaId
         }
         let messageId: String
+        let stanzaId: String
         let date: Date
         let jid: String
         
         func hash(into hasher: inout Hasher) {
             hasher.combine(messageId)
+            hasher.combine(stanzaId)
             hasher.combine(jid)
         }
     }
@@ -255,7 +257,7 @@ class MessageManager: AbstractXMPPManager {
                 }
                 let stanzaId = message.archivedId
                 NotifyManager.shared.clearNotifications(forMessage: [stanzaId])
-                let collection = realm.objects(MessageStorageItem.self).filter("owner == %@ AND opponent == %@ AND conversationType_ == %@ AND date < %@", self.owner, message.opponent, message.conversationType_, message.date)
+                let collection = realm.objects(MessageStorageItem.self).filter("owner == %@ AND opponent == %@ AND conversationType_ == %@ AND date < %@ AND state_ <= %@", self.owner, message.opponent, message.conversationType_, message.date, MessageStorageItem.MessageSendingState.read.rawValue)
                 if !realm.isInWriteTransaction {
                     try realm.write {
                         if message.isInvalidated { return }
@@ -264,7 +266,7 @@ class MessageManager: AbstractXMPPManager {
                         collection.forEach {
                             $0.isRead = true
                             $0.state = .read
-                            if $0.readDate < 0 {
+                            if $0.readDate <= 1 {
                                 $0.readDate = Date().timeIntervalSince1970
                             }
                             if $0.afterburnInterval > 0 {

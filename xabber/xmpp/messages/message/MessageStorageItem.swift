@@ -834,7 +834,15 @@ class MessageStorageItem: Object {
                                 instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
                                 instance.afterburnInterval = Double(timer)
                             }
-                        }
+                        } 
+//                        else {
+//                            if instance.afterburnInterval > 0 {
+//                                if instance.afterburnIntervalLastUpdate < self.date.timeIntervalSince1970 {
+//                                    instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
+//                                    instance.afterburnInterval = Double(-1)
+//                                }
+//                            }
+//                        }
                         if instance.isFreshNotEmptyEncryptedChat {
                             instance.isFreshNotEmptyEncryptedChat = false
                         }
@@ -888,10 +896,15 @@ class MessageStorageItem: Object {
                                 instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
                                 instance.afterburnInterval = Double(timer)
                             } else {
+//                                if instance.afterburnInterval > 0 && self.afterburnInterval < 1 {
+//                                    instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
+//                                    instance.afterburnInterval = 0
+//                                } else 
                                 if self.afterburnInterval > 0 {
                                     instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
                                     instance.afterburnInterval = self.afterburnInterval
                                 }
+                                
                             }
                             
                             if isInvite && !isRead {

@@ -73,17 +73,20 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
                 self.toolsButtonStateObserver.accept(.hidden)
             }
         }
-        guard let primary = messagesObserver?[indexPath.section].primary else {
+        guard (messagesObserver?.count ?? 0) > indexPath.section,
+              let primary = messagesObserver?[indexPath.section].primary else {
             AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
                 user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
             })
             return
         }
         if !(messagesObserver?[indexPath.section].isRead ?? true) {
-            AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                user.messages.readMessage(primary,
-                                          last: false)
-            })
+//            DispatchQueue.global(qos: .default).asyncAfter(deadline: .now() + 0.2) {
+                AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
+                    user.messages.readMessage(primary,
+                                              last: false)
+                })
+//            }
         }
         if (messagesObserver?.count ?? 0) < indexPath.section { return }
         

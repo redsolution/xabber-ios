@@ -256,33 +256,35 @@ class LastChatsViewController: BaseViewController {
     internal var isSkeletonShowed: Bool = false
     
     internal func updateTitle(_ value: Filter) {
-        do {
-            let realm = try WRealm.safe()
-            let accounts = Set(realm.objects(AccountStorageItem.self).toArray().compactMap { return $0.jid })
-            let filteredConnectingUsers = AccountManager.shared.connectingUsers.value.filter({ accounts.contains($0) })
-            if filteredConnectingUsers.isNotEmpty {
-                customTitleLabel.text = "Connecting...".localizeString(id: "account_state_connecting", arguments: [])
-                customTitleLabel.sizeToFit()
-                customTitleLabel.layoutIfNeeded()
-                return
+        DispatchQueue.main.async {
+            do {
+                let realm = try WRealm.safe()
+                let accounts = Set(realm.objects(AccountStorageItem.self).toArray().compactMap { return $0.jid })
+                let filteredConnectingUsers = AccountManager.shared.connectingUsers.value.filter({ accounts.contains($0) })
+                if filteredConnectingUsers.isNotEmpty {
+                    self.customTitleLabel.text = "Connecting...".localizeString(id: "account_state_connecting", arguments: [])
+                    self.customTitleLabel.sizeToFit()
+                    self.customTitleLabel.layoutIfNeeded()
+                    return
+                }
+            } catch {
+                
             }
-        } catch {
             
+            switch value {
+                case .chats:
+                    self.customTitleLabel.text = "Chats".localizeString(id: "toolbar__menu_item__chats", arguments: [])
+                    getAppTabBar()?.tabBar.items?.first?.title = "Chats".localizeString(id: "toolbar__menu_item__chats", arguments: [])
+                case .unread:
+                    self.customTitleLabel.text = "Unread".localizeString(id: "unread_chats", arguments: [])
+                    getAppTabBar()?.tabBar.items?.first?.title = "Unread".localizeString(id: "unread_chats", arguments: [])
+                case .archived:
+                    self.customTitleLabel.text = "Archived".localizeString(id: "archived_chats", arguments: [])
+                    getAppTabBar()?.tabBar.items?.first?.title = "Archived".localizeString(id: "archived_chats", arguments: [])
+            }
+            self.customTitleLabel.sizeToFit()
+            self.customTitleLabel.layoutIfNeeded()
         }
-        
-        switch value {
-        case .chats:
-            customTitleLabel.text = "Chats".localizeString(id: "toolbar__menu_item__chats", arguments: [])
-            getAppTabBar()?.tabBar.items?.first?.title = "Chats".localizeString(id: "toolbar__menu_item__chats", arguments: [])
-        case .unread:
-            customTitleLabel.text = "Unread".localizeString(id: "unread_chats", arguments: [])
-            getAppTabBar()?.tabBar.items?.first?.title = "Unread".localizeString(id: "unread_chats", arguments: [])
-        case .archived:
-            customTitleLabel.text = "Archived".localizeString(id: "archived_chats", arguments: [])
-            getAppTabBar()?.tabBar.items?.first?.title = "Archived".localizeString(id: "archived_chats", arguments: [])
-        }
-        customTitleLabel.sizeToFit()
-        customTitleLabel.layoutIfNeeded()
     }
     
     internal func updateDatasource(_ value: Filter) {

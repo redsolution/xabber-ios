@@ -94,7 +94,7 @@ class DefaultAvatarManager: NSObject {
                 ImageCache.default.retrieveImage(forKey: url, options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory]), callbackQueue: .mainAsync) { result in
                     switch result {
                         case .success(let image):
-                            print("rgthio", image.image == nil)
+//                            print("rgthio", image.image == nil)
                             callback?(image.image)
                         default:
                             callback?(nil)
@@ -109,7 +109,7 @@ class DefaultAvatarManager: NSObject {
                     switch result {
                         case .success(let image):
                             ImageCache.default.store(image.image, forKey: url, options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory]))
-                            DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
+                            DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
                                 do {
                                     let realm = try WRealm.safe()
                                     let collectionChats = realm.objects(LastChatsStorageItem.self).filter("jid == %@ AND owner == %@", jid, owner)
@@ -117,6 +117,13 @@ class DefaultAvatarManager: NSObject {
                                         try realm.write {
                                             instance.updatedTS = Date().timeIntervalSince1970
                                             collectionChats.forEach { $0.updateTS = Date().timeIntervalSince1970 }
+                                        }
+                                    }
+                                    if jid == owner {
+                                        if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid) {
+                                            try realm.write {
+                                                instance.avatarUpdatedTS = Double(Date().timeIntervalSince1970)
+                                            }
                                         }
                                     }
                                     
@@ -129,41 +136,6 @@ class DefaultAvatarManager: NSObject {
                     }
                 }
             }
-//            if ImageCache.default.memoryStorage.isCached(forKey: url) {
-//                callback?(ImageCache.default.retrieveImageInMemoryCache(forKey: url))
-//            } else if ImageCache.default.diskStorage.isCached(forKey: url) {
-//                ImageCache.default.retrieveImageInDiskCache(forKey: url, options: [.alsoPrefetchToMemory, .onlyFromCache], callbackQueue: .mainAsync) { result in
-//                    switch result {
-//                        case .success(let image):
-//                            callback?(image)
-//                            if let image = image {
-//                                ImageCache.default.memoryStorage.store(value: image, forKey: url)
-//                            }
-//                        default:
-//                            callback?(nil)
-//                    }
-//                }
-//            } else {
-//                callback?(nil)
-//                ImageDownloader.default.downloadImage(with: URL(string: url)!, options: KingfisherParsedOptionsInfo([.cacheOriginalImage, .alsoPrefetchToMemory, .callbackQueue(.untouch)])) { result in
-//                    switch result {
-//                        case .success(let image):
-//                            ImageCache.default.store(image.image, forKey: url, options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory]))
-//                            do {
-//                                let realm = try WRealm.safe()
-//                                if let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner)) {
-//                                    try realm.write {
-//                                        instance.updatedTS = Date().timeIntervalSince1970
-//                                    }
-//                                }
-//                            } catch {
-//                                DDLogDebug("DefaultAvatarManager: \(#function). \(error.localizedDescription)")
-//                            }
-//                        default:
-//                            break
-//                    }
-//                }
-//            }
         }
         callback?(nil)
     }
