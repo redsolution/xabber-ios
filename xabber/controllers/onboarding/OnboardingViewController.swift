@@ -166,7 +166,7 @@ class OnboardingViewController: SimpleBaseViewController {
         super.localizeResources()
         logoView.image = #imageLiteral(resourceName: "onboarding_logo_128pt")
         titleImage.image = #imageLiteral(resourceName: "onboarding_logo_name_contrast_164pt")
-        titleLabel.text = "Xabber"
+        titleLabel.text = CommonConfigManager.shared.config.app_name
         titleLabel.sizeToFit()
         subtitleLabel.text = CommonConfigManager.shared.config.onboarding_subtitle_text//"Secure chat".localizeString(id: "chat_type_secure", arguments: [])
         subtitleLabel.sizeToFit()
