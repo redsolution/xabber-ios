@@ -106,7 +106,7 @@ class ChatMarkersManager: AbstractXMPPManager {
             let realm = try WRealm.safe()
             let collection = realm
                 .objects(MessageStorageItem.self)
-                .filter("owner == %@ AND afterburnInterval > 0 AND isRead == true AND isDeleted == false AND burnDate < %@", self.owner, Date().timeIntervalSince1970)
+                .filter("owner == %@ AND afterburnInterval > 0 AND isRead == true AND isDeleted == false AND burnDate < %@ AND burnDate > 0", self.owner, Date().timeIntervalSince1970)
 //            let badMessagesCollection = realm
 //                .objects(MessageStorageItem.self)
 //                .filter("owner == %@ AND burnDate <= %@ AND burnDate > 0 AND afterburnInterval > 0 AND isDeleted == %@",
@@ -192,7 +192,7 @@ class ChatMarkersManager: AbstractXMPPManager {
     }
     
     
-    private func onDisplayed(_ message: XMPPMessage, date archivedDate: Date? = nil) -> Bool {
+    private func onDisplayed(_ message: XMPPMessage, date archivedDate: Date? = nil, delayed: Bool = false) -> Bool {
         guard let displayed = message.element(forName: "displayed", xmlns: getPrimaryNamespace()),
               let jid = message.from?.bare == self.owner ? message.to?.bare : message.from?.bare,
               let messageId = displayed.attributeStringValue(forName: "id") else {
@@ -205,7 +205,14 @@ class ChatMarkersManager: AbstractXMPPManager {
         if date == nil {
             date = getDeliveryTime(message, owner: self.owner) ?? Date()
         }
-        AccountManager.shared.find(for: self.owner)?.messages.updateReadDate(for: messageId, jid: jid, date: date ?? Date())
+        var stanzaId = displayed
+            .elements(forName: "stanza-id")
+            .first(where: { $0.attributeStringValue(forName: "by") == self.owner })?
+            .attributeStringValue(forName: "id") ?? "no-stanza-id"
+        
+        if !delayed {
+            AccountManager.shared.find(for: self.owner)?.messages.updateReadDate(for: messageId, stanzaId: stanzaId, jid: jid, date: date ?? Date())
+        }
         do {
             let realm = try WRealm.safe()
             if let instance = realm
@@ -216,11 +223,11 @@ class ChatMarkersManager: AbstractXMPPManager {
                         messageId).first {
                 let collection = realm
                     .objects(MessageStorageItem.self)
-                    .filter("owner == %@ AND opponent == %@ AND date <= %@ AND burnDate < 0 AND isRead == true",
+                    .filter("owner == %@ AND opponent == %@ AND date <= %@ AND burnDate < 0 AND isRead == true AND state_ != %@",
                             self.owner,
                             jid,
-                            instance.date)
-//                            MessageStorageItem.MessageSendingState.read.rawValue)
+                            instance.date,
+                            MessageStorageItem.MessageSendingState.error.rawValue)
                 
                 try realm.write {
                     if let chatInstance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: self.owner, conversationType: instance.conversationType)) {
@@ -231,8 +238,8 @@ class ChatMarkersManager: AbstractXMPPManager {
                     if instance.isInvalidated { return }
                     if instance.readDate <= 1 && instance.burnDate <= 1 {
                         if instance.afterburnInterval > 0 {
-                            instance.readDate = Date().timeIntervalSince1970
-                            instance.burnDate = Date().timeIntervalSince1970 + instance.afterburnInterval
+                            instance.readDate = (date ?? Date()).timeIntervalSince1970
+                            instance.burnDate = (date ?? Date()).timeIntervalSince1970 + instance.afterburnInterval
                         }
                     }
                     instance.state = .read
@@ -249,6 +256,10 @@ class ChatMarkersManager: AbstractXMPPManager {
                         $0.state = .read
                         $0.isRead = true
                     }
+                }
+            } else {
+                DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {
+                    _ = self.onDisplayed(message, date: archivedDate, delayed: true)
                 }
             }
         } catch {

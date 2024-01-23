@@ -13,6 +13,49 @@ import TOInsetGroupedTableView
 
 class SubscribtionsListViewController: SimpleBaseViewController {
     
+    let conflictView: UIView = {
+        let verticalStack: UIStackView = {
+            let stack = UIStackView()
+            stack.axis = .vertical
+            stack.distribution = .fillProportionally
+            stack.alignment = .center
+            stack.spacing = 10
+            return stack
+        }()
+        
+        let image = UIImage(systemName: "exclamationmark.triangle")
+        let imageView = UIImageView(image: image)
+        var config = UIImage.SymbolConfiguration(paletteColors: [.systemOrange])
+        config = config.applying(UIImage.SymbolConfiguration(font: .systemFont(ofSize: 64.0)))
+        imageView.preferredSymbolConfiguration = config
+        
+        let label = UILabel()
+        label.numberOfLines = 0
+        label.textColor = .systemOrange
+        label.textAlignment = .center
+        label.text = "Premium subscription made with current\nApple ID is linked to a different\nClandestino Account"
+        
+        let subLabel = UILabel()
+        subLabel.numberOfLines = 0
+        subLabel.textAlignment = .left
+        let attributedString1 = NSMutableAttributedString(string: "To buy subscription for this Clandestino Account, go to ",
+                                                          attributes: [NSAttributedString.Key.foregroundColor : UIColor.systemGray, .font: UIFont.systemFont(ofSize: 13, weight: .regular)])
+        let attributedString2 = NSMutableAttributedString(string: "Settings → Apple ID → Subscriptions → Clandestino ",
+                                                          attributes: [NSAttributedString.Key.foregroundColor : UIColor.black, .font: UIFont.systemFont(ofSize: 13, weight: .semibold)])
+        let attributedString3 = NSMutableAttributedString(string: "and cancel existing subscription. Then you will be able to buy subscription for this Clandestino Account",
+                                                          attributes: [NSAttributedString.Key.foregroundColor : UIColor.systemGray, .font: UIFont.systemFont(ofSize: 13, weight: .regular)])
+        attributedString1.append(attributedString2)
+        attributedString1.append(attributedString3)
+        subLabel.attributedText = attributedString1
+        
+        verticalStack.addArrangedSubview(UILabel())
+        verticalStack.addArrangedSubview(imageView)
+        verticalStack.addArrangedSubview(label)
+        verticalStack.addArrangedSubview(subLabel)
+        
+        return verticalStack
+    }()
+    
     enum State {
         case active
         case expired
@@ -197,13 +240,16 @@ extension SubscribtionsListViewController: UITableViewDataSource {
                     fatalError()
                 }
                 
-                switch accountState {
-                    case .expired:
-                        cell.configure(for: "Quit account", style: .danger)
-                    default:
-                        cell.configure(for: "Request Yubikey delivery", style: .normal)
+                if SubscribtionsManager.shared.anotherAccountHasSubscribtion {
+                    cell.configure(for: "Quit account", style: .danger)
+                } else {
+                    switch accountState {
+                        case .expired, .trial:
+                            cell.configure(for: "Quit account", style: .danger)
+                        default:
+                            cell.configure(for: "Request Yubikey delivery", style: .normal)
+                    }
                 }
-                
                 return cell
             default:
                 fatalError()
@@ -219,12 +265,21 @@ extension SubscribtionsListViewController: UITableViewDataSource {
             case 0:
                 return 1
             case 1:
-                return datasoucre.count
+                return SubscribtionsManager.shared.anotherAccountHasSubscribtion ? 0 : datasoucre.count
             case 2:
                 return 1
             default:
                 return 0
         }
+    }
+    
+    func tableView(_ tableView: UITableView, viewForFooterInSection section: Int) -> UIView? {
+        
+        guard SubscribtionsManager.shared.anotherAccountHasSubscribtion, section == 0 else {
+            return nil
+        }
+        
+        return conflictView
     }
     
 }

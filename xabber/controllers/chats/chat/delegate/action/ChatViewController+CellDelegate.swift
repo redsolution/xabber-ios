@@ -70,7 +70,7 @@ extension ChatViewController: MessageCellDelegate {
             self.definesPresentationContext = true
             self.present(nvc, animated: true, completion: nil)
         } else {
-            let errorMessage = "Unable to send file: out of Cloud Storage"//item.messageError
+            let errorMessage = "Unable to send file: \(item.messageError ?? "Unexpected error")"//
             let items = [
                 ActionSheetPresenter.Item(destructive: false, title: "Retry", value: "retry"),
                 ActionSheetPresenter.Item(destructive: true, title: "Delete", value: "delete"),

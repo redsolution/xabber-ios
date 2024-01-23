@@ -121,6 +121,7 @@ class SubscribtionsManager: NSObject {
     
     
     func getState(account jid: String) -> AccountState {
+        self.checkSubscriptionStateForAccount(jid: jid)
         if let item = self.accounts.first(where: { $0.jid == jid }),
            item.date.timeIntervalSince1970 > Date().timeIntervalSince1970 {
             if subscribtionsList.filter ({ $0.uuid == jid.uuid() }).isEmpty {
@@ -139,7 +140,13 @@ class SubscribtionsManager: NSObject {
         Task {
             self.products = try await Product.products(for: products_ids)
         }
-        
+    }
+    
+    var anotherAccountHasSubscribtion: Bool = false
+    
+    public func hasSubscribtionToAnotherAccount(jid: String) -> Bool {
+//        self.products.first.
+        return anotherAccountHasSubscribtion
     }
     
     public final func updateXMPPAccountsState() {
@@ -213,6 +220,7 @@ class SubscribtionsManager: NSObject {
     func checkSubscriptionStateForAccount(jid: String, callback: ((Bool) -> Void)? = nil) {
         Task {
             var accounts: Set<String> = Set()
+            self.anotherAccountHasSubscribtion = false
             for await entitlement in Transaction.currentEntitlements {
                 switch entitlement {
                     case .verified(let transaction):
@@ -228,8 +236,14 @@ class SubscribtionsManager: NSObject {
                 }
             }
             if accounts.contains(jid.uuid().uuidString) {
+                if accounts.count > 1 {
+                    self.anotherAccountHasSubscribtion = true
+                }
                 callback?(true)
             } else {
+                if accounts.isNotEmpty {
+                    self.anotherAccountHasSubscribtion = true
+                }
                 callback?(false)
             }
         }

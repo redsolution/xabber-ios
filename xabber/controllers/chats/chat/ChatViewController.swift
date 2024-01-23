@@ -703,7 +703,7 @@ class ChatViewController: MessagesViewController {
             self,
             selector: #selector(self.didReceiveEndOfFixHistoryTask),
             name: XMPPBackgroundTask.endFixHistoryTask,
-            object: nil
+            object: nil 
         )
         NotificationCenter.default.addObserver(
             self,
@@ -743,7 +743,13 @@ class ChatViewController: MessagesViewController {
         NotifyManager.shared.currentDialog = [self.jid, self.owner].prp()
         appInBackground = false
         AccountManager.shared.find(for: self.owner)?.chatMarkers.updateDeleteEphemeralMessagesTimer()
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2) {
+//        self.updateQueue.asyncAfter(deadline: .now() + 1) {
+//            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+//                user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
+//            })
+//        }
+        self.updateQueue
+            .asyncAfter(deadline: .now() + 3) {
             AccountManager.shared.find(for: self.owner)?.action({ user, stream in
                 user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
             })

@@ -41,7 +41,7 @@ extension Account: XMPPStreamDelegate {
         }
         
         func invalidate() {
-//            self.tokenWasInvalidated()
+            self.tokenWasInvalidated()
         }
         delayedConnectTimer?.invalidate()
         delayedConnectTimer = nil
@@ -55,6 +55,9 @@ extension Account: XMPPStreamDelegate {
                 if let password = creditionalsItem.creditionalString {
                     if stream.supportsHOTPAuthentication {
                         if let secret = creditionalsItem.getSecret() {
+//                            if let deviceId = self.devices.deviceId {
+//                                stream.xabberDeviceId = deviceId
+//                            }
                             stream.xabberDeviceSecret = secret
                         }
                         stream.shouldRegisterDevice = true
@@ -304,9 +307,9 @@ extension Account: XMPPStreamDelegate {
                         
                     }
                 }
-                if self.omemo.didReceiveOmemoMessage(message) {
+                if self.chatMarkers.read(withMessage: message) {
                     return
-                } else if self.chatMarkers.read(withMessage: message) {
+                } else if self.omemo.didReceiveOmemoMessage(message) {
                     return
                 } else {
                     self.messages.receiveArchived(message)
@@ -319,9 +322,9 @@ extension Account: XMPPStreamDelegate {
                         return
                     }
                 }
-                if self.omemo.didReceiveOmemoMessage(message) {
+                if self.chatMarkers.read(withMessage: message) {
                     return
-                } else if self.chatMarkers.read(withMessage: message) {
+                } else if self.omemo.didReceiveOmemoMessage(message) {
                     return
                 } else {
                     self.messages.receiveCarbon(message)

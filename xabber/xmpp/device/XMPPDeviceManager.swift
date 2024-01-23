@@ -43,7 +43,11 @@ class XMPPDeviceManager: AbstractXMPPManager {
     }
     
     public final func setAvailable(_ features: DDXMLElement) {
+        if isAvailable {
+            return
+        }
         if features.element(forName: "starttls") != nil { return }
+        
         guard let synchronization = features.element(forName: "devices"),
             synchronization.xmlns() == getPrimaryNamespace() else {
                 isAvailable = false
@@ -60,6 +64,10 @@ class XMPPDeviceManager: AbstractXMPPManager {
         do {
             let realm = try WRealm.safe()
             deviceId = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: owner)?.deviceUuid
+            if let myDeviceId = deviceId,
+               myDeviceId.isNotEmpty {
+                self.isAvailable = true
+            }
             try realm.write {
                 realm
                     .objects(DeviceStorageItem.self)
@@ -336,9 +344,17 @@ class XMPPDeviceManager: AbstractXMPPManager {
         guard let deviceId = message.element(forName: "revoke", xmlns: getPrimaryNamespace())?.element(forName: "device")?.attributeStringValue(forName: "id") else {
             return false
         }
-        if self.deviceId == deviceId {
-            AccountManager.shared.find(for: self.owner)?.tokenWasInvalidated()
+        do {
+            let realm = try WRealm.safe()
+            let myDeviceId = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: owner)?.deviceUuid
+            
+            if myDeviceId == deviceId {
+                NotificationCenter.default.post(name: ApplicationStateManager.tokenWasExpired, object: self.owner)
+            }
+        } catch {
+            
         }
+        
         return true
     }
     
@@ -418,7 +434,7 @@ class XMPPDeviceManager: AbstractXMPPManager {
               let expire = device.element(forName: "expire")?.stringValueAsDouble() else {
             return false
         }
-        
+//        print(self.deviceId, deviceId)
         self.deviceId = deviceId
         
         CredentialsManager.shared.setItem(for: owner, secret: secret)
@@ -441,6 +457,13 @@ class XMPPDeviceManager: AbstractXMPPManager {
         }
         do {
             let realm = try WRealm.safe()
+            
+            if let oldInstance = realm.object(ofType: DeviceStorageItem.self, forPrimaryKey: instance.primary) {
+                try realm.write {
+                    realm.delete(oldInstance)
+                }
+            }
+            
             try realm.write {
                 realm.add(instance)
             }

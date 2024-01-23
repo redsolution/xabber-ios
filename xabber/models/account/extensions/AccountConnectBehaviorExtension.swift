@@ -55,7 +55,7 @@ extension Account {
 //            self.push.enable(xmppStream: self.xmppStream) { _ in
 //                
 //            }
-//            _ = self.syncManager.sync(self.xmppStream)
+            _ = self.syncManager.sync(self.xmppStream)
         } else {
 //            DispatchQueue.main.async {
 //                ToastPresenter(message: "Synchronization").present(animated: true)
@@ -116,6 +116,10 @@ extension Account {
                         self.statusMessage.accept(error.element(forName: "text")?.stringValue ?? "Offline")
                     }
                 case "not-authorized":
+//                    if self.devices.isAvailable {
+//                        self.tokenWasInvalidated()
+//                        return
+//                    }
                     if error.element(forName: "text")?.stringValue == "Device was revoked" {
                         self.tokenWasInvalidated()
                         return
