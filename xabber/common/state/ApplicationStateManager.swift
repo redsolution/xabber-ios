@@ -61,7 +61,7 @@ class ApplicationStateManager: NSObject {
         }
         
         var jid: String
-        var retryRemained: Int = 3
+        var retryRemained: Int = 0
         
         init(jid: String) {
             self.jid = jid
@@ -207,13 +207,14 @@ class ApplicationStateManager: NSObject {
         guard let jid = notification.object as? String else {
             return
         }
-        if let index = self.expiredTokenAccountsList.firstIndex(where: { $0.jid == jid }) {
-            if !self.expiredTokenAccountsList[index].canRetry() {
-                self.tokenWasInvalidated(for: jid)
-            }
-        } else {
-            self.expiredTokenAccountsList.append(ExpiredTokenAccountItem(jid: jid))
-        }
+        self.tokenWasInvalidated(for: jid)
+//        if let index = self.expiredTokenAccountsList.firstIndex(where: { $0.jid == jid }) {
+//            if !self.expiredTokenAccountsList[index].canRetry() {
+//                self.tokenWasInvalidated(for: jid)
+//            }
+//        } else {
+//            self.expiredTokenAccountsList.append(ExpiredTokenAccountItem(jid: jid))
+//        }
     }
     
     public final func prepare() {
