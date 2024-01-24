@@ -132,8 +132,14 @@ class OnboardingViewController: SimpleBaseViewController {
         container.fillSuperviewWithOffset(top: 160, bottom: view.safeAreaInsets.bottom + 16, left: 32, right: 32)
         container.addArrangedSubview(stack)
         stack.addArrangedSubview(logoView)
-        stack.addArrangedSubview(titleLabel)
+        
+        if CommonConfigManager.shared.config.show_text_logo {
+            stack.addArrangedSubview(titleLabel)
+        } else {
+            stack.addArrangedSubview(titleImage)
+        }
 //        stack.addArrangedSubview(titleImage)
+            
         stack.addArrangedSubview(subtitleLabel)
         stack.addArrangedSubview(UIStackView())
         stack.addArrangedSubview(signInButton)

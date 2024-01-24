@@ -864,7 +864,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                         .messages
                         .receiveClientSyncRaw(messageStanza,
                                               groupchatUserCard: userCard,
-                                              isRead: instance.unread == 0,
+                                              isRead: state == .read,
                                               state: state,
                                               date: Date(timeIntervalSince1970: timestamp),
                                               readDate: readDate)
