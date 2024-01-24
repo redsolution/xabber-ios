@@ -140,32 +140,32 @@ extension MessageManager {
                                      state: .sended,
                                      queryId: getMAMQueryId(message)))
             guard let from = messageBare.from?.bare else { return }
-            do {
-                let conversationType = conversationTypeByMessage(message)
-                let realm = try WRealm.safe()
-                try realm.write {
-                    realm
-                        .objects(MessageStorageItem.self)
-                        .filter("owner == %@ AND opponent == %@ AND state_ == %@ AND date <= %@ AND conversationType_ == %@",
-                                owner,
-                                from,
-                                MessageStorageItem.MessageSendingState.deliver.rawValue,
-                                getDeliveryTime(message, owner: owner) ?? Date(),
-                                conversationType.rawValue)
-                        .forEach {
-                            $0.state = .read
-                            $0.isRead = true
-                            if $0.burnDate <= 1 {
-                                if $0.afterburnInterval > 0 {
-                                    $0.readDate = Date().timeIntervalSince1970
-                                    $0.burnDate = Date().timeIntervalSince1970 + $0.afterburnInterval
-                                }
-                            }
-                        }
-                }
-            } catch {
-                DDLogDebug("MessageManager: \(#function). \(error.localizedDescription)")
-            }
+//            do {
+//                let conversationType = conversationTypeByMessage(message)
+//                let realm = try WRealm.safe()
+//                try realm.write {
+//                    realm
+//                        .objects(MessageStorageItem.self)
+//                        .filter("owner == %@ AND opponent == %@ AND state_ < %@ AND date <= %@ AND conversationType_ == %@",
+//                                owner,
+//                                from,
+//                                MessageStorageItem.MessageSendingState.read.rawValue,
+//                                getDeliveryTime(message, owner: owner) ?? Date(),
+//                                conversationType.rawValue)
+//                        .forEach {
+//                            $0.state = .read
+//                            $0.isRead = true
+//                            if $0.burnDate <= 1 {
+//                                if $0.afterburnInterval > 0 {
+//                                    $0.readDate = Date().timeIntervalSince1970
+//                                    $0.burnDate = Date().timeIntervalSince1970 + $0.afterburnInterval
+//                                }
+//                            }
+//                        }
+//                }
+//            } catch {
+//                DDLogDebug("MessageManager: \(#function). \(error.localizedDescription)")
+//            }
         }
     }
     
@@ -189,36 +189,36 @@ extension MessageManager {
                                  date: getDeliveryTime(message, owner: owner) ?? Date(),
                                  state: .sended,
                                  queryId: getMAMQueryId(message)))
-        if let from = message.from?.bare,
-            from != owner {
-            CommonChatStatesManager.shared.update(jid: from, owner: owner, state: .none)
-            do {
-                let conversationType = conversationTypeByMessage(message)
-                let realm = try WRealm.safe()
-                try realm.write {
-                    realm
-                        .objects(MessageStorageItem.self)
-                        .filter("owner == %@ AND opponent == %@ AND state_ == %@ AND date <= %@ AND conversationType_ == %@",
-                                owner,
-                                from,
-                                MessageStorageItem.MessageSendingState.deliver.rawValue,
-                                getDeliveryTime(message, owner: owner) ?? Date(),
-                                conversationType.rawValue)
-                        .forEach {
-                            $0.state = .read
-                            $0.isRead = true
-                            if $0.burnDate <= 1 {
-                                if $0.afterburnInterval > 0 {
-                                    $0.readDate = Date().timeIntervalSince1970
-                                    $0.burnDate = Date().timeIntervalSince1970 + $0.afterburnInterval
-                                }
-                            }
-                        }
-                }
-            } catch {
-                DDLogDebug("MessageManager: \(#function). \(error.localizedDescription)")
-            }
-        }
+//        if let from = message.from?.bare,
+//            from != owner {
+//            CommonChatStatesManager.shared.update(jid: from, owner: owner, state: .none)
+//            do {
+//                let conversationType = conversationTypeByMessage(message)
+//                let realm = try WRealm.safe()
+//                try realm.write {
+//                    realm
+//                        .objects(MessageStorageItem.self)
+//                        .filter("owner == %@ AND opponent == %@ AND state_ < %@ AND date <= %@ AND conversationType_ == %@",
+//                                owner,
+//                                from,
+//                                MessageStorageItem.MessageSendingState.read.rawValue,
+//                                getDeliveryTime(message, owner: owner) ?? Date(),
+//                                conversationType.rawValue)
+//                        .forEach {
+//                            $0.state = .read
+//                            $0.isRead = true
+//                            if $0.burnDate <= 1 {
+//                                if $0.afterburnInterval > 0 {
+//                                    $0.readDate = Date().timeIntervalSince1970
+//                                    $0.burnDate = Date().timeIntervalSince1970 + $0.afterburnInterval
+//                                }
+//                            }
+//                        }
+//                }
+//            } catch {
+//                DDLogDebug("MessageManager: \(#function). \(error.localizedDescription)")
+//            }
+//        }
     }
     
     
@@ -246,6 +246,9 @@ extension MessageManager {
 //        self.receiverSubscribtion =
         self.messagesQueue
             .asObservable()
+//            .observe(on: SerialDispatchQueueScheduler(
+//                                        queue: self.queue,
+//                                        internalSerialQueueName: "com.xabber.msgQueue"))
             .debounce(.nanoseconds(1),
                       scheduler: SerialDispatchQueueScheduler(
                         queue: self.queue,
@@ -510,6 +513,7 @@ extension MessageManager {
     
     internal func enqueue(_ item: MessageQueueItem) {
 //        self.queue.sync {
+        
             var value = self.messagesQueue.value
             value.update(with: item)
             messagesQueue.accept(value)
@@ -542,22 +546,18 @@ extension MessageManager {
     }
     
     func save(_ messages: [MessageStorageItem], silentNotifications: Bool = false) {
-//        RunLoop.main.perform {
-            do {
-                let realm = try  WRealm.safe()
-    //            try autoreleasepool {
-                try realm.write {
-                        messages.forEach {
-                            if $0.save(commitTransaction: false, silentNotifications: silentNotifications) {
-                                $0.storeStanza()
-                            }
+        do {
+            let realm = try  WRealm.safe()
+            try realm.write {
+                    messages.forEach {
+                        if $0.save(commitTransaction: false, silentNotifications: silentNotifications) {
+                            $0.storeStanza()
                         }
                     }
-                AccountManager.shared.find(for: self.owner)?.chatMarkers.deleteEphemeralMessages()
-    //            }
-            } catch {
-                DDLogDebug("cant save messages colelction")
-            }
-//        }
+                }
+            AccountManager.shared.find(for: self.owner)?.chatMarkers.deleteEphemeralMessages()
+        } catch {
+            DDLogDebug("cant save messages colelction")
+        }
     }
 }

@@ -61,7 +61,7 @@ class ApplicationStateManager: NSObject {
         }
         
         var jid: String
-        var retryRemained: Int = 3
+        var retryRemained: Int = 0
         
         init(jid: String) {
             self.jid = jid

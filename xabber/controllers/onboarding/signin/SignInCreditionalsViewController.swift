@@ -489,7 +489,11 @@ class SignInCreditionalsViewController: SimpleBaseViewController {
         self.passwordField.delegate = self
         self.loginField.addTarget(self, action: #selector(onLoginFieldDidChangeSelector), for: .editingChanged)
         self.passwordField.addTarget(self, action: #selector(onPasswordFieldDidChangeSelection), for: .editingChanged)
-        self.host = CommonConfigManager.shared.get().allowed_hosts.first!
+        if CommonConfigManager.shared.config.locked_host.isNotEmpty {
+            self.host = CommonConfigManager.shared.config.locked_host
+        } else {
+            self.host = CommonConfigManager.shared.get().allowed_hosts.first!
+        }
     }
     
     @objc

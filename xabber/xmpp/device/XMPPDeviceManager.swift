@@ -341,11 +341,7 @@ class XMPPDeviceManager: AbstractXMPPManager {
      </revoke>
    </message>*/
     internal func readHeadline(_ message: XMPPMessage) -> Bool {
-        guard (message.from?.isServer ?? false),
-              let deviceId = message
-            .element(forName: "revoke", xmlns: getPrimaryNamespace())?
-            .element(forName: "device")?
-            .attributeStringValue(forName: "id") else {
+        guard let deviceId = message.element(forName: "revoke", xmlns: getPrimaryNamespace())?.element(forName: "device")?.attributeStringValue(forName: "id") else {
             return false
         }
         do {

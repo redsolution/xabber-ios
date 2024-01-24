@@ -489,8 +489,8 @@ class SettingsViewController: BaseViewController {
             }
             
             
-            
-            datasource.append(Datasource(section: .accountSettings, childs: [
+            if CommonConfigManager.shared.config.should_block_application_when_subscribtion_end {
+                datasource.append(Datasource(section: .accountSettings, childs: [
                     Datasource(section: .accountSettings, title: "Profile, status, password", viewController: SimpleTableViewController.self, childs: [
                         Datasource(section: .status, childs: [
                             Datasource(section: .status, title: Datasource.Section.status.description(), key: .accountStatus)
@@ -510,6 +510,27 @@ class SettingsViewController: BaseViewController {
                     Datasource(section: .accountSettings, title: "Devices", key: .accountSessions),
                     Datasource(section: .accountSettings, title: "Subscriptions", key: .subscriptions)
                 ]))
+            } else {
+                datasource.append(Datasource(section: .accountSettings, childs: [
+                    Datasource(section: .accountSettings, title: "Profile, status, password", viewController: SimpleTableViewController.self, childs: [
+                        Datasource(section: .status, childs: [
+                            Datasource(section: .status, title: Datasource.Section.status.description(), key: .accountStatus)
+                        ]),
+                        Datasource(section: .profile, childs: [
+                            Datasource(section: .profile, title: "Profile", key: .accountVcard),
+                            Datasource(section: .profile, title: "Password", viewController: ChangePasswordTableViewController.self),
+                            Datasource(section: .profile, title: "Account color", key: .accountColor),
+                            Datasource(section: .profile, title: "Blocked contacts", key: .accountBlockedContacts),
+                        ]),
+                        Datasource(section: .delete, subtitle: Datasource.Section.delete.secondaryDescription(), childs: [
+                            Datasource(section: .delete,
+                                       title: Datasource.Section.delete.description(),
+                                       key: .accountDelete)
+                        ])
+                    ]),
+                    Datasource(section: .accountSettings, title: "Devices", key: .accountSessions)
+                ]))
+            }
             
             if let _ = AccountManager.shared.find(for: self.jid)?.getDefaultUploader() as? UploadManagerExtendedProtocol {
                 let item = Datasource(section: .accountSettings, title: "Cloud storage", key: .manageStorage)
@@ -605,6 +626,38 @@ class SettingsViewController: BaseViewController {
                 ]))
         }
         
+        if CommonConfigManager.shared.config.use_yubikey {
+            datasource.append(Datasource(section: .security, title: Datasource.Section.security.description(), subtitle: Datasource.Section.security.secondaryDescription(), childs: [
+                Datasource(section: .security, title: "Passcode lock *", premiumOnly: true, viewController: SimpleTableViewController.self, childs: [
+                    Datasource(section: .security, subtitle: "If you forget your passcode, you'll need to reinstall the app.\n\nIf you premium subscription expire, passcode will be reset.", childs: [
+                        Datasource(section: .security, title: "Turn passcode Off", key: .turnPasscodeOff),
+                        Datasource(section: .security, title: "Change Passcode", viewController: PasscodeViewController.self),
+                        Datasource(section: .security, title: "Biometrics", key: .turnBiometricsOnOff)]),
+                    Datasource(section: .security, childs: [
+                        Datasource(section: .autolock, title: "Auto-Lock", key: .passcodeTimer),
+                        Datasource(section: .autolock, title: "Attempts", key: .passcodeAttempts),
+                        Datasource(section: .autolock, title: "Displayed attempts", key: .displayedAttempts),
+                        Datasource(section: .autolock, title: "Show attempts left", itemType: .toggle, toggle: (dict[Datasource.Keys.showAttempts.rawValue] as? Bool) ?? false, key: .showAttempts)
+                    ])
+                ], key: .passcode),
+                Datasource(section: .security, title: "Yubikey signature", viewController: YubikeySetupViewController.self, key: .yubikey),
+            ]))
+        } else {
+            datasource.append(Datasource(section: .security, title: Datasource.Section.security.description(), subtitle: Datasource.Section.security.secondaryDescription(), childs: [
+                Datasource(section: .security, title: "Passcode lock", premiumOnly: false, viewController: SimpleTableViewController.self, childs: [
+                    Datasource(section: .security, subtitle: "If you forget your passcode, you'll need to reinstall the app.\n\nIf you premium subscription expire, passcode will be reset.", childs: [
+                        Datasource(section: .security, title: "Turn passcode Off", key: .turnPasscodeOff),
+                        Datasource(section: .security, title: "Change Passcode", viewController: PasscodeViewController.self),
+                        Datasource(section: .security, title: "Biometrics", key: .turnBiometricsOnOff)]),
+                    Datasource(section: .security, childs: [
+                        Datasource(section: .autolock, title: "Auto-Lock", key: .passcodeTimer),
+                        Datasource(section: .autolock, title: "Attempts", key: .passcodeAttempts),
+                        Datasource(section: .autolock, title: "Displayed attempts", key: .displayedAttempts),
+                        Datasource(section: .autolock, title: "Show attempts left", itemType: .toggle, toggle: (dict[Datasource.Keys.showAttempts.rawValue] as? Bool) ?? false, key: .showAttempts)
+                    ])
+                ], key: .passcode)
+            ]))
+        }
 
     }
     

@@ -749,10 +749,14 @@ class ChatViewController: MessagesViewController {
 //            })
 //        }
         self.updateQueue
-            .asyncAfter(deadline: .now() + 3) {
+            .asyncAfter(deadline: .now() + 2) {
             AccountManager.shared.find(for: self.owner)?.action({ user, stream in
                 user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
             })
+                DispatchQueue.main.async {
+                    self.canUpdateDataset = true
+                    self.runDatasetUpdateTask()
+                }
         }
     }
     
@@ -941,6 +945,7 @@ class ChatViewController: MessagesViewController {
             inputHeight += bottomInset
         }
         self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 100, right: 0)
+        
     }
     
 //    @objc

@@ -217,9 +217,9 @@ class CredentialsManager: NSObject {
                         realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid)?.counter = "\(newCounter)"
                     }
                     self.counter = newCounter
-                    DispatchQueue.main.async {
-                        ToastPresenter(message: "Increment counter: \(newCounter)").present(animated: true)
-                    }
+//                    DispatchQueue.main.async {
+//                        ToastPresenter(message: "Increment counter: \(newCounter)").present(animated: true)
+//                    }
                 }
             } catch {
                 
@@ -250,7 +250,7 @@ class CredentialsManager: NSObject {
                         try realm.write {
                             realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid)?.counter = "\(newCounter)"
                         }
-                        ToastPresenter(message: "Increment counter: \(newCounter)").present(animated: true)
+//                        ToastPresenter(message: "Increment counter: \(newCounter)").present(animated: true)
                     }
                     
                 }
