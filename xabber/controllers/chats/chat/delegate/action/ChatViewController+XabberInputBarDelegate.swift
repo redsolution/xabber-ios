@@ -325,8 +325,7 @@ extension ChatViewController: XabberInputBarDelegate {
     
     func attachmentButtonTouchUp() {
 //      if (AccountManager.shared.find(for: self.owner)?.xuploads.isAvailable() ?? false)
-        if let account = AccountManager.shared.find(for: self.owner),
-           let _ = account.getDefaultUploader() {
+        if AccountManager.shared.find(for: self.owner)?.cloudStorage.isAvailable() ?? false {
             self.showImagePicker()
         } else {
             if let domain = self.owner.split(separator: "@").last {

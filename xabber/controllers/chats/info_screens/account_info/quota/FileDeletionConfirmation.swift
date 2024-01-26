@@ -37,16 +37,18 @@ class FileDeletionConfirmation: BaseViewController {
         self.percent = percent
         self.owner = owner
         
-        guard let account = AccountManager.shared.find(for: self.owner),
-              let uploader = account.getDefaultUploader() as? UploadManagerExtendedProtocol else { return }
-        uploader.getFilesToDeleteByPercent(percent: self.percent, page: 1) { items, totalObjects, objPerPage, pages in
-            self.totalPages = pages
-            self.items = items
-            self.dateOfLastFile = items[0]["created_at"] as? String
-            self.spinner.removeFromSuperview()
-            self.spinner.stopAnimating()
-            self.configure()
-        }
+        AccountManager.shared.find(for: self.owner)?.action({ user, _ in
+            user.cloudStorage.getFilesToDeleteByPercent(percent: self.percent, page: 1) { items, totalObjects, objPerPage, pages in
+                DispatchQueue.main.async {
+                    self.totalPages = pages
+                    self.items = items
+                    self.dateOfLastFile = items[0]["created_at"] as? String
+                    self.spinner.removeFromSuperview()
+                    self.spinner.stopAnimating()
+                    self.configure()
+                }
+            }
+        })
     }
     
     func configure() {
@@ -147,14 +149,11 @@ extension FileDeletionConfirmation: UITableViewDelegate {
                          cancel: "Cancel",
                          values: [ActionSheetPresenter.Item(destructive: true, title: "Delete", value: "delete")],
                          animated: true) { _ in
-                    guard let account = AccountManager.shared.find(for: self.owner),
-                          let uploader = account.getDefaultUploader() as? UploadManagerExtendedProtocol else { return }
-                    uploader.getFilesToDeleteByPercent(percent: self.percent, page: 1) { items, totalObjects, objPerPage, pages in
-                        self.dateOfLastFile = items[0]["created_at"] as? String
-                    }
-                    uploader.deleteMediaForSelectedPeriod(earlierThanDate: self.dateOfLastFile!) {
-                        self.navigationController?.popViewController(animated: true)
-                    }
+                    AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                        user.cloudStorage.deleteMediaFor(percent: self.percent) {
+                            self.navigationController?.popViewController(animated: true)
+                        }
+                    })
                 }
         }
     }

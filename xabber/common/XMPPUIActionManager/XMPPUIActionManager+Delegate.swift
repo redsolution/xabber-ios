@@ -164,13 +164,13 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
         case (self.vcardManager?.read(withIQ: iq) ?? false): return true
         case (self.blocked?.read(withIQ: iq) ?? false): return true
         case (self.retract?.read(withIQ: iq) ?? false): return true
-        case (self.xtokens?.read(withIQ: iq) ?? false): return true
+//        case (self.xtokens?.read(withIQ: iq) ?? false): return true
         case (self.devices?.read(withIQ: iq) ?? false): return true
 
         case (self.roster?.read(withIQ: iq) ?? false): return true
-        case ((self.httpUploader as? AbstractXMPPManager)?.read(withIQ: iq) ?? false): return true
+//        case ((self.httpUploader as? AbstractXMPPManager)?.read(withIQ: iq) ?? false): return true
 
-        case (self.omemo?.read(withIQ: iq) ?? false): return true
+//        case (self.omemo?.read(withIQ: iq) ?? false): return true
         default: return false
         }
     }
@@ -236,9 +236,9 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
         
     }
     
-    func xmppStreamDidReceive(_ sender: XMPPStream, streamFeatures features: DDXMLElement) {
-        sync?.checkAvailability(features)
-    }
+//    func xmppStreamDidReceive(_ sender: XMPPStream, streamFeatures features: DDXMLElement) {
+//        sync?.checkAvailability(features)
+//    }
     
     func xmppStreamDidDisconnect(_ sender: XMPPStream, withError error: Error?) {
         guard let jid = sender.myJID?.bare else { return }

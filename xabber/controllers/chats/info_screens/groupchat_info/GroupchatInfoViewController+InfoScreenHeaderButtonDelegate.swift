@@ -112,13 +112,11 @@ extension GroupchatInfoViewController: InfoScreenHeaderButtonDelegate {
     
     internal func onChangeNotifications() {
         if isMuted {
-            XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-                _ = session.sync?.update(stream, jid: self.jid, conversationType: .group, mute: nil)
-            } fail: {
-                AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                    _ = user.syncManager.update(stream, jid: self.jid, conversationType: .group, mute: nil)
-                })
-            }
+
+            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                _ = user.syncManager.update(stream, jid: self.jid, conversationType: .group, mute: nil)
+            })
+            
         } else {
             let muteItems: [ActionSheetPresenter.Item] = [
                 ActionSheetPresenter.Item(destructive: false, title: "Mute for 15 minutes".localizeString(id: "mute_15_min", arguments: []), value: "mute_15_min"),
@@ -145,13 +143,11 @@ extension GroupchatInfoViewController: InfoScreenHeaderButtonDelegate {
                 default: break
                 }
                 
-                XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-                    _ = session.sync?.update(stream, jid: self.jid, conversationType: .group, mute: expiredAt)
-                } fail: {
+
                     AccountManager.shared.find(for: self.owner)?.action({ user, stream in
                         _ = user.syncManager.update(stream, jid: self.jid, conversationType: .group, mute: expiredAt)
                     })
-                }
+                
             }
         }
     }

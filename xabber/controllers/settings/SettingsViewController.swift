@@ -532,7 +532,7 @@ class SettingsViewController: BaseViewController {
                 ]))
             }
             
-            if let _ = AccountManager.shared.find(for: self.jid)?.getDefaultUploader() as? UploadManagerExtendedProtocol {
+            if AccountManager.shared.find(for: self.jid)?.cloudStorage.isAvailable() ?? false {
                 let item = Datasource(section: .accountSettings, title: "Cloud storage", key: .manageStorage)
                 datasource[0].childs.insert(item, at: 1)
             }
@@ -812,7 +812,7 @@ class SettingsViewController: BaseViewController {
             guard let quotaItem = realm.object(ofType: AccountQuotaStorageItem.self,
                                                forPrimaryKey: self.jid) else { return }
             self.quota = quotaItem.quota
-            self.used = quotaItem.used
+            self.used = quotaItem.total
         } catch {
             DDLogDebug("SettingsViewController: \(#function). \(error.localizedDescription)")
         }
@@ -825,7 +825,7 @@ class SettingsViewController: BaseViewController {
                 guard let quotaItem = realm.object(ofType: AccountQuotaStorageItem.self,
                                                    forPrimaryKey: self.jid) else { return }
                 self.quota = quotaItem.quota
-                self.used = quotaItem.used
+                self.used = quotaItem.total
                 self.tableView.reloadData()
             } catch {
                 DDLogDebug("SettingsViewController: \(#function). \(error.localizedDescription)")
@@ -833,16 +833,12 @@ class SettingsViewController: BaseViewController {
         }
         if !CommonConfigManager.shared.config.supports_multiaccounts {
             AccountManager.shared.users.first?.action({ user, stream in
-                if let uploader = user.getDefaultUploader() as? UploadManagerExtendedProtocol {
-                    uploader.getQuotaInfo(callback)
-                }
+                user.cloudStorage.getStats()
             })
         } else {
             AccountManager.shared.activeUsers.value.forEach {
                 AccountManager.shared.find(for: $0)?.action({ user, stream in
-                    if let uploader = user.getDefaultUploader() as? UploadManagerExtendedProtocol {
-                        uploader.getQuotaInfo(callback)
-                    }
+                    user.cloudStorage.getStats()
                 })
             }
         }

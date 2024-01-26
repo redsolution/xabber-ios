@@ -31,7 +31,7 @@ class AvatarUploadManager: AbstractXMPPManager {
     }
     
     private static let httpAuthNamespace: String = "http://jabber.org/protocol/http-auth"
-    private let uploadLink: String = "v1/avatar/upload/"//"api/v1/avatar/upload/"
+    private let uploadLink: String = "v1/files/upload/"//"api/v1/avatar/upload/"
     
     internal var node: String? = nil
     internal var maxFileSize: Int? = nil
@@ -181,6 +181,7 @@ class AvatarUploadManager: AbstractXMPPManager {
                 formData.append(data, withName: "file", fileName: filename, mimeType: mimeType)
                 formData.append("\(mimeType)".data(using: .utf8)!, withName: "media_type")
                 formData.append(String(createThumbnail).data(using: .utf8)!, withName: "create_thumbnail")
+                formData.append("avatar".data(using: .utf8)!, withName: "context")
             },
             usingThreshold: SessionManager.multipartFormDataEncodingMemoryThreshold,
             to: url,
@@ -189,6 +190,7 @@ class AvatarUploadManager: AbstractXMPPManager {
                 switch result {
                 case .success(request: let request, streamingFromDisk: _, streamFileURL: _):
                     request.responseData(queue: .global(qos: .background)) { response in
+                        print(response)
                         do {
                             if (response.response?.statusCode ?? 400) < 300 {
                                 guard let data = response.value else {
@@ -196,7 +198,6 @@ class AvatarUploadManager: AbstractXMPPManager {
                                     return
                                 }
                                 let avatar =  try JSONDecoder().decode(AvatarResponse.self, from: data)
-                                self.saveQuotaInRealm(quota: avatar.quota, used: avatar.used)
                                 successCallback(avatar)
                             } else {
                                 guard let data = response.value else {
@@ -305,28 +306,5 @@ class AvatarUploadManager: AbstractXMPPManager {
             
         }
         finishCallback()
-    }
-    
-    func saveQuotaInRealm(quota: Int, used: Int) {
-        do {
-            let realm = try WRealm.safe()
-            if let quotaItem = realm.object(ofType: AccountQuotaStorageItem.self,
-                                            forPrimaryKey: self.owner) {
-                try realm.write {
-                    quotaItem.rawQuota = quota
-                    quotaItem.rawUsed = used
-                }
-            } else {
-                let quotaItem = AccountQuotaStorageItem()
-                quotaItem.jid = self.owner
-                quotaItem.rawQuota = quota
-                quotaItem.rawUsed = used
-                try realm.write {
-                    realm.add(quotaItem)
-                }
-            }
-        } catch {
-            DDLogDebug("XabberUploadManager: \(#function). \(error.localizedDescription)")
-        }
     }
 }

@@ -223,9 +223,9 @@ extension Account: XMPPStreamDelegate {
         case self.devices.read(withIQ: iq):
             self.omemo.checkInfo()
             break
+        case self.cloudStorage.read(withIQ: iq): break
         case self.xTokens.read(withIQ: iq): break
         case self.groupchats.read(withIQ: iq): break
-        case (self.httpUploads as! AbstractXMPPManager).read(withIQ: iq): break
         case self.blocked.read(withIQ: iq): break
         case self.msgDeleteManager.read(withIQ: iq): break
         case self.vcards.read(withIQ: iq):
@@ -235,7 +235,6 @@ extension Account: XMPPStreamDelegate {
         case self.disco.read(withIQ: iq):
             AccountManager.shared.markAsConnected(jid: jid)
             break
-        case (self.xUploads as! AbstractXMPPManager).read(withIQ: iq): break
         case self.omemo.read(withIQ: iq): break
         case self.x509Manager.read(withIQ: iq): break
         default: return false

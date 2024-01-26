@@ -108,17 +108,17 @@ extension LastChatsViewController {
                                         .localizeString(id: "server_doesnt_support_pinned_chats", arguments: []))
             }
         }
-        XMPPUIActionManager.shared.performRequest(owner: owner) { stream, session in
-            if !(session.sync?.pinChat(stream, jid: jid, conversationType: conversationType) ?? false) {
-                fallback()
-            }
-        } fail: {
+//        XMPPUIActionManager.shared.performRequest(owner: owner) { stream, session in
+//            if !(session.sync?.pinChat(stream, jid: jid, conversationType: conversationType) ?? false) {
+//                fallback()
+//            }
+//        } fail: {
             AccountManager.shared.find(for: owner)?.action({ user, stream in
                 if !user.syncManager.pinChat(stream, jid: jid, conversationType: conversationType) {
                     fallback()
                 }
             })
-        }
+//        }
     }
     
     internal func onGroupchatInfo(_ jid: String, owner: String) {
@@ -164,14 +164,14 @@ extension LastChatsViewController {
             let conversationType = instance.conversationType
             self.canUpdateDataset = true
             self.runDatasetUpdateTask()
-            XMPPUIActionManager.shared.open(owner: owner)
-            XMPPUIActionManager.shared.performRequest(owner: owner) { stream, session in
-                _ = session.sync?.update(stream, jid: jid, conversationType: conversationType, status: value ? .active : .archived)
-            } fail: {
+//            XMPPUIActionManager.shared.open(owner: owner)
+//            XMPPUIActionManager.shared.performRequest(owner: owner) { stream, session in
+//                _ = session.sync?.update(stream, jid: jid, conversationType: conversationType, status: value ? .active : .archived)
+//            } fail: {
                 AccountManager.shared.find(for: owner)?.action({ user, stream in
                     _ = user.syncManager.update(stream, jid: jid, conversationType: conversationType, status: value ? .active : .archived)
                 })
-            }
+//            }
 
         } catch {
             DDLogDebug("cant change archive state for \(jid)")
@@ -190,20 +190,20 @@ extension LastChatsViewController {
             noText: "Cancel",
             animated: true) { value in
                 if value {
-                    XMPPUIActionManager.shared.performRequest(owner: owner) { stream, user in
-                        _ = user.sync?.update(
-                            stream,
-                            jid: jid,
-                            conversationType: conversationType,
-                            status: .deleted
-                        )
-                        user.retract?.deleteAllMessages(
-                            stream,
-                            jid: jid,
-                            conversationType: conversationType,
-                            callback: nil
-                        )
-                    } fail: {
+//                    XMPPUIActionManager.shared.performRequest(owner: owner) { stream, user in
+//                        _ = user.sync?.update(
+//                            stream,
+//                            jid: jid,
+//                            conversationType: conversationType,
+//                            status: .deleted
+//                        )
+//                        user.retract?.deleteAllMessages(
+//                            stream,
+//                            jid: jid,
+//                            conversationType: conversationType,
+//                            callback: nil
+//                        )
+//                    } fail: {
                         AccountManager.shared.find(for: owner)?.action({ user, stream in
                             _ = user.syncManager.update(
                                 stream,
@@ -218,7 +218,7 @@ extension LastChatsViewController {
                                 callback: nil
                             )
                         })
-                    }
+//                    }
                     do {
                         let realm = try  WRealm.safe()
                         try realm.write {
@@ -289,13 +289,13 @@ extension LastChatsViewController {
     internal func onChangeNotifications(jid: String, owner: String, isMuted: Bool, conversationType: ClientSynchronizationManager.ConversationType) {
         XMPPUIActionManager.shared.open(owner: owner)
         if isMuted {
-            XMPPUIActionManager.shared.performRequest(owner: owner) { stream, session in
-                _ = session.sync?.update(stream, jid: jid, conversationType: conversationType, mute: nil)
-            } fail: {
+//            XMPPUIActionManager.shared.performRequest(owner: owner) { stream, session in
+//                _ = session.sync?.update(stream, jid: jid, conversationType: conversationType, mute: nil)
+//            } fail: {
                 AccountManager.shared.find(for: owner)?.action({ user, stream in
                     _ = user.syncManager.update(stream, jid: jid, conversationType: conversationType, mute: nil)
                 })
-            }
+//            }
         } else {
             let muteItems: [ActionSheetPresenter.Item] = [
                 ActionSheetPresenter.Item(destructive: false, title: "Mute for 15 minutes"
@@ -331,13 +331,13 @@ extension LastChatsViewController {
                 case "mute_forever": expiredAt = 0
                 default: break
                 }
-                XMPPUIActionManager.shared.performRequest(owner: owner) { stream, session in
-                    _ = session.sync?.update(stream, jid: jid, conversationType: conversationType, mute: expiredAt)
-                } fail: {
+//                XMPPUIActionManager.shared.performRequest(owner: owner) { stream, session in
+//                    _ = session.sync?.update(stream, jid: jid, conversationType: conversationType, mute: expiredAt)
+//                } fail: {
                     AccountManager.shared.find(for: owner)?.action({ user, stream in
                         _ = user.syncManager.update(stream, jid: jid, conversationType: conversationType, mute: expiredAt)
                     })
-                }
+//                }
             }
         }
     }

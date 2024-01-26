@@ -380,10 +380,10 @@ extension SimpleTableViewController: UITableViewDelegate {
                     self.navigationItem.setRightBarButton(self.deleteSpinner, animated: true)
                     self.navigationItem.setHidesBackButton(true, animated: false)
                     UIView.animate(withDuration: 0.5, animations: { self.whiteView.alpha = 1.0 } )
-                    if let account = AccountManager.shared.find(for: self.jid),
-                       let uploader = account.getDefaultUploader() as? UploadManagerExtendedProtocol {
-                        uploader.deleteGallery(jid: self.jid)
-                    }
+                    
+                    AccountManager.shared.find(for: self.jid)?.action({ user, _ in
+                        user.cloudStorage.deleteGallery(jid: self.jid)
+                    })
                     XMPPAccountDeleteManager.shared.deleteAccount(jid: self.jid, password: password, delegate: self)
                 })
                 alert.addAction(deleteAction)

@@ -22,40 +22,40 @@ import Foundation
 import RealmSwift
 import CocoaLumberjack
 
-extension CloudStorageViewController: QuotaCellDelegate {
-    func getQuotaInfo(requiresDataFromServer: Bool, callback: @escaping ((Int, Int, Int, Int, Int, String, String) -> Void)) {
-        func extractStatsFromRealm(callback: @escaping ((Int, Int, Int, Int, Int, String, String) -> Void)) {
-            do {
-                let realm = try WRealm.safe()
-                guard let quotaItem = realm.object(ofType: AccountQuotaStorageItem.self, forPrimaryKey: jid) else { return }
-                
-                let rawImages = quotaItem.rawImages
-                let rawVideos = quotaItem.rawVideos
-                let rawFiles = quotaItem.rawFiles
-                let rawVoices = quotaItem.rawVoices
-                let quotaRaw = quotaItem.rawQuota
-                let quota = quotaItem.quota
-                let used = quotaItem.used
-                
-                callback(rawImages, rawVideos, rawFiles, rawVoices, quotaRaw, quota, used)
-            } catch {
-                DDLogDebug("QuotaInfoCell: \(#function). \(error.localizedDescription)")
-            }
-        }
-        
-        if requiresDataFromServer == true {
-            if let account = AccountManager.shared.find(for: jid),
-               let uploader = account.getDefaultUploader() as? UploadManagerExtendedProtocol {
-                uploader.getQuotaInfo {
-                    extractStatsFromRealm() { rawImages, rawVideos, rawFiles, rawVoices, quotaRaw, quota, used in
-                        callback(rawImages, rawVideos, rawFiles, rawVoices, quotaRaw,quota, used)
-                    }
-                }
-            }
-        } else {
-            extractStatsFromRealm() { rawImages, rawVideos, rawFiles, rawVoices, quotaRaw, quota, used in
-                callback(rawImages, rawVideos, rawFiles, rawVoices, quotaRaw,quota, used)
-            }
-        }
-    }
-}
+//extension CloudStorageViewController: QuotaCellDelegate {
+//    func getQuotaInfo(requiresDataFromServer: Bool, callback: @escaping ((Int, Int, Int, Int, Int, String, String) -> Void)) {
+//        func extractStatsFromRealm(callback: @escaping ((Int, Int, Int, Int, Int, String, String) -> Void)) {
+//            do {
+//                let realm = try WRealm.safe()
+//                guard let quotaItem = realm.object(ofType: AccountQuotaStorageItem.self, forPrimaryKey: jid) else { return }
+//                
+//                let rawImages = quotaItem.rawImages
+//                let rawVideos = quotaItem.rawVideos
+//                let rawFiles = quotaItem.rawFiles
+//                let rawVoices = quotaItem.rawVoices
+//                let quotaRaw = quotaItem.rawQuota
+//                let quota = quotaItem.quota
+//                let used = quotaItem.used
+//                
+//                callback(rawImages, rawVideos, rawFiles, rawVoices, quotaRaw, quota, used)
+//            } catch {
+//                DDLogDebug("QuotaInfoCell: \(#function). \(error.localizedDescription)")
+//            }
+//        }
+//        
+//        if requiresDataFromServer == true {
+//            if let account = AccountManager.shared.find(for: jid),
+//               let uploader = account.getDefaultUploader() as? UploadManagerExtendedProtocol {
+//                uploader.getQuotaInfo {
+//                    extractStatsFromRealm() { rawImages, rawVideos, rawFiles, rawVoices, quotaRaw, quota, used in
+//                        callback(rawImages, rawVideos, rawFiles, rawVoices, quotaRaw,quota, used)
+//                    }
+//                }
+//            }
+//        } else {
+//            extractStatsFromRealm() { rawImages, rawVideos, rawFiles, rawVoices, quotaRaw, quota, used in
+//                callback(rawImages, rawVideos, rawFiles, rawVoices, quotaRaw,quota, used)
+//            }
+//        }
+//    }
+//}

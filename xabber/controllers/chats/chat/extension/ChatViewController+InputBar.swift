@@ -70,7 +70,7 @@ extension ChatViewController {
                 if value {
 //                    if AccountManager.shared.find(for: self.owner)?.httpUploads.isAvailable() ?? false {
 //                    if AccountManager.shared.find(for: self.owner)?.xUploads.isAvailable() ?? false {
-                    if let account = AccountManager.shared.find(for: self.owner), let _ = account.getDefaultUploader() {
+                    if AccountManager.shared.find(for: self.owner)?.cloudStorage.isAvailable() ?? false {
                         let picker = ImagePickerViewController()
                         picker.jid = self.jid
                         picker.owner = self.owner

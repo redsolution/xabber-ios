@@ -217,11 +217,7 @@ extension AccountInfoViewController: InfoScreenHeaderButtonDelegate {
             self.beforeSettingAvatar()
             user.avatarUploader.setAvatar(image: image, successCallback: {
                 self.afterSettingAvatar(image: image)
-                if let uploader = user.getDefaultUploader() as? UploadManagerExtendedProtocol {
-                    uploader.getQuotaInfo() {
-                        self.updateQuotaInfo()
-                    }
-                }
+                user.cloudStorage.getStats()
             }, failureCallback: {
                 status, error in
                 self.afterSettingAvatar(image: nil)

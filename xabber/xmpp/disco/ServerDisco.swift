@@ -250,12 +250,11 @@ class ServerDiscoManager: AbstractXMPPManager {
                 
                 if let galleryURL = xDictionary["galleryURL"] {
                     SettingManager.shared.saveItem(for: self.owner, scope: .xabberUploadManager, key: "node", value: galleryURL)
-                    if let account = AccountManager.shared.find(for: self.owner),
-                       var uploader = account.getDefaultUploader() as? UploadManagerExtendedProtocol {
-                        uploader.node = galleryURL
-                        uploader.enable()
-                        account.avatarUploader.node = galleryURL
-                    }
+                    AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, _ in
+                        user.cloudStorage.node = galleryURL
+                        user.cloudStorage.enable()
+                        user.avatarUploader.node = galleryURL
+                    })
                 }
                 
                 if let productsUrl = xDictionary["productsUrl"] {

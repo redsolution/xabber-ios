@@ -581,8 +581,8 @@ extension MessageManager {
     }
     
     internal func uploadMedia(for primary: String, retry: Bool = false) {
-        if let uploader = AccountManager.shared.find(for: self.owner)?.getDefaultUploader() as? UploadManagerExtendedProtocol {
-            uploader.getFileData(message: primary, successCallback: {
+        AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, stream in
+            user.cloudStorage.getFileData(message: primary, successCallback: {
                 do {
                     let realm = try  WRealm.safe()
                     if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
@@ -608,6 +608,6 @@ extension MessageManager {
                     DDLogDebug("MessageManager: \(#function). \(error.localizedDescription)")
                 }
             })
-        }
+        })
     }
 }

@@ -44,8 +44,6 @@ class XMPPUIActionManager: NSObject {
     var queue: DispatchQueue
 
     var groupchat: GroupchatManager? = nil
-    var httpUploader: UploadManagerProtocol? = nil // HTTPUploadsManager? = nil
-    var xUploader: UploadManagerProtocol? = nil // XabberUploadManager? = nil
     var avatarUploader: AvatarUploadManager? = nil
     var chatMarkers: ChatMarkersManager? = nil
     var deliveryManager: ReliableMessageDeliveryManager? = nil
@@ -56,12 +54,12 @@ class XMPPUIActionManager: NSObject {
     var blocked: BlockManager? = nil
     var retract: MessageDeleteManager? = nil
     var roster: RosterManager? = nil
-    var sync: ClientSynchronizationManager? = nil
-    var xtokens: XTokenManager? = nil
+//    var sync: ClientSynchronizationManager? = nil
+//    var xtokens: XTokenManager? = nil
     var devices: XMPPDeviceManager?  = nil
-    var omemo: OmemoManager? = nil
+//    var omemo: OmemoManager? = nil
     var reconnect: XMPPReconnect? = nil
-    var x509: X509XMPPManager? = nil
+//    var x509: X509XMPPManager? = nil
     var shouldRecreate: Bool = true
     
     override init() {
@@ -74,17 +72,6 @@ class XMPPUIActionManager: NSObject {
             target: DispatchQueue.global()
         )
         super.init()
-    }
-    
-    func getDefaultUploader() -> UploadManagerProtocol? {
-        let uploaders = [self.xUploader, self.httpUploader].compactMap { $0 } //в порядке уменьшения приоритета
-        
-        for uploader in uploaders {
-            if uploader.isAvailable() {
-                return uploader
-            }
-        }
-        return nil
     }
     
     public final func open(owner: String, force: Bool = false) {
@@ -114,10 +101,8 @@ class XMPPUIActionManager: NSObject {
         
         self.currentJid = owner
         self.groupchat = GroupchatManager(withOwner: owner)
-        self.httpUploader = HTTPUploadsManager(withOwner: owner)
-        self.xUploader = XabberUploadManager(withOwner: owner)
         self.avatarUploader = AvatarUploadManager(withOwner: owner)
-        self.chatMarkers = ChatMarkersManager(withOwner: owner)
+        self.chatMarkers = ChatMarkersManager(withOwner: owner, withoutAfterburnTimer: true)
         self.deliveryManager = ReliableMessageDeliveryManager(withOwner: owner)
         self.messages = MessageManager(withOwner: owner, activeStream: false)
         self.mam = MessageArchiveManager(withOwner: owner)
@@ -127,11 +112,11 @@ class XMPPUIActionManager: NSObject {
         self.blocked = BlockManager(withOwner: owner)
         self.retract = MessageDeleteManager(withOwner: owner)
         self.roster = RosterManager(withOwner: owner)
-        self.sync = ClientSynchronizationManager(withOwner: owner)
-        self.xtokens = XTokenManager(withOwner: owner)
+//        self.sync = ClientSynchronizationManager(withOwner: owner)
+//        self.xtokens = XTokenManager(withOwner: owner)
         self.devices = XMPPDeviceManager(withOwner: owner)
         self.reconnect = XMPPReconnect(dispatchQueue: self.queue)
-        self.x509 = X509XMPPManager(withOwner: owner)
+//        self.x509 = X509XMPPManager(withOwner: owner)
         
         self.stream.myJID = XMPPJID(string: owner, resource: AccountManager.defaultResource + "_ui_upgrade_task")
         self.stream.startTLSPolicy = XMPPStreamStartTLSPolicy.preferred
@@ -160,8 +145,6 @@ class XMPPUIActionManager: NSObject {
         self.stream.disconnect()
         self.stream.asyncSocket.disconnect()
         self.groupchat = nil
-        self.httpUploader = nil
-        self.xUploader = nil
         self.chatMarkers = nil
         self.deliveryManager = nil
         self.messages = nil
@@ -172,12 +155,7 @@ class XMPPUIActionManager: NSObject {
         self.retract = nil
         self.blocked = nil
         self.vcardManager = nil
-        self.sync = nil
-        self.xtokens = nil
         self.devices = nil
-        self.omemo = nil
-        self.x509 = nil
-//        self.stream.removeDelegate(self, delegateQueue: self.queue)
     }
     
     public final func close(soft: Bool = false, disconnect: Bool = false) {
@@ -195,8 +173,6 @@ class XMPPUIActionManager: NSObject {
         }
         self.currentJid = nil
         self.groupchat = nil
-        self.httpUploader = nil
-        self.xUploader = nil
         self.chatMarkers = nil
         self.deliveryManager = nil
         self.messages = nil
@@ -206,12 +182,7 @@ class XMPPUIActionManager: NSObject {
         self.retract = nil
         self.blocked = nil
         self.vcardManager = nil
-        self.sync = nil
-        self.xtokens = nil
         self.devices = nil
-        self.omemo = nil
-        self.x509 = nil
-//        self.stream.removeDelegate(self, delegateQueue: self.queue)
     }
     
     public final func restore() {

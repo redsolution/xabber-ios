@@ -52,11 +52,13 @@ extension CloudStorageDeleteViewController: UICollectionViewDelegateFlowLayout {
                          cancel: "Cancel",
                          values: [ActionSheetPresenter.Item(destructive: true, title: "Delete", value: "delete")],
                          animated: true) { _ in
-                    guard let account = AccountManager.shared.find(for: self.owner),
-                          let uploader = account.getDefaultUploader() as? UploadManagerExtendedProtocol else { return }
-                    uploader.deleteMediaForSelectedPeriod(earlierThanDate: self.dateOfLastFile!) {
-                        self.navigationController?.popViewController(animated: true)
-                    }
+                    AccountManager.shared.find(for: self.owner)?.action({ user, _ in
+                        user.cloudStorage.deleteMediaFor(percent: self.percent) {
+                            DispatchQueue.main.async {
+                                self.navigationController?.popViewController(animated: true)
+                            }
+                        }
+                    })
                 }
             return
         }

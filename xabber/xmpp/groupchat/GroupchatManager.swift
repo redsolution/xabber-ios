@@ -2324,13 +2324,13 @@ class GroupchatManager: AbstractXMPPManager {
                             }
                             collection.forEach { $0.isRead = true }
                         }
-                        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-                            _ = session.sync?.update(stream, jid: jid, conversationType: .group, status: .deleted)
-                        } fail: {
+//                        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+//                            _ = session.sync?.update(stream, jid: jid, conversationType: .group, status: .deleted)
+//                        } fail: {
                             AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
                                 _ = user.syncManager.update(stream, jid: jid, conversationType: .group, status: .deleted)
                             })
-                        }
+//                        }
 
                     }
                 }

@@ -208,11 +208,9 @@ extension SettingsViewController: InfoScreenHeaderButtonDelegate {
                 } catch {
                     DDLogDebug("dsg")
                 }
-                if let uploader = user.getDefaultUploader() as? UploadManagerExtendedProtocol {
-                    uploader.getQuotaInfo() {
-                        //self.updateQuotaInfo()
-                    }
-                }
+                AccountManager.shared.find(for: self.jid)?.action({ user, _ in
+                    user.cloudStorage.getStats()
+                })
             }, failureCallback: {
                 status, error in
                 do {

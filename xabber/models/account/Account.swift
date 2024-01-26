@@ -66,8 +66,7 @@ final class Account: NSObject {
     var vcards: VCardManager
     var avatarManager: XmppAvatarManager
     var ping: PingManager
-    var httpUploads: UploadManagerProtocol //HTTPUploadsManager
-    var xUploads: UploadManagerProtocol //XabberUploadManager
+    var cloudStorage: XabberUploadManager
     var avatarUploader: AvatarUploadManager
     var blocked: BlockManager
     var chatStates: ChatStatesManager
@@ -146,8 +145,7 @@ final class Account: NSObject {
 //        self.vCardAvatars = vCardAvatarManager(withOwner: self.j2id)
 //        self.PEPAvatars = PEPAvatarManager(withOwner: self.jid)
         self.disco = ServerDiscoManager(withOwner: self.jid)
-        self.httpUploads = HTTPUploadsManager(withOwner: self.jid)
-        self.xUploads = XabberUploadManager(withOwner: self.jid)
+        self.cloudStorage = XabberUploadManager(withOwner: self.jid)
         self.avatarUploader = AvatarUploadManager(withOwner: self.jid)
         self.chatStates = ChatStatesManager(withOwner: self.jid)
         self.chatMarkers = ChatMarkersManager(withOwner: self.jid)
@@ -176,17 +174,6 @@ final class Account: NSObject {
         self.load()
 //        xuploads.confi-gure()
 //        self.asyncConnect()
-    }
-    
-    func getDefaultUploader() -> UploadManagerProtocol? {
-        let uploaders = [self.xUploads, self.httpUploads] //в порядке уменьшения приоритета
-        
-        for uploader in uploaders {
-            if uploader.isAvailable() {
-                return uploader
-            }
-        }
-        return nil
     }
     
     func configureStream() {

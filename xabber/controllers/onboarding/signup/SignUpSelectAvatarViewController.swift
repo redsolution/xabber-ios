@@ -218,11 +218,9 @@ class SignUpSelectAvatarViewController: SignUpBaseViewController {
         }
         AccountManager.shared.find(for: jid)?.action({ (user, stream) in
             user.avatarUploader.setAvatar(image: self.avatarImage, successCallback: {
-                if let uploader = user.getDefaultUploader() as? UploadManagerExtendedProtocol {
-                    uploader.getQuotaInfo {
-                        
-                    }
-                }
+                AccountManager.shared.find(for: jid)?.action({ user, stream in
+                    user.cloudStorage.getStats()
+                })
             }, failureCallback: {
                 status, error in
                 

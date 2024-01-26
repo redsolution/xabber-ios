@@ -39,7 +39,7 @@ extension CloudStorageViewController: UITableViewDataSource {
         case "quota_info":
             let cell = tableView.dequeueReusableCell(withIdentifier: QuotaInfoCell.cellName, for: indexPath) as? QuotaInfoCell
             cell?.selectionStyle = .none
-            cell?.setup(title: item.title, owner: jid, quotaDelegate: self)
+            cell?.setup(title: item.title, owner: jid)
             return cell!
         case "delete_files":
             let cell = UITableViewCell(style: .value1, reuseIdentifier: "value1CellReuseID")

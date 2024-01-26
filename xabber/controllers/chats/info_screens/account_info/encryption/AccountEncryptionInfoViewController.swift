@@ -229,14 +229,14 @@ extension AccountEncryptionInfoViewController {
                 realm.object(ofType: AccountStorageItem.self, forPrimaryKey: self.owner)?.isEncryptionEnabled = sender.isOn
             }
             self.tableView.reloadData()
-            XMPPUIActionManager.shared.open(owner: self.owner)
-            XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-                session.omemo?.updateMyDevice(stream)
-            } fail: {
+//            XMPPUIActionManager.shared.open(owner: self.owner)
+//            XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+//                session.omemo?.updateMyDevice(stream)
+//            } fail: {
                 AccountManager.shared.find(for: self.owner)?.action({ user, stream in
                     user.omemo.updateMyDevice(stream)
                 })
-            }
+//            }
 
         } catch {
             DDLogDebug("AccountEncryptionInfoViewController: \(#function). \(error.localizedDescription)")

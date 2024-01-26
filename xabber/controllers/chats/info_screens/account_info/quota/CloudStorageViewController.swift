@@ -22,6 +22,9 @@ import UIKit
 import TOInsetGroupedTableView
 import CocoaLumberjack
 import RealmSwift
+import RxSwift
+import RxRealm
+import RxCocoa
 
 class CloudStorageViewController: BaseViewController {
     class Datasource {
@@ -50,12 +53,15 @@ class CloudStorageViewController: BaseViewController {
     }
     
     var isDeletingFilesEnabled: Bool = false
-    var imagesUsed: String = ""
-    var videosUsed: String = ""
-    var filesUsed: String = ""
-    var audioUsed: String = ""
+    var imagesUsed: String = "0 KiB"
+    var videosUsed: String = "0 KiB"
+    var filesUsed: String = "0 KiB"
+    var audioUsed: String = "0 KiB"
+    var avatarUsed: String = "0 KiB"
     var usedQuota: Int = 0
     var quota: Int = 0
+    
+    var bag: DisposeBag = DisposeBag()
     
     var datasource: [Datasource] = []
     
@@ -72,7 +78,7 @@ class CloudStorageViewController: BaseViewController {
         self.jid = jid
         title = "Cloud Storage".localizeString(id: "account_cloud_storage", arguments: [])
         
-        getTypeSizesFromRealm()
+//        getTypeSizesFromRealm()
         
         datasource.append(Datasource(.text, title: "", children: [
             Datasource(.text, title: "Media Gallery".localizeString(id: "account_media_gallery", arguments: []),
@@ -90,7 +96,7 @@ class CloudStorageViewController: BaseViewController {
         ]))
         
         datasource.append(Datasource(.text, title: "", children: [
-            Datasource(.text, title: "Avatars".localizeString(id: "avatars", arguments: []), key: "avatars")
+            Datasource(.text, title: "Avatars".localizeString(id: "avatars", arguments: []),subtitle: avatarUsed,  key: "avatars")
         ]))
         
         datasource.append(Datasource(.text, title: "", children: [
@@ -105,22 +111,60 @@ class CloudStorageViewController: BaseViewController {
         tableView.dataSource = self
     }
     
-    func getTypeSizesFromRealm(callback: (()-> Void)? = nil) {
+    func subscribe() {
         do {
             let realm = try WRealm.safe()
-            let quotaItem = realm.object(ofType: AccountQuotaStorageItem.self, forPrimaryKey: jid)
-            
-            self.imagesUsed = quotaItem?.imagesUsed ?? "0 KiB"
-            self.videosUsed = quotaItem?.videosUsed ?? "0 KiB"
-            self.filesUsed = quotaItem?.filesUsed ?? "0 KiB"
-            self.audioUsed = quotaItem?.voicesUsed ?? "0 KiB"
-            self.usedQuota = quotaItem?.rawUsed ?? 0
-            self.quota = quotaItem?.rawQuota ?? 0
-            
-            callback?()
+            let collection = realm.objects(AccountQuotaStorageItem.self).filter("jid == %@", self.jid)
+            if let item = collection.first {
+                self.imagesUsed = item.imagesUsed 
+                self.videosUsed = item.videosUsed
+                self.filesUsed = item.filesUsed
+                self.audioUsed = item.voicesUsed
+                self.avatarUsed = item.avatarUsed
+                self.usedQuota = item.totalBytes
+                self.quota = item.quotaBytes
+            }
+            Observable.collection(from: collection).debounce(.milliseconds(5), scheduler: MainScheduler.asyncInstance).subscribe { results in
+                if let item = results.first {
+                    self.imagesUsed = item.imagesUsed
+                    self.videosUsed = item.videosUsed
+                    self.filesUsed = item.filesUsed
+                    self.audioUsed = item.voicesUsed
+                    self.avatarUsed = item.avatarUsed
+                    self.usedQuota = item.totalBytes
+                    self.quota = item.quotaBytes
+                }
+                self.datasource[1].children.forEach {
+                    switch $0.key {
+                    case "images":
+                        $0.subtitle = self.imagesUsed
+                    case "videos":
+                        $0.subtitle = self.videosUsed
+                    case "files":
+                        $0.subtitle = self.filesUsed
+                    case "voice":
+                        $0.subtitle = self.audioUsed
+                    default:
+                        break
+                    }
+                }
+                self.datasource[2].children[0].subtitle = self.avatarUsed
+                self.tableView.reloadData()
+            } onError: { _ in
+                
+            } onCompleted: {
+                
+            } onDisposed: {
+                
+            }.disposed(by: self.bag)
+
         } catch {
             DDLogDebug("CloudStorageViewController: \(#function). \(error.localizedDescription)")
         }
+    }
+    
+    func unsubscribe() {
+        self.bag = DisposeBag()
     }
     
     override func viewDidLoad() {
@@ -132,32 +176,20 @@ class CloudStorageViewController: BaseViewController {
         super.viewWillAppear(animated)
         
         self.navigationController?.navigationBar.prefersLargeTitles = false
-        
-        guard let quotaCell = self.tableView.cellForRow(at: IndexPath.init(row: 0, section: 0)) as? QuotaInfoCell else { return }
-        quotaCell.reloadData() {
-            self.getTypeSizesFromRealm() {
-                self.datasource[1].children.forEach {
-                    switch $0.title {
-                    case "Images".localizeString(id: "images", arguments: []):
-                        $0.subtitle = self.imagesUsed
-                    case "Videos".localizeString(id: "videos", arguments: []):
-                        $0.subtitle = self.videosUsed
-                    case "Files".localizeString(id: "files", arguments: []):
-                        $0.subtitle = self.filesUsed
-                    case "Voice".localizeString(id: "voice", arguments: []):
-                        $0.subtitle = self.audioUsed
-                    default:
-                        break
-                    }
-                }
-                self.tableView.reloadSections([0, 1], with: .fade)
-            }
-        }
+        subscribe()
+        AccountManager.shared.find(for: self.jid)?.action({ user, _ in
+            user.cloudStorage.getStats()
+        })
     }
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         
         tableView.reloadData()
+    }
+    
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        unsubscribe()
     }
 }

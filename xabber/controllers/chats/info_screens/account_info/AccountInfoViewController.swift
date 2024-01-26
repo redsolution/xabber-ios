@@ -318,12 +318,12 @@ class AccountInfoViewController: BaseViewController {
         }
     }
     
-    func updateQuotaInfo() {
-        guard let cell = tableView.cellForRow(at: IndexPath.init(row: 0, section: 2)) as? QuotaInfoCell else { return }
-        cell.reloadData() {
-            self.tableView.reloadRows(at: [IndexPath.init(row: 0, section: 0)], with: .fade)
-        }
-    }
+//    func updateQuotaInfo() {
+//        guard let cell = tableView.cellForRow(at: IndexPath.init(row: 0, section: 2)) as? QuotaInfoCell else { return }
+//        cell.reloadData() {
+//            self.tableView.reloadRows(at: [IndexPath.init(row: 0, section: 0)], with: .fade)
+//        }
+//    }
     
     internal func unsubscribe() {
         bag = DisposeBag()
@@ -425,7 +425,7 @@ class AccountInfoViewController: BaseViewController {
             guard let quotaItem = realm.object(ofType: AccountQuotaStorageItem.self,
                                                forPrimaryKey: self.jid) else { return }
             self.quota = quotaItem.quota
-            self.used = quotaItem.used
+            self.used = quotaItem.total
         } catch {
             DDLogDebug("AccountInfoViewController: \(#function). \(error.localizedDescription)")
         }

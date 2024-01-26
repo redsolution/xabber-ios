@@ -684,30 +684,10 @@ class SignInServerFeaturesViewController: UIViewController {
                     self.datasource[index].value = value
                     allFeaturesInserted = true
                 } else {
-                    guard let account = AccountManager.shared.find(for: self.jid),
-                          let _ = account.getDefaultUploader() else {
-                        return
-                    }
-                    self.isHTTPUploadAvailable = true
+                    
+                    self.isHTTPUploadAvailable = AccountManager.shared.find(for: self.jid)?.cloudStorage.isAvailable() ?? false
                 }
-//            case "featureXabberUpload":
-//                isLastFeatureChecked = true
-//                allFeaturesInserted = true
-//                self.datasource[index].value = AccountManager.shared.find(for: jid)?.xuploads.isAvailable ?? false
-//
-//
-//
-//                if let value = self.isXabberUploadAvailable {
-//                    self.datasource[index].value = value
-//                    allFeaturesInserted = true
-//                } else {
-////                    if SettingManager.shared.getKey(for: self.jid, scope: .xabberUploadManager, key: "node") != nil {
-////                        self.isXabberUploadAvailable = true
-////                    }
-////                    if counter >= repeatLimit {
-////                        self.isXabberUploadAvailable = false
-////                    }
-//                }
+
             default: break
             }
             if allFeaturesInserted {

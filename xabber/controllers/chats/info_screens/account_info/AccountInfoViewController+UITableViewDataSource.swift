@@ -49,32 +49,32 @@ extension AccountInfoViewController: UITableViewDataSource {
     }
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        func getQuotaDetails(successCallback: @escaping ((Int, Int, Int, Int, Int) -> Void)) {
-            do {
-                let realm = try WRealm.safe()
-                guard let quotaItem = realm.object(ofType: AccountQuotaStorageItem.self,
-                                                   forPrimaryKey: self.jid) else {
-                    if let account = AccountManager.shared.find(for: self.jid),
-                       let uploader = account.getDefaultUploader() as? UploadManagerExtendedProtocol {
-                        uploader.getQuotaInfo() {
-                            getQuotaDetails() { rawImages, rawVideos, rawFiles, rawAudio, rawQuota in
-                                successCallback(rawImages, rawVideos, rawFiles, rawAudio, rawQuota)
-                            }
-                        }
-                    }
-                    return
-                }
-                let rawImages = quotaItem.rawImages
-                let rawVideos = quotaItem.rawVideos
-                let rawFiles = quotaItem.rawFiles
-                let rawAudio = quotaItem.rawVoices
-                let rawQuota = quotaItem.rawQuota
-
-                successCallback(rawImages, rawVideos, rawFiles, rawAudio, rawQuota)
-            } catch {
-                DDLogDebug("AccountInfoViewController: \(#function). \(error.localizedDescription)")
-            }
-        }
+//        func getQuotaDetails(successCallback: @escaping ((Int, Int, Int, Int, Int) -> Void)) {
+//            do {
+//                let realm = try WRealm.safe()
+//                guard let quotaItem = realm.object(ofType: AccountQuotaStorageItem.self,
+//                                                   forPrimaryKey: self.jid) else {
+//                    if let account = AccountManager.shared.find(for: self.jid),
+//                       let uploader = account.getDefaultUploader() as? UploadManagerExtendedProtocol {
+//                        uploader.getQuotaInfo() {
+//                            getQuotaDetails() { rawImages, rawVideos, rawFiles, rawAudio, rawQuota in
+//                                successCallback(rawImages, rawVideos, rawFiles, rawAudio, rawQuota)
+//                            }
+//                        }
+//                    }
+//                    return
+//                }
+//                let rawImages = quotaItem.rawImages
+//                let rawVideos = quotaItem.rawVideos
+//                let rawFiles = quotaItem.rawFiles
+//                let rawAudio = quotaItem.rawVoices
+//                let rawQuota = quotaItem.rawQuota
+//
+//                successCallback(rawImages, rawVideos, rawFiles, rawAudio, rawQuota)
+//            } catch {
+//                DDLogDebug("AccountInfoViewController: \(#function). \(error.localizedDescription)")
+//            }
+//        }
         
         if indexPath.section >= datasource.count {
             var item = tokensDatasource[indexPath.section - datasource.count]

@@ -31,7 +31,7 @@ import Kingfisher
 *       XabberUploadManager sends inquiry to the server, which gets non-permanent code.
 *       It is used for receiving user's token for messages and files exchange
 **/
-class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
+class XabberUploadManager: AbstractXMPPManager {
     enum UploadError: Error {
         case notAvailable
     }
@@ -132,6 +132,7 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
             multipartFormData: { formData in
                 formData.append(data, withName: "file", fileName: filename, mimeType: mimeType ?? "")
                 formData.append(mime.data(using: .utf8)!, withName: "media_type")
+                formData.append("file".data(using: .utf8)!, withName: "context")
                 //Takes type of file, e.g. "audio" from "audio/ogg"
                 
                 if let jsonMetadata = jsonMetadata {
@@ -166,6 +167,7 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
                             let thumbnailUrl = json["thumbnail"] as? String
 
                             successCallback(fileUrl, thumbnailUrl, fileID, name, hash, url, quota, used)
+                            self.getStats()
                         } else {
                             guard let json = response.result.value as? NSDictionary,
                                   let statusCode = json["status"] as? Int else {
@@ -379,100 +381,100 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
         }
     }
     
-    //MARK: - Receives quota info, file types' stats and writes it in realm
-    public func getQuotaInfo(_ callback: (() -> Void)?) {
-        func saveInRealm(quota: Int, used: Int, imagesStats: Int, videosStats: Int, filesStats: Int, voicesStats: Int) {
-            do {
-                let realm = try WRealm.safe()
-                if let quotaItem = realm.object(ofType: AccountQuotaStorageItem.self,
-                                                forPrimaryKey: self.owner) {
-                    try realm.write {
-                        quotaItem.rawQuota = quota
-                        quotaItem.rawUsed = used
-                        quotaItem.rawImages = imagesStats
-                        quotaItem.rawVideos = videosStats
-                        quotaItem.rawFiles = filesStats
-                        quotaItem.rawVoices = voicesStats
-                    }
-                } else {
-                    let quotaItem = AccountQuotaStorageItem()
-                    quotaItem.jid = self.owner
-                    quotaItem.rawQuota = quota
-                    quotaItem.rawUsed = used
-                    quotaItem.rawImages = imagesStats
-                    quotaItem.rawVideos = videosStats
-                    quotaItem.rawFiles = filesStats
-                    quotaItem.rawVoices = voicesStats
-                    try realm.write {
-                        realm.add(quotaItem)
-                    }
-                }
-            } catch {
-                DDLogDebug("XabberUploadManager: \(#function). \(error.localizedDescription)")
-            }
-        }
-        
-        guard isAvailable(), let node = node else {
-            DDLogDebug("XabberUploadManager: \(#function). Xabber uploader is unavailable.")
-            return
-        }
-        
-        let stringUrl = node + "v1/account/quota/"
-        
-        guard let url = URL(string: stringUrl) else {
-            DDLogDebug("XabberUploadManager: \(#function). Url is incorrect")
-            return
-        }
-        
-        let headers: [String: String] = [
-            "Authorization" : "Bearer \(self.token)",
-        ]
-        print("TOKEN: \(token)\n")
-        Alamofire
-            .request(url,
-                     method: .get,
-                     parameters: nil,
-                     encoding: JSONEncoding.default,
-                     headers: headers)
-            .responseJSON { response in
-                self.checkResponse(response.response?.statusCode) {
-                    switch response.result {
-                    case .success(let value):
-                        guard let json = value as? NSDictionary,
-                              let quota = json["quota"] as? Int,
-                              let used = json["used"] as? Int else {
-                                  DDLogDebug("XabberUplaodManager: \(#function). Error with Alamofire request.")
-                                  return
-                              }
-                        
-                        self.getStats() { imagesStats, videosStats, filesStats, voicesStats in
-                            saveInRealm(quota: quota,
-                                        used: used,
-                                        imagesStats: imagesStats,
-                                        videosStats: videosStats,
-                                        filesStats: filesStats,
-                                        voicesStats: voicesStats)
-                            callback?()
-                        }
-                    case .failure(let value):
-                        DDLogDebug("XabberUploadManager: \(#function). \(value.localizedDescription)")
-                    }
-                } fail: { error in
-                    guard let error = error as? XabberUploaderError else { return }
-                    switch error {
-                    case .unauthorized:
-                        self.tokenWasExpired()
-                    case .unexpected:
-                        break
-                    }
-                }
-
-                
-                
-            }
-    }
+//    //MARK: - Receives quota info, file types' stats and writes it in realm
+//    public func getQuotaInfo(_ callback: (() -> Void)?) {
+//        func saveInRealm(quota: Int, used: Int, imagesStats: Int, videosStats: Int, filesStats: Int, voicesStats: Int) {
+//            do {
+//                let realm = try WRealm.safe()
+//                if let quotaItem = realm.object(ofType: AccountQuotaStorageItem.self,
+//                                                forPrimaryKey: self.owner) {
+//                    try realm.write {
+//                        quotaItem.rawQuota = quota
+//                        quotaItem.rawUsed = used
+//                        quotaItem.rawImages = imagesStats
+//                        quotaItem.rawVideos = videosStats
+//                        quotaItem.rawFiles = filesStats
+//                        quotaItem.rawVoices = voicesStats
+//                    }
+//                } else {
+//                    let quotaItem = AccountQuotaStorageItem()
+//                    quotaItem.jid = self.owner
+//                    quotaItem.rawQuota = quota
+//                    quotaItem.rawUsed = used
+//                    quotaItem.rawImages = imagesStats
+//                    quotaItem.rawVideos = videosStats
+//                    quotaItem.rawFiles = filesStats
+//                    quotaItem.rawVoices = voicesStats
+//                    try realm.write {
+//                        realm.add(quotaItem)
+//                    }
+//                }
+//            } catch {
+//                DDLogDebug("XabberUploadManager: \(#function). \(error.localizedDescription)")
+//            }
+//        }
+//        
+//        guard isAvailable(), let node = node else {
+//            DDLogDebug("XabberUploadManager: \(#function). Xabber uploader is unavailable.")
+//            return
+//        }
+//        
+//        let stringUrl = node + "v1/account/quota/"
+//        
+//        guard let url = URL(string: stringUrl) else {
+//            DDLogDebug("XabberUploadManager: \(#function). Url is incorrect")
+//            return
+//        }
+//        
+//        let headers: [String: String] = [
+//            "Authorization" : "Bearer \(self.token)",
+//        ]
+//        print("TOKEN: \(token)\n")
+//        Alamofire
+//            .request(url,
+//                     method: .get,
+//                     parameters: nil,
+//                     encoding: JSONEncoding.default,
+//                     headers: headers)
+//            .responseJSON { response in
+//                self.checkResponse(response.response?.statusCode) {
+//                    switch response.result {
+//                    case .success(let value):
+//                        guard let json = value as? NSDictionary,
+//                              let quota = json["quota"] as? Int,
+//                              let used = json["used"] as? Int else {
+//                                  DDLogDebug("XabberUplaodManager: \(#function). Error with Alamofire request.")
+//                                  return
+//                              }
+//                        
+//                        self.getStats() { imagesStats, videosStats, filesStats, voicesStats in
+//                            saveInRealm(quota: quota,
+//                                        used: used,
+//                                        imagesStats: imagesStats,
+//                                        videosStats: videosStats,
+//                                        filesStats: filesStats,
+//                                        voicesStats: voicesStats)
+//                            callback?()
+//                        }
+//                    case .failure(let value):
+//                        DDLogDebug("XabberUploadManager: \(#function). \(value.localizedDescription)")
+//                    }
+//                } fail: { error in
+//                    guard let error = error as? XabberUploaderError else { return }
+//                    switch error {
+//                    case .unauthorized:
+//                        self.tokenWasExpired()
+//                    case .unexpected:
+//                        break
+//                    }
+//                }
+//
+//                
+//                
+//            }
+//    }
     
-    private func getStats(successCallback: @escaping ((Int, Int, Int, Int) -> Void)) {
+    public func getStats(_ callback: (() -> Void)? = nil) {
         guard isAvailable(), let node = node else {
             DDLogDebug("XabberUploadManager (\(#function) is unavailable.")
             return
@@ -494,26 +496,109 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
                      parameters: nil,
                      encoding: JSONEncoding.default,
                      headers: headers
-            ).responseJSON { response in
-                print("ResponseJSON (statistics): \(response)")
-                switch response.result {
-                case .success(let value):
-                    guard let json = value as? NSDictionary,
-                          let images = json["images"] as? NSDictionary,
-                          let imagesStats = images["used"] as? Int,
-                          let videos = json["videos"] as? NSDictionary,
-                          let videosStats = videos["used"] as? Int,
-                          let files = json["files"] as? NSDictionary,
-                          let filesStats = files["used"] as? Int,
-                          let voices = json["voices"] as? NSDictionary,
-                          let voicesStats = voices["used"] as? Int else { return }
-                    
-                    successCallback(imagesStats, videosStats, filesStats, voicesStats)
-                case .failure(let value):
-                    DDLogDebug("XabberUploadManager: \(#function). \(value.localizedDescription)")
+                ).responseJSON { response in
+                    switch response.result {
+                    case .success(let value):
+                        guard let json = value as? NSDictionary else { return }
+                        
+                        do {
+                            let realm = try WRealm.safe()
+                            if let instance = realm.object(ofType: AccountQuotaStorageItem.self, forPrimaryKey: AccountQuotaStorageItem.genPrimary(jid: self.owner)) {
+                                try realm.write {
+                                    instance.quotaBytes = (json["quota"] as? Int) ?? 0
+                                    instance.totalBytes = ((json["total"] as? NSDictionary)?["used"] as? Int) ?? 0
+                                    instance.totalCount = ((json["total"] as? NSDictionary)?["count"] as? Int) ?? 0
+                                    instance.imagesBytes = ((json["images"] as? NSDictionary)?["used"] as? Int) ?? 0
+                                    instance.imagesCount = ((json["images"] as? NSDictionary)?["count"] as? Int) ?? 0
+                                    instance.filesBytes = ((json["files"] as? NSDictionary)?["used"] as? Int) ?? 0
+                                    instance.filesCount = ((json["files"] as? NSDictionary)?["count"] as? Int) ?? 0
+                                    instance.audioBytes = ((json["audio"] as? NSDictionary)?["used"] as? Int) ?? 0
+                                    instance.audioCount = ((json["audio"] as? NSDictionary)?["count"] as? Int) ?? 0
+                                    instance.voicesBytes = ((json["voices"] as? NSDictionary)?["used"] as? Int) ?? 0
+                                    instance.voicesCount = ((json["voices"] as? NSDictionary)?["count"] as? Int) ?? 0
+                                    instance.videosBytes = ((json["videos"] as? NSDictionary)?["used"] as? Int) ?? 0
+                                    instance.videosCount = ((json["videos"] as? NSDictionary)?["count"] as? Int) ?? 0
+                                    instance.avatarsBytes = ((json["avatars"] as? NSDictionary)?["used"] as? Int) ?? 0
+                                    instance.avatarsCount = ((json["avatars"] as? NSDictionary)?["count"] as? Int) ?? 0
+                                }
+                            } else {
+                                let instance = AccountQuotaStorageItem()
+                                instance.quotaBytes = (json["quota"] as? Int) ?? 0
+                                instance.totalBytes = ((json["total"] as? NSDictionary)?["used"] as? Int) ?? 0
+                                instance.totalCount = ((json["total"] as? NSDictionary)?["count"] as? Int) ?? 0
+                                instance.imagesBytes = ((json["images"] as? NSDictionary)?["used"] as? Int) ?? 0
+                                instance.imagesCount = ((json["images"] as? NSDictionary)?["count"] as? Int) ?? 0
+                                instance.filesBytes = ((json["files"] as? NSDictionary)?["used"] as? Int) ?? 0
+                                instance.filesCount = ((json["files"] as? NSDictionary)?["count"] as? Int) ?? 0
+                                instance.audioBytes = ((json["audio"] as? NSDictionary)?["used"] as? Int) ?? 0
+                                instance.audioCount = ((json["audio"] as? NSDictionary)?["count"] as? Int) ?? 0
+                                instance.voicesBytes = ((json["voices"] as? NSDictionary)?["used"] as? Int) ?? 0
+                                instance.voicesCount = ((json["voices"] as? NSDictionary)?["count"] as? Int) ?? 0
+                                instance.videosBytes = ((json["videos"] as? NSDictionary)?["used"] as? Int) ?? 0
+                                instance.videosCount = ((json["videos"] as? NSDictionary)?["count"] as? Int) ?? 0
+                                instance.avatarsBytes = ((json["avatars"] as? NSDictionary)?["used"] as? Int) ?? 0
+                                instance.avatarsCount = ((json["avatars"] as? NSDictionary)?["count"] as? Int) ?? 0
+                                instance.jid = self.owner
+                                instance.primary = AccountQuotaStorageItem.genPrimary(jid: self.owner)
+                                
+                                try realm.write {
+                                    realm.add(instance)
+                                }
+                            }
+                        } catch {
+                            DDLogDebug("XabberUploadManager: \(#function). \(error.localizedDescription)")
+                        }
+                        callback?()
+                    case .failure(let error):
+                        DDLogDebug("XabberUploadManager: \(#function). \(error.localizedDescription)")
+                        callback?()
+                    }
                 }
-            }
     }
+    
+//    private func getStatsTsuccessCallback: @escaping ((Int, Int, Int, Int) -> Void)) {
+//        guard isAvailable(), let node = node else {
+//            DDLogDebug("XabberUploadManager (\(#function) is unavailable.")
+//            return
+//        }
+//        let stringUrl = node + "v1/files/stats/"
+//        
+//        guard let url = URL(string: stringUrl) else {
+//            DDLogDebug("XabberUploadManager: \(#function). Error with upload url.")
+//            return
+//        }
+//        
+//        let headers: [String: String] = [
+//            "Authorization" : "Bearer \(self.token)",
+//        ]
+//        
+//        Alamofire
+//            .request(url,
+//                     method: .get,
+//                     parameters: nil,
+//                     encoding: JSONEncoding.default,
+//                     headers: headers
+//            ).responseJSON { response in
+//                print("ResponseJSON (statistics): \(response)")
+//                switch response.result {
+//                case .success(let value):
+//                    guard let json = value as? NSDictionary,
+//                          let images = json["images"] as? NSDictionary,
+//                          let imagesStats = images["used"] as? Int,
+//                          let videos = json["videos"] as? NSDictionary,
+//                          let videosStats = videos["used"] as? Int,
+//                          let files = json["files"] as? NSDictionary,
+//                          let filesStats = files["used"] as? Int,
+//                          let voices = json["voices"] as? NSDictionary,
+//                          let voicesStats = voices["used"] as? Int else { return }
+//                    
+//                        
+//                    successCallback(imagesStats, videosStats, filesStats, voicesStats)
+//                case .failure(let value):
+//                    DDLogDebug("XabberUploadManager: \(#function). \(value.localizedDescription)")
+//                }
+//            }
+//    }
     
     //MARK: - Deletes one media file with selected id
     public func deleteMediaFromServer(fileID: Int) {
@@ -696,21 +781,23 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
             return
         }
         
-        let stringUrl = node + String(format: "v1/avatar/")
+        let stringUrl = node + "v1/files/"
         
-        guard var url = URLComponents(string: stringUrl) else {
+        guard let url = URL(string: stringUrl),
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             DDLogDebug("XabberUploadManager: \(#function). Error with upload url.")
             return
         }
-        url.queryItems = [
-          URLQueryItem(name: "page", value: String(page))
+        components.queryItems = [
+            URLQueryItem(name: "contexts", value: "avatar"),
+            URLQueryItem(name: "page", value: String(page))
         ]
         let headers: [String: String] = [
             "Authorization": "Bearer \(self.token)"
         ]
         
         Alamofire
-            .request(url,
+            .request(components,
                      method: .get,
                      parameters: nil,
                      encoding: JSONEncoding.default,
@@ -738,7 +825,7 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
             return
         }
         
-        let stringUrl = node + String(format: "v1/files/", String(percent))
+        let stringUrl = node + "v1/files/percent/\(percent)/"
         
         guard var url = URLComponents(string: stringUrl) else {
             DDLogDebug("XabberUploadManager: \(#function). Error with upload url.")
@@ -746,7 +833,6 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
         }
         
         url.queryItems = [
-            URLQueryItem(name: "percent", value: String(percent)),
             URLQueryItem(name: "page", value: String(page))
         ]
         
@@ -780,8 +866,47 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
     }
     
     //MARK: - Deletes all media files for selected period
-    public func deleteMediaForSelectedPeriod(earlierThanDate: String, successCallback: @escaping (() -> Void)) {
-        guard self.isAvailable(), let node = node else {
+    public func deleteMediaFor(percent: Int, callback: (() -> Void)?) {
+        guard self.isAvailable(),
+              let node = node else {
+            DDLogDebug("XabberUploadManager (\(#function) is unavailable.")
+            return
+        }
+        
+        let stringUrl = node + "v1/files/percent/" + "\(percent)"
+        
+        let headers: [String: String] = [
+            "Authorization" : "Bearer \(token)",
+        ]
+        
+        
+        guard let url = URL(string: stringUrl) else { return }
+        
+        Alamofire
+            .request(url,
+                     method: .delete,
+                     parameters: [:],
+                     encoding: JSONEncoding.default,
+                     headers: headers)
+                .responseJSON { response in
+                    switch response.result {
+                    case .success(_):
+                        callback?()
+                    case .failure(_):
+                        callback?()
+                }
+            }
+    }
+    
+    enum FilesContext: String {
+        case avatar = "avatar"
+        case file = "file"
+        case voice = "voice"
+    }
+    
+    public func deleteMediaForAll(callback: (() -> Void)?) {
+        guard self.isAvailable(),
+              let node = node else {
             DDLogDebug("XabberUploadManager (\(#function) is unavailable.")
             return
         }
@@ -791,30 +916,27 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
         let headers: [String: String] = [
             "Authorization" : "Bearer \(token)",
         ]
-        
-        let params: [String: String] = [
-            "date_lte" : earlierThanDate
+        guard var url = URLComponents(string: stringUrl) else {
+            DDLogDebug("XabberUploadManager: \(#function). Error with upload url.")
+            return
+        }
+        url.queryItems = [
+            URLQueryItem(name: "context", value: FilesContext.avatar.rawValue),
+            URLQueryItem(name: "context", value: FilesContext.voice.rawValue),
+            URLQueryItem(name: "context", value: FilesContext.file.rawValue),
         ]
-        
-        guard let url = URL(string: stringUrl) else { return }
-        
         Alamofire
             .request(url,
                      method: .delete,
-                     parameters: params,
+                     parameters: [:],
                      encoding: JSONEncoding.default,
                      headers: headers)
-            .responseJSON { response in
-                switch response.result {
-                case .success(let value):
-                    print("Response success, status code: \(response.response?.statusCode ?? 000)")
-                    guard let json = value as? NSDictionary,
-                          let status = json["status"] as? Int,
-                          let error = json["error"] as? String else { successCallback(); return }
-                    print("Status code from server: \(status), error: \(error)")
-                    successCallback()
-                case .failure(let error):
-                    print("Deletion failure: \(error.localizedDescription)")
+                .responseJSON { response in
+                    switch response.result {
+                    case .success(_):
+                        callback?()
+                    case .failure(_):
+                        callback?()
                 }
             }
     }
@@ -833,7 +955,7 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
             return
         }
         
-        let stringUrl = node + "v1/account/xmpp_code_request/"//"api/v1/account/xmpp_code_request/"
+        let stringUrl = node + "v1/account/xmpp_code_request/"
         
         let params: [String: String] = ["jid": fullJID,
                                        "type": "iq"]
@@ -855,9 +977,13 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
                 
                 switch response.result {
                 case .success(let value):
-                    print(value)
+                    DDLogDebug(value)
                 case .failure(let error):
-                    print(error.localizedDescription)
+                    DispatchQueue.main.async {
+                        ToastPresenter(message: "Cloud storage is inactive").present(animated: true)
+                    }
+                    failCallback?(error.localizedDescription ?? "Unexpected error")
+                    DDLogDebug(error.localizedDescription)
                 }
             }
     }
@@ -920,7 +1046,7 @@ class XabberUploadManager: AbstractXMPPManager, UploadManagerExtendedProtocol {
                               return
                           }
                     self.token = token
-                    self.getQuotaInfo(nil)
+                    self.getStats()
                     print("Received user token: \(token)")
                 case .failure(let error):
                     print(error.localizedDescription)

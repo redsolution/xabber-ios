@@ -23,50 +23,67 @@ import RealmSwift
 
 class AccountQuotaStorageItem: Object {
     override static func primaryKey() -> String? {
-        return "jid"
+        return "primary"
     }
     
+    @objc dynamic var primary: String = ""
+    
     @objc dynamic var jid: String = ""
-    @objc dynamic var rawQuota: Int = 0
-    @objc dynamic var rawUsed: Int = 0
-    @objc dynamic var rawImages: Int = 0
-    @objc dynamic var rawVideos: Int = 0
-    @objc dynamic var rawFiles: Int = 0
-    @objc dynamic var rawVoices: Int = 0
+    @objc dynamic var quotaBytes: Int = 0
+    @objc dynamic var totalBytes: Int = 0
+    @objc dynamic var totalCount: Int = 0
+    @objc dynamic var imagesBytes: Int = 0
+    @objc dynamic var imagesCount: Int = 0
+    @objc dynamic var videosBytes: Int = 0
+    @objc dynamic var videosCount: Int = 0
+    @objc dynamic var filesBytes: Int = 0
+    @objc dynamic var filesCount: Int = 0
+    @objc dynamic var audioBytes: Int = 0
+    @objc dynamic var audioCount: Int = 0
+    @objc dynamic var voicesBytes: Int = 0
+    @objc dynamic var voicesCount: Int = 0
+    @objc dynamic var avatarsBytes: Int = 0
+    @objc dynamic var avatarsCount: Int = 0
     
     var quota: String {
         get {
-            return AccountQuotaStorageItem.beautify(size: rawQuota)
+            return AccountQuotaStorageItem.beautify(size: quotaBytes)
         }
     }
     
-    var used: String {
+    var total: String {
         get {
-            return AccountQuotaStorageItem.beautify(size: rawUsed)
+            return AccountQuotaStorageItem.beautify(size: totalBytes)
         }
     }
     
     var imagesUsed: String {
         get {
-            return AccountQuotaStorageItem.beautify(size: rawImages)
+            return AccountQuotaStorageItem.beautify(size: imagesBytes)
         }
     }
     
     var videosUsed: String {
         get {
-            return AccountQuotaStorageItem.beautify(size: rawVideos)
+            return AccountQuotaStorageItem.beautify(size: videosBytes)
         }
     }
     
     var filesUsed: String {
         get {
-            return AccountQuotaStorageItem.beautify(size: rawFiles)
+            return AccountQuotaStorageItem.beautify(size: filesBytes)
         }
     }
     
     var voicesUsed: String {
         get {
-            return AccountQuotaStorageItem.beautify(size: rawVoices)
+            return AccountQuotaStorageItem.beautify(size: voicesBytes)
+        }
+    }
+    
+    var avatarUsed: String {
+        get {
+            return AccountQuotaStorageItem.beautify(size: avatarsBytes)
         }
     }
     
@@ -83,5 +100,9 @@ class AccountQuotaStorageItem: Object {
             .replacingOccurrences(of: "КБ", with: "KiB")
             .replacingOccurrences(of: "Zero", with: "0")
         
+    }
+    
+    static func genPrimary(jid: String) -> String {
+        return jid
     }
 }

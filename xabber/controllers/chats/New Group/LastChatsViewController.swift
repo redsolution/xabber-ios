@@ -1048,6 +1048,13 @@ class LastChatsViewController: BaseViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         
+        AccountManager.shared.users.forEach {
+            user in
+            user.action { user, _ in
+                user.cloudStorage.getStats()
+            }
+        }
+        
         NotifyManager.shared.setLastChats(displayed: true)
         title = " "
         configure()

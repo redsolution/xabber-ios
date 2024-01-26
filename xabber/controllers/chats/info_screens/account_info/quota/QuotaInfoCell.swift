@@ -21,22 +21,28 @@
 import UIKit
 import CocoaLumberjack
 import RealmSwift
+import RxSwift
+import RxCocoa
+import RxRealm
 
 class QuotaInfoCell: UITableViewCell {
     static let cellName = "QuotaInfoCell-CloudStorage"
 
     var owner = ""
     
-    var delegate: QuotaCellDelegate?
-    
+    var bag: DisposeBag = DisposeBag()
+        
     var imagesWidthMultiplier: CGFloat = 0.0
     var videosWidthMultiplier: CGFloat = 0.0
     var filesWidthMultiplier: CGFloat = 0.0
     var audioWidthMultiplier: CGFloat = 0.0
+    var avatarWidthMultiplier: CGFloat = 0.9
     
     var firstDelimiterWidth: CGFloat = 1
     var secondDelimeterWidth: CGFloat = 1
     var thirdDelimeterWidth: CGFloat = 1
+    var fourthDelimeterWidth: CGFloat = 1
+    
     
     let labelsStack: UIStackView = {
         let stack = UIStackView()
@@ -115,6 +121,14 @@ class QuotaInfoCell: UITableViewCell {
         return view
     }()
     
+    let avatarProgressView: UIView = {
+        let view = UIView()
+        view.backgroundColor = .systemRed
+        view.translatesAutoresizingMaskIntoConstraints = false
+        
+        return view
+    }()
+    
     let whiteDelimeterViewFirst: UIView = {
         let view = UIView()
         view.backgroundColor = .white
@@ -132,6 +146,16 @@ class QuotaInfoCell: UITableViewCell {
     }()
     
     let whiteDelimeterViewThird: UIView = {
+        let view = UIView()
+        view.backgroundColor = .white
+        view.translatesAutoresizingMaskIntoConstraints = false
+        
+        return view
+    }()
+    
+    
+    
+    let whiteDelimeterViewFourth: UIView = {
         let view = UIView()
         view.backgroundColor = .white
         view.translatesAutoresizingMaskIntoConstraints = false
@@ -215,6 +239,26 @@ class QuotaInfoCell: UITableViewCell {
         return label
     }()
     
+    
+    let avatarIndicator: UIView = {
+        let view = UIView()
+        view.backgroundColor = .systemRed
+        view.layer.cornerRadius = 3
+        view.translatesAutoresizingMaskIntoConstraints = false
+        
+        return view
+    }()
+    
+    let avatarLabel: UILabel = {
+        let label = UILabel()
+        label.text = "Avatars".localizeString(id: "avatar", arguments: [])
+        label.textAlignment = .left
+        label.font = .systemFont(ofSize: 14)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        
+        return label
+    }()
+    
     let imagesStack: UIStackView = {
         let stack = UIStackView()
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -259,6 +303,17 @@ class QuotaInfoCell: UITableViewCell {
         return stack
     }()
     
+    let avatarStack: UIStackView = {
+        let stack = UIStackView()
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.alignment = .center
+        stack.distribution = .fill
+        stack.spacing = 8
+        stack.axis = .horizontal
+        
+        return stack
+    }()
+    
     let activityIndicator: UIActivityIndicatorView = {
         let view = UIActivityIndicatorView()
         view.translatesAutoresizingMaskIntoConstraints = false
@@ -268,61 +323,97 @@ class QuotaInfoCell: UITableViewCell {
         return view
     }()
     
-    func setup(title: String, owner: String, requiresDataFromServer: Bool = false, quotaDelegate: QuotaCellDelegate?) {
+    func setup(title: String, owner: String, requiresDataFromServer: Bool = false) {
         self.owner = owner
-        self.delegate = quotaDelegate
 
         quotaNameLabel.text = title
         
         addSubview(activityIndicator)
         makeActivityIndicatorConstraints()
         
-        delegate?.getQuotaInfo(requiresDataFromServer: requiresDataFromServer) {
-            rawImages, rawVideos, rawFiles, rawVoices, quotaRaw, quota, used in
-            
-            self.setupMainInfoViews(rawImages: rawImages,
-                                    rawVideos: rawVideos,
-                                    rawFiles: rawFiles,
-                                    rawVoices: rawVoices,
-                                    quotaRaw: quotaRaw,
-                                    quota: quota,
-                                    used: used)
+        subscribe()
+    }
+    
+    func subscribe() {
+        do {
+            let realm = try WRealm.safe()
+            let collection = realm.objects(AccountQuotaStorageItem.self).filter("jid == %@", self.owner)
+            if let item = collection.first {
+                self.setupMainInfoViews(
+                    rawImages: item.imagesBytes,
+                    rawVideos: item.videosBytes,
+                    rawFiles: item.filesBytes,
+                    rawVoices: item.voicesBytes,
+                    rawAvatars: item.avatarsBytes,
+                    quotaRaw: item.quotaBytes,
+                    quota: item.quota,
+                    used: item.total
+                )
+            }
+            Observable.collection(from: collection).subscribe { results in
+                if let item = results.first {
+                    self.quotaLabel.text = item.total + " of ".localizeString(id: "of", arguments: []) + item.quota
+                    
+                    if item.quotaBytes > 0 {
+                        self.imagesWidthMultiplier = CGFloat(item.imagesBytes) / CGFloat(item.quotaBytes)
+                        self.videosWidthMultiplier = CGFloat(item.videosBytes) / CGFloat(item.quotaBytes)
+                        self.filesWidthMultiplier = CGFloat(item.filesBytes) / CGFloat(item.quotaBytes)
+                        self.audioWidthMultiplier = CGFloat(item.voicesBytes) / CGFloat(item.quotaBytes)
+                        self.avatarWidthMultiplier = CGFloat(item.avatarsBytes) / CGFloat(item.quotaBytes)
+                    }
+                    self.setupDelimeters()
+                    self.setupViews()
+                }
+            } onError: { _ in
+                
+            } onCompleted: {
+                
+            } onDisposed: {
+                
+            }.disposed(by: self.bag)
+
+        } catch {
+            DDLogDebug("QuotaInfoCell: \(#function). \(error.localizedDescription)")
         }
     }
     
-    func reloadData(callback: @escaping (() -> Void)) {
-//        activityIndicator.startAnimating()
-//        quotaLabel.alpha = 0
-//        mainProgressView.alpha = 0
-//        imagesStack.alpha = 0
-//        videosStack.alpha = 0
-//        filesStack.alpha = 0
-//        voiceStack.alpha = 0
-        
-        delegate?.getQuotaInfo(requiresDataFromServer: true) { [self]
-            rawImages, rawVideos, rawFiles, rawVoices, quotaRaw, quota, used in
-            
-            quotaLabel.text = used + " of ".localizeString(id: "of", arguments: []) + quota
-            
-            imagesWidthMultiplier = CGFloat(rawImages) / CGFloat(quotaRaw)
-            videosWidthMultiplier = CGFloat(rawVideos) / CGFloat(quotaRaw)
-            filesWidthMultiplier = CGFloat(rawFiles) / CGFloat(quotaRaw)
-            audioWidthMultiplier = CGFloat(rawVoices) / CGFloat(quotaRaw)
-            
-            setupDelimeters()
-            setupViews()
-            
-//            quotaLabel.alpha = 1
-//            mainProgressView.alpha = 1
-//            imagesStack.alpha = 1
-//            videosStack.alpha = 1
-//            filesStack.alpha = 1
-//            voiceStack.alpha = 1
-            callback()
-        }
+    func unsubscribe() {
+        self.bag = DisposeBag()
     }
     
-    private func setupMainInfoViews(rawImages: Int, rawVideos: Int, rawFiles: Int, rawVoices: Int,
+    deinit {
+        self.unsubscribe()
+    }
+    
+//    func reloadData(callback: @escaping (() -> Void)) {
+////        activityIndicator.startAnimating()
+////        quotaLabel.alpha = 0
+////        mainProgressView.alpha = 0
+////        imagesStack.alpha = 0
+////        videosStack.alpha = 0
+////        filesStack.alpha = 0
+////        voiceStack.alpha = 0
+////        do {
+////            
+////        }
+//        delegate?.getQuotaInfo(requiresDataFromServer: true) { [self]
+//            rawImages, rawVideos, rawFiles, rawVoices, quotaRaw, quota, used in
+//            
+//            quotaLabel.text = used + " of ".localizeString(id: "of", arguments: []) + quota
+//            
+//            imagesWidthMultiplier = CGFloat(rawImages) / CGFloat(quotaRaw)
+//            videosWidthMultiplier = CGFloat(rawVideos) / CGFloat(quotaRaw)
+//            filesWidthMultiplier = CGFloat(rawFiles) / CGFloat(quotaRaw)
+//            audioWidthMultiplier = CGFloat(rawVoices) / CGFloat(quotaRaw)
+//            
+//            setupDelimeters()
+//            setupViews()
+//            
+//            callback()
+//        }
+//    }
+    
+    private func setupMainInfoViews(rawImages: Int, rawVideos: Int, rawFiles: Int, rawVoices: Int, rawAvatars: Int,
                                     quotaRaw: Int, quota: String, used: String) {
         self.quotaLabel.text = used + " of ".localizeString(id: "of", arguments: []) + quota
         
@@ -330,6 +421,7 @@ class QuotaInfoCell: UITableViewCell {
         videosWidthMultiplier = CGFloat(rawVideos) / CGFloat(quotaRaw)
         filesWidthMultiplier = CGFloat(rawFiles) / CGFloat(quotaRaw)
         audioWidthMultiplier = CGFloat(rawVoices) / CGFloat(quotaRaw)
+        avatarWidthMultiplier = CGFloat(rawAvatars) / CGFloat(quotaRaw)
         
         addSubview(labelsStack)
         labelsStack.addArrangedSubview(quotaNameLabel)
@@ -371,6 +463,14 @@ class QuotaInfoCell: UITableViewCell {
         } else {
             if audioWidthMultiplier == 0 {
                 thirdDelimeterWidth = 0
+            }
+        }
+        
+        if audioWidthMultiplier == 0 {
+            fourthDelimeterWidth = 0
+        } else {
+            if avatarWidthMultiplier == 0 {
+                fourthDelimeterWidth = 0
             }
         }
     }
@@ -430,13 +530,32 @@ class QuotaInfoCell: UITableViewCell {
             voiceStack.addArrangedSubview(voiceLabel)
             
             if filesWidthMultiplier != 0 {
-                makeVoiceConstraints(delimeter: whiteDelimeterViewThird, stack: filesStack)
+                makeVoicesConstraints(delimeter: whiteDelimeterViewThird, stack: filesStack)
             } else if videosWidthMultiplier != 0 {
-                makeVoiceConstraints(delimeter: whiteDelimeterViewSecond, stack: videosStack)
+                makeVoicesConstraints(delimeter: whiteDelimeterViewSecond, stack: videosStack)
             } else if imagesWidthMultiplier != 0 {
-                makeVoiceConstraints(delimeter: whiteDelimeterViewFirst, stack: imagesStack)
+                makeVoicesConstraints(delimeter: whiteDelimeterViewFirst, stack: imagesStack)
             } else {
-                makeVoiceConstraints(delimeter: whiteDelimeterViewFirst, stack: self)
+                makeVoicesConstraints(delimeter: whiteDelimeterViewFirst, stack: self)
+            }
+        }
+        if avatarWidthMultiplier != 0 {
+            mainProgressView.addSubview(avatarProgressView)
+            
+            addSubview(avatarStack)
+            avatarStack.addArrangedSubview(avatarIndicator)
+            avatarStack.addArrangedSubview(avatarLabel)
+            
+            if audioWidthMultiplier != 0 {
+                makeAvatarConstraints(delimeter: whiteDelimeterViewFourth, stack: voiceStack)
+            } else if filesWidthMultiplier != 0 {
+                makeAvatarConstraints(delimeter: whiteDelimeterViewThird, stack: filesStack)
+            } else if videosWidthMultiplier != 0 {
+                makeAvatarConstraints(delimeter: whiteDelimeterViewSecond, stack: videosStack)
+            } else if imagesWidthMultiplier != 0 {
+                makeAvatarConstraints(delimeter: whiteDelimeterViewFirst, stack: imagesStack)
+            } else {
+                makeAvatarConstraints(delimeter: whiteDelimeterViewFirst, stack: self)
             }
         }
     }
@@ -545,7 +664,7 @@ class QuotaInfoCell: UITableViewCell {
         ])
     }
     
-    func makeVoiceConstraints(delimeter: UIView, stack: UIView) {
+    func makeVoicesConstraints(delimeter: UIView, stack: UIView) {
         NSLayoutConstraint.activate([
             voiceProgressView.leftAnchor.constraint(equalTo: delimeter.rightAnchor),
             voiceProgressView.topAnchor.constraint(equalTo: delimeter.topAnchor),
@@ -555,11 +674,32 @@ class QuotaInfoCell: UITableViewCell {
                                                      constant: -3/4),
             voiceProgressView.widthAnchor.constraint(greaterThanOrEqualToConstant: 1),
             
+            whiteDelimeterViewThird.leftAnchor.constraint(equalTo: voiceProgressView.rightAnchor),
+            whiteDelimeterViewThird.topAnchor.constraint(equalTo: voiceProgressView.topAnchor),
+            whiteDelimeterViewThird.bottomAnchor.constraint(equalTo: voiceProgressView.bottomAnchor),
+            whiteDelimeterViewThird.widthAnchor.constraint(equalToConstant: fourthDelimeterWidth),
+            
             voiceStack.leftAnchor.constraint(equalTo: stack.rightAnchor, constant: 20),
             voiceStack.topAnchor.constraint(equalTo: mainProgressView.bottomAnchor, constant: 12),
-            
             voiceIndicator.widthAnchor.constraint(equalToConstant: 6),
             voiceIndicator.heightAnchor.constraint(equalToConstant: 6)
+        ])
+    }
+    
+    func makeAvatarConstraints(delimeter: UIView, stack: UIView) {
+        NSLayoutConstraint.activate([
+            avatarProgressView.leftAnchor.constraint(equalTo: delimeter.rightAnchor),
+            avatarProgressView.topAnchor.constraint(equalTo: delimeter.topAnchor),
+            avatarProgressView.bottomAnchor.constraint(equalTo: delimeter.bottomAnchor),
+            avatarProgressView.widthAnchor.constraint(equalTo: mainProgressView.widthAnchor,
+                                                     multiplier: avatarWidthMultiplier,
+                                                     constant: -3/4),
+            avatarProgressView.widthAnchor.constraint(greaterThanOrEqualToConstant: 1),
+            
+            avatarStack.leftAnchor.constraint(equalTo: stack.rightAnchor, constant: 20),
+            avatarStack.topAnchor.constraint(equalTo: mainProgressView.bottomAnchor, constant: 12),
+            avatarIndicator.widthAnchor.constraint(equalToConstant: 6),
+            avatarIndicator.heightAnchor.constraint(equalToConstant: 6)
         ])
     }
 

@@ -87,6 +87,10 @@ class ChatMarkersManager: AbstractXMPPManager {
         updateDeleteEphemeralMessagesTimer()
     }
     
+    init(withOwner owner: String, withoutAfterburnTimer: Bool) {
+        super.init(withOwner: owner)
+    }
+    
     public func updateDeleteEphemeralMessagesTimer() {
         self.deleteEphemeralMessages()
         if CommonConfigManager.shared.config.afterburn_at_default {

@@ -119,7 +119,8 @@ extension MessageManager {
     
     public func receiveArchived(_ message: XMPPMessage) {
         if let date = getDelayedDate(message),
-            let messageBare = getArchivedMessageContainer(message) {
+            let messageBare = getArchivedMessageContainer(message),
+           messageBare.body?.isNotEmpty ?? false {
             enqueue(MessageQueueItem(messageBare,
                                      messageId: getOriginId(messageBare),
                                      archivedFrom: message.from?.bare,
@@ -131,7 +132,8 @@ extension MessageManager {
     }
     
     public func receiveCarbon(_ message: XMPPMessage) {
-        if let messageBare = getCarbonCopyMessageContainer(message) {
+        if let messageBare = getCarbonCopyMessageContainer(message),
+           messageBare.body?.isNotEmpty ?? false {
             enqueue(MessageQueueItem(messageBare,
                                      messageId: getOriginId(messageBare),
                                      archivedFrom: messageBare.from?.bare,
@@ -170,7 +172,8 @@ extension MessageManager {
     }
     
     public func receiveCarbonForwarded(_ message: XMPPMessage) {
-        if let messageBare = getCarbonForwardedMessageContainer(message) {
+        if let messageBare = getCarbonForwardedMessageContainer(message),
+           messageBare.body?.isNotEmpty ?? false {
             enqueue(MessageQueueItem(messageBare,
                                      messageId: getOriginId(messageBare),
                                      archivedFrom: message.from?.bare,
@@ -182,6 +185,9 @@ extension MessageManager {
     }
     
     public func receiveRuntime(_ message: XMPPMessage) {
+        if message.body?.isNotEmpty ?? false {
+            return
+        }
         enqueue(MessageQueueItem(message,
                                  messageId: getOriginId(message),
                                  archivedFrom: message.from?.bare,

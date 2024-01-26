@@ -43,30 +43,32 @@ class CloudStorageDeleteViewController: CloudStorageShowFilesViewController {
         spinner.centerXAnchor.constraint(equalTo: view.centerXAnchor).isActive = true
         spinner.centerYAnchor.constraint(equalTo: view.centerYAnchor).isActive = true
         
-        guard let account = AccountManager.shared.find(for: owner),
-              let uploader = account.getDefaultUploader() as? UploadManagerExtendedProtocol else {
-                  return
-              }
-        if totalPages == 1 {
-            self.spinner.removeFromSuperview()
-            self.spinner.stopAnimating()
-            self.configureCollections()
-        } else {
-            for page in 2..<totalPages + 1 {
-                uploader.getFilesToDeleteByPercent(percent: percent, page: page) { items, totalObjects, objPerPage, pages in
-                    if items.isEmpty {
-                        return
-                    }
-                    self.items += items
-                    if page == pages {
-                        self.spinner.removeFromSuperview()
-                        self.spinner.stopAnimating()
-                        self.configureCollections()
-                        self.collectionView.reloadData()
+        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+            if totalPages == 1 {
+                DispatchQueue.main.async {
+                    self.spinner.removeFromSuperview()
+                    self.spinner.stopAnimating()
+                    self.configureCollections()
+                }
+            } else {
+                for page in 2..<totalPages + 1 {
+                    user.cloudStorage.getFilesToDeleteByPercent(percent: percent, page: page) { items, totalObjects, objPerPage, pages in
+                        if items.isEmpty {
+                            return
+                        }
+                        DispatchQueue.main.async {
+                            self.items += items
+                            if page == pages {
+                                self.spinner.removeFromSuperview()
+                                self.spinner.stopAnimating()
+                                self.configureCollections()
+                                self.collectionView.reloadData()
+                            }
+                        }
                     }
                 }
             }
-        }
+        })        
     }
     
     required init?(coder: NSCoder) {

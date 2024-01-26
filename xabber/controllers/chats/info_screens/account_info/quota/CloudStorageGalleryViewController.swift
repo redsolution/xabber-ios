@@ -77,21 +77,23 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
                      cancel: "Cancel",
                      values: [ActionSheetPresenter.Item(destructive: true, title: "Delete", value: "delete")],
                      animated: true){ _ in
-                guard let account = AccountManager.shared.find(for: self.owner),
-                      let uploader = account.getDefaultUploader() as? UploadManagerExtendedProtocol else { return }
                 if self.selectedType == .avatar {
                     self.collectionView.indexPathsForSelectedItems?.forEach { indexPathForSelectedFile in
                         guard let fileId = self.datasource[indexPathForSelectedFile.row].fileId else {
                             return
                         }
-                        uploader.deleteAvatarFromServer(fileID: fileId)
+                        AccountManager.shared.find(for: self.owner)?.action({ user, _ in
+                            user.cloudStorage.deleteAvatarFromServer(fileID: fileId)
+                        })
                     }
                 } else {
                     self.collectionView.indexPathsForSelectedItems?.forEach { indexPathForSelectedFile in
                         guard let fileId = self.datasource[indexPathForSelectedFile.row].fileId else {
                             return
                         }
-                        uploader.deleteMediaFromServer(fileID: fileId)
+                        AccountManager.shared.find(for: self.owner)?.action({ user, _ in
+                            user.cloudStorage.deleteMediaFromServer(fileID: fileId)
+                        })
                     }
                 }
                 self.navigationController?.popViewController(animated: true)
@@ -141,69 +143,81 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
         impactFeedbackGenerator = UIImpactFeedbackGenerator(style: .rigid)
         self.selectedType = selectedType
         super.init(owner: owner)
-        guard let account = AccountManager.shared.find(for: owner),
-              let uploader = account.getDefaultUploader() as? UploadManagerExtendedProtocol else {
-                  return
-              }
-        if selectedType == .avatar {
-            uploader.getAvatars(page: 1) { items, totalObjects, objPerPage, totalPages in
-                if items.isEmpty {
-                    self.spinner.removeFromSuperview()
-                    self.spinner.stopAnimating()
-                    self.configureCollections()
-                    return
-                }
-                
-                self.totalPages = totalPages
-                self.items = items
-                if totalPages == 1 {
-                    self.spinner.removeFromSuperview()
-                    self.spinner.stopAnimating()
-                    self.configureCollections()
-                } else {
-                    for page in 2..<totalPages + 1 {
-                        uploader.getAvatars(page: page) { items, totalObjects, objPerPage, pages in
-                            if items.isEmpty {
-                                return
-                            }
-                            self.items += items
+        AccountManager.shared.find(for: self.owner)?.action({ user, _ in
+            if self.selectedType == .avatar {
+                user.cloudStorage.getAvatars(page: 1) { items, totalObjects, objPerPage, totalPages in
+                    if items.isEmpty {
+                        DispatchQueue.main.async {
                             self.spinner.removeFromSuperview()
                             self.spinner.stopAnimating()
                             self.configureCollections()
                         }
+                        return
+                    }
+                    
+                    self.totalPages = totalPages
+                    self.items = items
+                    if totalPages == 1 {
+                        DispatchQueue.main.async {
+                            self.spinner.removeFromSuperview()
+                            self.spinner.stopAnimating()
+                            self.configureCollections()
+                        }
+                    } else {
+                        for page in 2..<totalPages + 1 {
+                            user.cloudStorage.getAvatars(page: page) { items, totalObjects, objPerPage, pages in
+                                DispatchQueue.main.async {
+                                    if items.isEmpty {
+                                        return
+                                    }
+                                    self.items += items
+                                    self.spinner.removeFromSuperview()
+                                    self.spinner.stopAnimating()
+                                    self.configureCollections()
+                                }
+                            }
+                        }
                     }
                 }
-            }
-            return
-        }
-        uploader.getFilesOfType(type: selectedType, page: 1) { items, totalObjects, objPerPage, totalPages in
-            if items.isEmpty {
-                self.spinner.removeFromSuperview()
-                self.spinner.stopAnimating()
-                self.configureCollections()
-                return
-            }
-            self.totalPages = totalPages
-            self.items = items
-            if totalPages == 1 {
-                self.spinner.removeFromSuperview()
-                self.spinner.stopAnimating()
-                self.configureCollections()
                 return
             } else {
-                for page in 2..<totalPages + 1 {
-                    uploader.getFilesOfType(type: selectedType, page: page) { items, totalObjects, objPerPage, pages in
-                        if items.isEmpty {
-                            return
+                user.cloudStorage.getFilesOfType(type: selectedType, page: 1) { items, totalObjects, objPerPage, totalPages in
+                    if items.isEmpty {
+                        DispatchQueue.main.async {
+                            self.spinner.removeFromSuperview()
+                            self.spinner.stopAnimating()
+                            self.configureCollections()
                         }
-                        self.items += items
-                        self.spinner.removeFromSuperview()
-                        self.spinner.stopAnimating()
-                        self.configureCollections()
+                        return
+                    }
+                    self.totalPages = totalPages
+                    self.items = items
+                    if totalPages == 1 {
+                        DispatchQueue.main.async {
+                            self.spinner.removeFromSuperview()
+                            self.spinner.stopAnimating()
+                            self.configureCollections()
+                        }
+                    } else {
+                        for page in 2..<totalPages + 1 {
+                            user.cloudStorage.getFilesOfType(type: selectedType, page: page) { items, totalObjects, objPerPage, pages in
+                                DispatchQueue.main.async {
+                                    if items.isEmpty {
+                                        return
+                                    }
+                                    self.items += items
+                                    self.spinner.removeFromSuperview()
+                                    self.spinner.stopAnimating()
+                                    self.configureCollections()
+                                }
+                            }
+                        }
                     }
                 }
             }
-        }
+        })
+        
+        
     }
     
     required init?(coder: NSCoder) {
