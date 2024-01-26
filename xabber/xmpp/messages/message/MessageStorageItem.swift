@@ -1194,8 +1194,8 @@ class MessageStorageItem: Object {
     }
     
     public final func createRefBody(_ attrs: [NSAttributedString.Key: Any], searchedText: String? = nil, searchedTextColor: UIColor? = nil) -> NSAttributedString {
-        let string = NSMutableAttributedString(string: body)
-//        let string = NSMutableAttributedString(string: "\(self.body), \(self.isRead), \(Date(timeIntervalSince1970: self.burnDate))")
+//        let string = NSMutableAttributedString(string: body)
+        let string = NSMutableAttributedString(string: "\(self.body), \(self.isRead), \(Date(timeIntervalSince1970: self.burnDate))")
         string.addAttributes(attrs, range: NSRange(location: 0, length: string.length))
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byWordWrapping

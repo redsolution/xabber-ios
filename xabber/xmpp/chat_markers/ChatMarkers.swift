@@ -209,7 +209,10 @@ class ChatMarkersManager: AbstractXMPPManager {
         if date == nil {
             date = getDeliveryTime(message, owner: self.owner) ?? Date()
         }
-        var stanzaId = displayed
+        if date == nil {
+            date = Date()
+        }
+        let stanzaId = displayed
             .elements(forName: "stanza-id")
             .first(where: { $0.attributeStringValue(forName: "by") == self.owner })?
             .attributeStringValue(forName: "id") ?? "no-stanza-id"
@@ -261,10 +264,9 @@ class ChatMarkersManager: AbstractXMPPManager {
                         $0.isRead = true
                     }
                 }
-            } else {
-                DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {
-                    _ = self.onDisplayed(message, date: archivedDate, delayed: true)
-                }
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
+                _ = self.onDisplayed(message, date: archivedDate, delayed: true)
             }
         } catch {
             DDLogDebug("ChatMarkersManager: \(#function). \(error.localizedDescription)")
