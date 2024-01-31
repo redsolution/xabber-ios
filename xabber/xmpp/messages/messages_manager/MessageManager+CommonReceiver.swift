@@ -307,7 +307,7 @@ extension MessageManager {
                 errorMetadata = SignatureManager.MessageError().errorMetadata
             }
             
-            let afterburnInterval = item.message.element(forName: "ephemeral", xmlns: "urn:xmpp:ephemeral:0")?.attributeDoubleValue(forName: "timer") ?? -1
+            let afterburnInterval = item.message.element(forName: "ephemeral", xmlns: "urn:xmpp:ephemeral:0")?.attributeDoubleValue(forName: "timer") ?? 0
             
             var hasSignElement: Bool = false
             var envelopeContainer: String? = nil
@@ -359,8 +359,9 @@ extension MessageManager {
 //            if item.originalOutgoing || item.state == .read {
 //                item.isRead = true
             let conversationType = conversationTypeByMessage(item.message)
-            let readDate = item.isRead ? (item.readDate ?? prereadedMessages.first(where: { item.messageId == $0.messageId })?.date ?? prereadedConversation.first(where: { $0.jid == opponent && $0.conversationType == conversationType })?.date) : nil
-            if item.date < (readDate ?? Date()) {
+            let readDate = item.isRead ? (item.readDate ?? prereadedMessages.first(where: { item.messageId == $0.messageId })?.date) : nil// ?? prereadedConversation.first(where: { $0.jid == opponent && $0.conversationType == conversationType })?.date) : nil
+            if let readDate = readDate,
+               item.date < readDate {
                 item.isRead = true
             } else {
                 item.isRead = item.state == .read

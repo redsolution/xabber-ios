@@ -291,39 +291,39 @@ class NotificationService: UNNotificationServiceExtension {
         bestAttemptContent?.title = CommonConfigManager.shared.config.app_name
         bestAttemptContent?.body = "New message"
         contentHandler(bestAttemptContent!)
-        return
-//        payload = "\(request.content.userInfo)"
-////        print(payload)
-////        print(bestAttemptContent)
-//
-//        if let bestAttemptContent = bestAttemptContent {
-//            guard let body = request.content.userInfo["body"] as? String,
-//                let payload = parse(payload: body) else {
-//                bestAttemptContent.title = CommonConfigManager.shared.config.app_name
-//                bestAttemptContent.body = "New message"
-//                contentHandler(bestAttemptContent)
-//                return
-//            }
-//
-////            print("REQUEST USER INFO")
-////            print(request.content.userInfo)
-//
-//            let creditionals = getAccounts(request.content.userInfo)
-//            guard let username = creditionals["username"] as? String,
-//                let host = creditionals["host"] as? String else {
-//                    bestAttemptContent.title = CommonConfigManager.shared.config.app_name
-//                    bestAttemptContent.body = "New message"
-//                    contentHandler(bestAttemptContent)
-//                    return
-//            }
-//            self.owner = [username, host].joined(separator: "@")
-//            notificationType = payload.action
-//            action(for: payload)
-//        } else {
-//            self.contentHandler = nil
-//            UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [identifier])
-//            UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [identifier])
-//        }
+//        return
+        payload = "\(request.content.userInfo)"
+//        print(payload)
+//        print(bestAttemptContent)
+
+        if let bestAttemptContent = bestAttemptContent {
+            guard let body = request.content.userInfo["body"] as? String,
+                let payload = parse(payload: body) else {
+                bestAttemptContent.title = CommonConfigManager.shared.config.app_name
+                bestAttemptContent.body = "New message"
+                contentHandler(bestAttemptContent)
+                return
+            }
+
+//            print("REQUEST USER INFO")
+//            print(request.content.userInfo)
+
+            let creditionals = getAccounts(request.content.userInfo)
+            guard let username = creditionals["username"] as? String,
+                let host = creditionals["host"] as? String else {
+                    bestAttemptContent.title = CommonConfigManager.shared.config.app_name
+                    bestAttemptContent.body = "New message"
+                    contentHandler(bestAttemptContent)
+                    return
+            }
+            self.owner = [username, host].joined(separator: "@")
+            notificationType = payload.action
+            action(for: payload)
+        } else {
+            self.contentHandler = nil
+            UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [identifier])
+            UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [identifier])
+        }
     }
     
     override func serviceExtensionTimeWillExpire() {

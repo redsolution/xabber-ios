@@ -227,9 +227,29 @@ class NotifyManager {
                         let accounts = results
                         do {
                             let realm = try WRealm.safe()
+                            let predicate: NSPredicate
+                            if CommonConfigManager.shared.config.locked_conversation_type.isNotEmpty {
+                                predicate = NSPredicate(
+                                    format: "conversationType_ == %@ AND muteExpired < 0 AND isArchived == false AND owner IN %@",
+                                    argumentArray: [
+                                        CommonConfigManager.shared.config.locked_conversation_type,
+                                        accounts
+                                    ]
+                                )
+                            } else {
+                                predicate = NSPredicate(
+                                    format: "muteExpired < 0 AND isArchived == false AND owner IN %@",
+                                    argumentArray: [
+                                        accounts
+                                    ]
+                                )
+                            }
+                            
+                            let collection = realm
+                                .objects(LastChatsStorageItem.self)
+                                .filter(predicate)
                             Observable
-                                .collection(from: realm.objects(LastChatsStorageItem.self)
-                                    .filter("muteExpired < 0 AND isArchived == %@ AND owner IN %@", false, accounts))
+                                .collection(from: collection)
                                 .compactMap({ (results) -> Int? in
                                     return results
                                         .toArray()
@@ -254,9 +274,27 @@ class NotifyManager {
                                 .subscribe { (results) in
                                     do {
                                         let realm = try WRealm.safe()
+                                        let predicate: NSPredicate
+                                        if CommonConfigManager.shared.config.locked_conversation_type.isNotEmpty {
+                                            predicate = NSPredicate(
+                                                format: "conversationType_ == %@ AND muteExpired < 0 AND isArchived == false AND owner IN %@",
+                                                argumentArray: [
+                                                    CommonConfigManager.shared.config.locked_conversation_type,
+                                                    accounts
+                                                ]
+                                            )
+                                        } else {
+                                            predicate = NSPredicate(
+                                                format: "muteExpired < 0 AND isArchived == false AND owner IN %@",
+                                                argumentArray: [
+                                                    accounts
+                                                ]
+                                            )
+                                        }
+                                        
                                         let unread = realm
                                             .objects(LastChatsStorageItem.self)
-                                            .filter("muteExpired < 0 AND isArchived == %@ AND owner IN %@", false, accounts)
+                                            .filter(predicate)
                                             .toArray()
                                             .compactMap { return $0.unread +
                                                                 ($0.rosterItem?.isThereSubscriptionRequest() == true ? 1 : 0) }
@@ -277,9 +315,6 @@ class NotifyManager {
                     }
                 })
                 .disposed(by: bag)
-        
-            
-        
         } catch {
             DDLogError("NotifyManager: \(#function). \(error.localizedDescription)")
         }

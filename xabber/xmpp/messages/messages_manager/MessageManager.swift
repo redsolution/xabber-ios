@@ -201,9 +201,7 @@ class MessageManager: AbstractXMPPManager {
             realm
                 .objects(LastChatsStorageItem.self)
                 .filter("isArchived == false AND owner == %@", self.owner)
-                .sorted(byKeyPath: "messageDate", ascending: false)
-                .compactMap { return $0.lastMessage?.primary }
-                .forEach { self.readMessage($0, last: true) }
+                .forEach { self.readLastMessage(jid: $0.jid, conversationType: $0.conversationType) }
         } catch {
             DDLogDebug("MessagesManager: \(#function). \(error.localizedDescription)")
         }
@@ -212,7 +210,14 @@ class MessageManager: AbstractXMPPManager {
     func readLastMessage(jid: String, conversationType: ClientSynchronizationManager.ConversationType) {
         do {
             let realm = try WRealm.safe()
-            if let primary = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: conversationType))?.lastMessage?.primary {
+            if let primary = realm.object(ofType: LastChatsStorageItem.self,
+                                          forPrimaryKey: LastChatsStorageItem.genPrimary(
+                                            jid: jid,
+                                            owner: owner,
+                                            conversationType: conversationType
+                                          ))?
+                .lastMessage?
+                .primary {
                 self.readMessage(primary, last: true)
             } else {
                 if let instance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: conversationType)) {
@@ -257,12 +262,17 @@ class MessageManager: AbstractXMPPManager {
                 }
                 let stanzaId = message.archivedId
                 NotifyManager.shared.clearNotifications(forMessage: [stanzaId])
-                let collection = realm.objects(MessageStorageItem.self).filter("owner == %@ AND opponent == %@ AND conversationType_ == %@ AND date < %@ AND state_ <= %@", self.owner, message.opponent, message.conversationType_, message.date, MessageStorageItem.MessageSendingState.read.rawValue)
+                let collection = realm
+                    .objects(MessageStorageItem.self)
+                    .filter("owner == %@ AND opponent == %@ AND conversationType_ == %@ AND date <= %@ AND state_ <= %@",
+                            self.owner,
+                            message.opponent,
+                            message.conversationType_,
+                            message.date,
+                            MessageStorageItem.MessageSendingState.read.rawValue
+                    )
                 if !realm.isInWriteTransaction {
                     try realm.write {
-                        if message.isInvalidated { return }
-                        message.isRead = true
-                        message.state = .read
                         collection.forEach {
                             $0.isRead = true
                             $0.state = .read
@@ -270,27 +280,25 @@ class MessageManager: AbstractXMPPManager {
                                 $0.readDate = Date().timeIntervalSince1970
                             }
                             if $0.afterburnInterval > 0 {
-                                if $0.burnDate < 0 {
+                                if $0.burnDate <= 1 {
                                     $0.burnDate = Date().timeIntervalSince1970 + $0.afterburnInterval
                                 }
                             }
                         }
+                        if message.isInvalidated { return }
+                        message.isRead = true
+                        message.state = .read
                     }
                 }
                 
                 
             }
-            
-//            self.
-            
             AccountManager.shared.find(for: self.owner)?.action({ user, stream in
                 user.chatMarkers.displayed(stream, message: primary)
             })
         } catch {
             DDLogDebug("MessageManager: \(#function). \(error.localizedDescription)")
         }
-        
-        
     }
     
     internal func getForwardedAuthorNicknameGroupchat(_ references: [DDXMLElement]) -> String? {

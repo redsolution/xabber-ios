@@ -900,7 +900,7 @@ class MessageStorageItem: Object {
 //                                    instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
 //                                    instance.afterburnInterval = 0
 //                                } else 
-                                if self.afterburnInterval > 0 {
+                                if self.afterburnInterval > -1 && instance.afterburnIntervalLastUpdate < self.date.timeIntervalSince1970 {
                                     instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
                                     instance.afterburnInterval = self.afterburnInterval
                                 }
@@ -1194,8 +1194,8 @@ class MessageStorageItem: Object {
     }
     
     public final func createRefBody(_ attrs: [NSAttributedString.Key: Any], searchedText: String? = nil, searchedTextColor: UIColor? = nil) -> NSAttributedString {
-//        let string = NSMutableAttributedString(string: body)
-        let string = NSMutableAttributedString(string: "\(self.body), \(self.isRead), \(Date(timeIntervalSince1970: self.burnDate))")
+        let string = NSMutableAttributedString(string: body)
+//        let string = NSMutableAttributedString(string: "\(self.body), \(self.isRead), \(Date(timeIntervalSince1970: self.burnDate))")
         string.addAttributes(attrs, range: NSRange(location: 0, length: string.length))
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byWordWrapping

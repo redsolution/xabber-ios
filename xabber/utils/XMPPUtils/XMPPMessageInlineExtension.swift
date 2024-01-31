@@ -115,17 +115,29 @@ func getArchivedMessageContainer(_ message: XMPPMessage) -> XMPPMessage? {
 }
     
 func getCarbonCopyMessageContainer(_ message: XMPPMessage) -> XMPPMessage? {
-    if let container = message.element(forName: "sent")?.element(forName: "forwarded")?.element(forName: "message") {
-        return XMPPMessage(from: container)
+    guard let from = message.from?.bare,
+          let to = message.to?.bare,
+          from == to,
+          let container = message
+            .element(forName: "sent")?
+            .element(forName: "forwarded")?
+            .element(forName: "message") else {
+        return nil
     }
-    return nil
+    return XMPPMessage(from: container)
 }
 
 func getCarbonForwardedMessageContainer(_ message: XMPPMessage) -> XMPPMessage? {
-    if let container = message.element(forName: "received")?.element(forName: "forwarded")?.element(forName: "message") {
-        return XMPPMessage(from: container)
+    guard let from = message.from?.bare,
+          let to = message.to?.bare,
+          from == to,
+          let container = message
+            .element(forName: "received")?
+            .element(forName: "forwarded")?
+            .element(forName: "message") else {
+        return nil
     }
-    return nil
+    return XMPPMessage(from: container)
 }
 
 func getForwardedMessage(_ message: XMPPMessage) -> XMPPMessage? {

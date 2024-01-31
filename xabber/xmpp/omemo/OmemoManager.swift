@@ -591,6 +591,12 @@ extension OmemoManager {
             
             self.isRefreshRequest = false
             
+            if jid == self.owner {
+                AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                    user.devices.requestList(stream)
+                })
+            }
+            
             if jid == self.owner && self.shouldPublicate && !fromMessage {
 //                XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, _ in
 //                    try? self.publicateOwnDevice(stream, createNode: false)

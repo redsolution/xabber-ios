@@ -523,6 +523,8 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                             .first(where: { $0.attributeStringValue(forName: "node") == "https://xabber.com/protocol/synchronization" }),
               let displayed = metadata.element(forName: "displayed")?.attributeStringValue(forName: "id"),
               let delivered = metadata.element(forName: "delivered")?.attributeStringValue(forName: "id") else { return }
+        
+        let stamp = conversation.attributeDoubleValue(forName: "stamp")
         let conversationType = ConversationType(rawValue: conversation.attributeStringValue(forName: "type") ?? "none") ?? .regular
         do {
             let realm = try  WRealm.safe()
@@ -541,9 +543,11 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             
             if let displayedMessageTimeInterval = TimeInterval(displayed) {
                 let displayedMessageDate = Date(timeIntervalSince1970: displayedMessageTimeInterval / 1000000)
+                var state: MessageStorageItem.MessageSendingState = .sended
+                let readDate = Date(timeIntervalSince1970: stamp / 1000000)
                 realm
                     .objects(MessageStorageItem.self)
-                    .filter("owner == %@ AND opponent == %@ AND outgoing == true AND state_ == %@ AND date <= %@ AND conversationType_ == %@",
+                    .filter("owner == %@ AND opponent == %@ AND state_ == %@ AND date <= %@ AND conversationType_ == %@",
                             owner,
                             jid,
                             MessageStorageItem.MessageSendingState.deliver.rawValue,
@@ -551,6 +555,14 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                             conversationType.rawValue)
                     .forEach {
                         $0.state = .read
+                        $0.isRead = true
+                        if $0.afterburnInterval > 0 && $0.burnDate <= 1 {
+                            $0.readDate = readDate.timeIntervalSince1970
+                            $0.burnDate = readDate.timeIntervalSince1970 + $0.afterburnInterval
+                            if (readDate.timeIntervalSince1970 + $0.afterburnInterval) < Date().timeIntervalSince1970 {
+                                $0.isDeleted = true
+                            }
+                        }
                     }
             }
             
@@ -835,12 +847,11 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 }
                 let stanzaId = getStanzaId(XMPPMessage(from: messageElement), owner: self.owner)
                 var state: MessageStorageItem.MessageSendingState = .sended
-                if (metadata.element(forName: "unread")?.attributeIntegerValue(forName: "count") ?? 0) == 0 {
+                if unreadAfterTS == timestamp {
                     state = .read
                 } else if instance.deliveredId == stanzaId {
                     state = .deliver
-                } 
-                
+                }
                 let readDate = state != .read ? nil : Date(timeIntervalSince1970: stamp / 1000000)
                 
                 if !(AccountManager

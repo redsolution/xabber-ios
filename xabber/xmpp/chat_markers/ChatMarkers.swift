@@ -203,11 +203,12 @@ class ChatMarkersManager: AbstractXMPPManager {
             return false
         }
         var date: Date? = archivedDate
+        
         if date == nil {
             date = getDelayedDate(message)
         }
         if date == nil {
-            date = getDeliveryTime(message, owner: self.owner) ?? Date()
+            date = getDeliveryDate(message)
         }
         if date == nil {
             date = Date()
@@ -230,33 +231,45 @@ class ChatMarkersManager: AbstractXMPPManager {
                         messageId).first {
                 let collection = realm
                     .objects(MessageStorageItem.self)
-                    .filter("owner == %@ AND opponent == %@ AND date <= %@ AND burnDate < 0 AND isRead == true AND state_ != %@",
+                    .filter("owner == %@ AND opponent == %@ AND date <= %@ AND burnDate < 1 AND state_ != %@",
                             self.owner,
                             jid,
                             instance.date,
                             MessageStorageItem.MessageSendingState.error.rawValue)
                 
                 try realm.write {
+                    if instance.isInvalidated { return }
                     if let chatInstance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: self.owner, conversationType: instance.conversationType)) {
                         if chatInstance.lastMessage?.primary == instance.primary {
                             chatInstance.unread = 0
                         }
+//                        chatInstance.updateTS = Date().timeIntervalSince1970
                     }
-                    if instance.isInvalidated { return }
-                    if instance.readDate <= 1 && instance.burnDate <= 1 {
-                        if instance.afterburnInterval > 0 {
-                            instance.readDate = (date ?? Date()).timeIntervalSince1970
+                    
+//                    if instance.readDate <= 1 && instance.burnDate <= 1 {
+//                        if instance.afterburnInterval > 0 {
+//                            instance.readDate = (date ?? Date()).timeIntervalSince1970
+//                            instance.burnDate = (date ?? Date()).timeIntervalSince1970 + instance.afterburnInterval
+//                        }
+//                    }
+//                    instance.state = .read
+//                    instance.isRead = true
+                    if instance.readDate < 1 {
+                        instance.readDate = (date ?? Date()).timeIntervalSince1970
+                    }
+                    if instance.afterburnInterval > 0 {
+                        if instance.burnDate < 1 {
                             instance.burnDate = (date ?? Date()).timeIntervalSince1970 + instance.afterburnInterval
                         }
                     }
                     instance.state = .read
                     instance.isRead = true
                     collection.forEach {
-                        if $0.readDate < 0 {
+                        if $0.readDate < 1 {
                             $0.readDate = (date ?? Date()).timeIntervalSince1970
                         }
                         if $0.afterburnInterval > 0 {
-                            if $0.burnDate < 0 {
+                            if $0.burnDate < 1 {
                                 $0.burnDate = (date ?? Date()).timeIntervalSince1970 + $0.afterburnInterval
                             }
                         }
@@ -265,8 +278,10 @@ class ChatMarkersManager: AbstractXMPPManager {
                     }
                 }
             }
-            DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
-                _ = self.onDisplayed(message, date: archivedDate, delayed: true)
+            if !delayed {
+                DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) {
+                    _ = self.onDisplayed(message, date: archivedDate, delayed: true)
+                }
             }
         } catch {
             DDLogDebug("ChatMarkersManager: \(#function). \(error.localizedDescription)")
@@ -281,7 +296,7 @@ class ChatMarkersManager: AbstractXMPPManager {
               let bareMessage = getCarbonCopyMessageContainer(message) else {
             return false
         }
-        let date = getDelayedDate(message)
+        let date = message.delayedDeliveryDate as Date?// getDelayedDate(message)
         return self.onDisplayed(bareMessage, date: date)
     }
     

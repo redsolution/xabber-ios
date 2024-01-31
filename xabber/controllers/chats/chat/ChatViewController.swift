@@ -749,7 +749,7 @@ class ChatViewController: MessagesViewController {
 //            })
 //        }
         self.updateQueue
-            .asyncAfter(deadline: .now() + 2) {
+            .asyncAfter(deadline: .now() + 3) {
             AccountManager.shared.find(for: self.owner)?.action({ user, stream in
                 user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
             })
@@ -872,8 +872,8 @@ class ChatViewController: MessagesViewController {
             let realm = try WRealm.safe()
             let chat = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid, owner: self.owner, conversationType: self.conversationType))
             
-//            if (chat?.isFreshNotEmptyEncryptedChat ?? false) {
-//                if (chat?.unread ?? 0) > 0 {
+            if (chat?.isFreshNotEmptyEncryptedChat ?? false) {
+                if (chat?.unread ?? 0) > 0 {
                     let messageId = chat?.lastMessageId ?? ""
                     AccountManager.shared.find(for: self.owner)?.action({ user, stream in
                         user.chatMarkers.displayedById(stream, jid: self.jid, messageId: messageId)
@@ -881,8 +881,8 @@ class ChatViewController: MessagesViewController {
                     try realm.write {
                         chat?.unread = 0
                     }
-//                }
-//            }
+                }
+            }
             
             self.xabberInputView.textField.text = chat?.draftMessage
             self.xabberInputView.textViewDidChange()
@@ -895,7 +895,6 @@ class ChatViewController: MessagesViewController {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
         AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-            user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
             if CommonConfigManager.shared.config.required_time_signature_for_messages {
                 user.x509Manager.retrieveCert(stream, for: self.jid)
             }
@@ -965,7 +964,9 @@ class ChatViewController: MessagesViewController {
         omemoDeviceListTimer = nil
 
         AccountManager.shared.find(for: owner)?.mam.allowHistoryFixTask = false
-                
+        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+            user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
+        })
 //        self.topMenuShowObserver.accept(false)
         LastChats.updateErrorState(for: self.jid, owner: self.owner, conversationType: self.conversationType)
         do {

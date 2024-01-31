@@ -540,6 +540,9 @@ class LastChatsViewController: BaseViewController {
                     if message.isEmpty {
                         message = subscriptionRequest ? "Incoming chat request" : blankMessageText
                     }
+                    if lastMessage.isDeleted {
+                        message = blankMessageText
+                    }
                 } else {
                     message = subscriptionRequest ? "Incoming chat request" : blankMessageText
                 }
