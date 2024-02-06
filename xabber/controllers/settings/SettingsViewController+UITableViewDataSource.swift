@@ -70,18 +70,39 @@ extension SettingsViewController: UITableViewDataSource {
                                    value: TranslationsManager.shared.currentLang ?? "Default")
                     return cell
                 
-                case .accountSessions:
-                    let cell = UITableViewCell(style: .value1, reuseIdentifier: "value1CellReuseID")
-                    cell.textLabel?.text = item.title
-                    
-                    if self.accounts?.first?.isDevicesListReceived ?? false {
-                        cell.detailTextLabel?.text = "\(sessionsCount)"
-                    } else {
-                        cell.detailTextLabel?.text = "    "
-                        cell.detailTextLabel?.addSubview(spinner2)
-                    }
-                    cell.accessoryType = .disclosureIndicator
-                    return cell
+                    case .accountSessions:
+                        guard let cell = tableView.dequeueReusableCell(withIdentifier: DeviceCell.cellName, for: indexPath) as? DeviceCell else {
+                            fatalError()
+                        }
+                        cell.titleLabel.text = item.title
+                        if self.accounts?.first?.isDevicesListReceived ?? false {
+                            cell.subtitleButton.setTitle("\(sessionsCount)", for: .normal)
+                            if self.omemoDeviceWarning {
+                                cell.subtitleButton.setImage(UIImage(systemName: "xmark.shield.fill"), for: .normal)
+                                cell.subtitleButton.imageView?.tintColor = .systemRed
+                            } else if omemoDeviceActionsRequired {
+                                cell.subtitleButton.setImage(UIImage(systemName: "exclamationmark.shield.fill"), for: .normal)
+                                cell.subtitleButton.imageView?.tintColor = .systemOrange
+                            } else {
+                                cell.subtitleButton.setImage(nil, for: .normal)
+                            }
+                            
+                            cell.subtitleButton.imageEdgeInsets = UIEdgeInsets(top: 0, left: -8, bottom: 0, right: 0)
+                            cell.subtitleButton.transform = CGAffineTransform(scaleX: -1.0, y: 1.0)
+                            cell.subtitleButton.titleLabel?.transform = CGAffineTransform(scaleX: -1.0, y: 1.0)
+                            cell.subtitleButton.imageView?.transform = CGAffineTransform(scaleX: -1.0, y: 1.0)
+                        } else {
+                            cell.subtitleButton.setTitle("    ", for: .normal)
+                            let activityIndicator = UIActivityIndicatorView(frame: CGRect(x: 0, y: 0, width: 24, height: 24))
+                            activityIndicator.color = UIColor.gray
+                            activityIndicator.isHidden = false
+                            activityIndicator.startAnimating()
+                            activityIndicator.hidesWhenStopped = true
+                            cell.subtitleButton.addSubview(activityIndicator)
+                        }
+
+                        cell.accessoryType = .disclosureIndicator
+                        return cell
                 
                 case .manageStorage:
                     let cell = UITableViewCell(style: .value1, reuseIdentifier: "value1CellReuseID")

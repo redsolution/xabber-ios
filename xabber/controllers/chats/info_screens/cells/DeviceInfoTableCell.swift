@@ -28,40 +28,42 @@ class DeviceInfoTableCell: UITableViewCell {
     
     var stack: UIStackView = {
         let stack = UIStackView()
-        stack.alignment = .leading
-        stack.axis = .vertical
-        stack.distribution = .equalCentering
-        stack.spacing = 2
-        stack.isLayoutMarginsRelativeArrangement = true
-        stack.layoutMargins = UIEdgeInsets(top: 10, bottom: 12, left: 20, right: 16)
+        stack.alignment = .center
+        stack.axis = .horizontal
+        stack.distribution = .fill
+        stack.spacing = 8
+//        stack.isLayoutMarginsRelativeArrangement = true
+//        stack.layoutMargins = UIEdgeInsets(top: 10, bottom: 12, left: 20, right: 16)
         return stack
     }()
     
-    var topStack: UIStackView = {
+    var leftStack: UIStackView = {
         let stack = UIStackView()
-//            stack.alignment = .leading
-        stack.axis = .horizontal
-//        stack.distribution = .equalSpacing
-//            stack.spacing = 16
+
+        stack.axis = .vertical
+        stack.distribution = .fill
+        stack.spacing = 4
+
         return stack
     }()
+
+    var rightStack: UIStackView = {
+        let stack = UIStackView()
+
+        stack.axis = .vertical
+
+        return stack
+    }()
+
     
     var clientLabel: UILabel = {
         let label = UILabel()
         label.text = " "
-        label.font = UIFont.preferredFont(forTextStyle: .headline)
+//        label.font = UIFont.preferredFont(forTextStyle: .headline)
         label.textColor = MDCPalette.grey.tint900
         return label
     }()
-    
-    var deviceLabel: UILabel = {
-        let label = UILabel()
-        label.text = " "
-        label.font = UIFont.systemFont(ofSize: 14, weight: .regular)
-        label.textColor = MDCPalette.grey.tint900
-        return label
-    }()
-    
+        
     var descriptionLabel: UILabel = {
         let label = UILabel()
         label.text = " "
@@ -87,69 +89,83 @@ class DeviceInfoTableCell: UITableViewCell {
     
     private func activateConstraints() {
         NSLayoutConstraint.activate([
-            topStack.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 0.9),
-            deviceLabel.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 0.9),
+//            topStack.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 0.9),
+//            deviceLabel.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 0.9),
             descriptionLabel.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 0.9),
             trustIconView.widthAnchor.constraint(equalToConstant: 24),
             trustIconView.heightAnchor.constraint(equalToConstant: 24)
         ])
     }
     
-    func configure(fingerprint: String? = nil, client: String, device: String, description descr: String, ip: String, lastAuth: Date, current: Bool, editable: Bool, isOnline: Bool, trustState: SignalDeviceStorageItem.TrustState? = nil, hasBundle: Bool? = nil, isTrustebByCertificate: Bool = false) {
-        let dateFormatter = DateFormatter()
-        if Calendar.current.isDateInToday(lastAuth) {
-            dateFormatter.dateStyle = .none
-            dateFormatter.timeStyle = .short
-        } else {
-            dateFormatter.dateStyle = .medium
-            dateFormatter.timeStyle = .none
+    func configure(fingerprint: String? = nil, client: String, device: String, description descr: String, ip: String, lastAuth date: Date, current: Bool, editable: Bool, isOnline: Bool, trustState: SignalDeviceStorageItem.TrustState? = nil, hasBundle: Bool? = nil, isTrustebByCertificate: Bool = false) {
+        
+        let today = Date()
+        
+        var dateString = "Unknown"
+        
+        let diffComponents = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date, to: today)
+        let year = diffComponents.year ?? 0
+        let month = diffComponents.month ?? 0
+        let day = diffComponents.day ?? 0
+        let hour = diffComponents.hour ?? 0
+        let minutes = diffComponents.minute ?? 0
+        let seconds = diffComponents.second ?? 0
+        if year > 0 {
+            dateString = "\(year) year ago"
+        } else if month > 0 {
+            dateString = "\(month) month ago"
+        } else if day > 0 {
+            dateString = "\(day) days ago"
+        } else if hour > 0 {
+            dateString = "\(hour) hours ago"
+        } else if minutes > 0 {
+            dateString = "\(minutes) min ago"
+        } else if seconds > 0 {
+            dateString = "\(seconds) seconds ago"
         }
         
-        clientLabel.text = descr.isNotEmpty ? descr : client
-        if let fingerprint = fingerprint {
-            self.deviceLabel.numberOfLines = 2
-            self.deviceLabel.text = fingerprint
+        if device.isNotEmpty {
+            clientLabel.text = device//[client, device].joined(separator: ", ")
         } else {
-            deviceLabel.numberOfLines = 1
-            if device.isNotEmpty {
-                deviceLabel.text = [client, device].joined(separator: ", ")
-            } else {
-                deviceLabel.text = [client, device].joined(separator: "")
-            }
+            clientLabel.text = client//[client, device].joined(separator: "")
         }
         
-        if isOnline {
-            authDateLabel.text = "Online".localizeString(id: "account_state_connected", arguments: [])
-            authDateLabel.textColor = .systemBlue
-        } else {
-            authDateLabel.text = dateFormatter.string(from: lastAuth)
-            authDateLabel.textColor = MDCPalette.grey.tint700
-        }
+        clientLabel.textColor = MDCPalette.grey.tint900
+        descriptionLabel.textColor = MDCPalette.grey.tint700
         
         if let trustState = trustState {
             self.trustIconView.isHidden = false
-            self.trustIconView.image = UIImage(named: "security")?.withRenderingMode(.alwaysTemplate)
             switch trustState {
-            case .unknown:
-                self.trustIconView.tintColor = .systemOrange
-                self.authDateLabel.text = "Action required"
-                self.authDateLabel.textColor = .systemOrange
-            case .Ignore:
-                self.trustIconView.tintColor = .gray
-            case .trusted:
-                self.authDateLabel.text = (self.authDateLabel.text ?? "") + (isTrustebByCertificate ? " Signed" : " Trusted")
-                self.authDateLabel.textColor = .systemGreen
-                self.trustIconView.tintColor = .systemGreen
-            case .fingerprintChanged:
-                self.trustIconView.tintColor = .systemRed
-                self.authDateLabel.text = "Action required"
-                self.authDateLabel.textColor = .systemRed
+                case .unknown:
+                    self.trustIconView.image = UIImage(systemName: "exclamationmark.shield.fill")?.withRenderingMode(.alwaysTemplate)
+                    self.trustIconView.tintColor = .systemOrange
+                    self.authDateLabel.text = "Action required"
+                    self.authDateLabel.textColor = .systemOrange
+                case .ignore:
+                    self.trustIconView.tintColor = .gray
+                case .trusted:
+                    if isTrustebByCertificate {
+                        self.trustIconView.image = UIImage(systemName: "lock.shield.fill")?.withRenderingMode(.alwaysTemplate)
+                    } else {
+                        self.trustIconView.image = UIImage(systemName: "checkerboard.shield")?.withRenderingMode(.alwaysTemplate)
+                    }
+                    
+                    self.authDateLabel.text = isTrustebByCertificate ? " Signed" : " Trusted"
+                    self.authDateLabel.textColor = MDCPalette.grey.tint400
+                    self.trustIconView.tintColor = MDCPalette.grey.tint400
+                case .fingerprintChanged:
+                    self.trustIconView.image = UIImage(systemName: "xmark.shield.fill")?.withRenderingMode(.alwaysTemplate)
+                    self.trustIconView.tintColor = .systemRed
+                    self.authDateLabel.text = "Fingerprint changed"
+                    self.authDateLabel.textColor = .systemRed
+                    self.descriptionLabel.textColor = .systemRed
+                    self.clientLabel.textColor = .systemRed
             }
         } else {
             if let hasBundle = hasBundle,
                !hasBundle  {
                 self.trustIconView.isHidden = false
-                self.trustIconView.image = UIImage(named: "security")?.withRenderingMode(.alwaysTemplate)
+                self.trustIconView.image = UIImage(systemName: "shield.slash.fill")?.withRenderingMode(.alwaysTemplate)
                 self.trustIconView.tintColor = .systemGray
                 self.authDateLabel.text = "Encryption not enabled"
                 self.authDateLabel.textColor = .systemGray
@@ -158,7 +174,7 @@ class DeviceInfoTableCell: UITableViewCell {
             }
         }
         
-        descriptionLabel.text = ip
+        descriptionLabel.text = "\(ip) ⦁ \(dateString)"
         
         
         if editable {
@@ -173,15 +189,15 @@ class DeviceInfoTableCell: UITableViewCell {
     func setup() {
         contentView.addSubview(stack)
         contentView.bringSubviewToFront(stack)
-        stack.fillSuperview()
+        stack.fillSuperviewWithOffset(top: 8, bottom: 8, left: 16, right: 10)
         
-        topStack.addArrangedSubview(clientLabel)
-        topStack.addArrangedSubview(authDateLabel)
-        topStack.addArrangedSubview(trustIconView)
         
-        stack.addArrangedSubview(topStack)
-        stack.addArrangedSubview(deviceLabel)
-        stack.addArrangedSubview(descriptionLabel)
+        leftStack.addArrangedSubview(clientLabel)
+        leftStack.addArrangedSubview(descriptionLabel)
+        rightStack.addArrangedSubview(trustIconView)
+        
+        stack.addArrangedSubview(leftStack)
+        stack.addArrangedSubview(rightStack)
         
         activateConstraints()
     }

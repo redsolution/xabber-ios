@@ -177,11 +177,21 @@ final class Account: NSObject {
     }
     
     func configureStream() {
+        let privacyLevelRaw = SettingManager.shared.getString(for: "privacy_level") ?? CommonConfigManager.shared.config.default_privacy_level
+        let privacyLevel = SettingManager.PrivacyLevel(rawValue: privacyLevelRaw) ?? .incognito
         self.xmppStream.shouldRequestXToken = false
         self.xmppStream.shouldRegisterDevice = false
         self.xmppStream.xabberClientInfo = CommonConfigManager.shared.config.app_name
-        self.xmppStream.xabberPublicLabel = self.deviceName
-        self.xmppStream.xabberDeviceInfo = [[UIDevice.modelName, ","].joined(),  "iOS", UIDevice.current.systemVersion].joined(separator: " ")
+        if privacyLevel == .serverContacts{
+            self.xmppStream.xabberPublicLabel = [[UIDevice.modelName, ","].joined(),  "iOS", UIDevice.current.systemVersion].joined(separator: " ")
+        } else {
+            self.xmppStream.xabberPublicLabel = self.deviceName
+        }
+        if privacyLevel == .incognito {
+            self.xmppStream.xabberDeviceInfo = self.deviceName
+        } else {
+            self.xmppStream.xabberDeviceInfo = [[UIDevice.modelName, ","].joined(),  "iOS", UIDevice.current.systemVersion].joined(separator: " ")
+        }
         self.xmppStream.myJID = XMPPJID(string: jid, resource: AccountManager.defaultResource)
         self.xmppStream.startTLSPolicy = XMPPStreamStartTLSPolicy.preferred
         self.xmppStream.keepAliveInterval = 60

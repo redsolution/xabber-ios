@@ -24,7 +24,7 @@ import RealmSwift
 class SignalDeviceStorageItem: Object {
     enum TrustState: String {
         case unknown = "unknown"
-        case Ignore = "ignore"
+        case ignore = "ignore"
         case trusted = "trusted"
         case fingerprintChanged = "fingerprintChanged"
     }

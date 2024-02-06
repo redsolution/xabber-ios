@@ -22,6 +22,7 @@ import Foundation
 import UIKit
 import RealmSwift
 import TOInsetGroupedTableView
+import MaterialComponents.MDCPalettes
 import CocoaLumberjack
 
 class DeviceDetailViewController: SimpleBaseViewController {
@@ -125,7 +126,7 @@ class DeviceDetailViewController: SimpleBaseViewController {
                    realm.object(ofType: SignalIdentityStorageItem.self, forPrimaryKey: SignalIdentityStorageItem.genRpimary(owner: self.owner, jid: self.jid, deviceId: deviceInstance.omemoDeviceId)) != nil {
                     var trustElement: Datasource
                     switch omemoDevice.state {
-                    case .Ignore:
+                    case .ignore:
                         trustElement = Datasource(title: "Device ignored", value: "Ignored", key: "omemo_state_ignore")
                     case .trusted:
                             trustElement = Datasource(
@@ -297,12 +298,13 @@ extension DeviceDetailViewController: UITableViewDelegate {
                     vc.jid = self.jid
                     vc.owner = self.jid
                     vc.resource = resource
-                    vc.isModal = true
-                    let nvc = UINavigationController(rootViewController: vc)
-                    nvc.modalPresentationStyle = .fullScreen
-                    nvc.modalTransitionStyle = .coverVertical
-                    self.definesPresentationContext = true
-                    self.present(nvc, animated: true, completion: nil)
+                    vc.isModal = false
+                    self.navigationController?.pushViewController(vc, animated: true)
+//                    let nvc = UINavigationController(rootViewController: vc)
+//                    nvc.modalPresentationStyle = .fullScreen
+//                    nvc.modalTransitionStyle = .coverVertical
+//                    self.definesPresentationContext = true
+//                    self.present(nvc, animated: true, completion: nil)
                 }
             } catch {
                 DDLogDebug("TokenInfoViewController: \(#function). \(error.localizedDescription)")
@@ -310,12 +312,13 @@ extension DeviceDetailViewController: UITableViewDelegate {
         case "resource":
             let vc = AccountConnectionViewController()
             vc.configure(for: jid)
+            self.navigationController?.pushViewController(vc, animated: true)
             
-            let nvc = UINavigationController(rootViewController: vc)
-            nvc.modalPresentationStyle = .fullScreen
-            nvc.modalTransitionStyle = .coverVertical
-            self.definesPresentationContext = true
-            self.present(nvc, animated: true, completion: nil)
+//            let nvc = UINavigationController(rootViewController: vc)
+//            nvc.modalPresentationStyle = .fullScreen
+//            nvc.modalTransitionStyle = .coverVertical
+//            self.definesPresentationContext = true
+//            self.present(nvc, animated: true, completion: nil)
         case "omemo_signed_by":
             if self.dangerInEncryption {
                 ActionSheetPresenter().present(
@@ -485,26 +488,26 @@ extension DeviceDetailViewController: UITableViewDataSource {
             cell.textLabel?.text = item.title
             cell.textLabel?.textColor = .systemGray
             cell.accessoryType = .none
-            cell.imageView?.image = UIImage(named: "security")?.withRenderingMode(.alwaysTemplate)
+            cell.imageView?.image = UIImage(systemName: "checkerboard.shield")?.withRenderingMode(.alwaysTemplate)
             cell.imageView?.tintColor = .systemGray
             
             return cell
         case "omemo_state_trusted":
             let cell = UITableViewCell(style: .value1, reuseIdentifier: "SimpleCell")
             cell.textLabel?.text = item.title
-            cell.textLabel?.textColor = .systemGreen
+                cell.textLabel?.textColor = .secondaryLabel
             cell.accessoryType = .none
             cell.imageView?.image = UIImage(named: "security")?.withRenderingMode(.alwaysTemplate)
-            cell.imageView?.tintColor = .systemGreen
+            cell.imageView?.tintColor = MDCPalette.grey.tint400
             
             return cell
         case "omemo_state_fingerprint_changed":
             let cell = UITableViewCell(style: .value1, reuseIdentifier: "SimpleCell")
             cell.textLabel?.text = item.title
-            cell.textLabel?.textColor = .systemOrange
+            cell.textLabel?.textColor = .systemRed
             cell.accessoryType = .none
-            cell.imageView?.image = UIImage(named: "security")?.withRenderingMode(.alwaysTemplate)
-            cell.imageView?.tintColor = .systemOrange
+            cell.imageView?.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withRenderingMode(.alwaysTemplate)
+            cell.imageView?.tintColor = .systemRed
             
             return cell
         case "omemo_state_undefined":
@@ -512,7 +515,7 @@ extension DeviceDetailViewController: UITableViewDataSource {
             cell.textLabel?.text = item.title
             cell.textLabel?.textColor = .systemOrange
             cell.accessoryType = .none
-            cell.imageView?.image = UIImage(named: "security")?.withRenderingMode(.alwaysTemplate)
+            cell.imageView?.image = UIImage(systemName: "exclamationmark.shield.fill")?.withRenderingMode(.alwaysTemplate)
             cell.imageView?.tintColor = .systemOrange
             
             return cell

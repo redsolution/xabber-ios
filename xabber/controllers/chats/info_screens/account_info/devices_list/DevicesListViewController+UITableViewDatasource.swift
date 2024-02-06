@@ -47,6 +47,10 @@ extension DevicesListViewController: UITableViewDataSource {
                       let device = deviceInstance else {
                     return UITableViewCell(frame: .zero)
                 }
+                var isTrustedByCert: Bool = false
+                if let omemoDevice = omemoDevices.first(where: { $0.deviceId == self.deviceInstance?.omemoDeviceId ?? -1 }) {
+                    isTrustedByCert = omemoDevice.isTrustedByCertificate
+                }
                 cell.configure(
                     client: device.client,
                     device: device.device,
@@ -54,9 +58,10 @@ extension DevicesListViewController: UITableViewDataSource {
                     ip: device.ip,
                     lastAuth: device.authDate,
                     current: true,
-                    editable: false,
+                    editable: true,
                     isOnline: device.resource != nil,
-                    trustState: nil
+                    trustState: .trusted,
+                    isTrustebByCertificate: isTrustedByCert
                 )
 //                cell.accessoryType = .disclosureIndicator
                 return cell
@@ -86,7 +91,7 @@ extension DevicesListViewController: UITableViewDataSource {
                 ip: deviceItem.ip,
                 lastAuth: deviceItem.authDate,
                 current: false,
-                editable: false,
+                editable: true,
                 isOnline: deviceItem.resource != nil,
                 trustState: hasBundle ? trustState : nil,
                 hasBundle: hasBundle,

@@ -88,7 +88,8 @@ extension AccountInfoViewController: UITableViewDelegate {
                     onRevokeAll()
                     return
                 case .token:
-                    showTokenInfo(uid: currentToken, canEdit: true)
+                    fatalError()
+//                    showTokenInfo(uid: currentToken, canEdit: true)
                     return
                 default:
                     return
@@ -97,7 +98,8 @@ extension AccountInfoViewController: UITableViewDelegate {
                 guard let uid = tokens?[indexPath.row].uid else {
                     return
                 }
-                showTokenInfo(uid: uid, canEdit: false)
+                fatalError()
+//                showTokenInfo(uid: uid, canEdit: false)
                 return
             case.button:
                 onDeleteAccount()

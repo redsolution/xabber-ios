@@ -208,11 +208,51 @@ class SettingsViewController: BaseViewController {
         }
     }
     
+    class DeviceCell: UITableViewCell {
+        static let cellName: String = "SettingsViewControllerrDeviceCell"
+        
+        
+        let subtitleButton: UIButton = {
+            let button = UIButton(frame: .zero)
+            
+            button.setTitleColor(.secondaryLabel, for: .normal)
+            
+            return button
+        }()
+        
+        let titleLabel: UILabel = {
+            let label = UILabel()
+            
+            return label
+        }()
+        
+        let stack: UIStackView = {
+            let stack = UIStackView()
+            
+            return stack
+        }()
+        
+        override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+            super.init(style: style, reuseIdentifier: reuseIdentifier)
+            contentView.addSubview(stack)
+            stack.fillSuperviewWithOffset(top: 4, bottom: 4, left: 20, right: 16)
+            stack.addArrangedSubview(self.titleLabel)
+            stack.addArrangedSubview(self.subtitleButton)
+            selectionStyle = .none
+        }
+        
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+        
+    }
+    
     internal let tableView: UITableView = {
         let view = InsetGroupedTableView(frame: .zero)
         view.register(AccountCell.self, forCellReuseIdentifier: AccountCell.cellName)
         view.register(UITableViewCell.self, forCellReuseIdentifier: "AddAccountCell")
         view.register(UITableViewCell.self, forCellReuseIdentifier: "SettingsItem")
+        view.register(DeviceCell.self, forCellReuseIdentifier: DeviceCell.cellName)
         view.register(SettingsItemDetailViewController.SelectorCell.self, forCellReuseIdentifier: SettingsItemDetailViewController.SelectorCell.cellName)
         return view
     }()
@@ -257,6 +297,8 @@ class SettingsViewController: BaseViewController {
     
     internal var resources: Results<ResourceStorageItem>? = nil
     internal var sessionsCount: Int = 0
+    internal var omemoDeviceActionsRequired: Bool = false
+    internal var omemoDeviceWarning: Bool = false
     internal var blockedContactsCount: Int = 0
     internal var groupchatInvitationsCount: Int = 0
     internal var currentResource: String? = nil
@@ -355,6 +397,26 @@ class SettingsViewController: BaseViewController {
                     }
                 }).disposed(by: bag)
             
+            Observable
+                .collection(from: realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@", self.jid, self.jid))
+                .debounce(.milliseconds(50), scheduler: MainScheduler.asyncInstance)
+                .subscribe { results in
+                    self.omemoDeviceWarning = false
+                    self.omemoDeviceActionsRequired = false
+                    if results.toArray().filter({ $0.state == .unknown }).isNotEmpty {
+                        self.omemoDeviceActionsRequired = true
+                    }
+                    if results.toArray().filter({ $0.state == .fingerprintChanged }).isNotEmpty {
+                        self.omemoDeviceWarning = true
+                    }
+                } onError: { _ in
+                    
+                } onCompleted: {
+                    
+                } onDisposed: {
+                    
+                }.disposed(by: self.bag)
+
             Observable
                 .collection(from: realm.objects(DeviceStorageItem.self)
                     .filter("owner == %@", self.jid))
@@ -549,7 +611,7 @@ class SettingsViewController: BaseViewController {
                 title: Datasource.Section.privacy.description(),
                 subtitle: nil,
                 premiumOnly: false,
-                viewController: DevicePrivacyViewController.self,
+                viewController: PrivacySettingsViewController.self,
                 childs: []
               ),
                 Datasource(section: .interface, title: "Interface", viewController: SimpleTableViewController.self, childs: [
@@ -626,38 +688,38 @@ class SettingsViewController: BaseViewController {
                 ]))
         }
         
-        if CommonConfigManager.shared.config.use_yubikey {
-            datasource.append(Datasource(section: .security, title: Datasource.Section.security.description(), subtitle: Datasource.Section.security.secondaryDescription(), childs: [
-                Datasource(section: .security, title: "Passcode lock *", premiumOnly: true, viewController: SimpleTableViewController.self, childs: [
-                    Datasource(section: .security, subtitle: "If you forget your passcode, you'll need to reinstall the app.\n\nIf you premium subscription expire, passcode will be reset.", childs: [
-                        Datasource(section: .security, title: "Turn passcode Off", key: .turnPasscodeOff),
-                        Datasource(section: .security, title: "Change Passcode", viewController: PasscodeViewController.self),
-                        Datasource(section: .security, title: "Biometrics", key: .turnBiometricsOnOff)]),
-                    Datasource(section: .security, childs: [
-                        Datasource(section: .autolock, title: "Auto-Lock", key: .passcodeTimer),
-                        Datasource(section: .autolock, title: "Attempts", key: .passcodeAttempts),
-                        Datasource(section: .autolock, title: "Displayed attempts", key: .displayedAttempts),
-                        Datasource(section: .autolock, title: "Show attempts left", itemType: .toggle, toggle: (dict[Datasource.Keys.showAttempts.rawValue] as? Bool) ?? false, key: .showAttempts)
-                    ])
-                ], key: .passcode),
-                Datasource(section: .security, title: "Yubikey signature", viewController: YubikeySetupViewController.self, key: .yubikey),
-            ]))
-        } else {
-            datasource.append(Datasource(section: .security, title: Datasource.Section.security.description(), subtitle: Datasource.Section.security.secondaryDescription(), childs: [
-                Datasource(section: .security, title: "Passcode lock", premiumOnly: false, viewController: SimpleTableViewController.self, childs: [
-                    Datasource(section: .security, subtitle: "If you forget your passcode, you'll need to reinstall the app.\n\nIf you premium subscription expire, passcode will be reset.", childs: [
-                        Datasource(section: .security, title: "Turn passcode Off", key: .turnPasscodeOff),
-                        Datasource(section: .security, title: "Change Passcode", viewController: PasscodeViewController.self),
-                        Datasource(section: .security, title: "Biometrics", key: .turnBiometricsOnOff)]),
-                    Datasource(section: .security, childs: [
-                        Datasource(section: .autolock, title: "Auto-Lock", key: .passcodeTimer),
-                        Datasource(section: .autolock, title: "Attempts", key: .passcodeAttempts),
-                        Datasource(section: .autolock, title: "Displayed attempts", key: .displayedAttempts),
-                        Datasource(section: .autolock, title: "Show attempts left", itemType: .toggle, toggle: (dict[Datasource.Keys.showAttempts.rawValue] as? Bool) ?? false, key: .showAttempts)
-                    ])
-                ], key: .passcode)
-            ]))
-        }
+//        if CommonConfigManager.shared.config.use_yubikey {
+//            datasource.append(Datasource(section: .security, title: Datasource.Section.security.description(), subtitle: Datasource.Section.security.secondaryDescription(), childs: [
+//                Datasource(section: .security, title: "Passcode lock *", premiumOnly: true, viewController: SimpleTableViewController.self, childs: [
+//                    Datasource(section: .security, subtitle: "If you forget your passcode, you'll need to reinstall the app.\n\nIf you premium subscription expire, passcode will be reset.", childs: [
+//                        Datasource(section: .security, title: "Turn passcode Off", key: .turnPasscodeOff),
+//                        Datasource(section: .security, title: "Change Passcode", viewController: PasscodeViewController.self),
+//                        Datasource(section: .security, title: "Biometrics", key: .turnBiometricsOnOff)]),
+//                    Datasource(section: .security, childs: [
+//                        Datasource(section: .autolock, title: "Auto-Lock", key: .passcodeTimer),
+//                        Datasource(section: .autolock, title: "Attempts", key: .passcodeAttempts),
+//                        Datasource(section: .autolock, title: "Displayed attempts", key: .displayedAttempts),
+//                        Datasource(section: .autolock, title: "Show attempts left", itemType: .toggle, toggle: (dict[Datasource.Keys.showAttempts.rawValue] as? Bool) ?? false, key: .showAttempts)
+//                    ])
+//                ], key: .passcode),
+//                Datasource(section: .security, title: "Yubikey signature", viewController: YubikeySetupViewController.self, key: .yubikey),
+//            ]))
+//        } else {
+//            datasource.append(Datasource(section: .security, title: Datasource.Section.security.description(), subtitle: Datasource.Section.security.secondaryDescription(), childs: [
+//                Datasource(section: .security, title: "Passcode lock", premiumOnly: false, viewController: SimpleTableViewController.self, childs: [
+//                    Datasource(section: .security, subtitle: "If you forget your passcode, you'll need to reinstall the app.\n\nIf you premium subscription expire, passcode will be reset.", childs: [
+//                        Datasource(section: .security, title: "Turn passcode Off", key: .turnPasscodeOff),
+//                        Datasource(section: .security, title: "Change Passcode", viewController: PasscodeViewController.self),
+//                        Datasource(section: .security, title: "Biometrics", key: .turnBiometricsOnOff)]),
+//                    Datasource(section: .security, childs: [
+//                        Datasource(section: .autolock, title: "Auto-Lock", key: .passcodeTimer),
+//                        Datasource(section: .autolock, title: "Attempts", key: .passcodeAttempts),
+//                        Datasource(section: .autolock, title: "Displayed attempts", key: .displayedAttempts),
+//                        Datasource(section: .autolock, title: "Show attempts left", itemType: .toggle, toggle: (dict[Datasource.Keys.showAttempts.rawValue] as? Bool) ?? false, key: .showAttempts)
+//                    ])
+//                ], key: .passcode)
+//            ]))
+//        }
 
     }
     

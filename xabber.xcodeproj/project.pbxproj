@@ -190,6 +190,7 @@
 		662DFB45273950C40021658F /* TokenInfoViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662DFB44273950C40021658F /* TokenInfoViewController.swift */; };
 		662E370B257A20B400888358 /* VoIPManager+WebRTCClientDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662E370A257A20B400888358 /* VoIPManager+WebRTCClientDelegate.swift */; };
 		662EAB972549766C00807083 /* ChatViewController+XabberInputBarDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662EAB962549766C00807083 /* ChatViewController+XabberInputBarDelegate.swift */; };
+		66344D392B6D0C2F00B31E7A /* PrivacySettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66344D382B6D0C2F00B31E7A /* PrivacySettingsViewController.swift */; };
 		6635A04325CC1A1E00EA57FE /* NewCallViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6635A04225CC1A1E00EA57FE /* NewCallViewController.swift */; };
 		6635A04825CC1A3600EA57FE /* NewCallViewController+UITableViewDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6635A04725CC1A3600EA57FE /* NewCallViewController+UITableViewDelegate.swift */; };
 		6635A04D25CC1A4900EA57FE /* NewCallViewController+UITableViewDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6635A04C25CC1A4900EA57FE /* NewCallViewController+UITableViewDataSource.swift */; };
@@ -1150,6 +1151,7 @@
 		662DFB44273950C40021658F /* TokenInfoViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenInfoViewController.swift; sourceTree = "<group>"; };
 		662E370A257A20B400888358 /* VoIPManager+WebRTCClientDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VoIPManager+WebRTCClientDelegate.swift"; sourceTree = "<group>"; };
 		662EAB962549766C00807083 /* ChatViewController+XabberInputBarDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewController+XabberInputBarDelegate.swift"; sourceTree = "<group>"; };
+		66344D382B6D0C2F00B31E7A /* PrivacySettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacySettingsViewController.swift; sourceTree = "<group>"; };
 		6635A04225CC1A1E00EA57FE /* NewCallViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewCallViewController.swift; sourceTree = "<group>"; };
 		6635A04725CC1A3600EA57FE /* NewCallViewController+UITableViewDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NewCallViewController+UITableViewDelegate.swift"; sourceTree = "<group>"; };
 		6635A04C25CC1A4900EA57FE /* NewCallViewController+UITableViewDataSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NewCallViewController+UITableViewDataSource.swift"; sourceTree = "<group>"; };
@@ -1887,7 +1889,6 @@
 		66021BDD209ADEFD00B4387F /* chats */ = {
 			isa = PBXGroup;
 			children = (
-				66BA50B626EF6D1000ED0447 /* cells */,
 				66B7991C22E06ADE001589A5 /* search */,
 				66ED0D492488FA4B0053CBEF /* info_screens */,
 				669F207A24811DE000A0A666 /* edit_contact */,
@@ -2742,6 +2743,7 @@
 		665F923022CF183D0019D301 /* chats_list */ = {
 			isa = PBXGroup;
 			children = (
+				66BA50B626EF6D1000ED0447 /* cells */,
 				665F923122CF189E0019D301 /* LastChatsViewController.swift */,
 				6689734D23140F1800FF5D74 /* LastChatsViewController+SearchResultsDelegate.swift */,
 				66F6A65F22D5C554007B7A29 /* LastChatsViewController+EmptyView.swift */,
@@ -3322,6 +3324,7 @@
 				66A995ED28473E2E00F241C5 /* MessageSigningInfoViewController.swift */,
 				6667ABEF28880A6100B9841A /* PrivacySplashScreenViewController.swift.swift */,
 				66C0966528927D5B002D117E /* PrivacyBlurredViewController.swift */,
+				66344D382B6D0C2F00B31E7A /* PrivacySettingsViewController.swift */,
 			);
 			path = privacy;
 			sourceTree = "<group>";
@@ -3378,8 +3381,8 @@
 				66C5807F246C08CC006D3A71 /* SettingsViewController+UITableViewDelegate.swift */,
 				66C58083246C0C45006D3A71 /* SettingsViewController+AccountCell.swift */,
 				66C58085246C1AB4006D3A71 /* SettingsViewController+Flow.swift */,
-				66C15C8928A66E8A00789CD5 /* SettingsViewController+SignatureManagerDelegate.swift */,
 				4DC843CC28AA77A200F61AEE /* Passcode */,
+				66C15C8928A66E8A00789CD5 /* SettingsViewController+SignatureManagerDelegate.swift */,
 				6683765922A5608200E520CF /* settings_item */,
 				6686A7F022BB8D260014376A /* about */,
 			);
@@ -5024,6 +5027,7 @@
 				4D683D1C285DDFDA00FFCB25 /* AccountInfoViewController.swift in Sources */,
 				4D683D24285DE04200FFCB25 /* AccountInfoViewController+QuotaCellDelegate.swift in Sources */,
 				663926A0247E3E5000FE6335 /* ContactsViewController+UITableViewDataSource.swift in Sources */,
+				66344D392B6D0C2F00B31E7A /* PrivacySettingsViewController.swift in Sources */,
 				666E1F6422046B7B00172F55 /* ChatViewController+UserBarButton.swift in Sources */,
 				4DB4A4672850BDF600B3BB20 /* SelectorViewController.swift in Sources */,
 				662A34592362FB0A00A4A71E /* DeleteConversationPresenter.swift in Sources */,

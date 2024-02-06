@@ -395,12 +395,25 @@ open class SettingManager: NSObject {
             "developer_logEnabled": false,
             "avatar_masks_current_avatar_mask_": "rounded",
             "burn_messages_enabled": true,
-            "burn_messages_timer": 0
+            "burn_messages_timer": 0,
+            "privacy_level": CommonConfigManager.shared.config.default_privacy_level,
+            PrivacySettings.typingNotification.rawValue: true
         ]
         defaults.forEach { (item) in
             userDefaults.set(item.value, forKey: item.key as! String)
         }
     }
+    
+    enum PrivacyLevel: String {
+        case incognito = "incognito"
+        case server = "server"
+        case serverContacts = "server_contacts"
+    }
+    
+    enum PrivacySettings: String {
+        case typingNotification = "privacy_typing_notifications"
+    }
+    
     
     public final func getDatasource(by key: String) -> Datasource? {
         switch key {

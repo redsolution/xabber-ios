@@ -50,16 +50,16 @@ extension AccountInfoViewController {
         }
     }
     
-    internal final func showTokenInfo(uid: String, canEdit: Bool) {
-        let vc = TokenInfoViewController()
-        vc.modalTransitionStyle = .coverVertical
-        vc.modalPresentationStyle = .overCurrentContext
-        vc.jid = self.jid
-        vc.uid = uid
-        vc.canEdit = canEdit
-        vc.delegate = self
-        self.present(vc, animated: true, completion: nil)
-    }
+//    internal final func showTokenInfo(uid: String, canEdit: Bool) {
+//        let vc = TokenInfoViewController()
+//        vc.modalTransitionStyle = .coverVertical
+//        vc.modalPresentationStyle = .overCurrentContext
+//        vc.jid = self.jid
+//        vc.uid = uid
+//        vc.canEdit = canEdit
+//        vc.delegate = self
+//        self.present(vc, animated: true, completion: nil)
+//    }
 }
 
 extension AccountInfoViewController: XabberUpdateIfNeededDelegate {

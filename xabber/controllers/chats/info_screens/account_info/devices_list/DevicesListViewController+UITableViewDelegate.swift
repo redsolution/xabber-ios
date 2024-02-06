@@ -30,8 +30,8 @@ extension DevicesListViewController: UITableViewDelegate {
             if item.childs[indexPath.row].kind == .button {
                 return 44
             }
-            return 84
-        case .token, .broken: return 84
+            return 60
+        case .token, .broken: return 60
         case .button: return 44
         }
     }

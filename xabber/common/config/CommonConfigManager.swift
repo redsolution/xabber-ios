@@ -64,6 +64,7 @@ class CommonConfigManager: NSObject {
         var blur_screen_when_enter_background: Bool
         var support_subscribtions: Bool
         var show_text_logo: Bool
+        var default_privacy_level: String
     }
     
     var config: CommonConfig

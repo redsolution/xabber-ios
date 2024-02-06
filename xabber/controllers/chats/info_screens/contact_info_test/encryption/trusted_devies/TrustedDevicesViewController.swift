@@ -295,7 +295,7 @@ extension TrustedDevicesViewController {
                     if value {
                         instance.state = .trusted
                     } else {
-                        instance.state = .Ignore
+                        instance.state = .ignore
                     }
                 }
             }

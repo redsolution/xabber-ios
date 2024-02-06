@@ -78,12 +78,12 @@ class AccountConnectionViewController: BaseViewController {
         return view
     }()
     
-    internal let cancelButton: UIBarButtonItem = {
-        let button = UIBarButtonItem(title: "Cancel".localizeString(id: "cancel", arguments: []),
-                                     style: .done, target: nil, action: nil)
-        button.isEnabled = true
-        return button
-    }()
+//    internal let cancelButton: UIBarButtonItem = {
+//        let button = UIBarButtonItem(title: "Cancel".localizeString(id: "cancel", arguments: []),
+//                                     style: .done, target: nil, action: nil)
+//        button.isEnabled = true
+//        return button
+//    }()
     
     @objc
     func dismissVCByButtonTap() {
@@ -150,9 +150,9 @@ class AccountConnectionViewController: BaseViewController {
         tableView.fillSuperview()
         tableView.delegate = self
         tableView.dataSource = self
-        cancelButton.target = self
-        cancelButton.action = #selector(dismissVCByButtonTap)
-        navigationItem.setLeftBarButton(cancelButton, animated: true)
+//        cancelButton.target = self
+//        cancelButton.action = #selector(dismissVCByButtonTap)
+//        navigationItem.setLeftBarButton(cancelButton, animated: true)
         navigationItem.setRightBarButton(doneButton, animated: true)
         hideKeyboardWhenTappedAround()
         load()

@@ -258,8 +258,6 @@ class DevicesListViewController: BaseViewController {
         AccountManager.shared.find(for: self.jid)?.action({ user, stream in
             user.omemo.getContactDevices(stream, jid: self.jid, force: true)
         })
-        //navigationController?.title = "Devices".localizeString(id: "account_settings_devices", arguments: [])
-//        XMPPUIActionManager.shared.open(owner: self.jid)
         
     }
     

@@ -63,7 +63,13 @@ class ServerDiscoManager: AbstractXMPPManager {
             if item.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return nil }
             return ["<", item.trimmingCharacters(in: .whitespacesAndNewlines)].joined()
         }.joined()
-        return "client/phone/en/\(ServerDiscoManager.clientName)\(featuresList)<"
+        if !((SettingManager.shared.getString(for: "privacy_level") ?? "none") == SettingManager.PrivacyLevel.incognito.rawValue) {
+            return "client/phone/en/\(ServerDiscoManager.clientName)\(featuresList)<"
+                .data(using: String.Encoding.utf8)!
+                .sha1()
+                .base64EncodedString()
+        }
+        return "client/phone/en/\(featuresList)<"
             .data(using: String.Encoding.utf8)!
             .sha1()
             .base64EncodedString()
@@ -361,9 +367,11 @@ class ServerDiscoManager: AbstractXMPPManager {
         let query = DDXMLElement(name: "query", xmlns: "http://jabber.org/protocol/disco#info")
         query.addAttribute(withName: "node", stringValue: "https://www.xabber.com#\(generateVer())")
         let identity = DDXMLElement.element(withName: "identity") as! DDXMLElement
-        identity.addAttribute(withName: "xml:lang", stringValue: "en")
+//        identity.addAttribute(withName: "xml:lang", stringValue: "en")
         identity.addAttribute(withName: "category", stringValue: "client")
-        identity.addAttribute(withName: "name", stringValue: ServerDiscoManager.clientName)
+        if !((SettingManager.shared.getString(for: "privacy_level") ?? "none") == SettingManager.PrivacyLevel.incognito.rawValue) {
+            identity.addAttribute(withName: "name", stringValue: ServerDiscoManager.clientName)
+        }
         identity.addAttribute(withName: "type", stringValue: "phone")
         for feature in clientFeatures.sorted() {
             if feature.isEmpty { continue }

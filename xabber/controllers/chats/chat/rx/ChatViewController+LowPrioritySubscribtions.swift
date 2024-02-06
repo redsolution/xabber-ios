@@ -61,17 +61,20 @@ extension ChatViewController {
             .asObservable()
             .window(timeSpan: .seconds(5), count: 22, scheduler: MainScheduler.asyncInstance)
             .subscribe(onNext: { (_) in
-                if let value = self.inTypingMode.value {
-                    if value {
-                        self.inTypingMode.accept(nil)
-                        AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                            user.chatStates.composing(stream, to: self.jid, type: .typing)
-                        })
-                    } else {
-                        self.inTypingMode.accept(nil)
-                        AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                            user.chatStates.pause(stream, to: self.jid)
-                        })
+                
+                if SettingManager.shared.get(bool: SettingManager.PrivacySettings.typingNotification.rawValue) {
+                    if let value = self.inTypingMode.value {
+                        if value {
+                            self.inTypingMode.accept(nil)
+                            AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
+                                user.chatStates.composing(stream, to: self.jid, type: .typing)
+                            })
+                        } else {
+                            self.inTypingMode.accept(nil)
+                            AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
+                                user.chatStates.pause(stream, to: self.jid)
+                            })
+                        }
                     }
                 }
             })

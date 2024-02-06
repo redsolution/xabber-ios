@@ -155,6 +155,8 @@ extension XabberAxolotlStorage: SignalSessionStore {
         return nil
     }
     
+    
+    
     func storeSessionRecord(_ recordData: Data, for address: SignalAddress) -> Bool {
         do {
             let realm = try WRealm.safe()

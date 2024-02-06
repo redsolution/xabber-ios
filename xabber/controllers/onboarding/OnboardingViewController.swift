@@ -94,8 +94,21 @@ class OnboardingViewController: SimpleBaseViewController {
         return button
     }()
     
+    private let privacyButton: UIButton = {
+        let button = UIButton()
+        
+        button.setTitle("Privacy settings", for: .normal)
+        button.setTitleColor(.secondaryLabel, for: .normal)
+//        button.layer.cornerRadius = 22
+        button.layer.borderWidth = 0
+//        button.layer.borderColor = UIColor(red: 191/255, green: 191/255, blue: 191/255, alpha: 1.0).cgColor
+        button.titleLabel?.font = UIFont.systemFont(ofSize: 15, weight: .regular)
+                
+        return button
+    }()
+    
     private let activityIndicator: UIActivityIndicatorView = {
-        let view = UIActivityIndicatorView(style: .gray)
+        let view = UIActivityIndicatorView(style: .medium)
         
         view.startAnimating()
         
@@ -144,6 +157,7 @@ class OnboardingViewController: SimpleBaseViewController {
         stack.addArrangedSubview(UIStackView())
         stack.addArrangedSubview(signInButton)
         stack.addArrangedSubview(signUpButton)
+        stack.addArrangedSubview(privacyButton)
         stack.addArrangedSubview(footerLabel)
     }
     
@@ -159,13 +173,17 @@ class OnboardingViewController: SimpleBaseViewController {
             signUpButton.rightAnchor.constraint(equalTo: stack.rightAnchor, constant: -16),
             signInButton.heightAnchor.constraint(equalToConstant: 44),
             signInButton.leftAnchor.constraint(equalTo: stack.leftAnchor, constant: 16),
-            signInButton.rightAnchor.constraint(equalTo: stack.rightAnchor, constant: -16)
+            signInButton.rightAnchor.constraint(equalTo: stack.rightAnchor, constant: -16),
+            privacyButton.heightAnchor.constraint(equalToConstant: 36),
+            privacyButton.leftAnchor.constraint(equalTo: stack.leftAnchor, constant: 16),
+            privacyButton.rightAnchor.constraint(equalTo: stack.rightAnchor, constant: -16)
         ]
         NSLayoutConstraint.activate(constraints)
         
         stack.setCustomSpacing(16, after: logoView)
         stack.setCustomSpacing(16, after: signInButton)
-        stack.setCustomSpacing(16, after: signUpButton)
+        stack.setCustomSpacing(2, after: signUpButton)
+        stack.setCustomSpacing(16, after: privacyButton)
     }
     
     override func localizeResources() {
@@ -190,6 +208,7 @@ class OnboardingViewController: SimpleBaseViewController {
         self.navigationController?.navigationBar.shadowImage = nil
         self.signInButton.addTarget(self, action: #selector(self.onSignInButtonTouchUp), for: .touchUpInside)
         self.signUpButton.addTarget(self, action: #selector(self.onSignUpButtonTouchUp), for: .touchUpInside)
+        self.privacyButton.addTarget(self, action: #selector(self.onPrivacyButtonTouchUp), for: .touchUpInside)
     }
     
     @objc
@@ -233,6 +252,13 @@ class OnboardingViewController: SimpleBaseViewController {
     private final func onSignInButtonTouchUp(_ sender: UIButton) {
         FeedbackManager.shared.tap()
         let vc = SignInCreditionalsViewController()
+        self.navigationController?.pushViewController(vc, animated: true)
+    }
+    
+    @objc
+    private final func onPrivacyButtonTouchUp(_ sender: UIButton) {
+        FeedbackManager.shared.tap()
+        let vc = PrivacySettingsViewController()
         self.navigationController?.pushViewController(vc, animated: true)
     }
     
