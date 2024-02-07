@@ -73,7 +73,7 @@ class XMPPAccountDeleteManager: NSObject {
                 self.endBackgroundUpdateTask()
             })
             self.stream.myJID = XMPPJID(string: jid, resource: AccountManager.defaultResource + "fast_send")
-            self.stream.startTLSPolicy = XMPPStreamStartTLSPolicy.allowed
+            self.stream.startTLSPolicy = XMPPStreamStartTLSPolicy.preferred
             self.stream.keepAliveInterval = 60
             self.stream.addDelegate(self, delegateQueue: self.queue)
             do {
@@ -84,17 +84,6 @@ class XMPPAccountDeleteManager: NSObject {
         }
     }
     
-    public func makeRemoveIq() -> XMPPElement? {
-        guard let jid = self.jid,
-              let domain = jid.split(separator: "@").last else {
-            return nil
-        }
-        let elementId = self.stream.generateUUID
-        let query = DDXMLElement(name: "query", xmlns: "jabber:iq:register")
-        query.addChild(DDXMLElement(name: "remove"))
-        let iq = XMPPIQ(iqType: .set, to: XMPPJID(string: String(domain)), elementID: elementId, child: query)
-        return iq
-    }
     
     private func close(_ sender: XMPPStream) {
         sender.disconnect()
@@ -124,11 +113,14 @@ extension XMPPAccountDeleteManager: XMPPStreamDelegate {
     }
     
     func xmppStreamDidAuthenticate(_ sender: XMPPStream) {
-        guard let iq = makeRemoveIq() else {
-            close(sender)
-            return
+        if let jid = self.jid {
+            AccountManager.shared.find(for: jid)?.reconnect.autoReconnect = false
+            AccountManager.shared.find(for: jid)?.disconnect(hard: true)
+            AccountManager.shared.find(for: jid)?.resetStream()
         }
-        sender.send(iq)
+        let query = DDXMLElement(name: "query", xmlns: "jabber:iq:register")
+        query.addChild(DDXMLElement(name: "remove"))
+        sender.send(XMPPIQ(iqType: .set, to: sender.myJID?.domainJID, elementID: sender.generateUUID, child: query))
     }
     
     func xmppStream(_ sender: XMPPStream, didNotAuthenticate error: DDXMLElement) {

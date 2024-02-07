@@ -399,6 +399,7 @@ final class Account: NSObject {
         self.statusState.accept(.offline)
         self.statusMessage.accept(RosterUtils.shared.convertStatus(.offline))
         self.resetModules()
+        XMPPUIActionManager.shared.close(disconnect: true)
         if hard {
             self.xmppStream.disconnect()
 //            self.xmppStream.asyncSocket.disconnect()

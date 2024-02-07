@@ -187,7 +187,6 @@
 		662D4A7524892B2A009E2B22 /* InfoScreenHeaderButtonDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662D4A7424892B2A009E2B22 /* InfoScreenHeaderButtonDelegate.swift */; };
 		662D4A7724892D61009E2B22 /* ContactInfoViewController+InfoScreenHeaderButtonDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662D4A7624892D61009E2B22 /* ContactInfoViewController+InfoScreenHeaderButtonDelegate.swift */; };
 		662D4A792489371D009E2B22 /* RoundedAvatarButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662D4A782489371D009E2B22 /* RoundedAvatarButton.swift */; };
-		662DFB45273950C40021658F /* TokenInfoViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662DFB44273950C40021658F /* TokenInfoViewController.swift */; };
 		662E370B257A20B400888358 /* VoIPManager+WebRTCClientDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662E370A257A20B400888358 /* VoIPManager+WebRTCClientDelegate.swift */; };
 		662EAB972549766C00807083 /* ChatViewController+XabberInputBarDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662EAB962549766C00807083 /* ChatViewController+XabberInputBarDelegate.swift */; };
 		66344D392B6D0C2F00B31E7A /* PrivacySettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66344D382B6D0C2F00B31E7A /* PrivacySettingsViewController.swift */; };
@@ -304,7 +303,6 @@
 		6658A3DD2371B1A300642020 /* ChatViewController+Navbar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6658A3DC2371B1A300642020 /* ChatViewController+Navbar.swift */; };
 		665935892114325000C60EDA /* AvatarStorageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 665935882114325000C60EDA /* AvatarStorageItem.swift */; };
 		66595D6E2844AB760099223C /* X509StorageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66595D6D2844AB760099223C /* X509StorageItem.swift */; };
-		665CF7092731114F00F39FD8 /* XTokenEditViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 665CF7082731114F00F39FD8 /* XTokenEditViewController.swift */; };
 		665CF70C2731183000F39FD8 /* TextEditBaseCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 665CF70B2731183000F39FD8 /* TextEditBaseCell.swift */; };
 		665D33CB22D887C00034F74E /* LastCallsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 665D33CA22D887C00034F74E /* LastCallsViewController.swift */; };
 		665D33CD22D890B20034F74E /* LastCallsViewController+UITableViewDatasource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 665D33CC22D890B20034F74E /* LastCallsViewController+UITableViewDatasource.swift */; };
@@ -1148,7 +1146,6 @@
 		662D4A7424892B2A009E2B22 /* InfoScreenHeaderButtonDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InfoScreenHeaderButtonDelegate.swift; sourceTree = "<group>"; };
 		662D4A7624892D61009E2B22 /* ContactInfoViewController+InfoScreenHeaderButtonDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContactInfoViewController+InfoScreenHeaderButtonDelegate.swift"; sourceTree = "<group>"; };
 		662D4A782489371D009E2B22 /* RoundedAvatarButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoundedAvatarButton.swift; sourceTree = "<group>"; };
-		662DFB44273950C40021658F /* TokenInfoViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenInfoViewController.swift; sourceTree = "<group>"; };
 		662E370A257A20B400888358 /* VoIPManager+WebRTCClientDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VoIPManager+WebRTCClientDelegate.swift"; sourceTree = "<group>"; };
 		662EAB962549766C00807083 /* ChatViewController+XabberInputBarDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewController+XabberInputBarDelegate.swift"; sourceTree = "<group>"; };
 		66344D382B6D0C2F00B31E7A /* PrivacySettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacySettingsViewController.swift; sourceTree = "<group>"; };
@@ -1266,7 +1263,6 @@
 		665935882114325000C60EDA /* AvatarStorageItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarStorageItem.swift; sourceTree = "<group>"; };
 		66595D6D2844AB760099223C /* X509StorageItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = X509StorageItem.swift; sourceTree = "<group>"; };
 		6659F35D2032E95A007F7FCF /* xabber.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = xabber.entitlements; sourceTree = "<group>"; };
-		665CF7082731114F00F39FD8 /* XTokenEditViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XTokenEditViewController.swift; sourceTree = "<group>"; };
 		665CF70B2731183000F39FD8 /* TextEditBaseCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextEditBaseCell.swift; sourceTree = "<group>"; };
 		665D33CA22D887C00034F74E /* LastCallsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastCallsViewController.swift; sourceTree = "<group>"; };
 		665D33CC22D890B20034F74E /* LastCallsViewController+UITableViewDatasource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LastCallsViewController+UITableViewDatasource.swift"; sourceTree = "<group>"; };
@@ -2287,7 +2283,6 @@
 		662DFB43273950B10021658F /* device_info */ = {
 			isa = PBXGroup;
 			children = (
-				662DFB44273950C40021658F /* TokenInfoViewController.swift */,
 				66A92F1C287466C1001EE8F6 /* DeviceDetailViewController.swift */,
 			);
 			path = device_info;
@@ -2685,14 +2680,6 @@
 			path = security;
 			sourceTree = "<group>";
 		};
-		665CF7072731112F00F39FD8 /* device_edit */ = {
-			isa = PBXGroup;
-			children = (
-				665CF7082731114F00F39FD8 /* XTokenEditViewController.swift */,
-			);
-			path = device_edit;
-			sourceTree = "<group>";
-		};
 		665CF70A273117DC00F39FD8 /* cell */ = {
 			isa = PBXGroup;
 			children = (
@@ -2777,7 +2764,6 @@
 			isa = PBXGroup;
 			children = (
 				662DFB43273950B10021658F /* device_info */,
-				665CF7072731112F00F39FD8 /* device_edit */,
 				662551CA28730EE7000055BD /* DevicesListViewController.swift */,
 				4D3DD42C285DABF600C2E429 /* DevicesListViewController+ExpandItemCell.swift */,
 				4D3DD42E285DAC2900C2E429 /* DevicesListViewController+UITableViewDelegate.swift */,
@@ -5020,7 +5006,6 @@
 				66EAF7F52407C13100207AD3 /* InlineMediaBaseView.swift in Sources */,
 				6643F30D21C2650E00333229 /* NSAttributedString+Extensions.swift in Sources */,
 				6697DDE322D31C4500C5FB27 /* LastChatsViewController+UITableViewDelegate.swift in Sources */,
-				662DFB45273950C40021658F /* TokenInfoViewController.swift in Sources */,
 				666E1F612204589000172F55 /* ChatViewController+PrefetchDatasource.swift in Sources */,
 				66660E622354A5CA0094C706 /* MessageDeleteManager.swift in Sources */,
 				6696B440223905D200F646B9 /* CallScreenPresenter.swift in Sources */,
@@ -5093,7 +5078,6 @@
 				66FD4F862085F79200557252 /* AppDelegateNotificationExtension.swift in Sources */,
 				66B41953222FCE3900E15D1D /* ImageMessageCell.swift in Sources */,
 				661CDADB242778C300347E14 /* RosterDisplayNameStorageItem.swift in Sources */,
-				665CF7092731114F00F39FD8 /* XTokenEditViewController.swift in Sources */,
 				66C1C9FE220180EA00EF8F4C /* XCopyableLabel.swift in Sources */,
 				6643F31F21C2650E00333229 /* MessagesCollectionView.swift in Sources */,
 				663926A2247E3E6100FE6335 /* ContactsViewController+UITableViewDelegate.swift in Sources */,
