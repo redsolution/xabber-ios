@@ -94,49 +94,50 @@ class AudioManager {
     }
     
     func buildMeters(_ data: Data) -> ([Float], Int){
-        if data.isEmpty { return ([], 0) }
-        guard let format = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: Double(self.sampleRate), channels: 1, interleaved: false) else { return ([], 0) }
-        let buffer = data.makePCMBuffer(format: format)
-        let rawdBFS: [Int]
-        switch true {
-        case buffer?.int16ChannelData?[0] != nil:
-            rawdBFS = Array(UnsafeBufferPointer(start:buffer!.int16ChannelData![0], count: data.count / MemoryLayout<Int16>.size - MemoryLayout<Int16>.size)).map({ return Int($0) })
-            break
-        case buffer?.int32ChannelData?[0] != nil:
-            rawdBFS = Array(UnsafeBufferPointer(start:buffer!.int32ChannelData![0], count: data.count / MemoryLayout<Int32>.size - MemoryLayout<Int32>.size)).map({ return Int($0) })
-            break
-        default: return ([], 0)
-        }
-        
-        
-        let samplesCount = 54
-        let duration: Int = rawdBFS.count / sampleRate
-        let floatData = rawdBFS
-            .filter({$0 >= 0})
-//            .map({ return Float(Float($0) / Float(maxSample))})
-        
-        let sampleSize = floatData.count / samplesCount
-        
-        var approximated: [Int] = []
-        
-        func filter(_ value: Float) -> Float {
-            if value < 0.075 { return 0}
-            return value
-        }
-        
-        var offset = 0
-        (0...samplesCount).forEach { sampleId in
-            if offset < floatData.count {
-                if offset + sampleSize >= floatData.count {
-                    approximated.append(Int(floatData.suffix(from: offset).max() ?? 0))
-                } else {
-                    approximated.append(Int(floatData.prefix(offset + sampleSize).suffix(from: offset).max() ?? 0))
-                }
-                offset += sampleSize
-            }
-        }
-        let maxSample = approximated.max() ?? Int.max
-        return (approximated.map({ return filter(Float(Float($0) / Float(maxSample)))}), duration)
+        return ([], 0)
+//        if data.isEmpty { return ([], 0) }
+//        guard let format = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: Double(self.sampleRate), channels: 1, interleaved: false) else { return ([], 0) }
+//        let buffer = data.makePCMBuffer(format: format)
+//        let rawdBFS: [Int]
+//        switch true {
+//        case buffer?.int16ChannelData?[0] != nil:
+//            rawdBFS = Array(UnsafeBufferPointer(start:buffer!.int16ChannelData![0], count: data.count / MemoryLayout<Int16>.size - MemoryLayout<Int16>.size)).map({ return Int($0) })
+//            break
+//        case buffer?.int32ChannelData?[0] != nil:
+//            rawdBFS = Array(UnsafeBufferPointer(start:buffer!.int32ChannelData![0], count: data.count / MemoryLayout<Int32>.size - MemoryLayout<Int32>.size)).map({ return Int($0) })
+//            break
+//        default: return ([], 0)
+//        }
+//        
+//        
+//        let samplesCount = 54
+//        let duration: Int = rawdBFS.count / sampleRate
+//        let floatData = rawdBFS
+//            .filter({$0 >= 0})
+////            .map({ return Float(Float($0) / Float(maxSample))})
+//        
+//        let sampleSize = floatData.count / samplesCount
+//        
+//        var approximated: [Int] = []
+//        
+//        func filter(_ value: Float) -> Float {
+//            if value < 0.075 { return 0}
+//            return value
+//        }
+//        
+//        var offset = 0
+//        (0...samplesCount).forEach { sampleId in
+//            if offset < floatData.count {
+//                if offset + sampleSize >= floatData.count {
+//                    approximated.append(Int(floatData.suffix(from: offset).max() ?? 0))
+//                } else {
+//                    approximated.append(Int(floatData.prefix(offset + sampleSize).suffix(from: offset).max() ?? 0))
+//                }
+//                offset += sampleSize
+//            }
+//        }
+//        let maxSample = approximated.max() ?? Int.max
+//        return (approximated.map({ return filter(Float(Float($0) / Float(maxSample)))}), duration)
     }
     
 }

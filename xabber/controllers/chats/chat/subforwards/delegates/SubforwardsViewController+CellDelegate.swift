@@ -224,104 +224,104 @@ extension SubforwardsViewController: MessageCellDelegate {
     
     
     func didTapAudioCell(cell: MessageCollectionViewCell, messageId: String?, at index: Int?) {
-        
-        func play(at indexPath: IndexPath, messageId: String?, index: Int?) {
-            let references: [MessageReferenceStorageItem.Model]?
-            
-            if let messageId = messageId {
-                references = subforwards[indexPath.section]
-                    .subforwards
-                    .first(where: { $0.messageId == messageId })?
-                    .references
-            } else {
-                references = subforwards[indexPath.section]
-                    .references
-                    .filter({ $0.kind == .voice })
-            }
-            
-            let reference: MessageReferenceStorageItem.Model?
-            
-            if let index = index {
-                reference = references?[index]
-            } else {
-                reference = references?.first
-            }
-            
-            guard let item = reference else { return }
-            
-            if let uri = item.metadata?["uriEmbded"] as? String,
-                let url = URL(string: uri) {
-                if !OpusAudio.shared.getPlayerForPreview(for: url) {
-                    if let uri = item.metadata?["uri"] as? String,
-                        let url = URL(string: uri) {
-                        OpusAudio.shared.getPlayer(for: url)
-                    } else {
-                        return
-                    }
-                }
-            } else if let uri = item.metadata?["uri"] as? String,
-                let url = URL(string: uri) {
-                if OpusAudio.shared.currentPlayedFileUri != uri {
-                    OpusAudio.shared.resetPlayer()
-                }
-                OpusAudio.shared.getPlayer(for: url)
-            } else {
-                return
-            }
-            
-            playingMessageIndexPath = nil
-            
-            playingMessageUpdateTimer?.fire()
-            playingMessageUpdateTimer?.invalidate()
-            playingMessageUpdateTimer = nil
-            OpusAudio.shared.player?.delegate = self
-            playingMessageIndexPath = ChatViewController.PlayingAudioCell(indexPath: indexPath,
-                                                       isForward: index != nil,
-                                                       index: nil,
-                                                       messageId: messageId,
-                                                       isPlaying: true)
-            if let path = playingMessageIndexPath,
-                let cell = messagesCollectionView.cellForItem(at: path.indexPath) as? CommonMessageCell {
-                cell.updateAudio(next: .play, messageId: path.messageId)
-            }
-            
-            OpusAudio.shared.player?.play()
-            playingMessageUpdateTimer = Timer.scheduledTimer(withTimeInterval: 0.2,
-                                                             repeats: true,
-                                                             block: playingMessageUpdateTimerCallback)
-        }
-        
-        func stop() {
-            if let path = playingMessageIndexPath,
-                let cell = messagesCollectionView.cellForItem(at: path.indexPath) as? CommonMessageCell {
-                cell.updateAudio(next: .pause, messageId: path.messageId)
-            }
-            OpusAudio.shared.player?.pause()
-            playingMessageIndexPath?.isPlaying = false
-            playingMessageUpdateTimer?.invalidate()
-            playingMessageUpdateTimer = nil
-        }
-        
-        guard let path = self.messagesCollectionView.indexPath(for: cell) else { return }
-        
-        if let current = playingMessageIndexPath {
-            if current.indexPath == path,
-                current.messageId == messageId,
-                current.index == index {
-                if current.isPlaying {
-                    stop()
-                } else {
-                    play(at: path, messageId: messageId, index: index)
-                }
-            } else {
-                (messagesCollectionView.cellForItem(at: current.indexPath) as? CommonMessageCell)?
-                    .updateAudio(next: .stop, messageId: current.messageId)
-                stop()
-                play(at: path, messageId: messageId, index: index)
-            }
-        } else {
-            play(at: path, messageId: messageId, index: index)
-        }
+//        
+//        func play(at indexPath: IndexPath, messageId: String?, index: Int?) {
+//            let references: [MessageReferenceStorageItem.Model]?
+//            
+//            if let messageId = messageId {
+//                references = subforwards[indexPath.section]
+//                    .subforwards
+//                    .first(where: { $0.messageId == messageId })?
+//                    .references
+//            } else {
+//                references = subforwards[indexPath.section]
+//                    .references
+//                    .filter({ $0.kind == .voice })
+//            }
+//            
+//            let reference: MessageReferenceStorageItem.Model?
+//            
+//            if let index = index {
+//                reference = references?[index]
+//            } else {
+//                reference = references?.first
+//            }
+//            
+//            guard let item = reference else { return }
+//            
+//            if let uri = item.metadata?["uriEmbded"] as? String,
+//                let url = URL(string: uri) {
+//                if !OpusAudio.shared.getPlayerForPreview(for: url) {
+//                    if let uri = item.metadata?["uri"] as? String,
+//                        let url = URL(string: uri) {
+//                        OpusAudio.shared.getPlayer(for: url)
+//                    } else {
+//                        return
+//                    }
+//                }
+//            } else if let uri = item.metadata?["uri"] as? String,
+//                let url = URL(string: uri) {
+//                if OpusAudio.shared.currentPlayedFileUri != uri {
+//                    OpusAudio.shared.resetPlayer()
+//                }
+//                OpusAudio.shared.getPlayer(for: url)
+//            } else {
+//                return
+//            }
+//            
+//            playingMessageIndexPath = nil
+//            
+//            playingMessageUpdateTimer?.fire()
+//            playingMessageUpdateTimer?.invalidate()
+//            playingMessageUpdateTimer = nil
+//            OpusAudio.shared.player?.delegate = self
+//            playingMessageIndexPath = ChatViewController.PlayingAudioCell(indexPath: indexPath,
+//                                                       isForward: index != nil,
+//                                                       index: nil,
+//                                                       messageId: messageId,
+//                                                       isPlaying: true)
+//            if let path = playingMessageIndexPath,
+//                let cell = messagesCollectionView.cellForItem(at: path.indexPath) as? CommonMessageCell {
+//                cell.updateAudio(next: .play, messageId: path.messageId)
+//            }
+//            
+//            OpusAudio.shared.player?.play()
+//            playingMessageUpdateTimer = Timer.scheduledTimer(withTimeInterval: 0.2,
+//                                                             repeats: true,
+//                                                             block: playingMessageUpdateTimerCallback)
+//        }
+//        
+//        func stop() {
+//            if let path = playingMessageIndexPath,
+//                let cell = messagesCollectionView.cellForItem(at: path.indexPath) as? CommonMessageCell {
+//                cell.updateAudio(next: .pause, messageId: path.messageId)
+//            }
+////            OpusAudio.shared.player?.pause()
+//            playingMessageIndexPath?.isPlaying = false
+//            playingMessageUpdateTimer?.invalidate()
+//            playingMessageUpdateTimer = nil
+//        }
+//        
+//        guard let path = self.messagesCollectionView.indexPath(for: cell) else { return }
+//        
+//        if let current = playingMessageIndexPath {
+//            if current.indexPath == path,
+//                current.messageId == messageId,
+//                current.index == index {
+//                if current.isPlaying {
+//                    stop()
+//                } else {
+//                    play(at: path, messageId: messageId, index: index)
+//                }
+//            } else {
+//                (messagesCollectionView.cellForItem(at: current.indexPath) as? CommonMessageCell)?
+//                    .updateAudio(next: .stop, messageId: current.messageId)
+//                stop()
+//                play(at: path, messageId: messageId, index: index)
+//            }
+//        } else {
+//            play(at: path, messageId: messageId, index: index)
+//        }
     }
         
     func onLongTap(cell: MessageCollectionViewCell) {

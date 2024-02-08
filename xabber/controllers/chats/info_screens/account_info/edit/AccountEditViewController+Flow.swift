@@ -25,6 +25,7 @@ import CocoaLumberjack
 import RealmSwift
 import Kingfisher
 import LetterAvatarKit
+import AVFoundation
 
 extension AccountEditViewController {
     

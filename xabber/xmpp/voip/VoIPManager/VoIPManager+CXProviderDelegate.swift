@@ -22,6 +22,7 @@ import Foundation
 import CallKit
 import UIKit
 import XMPPFramework
+import AVFoundation
 
 extension VoIPManager: CXProviderDelegate {
     

@@ -570,29 +570,29 @@ class MessageReferenceStorageItem: Object {
                   let url = URL(string: uri.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? "") else {
                     return
             }
-            if OpusAudio.shared.isCached(url) && self.isDownloaded { return }
+//            if OpusAudio.shared.isCached(url) && self.isDownloaded { return }
             let messageId = self.messageId
             let jid = self.jid
             let metadata_ = self.metadata_
-            OpusAudio.shared.add(url) { (result, meters, duration) in
-                guard result else { return }
-                do {
-                    let realm = try  WRealm.safe()
-                    let instances = realm
-                        .objects(MessageReferenceStorageItem.self)
-                        .filter("messageId == %@ AND jid == %@ AND metadata_ == %@ AND isDownloaded == %@", messageId, jid, metadata_, false)
-                    try realm.write {
-                        for instance in instances {
-                            instance.isDownloaded = true
-                            instance.metadata?["meters"] = meters.compactMap{ return "\($0)"}.joined(separator: " ")
-                            instance.metadata?["duration"] = duration
-                        }
-                    }
-                    
-                } catch {
-                    DDLogDebug(error.localizedDescription)
-                }
-            }
+//            OpusAudio.shared.add(url) { (result, meters, duration) in
+//                guard result else { return }
+//                do {
+//                    let realm = try  WRealm.safe()
+//                    let instances = realm
+//                        .objects(MessageReferenceStorageItem.self)
+//                        .filter("messageId == %@ AND jid == %@ AND metadata_ == %@ AND isDownloaded == %@", messageId, jid, metadata_, false)
+//                    try realm.write {
+//                        for instance in instances {
+//                            instance.isDownloaded = true
+//                            instance.metadata?["meters"] = meters.compactMap{ return "\($0)"}.joined(separator: " ")
+//                            instance.metadata?["duration"] = duration
+//                        }
+//                    }
+//                    
+//                } catch {
+//                    DDLogDebug(error.localizedDescription)
+//                }
+//            }
         case .media:
             if mimeType == "video" {
                 

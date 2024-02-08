@@ -171,64 +171,64 @@ extension ChatViewController: MessagesDataSource {
     }
     
     func audioMessageState(at indexPath: IndexPath, messageId: String?, index: Int?) -> InlineAudioGridView.AudioCellPlayingState {
-        if let path = playingMessageIndexPath,
-            path.indexPath == indexPath,
-            path.messageId == messageId,
-            path.index == index,
-            OpusAudio.shared.player?.isPlaying ?? false {
-            return .pause
-        }
+//        if let path = playingMessageIndexPath,
+//            path.indexPath == indexPath,
+//            path.messageId == messageId,
+//            path.index == index,
+//            OpusAudio.shared.player?.isPlaying ?? false {
+//            return .pause
+//        }
         guard let item = messagesObserver?[indexPath.section] else {
             return .play
         }
-        
-        if let isDownloaded = audioMessageReference(at: indexPath,
-                                                    messageId: messageId,
-                                                    index: index)?.isDownloaded {
-            return isDownloaded ? .play : (item.state == .error ? .play : .loading)
-        }
+//        
+//        if let isDownloaded = audioMessageReference(at: indexPath,
+//                                                    messageId: messageId,
+//                                                    index: index)?.isDownloaded {
+//            return isDownloaded ? .play : (item.state == .error ? .play : .loading)
+//        }
         
         return item.state == .error ? .play : .loading
     }
     
     func audioMessageDurationString(at indexPath: IndexPath, messageId: String?, index: Int?) -> String? {
-        let currentDuration: TimeInterval
-//        print(playingMessageIndexPath)
-//        print(OpusAudio.shared.player?.currentTime )
-        if let path = playingMessageIndexPath,
-            path.indexPath == indexPath,
-            path.messageId == messageId,
-            path.index == index {
-            currentDuration = OpusAudio.shared.player?.currentTime ?? 0
-        } else {
-            currentDuration = 0
-        }
-//        print(currentDuration)
-        if let commonDuration = audioMessageReference(at: indexPath, messageId: messageId, index: index)?.metadata?["duration"] as? Double {
-            return "\(currentDuration.minuteFormatedString) / \(TimeInterval(commonDuration).minuteFormatedString)"
-        } else {
+//        let currentDuration: TimeInterval
+////        print(playingMessageIndexPath)
+////        print(OpusAudio.shared.player?.currentTime )
+//        if let path = playingMessageIndexPath,
+//            path.indexPath == indexPath,
+//            path.messageId == messageId,
+//            path.index == index {
+//            currentDuration = OpusAudio.shared.player?.currentTime ?? 0
+//        } else {
+//            currentDuration = 0
+//        }
+////        print(currentDuration)
+//        if let commonDuration = audioMessageReference(at: indexPath, messageId: messageId, index: index)?.metadata?["duration"] as? Double {
+//            return "\(currentDuration.minuteFormatedString) / \(TimeInterval(commonDuration).minuteFormatedString)"
+//        } else {
             return ""
-        }
+//        }
     }
     
     func audioMessageCurrentGradientPercentage(at indexPath: IndexPath, messageId: String?, index: Int?) -> Float? {
-        if let path = playingMessageIndexPath,
-            path.indexPath == indexPath,
-            path.index == index,
-            path.messageId == messageId,
-            let currentDuration = OpusAudio.shared.player?.currentTime,
-            let commonDuration = OpusAudio.shared.player?.duration {
-            return Float((currentDuration) / commonDuration )
-        }
+//        if let path = playingMessageIndexPath,
+//            path.indexPath == indexPath,
+//            path.index == index,
+//            path.messageId == messageId,
+//            let currentDuration = OpusAudio.shared.player?.currentTime,
+//            let commonDuration = OpusAudio.shared.player?.duration {
+//            return Float((currentDuration) / commonDuration )
+//        }
         return 0.0
     }
     
     func audioMessageDuration(at indexPath: IndexPath, messageId: String?, index: Int?) -> TimeInterval {
-        if let path = playingMessageIndexPath,
-            path.indexPath == indexPath,
-            let duration = OpusAudio.shared.player?.duration {
-            return duration
-        }
+//        if let path = playingMessageIndexPath,
+//            path.indexPath == indexPath,
+//            let duration = OpusAudio.shared.player?.duration {
+//            return duration
+//        }
         return TimeInterval(audioMessageReference(at: indexPath,
                                                   messageId: messageId,
                                                   index: index)?
@@ -236,13 +236,13 @@ extension ChatViewController: MessagesDataSource {
     }
     
     func audioMessageCurrentDuration(at indexPath: IndexPath, messageId: String?, index: Int?) -> TimeInterval {
-        if let path = playingMessageIndexPath,
-            path.indexPath == indexPath,
-            path.messageId == messageId,
-            path.index == index,
-            let currentTime = OpusAudio.shared.player?.currentTime {
-            return currentTime
-        }
+//        if let path = playingMessageIndexPath,
+//            path.indexPath == indexPath,
+//            path.messageId == messageId,
+//            path.index == index,
+//            let currentTime = OpusAudio.shared.player?.currentTime {
+//            return currentTime
+//        }
         return 0.0
     }
     

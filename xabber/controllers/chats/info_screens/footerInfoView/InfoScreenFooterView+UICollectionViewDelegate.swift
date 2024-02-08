@@ -87,7 +87,7 @@ extension InfoScreenFooterView: UICollectionViewDelegateFlowLayout {
                 switch cell.state {
                 case .play:
                     cell.setupOpusAudio()
-                    OpusAudio.shared.player?.delegate = self
+//                    OpusAudio.shared.player?.delegate = self
                     setupTimer()
                     cell.update(state: .play)
                 case .pause:

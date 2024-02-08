@@ -23,6 +23,7 @@ import UIKit
 import MaterialComponents.MDCPalettes
 import RealmSwift
 import CocoaLumberjack
+import AVFoundation
 
 class SignUpSelectAvatarViewController: SignUpBaseViewController {
     

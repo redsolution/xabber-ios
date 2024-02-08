@@ -24,6 +24,7 @@
 
 import Foundation
 import UIKit
+import AudioToolbox
 
 class FeedbackManager: NSObject {
     

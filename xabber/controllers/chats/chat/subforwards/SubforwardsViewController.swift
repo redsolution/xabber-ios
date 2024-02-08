@@ -181,7 +181,7 @@ class SubforwardsViewController: MessagesViewController {
     
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
-        OpusAudio.shared.resetPlayer()
+//        OpusAudio.shared.resetPlayer()
         unsubscribe()
     }
     

@@ -19,6 +19,7 @@
 //
 
 import Foundation
+import AVFoundation
 
 extension ChatViewController: AVAudioPlayerDelegate {
         
@@ -32,7 +33,7 @@ extension ChatViewController: AVAudioPlayerDelegate {
         playingMessageIndexPath = nil
         playingMessageUpdateTimer?.invalidate()
         playingMessageUpdateTimer = nil
-        OpusAudio.shared.resetPlayer()
+//        OpusAudio.shared.resetPlayer()
 //        OpusAudio.shared.player = nil
     }
     

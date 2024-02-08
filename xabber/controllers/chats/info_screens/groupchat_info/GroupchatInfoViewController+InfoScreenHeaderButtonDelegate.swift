@@ -26,6 +26,7 @@ import XMPPFramework
 import CocoaLumberjack
 import Toast_Swift
 import MaterialComponents.MDCPalettes
+import AVFoundation
 
 extension GroupchatInfoViewController: InfoScreenHeaderButtonDelegate {
     

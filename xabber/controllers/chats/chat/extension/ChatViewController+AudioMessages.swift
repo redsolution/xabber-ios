@@ -74,69 +74,69 @@ extension ChatViewController {
     }
     
     internal func stopRecord() {
-        print(#function)
-        notifyVoiceMessageEndRecording()
-        do {
-            recordingPanel.stopAnimateRecordIndicator()            
-            try AudioRecorder.shared.stopRecording()
-            let stopDate = Date()
-            if let url = recordedFileUrl,
-                let date = recordedFileDate,
-                stopDate.timeIntervalSince(date) > 1 {
-                AudioManager.shared.player = try AVAudioPlayer(contentsOf: url, fileTypeHint: "wav")
-                if let duration = AudioManager.shared.player?.duration {
-                    self.recordingPanel.updateTimeLabel(duration)
-                }
-                self.recordingPanel
-                    .configurePreview(color: self.accountPallete.tint500,
-                                      duration: stopDate.timeIntervalSince(date).minuteFormatedString,
-                                      meters: OpusAudio.shared.preparePreview(for: url))
-                self.recordingPanel.changeState(.preview)
-                OpusAudio.shared.encode(for: url) { (encodedData, meters, error) in
-                    if error != nil {
-                        self.showToast(error: "Can`t encode voice message".localizeString(id: "message_manager_cant_encode_voice", arguments: [""]))
-                        self.deleteRecord()
-                    } else {
-                        do {
-                            OpusAudio.shared.cache(
-                                url,
-                                data: try Data(
-                                    contentsOf: URL(fileURLWithPath: url.absoluteString)
-                                )
-                            )
-                        } catch {
-                            self.showToast(error: "Can`t encode voice message. \(error.localizedDescription)".localizeString(id: "message_manager_cant_encode_voice", arguments: ["\(error.localizedDescription)"]))
-                            self.deleteRecord()
-                            return
-                        }
-                        let item = MessageReferenceStorageItem()
-                        item.kind = .voice
-                        item.owner = self.owner
-                        item.mimeType = MimeIcon(MimeType(url: url).value).value.rawValue
-                        item.temporaryData = encodedData
-                        item.isDownloaded = true
-                        item.metadata = [
-                            "filename": "voice_message.ogg",
-                            "name": "Voice message",
-                            "size": item.temporaryData?.count ?? 0,
-                            "media-type": "audio/ogg",
-                            "uriEmbded": "\(url.absoluteString)",
-                            "uri": url.absoluteString,
-                            "meters": meters.map { return "\($0)"}.joined(separator: " "),
-                            "duration": Int(stopDate.timeIntervalSince(date))
-                        ]
-                        item.primary = UUID().uuidString
-                        item.localFileUrl = item.temporaryData!.saveToTemporaryDir(name: url.lastPathComponent)
-                        self.recordedFileReference = item
-                    }
-                }
-            } else {
-                deleteRecord()
-            }
-        } catch {
-            deleteRecord()
-            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-        }
+//        print(#function)
+//        notifyVoiceMessageEndRecording()
+//        do {
+//            recordingPanel.stopAnimateRecordIndicator()            
+//            try AudioRecorder.shared.stopRecording()
+//            let stopDate = Date()
+//            if let url = recordedFileUrl,
+//                let date = recordedFileDate,
+//                stopDate.timeIntervalSince(date) > 1 {
+//                AudioManager.shared.player = try AVAudioPlayer(contentsOf: url, fileTypeHint: "wav")
+//                if let duration = AudioManager.shared.player?.duration {
+//                    self.recordingPanel.updateTimeLabel(duration)
+//                }
+//                self.recordingPanel
+//                    .configurePreview(color: self.accountPallete.tint500,
+//                                      duration: stopDate.timeIntervalSince(date).minuteFormatedString,
+//                                      meters: OpusAudio.shared.preparePreview(for: url))
+//                self.recordingPanel.changeState(.preview)
+//                OpusAudio.shared.encode(for: url) { (encodedData, meters, error) in
+//                    if error != nil {
+//                        self.showToast(error: "Can`t encode voice message".localizeString(id: "message_manager_cant_encode_voice", arguments: [""]))
+//                        self.deleteRecord()
+//                    } else {
+//                        do {
+//                            OpusAudio.shared.cache(
+//                                url,
+//                                data: try Data(
+//                                    contentsOf: URL(fileURLWithPath: url.absoluteString)
+//                                )
+//                            )
+//                        } catch {
+//                            self.showToast(error: "Can`t encode voice message. \(error.localizedDescription)".localizeString(id: "message_manager_cant_encode_voice", arguments: ["\(error.localizedDescription)"]))
+//                            self.deleteRecord()
+//                            return
+//                        }
+//                        let item = MessageReferenceStorageItem()
+//                        item.kind = .voice
+//                        item.owner = self.owner
+//                        item.mimeType = MimeIcon(MimeType(url: url).value).value.rawValue
+//                        item.temporaryData = encodedData
+//                        item.isDownloaded = true
+//                        item.metadata = [
+//                            "filename": "voice_message.ogg",
+//                            "name": "Voice message",
+//                            "size": item.temporaryData?.count ?? 0,
+//                            "media-type": "audio/ogg",
+//                            "uriEmbded": "\(url.absoluteString)",
+//                            "uri": url.absoluteString,
+//                            "meters": meters.map { return "\($0)"}.joined(separator: " "),
+//                            "duration": Int(stopDate.timeIntervalSince(date))
+//                        ]
+//                        item.primary = UUID().uuidString
+//                        item.localFileUrl = item.temporaryData!.saveToTemporaryDir(name: url.lastPathComponent)
+//                        self.recordedFileReference = item
+//                    }
+//                }
+//            } else {
+//                deleteRecord()
+//            }
+//        } catch {
+//            deleteRecord()
+//            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+//        }
     }
     
     public final func deleteRecord() {
@@ -241,152 +241,152 @@ extension ChatViewController {
     }
     
     internal func onSendAudioMessage() throws {
-        try AudioRecorder.shared.stopRecording()
-        notifyVoiceMessageEndRecording()
-        let endedAt: Date = Date()
-        guard let url = recordedFileUrl,
-              let startedAt = recordedFileDate,
-              endedAt.timeIntervalSince(startedAt) > 1 else {
-            self.deleteRecord()
-            return
-        }
-        let item = MessageReferenceStorageItem()
-        item.kind = .voice
-        item.owner = self.owner
-        item.jid = self.jid
-        item.conversationType = self.conversationType
-        item.mimeType = MimeIcon(MimeType(url: url).value).value.rawValue
-        item.isDownloaded = true
-        item.metadata = [
-            "filename": "voice_message.ogg",
-            "name": "Voice message",
-            "media-type": "audio/ogg",
-            "uri": url.absoluteString,
-            "uriEmbded": "\(url.absoluteString)",
-            "duration": Int(endedAt.timeIntervalSince(startedAt))
-        ]
-        item.primary = UUID().uuidString
-        let referencePrimary = item.primary
-        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-            let messagePrimary = user
-                .messages
-                .willSendMediaMessage([item],
-                                      to: self.jid,
-                                      forwarded: self.attachedMessagesIds.value, conversationType: self.conversationType)
-            self.canUpdateDataset = true
-            self.messagesCount += 1
-            self.runDatasetUpdateTask()
-            DispatchQueue.main.async {
-                let prevIndexPath = IndexPath(row: 0, section: 1)
-                if self.messagesCollectionView.indexPathsForVisibleItems.contains(prevIndexPath) {
-                    self.messagesCollectionView.reloadItems(at: [prevIndexPath])
-                }
-            }
-            OpusAudio.shared.encode(for: url) { (encodedData, meters, error) in
-                if error != nil {
-                    DispatchQueue.main.async {
-                        self.showToast(error: "Can`t encode voice message".localizeString(id: "message_manager_cant_encode_voice", arguments: [""]))
-                        self.deleteRecord()
-                    }
-                } else {
-                    do {
-                        OpusAudio.shared.cache(url,
-                                               data: try Data(contentsOf: URL(fileURLWithPath: url.absoluteString)))
-                        let realm = try WRealm.safe()
-                        guard let item = realm.object(
-                                ofType: MessageReferenceStorageItem.self,
-                                forPrimaryKey: referencePrimary
-                        ) else {
-                            DispatchQueue.main.async {
-                                self.showToast(error: "Can`t encode voice message".localizeString(id: "message_manager_cant_encode_voice", arguments: [""]))
-                                self.deleteRecord()
-                            }
-                            return
-                        }
-                        item.temporaryData = encodedData
-                        let localFileUrl = encodedData
-                            .saveToTemporaryDir(name: url.lastPathComponent + ".ogg")
-                        try realm.write{
-                            item.metadata?["size"] = encodedData.count
-                            item.metadata?["meters"] = meters.map { "\($0)" }.joined(separator: " ")
-                            item.localFileUrl = localFileUrl
-                        }
-                        AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                            user.messages.continueSendMediaMessage(messagePrimary)
-                        })
-                        
-                    } catch {
-                        self.showToast(error: "Can`t encode voice message. \(error.localizedDescription)".localizeString(id: "message_manager_cant_encode_voice", arguments: ["\(error.localizedDescription)"]))
-                        DispatchQueue.main.async {
-                            self.deleteRecord()
-                        }
-                        return
-                    }
-                }
-            }
-
-        })
-        print("Call empty", #function)
-        self.attachedMessagesIds.accept([])
-        self.forwardedIds.accept(Set<String>())
-        self.endRecording()
+//        try AudioRecorder.shared.stopRecording()
+//        notifyVoiceMessageEndRecording()
+//        let endedAt: Date = Date()
+//        guard let url = recordedFileUrl,
+//              let startedAt = recordedFileDate,
+//              endedAt.timeIntervalSince(startedAt) > 1 else {
+//            self.deleteRecord()
+//            return
+//        }
+//        let item = MessageReferenceStorageItem()
+//        item.kind = .voice
+//        item.owner = self.owner
+//        item.jid = self.jid
+//        item.conversationType = self.conversationType
+//        item.mimeType = MimeIcon(MimeType(url: url).value).value.rawValue
+//        item.isDownloaded = true
+//        item.metadata = [
+//            "filename": "voice_message.ogg",
+//            "name": "Voice message",
+//            "media-type": "audio/ogg",
+//            "uri": url.absoluteString,
+//            "uriEmbded": "\(url.absoluteString)",
+//            "duration": Int(endedAt.timeIntervalSince(startedAt))
+//        ]
+//        item.primary = UUID().uuidString
+//        let referencePrimary = item.primary
+//        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+//            let messagePrimary = user
+//                .messages
+//                .willSendMediaMessage([item],
+//                                      to: self.jid,
+//                                      forwarded: self.attachedMessagesIds.value, conversationType: self.conversationType)
+//            self.canUpdateDataset = true
+//            self.messagesCount += 1
+//            self.runDatasetUpdateTask()
+//            DispatchQueue.main.async {
+//                let prevIndexPath = IndexPath(row: 0, section: 1)
+//                if self.messagesCollectionView.indexPathsForVisibleItems.contains(prevIndexPath) {
+//                    self.messagesCollectionView.reloadItems(at: [prevIndexPath])
+//                }
+//            }
+//            OpusAudio.shared.encode(for: url) { (encodedData, meters, error) in
+//                if error != nil {
+//                    DispatchQueue.main.async {
+//                        self.showToast(error: "Can`t encode voice message".localizeString(id: "message_manager_cant_encode_voice", arguments: [""]))
+//                        self.deleteRecord()
+//                    }
+//                } else {
+//                    do {
+//                        OpusAudio.shared.cache(url,
+//                                               data: try Data(contentsOf: URL(fileURLWithPath: url.absoluteString)))
+//                        let realm = try WRealm.safe()
+//                        guard let item = realm.object(
+//                                ofType: MessageReferenceStorageItem.self,
+//                                forPrimaryKey: referencePrimary
+//                        ) else {
+//                            DispatchQueue.main.async {
+//                                self.showToast(error: "Can`t encode voice message".localizeString(id: "message_manager_cant_encode_voice", arguments: [""]))
+//                                self.deleteRecord()
+//                            }
+//                            return
+//                        }
+//                        item.temporaryData = encodedData
+//                        let localFileUrl = encodedData
+//                            .saveToTemporaryDir(name: url.lastPathComponent + ".ogg")
+//                        try realm.write{
+//                            item.metadata?["size"] = encodedData.count
+//                            item.metadata?["meters"] = meters.map { "\($0)" }.joined(separator: " ")
+//                            item.localFileUrl = localFileUrl
+//                        }
+//                        AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
+//                            user.messages.continueSendMediaMessage(messagePrimary)
+//                        })
+//                        
+//                    } catch {
+//                        self.showToast(error: "Can`t encode voice message. \(error.localizedDescription)".localizeString(id: "message_manager_cant_encode_voice", arguments: ["\(error.localizedDescription)"]))
+//                        DispatchQueue.main.async {
+//                            self.deleteRecord()
+//                        }
+//                        return
+//                    }
+//                }
+//            }
+//
+//        })
+//        print("Call empty", #function)
+//        self.attachedMessagesIds.accept([])
+//        self.forwardedIds.accept(Set<String>())
+//        self.endRecording()
     }
     
     internal func onSendAudioMessageOld() throws {
-        print(#function)
-        
-        try AudioRecorder.shared.stopRecording()
-        notifyVoiceMessageEndRecording()
-        let stopDate = Date()
-        if let url = self.recordedFileUrl,
-            let date = self.recordedFileDate,
-            stopDate.timeIntervalSince(date) > 1 {
-            
-            OpusAudio.shared.encode(for: url) { (encodedData, meters, error) in
-                if error != nil {
-                    self.showToast(error: "Can`t encode voice message".localizeString(id: "message_manager_cant_encode_voice", arguments: [""]))
-                    self.deleteRecord()
-                } else {
-                    do {
-                        OpusAudio.shared.cache(
-                            url,
-                            data: try Data(contentsOf: URL(fileURLWithPath: url.absoluteString))
-                        )
-                    } catch {
-                        self.showToast(error: "Can`t encode voice message. \(error.localizedDescription)".localizeString(id: "message_manager_cant_encode_voice", arguments: ["\(error.localizedDescription)"]))
-                        self.deleteRecord()
-                        return
-                    }
-                    let item = MessageReferenceStorageItem()
-                    item.kind = .voice
-                    item.conversationType = self.conversationType
-                    item.owner = self.owner
-                    item.jid = self.jid
-                    item.mimeType = MimeIcon(MimeType(url: url).value).value.rawValue
-                    item.temporaryData = encodedData
-                    item.metadata = [
-                        "filename": "voice_message.ogg",
-                        "name": "Voice message",
-                        "size": item.temporaryData?.count ?? 0,
-                        "media-type": "audio/ogg",
-                        "uri": url.absoluteString,
-                        "uriEmbded": "\(url.absoluteString)",
-                        "meters": meters.map{ return "\($0)"}.joined(separator: " "),
-                        "duration": Int(stopDate.timeIntervalSince(date))
-                    ]
-                    item.primary = UUID().uuidString
-                    item.localFileUrl = item.temporaryData!.saveToTemporaryDir(name: url.lastPathComponent + ".ogg")
-                    let attachedMessages = self.attachedMessagesIds.value
-                    AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                        user.messages.sendMediaMessage([item],
-                                                       to: self.jid,
-                                                       forwarded: attachedMessages, conversationType: self.conversationType)
-                    })
-                }
-            }
-        } else {
-            self.deleteRecord()
-        }
+//        print(#function)
+//        
+//        try AudioRecorder.shared.stopRecording()
+//        notifyVoiceMessageEndRecording()
+//        let stopDate = Date()
+//        if let url = self.recordedFileUrl,
+//            let date = self.recordedFileDate,
+//            stopDate.timeIntervalSince(date) > 1 {
+//            
+//            OpusAudio.shared.encode(for: url) { (encodedData, meters, error) in
+//                if error != nil {
+//                    self.showToast(error: "Can`t encode voice message".localizeString(id: "message_manager_cant_encode_voice", arguments: [""]))
+//                    self.deleteRecord()
+//                } else {
+//                    do {
+//                        OpusAudio.shared.cache(
+//                            url,
+//                            data: try Data(contentsOf: URL(fileURLWithPath: url.absoluteString))
+//                        )
+//                    } catch {
+//                        self.showToast(error: "Can`t encode voice message. \(error.localizedDescription)".localizeString(id: "message_manager_cant_encode_voice", arguments: ["\(error.localizedDescription)"]))
+//                        self.deleteRecord()
+//                        return
+//                    }
+//                    let item = MessageReferenceStorageItem()
+//                    item.kind = .voice
+//                    item.conversationType = self.conversationType
+//                    item.owner = self.owner
+//                    item.jid = self.jid
+//                    item.mimeType = MimeIcon(MimeType(url: url).value).value.rawValue
+//                    item.temporaryData = encodedData
+//                    item.metadata = [
+//                        "filename": "voice_message.ogg",
+//                        "name": "Voice message",
+//                        "size": item.temporaryData?.count ?? 0,
+//                        "media-type": "audio/ogg",
+//                        "uri": url.absoluteString,
+//                        "uriEmbded": "\(url.absoluteString)",
+//                        "meters": meters.map{ return "\($0)"}.joined(separator: " "),
+//                        "duration": Int(stopDate.timeIntervalSince(date))
+//                    ]
+//                    item.primary = UUID().uuidString
+//                    item.localFileUrl = item.temporaryData!.saveToTemporaryDir(name: url.lastPathComponent + ".ogg")
+//                    let attachedMessages = self.attachedMessagesIds.value
+//                    AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
+//                        user.messages.sendMediaMessage([item],
+//                                                       to: self.jid,
+//                                                       forwarded: attachedMessages, conversationType: self.conversationType)
+//                    })
+//                }
+//            }
+//        } else {
+//            self.deleteRecord()
+//        }
     }
     
     internal func onRecordingPanelWillPlay() {
@@ -418,7 +418,7 @@ extension ChatViewController {
     }
     
     
-    open func onCancelRecord() {
+    func onCancelRecord() {
         print(#function)
         deleteRecord()
 //        self.xabberInputBar.resetRecordButtonAfterPinned()
@@ -426,7 +426,7 @@ extension ChatViewController {
         generator.impactOccurred()
     }
     
-    open func onDeleteRecord() {
+    func onDeleteRecord() {
         print(#function)
         deleteRecord()
         let generator = UIImpactFeedbackGenerator(style: .medium)

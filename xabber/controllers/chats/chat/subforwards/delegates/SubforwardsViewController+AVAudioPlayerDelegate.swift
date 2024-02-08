@@ -19,6 +19,7 @@
 //
 
 import Foundation
+import AVFoundation
 
 extension SubforwardsViewController: AVAudioPlayerDelegate {
         
@@ -31,7 +32,7 @@ extension SubforwardsViewController: AVAudioPlayerDelegate {
         playingMessageIndexPath = nil
         playingMessageUpdateTimer?.invalidate()
         playingMessageUpdateTimer = nil
-        OpusAudio.shared.resetPlayer()
+//        OpusAudio.shared.resetPlayer()
     }
     
     @objc

@@ -299,44 +299,44 @@ class VoiceMediaCollectionCell: UICollectionViewCell {
     }
     
     func update(state: AudioCellPlayingState) {
-        switch state {
-        case .play:
-            self.state = .pause
-            lastPlayedDuration = OpusAudio.shared.player?.currentTime ?? 0.0
-            duration = OpusAudio.shared.player?.duration ?? 0
-            audioView.playButton.setImage(#imageLiteral(resourceName: "pause").withRenderingMode(.alwaysTemplate), for: .normal)
-            OpusAudio.shared.player?.play()
-            activateDurationLabel()
-        case .pause:
-            self.state = .play
-            audioView.playButton.setImage(#imageLiteral(resourceName: "play").withRenderingMode(.alwaysTemplate), for: .normal)
-            OpusAudio.shared.player?.pause()
-            deactivateDurationLabel()
-        case .stop:
-            self.state = .play
-            audioView.playButton.setImage(#imageLiteral(resourceName: "play").withRenderingMode(.alwaysTemplate), for: .normal)
-            audioView.durationLabel.text = "\(TimeInterval(0).minuteFormatedString) / \(duration.minuteFormatedString), \(sizeInBytes)"
-        default: return
-        }
+//        switch state {
+//        case .play:
+//            self.state = .pause
+//            lastPlayedDuration = OpusAudio.shared.player?.currentTime ?? 0.0
+//            duration = OpusAudio.shared.player?.duration ?? 0
+//            audioView.playButton.setImage(#imageLiteral(resourceName: "pause").withRenderingMode(.alwaysTemplate), for: .normal)
+//            OpusAudio.shared.player?.play()
+//            activateDurationLabel()
+//        case .pause:
+//            self.state = .play
+//            audioView.playButton.setImage(#imageLiteral(resourceName: "play").withRenderingMode(.alwaysTemplate), for: .normal)
+//            OpusAudio.shared.player?.pause()
+//            deactivateDurationLabel()
+//        case .stop:
+//            self.state = .play
+//            audioView.playButton.setImage(#imageLiteral(resourceName: "play").withRenderingMode(.alwaysTemplate), for: .normal)
+//            audioView.durationLabel.text = "\(TimeInterval(0).minuteFormatedString) / \(duration.minuteFormatedString), \(sizeInBytes)"
+//        default: return
+//        }
     }
     
     func setupOpusAudio() {
-        guard let url = audioUrl else { return }
-        if OpusAudio.shared.currentPlayedFileUri != url.absoluteString {
-            OpusAudio.shared.resetPlayer()
-        }
-        OpusAudio.shared.getPlayer(for: url)
+//        guard let url = audioUrl else { return }
+//        if OpusAudio.shared.currentPlayedFileUri != url.absoluteString {
+//            OpusAudio.shared.resetPlayer()
+//        }
+//        OpusAudio.shared.getPlayer(for: url)
     }
     
     func timerUpdateTask() {
-        guard let player = OpusAudio.shared.player else { return }
-        lastPlayedDuration = player.currentTime
-        audioView.durationLabel.text = lastPlayedDuration.minuteFormatedString + " / " + duration.minuteFormatedString + ", " + sizeInBytes
+//        guard let player = OpusAudio.shared.player else { return }
+//        lastPlayedDuration = player.currentTime
+//        audioView.durationLabel.text = lastPlayedDuration.minuteFormatedString + " / " + duration.minuteFormatedString + ", " + sizeInBytes
     }
     
     func reset() {
         update(state: .stop)
-        OpusAudio.shared.resetPlayer()
+//        OpusAudio.shared.resetPlayer()
         deactivateDurationLabel()
     }
     

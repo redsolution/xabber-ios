@@ -24,6 +24,7 @@ import RealmSwift
 import LetterAvatarKit
 import CocoaLumberjack
 import MaterialComponents.MDCPalettes
+import AVFoundation
 
 extension AccountInfoViewController: InfoScreenHeaderButtonDelegate {
     

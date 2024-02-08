@@ -27,6 +27,7 @@ import UIKit
 import SwiftKeychainWrapper
 import Alamofire
 import CocoaLumberjack
+import AVFoundation
 
 
 
