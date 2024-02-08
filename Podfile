@@ -69,7 +69,7 @@ target 'xabber_push_extension' do
     pod 'SwiftKeychainWrapper'
     pod 'Starscream', :git => 'https://github.com/daltoniam/Starscream.git', :tag => '4.0.4' 
     pod 'KissXML'
-    pod 'CryptoSwift', :git => 'https://github.com/krzyzanowskim/CryptoSwift.git', :tag => '1.6.0'
+    pod 'CryptoSwift', :git => 'https://github.com/krzyzanowskim/CryptoSwift.git', :tag => '1.8.1'
     pod 'Curve25519Kit', :git => 'https://github.com/whspr/Curve25519Kit.git', :branch => 'mkirk/framework-friendly'
 end
 
