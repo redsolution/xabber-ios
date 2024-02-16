@@ -119,8 +119,8 @@ extension MessageManager {
             let conversationType = item.conversationType
             
             childs.forEach {
-                stanza.addChild($0)
-                stanzaToSave.addChild($0)
+                stanza.addChild($0.copy() as! DDXMLElement)
+                stanzaToSave.addChild($0.copy() as! DDXMLElement)
             }
             
             switch conversationType {
@@ -174,8 +174,8 @@ extension MessageManager {
                         .toArray()
                         .compactMap { return $0.messageId })
                         .forEach {
-                            stanza.addChild($0.referenceElement)
-                            stanzaToSave.addChild($0.referenceElement)
+                            stanza.addChild($0.referenceElement.copy() as! DDXMLElement)
+                            stanzaToSave.addChild($0.referenceElement.copy() as! DDXMLElement)
                         }
                     
                     stanza.addBody(item.legacyBody)

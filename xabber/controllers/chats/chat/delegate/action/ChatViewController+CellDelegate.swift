@@ -50,6 +50,10 @@ extension ChatViewController: ContextMenuDelegate {
 extension ChatViewController: MessageCellDelegate {
     
     func didTapErrorButton(cell: MessageCollectionViewCell) {
+        if self.showSkeletonObserver.value {
+            return
+        }
+
         guard let indexPath = indexPathFor(cell),
             let item = messagesObserver?[indexPath.section] else {
                 return
@@ -115,6 +119,9 @@ extension ChatViewController: MessageCellDelegate {
     }
     
     private func retryMessageSend(_ primary: String) {
+        if self.showSkeletonObserver.value {
+            return
+        }
         if self.blockInputFieldByTimeSignature.value  {
             onSignButtonTouchUpInside()
         } else {
@@ -137,6 +144,9 @@ extension ChatViewController: MessageCellDelegate {
     }
     
     private func deleteSendingMessage(_ primary: String) {
+        if self.showSkeletonObserver.value {
+            return
+        }
         do {
             let realm = try WRealm.safe()
             if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
@@ -151,6 +161,9 @@ extension ChatViewController: MessageCellDelegate {
     }
     
     func didTapAvatar(in cell: MessageCollectionViewCell) {
+        if self.showSkeletonObserver.value {
+            return
+        }
         if groupchat {
             guard let indexPath = indexPathFor(cell),
                 let item = messagesObserver?[indexPath.section],
@@ -172,6 +185,9 @@ extension ChatViewController: MessageCellDelegate {
     }
     
     func didTap(in cell: MessageCollectionViewCell) {
+        if self.showSkeletonObserver.value {
+            return
+        }
         if isInSelectionMode.value {
             selectMessage(in: cell)
         } else {
@@ -180,6 +196,9 @@ extension ChatViewController: MessageCellDelegate {
     }
     
     func didTapMessage(in cell: MessageCollectionViewCell) {
+        if self.showSkeletonObserver.value {
+            return
+        }
         dismissKeyboard()
         if isInSelectionMode.value {
             selectMessage(in: cell)
@@ -187,6 +206,9 @@ extension ChatViewController: MessageCellDelegate {
     }
     
     func didTapCellTopLabel(in cell: MessageCollectionViewCell) {
+        if self.showSkeletonObserver.value {
+            return
+        }
         dismissKeyboard()
         if isInSelectionMode.value {
             selectMessage(in: cell)
@@ -194,6 +216,9 @@ extension ChatViewController: MessageCellDelegate {
     }
     
     func didTapMessageTopLabel(in cell: MessageCollectionViewCell) {
+        if self.showSkeletonObserver.value {
+            return
+        }
         dismissKeyboard()
         if isInSelectionMode.value {
             selectMessage(in: cell)
@@ -201,6 +226,9 @@ extension ChatViewController: MessageCellDelegate {
     }
     
     func didTapMessageBottomLabel(in cell: MessageCollectionViewCell) {
+        if self.showSkeletonObserver.value {
+            return
+        }
         dismissKeyboard()
         if isInSelectionMode.value {
             selectMessage(in: cell)
@@ -208,10 +236,16 @@ extension ChatViewController: MessageCellDelegate {
     }
     
     func onLongTap(cell: MessageCollectionViewCell) {
+        if self.showSkeletonObserver.value {
+            return
+        }
         selectMessage(in: cell)
     }
     
     func onSwipe(cell: MessageCollectionViewCell) {
+        if self.showSkeletonObserver.value {
+            return
+        }
         guard let indexPath = indexPathFor(cell),
             let item = messagesObserver?[indexPath.section] else {
                 return
@@ -222,6 +256,9 @@ extension ChatViewController: MessageCellDelegate {
     }
     
     func selectMessage(in cell: MessageCollectionViewCell) {
+        if self.showSkeletonObserver.value {
+            return
+        }
         if attachedMessagesIds.value.isNotEmpty || (editMessageId.value?.isNotEmpty ?? false) { return }
         if let contentCell = cell as? MessageContentCell {
             guard let indexPath = self.messagesCollectionView.indexPath(for: cell) else { return }
@@ -250,18 +287,27 @@ extension ChatViewController: MessageCellDelegate {
     }
     
     func enableSelectMode() {
+        if self.showSkeletonObserver.value {
+            return
+        }
         if !isInSelectionMode.value {
             isInSelectionMode.accept(true)
         }
     }
     
     func disableSelectMode() {
+        if self.showSkeletonObserver.value {
+            return
+        }
         if isInSelectionMode.value {
             isInSelectionMode.accept(false)
         }
     }
     
     @objc func deselectAllMessages() {
+        if self.showSkeletonObserver.value {
+            return
+        }
         if forwardedIds.value.isNotEmpty {
             self.forwardedIds.accept(Set<String>())
 //            forwardedIds.value.removeAll()
@@ -278,6 +324,9 @@ extension ChatViewController: MessageCellDelegate {
     }
     
     func downloadVideo(_ primary: String) {
+        if self.showSkeletonObserver.value {
+            return
+        }
         do {
             let realm = try WRealm.safe()
             if let reference = realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: primary) {
@@ -303,7 +352,9 @@ extension ChatViewController: MessageCellDelegate {
     
     func showGallery(from array: [MessageReferenceStorageItem.Model], start image: Int, messageId: String) {
 //        if array[0].isOriginalMissed
-        
+        if self.showSkeletonObserver.value {
+            return
+        }
         var urls: [URL] = array.compactMap {
             item in
             guard let urlUnwr = item.metadata?["uri"] as? String,
@@ -493,6 +544,9 @@ extension ChatViewController: MessageCellDelegate {
 //    }
     
     func isEditable(cell: MessageCollectionViewCell) -> Bool {
+        if self.showSkeletonObserver.value {
+            return false
+        }
         guard MessageDeleteManager.availability(owner),
             let indexPath = indexPathFor(cell),
             let item = messagesObserver?[indexPath.section] else {
@@ -506,6 +560,10 @@ extension ChatViewController: MessageCellDelegate {
     }
     
     func onTapAttachment(cell: MessageCollectionViewCell, inlineItem: Bool, messageId: String?, index: Int, isSubforward: Bool) {
+        if self.showSkeletonObserver.value {
+            return
+        }
+
         guard let indexPath = indexPathFor(cell) else {
                 return
         }
@@ -589,7 +647,10 @@ extension ChatViewController: MessageCellDelegate {
     }
     
     func didTapAudioCell(cell: MessageCollectionViewCell, messageId: String?, at index: Int?) {
-//        
+        if self.showSkeletonObserver.value {
+            return
+        }
+//
 //        func play(at indexPath: IndexPath, messageId: String?, index: Int?) {
 //            let references: [MessageReferenceStorageItem]?
 //            
@@ -698,6 +759,9 @@ extension ChatViewController: MessageCellDelegate {
     }
     
     func didTapOnInitialFooterLabel(in cell: MessageCollectionViewCell) {
+        if self.showSkeletonObserver.value {
+            return
+        }
         var uri: URL? = nil
         var title: String = ""
         switch self.entity {
@@ -740,6 +804,9 @@ extension ChatViewController: MessageCellDelegate {
     
     
     func onTapVoiceCall(cell: MessageCollectionViewCell) {
+        if self.showSkeletonObserver.value {
+            return
+        }
         VoIPManager.shared.startCall(owner: self.owner, jid: self.jid)
     }
     

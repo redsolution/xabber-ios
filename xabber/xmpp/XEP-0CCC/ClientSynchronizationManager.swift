@@ -593,12 +593,33 @@ class ClientSynchronizationManager: AbstractXMPPManager {
               jid.isNotEmpty else {
             return nil
         }
+        
+        let conversationStatus = conversation.attributeStringValue(forName: "status") ?? "active"
+        
+        let conversationType = ConversationType(rawValue: conversation.attributeStringValue(forName: "type") ?? "none") ?? .regular
 
         let stamp = conversation.attributeDoubleValue(forName: "stamp")
+        do {
+            let realm = try WRealm.safe()
+            if conversation.element(forName: "deleted") != nil || conversationStatus == "deleted" {
+                if let instance = realm.object(
+                    ofType: LastChatsStorageItem.self,
+                    forPrimaryKey: LastChatsStorageItem.genPrimary(
+                        jid: jid,
+                        owner: self.owner,
+                        conversationType: conversationType)) {
+                    realm.delete(instance)
+                }
+                return nil
+            }
+        } catch {
+            DDLogDebug("ClientSynchronizationManager; \(#function). \(error.localizedDescription)")
+        }
+        
         guard let metadata = conversation
             .elements(forName: "metadata")
             .first(where: { $0.attributeStringValue(forName: "node") == "https://xabber.com/protocol/synchronization" }) else {
-            fatalError()
+            return nil
         }
         func getChat(_ realm: Realm, jid: String, conversationType: ConversationType) throws -> LastChatsStorageItem {
             if let instance = realm.object(
@@ -639,9 +660,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         }
         do {
             let realm = try  WRealm.safe()
-            let conversationStatus = conversation.attributeStringValue(forName: "status") ?? "active"
             
-            let conversationType = ConversationType(rawValue: conversation.attributeStringValue(forName: "type") ?? "none") ?? .regular
             
             if metadata.element(forName: "last-message")?.element(forName: "message") == nil {
                 if conversation.element(forName: "presence")?.attributeStringValue(forName: "type") == "subscribe" {
@@ -662,17 +681,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
 
             
             
-            if conversation.element(forName: "deleted") != nil || conversationStatus == "deleted" {
-                if let instance = realm.object(
-                    ofType: LastChatsStorageItem.self,
-                    forPrimaryKey: LastChatsStorageItem.genPrimary(
-                        jid: jid,
-                        owner: self.owner,
-                        conversationType: conversationType)) {
-                    realm.delete(instance)
-                }
-                return nil
-            }
+            
             
             if let messageElement = metadata.element(forName: "last-message")?.element(forName: "message") {
                 if (AccountManager.shared.find(for: owner)?.groupchats.isInvite(XMPPMessage(from: messageElement)) ?? false) {

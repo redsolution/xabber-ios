@@ -840,6 +840,7 @@ extension OmemoManager {
                         instance.signedAt = -1
                         instance.signedBy = nil
                     }
+                    realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: self.owner, conversationType: .omemo))?.updateTS = Date().timeIntervalSince1970
                 }
             } else {
                 let ik_data = Data(base64Encoded: ik_b64, options: .ignoreUnknownCharacters)
@@ -865,6 +866,7 @@ extension OmemoManager {
                 }
                 try realm.write {
                     realm.add(instance)
+                    realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: self.owner, conversationType: .omemo))?.updateTS = Date().timeIntervalSince1970
                 }
             }
         } else {
@@ -920,6 +922,7 @@ extension OmemoManager {
                         instance.signedBy = nil
                     }
                     realm.add(instance)
+                    realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: self.owner, conversationType: .omemo))?.updateTS = Date().timeIntervalSince1970
                 }
             }
         }

@@ -65,6 +65,10 @@ class CommonConfigManager: NSObject {
         var support_subscribtions: Bool
         var show_text_logo: Bool
         var default_privacy_level: String
+        var auto_delete_messages_interval: Int
+        var locked_account_color: String
+        var locked_background: String
+        var skip_vcard_nickname_onboarding_step: Bool
     }
     
     var config: CommonConfig

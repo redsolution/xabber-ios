@@ -297,6 +297,7 @@ class ChatListTableViewCell: UITableViewCell {
     public final func configure(_ jid: String,
                                 owner: String,
                                 username: String,
+                                attributedUsername: NSAttributedString?,
                                 message: String,
                                 date: Date?,
                                 deliveryState: MessageStorageItem.MessageSendingState?,
@@ -334,18 +335,22 @@ class ChatListTableViewCell: UITableViewCell {
             isSystem: isSystem
         )
         
-        usernameLabel.text = username
+        if let attributedUsername = attributedUsername {
+            usernameLabel.attributedText = attributedUsername
+        } else {
+            usernameLabel.text = username
+        }
         
         subtitleLabel.text = groupchatNickname
         
-        switch conversationType {
-            case .omemo, .omemo1, .axolotl:
-                self.encryptedIndicator.isHidden = false
-                self.usernameLabel.textColor = MDCPalette.green.tint500
-            default:
-                self.encryptedIndicator.isHidden = true
-            break
-        }
+//        switch conversationType {
+//            case .omemo, .omemo1, .axolotl:
+//                self.encryptedIndicator.isHidden = false
+//                self.usernameLabel.textColor = MDCPalette.green.tint500
+//            default:
+//                self.encryptedIndicator.isHidden = true
+//            break
+//        }
         
         if isPinned {
             self.contentView.backgroundColor = MDCPalette.grey.tint100

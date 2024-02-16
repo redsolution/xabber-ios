@@ -360,15 +360,16 @@ final class Account: NSObject {
             AccountManager.shared.markAsConnecting(jid: self.jid)
             try self.xmppStream.connect(withTimeout: 5)
         } catch {
-            DDLogDebug("cant conenct: \(error.localizedDescription)")
+            DDLogDebug("cant connect: \(error.localizedDescription)")
             self.statusMessage.accept("Offline")
             AccountManager.shared.changeNewUserState(for: self.jid, to: .failure("Server not found"))
             AccountManager.shared.markAsConnected(jid: self.jid)
-            if self.delayedConnectTimer == nil {
-                self.delayedConnectTimer?.invalidate()
-                self.delayedConnectTimer = Timer(timeInterval: 1, target: self, selector: #selector(self.connect), userInfo: nil, repeats: false)
-                RunLoop.main.add(self.delayedConnectTimer!, forMode: RunLoop.Mode.default)
-            }
+//            this.$store.state.current_org_id
+        }
+        if self.delayedConnectTimer == nil {
+            self.delayedConnectTimer?.invalidate()
+            self.delayedConnectTimer = Timer(timeInterval: 7, target: self, selector: #selector(self.connect), userInfo: nil, repeats: false)
+            RunLoop.main.add(self.delayedConnectTimer!, forMode: RunLoop.Mode.default)
         }
         self.isBinded = false
     }
@@ -728,7 +729,12 @@ final class Account: NSObject {
                 item.savePassword = self.savePassword
                 item.manuallySetHost = self.manuallySetHost
                 item.port = self.port
-                item.colorKey = AccountColorManager.shared.colorItem(for: self.jid).key
+                if CommonConfigManager.shared.config.locked_account_color.isNotEmpty {
+                    item.colorKey = CommonConfigManager.shared.config.locked_account_color
+                } else {
+                    item.colorKey = AccountColorManager.shared.colorItem(for: self.jid).key
+                }
+                
                 item.username = self.username
                 item.node = self.push.node
                 item.service = self.push.service

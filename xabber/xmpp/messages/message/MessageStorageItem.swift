@@ -776,6 +776,12 @@ class MessageStorageItem: Object {
     
     public final func save(commitTransaction: Bool, silentNotifications: Bool = false) -> Bool {
         if self.opponent.isEmpty { return false }
+        if CommonConfigManager.shared.config.auto_delete_messages_interval > 0 {
+            if self.displayAs != .initial,
+               self.date < Date(timeIntervalSince1970: Date().timeIntervalSince1970 - Double(CommonConfigManager.shared.config.auto_delete_messages_interval)) {
+                return false
+            }
+        }
         if let stanza = self.originalStanza {
             if let userCard = stanza
                 .element(forName: "x", xmlns: "https://xabber.com/protocol/groups")?

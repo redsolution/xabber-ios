@@ -368,13 +368,16 @@ open class SettingManager: NSObject {
         if userDefaults.value(forKey: "default_settingsCached") != nil {
             return
         }
+        
+        let defaultBackground = CommonConfigManager.shared.config.locked_background.isNotEmpty ? CommonConfigManager.shared.config.locked_background : "Flowers"
+        
         let defaults: NSDictionary = [
             "default_settingsCached": true,
             "chat_fontSize":"regular",
             "chat_showStatus": true,
             "chat_showBackground": true,
             "chat_sendByEnter": false,
-            "chat_chooseBackground": "Flowers",
+            "chat_chooseBackground": defaultBackground,
             "roster_sorting": "by_status",
             "roster_showAvatars": true,
             "roster_showOfflineContacts": true,

@@ -311,33 +311,57 @@ extension SubscribtionsListViewController: UITableViewDelegate {
                 tableView.reloadRows(at: [indexPath], with: .none)
                 self.makePurchaise(productId: productId)
             case 2:
-                switch accountState {
-                    case .expired:
-                        let presenter = QuitAccountPresenter(jid: jid)
-                        presenter.present(in: self, animated: true) {
-                            self.unsubscribe()
-                            AccountManager.shared.deleteAccount(by: self.jid)
-                            if AccountManager.shared.emptyAccountsList() {
-                                DispatchQueue.main.async {
-                                    let vc = OnboardingViewController()
-                                    
-                                    let navigationController = UINavigationController(rootViewController: vc)
-                                    
-                                    navigationController.isNavigationBarHidden = true
-                                    (UIApplication.shared.delegate as! AppDelegate).window?.rootViewController = navigationController
-                                }
-                            } else {
-                                DispatchQueue.main.async {
-                                    self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
-                                    self.navigationController?.navigationBar.shadowImage = nil
-                                    self.navigationController?.popToRootViewController(animated: true)
-                                }
+                if SubscribtionsManager.shared.anotherAccountHasSubscribtion {
+                    let presenter = QuitAccountPresenter(jid: self.owner)
+                    presenter.present(in: self, animated: true) {
+                        self.unsubscribe()
+                        AccountManager.shared.deleteAccount(by: self.owner)
+                        if AccountManager.shared.emptyAccountsList() {
+                            DispatchQueue.main.async {
+                                let vc = OnboardingViewController()
+                                
+                                let navigationController = UINavigationController(rootViewController: vc)
+                                
+                                navigationController.isNavigationBarHidden = true
+                                (UIApplication.shared.delegate as! AppDelegate).window?.rootViewController = navigationController
+                            }
+                        } else {
+                            DispatchQueue.main.async {
+                                self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
+                                self.navigationController?.navigationBar.shadowImage = nil
+                                self.navigationController?.popToRootViewController(animated: true)
                             }
                         }
-                    default:
-                        let vc = DeliveryAddressViewController()
-                        vc.jid = self.jid
-                        self.navigationController?.pushViewController(vc, animated: true)
+                    }
+                } else {
+                    switch accountState {
+                        case .expired, .trial:
+                            let presenter = QuitAccountPresenter(jid: self.owner)
+                            presenter.present(in: self, animated: true) {
+                                self.unsubscribe()
+                                AccountManager.shared.deleteAccount(by: self.owner)
+                                if AccountManager.shared.emptyAccountsList() {
+                                    DispatchQueue.main.async {
+                                        let vc = OnboardingViewController()
+                                        
+                                        let navigationController = UINavigationController(rootViewController: vc)
+                                        
+                                        navigationController.isNavigationBarHidden = true
+                                        (UIApplication.shared.delegate as! AppDelegate).window?.rootViewController = navigationController
+                                    }
+                                } else {
+                                    DispatchQueue.main.async {
+                                        self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
+                                        self.navigationController?.navigationBar.shadowImage = nil
+                                        self.navigationController?.popToRootViewController(animated: true)
+                                    }
+                                }
+                            }
+                        default:
+                            let vc = DeliveryAddressViewController()
+                            vc.jid = self.owner
+                            self.navigationController?.pushViewController(vc, animated: true)
+                    }
                 }
                 
             default:

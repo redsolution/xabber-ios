@@ -27,6 +27,9 @@ extension ChatViewController: UISearchBarDelegate {
     }
     
     func searchBarCancelButtonClicked(_ searchBar: UISearchBar) {
+        if self.showSkeletonObserver.value {
+            return
+        }
         searchBar.resignFirstResponder()
         searchBar.endEditing(true)
         self.inSearchMode.accept(false)
@@ -34,6 +37,9 @@ extension ChatViewController: UISearchBarDelegate {
     }
     
     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
+        if self.showSkeletonObserver.value {
+            return
+        }
         print(searchText)
         searchTextBouncerObserver.accept(searchText.isEmpty ? nil : searchText)
     }

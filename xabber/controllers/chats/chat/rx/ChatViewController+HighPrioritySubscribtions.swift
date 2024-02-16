@@ -127,6 +127,7 @@ extension ChatViewController {
             .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
             .subscribe(onNext: { (results) in
                 guard let item = results.first else {
+                    self.showSkeletonObserver.accept(false)
                     return
                 }
                 self.lastReadMessageId = item.lastReadId

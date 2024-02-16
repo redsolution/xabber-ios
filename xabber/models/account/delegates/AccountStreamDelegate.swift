@@ -485,9 +485,10 @@ extension Account: XMPPStreamManagementDelegate {
         
     }
     
+    
     func xmppStreamManagement(_ sender: XMPPStreamManagement, wasNotEnabled failed: DDXMLElement) {
         AccountManager.shared.markAsConnecting(jid: self.jid)
-        
+        self.smStorage.removeAll(for: self.xmppStream)
         self.presence()
         if failed.element(forName: "item-not-found") != nil {
             DispatchQueue.main.async {

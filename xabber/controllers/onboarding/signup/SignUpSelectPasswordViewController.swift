@@ -54,15 +54,29 @@ class SignUpSelectPasswordViewController: SignUpBaseViewController {
         view.addSubview(hiddenField)
     }
     
+    var isPasswordHided: Bool = true
     override func configure() {
         super.configure()
+        textField.configure()
         textField.textContentType = .newPassword
-        textField.isSecureTextEntry = true
+        textField.isSecureTextEntry = isPasswordHided
         self.navigationController?.isNavigationBarHidden = false
         if let username = self.metadata["username"],
            let host = self.metadata["host"] {
             hiddenField.text = [username, host].joined(separator: "@")
         }
+        
+        self.textField.button.isHidden = false
+        self.textField.button.setImage(UIImage(systemName: self.isPasswordHided ? "eye.slash" : "eye"), for: .normal)
+        self.textField.button.addTarget(self, action: #selector(onShowPasswordButtonTouchUpinside), for: .touchUpInside)
+    }
+    
+    
+    @objc
+    internal func onShowPasswordButtonTouchUpinside(_ sender: UIButton) {
+        self.isPasswordHided = !self.isPasswordHided
+        self.textField.button.setImage(UIImage(systemName: self.isPasswordHided ? "eye.slash" : "eye"), for: .normal)
+        textField.isSecureTextEntry = isPasswordHided
     }
     
     override func activateConstraints() {

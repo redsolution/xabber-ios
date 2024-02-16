@@ -169,8 +169,9 @@ class MessageArchiveManager: AbstractXMPPManager {
                     } catch {
                         DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
                     }
-                    
-                    self.continueLoadHistory(stream, task: item.task, nextPage: nextPage)
+                    DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
+                        self.continueLoadHistory(stream, task: item.task, nextPage: nextPage)
+                    }
                 } else {
                     item.callback?()
                     if let count = set.element(forName: "count")?.stringValueAsNSInteger() {

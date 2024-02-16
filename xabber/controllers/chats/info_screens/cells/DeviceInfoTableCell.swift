@@ -92,7 +92,7 @@ class DeviceInfoTableCell: UITableViewCell {
 //            topStack.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 0.9),
 //            deviceLabel.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 0.9),
             descriptionLabel.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 0.9),
-            trustIconView.widthAnchor.constraint(equalToConstant: 24),
+            trustIconView.widthAnchor.constraint(equalToConstant: 26),
             trustIconView.heightAnchor.constraint(equalToConstant: 24)
         ])
     }
@@ -147,7 +147,7 @@ class DeviceInfoTableCell: UITableViewCell {
                     if isTrustebByCertificate {
                         self.trustIconView.image = UIImage(systemName: "lock.shield.fill")?.withRenderingMode(.alwaysTemplate)
                     } else {
-                        self.trustIconView.image = UIImage(systemName: "checkerboard.shield")?.withRenderingMode(.alwaysTemplate)
+                        self.trustIconView.image = UIImage(systemName: "exclamationmark.shield.fill")?.withRenderingMode(.alwaysTemplate)
                     }
                     
                     self.authDateLabel.text = isTrustebByCertificate ? " Signed" : " Trusted"

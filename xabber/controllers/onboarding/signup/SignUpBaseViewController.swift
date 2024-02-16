@@ -27,9 +27,32 @@ import RxSwift
 class UITextFiledWithShadow: UITextField {
     
     private var shadowLayer: CAShapeLayer!
+    
+    internal let button: UIButton = {
+        let button = UIButton(frame: CGRect(square: 28))
+        
+        button.tintColor = UIColor(red: 60/255, green: 60/255, blue: 65/255, alpha: 0.6)
+        button.isHidden = true
+        
+        return button
+    }()
+    
 
+    
+    func configure() {
+        self.addSubview(button)
+        self.bringSubviewToFront(button)
+    }
+    
+    
     override func layoutSubviews() {
         super.layoutSubviews()
+        
+        button.frame = CGRect(
+            origin: CGPoint(x: self.frame.size.width - 36, y: 8),
+            size: CGSize(square: 28)
+        )
+        self.bringSubviewToFront(button)
         
         if shadowLayer == nil {
             shadowLayer = CAShapeLayer()

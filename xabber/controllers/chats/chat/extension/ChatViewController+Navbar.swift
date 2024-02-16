@@ -47,8 +47,8 @@ extension ChatViewController {
                     indicatorAttach.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withTintColor(.systemYellow)
                     attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
                 } else if collectionJid.count == 0 {
-                    color = .systemBlue
-                    indicatorAttach.image = UIImage(systemName: "questionmark.diamond.fill")?.withTintColor(.systemBlue)
+                    color = .secondaryLabel
+                    indicatorAttach.image = UIImage(systemName: "lock")?.withTintColor(.secondaryLabel)
                     attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
                 } else {
                     color = .systemGreen

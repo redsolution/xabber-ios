@@ -141,9 +141,9 @@ class DeliveryAddressViewController: UITableViewController {
                 forwarded: [],
                 conversationType: .regular
             )
-            user.presences.subscribe(stream, jid: CommonConfigManager.shared.config.support_jid)
-            user.presences.subscribed(stream, jid: CommonConfigManager.shared.config.support_jid, storePreaproved: true)
-            DispatchQueue.main.async {
+//            user.presences.subscribe(stream, jid: CommonConfigManager.shared.config.support_jid)
+//            user.presences.subscribed(stream, jid: CommonConfigManager.shared.config.support_jid, storePreaproved: true)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                 self.navigationController?.popToRootViewController(animated: false)
                 getAppTabBar()?.displayChat(
                     owner: self.jid,

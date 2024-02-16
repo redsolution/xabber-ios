@@ -234,6 +234,7 @@ class X509XMPPManager: AbstractXMPPManager {
                             bundle.signedAt = result?.signedAt ?? -1
                         }
                     }
+                    realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: self.owner, conversationType: .omemo))?.updateTS = Date().timeIntervalSince1970
                 }
             } else if isError {
                 let primary = X509StorageItem.genRpimary(owner: self.owner, jid: jid)

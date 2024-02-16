@@ -61,6 +61,7 @@ class LastChatsViewController: BaseViewController {
         let jid: String
         let owner: String
         let username: String
+        let attributedUsername: NSAttributedString?
         let message: String
         let date: Date
         let state: MessageStorageItem.MessageSendingState?
@@ -87,6 +88,7 @@ class LastChatsViewController: BaseViewController {
             return a.jid == b.jid
                     && a.owner == b.owner
                     && a.username == b.username
+                    && a.attributedUsername == b.attributedUsername
                     && a.message == b.message
                     && a.date == b.date
                     && a.state == b.state
@@ -304,7 +306,7 @@ class LastChatsViewController: BaseViewController {
                 predicate = NSPredicate(format: "isArchived == %@ AND (unread > %@ OR rosterItem.ask_ IN %@) AND owner IN %@",
                                         argumentArray: [false,
                                                         0,
-                                                        [RosterStorageItem.Ask.in.rawValue, RosterStorageItem.Ask.both.rawValue],
+                                                        [RosterStorageItem.Ask.in.rawValue, RosterStorageItem.Ask.both.rawValue, RosterStorageItem.Ask.none.rawValue],
                                                         Array(enabledAccounts.value)])
                 tableView.scrollToRow(at: IndexPath(row: 0, section: 0), at: .top, animated: false)
             case .archived:
@@ -418,6 +420,7 @@ class LastChatsViewController: BaseViewController {
                     jid: "\($0)",
                     owner: "",
                     username: "",
+                    attributedUsername: nil,
                     message: "",
                     date: Date(),
                     state: nil,
@@ -449,13 +452,15 @@ class LastChatsViewController: BaseViewController {
             switch self.filter.value {
             case .chats:
                 if let lockedType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) {
+                    var excludedJids = Array(enabledAccounts.value).compactMap({XMPPJID(string: $0)!.domain})
+                    excludedJids.append(CommonConfigManager.shared.config.support_jid)
                     predicate = NSPredicate(
                         format: "isArchived == %@ AND owner IN %@ AND (conversationType_ == %@ OR jid IN %@)",
                         argumentArray: [
                             false,
                             Array(enabledAccounts.value),
                             lockedType.rawValue,
-                            Array(enabledAccounts.value).compactMap({XMPPJID(string: $0)!.domain})
+                            excludedJids
                         ]
                     )
                 } else {
@@ -464,13 +469,15 @@ class LastChatsViewController: BaseViewController {
                 pinnedChatsSorting = true
             case .unread:
                 if let lockedType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) {
+                    var excludedJids = Array(enabledAccounts.value).compactMap({XMPPJID(string: $0)!.domain})
+                    excludedJids.append(CommonConfigManager.shared.config.support_jid)
                     predicate = NSPredicate(
                         format: "isArchived == %@ AND owner IN %@ AND (conversationType_ == %@ OR jid IN %@) AND (unread > %@ OR rosterItem.ask_ IN %@)",
                         argumentArray: [
                             false,
                             Array(enabledAccounts.value),
                             lockedType.rawValue,
-                            Array(enabledAccounts.value).compactMap({XMPPJID(string: $0)!.domain}),
+                            excludedJids,
                             0,
                             [RosterStorageItem.Ask.in.rawValue, RosterStorageItem.Ask.both.rawValue],
                         ]
@@ -485,13 +492,15 @@ class LastChatsViewController: BaseViewController {
                 }
             case .archived:
                 if let lockedType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) {
+                    var excludedJids = Array(enabledAccounts.value).compactMap({XMPPJID(string: $0)!.domain})
+                    excludedJids.append(CommonConfigManager.shared.config.support_jid)
                     predicate = NSPredicate(
                         format: "isArchived == %@ AND owner IN %@ AND (conversationType_ == %@ OR jid IN %@)",
                         argumentArray: [
                             true,
                             Array(enabledAccounts.value),
                             lockedType.rawValue,
-                            Array(enabledAccounts.value).compactMap({XMPPJID(string: $0)!.domain})
+                            excludedJids
                         ]
                     )
                 } else {
@@ -601,10 +610,48 @@ class LastChatsViewController: BaseViewController {
                     message = "Write your encrypted messages here"
                     isSystemMessage = true
                 }
+                
+                let username = item.rosterItem?.displayName ?? item.jid
+                var attributedUsername: NSAttributedString? = nil
+                                
+                if [.omemo, .omemo1, .axolotl].contains(item.conversationType) {
+                    let attributedTitle: NSMutableAttributedString = NSMutableAttributedString()
+                    let indicatorAttach = NSTextAttachment()
+                    var color: UIColor = .label
+                    do {
+                        let realm = try WRealm.safe()
+                        let collectionJid = realm
+                            .objects(SignalDeviceStorageItem.self)
+                            .filter("jid == %@ AND owner == %@", item.jid, item.owner)
+                        if collectionJid.toArray().filter({ $0.state != .trusted }).count > 0 {
+                            color = .systemYellow
+                            indicatorAttach.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withTintColor(.systemYellow)
+                            attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
+                        } else if collectionJid.count == 0 {
+                            color = .secondaryLabel
+                            indicatorAttach.image = UIImage(systemName: "lock")?.withTintColor(.secondaryLabel)
+                            attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
+                        } else {
+                            color = .systemGreen
+                            indicatorAttach.image = UIImage(systemName: "lock.fill")?.withTintColor(.systemGreen)
+                            attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
+                        }
+                    } catch {
+                        DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+                    }
+                    
+                    attributedTitle.append(NSAttributedString(string: username, attributes: [
+                        .foregroundColor: color,
+                        .font: UIFont.systemFont(ofSize: 17, weight: .medium)
+                    ]))
+                    attributedUsername = attributedTitle as NSAttributedString
+                }
+                
                 return Datasource(
                     jid: item.jid,
                     owner: item.owner,
-                    username: item.rosterItem?.displayName ?? item.jid,
+                    username: username,
+                    attributedUsername: attributedUsername,
                     message: message,
                     date: item.messageDate,
                     state: item.lastMessage?.outgoing ?? true ? item.lastMessage?.state ?? nil : nil,

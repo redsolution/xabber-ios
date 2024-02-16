@@ -31,6 +31,7 @@ extension ShareDialogController: UITableViewDataSource {
             item.jid,
             owner: item.owner,
             username: item.username,
+            attributedUsername: nil,
             message: item.message,
             date: item.date,
             deliveryState: item.deliveryState,

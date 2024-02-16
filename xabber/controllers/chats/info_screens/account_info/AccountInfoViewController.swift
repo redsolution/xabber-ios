@@ -202,19 +202,29 @@ class AccountInfoViewController: BaseViewController {
     
     internal func updateDatasource() {
         datasource = []
+        var profileChilds = [
+            SettingsViewController.Datasource(section: .profile, title: "Profile", key: .accountVcard),
+            SettingsViewController.Datasource(section: .profile, title: "Password"),
+            SettingsViewController.Datasource(section: .profile, title: "Connection settings"),
+            SettingsViewController.Datasource(section: .profile, title: "Account color", key: .accountColor),
+            SettingsViewController.Datasource(section: .profile, title: "Blocked contacts", key: .accountBlockedContacts),
+            SettingsViewController.Datasource(section: .profile, title: "Circles")
+        ]
+        if CommonConfigManager.shared.config.locked_account_color.isNotEmpty {
+            profileChilds = [
+                SettingsViewController.Datasource(section: .profile, title: "Profile", key: .accountVcard),
+                SettingsViewController.Datasource(section: .profile, title: "Password"),
+                SettingsViewController.Datasource(section: .profile, title: "Connection settings"),
+                SettingsViewController.Datasource(section: .profile, title: "Blocked contacts", key: .accountBlockedContacts),
+                SettingsViewController.Datasource(section: .profile, title: "Circles")
+            ]
+        }
         self.datasource.append(SettingsViewController.Datasource(section: .accountSettings, childs: [
                 SettingsViewController.Datasource(section: .accountSettings, title: "Profile, status, password", viewController: SimpleTableViewController.self, childs: [
                     SettingsViewController.Datasource(section: .status, childs: [
                         SettingsViewController.Datasource(section: .status, title: SettingsViewController.Datasource.Section.status.description(), current: "Offline", key: .accountStatus)
                     ]),
-                    SettingsViewController.Datasource(section: .profile, childs: [
-                        SettingsViewController.Datasource(section: .profile, title: "Profile", key: .accountVcard),
-                        SettingsViewController.Datasource(section: .profile, title: "Password"),
-                        SettingsViewController.Datasource(section: .profile, title: "Connection settings"),
-                        SettingsViewController.Datasource(section: .profile, title: "Account color", key: .accountColor),
-                        SettingsViewController.Datasource(section: .profile, title: "Blocked contacts", key: .accountBlockedContacts),
-                        SettingsViewController.Datasource(section: .profile, title: "Circles")
-                    ]),
+                    SettingsViewController.Datasource(section: .profile, childs: profileChilds),
                     SettingsViewController.Datasource(section: .server, childs: [
                         SettingsViewController.Datasource(section: .server, title: "Server information")
                     ]),
@@ -390,16 +400,19 @@ class AccountInfoViewController: BaseViewController {
     }
     
     func navigationBarButtonsConfigure() {
-        
-            let qrCodeButton = UIBarButtonItem(image: #imageLiteral(resourceName: "qrcode").withRenderingMode(.alwaysTemplate),
-                                           style: .plain,
-                                           target: self,
-                                           action: #selector(self.onQRCode))
-            let paletteButton = UIBarButtonItem(image: #imageLiteral(resourceName: "palette").withRenderingMode(.alwaysTemplate),
-                                           style: .plain,
-                                           target: self,
-                                           action: #selector(self.showAccountColorViewController))
+        let qrCodeButton = UIBarButtonItem(image: #imageLiteral(resourceName: "qrcode").withRenderingMode(.alwaysTemplate),
+                                       style: .plain,
+                                       target: self,
+                                       action: #selector(self.onQRCode))
+        let paletteButton = UIBarButtonItem(image: #imageLiteral(resourceName: "palette").withRenderingMode(.alwaysTemplate),
+                                       style: .plain,
+                                       target: self,
+                                       action: #selector(self.showAccountColorViewController))
+        if CommonConfigManager.shared.config.locked_account_color.isNotEmpty {
+            navigationItem.setRightBarButtonItems([qrCodeButton], animated: false)
+        } else {
             navigationItem.setRightBarButtonItems([qrCodeButton, paletteButton], animated: false)
+        } 
     }
     
     @objc

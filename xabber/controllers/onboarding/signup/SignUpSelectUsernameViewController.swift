@@ -24,11 +24,27 @@ import XMPPFramework.XMPPJID
 
 class SignUpSelectUsernameViewController: SignUpBaseViewController {
     
+    
+    
     override func configure() {
         super.configure()
         self.textField.keyboardType = .asciiCapable
         self.textField.textContentType = .username
+        self.textField.configure()
+//        self.container.addSubview(diceButton)
+        
+        self.textField.button.isHidden = false
+        self.textField.button.setImage(UIImage(systemName: "dice"), for: .normal)
+        self.textField.button.addTarget(self, action: #selector(onDiceButtonTouchUpinside), for: .touchUpInside)
+        
         XMPPRegistrationManager.shared.delegate = self
+    }
+    
+    @objc
+    internal func onDiceButtonTouchUpinside(_ sender: AnyObject) {
+        let nick = NickGenerator.shared.genRandomNick().lowercased().replacingOccurrences(of: " ", with: ".")
+        self.textField.text = nick
+        textFieldValueObserver.accept(nick)
     }
     
     override func onAppear() {

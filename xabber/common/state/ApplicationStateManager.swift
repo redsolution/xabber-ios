@@ -26,7 +26,9 @@ import Foundation
 import UIKit
 import SwiftKeychainWrapper
 import Alamofire
+import RealmSwift
 import CocoaLumberjack
+import XMPPFramework.XMPPJID
 import AVFoundation
 
 
@@ -244,6 +246,77 @@ class ApplicationStateManager: NSObject {
                     .setAllowHapticsAndSystemSoundsDuringRecording(true)
             }
         }
+        self.runAutoDeleteTask()
+    }
+    
+    var autoDeleteTaskTimer: Timer? = nil
+    func runAutoDeleteTask() {
+        if CommonConfigManager.shared.config.auto_delete_messages_interval > 0 {
+            if self.autoDeleteTaskTimer != nil {
+                self.autoDeleteTaskTimer?.fire()
+                self.autoDeleteTaskTimer?.invalidate()
+                self.autoDeleteTaskTimer = nil
+            }
+            self.autoDeleteTask()
+            self.autoDeleteTaskTimer = Timer.scheduledTimer(
+                timeInterval: 60,
+                target: self,
+                selector: #selector(autoDeleteTask),
+                userInfo: nil,
+                repeats: true
+            )
+            RunLoop.current.add(self.autoDeleteTaskTimer!, forMode: .default)
+        }
+    }
+    
+    @objc
+    func autoDeleteTask() {
+        do {
+            let realm = try WRealm.safe()
+            let jids = AccountManager.shared.users.compactMap { return $0.jid }
+            try jids.forEach {
+                owner in
+                let oldMessagesCollection = realm
+                    .objects(MessageStorageItem.self)
+                    .filter(
+                        "owner == %@ and opponent != %@ AND date < %@ AND messageType != %@ AND isDeleted == false",
+                        owner,
+                        XMPPJID(string: owner)?.domain ?? "",
+                        Date(timeIntervalSince1970: Date().timeIntervalSince1970 - Double(CommonConfigManager.shared.config.auto_delete_messages_interval)),
+                        MessageStorageItem.MessageDisplayType.initial.rawValue
+                    )
+                if oldMessagesCollection.isEmpty {
+                    return
+                }
+                var jids: Set<String> = Set<String>()
+                oldMessagesCollection.forEach {
+                    jids.insert($0.opponent)
+                }
+                
+                let chats = realm.objects(LastChatsStorageItem.self).filter("owner == %@ AND jid IN %@", owner, Array(jids))
+                
+                try realm.write {
+                    oldMessagesCollection.forEach {
+                        $0.isDeleted = true
+                        $0.body = ""
+                        $0.legacyBody = ""
+                    }
+                    
+                    chats.forEach {
+                        let lastMessage = realm
+                            .objects(MessageStorageItem.self)
+                            .filter("owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@", owner, $0.jid, $0.conversationType_)
+                            .sorted(byKeyPath: "date", ascending: false)
+                            .first
+                        $0.lastMessage = lastMessage
+                        $0.lastMessageId = lastMessage?.messageId ?? ""
+                    }
+                }
+            }
+        } catch {
+            DDLogDebug("ApplicationStateManager: \(#function). \(error.localizedDescription)")
+        }
+        
     }
     
     private final func runPincodeTask() {

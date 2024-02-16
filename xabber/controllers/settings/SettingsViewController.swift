@@ -500,7 +500,11 @@ class SettingsViewController: BaseViewController {
                                                 style: .plain,
                                                 target: self,
                                                 action: #selector(self.showAccountColorViewController))
-            navigationItem.setRightBarButtonItems([qrCodeButton, paletteButton], animated: false)
+            if CommonConfigManager.shared.config.locked_account_color.isNotEmpty {
+                navigationItem.setRightBarButtonItems([qrCodeButton], animated: false)
+            } else {
+                navigationItem.setRightBarButtonItems([qrCodeButton, paletteButton], animated: false)
+            }
         }
     }
     
@@ -550,19 +554,26 @@ class SettingsViewController: BaseViewController {
                 DDLogDebug("SettingsViewController:\(#function). \(error.localizedDescription)")
             }
             
-            
+            var profileChilds = [
+                Datasource(section: .profile, title: "Profile", key: .accountVcard),
+                Datasource(section: .profile, title: "Password", viewController: ChangePasswordTableViewController.self),
+                Datasource(section: .profile, title: "Account color", key: .accountColor),
+                Datasource(section: .profile, title: "Blocked contacts", key: .accountBlockedContacts),
+            ]
+            if CommonConfigManager.shared.config.locked_account_color.isNotEmpty {
+                profileChilds = [
+                    Datasource(section: .profile, title: "Profile", key: .accountVcard),
+                    Datasource(section: .profile, title: "Password", viewController: ChangePasswordTableViewController.self),
+                    Datasource(section: .profile, title: "Blocked contacts", key: .accountBlockedContacts),
+                ]
+            }
             if CommonConfigManager.shared.config.should_block_application_when_subscribtion_end {
                 datasource.append(Datasource(section: .accountSettings, childs: [
                     Datasource(section: .accountSettings, title: "Profile, status, password", viewController: SimpleTableViewController.self, childs: [
                         Datasource(section: .status, childs: [
                             Datasource(section: .status, title: Datasource.Section.status.description(), key: .accountStatus)
                         ]),
-                        Datasource(section: .profile, childs: [
-                            Datasource(section: .profile, title: "Profile", key: .accountVcard),
-                            Datasource(section: .profile, title: "Password", viewController: ChangePasswordTableViewController.self),
-                            Datasource(section: .profile, title: "Account color", key: .accountColor),
-                            Datasource(section: .profile, title: "Blocked contacts", key: .accountBlockedContacts),
-                        ]),
+                        Datasource(section: .profile, childs: profileChilds),
                         Datasource(section: .delete, subtitle: Datasource.Section.delete.secondaryDescription(), childs: [
                             Datasource(section: .delete,
                                        title: Datasource.Section.delete.description(),
@@ -578,12 +589,7 @@ class SettingsViewController: BaseViewController {
                         Datasource(section: .status, childs: [
                             Datasource(section: .status, title: Datasource.Section.status.description(), key: .accountStatus)
                         ]),
-                        Datasource(section: .profile, childs: [
-                            Datasource(section: .profile, title: "Profile", key: .accountVcard),
-                            Datasource(section: .profile, title: "Password", viewController: ChangePasswordTableViewController.self),
-                            Datasource(section: .profile, title: "Account color", key: .accountColor),
-                            Datasource(section: .profile, title: "Blocked contacts", key: .accountBlockedContacts),
-                        ]),
+                        Datasource(section: .profile, childs: profileChilds),
                         Datasource(section: .delete, subtitle: Datasource.Section.delete.secondaryDescription(), childs: [
                             Datasource(section: .delete,
                                        title: Datasource.Section.delete.description(),
@@ -605,6 +611,31 @@ class SettingsViewController: BaseViewController {
             return
         }
 
+        var interfaceChilds = [
+            Datasource(section: .chat, title: Datasource.Section.chat.description(), childs: [
+                Datasource(section: .chat, title: "Background", itemType: .selector,
+                           values: ["None", "Aliens", "Summer", "Cats", "Flowers", "Flowers-daisy", "Hearts"],
+                           current: (dict[Datasource.Keys.chatChooseBackground.rawValue] as? String) ?? "None",
+                           key: .chatChooseBackground)
+            ]),
+            Datasource(section: .contactList, title: Datasource.Section.contactList.description(), childs: [
+                Datasource(section: .contactList, title: "Avatars", itemType: .selector,
+                           values: AccountMasksManager.shared.masksList(),
+                           current: (dict[Datasource.Keys.avatarMasksCurrentAvatarMask.rawValue] as? String) ?? "None",
+                           key: .avatarMasksCurrentAvatarMask)
+            ])
+        ]
+        if CommonConfigManager.shared.config.locked_background.isNotEmpty {
+            interfaceChilds = [
+                Datasource(section: .contactList, title: Datasource.Section.contactList.description(), childs: [
+                    Datasource(section: .contactList, title: "Avatars", itemType: .selector,
+                               values: AccountMasksManager.shared.masksList(),
+                               current: (dict[Datasource.Keys.avatarMasksCurrentAvatarMask.rawValue] as? String) ?? "None",
+                               key: .avatarMasksCurrentAvatarMask)
+                ])
+            ]
+        }
+        
         datasource.append(Datasource(section: .settings, title: Datasource.Section.settings.description(), childs: [
             Datasource(
                 section: .privacy,
@@ -614,20 +645,7 @@ class SettingsViewController: BaseViewController {
                 viewController: PrivacySettingsViewController.self,
                 childs: []
               ),
-                Datasource(section: .interface, title: "Interface", viewController: SimpleTableViewController.self, childs: [
-                        Datasource(section: .chat, title: Datasource.Section.chat.description(), childs: [
-                            Datasource(section: .chat, title: "Background", itemType: .selector,
-                                       values: ["None", "Aliens", "Summer", "Cats", "Flowers", "Flowers-daisy", "Hearts"],
-                                       current: (dict[Datasource.Keys.chatChooseBackground.rawValue] as? String) ?? "None",
-                                       key: .chatChooseBackground)
-                        ]),
-                        Datasource(section: .contactList, title: Datasource.Section.contactList.description(), childs: [
-                            Datasource(section: .contactList, title: "Avatars", itemType: .selector,
-                                       values: AccountMasksManager.shared.masksList(),
-                                       current: (dict[Datasource.Keys.avatarMasksCurrentAvatarMask.rawValue] as? String) ?? "None",
-                                       key: .avatarMasksCurrentAvatarMask)
-                        ])
-                ]),
+                Datasource(section: .interface, title: "Interface", viewController: SimpleTableViewController.self, childs: interfaceChilds),
                 Datasource(section: .settings, title: "Notifications", viewController: SimpleTableViewController.self, childs: [
                         Datasource(section: .chat, title: "Notifications Sound", childs: [
                             Datasource(section: .chat, title: "Incoming massages", itemType: .selector,
@@ -687,40 +705,6 @@ class SettingsViewController: BaseViewController {
                     ], key: .passcode)
                 ]))
         }
-        
-//        if CommonConfigManager.shared.config.use_yubikey {
-//            datasource.append(Datasource(section: .security, title: Datasource.Section.security.description(), subtitle: Datasource.Section.security.secondaryDescription(), childs: [
-//                Datasource(section: .security, title: "Passcode lock *", premiumOnly: true, viewController: SimpleTableViewController.self, childs: [
-//                    Datasource(section: .security, subtitle: "If you forget your passcode, you'll need to reinstall the app.\n\nIf you premium subscription expire, passcode will be reset.", childs: [
-//                        Datasource(section: .security, title: "Turn passcode Off", key: .turnPasscodeOff),
-//                        Datasource(section: .security, title: "Change Passcode", viewController: PasscodeViewController.self),
-//                        Datasource(section: .security, title: "Biometrics", key: .turnBiometricsOnOff)]),
-//                    Datasource(section: .security, childs: [
-//                        Datasource(section: .autolock, title: "Auto-Lock", key: .passcodeTimer),
-//                        Datasource(section: .autolock, title: "Attempts", key: .passcodeAttempts),
-//                        Datasource(section: .autolock, title: "Displayed attempts", key: .displayedAttempts),
-//                        Datasource(section: .autolock, title: "Show attempts left", itemType: .toggle, toggle: (dict[Datasource.Keys.showAttempts.rawValue] as? Bool) ?? false, key: .showAttempts)
-//                    ])
-//                ], key: .passcode),
-//                Datasource(section: .security, title: "Yubikey signature", viewController: YubikeySetupViewController.self, key: .yubikey),
-//            ]))
-//        } else {
-//            datasource.append(Datasource(section: .security, title: Datasource.Section.security.description(), subtitle: Datasource.Section.security.secondaryDescription(), childs: [
-//                Datasource(section: .security, title: "Passcode lock", premiumOnly: false, viewController: SimpleTableViewController.self, childs: [
-//                    Datasource(section: .security, subtitle: "If you forget your passcode, you'll need to reinstall the app.\n\nIf you premium subscription expire, passcode will be reset.", childs: [
-//                        Datasource(section: .security, title: "Turn passcode Off", key: .turnPasscodeOff),
-//                        Datasource(section: .security, title: "Change Passcode", viewController: PasscodeViewController.self),
-//                        Datasource(section: .security, title: "Biometrics", key: .turnBiometricsOnOff)]),
-//                    Datasource(section: .security, childs: [
-//                        Datasource(section: .autolock, title: "Auto-Lock", key: .passcodeTimer),
-//                        Datasource(section: .autolock, title: "Attempts", key: .passcodeAttempts),
-//                        Datasource(section: .autolock, title: "Displayed attempts", key: .displayedAttempts),
-//                        Datasource(section: .autolock, title: "Show attempts left", itemType: .toggle, toggle: (dict[Datasource.Keys.showAttempts.rawValue] as? Bool) ?? false, key: .showAttempts)
-//                    ])
-//                ], key: .passcode)
-//            ]))
-//        }
-
     }
     
     internal func configure() {
@@ -765,32 +749,6 @@ class SettingsViewController: BaseViewController {
                                                selector: #selector(reloadDatasource),
                                                name: .newMaskSelected,
                                                object: nil)
-        
-//        do {
-//            let realm = try WRealm.safe()
-//            if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: self.jid) {
-//                self.headerView.configure(
-//                    avatarUrl: instance.avatarMaxUrl ?? instance.avatarMinUrl ?? instance.oldschoolAvatarKey,
-//                    jid: self.jid,
-//                    owner: self.jid,
-//                    userId: nil,
-//                    title: self.nickname,
-//                    subtitle: self.jid,
-//                    thirdLine: nil,
-//                    titleColor: AccountColorManager.shared.primaryColor(for: self.jid)
-//                )
-//            }
-//        } catch {
-//            DDLogDebug("SettingsViewController:\(#function). \(error.localizedDescription)")
-//        }
-        
-//        DefaultAvatarManager.shared.getAvatar(url: self.avatarUrl, jid: jid, owner: jid, size: 128) { image in
-//            if let image = image {
-//                self.headerView.imageButton.setImage(image, for: .normal)
-//            } else {
-//                self.headerView.imageButton.setImage(UIImageView.getDefaultAvatar(for: self.jid, owner: self.jid, size: 256), for: .normal)
-//            }
-//        }
     }
     
     func headerViewConfig() {

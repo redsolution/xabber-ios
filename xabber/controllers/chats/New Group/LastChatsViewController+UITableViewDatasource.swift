@@ -54,6 +54,7 @@ extension LastChatsViewController: UITableViewDataSource {
                 item.jid,
                 owner: item.owner,
                 username: item.username,
+                attributedUsername: item.attributedUsername,
                 message: item.message,
                 date: item.date,
                 deliveryState: item.state,

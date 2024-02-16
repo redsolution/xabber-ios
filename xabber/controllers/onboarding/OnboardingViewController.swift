@@ -299,9 +299,16 @@ extension OnboardingViewController: XMPPRegistrationManagerDelegate {
     func xmppRegistrationManagerReady() {
         DispatchQueue.main.async {
             if self.shouldShowSignUp {
-                let vc = SignUpSelectNicknameViewController()
-                vc.metadata = ["host": XMPPRegistrationManager.getDefaultHost()]
-                self.navigationController?.pushViewController(vc, animated: true)
+                if CommonConfigManager.shared.config.skip_vcard_nickname_onboarding_step {
+                    let vc = SignUpSelectUsernameViewController()
+                    vc.metadata = ["host": XMPPRegistrationManager.getDefaultHost()]
+                    self.navigationController?.pushViewController(vc, animated: true)
+                } else {
+                    let vc = SignUpSelectNicknameViewController()
+                    vc.metadata = ["host": XMPPRegistrationManager.getDefaultHost()]
+                    self.navigationController?.pushViewController(vc, animated: true)
+                }
+                
                 XMPPRegistrationManager.shared.delegate = nil
                 self.shouldShowSignUp = false
             }

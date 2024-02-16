@@ -229,10 +229,13 @@ class NotifyManager {
                             let realm = try WRealm.safe()
                             let predicate: NSPredicate
                             if CommonConfigManager.shared.config.locked_conversation_type.isNotEmpty {
+                                var excludedJids = accounts.compactMap({XMPPJID(string: $0)!.domain})
+                                excludedJids.append(CommonConfigManager.shared.config.support_jid)
                                 predicate = NSPredicate(
-                                    format: "conversationType_ == %@ AND muteExpired < 0 AND isArchived == false AND owner IN %@",
+                                    format: "(conversationType_ == %@ OR jid IN %@) AND muteExpired < 0 AND isArchived == false AND owner IN %@",
                                     argumentArray: [
                                         CommonConfigManager.shared.config.locked_conversation_type,
+                                        excludedJids,
                                         accounts
                                     ]
                                 )
@@ -276,10 +279,13 @@ class NotifyManager {
                                         let realm = try WRealm.safe()
                                         let predicate: NSPredicate
                                         if CommonConfigManager.shared.config.locked_conversation_type.isNotEmpty {
+                                            var excludedJids = accounts.compactMap({XMPPJID(string: $0)!.domain})
+                                            excludedJids.append(CommonConfigManager.shared.config.support_jid)
                                             predicate = NSPredicate(
-                                                format: "conversationType_ == %@ AND muteExpired < 0 AND isArchived == false AND owner IN %@",
+                                                format: "(conversationType_ == %@ OR jid IN %@) AND muteExpired < 0 AND isArchived == false AND owner IN %@",
                                                 argumentArray: [
                                                     CommonConfigManager.shared.config.locked_conversation_type,
+                                                    excludedJids,
                                                     accounts
                                                 ]
                                             )
