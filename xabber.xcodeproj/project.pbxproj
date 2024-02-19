@@ -704,6 +704,8 @@
 		AF6CDE1D2AB1B5A7004EBB9F /* CloudStorageDeleteViewController+UICollectionViewDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF6CDE1C2AB1B5A7004EBB9F /* CloudStorageDeleteViewController+UICollectionViewDataSource.swift */; };
 		AF6CDE1F2AB1B5DF004EBB9F /* CloudStorageDeleteViewController+UICollectionViewDelegateFlowLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF6CDE1E2AB1B5DF004EBB9F /* CloudStorageDeleteViewController+UICollectionViewDelegateFlowLayout.swift */; };
 		AF8DC7832A864232002F78E1 /* CloudStorageDeleteViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF8DC7822A864232002F78E1 /* CloudStorageDeleteViewController.swift */; };
+		AFAC3CC22B837A96001A4344 /* AuthenticatedKeyExchangeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFAC3CC12B837A96001A4344 /* AuthenticatedKeyExchangeManager.swift */; };
+		AFAC3CC42B837B09001A4344 /* AuthenticationCodeInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFAC3CC32B837B08001A4344 /* AuthenticationCodeInput.swift */; };
 		AFC32A8F2AC3FAE2007A019D /* CloudStorageGalleryViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFC32A8E2AC3FAE2007A019D /* CloudStorageGalleryViewController.swift */; };
 		AFC32A912AC406FE007A019D /* CloudStorageShowFilesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFC32A902AC406FE007A019D /* CloudStorageShowFilesViewController.swift */; };
 		CB444BFBCFA3A0CB3E831615 /* Pods_xabber.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EB6DFA8E00BD914EAFA8CAE8 /* Pods_xabber.framework */; };
@@ -1660,6 +1662,8 @@
 		AF6CDE1C2AB1B5A7004EBB9F /* CloudStorageDeleteViewController+UICollectionViewDataSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudStorageDeleteViewController+UICollectionViewDataSource.swift"; sourceTree = "<group>"; };
 		AF6CDE1E2AB1B5DF004EBB9F /* CloudStorageDeleteViewController+UICollectionViewDelegateFlowLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudStorageDeleteViewController+UICollectionViewDelegateFlowLayout.swift"; sourceTree = "<group>"; };
 		AF8DC7822A864232002F78E1 /* CloudStorageDeleteViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudStorageDeleteViewController.swift; sourceTree = "<group>"; };
+		AFAC3CC12B837A96001A4344 /* AuthenticatedKeyExchangeManager.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AuthenticatedKeyExchangeManager.swift; sourceTree = "<group>"; };
+		AFAC3CC32B837B08001A4344 /* AuthenticationCodeInput.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AuthenticationCodeInput.swift; sourceTree = "<group>"; };
 		AFC32A8E2AC3FAE2007A019D /* CloudStorageGalleryViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudStorageGalleryViewController.swift; sourceTree = "<group>"; };
 		AFC32A902AC406FE007A019D /* CloudStorageShowFilesViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudStorageShowFilesViewController.swift; sourceTree = "<group>"; };
 		DC236808525500AA398656C3 /* Pods_xabberTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_xabberTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -2113,6 +2117,7 @@
 		66159E18201EDE4900B1CF92 /* xmpp */ = {
 			isa = PBXGroup;
 			children = (
+				AFAC3CBE2B837A42001A4344 /* ake */,
 				66E452C12A7038EE00E7DF03 /* delivery_receipts */,
 				66A098EA282D37EE00B9BEC5 /* x509 */,
 				6695786227A1317A00A6C4AB /* omemo */,
@@ -3957,7 +3962,7 @@
 			path = messages_manager;
 			sourceTree = "<group>";
 		};
-		66ED0D422488C49C0053CBEF /* contact_info_test */ = {
+		66ED0D422488C49C0053CBEF /* contact_info */ = {
 			isa = PBXGroup;
 			children = (
 				663989B12840F40100C839AE /* encryption */,
@@ -3968,7 +3973,7 @@
 				1A9ED075279FFB8300F3543D /* ContactInfoViewController+InfoScreenFooterButtonDelegate.swift */,
 				1A1FDE9227B6809D008B240F /* ContactInfoViewControllerExtensions.swift */,
 			);
-			path = contact_info_test;
+			path = contact_info;
 			sourceTree = "<group>";
 		};
 		66ED0D492488FA4B0053CBEF /* info_screens */ = {
@@ -3983,7 +3988,7 @@
 				66C1C9FF2201BF1000EF8F4C /* resource_info */,
 				6619B81D248E8034007089D2 /* account_info */,
 				66ED0D4A2488FA5D0053CBEF /* views */,
-				66ED0D422488C49C0053CBEF /* contact_info_test */,
+				66ED0D422488C49C0053CBEF /* contact_info */,
 			);
 			path = info_screens;
 			sourceTree = "<group>";
@@ -3991,6 +3996,7 @@
 		66ED0D4A2488FA5D0053CBEF /* views */ = {
 			isa = PBXGroup;
 			children = (
+				AFAC3CC32B837B08001A4344 /* AuthenticationCodeInput.swift */,
 				66ED0D4B2488FA700053CBEF /* InfoScreenHeaderView.swift */,
 				662D4A7424892B2A009E2B22 /* InfoScreenHeaderButtonDelegate.swift */,
 				662D4A782489371D009E2B22 /* RoundedAvatarButton.swift */,
@@ -4113,6 +4119,14 @@
 				66FF754A211C7029008EF11D /* PingManager.swift */,
 			);
 			path = ping;
+			sourceTree = "<group>";
+		};
+		AFAC3CBE2B837A42001A4344 /* ake */ = {
+			isa = PBXGroup;
+			children = (
+				AFAC3CC12B837A96001A4344 /* AuthenticatedKeyExchangeManager.swift */,
+			);
+			path = ake;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -4737,6 +4751,7 @@
 				66CC78272613495400482F08 /* MessageArchiveManager+BackgroundHistoryLoader.swift in Sources */,
 				66ED0D4C2488FA700053CBEF /* InfoScreenHeaderView.swift in Sources */,
 				66C1CA012201BF3100EF8F4C /* ResourceInfoViewController.swift in Sources */,
+				AFAC3CC42B837B09001A4344 /* AuthenticationCodeInput.swift in Sources */,
 				6639269E247E3E1E00FE6335 /* ContactsViewController.swift in Sources */,
 				1A95607028040A1C00CE02ED /* AccountEditViewController+UINavigationControllerDelegate.swift in Sources */,
 				6643F31121C2650E00333229 /* AvatarView.swift in Sources */,
@@ -5033,6 +5048,7 @@
 				6643F31621C2650E00333229 /* TextMessageCell.swift in Sources */,
 				6683883226B2DABD0071C472 /* GroupchatInfoViewControllerSecondary.swift in Sources */,
 				66E66807238BDF42002F8B8A /* GroupchatSettingsViewController+Delegate.swift in Sources */,
+				AFAC3CC22B837A96001A4344 /* AuthenticatedKeyExchangeManager.swift in Sources */,
 				661D24F326CBEAD600031AF9 /* GroupchatInfoEditItemViewController.swift in Sources */,
 				66BCD5522110850C00D7D5A3 /* XMPPMessageInlineExtension.swift in Sources */,
 				66C8CA762510A71700CA7271 /* LastChatsStorageItem.swift in Sources */,
