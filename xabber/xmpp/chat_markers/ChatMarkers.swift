@@ -321,11 +321,40 @@ class ChatMarkersManager: AbstractXMPPManager {
         return self.onDisplayed(bareMessage, date: date)
     }
     
+    private func onCarbonsSentReceived(_ message: XMPPMessage) -> Bool {
+        guard isCarbonCopy(message),
+              let bareMessage = getCarbonCopyMessageContainer(message) else {
+            return false
+        }
+        return self.onReceived(bareMessage)
+    }
+    
+    
+    private func onCarbonsForwardedReceived(_ message: XMPPMessage) -> Bool {
+        guard isCarbonForwarded(message),
+              let bareMessage = getCarbonForwardedMessageContainer(message) else {
+            return false
+        }
+        return self.onReceived(bareMessage)
+    }
+    
+    private func onArchivedReceived(_ message: XMPPMessage) -> Bool {
+        guard isArchivedMessage(message),
+              let bareMessage = getArchivedMessageContainer(message) else {
+                  return false
+              }
+        
+        return self.onReceived(bareMessage)
+    }
+    
     public func read(withMessage message: XMPPMessage) -> Bool {
         switch true {
             case self.onCarbonsSentDisplayed(message): return true
             case self.onCarbonsForwardedDisplayed(message): return true
             case self.onArchivedDisplayed(message): return true
+            case self.onCarbonsSentReceived(message): return true
+            case self.onCarbonsForwardedReceived(message): return true
+            case self.onArchivedReceived(message): return true
             case self.onReceived(message): return true
             case self.onDisplayed(message): return true
             case self.onArchivedDisplayed(message): return true
