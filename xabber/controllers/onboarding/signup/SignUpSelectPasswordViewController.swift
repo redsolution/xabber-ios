@@ -120,10 +120,10 @@ class SignUpSelectPasswordViewController: SignUpBaseViewController {
             self.metadata["password"] = self.textFieldValue
             let password = self.textFieldValue
             self.isRegistrationRequestSended = true
-            
+            XMPPRegistrationManager.shared.delegate = self
             do {
                 try XMPPRegistrationManager.shared.register(username: username, password: password)
-                XMPPRegistrationManager.shared.delegate = self
+                
             } catch {
                 print(error.localizedDescription)
             }
@@ -149,11 +149,10 @@ class SignUpSelectPasswordViewController: SignUpBaseViewController {
         self.isRegistrationRequestSended = false
         if result {
             guard let jid = self.metadata["jid"],
-                  let password = self.metadata["password"],
-                  let nickname = self.metadata["nickname"] else {
+                  let password = self.metadata["password"] else {
                 return
             }
-            AccountManager.shared.create(jid: jid, password: password, nickname: nickname, isFromRegister: true)
+            AccountManager.shared.create(jid: jid, password: password, nickname: self.metadata["nickname"], isFromRegister: true)
             let vc = SignUpSelectAvatarViewController()
             vc.metadata = self.metadata
             self.navigationController?.setViewControllers([vc], animated: true)

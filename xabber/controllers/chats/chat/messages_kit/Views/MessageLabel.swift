@@ -215,11 +215,11 @@ open class MessageLabel: UILabel {
         let mutableText = NSMutableAttributedString(attributedString: newText)
         mutableText.addAttribute(.paragraphStyle, value: style, range: range)
         
-        if shouldParse {
-            rangesForDetectors.removeAll()
-            let results = parse(text: mutableText)
-            setRangesForDetectors(in: results)
-        }
+//        if shouldParse {
+//            rangesForDetectors.removeAll()
+//            let results = parse(text: mutableText)
+//            setRangesForDetectors(in: results)
+//        }
         
         for (detector, rangeTuples) in rangesForDetectors {
             if enabledDetectors.contains(detector) {

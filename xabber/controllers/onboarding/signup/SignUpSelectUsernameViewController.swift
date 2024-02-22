@@ -33,6 +33,16 @@ class SignUpSelectUsernameViewController: SignUpBaseViewController {
         self.textField.configure()
 //        self.container.addSubview(diceButton)
         
+        if CommonConfigManager.shared.config.locked_host.isNotEmpty {
+            if !self.metadata.keys.contains(where: { $0 == "host" }) {
+                self.metadata["host"] = CommonConfigManager.shared.config.locked_host
+            }
+        } else {
+            if !self.metadata.keys.contains(where: { $0 == "host" }) {
+                self.metadata["host"] = CommonConfigManager.shared.config.allowed_hosts.first ?? ""
+            }
+        }
+        
         self.textField.button.isHidden = false
         self.textField.button.setImage(UIImage(systemName: "dice"), for: .normal)
         self.textField.button.addTarget(self, action: #selector(onDiceButtonTouchUpinside), for: .touchUpInside)
