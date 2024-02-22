@@ -132,7 +132,7 @@ class DeviceDetailViewController: SimpleBaseViewController {
                             trustElement = Datasource(
                                 title: omemoDevice.isTrustedByCertificate ? "Device signed" : "Device trusted",
                                 value: omemoDevice.isTrustedByCertificate ? "Signed" : "Trusted",
-                                key: "omemo_state_trusted"
+                                key: omemoDevice.isTrustedByCertificate ? "omemo_state_signed" : "omemo_state_trusted"
                             )
                     case .fingerprintChanged:
                         trustElement = Datasource(title: "Fingerprint changed", value: "Fingerprint changed", key: "omemo_state_fingerprint_changed")
@@ -492,13 +492,22 @@ extension DeviceDetailViewController: UITableViewDataSource {
             cell.imageView?.tintColor = .systemGray
             
             return cell
+        case "omemo_state_signed":
+            let cell = UITableViewCell(style: .value1, reuseIdentifier: "SimpleCell")
+            cell.textLabel?.text = item.title
+            cell.textLabel?.textColor = .systemGreen
+            cell.accessoryType = .none
+            cell.imageView?.image = UIImage(named: "lock.circle.fill")?.withRenderingMode(.alwaysTemplate)
+            cell.imageView?.tintColor = .systemGreen
+            
+            return cell
         case "omemo_state_trusted":
             let cell = UITableViewCell(style: .value1, reuseIdentifier: "SimpleCell")
             cell.textLabel?.text = item.title
-                cell.textLabel?.textColor = .secondaryLabel
+            cell.textLabel?.textColor = .systemGreen
             cell.accessoryType = .none
-            cell.imageView?.image = UIImage(named: "security")?.withRenderingMode(.alwaysTemplate)
-            cell.imageView?.tintColor = MDCPalette.grey.tint400
+            cell.imageView?.image = UIImage(named: "lock.fill")?.withRenderingMode(.alwaysTemplate)
+            cell.imageView?.tintColor = .systemGreen
             
             return cell
         case "omemo_state_fingerprint_changed":
@@ -515,7 +524,7 @@ extension DeviceDetailViewController: UITableViewDataSource {
             cell.textLabel?.text = item.title
             cell.textLabel?.textColor = .systemOrange
             cell.accessoryType = .none
-            cell.imageView?.image = UIImage(systemName: "exclamationmark.shield.fill")?.withRenderingMode(.alwaysTemplate)
+            cell.imageView?.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withRenderingMode(.alwaysTemplate)
             cell.imageView?.tintColor = .systemOrange
             
             return cell
@@ -539,5 +548,4 @@ extension DeviceDetailViewController: UITableViewDataSource {
             return cell
         }
     }
-    
 }

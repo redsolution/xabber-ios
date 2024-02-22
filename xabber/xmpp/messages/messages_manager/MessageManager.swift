@@ -88,7 +88,7 @@ class MessageManager: AbstractXMPPManager {
     init(withOwner owner: String, activeStream: Bool) {
         self.queue = DispatchQueue(
             label: "com.xabber.messages.transmitter.\(owner).\(UUID().uuidString)",
-            qos: .utility,
+            qos: .default,
             attributes: [],
             autoreleaseFrequency: .never,
             target: nil

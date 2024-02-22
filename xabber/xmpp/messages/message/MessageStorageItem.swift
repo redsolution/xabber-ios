@@ -775,7 +775,10 @@ class MessageStorageItem: Object {
     }
     
     public final func save(commitTransaction: Bool, silentNotifications: Bool = false) -> Bool {
-        if self.opponent.isEmpty { return false }
+        print("BODY \(self.body)")
+        if self.opponent.isEmpty {
+            return false
+        }
         if CommonConfigManager.shared.config.auto_delete_messages_interval > 0 {
             if self.displayAs != .initial,
                self.date < Date(timeIntervalSince1970: Date().timeIntervalSince1970 - Double(CommonConfigManager.shared.config.auto_delete_messages_interval)) {

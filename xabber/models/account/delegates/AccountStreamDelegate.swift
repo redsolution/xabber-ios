@@ -481,14 +481,17 @@ extension Account: XMPPStreamDelegate {
 
 
 extension Account: XMPPStreamManagementDelegate {
+    
     func xmppStreamManagement(_ sender: XMPPStreamManagement, wasEnabled enabled: DDXMLElement) {
         
     }
     
-    
     func xmppStreamManagement(_ sender: XMPPStreamManagement, wasNotEnabled failed: DDXMLElement) {
-        AccountManager.shared.markAsConnecting(jid: self.jid)
-        self.smStorage.removeAll(for: self.xmppStream)
+//        AccountManager.shared.markAsConnecting(jid: self.jid)
+//        self.smStorage.removeAll(for: self.xmppStream)
+//        self.disconnect(hard: true)
+//        self.resetStream()
+//        self.asyncConnect()
         self.presence()
         if failed.element(forName: "item-not-found") != nil {
             DispatchQueue.main.async {
@@ -499,7 +502,15 @@ extension Account: XMPPStreamManagementDelegate {
                 ToastPresenter(message: "SM session error. \(failed.children?.compactMap({ return $0.name }).reduce(" ", +) ?? "" )").present(animated: true)
             }
         }
-        self.roster.request(xmppStream)
+        
+        self.configureExtensions()
+        self.disco.configure(self.xmppStream)
+        if self.roster.version != nil {
+            if self.syncManager.isAvailable {
+                self.statusMessage.accept("Synchronization")
+            }
+        }
+        self.roster.request(self.xmppStream)
         self.queue.asyncAfter(deadline: .now() + 1) {
             _ = self.syncManager.sync(self.xmppStream)
             self.devices.requestList(self.xmppStream)

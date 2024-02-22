@@ -366,6 +366,10 @@ class XMPPDeviceManager: AbstractXMPPManager {
         }
     }
     
+
+    
+
+    
     internal func readList(_ iq: XMPPIQ) -> Bool {
         guard let query = iq.element(forName: "query", xmlns: [getPrimaryNamespace(), "items"].joined(separator: "#")) else {
             return false
@@ -384,11 +388,11 @@ class XMPPDeviceManager: AbstractXMPPManager {
                 query.elements(forName: "device").forEach { item in
                     if let uid = item.attributeStringValue(forName: "id"),
                        let client = item.element(forName: "client")?.stringValue,
-                       let device = item.element(forName: "info")?.stringValue,
                        let expire = item.element(forName: "expire")?.stringValueAsDouble(),
                        let ip = item.element(forName: "ip")?.stringValue,
                        let lastAuth = item.element(forName: "last-auth")?
                         .stringValueAsDouble() {
+                        let device = item.element(forName: "info")?.stringValue ?? ""
                         let omemoId = item.element(forName: "omemo-id")?.stringValueAsNSInteger()
                         let descr = item.element(forName: "description")?.stringValue
                         if let instance = realm.object(ofType: DeviceStorageItem.self, forPrimaryKey: [uid, self.owner].prp()) {

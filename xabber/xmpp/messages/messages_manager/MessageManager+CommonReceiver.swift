@@ -68,10 +68,10 @@ extension MessageManager {
         }
     }
     
-    public func resetQueue() {
-        clearQueue()
-        subscribe(true)
-    }
+//    public func resetQueue() {
+//        clearQueue()
+//        subscribe(true)
+//    }
     
     public func receiveClientSyncRaw(_ message: XMPPMessage, groupchatUserCard: DDXMLElement?, isRead: Bool, state: MessageStorageItem.MessageSendingState, date: Date, readDate: Date? = nil) -> MessageQueueItem? {
         return MessageQueueItem(
@@ -514,12 +514,15 @@ extension MessageManager {
     }
     
     internal func enqueue(_ item: MessageQueueItem) {
-//        self.queue.sync {
+        self.processQueue(Set([item]), callback: { (values) in
+            if let messages = values {
+                self.save(messages)
+            }
+        })
         
-            var value = self.messagesQueue.value
-            value.update(with: item)
-            messagesQueue.accept(value)
-//        }
+//        var value = self.messagesQueue.value
+//        value.update(with: item)
+//        messagesQueue.accept(value)
     }
     
     internal func enqueue(collection: [MessageQueueItem]) {

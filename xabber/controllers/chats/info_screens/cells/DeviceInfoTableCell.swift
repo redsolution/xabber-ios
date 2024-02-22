@@ -135,9 +135,10 @@ class DeviceInfoTableCell: UITableViewCell {
         
         if let trustState = trustState {
             self.trustIconView.isHidden = false
+            
             switch trustState {
                 case .unknown:
-                    self.trustIconView.image = UIImage(systemName: "exclamationmark.shield.fill")?.withRenderingMode(.alwaysTemplate)
+                    self.trustIconView.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withRenderingMode(.alwaysTemplate)
                     self.trustIconView.tintColor = .systemOrange
                     self.authDateLabel.text = "Action required"
                     self.authDateLabel.textColor = .systemOrange
@@ -145,16 +146,16 @@ class DeviceInfoTableCell: UITableViewCell {
                     self.trustIconView.tintColor = .gray
                 case .trusted:
                     if isTrustebByCertificate {
-                        self.trustIconView.image = UIImage(systemName: "lock.shield.fill")?.withRenderingMode(.alwaysTemplate)
+                        self.trustIconView.image = UIImage(systemName: "lock.circle.fill")?.withRenderingMode(.alwaysTemplate)
                     } else {
-                        self.trustIconView.image = UIImage(systemName: "exclamationmark.shield.fill")?.withRenderingMode(.alwaysTemplate)
+                        self.trustIconView.image = UIImage(systemName: "lock.fill")?.withRenderingMode(.alwaysTemplate)
                     }
                     
                     self.authDateLabel.text = isTrustebByCertificate ? " Signed" : " Trusted"
-                    self.authDateLabel.textColor = MDCPalette.grey.tint400
-                    self.trustIconView.tintColor = MDCPalette.grey.tint400
+                    self.authDateLabel.textColor = .systemGreen
+                    self.trustIconView.tintColor = .systemGreen
                 case .fingerprintChanged:
-                    self.trustIconView.image = UIImage(systemName: "xmark.shield.fill")?.withRenderingMode(.alwaysTemplate)
+                    self.trustIconView.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withRenderingMode(.alwaysTemplate)
                     self.trustIconView.tintColor = .systemRed
                     self.authDateLabel.text = "Fingerprint changed"
                     self.authDateLabel.textColor = .systemRed
@@ -165,7 +166,7 @@ class DeviceInfoTableCell: UITableViewCell {
             if let hasBundle = hasBundle,
                !hasBundle  {
                 self.trustIconView.isHidden = false
-                self.trustIconView.image = UIImage(systemName: "shield.slash.fill")?.withRenderingMode(.alwaysTemplate)
+                self.trustIconView.image = nil//UIImage(systemName: "lock.fill")?.withRenderingMode(.alwaysTemplate)
                 self.trustIconView.tintColor = .systemGray
                 self.authDateLabel.text = "Encryption not enabled"
                 self.authDateLabel.textColor = .systemGray

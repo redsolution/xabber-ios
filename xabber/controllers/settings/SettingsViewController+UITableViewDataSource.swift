@@ -74,14 +74,15 @@ extension SettingsViewController: UITableViewDataSource {
                         guard let cell = tableView.dequeueReusableCell(withIdentifier: DeviceCell.cellName, for: indexPath) as? DeviceCell else {
                             fatalError()
                         }
+                        
                         cell.titleLabel.text = item.title
                         if self.accounts?.first?.isDevicesListReceived ?? false {
                             cell.subtitleButton.setTitle("\(sessionsCount)", for: .normal)
                             if self.omemoDeviceWarning {
-                                cell.subtitleButton.setImage(UIImage(systemName: "xmark.shield.fill"), for: .normal)
+                                cell.subtitleButton.setImage(UIImage(systemName: "exclamationmark.triangle.fill"), for: .normal)
                                 cell.subtitleButton.imageView?.tintColor = .systemRed
                             } else if omemoDeviceActionsRequired {
-                                cell.subtitleButton.setImage(UIImage(systemName: "exclamationmark.shield.fill"), for: .normal)
+                                cell.subtitleButton.setImage(UIImage(systemName: "exclamationmark.triangle.fill"), for: .normal)
                                 cell.subtitleButton.imageView?.tintColor = .systemOrange
                             } else {
                                 cell.subtitleButton.setImage(nil, for: .normal)

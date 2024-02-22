@@ -238,11 +238,13 @@ class MessageArchiveManager: AbstractXMPPManager {
             withElement.addChild(DDXMLElement(name: "value", stringValue: jid))
             x.addChild(withElement)
         }
+        if !isGroupchat {
+            let ctElement = DDXMLElement(name: "field")
+            ctElement.addAttribute(withName: "var", stringValue: "conversation-type")
+            ctElement.addChild(DDXMLElement(name: "value", stringValue: conversationType.rawValue))
+            x.addChild(ctElement)
+        }
         
-        let ctElement = DDXMLElement(name: "field")
-        ctElement.addAttribute(withName: "var", stringValue: "conversation-type")
-        ctElement.addChild(DDXMLElement(name: "value", stringValue: conversationType.rawValue))
-        x.addChild(ctElement)
         
 //        if [.omemo, .omemo1, .axolotl].contains(conversationType)
         query.addChild(x)

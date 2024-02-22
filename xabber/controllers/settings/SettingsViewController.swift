@@ -229,15 +229,22 @@ class SettingsViewController: BaseViewController {
         let stack: UIStackView = {
             let stack = UIStackView()
             
+            stack.axis = .horizontal
+            stack.distribution = .fill
+            stack.alignment = .center
+            
             return stack
         }()
         
         override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
             super.init(style: style, reuseIdentifier: reuseIdentifier)
             contentView.addSubview(stack)
-            stack.fillSuperviewWithOffset(top: 4, bottom: 4, left: 20, right: 16)
+            stack.fillSuperviewWithOffset(top: 4, bottom: 4, left: 20, right: 8)
             stack.addArrangedSubview(self.titleLabel)
             stack.addArrangedSubview(self.subtitleButton)
+            NSLayoutConstraint.activate([
+                self.subtitleButton.widthAnchor.constraint(equalToConstant: 56)
+            ])
             selectionStyle = .none
         }
         

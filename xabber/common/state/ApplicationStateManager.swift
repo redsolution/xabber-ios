@@ -341,7 +341,7 @@ class ApplicationStateManager: NSObject {
         runPincodeTask(animated: true)
     }
     
-    public final func runPincodeTask(animated: Bool) {
+    public final func runPincodeTask(animated: Bool, force: Bool = false) {
         if !CredentialsManager.shared.isPincodeSetted() {
             return
         }

@@ -40,11 +40,13 @@ class ContactInfoViewController: BaseViewController {
         var kind: Kind
         var title: String
         var subtitle: String?
+        var image: UIImage? = nil
         var key: String?
+        var color: UIColor?
         
         var childs: [Datasource]
         
-        init(_ kind: Kind, title: String, subtitle: String? = nil, key: String? = nil, childs: [Datasource] = []) {
+        init(_ kind: Kind, title: String, subtitle: String? = nil, image: UIImage? = nil, color: UIColor? = nil,  key: String? = nil, childs: [Datasource] = []) {
             self.kind = kind
             self.title = title
             if subtitle?.isEmpty ?? true {
@@ -54,6 +56,8 @@ class ContactInfoViewController: BaseViewController {
             }
             self.key = key
             self.childs = childs
+            self.image = image
+            self.color = color
         }
     }
     
@@ -91,6 +95,7 @@ class ContactInfoViewController: BaseViewController {
         view.register(VCardCell.self, forCellReuseIdentifier: VCardCell.cellName)
         view.register(ResourceInfoCell.self, forCellReuseIdentifier: ResourceInfoCell.cellName)
         view.register(EditCirclesCell.self, forCellReuseIdentifier: EditCirclesCell.cellName)
+        view.register(SettingsViewController.DeviceCell.self, forCellReuseIdentifier: SettingsViewController.DeviceCell.cellName)
         
         return view
     }()
@@ -215,15 +220,37 @@ class ContactInfoViewController: BaseViewController {
                                 .filter("jid == %@ AND owner == %@ AND state_ != %@", self.owner, self.owner, SignalDeviceStorageItem.TrustState.trusted.rawValue).count
                             let collectionJid = realm
                                 .objects(SignalDeviceStorageItem.self)
-                                .filter("jid == %@ AND owner == %@ AND state_ != %@", self.jid, self.owner, SignalDeviceStorageItem.TrustState.trusted.rawValue).count
-                            var subtitle = ""
-                            if collectionOwner > 0 {
-                                subtitle = "⚠️"
-                            } else if collectionJid > 0 {
-                                subtitle = "⚠️"
+                                .filter("jid == %@ AND owner == %@", self.jid, self.owner, SignalDeviceStorageItem.TrustState.trusted.rawValue)
+                            
+                            
+                            var indicator: UIImage? = nil
+                            var color: UIColor? = nil
+                            
+                            if collectionJid.toArray().filter({ $0.state == .fingerprintChanged }).count > 0 {
+                                color = .systemRed
+                                indicator = UIImage(systemName: "exclamationmark.triangle.fill")
+                            } else if collectionJid.toArray().filter({ $0.state != .trusted }).count > 0 {
+                                color = .systemOrange
+                                indicator = UIImage(systemName: "exclamationmark.triangle.fill")
+                            } else if collectionJid.count == 0 {
+                                color = .secondaryLabel
+                                indicator = UIImage(systemName: "lock.fill")
+                            } else if collectionJid.toArray().filter({ $0.isTrustedByCertificate }).count > 0 {
+                                color = .systemGreen
+                                indicator = UIImage(systemName: "lock.circle.fill")
+                            } else {
+                                color = .systemGreen
+                                indicator = UIImage(systemName: "lock.fill")
                             }
+                            
+//                            var subtitle = ""
+//                            if collectionOwner > 0 {
+//                                subtitle = "⚠️"
+//                            } else if collectionJid > 0 {
+//                                subtitle = "⚠️"
+//                            }
                             newDatasource.append(Datasource(.text, title: "", childs: [
-                                Datasource(.button, title: "Identity verification".localizeString(id: "contact_fingerprints", arguments: []), subtitle: subtitle, key: "fingerprints")
+                                Datasource(.button, title: "Identity verification".localizeString(id: "contact_fingerprints", arguments: []), subtitle: "\(collectionJid.count)", image: indicator, color: color, key: "fingerprints")
                             ]))
                         } catch {
                             DDLogDebug("ContactInfoViewController: \(#function). \(error.localizedDescription)")

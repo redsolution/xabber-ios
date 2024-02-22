@@ -59,32 +59,65 @@ extension ContactInfoViewController: UITableViewDataSource {
                 
                 return cell
             }
-            let cell = tableView.dequeueReusableCell(withIdentifier: "ButtonCell", for: indexPath)
-            cell.textLabel?.text = item.title
-            cell.detailTextLabel?.text = item.subtitle
-            if item.key == "block_chat_button" {
-                if self.isBlocked {
-                    cell.textLabel?.text = "Unblock".localizeString(id: "contact_bar_unblock", arguments: [])
+            
+            if item.key == "fingerprints",
+               let dcell =  tableView.dequeueReusableCell(withIdentifier: SettingsViewController.DeviceCell.cellName, for: indexPath) as? SettingsViewController.DeviceCell {
+                
+                dcell.subtitleButton.setTitle(item.subtitle, for: .normal)
+                if let image = item.image {
+                    dcell.subtitleButton.setImage(image, for: .normal)
+                    dcell.subtitleButton.imageView?.tintColor = item.color
                 } else {
-                    cell.textLabel?.text = "Block".localizeString(id: "contact_bar_block", arguments: [])
+                    dcell.subtitleButton.setImage(nil, for: .normal)
                 }
-            } else if item.key == "notify_chat_button" {
-                if self.isMuted {
-                    cell.textLabel?.text = "Enable notifications".localizeString(id: "groupchat_enable_notificaions", arguments: [])
-                } else {
-                    cell.textLabel?.text = "Disable notifications".localizeString(id: "groupchats_disable_notifications", arguments: [])
-                }
-            }
-            if item.key == "fingerprints" {
-                cell.textLabel?.text = "\(item.title) \(item.subtitle ?? "")"
-                cell.textLabel?.textColor = .black
-                cell.accessoryType = .disclosureIndicator
+                
+                dcell.titleLabel.text = item.title
+                
+                dcell.subtitleButton.imageEdgeInsets = UIEdgeInsets(top: 0, left: -8, bottom: 0, right: 0)
+                dcell.subtitleButton.transform = CGAffineTransform(scaleX: -1.0, y: 1.0)
+                dcell.subtitleButton.titleLabel?.transform = CGAffineTransform(scaleX: -1.0, y: 1.0)
+                dcell.subtitleButton.imageView?.transform = CGAffineTransform(scaleX: -1.0, y: 1.0)
+                dcell.accessoryType = .disclosureIndicator
+                return dcell
             } else if item.key == "delete_chat_button" {
+                let cell = tableView.dequeueReusableCell(withIdentifier: "ButtonCell", for: indexPath)
+                cell.textLabel?.text = item.title
+                cell.detailTextLabel?.text = item.subtitle
+                if item.key == "block_chat_button" {
+                    if self.isBlocked {
+                        cell.textLabel?.text = "Unblock".localizeString(id: "contact_bar_unblock", arguments: [])
+                    } else {
+                        cell.textLabel?.text = "Block".localizeString(id: "contact_bar_block", arguments: [])
+                    }
+                } else if item.key == "notify_chat_button" {
+                    if self.isMuted {
+                        cell.textLabel?.text = "Enable notifications".localizeString(id: "groupchat_enable_notificaions", arguments: [])
+                    } else {
+                        cell.textLabel?.text = "Disable notifications".localizeString(id: "groupchats_disable_notifications", arguments: [])
+                    }
+                }
                 cell.textLabel?.textColor = .systemRed
+                return cell
             } else {
+                let cell = tableView.dequeueReusableCell(withIdentifier: "ButtonCell", for: indexPath)
+                cell.textLabel?.text = item.title
+                cell.detailTextLabel?.text = item.subtitle
+                if item.key == "block_chat_button" {
+                    if self.isBlocked {
+                        cell.textLabel?.text = "Unblock".localizeString(id: "contact_bar_unblock", arguments: [])
+                    } else {
+                        cell.textLabel?.text = "Block".localizeString(id: "contact_bar_block", arguments: [])
+                    }
+                } else if item.key == "notify_chat_button" {
+                    if self.isMuted {
+                        cell.textLabel?.text = "Enable notifications".localizeString(id: "groupchat_enable_notificaions", arguments: [])
+                    } else {
+                        cell.textLabel?.text = "Disable notifications".localizeString(id: "groupchats_disable_notifications", arguments: [])
+                    }
+                }
                 cell.textLabel?.textColor = .systemBlue
+                return cell
             }
-            return cell
         }
     }
     

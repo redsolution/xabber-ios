@@ -40,26 +40,19 @@ extension Account {
     
     func didAuthenticate() {
         registerRegularPushForAccount()
-//        DispatchQueue.main.async {
-//            ToastPresenter(message: "Stream authenticated").present(animated: true)
-//        }
         self.configureBase()
-//        self.queue.asyncAfter(deadline: .now() + 0.5) {
         XMPPUIActionManager.shared.open(owner: self.jid, force: true)
         if self.sm.didResume {
             AccountManager.shared.markAsConnected(jid: self.jid)
 //            self.presence()
-//            DispatchQueue.main.async {
-//                ToastPresenter(message: "SM did resume").present(animated: true)
-//            }
-//            self.push.enable(xmppStream: self.xmppStream) { _ in
-//                
-//            }
+            DispatchQueue.main.async {
+                ToastPresenter(message: "SM did resume").present(animated: true)
+            }
             _ = self.syncManager.sync(self.xmppStream)
         } else {
-//            DispatchQueue.main.async {
-//                ToastPresenter(message: "Synchronization").present(animated: true)
-//            }
+            DispatchQueue.main.async {
+                ToastPresenter(message: "Synchronization").present(animated: true)
+            }
             self.configureExtensions()
             self.disco.configure(self.xmppStream)
             if self.roster.version != nil {
@@ -68,12 +61,11 @@ extension Account {
                 }
             }
             self.roster.request(self.xmppStream)
-            self.queue.asyncAfter(deadline: .now() + 1) {
-                _ = self.syncManager.sync(self.xmppStream)
-                self.devices.requestList(self.xmppStream)
-            }
         }
-//        }
+        self.queue.asyncAfter(deadline: .now() + 1) {
+            _ = self.syncManager.sync(self.xmppStream)
+            self.devices.requestList(self.xmppStream)
+        }
     }
     
     func didReceivePing(withIq iq: XMPPIQ) -> Bool {
@@ -194,14 +186,16 @@ extension Account {
     
     public final func didReceiveRoster() {
         self.queue.asyncAfter(deadline: .now() + 1) {
-            self.presence()
+            if !self.sm.didResume {
+                self.presence()
+            }
             self.queue.asyncAfter(deadline: .now() + 1) {
                 self.updateExtensions()
             }
         }
-        if sm.canResumeStream() {
-            return
-        }
+//        if self.sm.canResumeStream() {
+//            return
+//        }
         if self.syncManager.isAvailable {
             self.statusMessage.accept("Synchronization")
         }
@@ -218,9 +212,9 @@ extension Account {
                     self.msgDeleteManager.enable(self.xmppStream)
                 })
             } else {
-                self.msgDeleteManager.enable(xmppStream)
+                self.msgDeleteManager.enable(self.xmppStream)
             }
-            if xmppStream.myPresence == nil {
+            if self.xmppStream.myPresence == nil {
                 self.requestInitialMAM()
             }
             

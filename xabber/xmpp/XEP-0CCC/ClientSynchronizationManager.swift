@@ -404,7 +404,9 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 .find(for: owner)?
                 .unsafeAction { (user, stream) in
                     user.msgDeleteManager.enable(stream)
-                    user.presence()
+                    if !user.sm.didResume {
+                        user.presence()
+                    }
                     _ = user.syncManager.sync(stream, customVer: self.temporaryVer)
                 }
         }
@@ -435,7 +437,11 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                     
                     conversationsItems.forEach { self.readInvites($0) }
                     
-                    AccountManager.shared.find(for: self.owner)?.messages.processQueue(Set(conversationsItems.compactMap { self.readConversation($0, accountCreateDate: accountCreateDate) })) {
+                    AccountManager
+                        .shared
+                        .find(for: self.owner)?
+                        .messages
+                        .processQueue(Set(conversationsItems.compactMap { self.readConversation($0, accountCreateDate: accountCreateDate) })) {
                         if let results = $0 {
                             AccountManager.shared.find(for: self.owner)?.messages.unsafeSave(results)
                         }
@@ -830,22 +836,21 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             if [.omemo, .axolotl, .omemo1].contains(conversationType),
                metadata.element(forName: "last-message")?.element(forName: "message") == nil {
                 instance.isFreshNotEmptyEncryptedChat = true
-                instance.isSynced = !firstSync
+                instance.isSynced = false//!firstSync
             }
-            
             if let messageElement = metadata.element(forName: "last-message")?.element(forName: "message") {
                 if let date = getDeliveryDate(XMPPMessage(from: messageElement)) {
                     if [.omemo, .axolotl, .omemo1].contains(conversationType), let accountCreateDate = accountCreateDate {
                         if date.timeIntervalSince1970 < accountCreateDate.timeIntervalSince1970 {
                             instance.isFreshNotEmptyEncryptedChat = true
-                            instance.isSynced = !firstSync
+                            instance.isSynced = false//!firstSync
                             instance.lastMessageId = getOriginId(XMPPMessage(from: messageElement)) ?? XMPPMessage(from: messageElement).elementID ?? getStanzaId(XMPPMessage(from: messageElement), owner: self.owner)
                             return nil
                         }
                     }
-                    if !self.firstSync {
-                        return nil
-                    }
+//                    if !self.firstSync {
+//                        return nil
+//                    }
                 }
                 
                 if VoIPManager.shared.onReceiveMessage(messageElement, owner: self.owner, archivedDate: Date(timeIntervalSince1970: timestamp / 1000000), commitTransaction: false) {
@@ -876,7 +881,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                         return nil
                     }
                     if instance.lastMessageId != getUniqueMessageId(messageStanza, owner: self.owner) {
-                        instance.isSynced = !firstSync
+                        instance.isSynced = false//!firstSync
                     }
                     return AccountManager
                         .shared
