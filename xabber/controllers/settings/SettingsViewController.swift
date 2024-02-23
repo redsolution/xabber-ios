@@ -242,6 +242,7 @@ class SettingsViewController: BaseViewController {
             stack.fillSuperviewWithOffset(top: 4, bottom: 4, left: 20, right: 8)
             stack.addArrangedSubview(self.titleLabel)
             stack.addArrangedSubview(self.subtitleButton)
+            self.subtitleButton.isUserInteractionEnabled = false
             NSLayoutConstraint.activate([
                 self.subtitleButton.widthAnchor.constraint(equalToConstant: 56)
             ])

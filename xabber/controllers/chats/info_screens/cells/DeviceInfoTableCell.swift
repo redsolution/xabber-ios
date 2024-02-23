@@ -92,8 +92,8 @@ class DeviceInfoTableCell: UITableViewCell {
 //            topStack.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 0.9),
 //            deviceLabel.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 0.9),
             descriptionLabel.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 0.9),
-            trustIconView.widthAnchor.constraint(equalToConstant: 26),
-            trustIconView.heightAnchor.constraint(equalToConstant: 24)
+//            trustIconView.widthAnchor.constraint(equalToConstant: 26),
+//            trustIconView.heightAnchor.constraint(equalToConstant: 24)
         ])
     }
     
