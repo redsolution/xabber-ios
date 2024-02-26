@@ -112,7 +112,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                                                name: .newLanguageSelected,
                                                object: nil)
         
-        ApplicationStateManager.shared.runPincodeTask(animated: false)
+        ApplicationStateManager.shared.runPincodeTask(animated: false, force: true)
         return true
     }
     
@@ -169,6 +169,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         DDLogError("enter foreground")
         AccountManager.shared.prepare()
         NotifyManager.shared.setLastChats(displayed: true)
+        ApplicationStateManager.shared.runPincodeTask(animated: false, force: true)
     }
 
     func applicationDidBecomeActive(_ application: UIApplication) {

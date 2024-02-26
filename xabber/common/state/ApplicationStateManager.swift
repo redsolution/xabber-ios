@@ -349,7 +349,7 @@ class ApplicationStateManager: NSObject {
         case .unsecure:
             if CommonConfigManager.shared.config.required_touch_id_or_password {
                 if AccountManager.shared.users.isNotEmpty {
-                    if Date().timeIntervalSince1970 -  CredentialsManager.shared.getPincodeTimestamp() > self.period {
+                    if (Date().timeIntervalSince1970 -  CredentialsManager.shared.getPincodeTimestamp() > self.period) || force {
                         self.appState = .locked
                         self.showPincodeScreen(animated: animated)
                     } else {
@@ -360,7 +360,7 @@ class ApplicationStateManager: NSObject {
             break
         default:
             if CommonConfigManager.shared.config.required_touch_id_or_password {
-                if Date().timeIntervalSince1970 -  CredentialsManager.shared.getPincodeTimestamp() > self.period {
+                if (Date().timeIntervalSince1970 -  CredentialsManager.shared.getPincodeTimestamp() > self.period) || force {
                     self.appState = .locked
                     self.showPincodeScreen(animated: animated)
                 }
