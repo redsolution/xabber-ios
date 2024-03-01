@@ -361,6 +361,12 @@ class ContactInfoViewController: BaseViewController {
         headerView.fourthButton.configure(#imageLiteral(resourceName: "cancel"),
                                           title: "Block".localizeString(id: "contact_bar_block", arguments: []),
                                           style: .danger)
+        
+        if AccountManager.shared.find(for: self.owner)?.akeManager.state == AuthenticatedKeyExchangeManager.State.none {
+            headerView.verifyButton.configure(#imageLiteral(resourceName: "security"), title: "Send verify", style: .active)
+        } else {
+            headerView.verifyButton.configure(#imageLiteral(resourceName: "check"), title: "Accept verify", style: .active)
+        }
 //        headerView.subtitleLabel.isHidden = true
         
         footerView.conversationType = self.conversationType
@@ -439,5 +445,11 @@ class ContactInfoViewController: BaseViewController {
     
     override func didReceiveMemoryWarning() {
         super.didReceiveMemoryWarning()
+    }
+    
+    @objc
+    func showCodeInputController() {
+        let vc = AuthenticationCodeInputViewController(owner: self.owner)
+        self.presentVC(vc: vc)
     }
 }

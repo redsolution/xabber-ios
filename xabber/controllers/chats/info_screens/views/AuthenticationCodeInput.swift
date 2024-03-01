@@ -9,23 +9,149 @@
 import Foundation
 import UIKit
 
-class AuthenticationCodeInputViewController: PasscodeViewController {
-    var owner: String
+class AuthenticationPasscodeEditView: UIView, UITextInputTraits {
+    var code: String = "" {
+        didSet {
+            updateStack(by: code)
+            if code.count == maxLength, let didFinishedEnterCode = didFinishedEnterCode {
+                self.resignFirstResponder()
+                didFinishedEnterCode(code)
+            }
+        }
+    }
     
-    init(owner: String) {
-        self.owner = owner
-        
-        super.init(firstPasscode: nil, delegate: nil, isOnboarding: false)
+    var didFinishedEnterCode: ((String) -> Void)?
+    
+    var maxLength = 6
+    var keyboardType: UIKeyboardType = .default
+    let stack = UIStackView()
+    
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setupUI()
+        showKeyboardIfNeeded()
     }
     
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
     
+    func setupUI() {
+        addSubview(stack)
+        self.backgroundColor = .clear
+        stack.backgroundColor = .clear
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: self.leadingAnchor),
+                                     stack.trailingAnchor.constraint(equalTo: self.trailingAnchor),
+                                     stack.topAnchor.constraint(equalTo: self.topAnchor),
+                                     stack.bottomAnchor.constraint(equalTo: self.bottomAnchor)
+                                    ])
+        stack.axis = .horizontal
+        stack.distribution = .fillEqually
+        updateStack(by: code)
+    }
+    
+    func updateStack(by code: String) {
+        var pins: [UIView] = Array(code).map { pin(char: $0) }
+        
+        while pins.count != 6 {
+            pins.append(emptyPin())
+        }
+        
+        stack.removeAllArrangedSubviews()
+        for view in pins {
+            stack.addArrangedSubview(view)
+        }
+        
+    }
+    
+    private func emptyPin() -> UIView {
+        let pin = UIView()
+        let label = UILabel()
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.text = "_"
+        pin.addSubview(label)
+        label.centerXAnchor.constraint(equalTo: pin.centerXAnchor).isActive = true
+        label.centerYAnchor.constraint(equalTo: pin.centerYAnchor).isActive = true
+        return pin
+    }
+    
+    private func pin(char: Character) -> UIView {
+        let pin = UIView()
+        let label = UILabel()
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.text = String(char)
+        pin.addSubview(label)
+        label.centerXAnchor.constraint(equalTo: pin.centerXAnchor).isActive = true
+        label.centerYAnchor.constraint(equalTo: pin.centerYAnchor).isActive = true
+        return pin
+    }
+    
+    override var canBecomeFirstResponder: Bool {
+        return true
+    }
+    
+    private func showKeyboardIfNeeded() {
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(showKeyboard))
+        self.addGestureRecognizer(tapGesture)
+    }
+    
+    @objc private func showKeyboard() {
+        self.becomeFirstResponder()
+    }
+}
+
+extension AuthenticationPasscodeEditView: UIKeyInput {
+    var hasText: Bool {
+        return code.count > 0
+    }
+    
+    func insertText(_ text: String) {
+        guard code.count < maxLength else {
+            return
+        }
+        code.append(contentsOf: text)
+        print(code)
+    }
+    
+    func deleteBackward() {
+        if hasText {
+            code.removeLast()
+        }
+        print(code)
+    }
+    
+    
+}
+
+class AuthenticationCodeInputViewController: UIViewController {
+    var owner: String
+    
+    let code: AuthenticationPasscodeEditView = {
+        let view = AuthenticationPasscodeEditView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+    
+    init(owner: String) {
+        self.owner = owner
+        self.code.keyboardType = .default
+        super.init(nibName: nil, bundle: nil)
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        code.becomeFirstResponder()
+    }
+    
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
-        passcode.didFinishedEnterCode = {code in
+        code.didFinishedEnterCode = { code in
             guard let ake = AccountManager.shared.find(for: self.owner)?.akeManager else {
                 return
             }
@@ -36,45 +162,19 @@ class AuthenticationCodeInputViewController: PasscodeViewController {
     
     private func setupUI() {
         self.title = "Passcode lock"
+        
         if #available(iOS 13.0, *) {
             self.view.backgroundColor = .systemBackground
         } else {
             self.view.backgroundColor = .white
         }
-        cancelButton.target = self
-        cancelButton.action = #selector(cancelMyAction)
-        skipButton.target = self
-        skipButton.action = #selector(skipMyAction)
-        let barButton = self.isOnboarding ? skipButton : cancelButton
-        navigationItem.setRightBarButton(barButton, animated: true)
-        navigationItem.setHidesBackButton(true, animated: false)
-        if let _ = firstPasscode {
-            caption.text = "Verify your new passcode"
-        } else {
-            caption.text =  "Create a passcode to protect your data"
-        }
-        view.addSubview(passcode)
-        view.addSubview(caption)
-        view.addSubview(errorLabel)
-        NSLayoutConstraint.activate([passcode.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.6),
-                                     passcode.heightAnchor.constraint(equalToConstant: 44),
-                                     passcode.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-                                     passcode.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -107),
-                                     caption.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-                                     caption.bottomAnchor.constraint(equalTo: passcode.topAnchor, constant: -17),
-                                     errorLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-                                     errorLabel.topAnchor.constraint(equalTo: passcode.bottomAnchor, constant: 5)
+        
+        view.addSubview(code)
+        
+        NSLayoutConstraint.activate([code.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.6),
+                                     code.heightAnchor.constraint(equalToConstant: 44),
+                                     code.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+                                     code.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -107),
         ])
-    }
-    
-    @objc
-    private func cancelMyAction() {
-        navigationController?.popToRootViewController(animated: true)
-    }
-    
-    @objc
-    private func skipMyAction() {
-        let vc = SignUpEnableNotificationsViewController()
-        self.navigationController?.setViewControllers([vc], animated: true)
     }
 }

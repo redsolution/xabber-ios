@@ -64,3 +64,44 @@ extension ContactInfoViewController: InfoVCDelegate {
         tableView.setContentOffset(CGPoint(x: 0, y: tableView.contentSize.height - y - headerHeightMin - 12), animated: true)
     }
 }
+
+protocol AuthenticatedKeyExchangeManagerDelegate {
+    func verificationRequestReceived(code: String)
+    func verificationRequestAccepted()
+}
+
+extension ContactInfoViewController: AuthenticatedKeyExchangeManagerDelegate {
+    func verificationRequestReceived(code: String) {
+        let vc = ShowCodeViewController()
+        vc.code = code
+        vc.owner = self.owner
+        self.presentVC(vc: vc)
+    }
+    
+    func verificationRequestAccepted() {
+        let vc = AuthenticationCodeInputViewController(owner: self.owner)
+        self.presentVC(vc: vc)
+    }
+}
+
+class ShowCodeViewController: UIViewController {
+    var code: String? = nil
+    var owner: String? = nil
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        self.title = "Tell to youe opponent"
+        self.view.backgroundColor = .systemBackground
+        let label = UILabel()
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.text = code
+        self.view.addSubview(label)
+        label.centerXAnchor.constraint(equalTo: self.view.centerXAnchor).isActive = true
+        label.centerYAnchor.constraint(equalTo: self.view.centerYAnchor).isActive = true
+    }
+    
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        AccountManager.shared.find(for: self.owner!)?.akeManager.state = AuthenticatedKeyExchangeManager.State.none
+    }
+}

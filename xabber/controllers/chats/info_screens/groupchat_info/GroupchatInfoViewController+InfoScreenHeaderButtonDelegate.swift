@@ -577,6 +577,10 @@ extension GroupchatInfoViewController: InfoScreenHeaderButtonDelegate {
         }
         
     }
+    
+    func onVerifyButtonPressed() {
+        
+    }
 }
 
 extension GroupchatInfoViewController: AvatarPickerViewControllerDelegate {

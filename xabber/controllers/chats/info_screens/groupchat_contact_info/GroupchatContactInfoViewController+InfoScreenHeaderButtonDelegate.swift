@@ -773,6 +773,10 @@ extension GroupchatContactInfoViewController: InfoScreenHeaderButtonDelegate {
             }
         }
     }
+    
+    func onVerifyButtonPressed() {
+        
+    }
 }
 
 extension GroupchatContactInfoViewController: AvatarPickerViewControllerDelegate {

@@ -24,6 +24,7 @@ import RealmSwift
 import LetterAvatarKit
 import Toast_Swift
 import CocoaLumberjack
+import XMPPFramework
 
 extension ContactInfoViewController: InfoScreenHeaderButtonDelegate {
     func shouldUpdateAvatar() -> UIImage? {
@@ -56,6 +57,20 @@ extension ContactInfoViewController: InfoScreenHeaderButtonDelegate {
     
     func onFourthButtonPressed() {
         onBlock()
+    }
+    
+    func onVerifyButtonPressed() {
+        if AccountManager.shared.find(for: self.owner)?.akeManager.state == AuthenticatedKeyExchangeManager.State.none {
+            let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager
+            akeManager?.delegate = self
+            akeManager?.opponent = XMPPJID(string: self.jid)
+            akeManager?.sendVerificationMessage()
+        } else {
+            let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager
+            akeManager?.delegate = self
+            akeManager?.opponent = XMPPJID(string: self.jid)
+            akeManager?.acceptVerificationRequest()
+        }
     }
     
     func onImageButtonPressed() {
