@@ -252,7 +252,9 @@ class PasscodeOrBiometricViewController: SimpleBaseViewController {
             .disposed(by: bag)
         }
         
-        self.pin.asObservable().subscribe { value in
+        self.pin
+            .asObservable()
+            .subscribe { value in
             if value.count == self.dots.count {
                 self.dots.last?.backgroundColor = UIColor.black
                 
@@ -263,10 +265,10 @@ class PasscodeOrBiometricViewController: SimpleBaseViewController {
                 if self.validatePasscode(value) {
                     self.attempts = self.getSettingsPasscodeAttempts()
                     self.setPasscodeAttemptsLeft(self.attempts)
-                    DispatchQueue.main.async {
-                        FeedbackManager.shared.successFeedback()
+//                    DispatchQueue.main.async {
+//                        FeedbackManager.shared.errorFeedback()
                         self.onPasscodeValid(value)
-                    }
+//                    }
                 } else {
                     if !(self.isUnlimitedAttempts) {
                         if self.attempts > 1 {
@@ -276,7 +278,7 @@ class PasscodeOrBiometricViewController: SimpleBaseViewController {
                                 guard let account = AccountManager.shared.users.first else {
                                     return
                                 }
-                                FeedbackManager.shared.errorFeedback()
+//                                FeedbackManager.shared.errorFeedback()
                                 self.sendAlarmAndQuit(jid: account.jid)
                             }
                             return
@@ -284,7 +286,7 @@ class PasscodeOrBiometricViewController: SimpleBaseViewController {
                         self.updateSubtitle()
                     }
                     
-                    FeedbackManager.shared.errorFeedback()
+//                    FeedbackManager.shared.errorFeedback()
                     let oldFrame = self.dotsView.frame
                     UIView.animate(withDuration: 0.18) {
                         self.dots.enumerated().forEach {
@@ -409,11 +411,11 @@ class PasscodeOrBiometricViewController: SimpleBaseViewController {
             return
         }
         guard self.canEnterPasscode() else {
-            FeedbackManager.shared.tap()
+            FeedbackManager.shared.generate(feedback: .success)
             return
         }
         if self.pin.value.count < 5 {
-            FeedbackManager.shared.tap()
+            FeedbackManager.shared.generate(feedback: .success)
         }
         self.pin.accept("\(self.pin.value)\(sender.keyId)")
     }

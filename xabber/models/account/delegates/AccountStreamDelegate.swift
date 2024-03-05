@@ -268,12 +268,12 @@ extension Account: XMPPStreamDelegate {
     }
     
     func xmppStream(_ sender: XMPPStream, willReceive message: XMPPMessage) -> XMPPMessage? {
-        print("MESSAGE")
+//        print("MESSAGE")
         return message
     }
    
     func xmppStreamDidFilterStanza(_ sender: XMPPStream) {
-        print(#function)
+//        print(#function)
     }
     
     func xmppStream(_ sender: XMPPStream, didReceive message: XMPPMessage) {

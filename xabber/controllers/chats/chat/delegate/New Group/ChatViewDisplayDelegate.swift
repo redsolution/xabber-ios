@@ -59,12 +59,13 @@ extension ChatViewController: MessagesDisplayDelegate {
     }
         
     func detectorAttributes(for detector: DetectorType, and message: MessageType, at indexPath: IndexPath) -> [NSAttributedString.Key : Any] {
-        switch detector {
-        case .address, .date, .phoneNumber, .transitInformation:
-            return MessageLabel.defaultAttributes
-        case .url:
-            return MessageLabel.defaultURLAttributes
-        }
+//        switch detector {
+//        case .address, .date, .phoneNumber, .transitInformation:
+//            return MessageLabel.defaultAttributes
+//        case .url:
+//            return MessageLabel.defaultURLAttributes
+//        }
+        return [:]
     }
     
     func isBurnedMessage(at indexPath: IndexPath) -> Bool {
@@ -125,7 +126,7 @@ extension ChatViewController: MessagesDisplayDelegate {
     }
     
     func urlForAvatarView(at indexPath: IndexPath) -> URL? {
-        if !self.groupchat { return nil }
+        if self.conversationType != .group { return nil }
         if indexPath.section > 1 && indexPath.section < self.datasource.count - 1 {
             guard indexPath.section < self.messagesObserver?.count ?? 0,
                   let item = self.messagesObserver?[indexPath.section] else {

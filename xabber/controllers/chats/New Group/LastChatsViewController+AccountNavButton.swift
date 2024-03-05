@@ -81,7 +81,7 @@ class AccountNavButton: UIButton {
                     self.avatarView.image = image
                     self.avatarUrl = url
                 } else {
-                    self.avatarView.setDefaultAvatar(for: jid, owner: jid)
+                    self.avatarView.image = UIImageView.getDefaultAvatar(for: jid, owner: jid, size: 128)
                 }
             }
         }

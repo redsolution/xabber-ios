@@ -12,14 +12,14 @@ import UIKit
 
 extension UIImageView {
     func setDefaultAvatar(for username: String, owner: String) {
-        let color = AccountColorManager.shared.palette(for: owner)
-        let conf = LetterAvatarBuilderConfiguration()
-        conf.useSingleLetter = true
-        conf.username = username
-        conf.backgroundColors = [color.tint700, color.tint600, color.tint500, color.tint400, color.tint300]
-        conf.size = self.bounds.size
-        let image = UIImage.makeLetterAvatar(withConfiguration: conf)
-        self.image = image
+//        let color = AccountColorManager.shared.palette(for: owner)
+//        let conf = LetterAvatarBuilderConfiguration()
+//        conf.useSingleLetter = true
+//        conf.username = username
+//        conf.backgroundColors = [color.tint700, color.tint600, color.tint500, color.tint400, color.tint300]
+//        conf.size = self.bounds.size
+//        let image = UIImage.makeLetterAvatar(withConfiguration: conf)
+//        self.image = image
     }
     
     static func getDefaultAvatar(for username: String, owner: String, size: CGFloat) -> UIImage? {

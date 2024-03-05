@@ -135,7 +135,7 @@ extension NewCallViewController {
                 if let image = image {
                     self.avatarView.image = image
                 } else {
-                    self.avatarView.setDefaultAvatar(for: jid, owner: self.owner)
+                    self.avatarView.image = UIImageView.getDefaultAvatar(for: jid, owner: self.owner, size: 48)
                 }
             }
         }

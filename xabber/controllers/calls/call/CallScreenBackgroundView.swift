@@ -81,7 +81,7 @@ class CallScreenBackgroundView: UIView {
             if let image = image {
                 self.imageView.image = image
             } else {
-                self.imageView.setDefaultAvatar(for: self.jid, owner: self.owner)
+                self.imageView.image = UIImageView.getDefaultAvatar(for: self.jid, owner: self.owner, size: 256)
             }
         }
         self.imageView.contentMode = .scaleAspectFill

@@ -185,7 +185,7 @@ extension ChatViewController {
                             if let image = image {
                                 self.avatar.image = image
                             } else {
-                                self.avatar.setDefaultAvatar(for: self.jid, owner: self.owner)
+                                self.avatar.image = UIImageView.getDefaultAvatar(for: self.jid, owner: self.owner, size: 32)
                             }
                         }
                     })

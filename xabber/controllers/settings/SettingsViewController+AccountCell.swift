@@ -100,7 +100,7 @@ extension SettingsViewController {
                     if let image = image {
                         self.avatarView.image = image
                     } else {
-                        self.avatarView.setDefaultAvatar(for: jid, owner: jid)
+                        self.avatarView.image = UIImageView.getDefaultAvatar(for: jid, owner: jid, size: 48)
                     }
                 }
             } else {
@@ -108,7 +108,7 @@ extension SettingsViewController {
                     if let image = image {
                         self.avatarView.image = image.grayscale
                     } else {
-                        self.avatarView.setDefaultAvatar(for: jid, owner: jid)
+                        self.avatarView.image = UIImageView.getDefaultAvatar(for: jid, owner: jid, size: 48)?.grayscale
                         self.avatarView.image = self.avatarView.image?.grayscale
                     }
                 })

@@ -578,7 +578,7 @@ class QRCodeScannerViewController: UIViewController, AVCaptureMetadataOutputObje
             if let image = image {
                 self.avatarView.image = image
             } else {
-                self.avatarView.setDefaultAvatar(for: self.jid, owner: self.owner)
+                self.avatarView.image = UIImageView.getDefaultAvatar(for: self.jid, owner: self.owner, size: 256)
             }
         }
     }

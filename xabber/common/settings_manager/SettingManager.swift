@@ -144,6 +144,7 @@ open class SettingManager: NSObject {
                                                                                childs: [],
                                                                                values: ["Aliens",
                                                                                         "Summer",
+                                                                                        "Honeycomb",
                                                                                         "Cats",
                                                                                         "Flowers",
                                                                                         "Flowers-daisy",

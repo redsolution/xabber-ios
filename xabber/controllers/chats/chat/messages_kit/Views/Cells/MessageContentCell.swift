@@ -279,28 +279,41 @@ class MessageContentCell: MessageCollectionViewCell {
         canDeleteMessage = message.canDeleteMessage
         delegate = messagesCollectionView.messageCellDelegate
 
-        if let avatarMeta = displayDelegate.metadataForAvatarView(at: indexPath) {
-            avatarView.isHidden = false
-            if let userId = avatarMeta.userId {
-                DefaultAvatarManager.shared.getGroupAvatar(user: userId, jid: avatarMeta.jid, owner: avatarMeta.owner, size: 32) { image in
+        if message.withAvatar {
+            if let url = displayDelegate.urlForAvatarView(at: indexPath) {
+                DefaultAvatarManager.shared.getGroupAvatar(url: url.absoluteString, userId: "", jid: message.jid, owner: message.owner, size: 32) { image in
                     if let image = image {
                         self.avatarView.image = image
-                    } else {
-                        self.avatarView.setDefaultAvatar(for: avatarMeta.jid, owner: avatarMeta.owner)
                     }
-                }
-            } else {
-                DefaultAvatarManager.shared.getAvatar(url: nil, jid: avatarMeta.jid, owner: avatarMeta.owner, size: 32) { image in
-                    if let image = image {
-                        self.avatarView.image = image
-                    } else {
-                        self.avatarView.setDefaultAvatar(for: avatarMeta.jid, owner: avatarMeta.owner)
-                    }
+//                    else {
+//                        self.avatarView.setDefaultAvatar(for: username, owner: owner)
+//                    }
                 }
             }
-        } else {
-            avatarView.isHidden = true
         }
+        
+//        if let avatarMeta = displayDelegate.metadataForAvatarView(at: indexPath) {
+//            avatarView.isHidden = false
+//            if let userId = avatarMeta.userId {
+//                DefaultAvatarManager.shared.getGroupAvatar(user: userId, jid: avatarMeta.jid, owner: avatarMeta.owner, size: 32) { image in
+//                    if let image = image {
+//                        self.avatarView.image = image
+//                    } else {
+//                        self.avatarView.setDefaultAvatar(for: avatarMeta.jid, owner: avatarMeta.owner)
+//                    }
+//                }
+//            } else {
+//                DefaultAvatarManager.shared.getAvatar(url: nil, jid: avatarMeta.jid, owner: avatarMeta.owner, size: 32) { image in
+//                    if let image = image {
+//                        self.avatarView.image = image
+//                    } else {
+//                        self.avatarView.setDefaultAvatar(for: avatarMeta.jid, owner: avatarMeta.owner)
+//                    }
+//                }
+//            }
+//        } else {
+//            avatarView.isHidden = true
+//        }
         
         self.isBurnedMessage = displayDelegate.isBurnedMessage(at: indexPath)
         let messageColor = displayDelegate.backgroundColor(for: message, at: indexPath, in: messagesCollectionView)

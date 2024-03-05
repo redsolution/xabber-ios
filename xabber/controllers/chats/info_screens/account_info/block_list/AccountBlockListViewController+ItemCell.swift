@@ -100,7 +100,7 @@ extension AccountBlockListViewController {
                 if let image = image {
                     self.avatarView.image = image
                 } else {
-                    self.avatarView.setDefaultAvatar(for: jid, owner: owner)
+                    self.avatarView.image = UIImageView.getDefaultAvatar(for: jid, owner: owner, size: 48)
                 }
             }
         }

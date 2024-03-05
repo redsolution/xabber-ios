@@ -323,7 +323,7 @@ class ChatListTableViewCell: UITableViewCell {
             if let image = image {
                 self.avatarView.image = image
             } else {
-                self.avatarView.setDefaultAvatar(for: username, owner: owner)
+                self.avatarView.image = UIImageView.getDefaultAvatar(for: username, owner: owner, size: 56)
             }
         }
         

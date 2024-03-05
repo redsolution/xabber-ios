@@ -165,7 +165,8 @@ class MessageStorageItem: Object {
     
     final var groupchatUserAvatarPath: String? {
         get {
-            if let avatarId = groupchatMetadata?["id"] as? String {
+//            print(groupchatMetadata)
+            if let avatarId = groupchatMetadata?["avatar_uri"] as? String {
                 return [avatarId, opponent].prp()
             }
             return nil

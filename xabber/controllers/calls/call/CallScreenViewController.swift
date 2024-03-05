@@ -349,7 +349,7 @@ class CallScreenViewController: BaseViewController {
             if let image = image {
                 avatarImageView.image = image
             } else {
-                avatarImageView.setDefaultAvatar(for: self.jid, owner: self.owner)
+                avatarImageView.image = UIImageView.getDefaultAvatar(for: self.jid, owner: self.owner, size: 144)
             }
         }
         layoutAvatarSubview(avatarImageView)

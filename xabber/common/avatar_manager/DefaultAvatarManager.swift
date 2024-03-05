@@ -88,6 +88,58 @@ class DefaultAvatarManager: NSObject {
         ImageCache.default.store(image, forKey: key, options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory]))
     }
     
+    public final func getGroupAvatar(url: String?, userId: String, jid: String, owner: String, size requiredSize: CGFloat = 0, callback: ((UIImage?) -> Void)?) {
+        if let url = url {
+            if ImageCache.default.isCached(forKey: url) {
+                ImageCache.default.retrieveImage(forKey: url, options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory]), callbackQueue: .mainAsync) { result in
+                    switch result {
+                        case .success(let image):
+//                            print("rgthio", image.image == nil)
+                            callback?(image.image)
+                        default:
+                            callback?(nil)
+                    }
+                }
+            } else {
+                callback?(nil)
+                guard let urlUnwr = URL(string: url) else {
+                    return
+                }
+                ImageDownloader.default.downloadImage(with: urlUnwr, options: KingfisherParsedOptionsInfo([.cacheOriginalImage, .alsoPrefetchToMemory, .callbackQueue(.untouch)])) { result in
+                    switch result {
+                        case .success(let image):
+                            ImageCache.default.store(image.image, forKey: url, options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory]))
+//                            DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
+//                                do {
+//                                    let realm = try WRealm.safe()
+//                                    let collectionChats = realm.objects(LastChatsStorageItem.self).filter("jid == %@ AND owner == %@", jid, owner)
+//                                    if let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner)) {
+//                                        try realm.write {
+//                                            instance.updatedTS = Date().timeIntervalSince1970
+//                                            collectionChats.forEach { $0.updateTS = Date().timeIntervalSince1970 }
+//                                        }
+//                                    }
+//                                    if jid == owner {
+//                                        if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid) {
+//                                            try realm.write {
+//                                                instance.avatarUpdatedTS = Double(Date().timeIntervalSince1970)
+//                                            }
+//                                        }
+//                                    }
+//                                    
+//                                } catch {
+//                                    DDLogDebug("DefaultAvatarManager: \(#function). \(error.localizedDescription)")
+//                                }
+//                            }
+                        default:
+                            break
+                    }
+                }
+            }
+        }
+        callback?(nil)
+    }
+    
     public final func getAvatar(url: String?, jid: String, owner: String, size requiredSize: CGFloat = 0, callback: ((UIImage?) -> Void)?) {
         if let url = url {
             if ImageCache.default.isCached(forKey: url) {

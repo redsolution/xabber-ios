@@ -39,7 +39,7 @@ class MessageSizeCalculator: CellSizeCalculator {
     let bottomLabelWidth: CGFloat = 60
     let bottomCellPadding: CGFloat = 4
     
-    var avatarSize = CGSize(square: 48)
+    var avatarSize = CGSize(square: 32)
     
 //    var incomingAvatarSize = CGSize(square: 40)
 //    var outgoingAvatarSize = CGSize.zero
