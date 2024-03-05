@@ -12,11 +12,16 @@ import XMPPFramework
 import Curve25519Kit
 import CryptoKit
 import CryptoSwift
-// TODO: Data = [UInt]
+
 class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
     enum State{
         case none
-        case accepted
+        case sentRequest
+        case receivedRequest
+        case acceptedRequest
+        case hashSentToOpponent
+        case hashSentToInitiator
+        case trusted
     }
     
     override func namespaces() -> [String] {
@@ -34,15 +39,10 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
     internal var sid: String? = nil
     internal var messageId: String? = nil
     
-    internal var localStore: XabberAxolotlStorage
     internal var keyPair: SignalIdentityKeyPair? = nil
     
-    // TODO: only keypair
-    internal var publicKey: Data? = nil
-    internal var privateKey: Data? = nil
-    
     internal var deviceID: Int? = nil
-    internal var sharedKey: Data? = nil
+    internal var sharedKey: [UInt8]? = nil
     internal var encryptionKey: [UInt8]? = nil
     internal var trustedKey: [UInt8]? = nil
     
@@ -56,28 +56,39 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
     // TODO: WRealm with information abount sid, owner, opponent, opponentsDeviceID, trustedKey
     internal var opponent: XMPPJID? = nil
     internal var opponentDeviceID: Int? = nil
-    internal var opponentPublicKey: Data? = nil
+    internal var opponentPublicKey: [UInt8]? = nil
     internal var opponentByteSequence: [UInt8]? = nil
     
     var message: XMPPMessage? = nil
     
     override init(withOwner owner: String) {
-        // TODO: do not initialize, account.omemo.something with keys
-        self.localStore = XabberAxolotlStorage(withOwner: owner)
-        
         self.isWaitingForResponce = false
         
+        // TODO: delete when the session store appears
+        self.state = .none
+        
         super.init(withOwner: owner)
+        
+        
     }
     
     override func onStreamPrepared(_ stream: XMPPStream) {
-        self.keyPair = self.localStore.getIdentityKeyPair()
-        self.publicKey = self.keyPair!.publicKey
-        self.privateKey = self.keyPair!.privateKey
-        self.deviceID = self.localStore.localDeviceId()
-        let stringToHash = String(self.deviceID!).data(using: String.Encoding.utf8)! + self.publicKey!
+        guard let localStore = AccountManager.shared.find(for: owner)?.omemo.localStore else {
+            return
+        }
+        self.keyPair = localStore.getIdentityKeyPair()
+        self.deviceID = localStore.localDeviceId()
+        
+        guard self.keyPair != nil,
+              self.deviceID != nil else {
+            return
+        }
+        
+        let publicKey = Array(self.keyPair!.publicKey)
+//        let privateKey = Array(self.keyPair!.privateKey)
+        
+        let stringToHash = String(self.deviceID!).data(using: String.Encoding.utf8)! + publicKey
         self.trustedKey = Array(SHA256.hash(data: stringToHash).makeIterator())
-        print("my trustedKey: \(self.trustedKey!)")
         
         self.generateByteSequence()
     }
@@ -103,9 +114,12 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
     }
     
     func calculateSharedKey() {
+        guard self.keyPair != nil,
+              self.opponentPublicKey != nil else {
+            return
+        }
         let keyPair = Curve25519.load(fromPublicKey: self.keyPair?.publicKey, andPrivateKey: self.keyPair?.privateKey)
-        self.sharedKey = Curve25519.generateSharedSecret(fromPublicKey: self.opponentPublicKey?.dropFirst(), andKeyPair: keyPair)
-        print("sharedKey: \(self.sharedKey!)")
+        self.sharedKey = Array(Curve25519.generateSharedSecret(fromPublicKey: Data((self.opponentPublicKey!.dropFirst())), andKeyPair: keyPair))
     }
     
     func calculateEncryptionKey() {
@@ -129,8 +143,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         
         let verificationStart = DDXMLElement(name: "verification-start")
         
-        // TODO: in attribute string
-        verificationStart.addAttribute(withName: "device-id", intValue: Int32(self.deviceID!))
+        verificationStart.addAttribute(withName: "device-id", stringValue: String(self.deviceID!))
         
         authenticationKeyExchange.addChild(verificationStart)
         
@@ -142,11 +155,11 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         authenticatedKeyExchange.addAttribute(withName: "sid", stringValue: sid)
         
         let verificationAccept = DDXMLElement(name: "verification-accepted")
-        verificationAccept.addAttribute(withName: "device-id", intValue: Int32(self.deviceID!))
+        verificationAccept.addAttribute(withName: "device-id", stringValue: String(self.deviceID!))
         
         let salt = DDXMLElement(name: "salt")
-        salt.addChild(DDXMLElement(name: "ciphertext", objectValue: encryptedByteSequence))
-        salt.addChild(DDXMLElement(name: "iv", objectValue: iv))
+        salt.addChild(DDXMLElement(name: "ciphertext", stringValue: encryptedByteSequence))
+        salt.addChild(DDXMLElement(name: "iv", stringValue: iv))
         
         // TODO: copy()
         authenticatedKeyExchange.addChild(verificationAccept)
@@ -161,12 +174,12 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         
         let hash = DDXMLElement(name: "hash")
         hash.addAttribute(withName: "algo", stringValue: "sha-256")
-        hash.addChild(DDXMLElement(name: "ciphertext", objectValue: encryptedHash))
-        hash.addChild(DDXMLElement(name: "iv", objectValue: ivHash))
+        hash.addChild(DDXMLElement(name: "ciphertext", stringValue: encryptedHash))
+        hash.addChild(DDXMLElement(name: "iv", stringValue: ivHash))
         
         let salt = DDXMLElement(name: "salt")
-        salt.addChild(DDXMLElement(name: "ciphertext", objectValue: encryptedSalt))
-        salt.addChild(DDXMLElement(name: "iv", objectValue: ivSalt))
+        salt.addChild(DDXMLElement(name: "ciphertext", stringValue: encryptedSalt))
+        salt.addChild(DDXMLElement(name: "iv", stringValue: ivSalt))
         
         authenticatedKeyExchange.addChild(hash)
         authenticatedKeyExchange.addChild(salt)
@@ -199,13 +212,13 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 return false
             }
             
-            if authenticatedKeyExchange.element(forName: "verification-start") != nil {
-                self.state = .accepted
+            if authenticatedKeyExchange.element(forName: "verification-start") != nil && self.state == .none {
+                self.state = .receivedRequest
                 
                 let authenticatedKeyExchange = message.element(forName: "authenticated-key-exchange", xmlns: getPrimaryNamespace())
                 let verificationStart = authenticatedKeyExchange?.element(forName: "verification-start")
                 self.opponent = message.from
-                guard let opponentDeviceID = verificationStart?.attributeIntegerValue(forName: "device-id") else {
+                guard let opponentDeviceID = Int((verificationStart?.attributeStringValue(forName: "device-id"))!) else {
                     DDLogDebug("Opponent device ID is not specified")
                     return true
                 }
@@ -214,17 +227,17 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 self.sid = message.element(forName: "authenticated-key-exchange")?.attributeStringValue(forName: "sid")
                 
                 return true
-            } else if authenticatedKeyExchange.element(forName: "verification-accepted") != nil {
+            } else if authenticatedKeyExchange.element(forName: "verification-accepted") != nil && self.state == .sentRequest {
                 self.message = message
                 isRequestAccepted = true
                 self.sid = authenticatedKeyExchange.attributeStringValue(forName: "sid")
                 
                 DispatchQueue.main.async {
-                    self.delegate?.verificationRequestAccepted()
+                    self.delegate?.showCodeInputViewController()
                 }
                 
                 return true
-            } else if authenticatedKeyExchange.element(forName: "hash") != nil && authenticatedKeyExchange.element(forName: "salt") != nil {
+            } else if authenticatedKeyExchange.element(forName: "hash") != nil && authenticatedKeyExchange.element(forName: "salt") != nil && self.state == .acceptedRequest {
                 if !checkHashFromInitiator(message: message) {
                     let child = self.getMessageChildsForErrorMessage(sid: self.sid!, reason: "Hashes didn't match")
                     let message = XMPPMessage(messageType: .chat, to: self.opponent, elementID: message.elementID, child: child)
@@ -244,11 +257,12 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 
                 authenticatedKeyExchangeChild.addChild(hashChild)
                 
+                self.state = .hashSentToInitiator
                 let message = XMPPMessage(messageType: .chat, to: self.opponent, elementID: message.elementID, child: authenticatedKeyExchangeChild)
                 self.sendMessage(message: message)
                 
                 return true
-            } else if authenticatedKeyExchange.element(forName: "hash") != nil {
+            } else if authenticatedKeyExchange.element(forName: "hash") != nil && self.state == .hashSentToOpponent {
                 let hashEncrypted = authenticatedKeyExchange.element(forName: "hash")!
                 
                 let hash = self.decryptElementFromXML(encryptedXML: hashEncrypted)
@@ -260,10 +274,12 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 let myHash = Array(SHA256.hash(data: stringToHash).makeIterator())
                 
                 if hash != myHash {
+                    self.state = .none
                     sendErrorMessage(sid: self.sid!, reason: "Hashes didn't match", messageId: message.elementID!)
                     
                     return true
                 }
+                self.state = .trusted
                 
                 return true
             }
@@ -271,7 +287,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         return true
     }
     
-    func sendVerificationMessage() {
+    func sendVerificationRequest() {
         let childs = self.getMessageChildsForVerififcationRequest()
         guard (self.opponent != nil) else {
             DDLogDebug("Opponent JID is not specified")
@@ -283,10 +299,12 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
             stream.send(message)
         })
+        self.state = .sentRequest
     }
     
     // TODO: make different ids for messaged of one verification session
     func acceptVerificationRequest() {
+        self.state = .acceptedRequest
         self.generateCode()
         
         let realm = try! WRealm.safe()
@@ -295,8 +313,15 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             DDLogDebug("Can't find any IdentityKeys")
             return
         }
-                
-        self.opponentPublicKey = Data(base64Encoded: storedBundle.identityKey!)
+             
+        do {
+            self.opponentPublicKey = try storedBundle.identityKey?.base64decoded()
+        } catch {
+            DDLogDebug("Can't serialize bundle")
+            return
+        }
+        
+//        self.opponentPublicKey = Data(base64Encoded: storedBundle.identityKey!)
         
         self.calculateSharedKey()
         self.calculateEncryptionKey()
@@ -322,7 +347,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         let authenticatedKeyExchange = message!.element(forName: "authenticated-key-exchange", xmlns: getPrimaryNamespace())
         let verificationAccepted = authenticatedKeyExchange?.element(forName: "verification-accepted")
         self.opponent = XMPPJID(string: (message!.from?.full.components(separatedBy: "_")[0])!)
-        guard let opponentDeviceID = verificationAccepted?.attributeIntegerValue(forName: "device-id") else {
+        guard let opponentDeviceID = Int((verificationAccepted?.attributeStringValue(forName: "device-id"))!) else {
             DDLogDebug("Opponent device ID is not specified")
             return
         }
@@ -335,7 +360,15 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             DDLogDebug("Can't find any IdentityKeys")
             return
         }
-        self.opponentPublicKey = Data(base64Encoded: storedBundle.identityKey!)
+        
+        do {
+            self.opponentPublicKey = try storedBundle.identityKey?.base64decoded()
+        } catch {
+            DDLogDebug("Can't serialize bundle")
+            return
+        }
+        
+//        self.opponentPublicKey = Data(base64Encoded: storedBundle.identityKey!)
         
         if self.sharedKey == nil {
             self.calculateSharedKey()

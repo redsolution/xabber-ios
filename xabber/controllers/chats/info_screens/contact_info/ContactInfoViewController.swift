@@ -362,10 +362,17 @@ class ContactInfoViewController: BaseViewController {
                                           title: "Block".localizeString(id: "contact_bar_block", arguments: []),
                                           style: .danger)
         
-        if AccountManager.shared.find(for: self.owner)?.akeManager.state == AuthenticatedKeyExchangeManager.State.none {
+        guard let state = AccountManager.shared.find(for: self.owner)?.akeManager.state else {
+            return
+        }
+        if state == AuthenticatedKeyExchangeManager.State.none {
             headerView.verifyButton.configure(#imageLiteral(resourceName: "security"), title: "Send verify", style: .active)
-        } else {
+        } else if state == AuthenticatedKeyExchangeManager.State.receivedRequest {
             headerView.verifyButton.configure(#imageLiteral(resourceName: "check"), title: "Accept verify", style: .active)
+        } else if state == AuthenticatedKeyExchangeManager.State.trusted {
+            headerView.verifyButton.configure(#imageLiteral(resourceName: "security"), title: "Trusted", style: .inactive, enabled: false)
+        } else {
+            headerView.verifyButton.configure(#imageLiteral(resourceName: "clock"), title: "Wait", style: .inactive, enabled: false)
         }
 //        headerView.subtitleLabel.isHidden = true
         

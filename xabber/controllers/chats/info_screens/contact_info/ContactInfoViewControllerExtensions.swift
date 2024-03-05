@@ -67,7 +67,7 @@ extension ContactInfoViewController: InfoVCDelegate {
 
 protocol AuthenticatedKeyExchangeManagerDelegate {
     func verificationRequestReceived(code: String)
-    func verificationRequestAccepted()
+    func showCodeInputViewController()
 }
 
 extension ContactInfoViewController: AuthenticatedKeyExchangeManagerDelegate {
@@ -78,7 +78,7 @@ extension ContactInfoViewController: AuthenticatedKeyExchangeManagerDelegate {
         self.presentVC(vc: vc)
     }
     
-    func verificationRequestAccepted() {
+    func showCodeInputViewController() {
         let vc = AuthenticationCodeInputViewController(owner: self.owner)
         self.presentVC(vc: vc)
     }

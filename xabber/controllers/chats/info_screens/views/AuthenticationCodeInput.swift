@@ -155,6 +155,7 @@ class AuthenticationCodeInputViewController: UIViewController {
             guard let ake = AccountManager.shared.find(for: self.owner)?.akeManager else {
                 return
             }
+            ake.state = .hashSentToOpponent
             ake.code = code
             ake.sendHashToOpponent()
         }
