@@ -50,7 +50,7 @@ class DeviceInfoTableCell: UITableViewCell {
     var rightStack: UIStackView = {
         let stack = UIStackView()
 
-        stack.axis = .vertical
+        stack.axis = .horizontal
 
         return stack
     }()
@@ -92,8 +92,9 @@ class DeviceInfoTableCell: UITableViewCell {
 //            topStack.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 0.9),
 //            deviceLabel.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 0.9),
             descriptionLabel.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 0.9),
-//            trustIconView.widthAnchor.constraint(equalToConstant: 26),
-//            trustIconView.heightAnchor.constraint(equalToConstant: 24)
+            rightStack.widthAnchor.constraint(equalToConstant: 20),
+//            trustIconView.widthAnchor.constraint(equalToConstant: 18),
+//            trustIconView.heightAnchor.constraint(equalToConstant: 23)
         ])
     }
     
@@ -195,6 +196,7 @@ class DeviceInfoTableCell: UITableViewCell {
         
         leftStack.addArrangedSubview(clientLabel)
         leftStack.addArrangedSubview(descriptionLabel)
+//        rightStack.addArrangedSubview(UIStackView())
         rightStack.addArrangedSubview(trustIconView)
         
         stack.addArrangedSubview(leftStack)

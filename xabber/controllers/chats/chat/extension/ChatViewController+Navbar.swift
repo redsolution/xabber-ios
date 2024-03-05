@@ -42,17 +42,17 @@ extension ChatViewController {
                 let collectionJid = realm
                     .objects(SignalDeviceStorageItem.self)
                     .filter("jid == %@ AND owner == %@", jid, owner)
-                if collectionJid.toArray().filter({ $0.state == .fingerprintChanged }).count > 0 {
+                if collectionJid.count == 0 {
+                    color = .label
+                    indicatorAttach.image = UIImage(systemName: "lock.fill")?.withTintColor(.secondaryLabel)
+                    attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
+                } else if collectionJid.toArray().filter({ $0.state == .fingerprintChanged }).count > 0 {
                     color = .systemRed
                     indicatorAttach.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withTintColor(.systemRed)
                     attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
                 } else if collectionJid.toArray().filter({ $0.state != .trusted }).count > 0 {
                     color = .systemOrange
                     indicatorAttach.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withTintColor(.systemOrange)
-                    attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
-                } else if collectionJid.count == 0 {
-                    color = .label
-                    indicatorAttach.image = UIImage(systemName: "lock.fill")?.withTintColor(.secondaryLabel)
                     attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
                 } else if collectionJid.toArray().filter({ $0.isTrustedByCertificate }).count > 0 {
                     color = .systemGreen

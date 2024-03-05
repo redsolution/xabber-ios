@@ -340,6 +340,8 @@ class ChatListTableViewCell: UITableViewCell {
         } else {
             usernameLabel.text = username
         }
+        usernameLabel.sizeToFit()
+//        usernameLabel.layoutIfNeeded()
         
         subtitleLabel.text = groupchatNickname
         
