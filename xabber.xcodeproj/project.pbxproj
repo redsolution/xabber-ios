@@ -3957,7 +3957,7 @@
 			path = messages_manager;
 			sourceTree = "<group>";
 		};
-		66ED0D422488C49C0053CBEF /* contact_info_test */ = {
+		66ED0D422488C49C0053CBEF /* contact_info */ = {
 			isa = PBXGroup;
 			children = (
 				663989B12840F40100C839AE /* encryption */,
@@ -3968,7 +3968,7 @@
 				1A9ED075279FFB8300F3543D /* ContactInfoViewController+InfoScreenFooterButtonDelegate.swift */,
 				1A1FDE9227B6809D008B240F /* ContactInfoViewControllerExtensions.swift */,
 			);
-			path = contact_info_test;
+			path = contact_info;
 			sourceTree = "<group>";
 		};
 		66ED0D492488FA4B0053CBEF /* info_screens */ = {
@@ -3983,7 +3983,7 @@
 				66C1C9FF2201BF1000EF8F4C /* resource_info */,
 				6619B81D248E8034007089D2 /* account_info */,
 				66ED0D4A2488FA5D0053CBEF /* views */,
-				66ED0D422488C49C0053CBEF /* contact_info_test */,
+				66ED0D422488C49C0053CBEF /* contact_info */,
 			);
 			path = info_screens;
 			sourceTree = "<group>";
@@ -5693,7 +5693,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = 4T7NT6425K;
+				DEVELOPMENT_TEAM = K62DQNZBXS;
 				ENABLE_BITCODE = NO;
 				ENABLE_ON_DEMAND_RESOURCES = NO;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -5722,7 +5722,7 @@
 				LLVM_LTO = NO;
 				MARKETING_VERSION = 1.0.0.1;
 				OTHER_SWIFT_FLAGS = "$(inherited) -D COCOAPODS -DDEBUG";
-				PRODUCT_BUNDLE_IDENTIFIER = chat.clandestino.ios;
+				PRODUCT_BUNDLE_IDENTIFIER = com.xabber.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				RUN_CLANG_STATIC_ANALYZER = YES;
@@ -5749,7 +5749,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 4T7NT6425K;
+				DEVELOPMENT_TEAM = K62DQNZBXS;
 				ENABLE_BITCODE = NO;
 				ENABLE_ON_DEMAND_RESOURCES = NO;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -5778,7 +5778,7 @@
 				LLVM_LTO = YES;
 				MARKETING_VERSION = 1.0.0.1;
 				OTHER_SWIFT_FLAGS = "$(inherited) -D COCOAPODS -DRELEASE";
-				PRODUCT_BUNDLE_IDENTIFIER = chat.clandestino.ios;
+				PRODUCT_BUNDLE_IDENTIFIER = com.xabber.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				RUN_CLANG_STATIC_ANALYZER = YES;
@@ -5800,13 +5800,13 @@
 				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
 				CODE_SIGN_STYLE = Automatic;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = 4T7NT6425K;
+				DEVELOPMENT_TEAM = K62DQNZBXS;
 				INFOPLIST_FILE = xabberTests/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 13.5;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = chat.clandestino.ios.xabberTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.xabber.ios.xabberTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -5822,12 +5822,12 @@
 				CLANG_ENABLE_OBJC_WEAK = YES;
 				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = 4T7NT6425K;
+				DEVELOPMENT_TEAM = K62DQNZBXS;
 				INFOPLIST_FILE = xabberTests/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 13.5;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
 				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = chat.clandestino.ios.xabberTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.xabber.ios.xabberTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -5848,7 +5848,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = 4T7NT6425K;
+				DEVELOPMENT_TEAM = K62DQNZBXS;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -5861,7 +5861,7 @@
 				MARKETING_VERSION = 1.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = "chat.clandestino.ios.xabber-push-extension";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.xabber.ios.xabber-push-extension";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
@@ -5883,7 +5883,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 4T7NT6425K;
+				DEVELOPMENT_TEAM = K62DQNZBXS;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -5895,7 +5895,7 @@
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MARKETING_VERSION = 1.0;
 				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = "chat.clandestino.ios.xabber-push-extension";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.xabber.ios.xabber-push-extension";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;

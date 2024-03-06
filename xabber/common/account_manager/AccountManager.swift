@@ -224,7 +224,7 @@ public class AccountManager: NSObject {
         if users.contains(where: { $0.jid == jid }) { return  }
         let queue = DispatchQueue(
             label: "com.xabber.stream.\(UUID().uuidString)",
-            qos: .utility,
+            qos: .userInitiated,
             attributes: [],//[.concurrent],
             autoreleaseFrequency: .workItem,
             target: nil
@@ -269,7 +269,7 @@ public class AccountManager: NSObject {
         self.markAsConnecting(jid: jid)
         let queue = DispatchQueue(
             label: "com.xabber.stream.\(jid).\(UUID().uuidString)",
-            qos: .utility,
+            qos: .userInitiated,
             attributes: [],//[.concurrent],
             autoreleaseFrequency: .workItem,
             target: nil

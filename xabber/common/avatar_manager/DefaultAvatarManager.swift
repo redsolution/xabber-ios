@@ -109,28 +109,28 @@ class DefaultAvatarManager: NSObject {
                     switch result {
                         case .success(let image):
                             ImageCache.default.store(image.image, forKey: url, options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory]))
-//                            DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
-//                                do {
-//                                    let realm = try WRealm.safe()
-//                                    let collectionChats = realm.objects(LastChatsStorageItem.self).filter("jid == %@ AND owner == %@", jid, owner)
-//                                    if let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner)) {
-//                                        try realm.write {
-//                                            instance.updatedTS = Date().timeIntervalSince1970
-//                                            collectionChats.forEach { $0.updateTS = Date().timeIntervalSince1970 }
-//                                        }
-//                                    }
-//                                    if jid == owner {
-//                                        if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid) {
-//                                            try realm.write {
-//                                                instance.avatarUpdatedTS = Double(Date().timeIntervalSince1970)
-//                                            }
-//                                        }
-//                                    }
-//                                    
-//                                } catch {
-//                                    DDLogDebug("DefaultAvatarManager: \(#function). \(error.localizedDescription)")
-//                                }
-//                            }
+                            DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
+                                do {
+                                    let realm = try WRealm.safe()
+                                    let collectionChats = realm.objects(LastChatsStorageItem.self).filter("jid == %@ AND owner == %@", jid, owner)
+                                    if let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner)) {
+                                        try realm.write {
+                                            instance.updatedTS = Date().timeIntervalSince1970
+                                            collectionChats.forEach { $0.updateTS = Date().timeIntervalSince1970 }
+                                        }
+                                    }
+                                    if jid == owner {
+                                        if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid) {
+                                            try realm.write {
+                                                instance.avatarUpdatedTS = Double(Date().timeIntervalSince1970)
+                                            }
+                                        }
+                                    }
+                                    
+                                } catch {
+                                    DDLogDebug("DefaultAvatarManager: \(#function). \(error.localizedDescription)")
+                                }
+                            }
                         default:
                             break
                     }
