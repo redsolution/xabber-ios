@@ -12,6 +12,7 @@ import XMPPFramework
 import Curve25519Kit
 import CryptoKit
 import CryptoSwift
+import RealmSwift
 
 class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
     enum State{
@@ -222,7 +223,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                     DDLogDebug("Opponent device ID is not specified")
                     return true
                 }
-                self.messageId = message.elementID
+//                self.messageId = message.elementID
                 self.opponentDeviceID = opponentDeviceID
                 self.sid = message.element(forName: "authenticated-key-exchange")?.attributeStringValue(forName: "sid")
                 
@@ -240,7 +241,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             } else if authenticatedKeyExchange.element(forName: "hash") != nil && authenticatedKeyExchange.element(forName: "salt") != nil && self.state == .acceptedRequest {
                 if !checkHashFromInitiator(message: message) {
                     let child = self.getMessageChildsForErrorMessage(sid: self.sid!, reason: "Hashes didn't match")
-                    let message = XMPPMessage(messageType: .chat, to: self.opponent, elementID: message.elementID, child: child)
+                    let message = XMPPMessage(messageType: .chat, to: self.opponent, elementID: UUID().uuidString, child: child)
                     self.sendMessage(message: message)
                     return true
                 }
@@ -258,7 +259,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 authenticatedKeyExchangeChild.addChild(hashChild)
                 
                 self.state = .hashSentToInitiator
-                let message = XMPPMessage(messageType: .chat, to: self.opponent, elementID: message.elementID, child: authenticatedKeyExchangeChild)
+                let message = XMPPMessage(messageType: .chat, to: self.opponent, elementID: UUID().uuidString, child: authenticatedKeyExchangeChild)
                 self.sendMessage(message: message)
                 
                 return true
@@ -275,16 +276,33 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 
                 if hash != myHash {
                     self.state = .none
-                    sendErrorMessage(sid: self.sid!, reason: "Hashes didn't match", messageId: message.elementID!)
+                    sendErrorMessage(sid: self.sid!, reason: "Hashes didn't match", messageId: UUID().uuidString)
                     
                     return true
                 }
-                self.state = .trusted
+                self.writeTrustedDevice()
+                self.sendSuccessfulVerificationMessage(sid: self.sid!)
                 
                 return true
+            } else if authenticatedKeyExchange.element(forName: "verification-successful") != nil && self.state == .hashSentToInitiator {
+                self.writeTrustedDevice()
             }
         }
         return true
+    }
+    
+    func writeTrustedDevice() {
+        self.state = .trusted
+        do {
+            let realm = try WRealm.safe()
+            if let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.opponent!.bare, deviceId: self.opponentDeviceID!)) {
+                try realm.write {
+                    instance.state = .trusted
+                }
+            }
+        } catch {
+            DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
+        }
     }
     
     func sendVerificationRequest() {
@@ -307,21 +325,16 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         self.state = .acceptedRequest
         self.generateCode()
         
-        let realm = try! WRealm.safe()
-        
-        guard let storedBundle = realm.object(ofType: SignalIdentityStorageItem.self, forPrimaryKey: SignalIdentityStorageItem.genRpimary(owner: self.owner, jid: self.opponent!.bare, deviceId: self.opponentDeviceID!)) else {
-            DDLogDebug("Can't find any IdentityKeys")
-            return
-        }
-             
         do {
+            let realm = try WRealm.safe()
+            guard let storedBundle = realm.object(ofType: SignalIdentityStorageItem.self, forPrimaryKey: SignalIdentityStorageItem.genRpimary(owner: self.owner, jid: self.opponent!.bare, deviceId: self.opponentDeviceID!)) else {
+                DDLogDebug("Can't find any IdentityKeys")
+                return
+            }
             self.opponentPublicKey = try storedBundle.identityKey?.base64decoded()
         } catch {
-            DDLogDebug("Can't serialize bundle")
-            return
+            DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
         }
-        
-//        self.opponentPublicKey = Data(base64Encoded: storedBundle.identityKey!)
         
         self.calculateSharedKey()
         self.calculateEncryptionKey()
@@ -330,7 +343,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         
         let child = self.getMessageChildsForAcceptVerificationRequest(sid: self.sid!, encryptedByteSequence: result.encrypted.toBase64(), iv: result.iv.toBase64())
         
-        let message = XMPPMessage(messageType: .chat, to: self.opponent, elementID: self.messageId, child: child)
+        let message = XMPPMessage(messageType: .chat, to: self.opponent, elementID: UUID().uuidString, child: child)
 
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
             stream.send(message)
@@ -400,7 +413,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         
         let child = self.getMessageChildsToSendHashAndSaltToOpponent(sid: (message!.element(forName: "authenticated-key-exchange")?.attributeStringValue(forName: "sid"))!, encryptedHash: resultHash.encrypted.toBase64(), ivHash: resultHash.iv.toBase64(), encryptedSalt: resultSalt.encrypted.toBase64(), ivSalt: resultSalt.iv.toBase64())
         
-        let messageToSend = XMPPMessage(messageType: .chat, to: self.opponent, elementID: message?.elementID, child: child)
+        let messageToSend = XMPPMessage(messageType: .chat, to: self.opponent, elementID: UUID().uuidString, child: child)
         messageToSend.addAttribute(withName: "from", stringValue: self.owner)
         
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
@@ -408,10 +421,24 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         })
     }
     
+    func sendSuccessfulVerificationMessage(sid: String) {
+        let authenticatedKeyExchange = DDXMLElement(name: "authenticated-key-exchange", xmlns: getPrimaryNamespace())
+        authenticatedKeyExchange.addAttribute(withName: "sid", stringValue: sid)
+        
+        let verificationSuccessful = DDXMLElement(name: "verification-successful")
+        
+        authenticatedKeyExchange.addChild(verificationSuccessful)
+        
+        let message = XMPPMessage(messageType: .chat, to: self.opponent, elementID: UUID().uuidString, child: authenticatedKeyExchange)
+        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+            stream.send(message)
+        })
+    }
+    
     func sendErrorMessage(sid: String, reason: String, messageId: String) {
         let child = getMessageChildsForErrorMessage(sid: sid, reason: reason)
         
-        let message = XMPPMessage(messageType: .chat, to: self.opponent, elementID: messageId, child: child)
+        let message = XMPPMessage(messageType: .chat, to: self.opponent, elementID: UUID().uuidString, child: child)
         message.addAttribute(withName: "from", stringValue: self.owner)
         
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in

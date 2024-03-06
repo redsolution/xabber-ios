@@ -100,8 +100,8 @@ class ShowCodeViewController: UIViewController {
         label.centerYAnchor.constraint(equalTo: self.view.centerYAnchor).isActive = true
     }
     
-    override func viewDidDisappear(_ animated: Bool) {
-        super.viewDidDisappear(animated)
-        AccountManager.shared.find(for: self.owner!)?.akeManager.state = AuthenticatedKeyExchangeManager.State.none
-    }
+//    override func viewDidDisappear(_ animated: Bool) {
+//        super.viewDidDisappear(animated)
+//        AccountManager.shared.find(for: self.owner!)?.akeManager.state = AuthenticatedKeyExchangeManager.State.none
+//    }
 }
