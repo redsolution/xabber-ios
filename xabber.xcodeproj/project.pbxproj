@@ -1863,6 +1863,7 @@
 		66021BDD209ADEFD00B4387F /* chats */ = {
 			isa = PBXGroup;
 			children = (
+				662B93912B9878A200EBC3EF /* last_chats_list */,
 				66B7991C22E06ADE001589A5 /* search */,
 				66ED0D492488FA4B0053CBEF /* info_screens */,
 				669F207A24811DE000A0A666 /* edit_contact */,
@@ -1870,7 +1871,6 @@
 				662058462383CBB7000B0E11 /* create_new_entity */,
 				6602ECA52372E7D20046C5C1 /* groupchats */,
 				6646D32E23487B3100B64FEB /* share */,
-				665F923022CF183D0019D301 /* chats_list */,
 				6653DF5121ABFBF100DA4352 /* image_gallery */,
 				66994D4F21AD7D3700EC84A4 /* image_picker */,
 				66E338182202FC60003B7984 /* chat */,
@@ -2247,6 +2247,30 @@
 				662908D52ABDB9E60027535E /* NickGenerator.swift */,
 			);
 			path = nick_generator;
+			sourceTree = "<group>";
+		};
+		662B93912B9878A200EBC3EF /* last_chats_list */ = {
+			isa = PBXGroup;
+			children = (
+				66BA50B626EF6D1000ED0447 /* cells */,
+				665F923122CF189E0019D301 /* LastChatsViewController.swift */,
+				6689734D23140F1800FF5D74 /* LastChatsViewController+SearchResultsDelegate.swift */,
+				66F6A65F22D5C554007B7A29 /* LastChatsViewController+EmptyView.swift */,
+				6697DDE022D31C3200C5FB27 /* LastChatsViewController+UITableViewDatasource.swift */,
+				6689B4B524AB183D00A993BD /* LastChatsViewController+PullDownTableHeaderView.swift */,
+				66AD011822D7376700823398 /* LastChatsViewController+UITableViewPrefetchingDataSource.swift */,
+				6697DDE222D31C4500C5FB27 /* LastChatsViewController+UITableViewDelegate.swift */,
+				660093C622DEEDBD00C5F16B /* LastChatsViewController+UITableViewAction.swift */,
+				6689B4B724AB1C2200A993BD /* LastChatsViewController+AccountNavButton.swift */,
+				66AD011622D7172800823398 /* LastChatsViewController+XabberTabBarDelegate.swift */,
+				667AEDB624A9E6F6000F339E /* LastChatsViewController+ArchivedCell.swift */,
+				66B7991A22E04B27001589A5 /* LastChatsViewController+Search.swift */,
+				66BEDA8E247FE0ED0059F65F /* LastChatsViewController+AddContactDelegate.swift */,
+				669C182726F2054100352973 /* LastChatsViewController+Flow.swift */,
+				668B705D283F819000BE4879 /* LastChatsViewController+SignatureManagerDelegate.swift */,
+				66E961F42AB836F400D15A32 /* LastChatsViewController+SkeletonCell.swift */,
+			);
+			path = last_chats_list;
 			sourceTree = "<group>";
 		};
 		662B98B32456F076009F5879 /* random_titles_manager */ = {
@@ -2702,31 +2726,6 @@
 				660F55F6239A2D1400252608 /* GroupchatBlockedViewController+Flow.swift */,
 			);
 			path = blocked_list;
-			sourceTree = "<group>";
-		};
-		665F923022CF183D0019D301 /* chats_list */ = {
-			isa = PBXGroup;
-			children = (
-				66BA50B626EF6D1000ED0447 /* cells */,
-				665F923122CF189E0019D301 /* LastChatsViewController.swift */,
-				6689734D23140F1800FF5D74 /* LastChatsViewController+SearchResultsDelegate.swift */,
-				66F6A65F22D5C554007B7A29 /* LastChatsViewController+EmptyView.swift */,
-				6697DDE022D31C3200C5FB27 /* LastChatsViewController+UITableViewDatasource.swift */,
-				6689B4B524AB183D00A993BD /* LastChatsViewController+PullDownTableHeaderView.swift */,
-				66AD011822D7376700823398 /* LastChatsViewController+UITableViewPrefetchingDataSource.swift */,
-				6697DDE222D31C4500C5FB27 /* LastChatsViewController+UITableViewDelegate.swift */,
-				660093C622DEEDBD00C5F16B /* LastChatsViewController+UITableViewAction.swift */,
-				6689B4B724AB1C2200A993BD /* LastChatsViewController+AccountNavButton.swift */,
-				66AD011622D7172800823398 /* LastChatsViewController+XabberTabBarDelegate.swift */,
-				667AEDB624A9E6F6000F339E /* LastChatsViewController+ArchivedCell.swift */,
-				66B7991A22E04B27001589A5 /* LastChatsViewController+Search.swift */,
-				66BEDA8E247FE0ED0059F65F /* LastChatsViewController+AddContactDelegate.swift */,
-				669C182726F2054100352973 /* LastChatsViewController+Flow.swift */,
-				668B705D283F819000BE4879 /* LastChatsViewController+SignatureManagerDelegate.swift */,
-				66E961F42AB836F400D15A32 /* LastChatsViewController+SkeletonCell.swift */,
-			);
-			name = chats_list;
-			path = "New Group";
 			sourceTree = "<group>";
 		};
 		665F923322CF1D980019D301 /* avatar_manager */ = {
