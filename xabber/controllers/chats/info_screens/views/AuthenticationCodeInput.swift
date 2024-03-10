@@ -8,6 +8,8 @@
 
 import Foundation
 import UIKit
+import SignalProtocolObjC
+import XMPPFramework
 
 class AuthenticationPasscodeEditView: UIView, UITextInputTraits {
     var code: String = "" {
@@ -125,7 +127,10 @@ extension AuthenticationPasscodeEditView: UIKeyInput {
 }
 
 class AuthenticationCodeInputViewController: UIViewController {
-    var owner: String
+    let owner: String
+    let fullJID: XMPPJID
+    let sid: String
+    let message: XMPPMessage
     
     let code: AuthenticationPasscodeEditView = {
         let view = AuthenticationPasscodeEditView()
@@ -133,8 +138,11 @@ class AuthenticationCodeInputViewController: UIViewController {
         return view
     }()
     
-    init(owner: String) {
+    init(owner: String, jid: XMPPJID, sid: String, message: XMPPMessage) {
         self.owner = owner
+        self.fullJID = jid
+        self.sid = sid
+        self.message = message
         self.code.keyboardType = .default
         super.init(nibName: nil, bundle: nil)
     }
@@ -155,9 +163,22 @@ class AuthenticationCodeInputViewController: UIViewController {
             guard let ake = AccountManager.shared.find(for: self.owner)?.akeManager else {
                 return
             }
-            ake.state = .hashSentToOpponent
-            ake.code = code
-            ake.sendHashToOpponent()
+//            
+//            ake.state = .hashSentToOpponent
+//            ake.code = code
+            
+            do {
+                let realm = try WRealm.safe()
+                let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, jid: self.fullJID.bare, sid: self.sid))
+                try realm.write {
+                    instance?.code = code
+                }
+            } catch {
+                DDLogDebug("AuthenticationCodeInputViewController \(#function). \(error.localizedDescription)")
+            }
+            
+            ake.processReceivedData(jid: self.fullJID.bare, sid: self.sid, message: self.message)
+            ake.sendHashToOpponent(fullJID: self.fullJID, sid: self.sid)
         }
     }
     

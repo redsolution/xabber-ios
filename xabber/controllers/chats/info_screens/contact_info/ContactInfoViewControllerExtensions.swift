@@ -20,6 +20,7 @@
 
 import Foundation
 import UIKit
+import XMPPFramework
 
 //MARK: - Protocols
 protocol InfoVCDelegate {
@@ -66,20 +67,20 @@ extension ContactInfoViewController: InfoVCDelegate {
 }
 
 protocol AuthenticatedKeyExchangeManagerDelegate {
-    func verificationRequestReceived(code: String)
-    func showCodeInputViewController()
+    func showOutputViewController(code: String)
+    func showCodeInputViewController(jid: XMPPJID, sid: String, message: XMPPMessage)
 }
 
 extension ContactInfoViewController: AuthenticatedKeyExchangeManagerDelegate {
-    func verificationRequestReceived(code: String) {
+    func showOutputViewController(code: String) {
         let vc = ShowCodeViewController()
         vc.code = code
         vc.owner = self.owner
         self.presentVC(vc: vc)
     }
     
-    func showCodeInputViewController() {
-        let vc = AuthenticationCodeInputViewController(owner: self.owner)
+    func showCodeInputViewController(jid: XMPPJID, sid: String, message: XMPPMessage) {
+        let vc = AuthenticationCodeInputViewController(owner: self.owner, jid: jid, sid: sid, message: message)
         self.presentVC(vc: vc)
     }
 }

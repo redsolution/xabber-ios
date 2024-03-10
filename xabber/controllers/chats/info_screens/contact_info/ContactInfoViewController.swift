@@ -361,19 +361,17 @@ class ContactInfoViewController: BaseViewController {
         headerView.fourthButton.configure(#imageLiteral(resourceName: "cancel"),
                                           title: "Block".localizeString(id: "contact_bar_block", arguments: []),
                                           style: .danger)
+        headerView.verifyButton.configure(#imageLiteral(resourceName: "security"), title: "Send verify", style: .active)
         
-        guard let state = AccountManager.shared.find(for: self.owner)?.akeManager.state else {
-            return
-        }
-        if state == AuthenticatedKeyExchangeManager.State.none {
-            headerView.verifyButton.configure(#imageLiteral(resourceName: "security"), title: "Send verify", style: .active)
-        } else if state == AuthenticatedKeyExchangeManager.State.receivedRequest {
-            headerView.verifyButton.configure(#imageLiteral(resourceName: "check"), title: "Accept verify", style: .active)
-        } else if state == AuthenticatedKeyExchangeManager.State.trusted {
-            headerView.verifyButton.configure(#imageLiteral(resourceName: "security"), title: "Trusted", style: .inactive, enabled: false)
-        } else {
-            headerView.verifyButton.configure(#imageLiteral(resourceName: "clock"), title: "Wait", style: .inactive, enabled: false)
-        }
+//        if state == AuthenticatedKeyExchangeManager.State.none {
+//            headerView.verifyButton.configure(#imageLiteral(resourceName: "security"), title: "Send verify", style: .active)
+//        } else if state == AuthenticatedKeyExchangeManager.State.receivedRequest {
+//            headerView.verifyButton.configure(#imageLiteral(resourceName: "check"), title: "Accept verify", style: .active)
+//        } else if state == AuthenticatedKeyExchangeManager.State.trusted {
+//            headerView.verifyButton.configure(#imageLiteral(resourceName: "security"), title: "Trusted", style: .inactive, enabled: false)
+//        } else {
+//            headerView.verifyButton.configure(#imageLiteral(resourceName: "clock"), title: "Wait", style: .inactive, enabled: false)
+//        }
 //        headerView.subtitleLabel.isHidden = true
         
         footerView.conversationType = self.conversationType
@@ -395,6 +393,9 @@ class ContactInfoViewController: BaseViewController {
 //            user.vCardAvatars.fetch(stream, for: self.jid)
             user.vcards.requestItem(stream, jid: self.jid)
         })
+        
+        let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager
+        akeManager?.delegate = self
     }
     
     override func viewDidLoad() {
@@ -454,9 +455,9 @@ class ContactInfoViewController: BaseViewController {
         super.didReceiveMemoryWarning()
     }
     
-    @objc
-    func showCodeInputController() {
-        let vc = AuthenticationCodeInputViewController(owner: self.owner)
-        self.presentVC(vc: vc)
-    }
+//    @objc
+//    func showCodeInputController() {
+//        let vc = AuthenticationCodeInputViewController(owner: self.owner)
+//        self.presentVC(vc: vc)
+//    }
 }
