@@ -78,6 +78,7 @@ class LastChatsViewController: BaseViewController {
         let isSystemMessage: Bool
         let isPinned: Bool
         let subRequest: Bool
+        let verifyRequest: Bool
         let isEncrypted: Bool
         let avatarUrl: String?
         let hasErrorInChat: Bool
@@ -435,6 +436,7 @@ class LastChatsViewController: BaseViewController {
                     isSystemMessage: false,
                     isPinned: false,
                     subRequest: false,
+                    verifyRequest: false,
                     isEncrypted: false,
                     avatarUrl: nil,
                     hasErrorInChat: false,
@@ -501,7 +503,6 @@ class LastChatsViewController: BaseViewController {
             var collection = realm
                 .objects(LastChatsStorageItem.self)
                 .filter(predicate)
-                
             
             if pinnedChatsSorting {
                 collection = collection.sorted(by: [
@@ -546,6 +547,15 @@ class LastChatsViewController: BaseViewController {
                 } else {
                     message = subscriptionRequest ? "Incoming chat request" : blankMessageText
                 }
+                
+                let predicate = NSPredicate(format: "state_ == %@ AND owner IN %@ AND jid == %@",
+                                            argumentArray: [
+                                                VerificationSessionStorageItem.VerififcationState.receivedRequest.rawValue,
+                                                Array(enabledAccounts.value),
+                                                item.jid
+                                            ])
+                let verifyStorageList = realm.objects(VerificationSessionStorageItem.self).filter(predicate)
+                let verifyRequest = verifyStorageList.isEmpty ? false : true
                 
                 var isDraft: Bool = false
                 if let draft = item.draftMessage {
@@ -622,6 +632,7 @@ class LastChatsViewController: BaseViewController {
                     isSystemMessage: isSystemMessage,
                     isPinned: item.isPinned,
                     subRequest: (XMPPJID(string: item.jid)?.isServer ?? true) ? false :  subscriptionRequest,
+                    verifyRequest: verifyRequest,
                     isEncrypted: [.omemo, .axolotl, .omemo1].contains(item.conversationType),
                     avatarUrl: item.rosterItem?.avatarMinUrl ?? item.rosterItem?.avatarMaxUrl ?? item.rosterItem?.oldschoolAvatarKey,
                     hasErrorInChat: item.hasErrorInChat,

@@ -72,6 +72,7 @@ extension LastChatsViewController: UITableViewDataSource {
                 isSystem: item.isSystemMessage,
                 isPinned: item.isPinned,
                 subRequest: item.subRequest,
+                verifyRequest: item.verifyRequest,
                 avatarUrl: item.avatarUrl,
                 hasErrorInChat: item.hasErrorInChat
             )

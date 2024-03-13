@@ -54,9 +54,19 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         }
         
         let publicKey = Array(self.keyPair!.publicKey.dropFirst())
+        let fingerprint = publicKey.toHexString()
         
-        let stringToHash = String(self.deviceID!).data(using: String.Encoding.utf8)! + publicKey
-        self.trustedKey = Array(SHA256.hash(data: stringToHash).makeIterator())
+//        do{
+//            let realm = try WRealm.safe()
+//            let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: self.deviceID!))
+//            fingerprint = instance!.fingerprint
+//        } catch {
+//            fatalError()
+//        }
+//        let stringToHash = String(self.deviceID!).data(using: String.Encoding.utf8)! + publicKey
+//        let stringToHash = String(self.deviceID!) + "::" + fingerprint
+        
+        self.trustedKey = (String(self.deviceID!) + "::" + fingerprint).bytes
     }
     
     func generateByteSequence() -> [UInt8] {
@@ -79,6 +89,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         let opponentPublicKey = getUsersPublicKey(jid: jid, deviceId: deviceId)
         
         let sharedKey = Array(Curve25519.generateSharedSecret(fromPublicKey: Data(opponentPublicKey), andKeyPair: keyPair))
+        print("shared key: \(sharedKey.toBase64())")
         return sharedKey
     }
     
@@ -91,8 +102,11 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         } catch {
             DDLogDebug("AuthenticatedKeyExchange \(#function). \(error.localizedDescription)")
         }
-        let stringToHash = sharedKey + SHA256.hash(data: (code.data(using: String.Encoding.utf8))!)
+        let stringToHash = sharedKey + Array(SHA256.hash(data: (code.bytes)).makeIterator())
         let encryptionKey = Array(SHA256.hash(data: stringToHash).makeIterator())
+        print("encryptionKey: \(encryptionKey.toBase64())")
+//        print("hash from code: \(SHA256.hash(data: (code.data(using: String.Encoding.utf8))!))")
+        print("hash from code: \(Array(SHA256.hash(data: code.bytes).makeIterator()).toBase64())")
         return encryptionKey
     }
     
@@ -207,6 +221,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                     }
                     let instance = VerificationSessionStorageItem()
                     instance.owner = self.owner
+                    instance.jid = jid.bare
                     instance.fullJID = jid.full
                     instance.sid = sid
                     instance.deviceId = opponentDeviceID
@@ -242,6 +257,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                     }
                     
                     try realm.write {
+                        instance.jid = jid.bare
                         instance.fullJID = jid.full
                         instance.deviceId = opponentDeviceID
                         instance.byteSequence = byteSequence.toBase64()
@@ -282,7 +298,6 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                     DDLogDebug("AuthenticatedKeyExchange \(#function). \(error.localizedDescription)")
                 }
                 
-                // TODO: calculate hash from id string and fingerprint hex string
                 if !checkHashFromInitiator(jid: jid.bare, sid: sid, deviceId: deviceId, hashEncrypted: hashEncrypted, byteSequenceEncrypted: byteSequenceEncrypted) {
                     let child = self.getMessageChildsForErrorMessage(sid: sid, reason: "Hashes didn't match")
                     let message = XMPPMessage(messageType: .chat, to: jid, elementID: UUID().uuidString, child: child)
@@ -312,7 +327,8 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 }
                 
                 var deviceId: Int = 0
-                var publicKey: [UInt8] = []
+//                var publicKey: [UInt8] = []
+//                var fingerprint: String = ""
                 var byteSequence: [UInt8] = []
                 var opponentByteSequence: [UInt8] = []
                 var code: String = ""
@@ -332,23 +348,39 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                         instance?.state = .hashSentToInitiator
                     }
                     
-                    let storedBundle = realm.object(ofType: SignalIdentityStorageItem.self, forPrimaryKey: SignalIdentityStorageItem.genRpimary(owner: self.owner, jid: jid.bare, deviceId: deviceId))
-                    publicKey = try Array(storedBundle!.identityKey!.base64decoded().dropFirst())
+//                    let storedBundle = realm.object(ofType: SignalIdentityStorageItem.self, forPrimaryKey: SignalIdentityStorageItem.genRpimary(owner: self.owner, jid: jid.bare, deviceId: deviceId))
+//                    publicKey = try Array(storedBundle!.identityKey!.base64decoded().dropFirst())
+                    
+//                    let device = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: jid.bare, deviceId: deviceId))
+//                    fingerprint = device!.fingerprint
+                    
                 } catch {
                     DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
                     fatalError()
                 }
+                
+                let publicKey = self.getUsersPublicKey(jid: jid.bare, deviceId: deviceId)
+                let fingerprint = publicKey.toHexString()
                 
                 let hash = self.decryptElementFromXML(jid: jid.bare,
                                                       sid: sid,
                                                       deviceId: deviceId,
                                                       encryptedXML: hashEncrypted)
                 
-                let stringForTrustedKey = String(deviceId).data(using: String.Encoding.utf8)! + publicKey
-                let opponentTrustedKey = Array(SHA256.hash(data: stringForTrustedKey).makeIterator())
+//                let stringForTrustedKey = String(deviceId).data(using: String.Encoding.utf8)! + publicKey
+//                let stringForTrustedKey = String(deviceId) + fingerprint
+//                
+//                let opponentTrustedKey = Array(SHA256.hash(data: (stringForTrustedKey).bytes).makeIterator())
                 
-                let stringToHash = opponentTrustedKey + Array(code.utf8) + opponentByteSequence + byteSequence
+                let opponentTrustedKey = String(deviceId) + "::" + fingerprint
+                
+                let stringToHash = opponentTrustedKey.bytes + Array(code.utf8) + opponentByteSequence + byteSequence
                 let myHash = Array(SHA256.hash(data: stringToHash).makeIterator())
+                
+                print("oponent trusted key: \(opponentTrustedKey)")
+                print("code: \(code.toBase64())")
+                print("opponent byte sequence: \(opponentByteSequence.toBase64())")
+                print("my byte sequence: \(byteSequence.toBase64())")
                 
                 if hash != myHash {
                     do {
@@ -458,6 +490,19 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
             stream.send(message)
         })
+        
+        let item = MessageReferenceStorageItem()
+        item.kind = .systemMessage
+        item.owner = self.owner
+        item.jid = jid
+        item.primary = UUID().uuidString
+        let body = "Verification request from \(self.owner)"
+        AccountManager.shared.find(for: self.owner)?.messages.sendSystemMessage(
+            body,
+            attachments: [item],
+            to: jid,
+            conversationType: .regular
+        )
     }
     
     func acceptVerificationRequest(jid: XMPPJID, sid: String) {
@@ -536,6 +581,11 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         let stringToHash = self.trustedKey! + Array(code.utf8) + opponentByteSequence
         let hash = Array(SHA256.hash(data: stringToHash).makeIterator())
         
+//        print("string to hash: \(stringToHash.toBase64())")
+//        print("my trusted key: \(self.trustedKey?.toBase64())")
+//        print("code: \(code)")
+//        print("opponent byte sequence: \(opponentByteSequence.toBase64())")
+        
         let resultHash = self.encrypt(jid: fullJID.bare, sid: sid, deviceId: deviceId, data: hash)
         let resultSalt = self.encrypt(jid: fullJID.bare, sid: sid, deviceId: deviceId, data: byteSequence)
         
@@ -579,7 +629,8 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         let opponentByteSequence = self.decryptElementFromXML(jid: jid, sid: sid, deviceId: deviceId, encryptedXML: byteSequenceEncrypted)
         
         var deviceId: String = ""
-        var publicKey: [UInt8] = []
+//        var publicKey: [UInt8] = []
+//        var fingerprint: String = ""
         var code: String = ""
         var byteSequence: [UInt8] = []
         
@@ -594,17 +645,25 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             code = instance!.code
             byteSequence = try instance!.byteSequence.base64decoded()
             
-            let storedBundle = realm.object(ofType: SignalIdentityStorageItem.self, forPrimaryKey: SignalIdentityStorageItem.genRpimary(owner: self.owner, jid: jid, deviceId: instance!.deviceId))
-            publicKey = try Array(storedBundle!.identityKey!.base64decoded().dropFirst())
+//            let storedBundle = realm.object(ofType: SignalIdentityStorageItem.self, forPrimaryKey: SignalIdentityStorageItem.genRpimary(owner: self.owner, jid: jid, deviceId: instance!.deviceId))
+//            publicKey = try Array(storedBundle!.identityKey!.base64decoded().dropFirst())
+            
+//            let device = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: jid, deviceId: Int(deviceId)!))
+//            fingerprint = device!.fingerprint
+            
         } catch {
             DDLogDebug("AuthenticatedKeyExchange \(#function). \(error.localizedDescription)")
         }
         
-        // TODO: instead publicKey use devices fingerPrint
-        var stringToHash = String(deviceId).data(using: String.Encoding.utf8)! + publicKey
-        let opponentTrustedKey = Array(SHA256.hash(data: stringToHash).makeIterator())
+//        var stringToHash = String(deviceId).data(using: String.Encoding.utf8)! + publicKey
+//        let stringToHashTrustedKey = deviceId + fingerprint
         
-        stringToHash = Data(opponentTrustedKey + Array(code.utf8) + byteSequence)
+        let publicKey = self.getUsersPublicKey(jid: jid, deviceId: Int(deviceId)!)
+        let fingerprint = publicKey.toHexString()
+        
+        let opponentTrustedKey = deviceId + "::" + fingerprint
+        
+        let stringToHash = Data(opponentTrustedKey.bytes + Array(code.utf8) + byteSequence)
         let myHash = Array(SHA256.hash(data: stringToHash).makeIterator())
         
         if hash != myHash {
