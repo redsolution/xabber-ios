@@ -304,7 +304,7 @@ class ChatListTableViewCell: UITableViewCell {
                                 isSynced: Bool,
                                 isGroupchat: Bool,
                                 status: ResourceStatus,
-                                entity: RosterItemEntity,
+                                entity: RosterItemEntity?,
                                 conversationType: ClientSynchronizationManager.ConversationType,
                                 unread: Int,
                                 unreadString: String?,
@@ -315,7 +315,6 @@ class ChatListTableViewCell: UITableViewCell {
                                 isSystem: Bool,
                                 isPinned: Bool = false,
                                 subRequest: Bool,
-                                verifyRequest: Bool,
                                 avatarUrl: String?,
                                 hasErrorInChat: Bool) {
 
@@ -445,11 +444,6 @@ class ChatListTableViewCell: UITableViewCell {
                 subBadgeView.setTitle("＋", for: .normal)
             subBadgeView.titleLabel?.font = UIFont.systemFont(ofSize: 13, weight: .bold)
 //            }
-            subBadgeView.isHidden = false
-            subBadgeView.tintColor = .white
-        } else if verifyRequest {
-            subBadgeView.setTitle("?", for: .normal)
-            subBadgeView.titleLabel?.font = UIFont.systemFont(ofSize: 13, weight: .bold)
             subBadgeView.isHidden = false
             subBadgeView.tintColor = .white
         } else {

@@ -17,18 +17,17 @@
 ##
 ##
 ##
-
 platform :ios, '12.1'
 
 use_frameworks!
 
 def main_pods
     pod 'Alamofire', '~> 4.9.1' #, '~> 4.7.2' # HTTP request/response library
-    pod 'RealmSwift', :git => 'https://github.com/realm/realm-swift.git', :tag => 'v10.43.0'
+    pod 'RealmSwift', :git => 'https://github.com/realm/realm-swift.git', :tag => 'v10.46.0'
     pod 'RxSwift'
     pod 'RxCocoa'
     pod 'RxRealm', :git => 'https://github.com/whspr/RxRealm.git', :branch => 'update_podspec'
-    pod 'CryptoSwift', :git => 'https://github.com/krzyzanowskim/CryptoSwift.git', :tag => '1.6.0'#'1.3.8'#, '~> 0.12.0'#, '~> 0.12.0' # SHA-1 hashå
+    pod 'CryptoSwift', :git => 'https://github.com/krzyzanowskim/CryptoSwift.git', :tag => '1.8.1'#'1.3.8'#, '~> 0.12.0'#, '~> 0.12.0' # SHA-1 hashå
     pod 'SwiftKeychainWrapper' # keychain
     pod 'Kingfisher', :git => 'https://github.com/whspr/Klingfisher.git'
     pod 'Cache', :git => 'https://github.com/hyperoslo/Cache.git', :branch => 'master', :tag => '5.2.0' # data cache for video and audio messages
@@ -67,9 +66,9 @@ target 'xabber_push_extension' do
     inherit! :search_paths
 #    pod 'RealmSwift', :git => 'https://github.com/realm/realm-swift.git', :tag => 'v10.35.0'
     pod 'SwiftKeychainWrapper'
-    pod 'Starscream', :git => 'https://github.com/daltoniam/Starscream.git', :tag => '4.0.4' 
+    pod 'Starscream', :git => 'https://github.com/daltoniam/Starscream.git', :tag => '4.0.4'
     pod 'KissXML'
-    pod 'CryptoSwift', :git => 'https://github.com/krzyzanowskim/CryptoSwift.git', :tag => '1.6.0'
+    pod 'CryptoSwift', :git => 'https://github.com/krzyzanowskim/CryptoSwift.git', :tag => '1.8.1'
     pod 'Curve25519Kit', :git => 'https://github.com/whspr/Curve25519Kit.git', :branch => 'mkirk/framework-friendly'
 end
 
@@ -79,7 +78,7 @@ post_install do |installer|
         puts target.name
         target.build_configurations.each do |config|
             config.build_settings['CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF'] = 'NO'
-	    config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
+        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
         end
     end
 end

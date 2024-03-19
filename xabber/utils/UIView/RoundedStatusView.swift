@@ -39,7 +39,7 @@ class RoundedStatusView: UIView {
     dnd - Red 700
     unavailable - Grey 500
 */
-    func setStatus(status: ResourceStatus, entity: RosterItemEntity) {
+    func setStatus(status: ResourceStatus, entity: RosterItemEntity?) {
         self.backgroundColor = .clear
         self.borderColor = .white
         switch status {
@@ -103,6 +103,8 @@ class RoundedStatusView: UIView {
             view.tintColor = .white
             addSubview(view)
             bringSubviewToFront(view)
+        default:
+            subviews.forEach { $0.removeFromSuperview() }
         }
         layer.borderColor = borderColor.cgColor
         setNeedsDisplay()

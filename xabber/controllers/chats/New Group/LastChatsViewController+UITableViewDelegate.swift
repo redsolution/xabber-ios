@@ -44,13 +44,39 @@ extension LastChatsViewController: UITableViewDelegate {
         } else {
             let jid = self.datasource[index].jid
             let owner = self.datasource[index].owner
+            if self.datasource[index].entity == nil {
+                guard let sid = self.datasource[index].verificationSessionSid,
+                      let akeManager = AccountManager.shared.find(for: owner)?.akeManager else {
+                    return
+                }
+                let owner = self.datasource[index].owner
+                let agreeAction = UIAlertAction(title: "Accept", style: UIAlertAction.Style.default) { action in
+                    let code = akeManager.acceptVerificationRequest(jid: jid, sid: sid)
+                    self.canUpdateDataset = true
+                    self.runDatasetUpdateTask()
+                    let vc = ShowCodeViewController()
+                    vc.code = code
+                    vc.owner = self.owner
+                    self.present(vc, animated: true)
+                }
+                let disagreeAction = UIAlertAction(title: "Reject", style: .destructive) { action in
+                    akeManager.rejectRequestToVerify(jid: jid, sid: sid)
+                    self.canUpdateDataset = true
+                    self.runDatasetUpdateTask()
+                }
+                let alert = UIAlertController(title: "Verification session", message: "Do you want to accept verification request from \(jid)?", preferredStyle: UIAlertController.Style.alert)
+                alert.addAction(agreeAction)
+                alert.addAction(disagreeAction)
+                self.present(alert, animated: true)
+                return
+            }
             let vc = ChatViewController()
             self.hidesBottomBarWhenPushed = false
             vc.hidesBottomBarWhenPushed = true
             vc.owner = owner
             vc.jid = jid
             vc.conversationType = self.datasource[index].conversationType
-            vc.entity = self.datasource[index].entity
+            vc.entity = self.datasource[index].entity!
             self.navigationController?.pushViewController(vc, animated: true)
         }
     }

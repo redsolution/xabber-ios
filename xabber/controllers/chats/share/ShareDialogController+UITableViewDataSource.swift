@@ -48,7 +48,6 @@ extension ShareDialogController: UITableViewDataSource {
             groupchatNickname: item.groupchatNickname,
             isSystem: item.isSystem,
             subRequest: false,
-            verifyRequest: false,
             avatarUrl: nil,
             hasErrorInChat: false
         )

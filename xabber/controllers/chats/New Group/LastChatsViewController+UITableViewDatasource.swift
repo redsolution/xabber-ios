@@ -43,12 +43,49 @@ extension LastChatsViewController: UITableViewDataSource {
             
             return cell
         } else {
+            let index = showArchivedSection.value ? indexPath.row - 1 : indexPath.row
+            let item = datasource[index]
+            if item.entity == nil {
+                guard let cell = tableView.dequeueReusableCell(withIdentifier: ChatListTableViewCell.cellName, for: indexPath) as? ChatListTableViewCell else {
+                    fatalError()
+                }
+                cell.configure(
+                    "Incoming verification request",
+                    owner: item.owner,
+                    username: "Incoming verification request",
+                    message: "User \(item.jid) want to establish a trusted connection with you.",
+                    date: item.date,
+                    deliveryState: item.state,
+                    isMute: item.isMute,
+                    isSynced: item.isSynced,
+                    isGroupchat: [.groupchat, .incognitoChat].contains(item.entity),
+                    status: item.status,
+                    entity: item.entity,
+                    conversationType: item.conversationType,
+                    unread: item.unread,
+                    unreadString: item.unreadString,
+                    indicator: item.color,
+                    isDraft: item.isDraft,
+                    isAttachment: item.hasAttachment,
+                    groupchatNickname: item.userNickname,
+                    isSystem: item.isSystemMessage,
+                    isPinned: item.isPinned,
+                    subRequest: item.subRequest,
+                    avatarUrl: item.avatarUrl,
+                    hasErrorInChat: item.hasErrorInChat
+                )
+                cell.setMask()
+                cell.avatarView.image = UIImage(systemName: "person.badge.shield.checkmark")
+                cell.avatarView.backgroundColor = .clear
+                cell.statusIndicator.isHidden = true
+                cell.messageLabel.text = "User \(item.jid) want to establish a trusted connection with you."
+                
+                return cell
+            }
             guard let cell = tableView.dequeueReusableCell(withIdentifier: ChatListTableViewCell.cellName,
                                                            for: indexPath) as? ChatListTableViewCell else {
                 fatalError()
             }
-            let index = showArchivedSection.value ? indexPath.row - 1 : indexPath.row
-            let item = datasource[index]
             
             cell.configure(
                 item.jid,
@@ -72,7 +109,6 @@ extension LastChatsViewController: UITableViewDataSource {
                 isSystem: item.isSystemMessage,
                 isPinned: item.isPinned,
                 subRequest: item.subRequest,
-                verifyRequest: item.verifyRequest,
                 avatarUrl: item.avatarUrl,
                 hasErrorInChat: item.hasErrorInChat
             )
