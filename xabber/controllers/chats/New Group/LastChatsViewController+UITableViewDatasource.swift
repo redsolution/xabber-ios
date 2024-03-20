@@ -45,15 +45,35 @@ extension LastChatsViewController: UITableViewDataSource {
         } else {
             let index = showArchivedSection.value ? indexPath.row - 1 : indexPath.row
             let item = datasource[index]
-            if item.entity == nil {
+            if item.verificationState != nil {
                 guard let cell = tableView.dequeueReusableCell(withIdentifier: ChatListTableViewCell.cellName, for: indexPath) as? ChatListTableViewCell else {
                     fatalError()
                 }
+                
+                let label: String
+                let message: String
+                
+                if item.verificationState == VerificationSessionStorageItem.VerififcationState.receivedRequest || item.verificationState == VerificationSessionStorageItem.VerififcationState.acceptedRequest {
+                    label = "Incoming verification request"
+                    if item.verificationState == VerificationSessionStorageItem.VerififcationState.receivedRequest {
+                        message = "User \(item.jid) want to establish a trusted connection with you"
+                    } else {
+                        message = "Tell \(item.jid) the code to continue verification"
+                    }
+                } else {
+                    label = "Outcoming verification request"
+                    if item.verificationState == VerificationSessionStorageItem.VerififcationState.sentRequest {
+                        message = "Verification request has been sent to the user \(item.jid)"
+                    } else {
+                        message = "Enter the code from user \(item.jid)"
+                    }
+                }
+                
                 cell.configure(
-                    "Incoming verification request",
+                    label,
                     owner: item.owner,
-                    username: "Incoming verification request",
-                    message: "User \(item.jid) want to establish a trusted connection with you.",
+                    username: label,
+                    message: "",
                     date: item.date,
                     deliveryState: item.state,
                     isMute: item.isMute,
@@ -78,7 +98,7 @@ extension LastChatsViewController: UITableViewDataSource {
                 cell.avatarView.image = UIImage(systemName: "person.badge.shield.checkmark")
                 cell.avatarView.backgroundColor = .clear
                 cell.statusIndicator.isHidden = true
-                cell.messageLabel.text = "User \(item.jid) want to establish a trusted connection with you."
+                cell.messageLabel.text = message
                 
                 return cell
             }

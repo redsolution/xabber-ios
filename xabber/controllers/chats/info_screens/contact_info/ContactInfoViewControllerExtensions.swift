@@ -71,27 +71,13 @@ protocol AuthenticatedKeyExchangeManagerDelegate {
     func showCodeInputViewController(jid: XMPPJID, sid: String, message: XMPPMessage)
 }
 
-extension ContactInfoViewController: AuthenticatedKeyExchangeManagerDelegate {
-    func showOutputViewController(code: String) {
-        let vc = ShowCodeViewController()
-        vc.code = code
-        vc.owner = self.owner
-        self.presentVC(vc: vc)
-    }
-    
-    func showCodeInputViewController(jid: XMPPJID, sid: String, message: XMPPMessage) {
-        let vc = AuthenticationCodeInputViewController(owner: self.owner, jid: jid, sid: sid, message: message)
-        self.presentVC(vc: vc)
-    }
-}
-
 class ShowCodeViewController: UIViewController {
     var code: String? = nil
     var owner: String? = nil
     
     override func viewDidLoad() {
         super.viewDidLoad()
-        self.title = "Tell to youe opponent"
+        self.title = "Tell to your opponent"
         self.view.backgroundColor = .systemBackground
         let label = UILabel()
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -100,9 +86,4 @@ class ShowCodeViewController: UIViewController {
         label.centerXAnchor.constraint(equalTo: self.view.centerXAnchor).isActive = true
         label.centerYAnchor.constraint(equalTo: self.view.centerYAnchor).isActive = true
     }
-    
-//    override func viewDidDisappear(_ animated: Bool) {
-//        super.viewDidDisappear(animated)
-//        AccountManager.shared.find(for: self.owner!)?.akeManager.state = AuthenticatedKeyExchangeManager.State.none
-//    }
 }

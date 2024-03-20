@@ -128,9 +128,8 @@ extension AuthenticationPasscodeEditView: UIKeyInput {
 
 class AuthenticationCodeInputViewController: UIViewController {
     let owner: String
-    let fullJID: XMPPJID
+    let fullJID: String
     let sid: String
-    let message: XMPPMessage
     
     let code: AuthenticationPasscodeEditView = {
         let view = AuthenticationPasscodeEditView()
@@ -138,11 +137,10 @@ class AuthenticationCodeInputViewController: UIViewController {
         return view
     }()
     
-    init(owner: String, jid: XMPPJID, sid: String, message: XMPPMessage) {
+    init(owner: String, jid: String, sid: String) {
         self.owner = owner
         self.fullJID = jid
         self.sid = sid
-        self.message = message
         self.code.keyboardType = .default
         super.init(nibName: nil, bundle: nil)
     }
@@ -163,13 +161,17 @@ class AuthenticationCodeInputViewController: UIViewController {
             guard let ake = AccountManager.shared.find(for: self.owner)?.akeManager else {
                 return
             }
-//            
-//            ake.state = .hashSentToOpponent
-//            ake.code = code
+            
+            var deviceId: String = ""
+            var saltCiphertext: String = ""
+            var saltIv: String = ""
             
             do {
                 let realm = try WRealm.safe()
-                let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, jid: self.fullJID.bare, sid: self.sid))
+                let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, jid: XMPPJID(string: self.fullJID)!.bare, sid: self.sid))
+                deviceId = String(instance!.opponentDeviceId)
+                saltCiphertext = instance!.opponentByteSequenceEncrypted
+                saltIv = instance!.opponentByteSequenceIv
                 try realm.write {
                     instance?.code = code
                 }
@@ -177,8 +179,20 @@ class AuthenticationCodeInputViewController: UIViewController {
                 DDLogDebug("AuthenticationCodeInputViewController \(#function). \(error.localizedDescription)")
             }
             
-            ake.processReceivedData(jid: self.fullJID.bare, sid: self.sid, message: self.message)
-            ake.sendHashToOpponent(fullJID: self.fullJID, sid: self.sid)
+            let salt = ake.decrypt(jid: XMPPJID(string: self.fullJID)!.bare, sid: self.sid, deviceId: Int(deviceId)!, ciphertext: try! saltCiphertext.base64decoded(), iv: try! saltIv.base64decoded())
+            
+            do {
+                let realm = try WRealm.safe()
+                let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, jid: XMPPJID(string: self.fullJID)!.bare, sid: self.sid))
+                try realm.write {
+                    instance?.opponentByteSequence = salt.toBase64()
+                    instance?.opponentDeviceId = Int(deviceId)!
+                }
+            } catch {
+                DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
+            }
+            
+            ake.sendHashToOpponent(fullJID: XMPPJID(string: self.fullJID)!, sid: self.sid)
         }
     }
     

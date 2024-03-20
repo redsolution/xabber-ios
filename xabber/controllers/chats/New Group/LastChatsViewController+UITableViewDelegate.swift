@@ -44,12 +44,11 @@ extension LastChatsViewController: UITableViewDelegate {
         } else {
             let jid = self.datasource[index].jid
             let owner = self.datasource[index].owner
-            if self.datasource[index].entity == nil {
+            if self.datasource[index].verificationState == .receivedRequest {
                 guard let sid = self.datasource[index].verificationSessionSid,
                       let akeManager = AccountManager.shared.find(for: owner)?.akeManager else {
                     return
                 }
-                let owner = self.datasource[index].owner
                 let agreeAction = UIAlertAction(title: "Accept", style: UIAlertAction.Style.default) { action in
                     let code = akeManager.acceptVerificationRequest(jid: jid, sid: sid)
                     self.canUpdateDataset = true
@@ -68,6 +67,33 @@ extension LastChatsViewController: UITableViewDelegate {
                 alert.addAction(agreeAction)
                 alert.addAction(disagreeAction)
                 self.present(alert, animated: true)
+                return
+            } else if self.datasource[index].verificationState == .sentRequest {
+                return
+            } else if self.datasource[index].verificationState == .acceptedRequest {
+                guard let sid = self.datasource[index].verificationSessionSid,
+                      let akeManager = AccountManager.shared.find(for: owner)?.akeManager else {
+                    return
+                }
+                var code: String
+                do {
+                    let realm = try WRealm.safe()
+                    let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: owner, jid: jid, sid: sid))
+                    code = instance!.code
+                } catch {
+                    fatalError()
+                }
+                let vc = ShowCodeViewController()
+                vc.code = code
+                vc.owner = owner
+                self.present(vc, animated: true)
+                return
+            } else if self.datasource[index].verificationState == .receivedRequestAccept {
+                guard let sid = self.datasource[index].verificationSessionSid else {
+                    return
+                }
+                let vc = AuthenticationCodeInputViewController(owner: owner, jid: jid, sid: sid)
+                self.present(vc, animated: true)
                 return
             }
             let vc = ChatViewController()

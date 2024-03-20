@@ -393,9 +393,6 @@ class ContactInfoViewController: BaseViewController {
 //            user.vCardAvatars.fetch(stream, for: self.jid)
             user.vcards.requestItem(stream, jid: self.jid)
         })
-        
-        let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager
-        akeManager?.delegate = self
     }
     
     override func viewDidLoad() {
@@ -454,10 +451,4 @@ class ContactInfoViewController: BaseViewController {
     override func didReceiveMemoryWarning() {
         super.didReceiveMemoryWarning()
     }
-    
-//    @objc
-//    func showCodeInputController() {
-//        let vc = AuthenticationCodeInputViewController(owner: self.owner)
-//        self.presentVC(vc: vc)
-//    }
 }
