@@ -75,7 +75,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
     }
     
     func generateCode() -> String {
-        return String.randomString(length: 6, includeNumber: true)
+        return String(Int.random(in: 100000...999999))
     }
     
     func calculateSharedKey(jid: String, deviceId: Int) -> [UInt8] {
