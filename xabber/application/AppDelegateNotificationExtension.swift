@@ -36,9 +36,10 @@ extension AppDelegate : UNUserNotificationCenterDelegate {
         let notificationInAppSound = SettingManager.shared.get(bool: SettingsViewController.Datasource.Keys.notificationInAppSound.rawValue)
         let messageCategory = NotifyManager.notificationMessageCategory
         let subscriptionCategory = NotifyManager.notificationSubscribtionCategory
+        let verificationCategory = NotifyManager.notificationVerificationCategory
         
         switch category {
-        case messageCategory, subscriptionCategory:
+        case messageCategory, subscriptionCategory, verificationCategory:
             if notificationInAppAlertLastChats {
                 if notificationInAppSound {
                     completionHandler([.banner, .sound])

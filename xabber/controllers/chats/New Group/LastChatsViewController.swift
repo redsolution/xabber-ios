@@ -1196,7 +1196,7 @@ extension LastChatsViewController {
                 return []
             }
             return verifyStorageList.compactMap { item in
-                Datasource(jid: item.jid, owner: item.owner, username: item.jid, message: "Verification session", date: Date(), state: nil, isMute: false, isSynced: false, status: .online, entity: nil, conversationType: .regular, unread: 0, unreadString: "", color: UIColor.blue, isDraft: false, hasAttachment: false, userNickname: nil, isSystemMessage: true, isPinned: false, subRequest: false, isEncrypted: false, avatarUrl: nil, hasErrorInChat: false, updateTS: 0, verificationSessionSid: item.sid, verificationState: item.state)
+                Datasource(jid: item.jid, owner: item.owner, username: item.jid, message: "Verification session", date: Date(timeIntervalSince1970: Double(item.timestamp)!), state: nil, isMute: false, isSynced: false, status: .online, entity: nil, conversationType: .regular, unread: 0, unreadString: "", color: UIColor.blue, isDraft: false, hasAttachment: false, userNickname: nil, isSystemMessage: true, isPinned: false, subRequest: false, isEncrypted: false, avatarUrl: nil, hasErrorInChat: false, updateTS: 0, verificationSessionSid: item.sid, verificationState: item.state)
             }
         } catch {
             fatalError()

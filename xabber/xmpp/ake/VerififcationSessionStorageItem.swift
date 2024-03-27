@@ -38,6 +38,7 @@ class VerificationSessionStorageItem: Object {
     @objc dynamic var sid: String = ""
     @objc dynamic var opponentByteSequenceEncrypted: String = ""
     @objc dynamic var opponentByteSequenceIv: String = ""
+    @objc dynamic var timestamp: String = ""
     
     var state: VerififcationState {
         get {

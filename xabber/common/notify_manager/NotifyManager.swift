@@ -36,6 +36,7 @@ enum NotifyType {
     case newResourceDetect
     case contactGoOnline
     case contactGoOffline
+    case verification
 }
 
 class NotifyItem {
@@ -149,6 +150,7 @@ class NotifyManager {
     public static let notificationPushMessageCategory = "com.xabber.ios.message.push"
     public static let notificationSubscribtionCategory = "com.xabber.ios.subscribtion"
     public static let notificationInviteCategory = "com.xabber.ios.invite"
+    public static let notificationVerificationCategory = "com.xabber.ios.verification"
     public static let notificationMessageActionReply =          [notificationMessageCategory, ".reply"].joined()
     public static let notificationMessageActionMarkAsRead =     [notificationMessageCategory, ".read"].joined()
     public static let notificationMessageActionSetMute =        [notificationMessageCategory, ".mute"].joined()
@@ -166,6 +168,7 @@ class NotifyManager {
     var newResource: NotifyItem
     var contactOnline: NotifyItem
     var contactOffline: NotifyItem
+    var verification: NotifyItem
 
     var unreadMessagesCount: Int = 0
     
@@ -201,6 +204,7 @@ class NotifyManager {
         self.newResource = NotifyItem(from: "", to: "", message: "", date: self.lastOpen, conversationType: "")
         self.contactOnline = NotifyItem(from: "", to: "", message: "", date: self.lastOpen, conversationType: "")
         self.contactOffline = NotifyItem(from: "", to: "", message: "", date: self.lastOpen, conversationType: "")
+        self.verification = NotifyItem(from: "", to: "", message: "", date: self.lastOpen, conversationType: "")
         
         DispatchQueue.main.async {
             self.subscribe()
@@ -489,6 +493,14 @@ class NotifyManager {
             self.showNotify(forType: .contactGoOffline)
         }
     }
+    
+    func update(withVerificationMessage message: String, displayName: String, sid: String, timestamp: TimeInterval) {
+        self.verification.message = message
+        self.verification.displayName = displayName
+        self.verification.timestamp = timestamp
+        self.verification.Id = sid
+        self.showNotify(forType: .verification)
+    }
 
     func showNotify(forType type: NotifyType) {
         let content = UNMutableNotificationContent()
@@ -561,6 +573,14 @@ class NotifyManager {
         case .contactGoOffline:
             DDLogDebug("notify of some contact go offline")
             break
+        case .verification:
+            DDLogDebug("notify of verification message")
+            content.categoryIdentifier = NotifyManager.notificationVerificationCategory
+            content.title = self.verification.displayName
+            content.body = self.verification.message
+            content.sound = MusicBox.shared.getNotificationSound(for: .newMessage)
+            notificationRequest = self.verification.Id
+            break
         }
         let trigger = UNTimeIntervalNotificationTrigger.init(timeInterval: 0.1, repeats: false)
         let request = UNNotificationRequest(identifier: notificationRequest, content: content, trigger: trigger)
@@ -585,17 +605,14 @@ class NotifyManager {
     }
     
     func showSimpleNotify(withTitle title: String, subtitle: String, body: String) {
-        if !_DEBUG { return }
         let content = UNMutableNotificationContent()
         let dateFormatter = DateFormatter()
         dateFormatter.dateStyle = .medium
         dateFormatter.timeStyle = .medium
-        var notificationRequest = "simpleNotify"
+        var notificationRequest = "simpleNotify \(UUID().uuidString)"
         content.title = title
         content.subtitle = subtitle
         content.body = "\(body)\n\(dateFormatter.string(from: Date()))"
-        content.sound = MusicBox.shared.getNotificationSound()
-        notificationRequest = UUID().uuidString
         let trigger = UNTimeIntervalNotificationTrigger.init(timeInterval: 0.1, repeats: false)
         let request = UNNotificationRequest(identifier: notificationRequest, content: content, trigger: trigger)
         DispatchQueue.main.async {
