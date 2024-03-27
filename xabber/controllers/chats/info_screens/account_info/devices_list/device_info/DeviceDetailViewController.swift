@@ -386,7 +386,7 @@ extension DeviceDetailViewController: UITableViewDelegate {
                 }
         case "omemo_state_fingerprint_changed", "omemo_state_undefined":
             let items: [ActionSheetPresenter.Item] = [
-                ActionSheetPresenter.Item(destructive: false, title: "Trust", value: "trust"),
+                ActionSheetPresenter.Item(destructive: false, title: "Verify", value: "verify"),
                 ActionSheetPresenter.Item(destructive: true, title: "Delete device", value: "delete")
             ]
             ActionSheetPresenter().present(
@@ -423,6 +423,12 @@ extension DeviceDetailViewController: UITableViewDelegate {
                         DispatchQueue.main.async {
                             self.goBack()
                         }
+                    case "verify":
+                        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else { fatalError()
+                        }
+                        let fullJid = self.jid + "/" + self.resource!
+                        akeManager.sendVerificationRequest(jid: fullJid)
+                        break
                     default:
                         break
                     }

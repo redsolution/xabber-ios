@@ -48,6 +48,6 @@ class VerificationSessionStorageItem: Object {
     }
     
     static func genPrimary(owner: String, jid: String, sid: String) -> String {
-        return [owner, jid, sid].prp()
+        return [owner, sid].prp()
     }
 }

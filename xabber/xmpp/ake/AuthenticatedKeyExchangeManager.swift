@@ -184,7 +184,6 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
     }
     
     func didReceivedVerificationMessage(_ message: XMPPMessage) -> Bool {
-        // TODO: implement archive
         if isArchivedMessage(message) {
             return false
         } else if isCarbonCopy(message) {
@@ -498,7 +497,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 realm.add(instance)
             }
         } catch {
-            
+            fatalError()
         }
                         
         let childs = self.getMessageChildsForVerififcationRequest(sid: sid)
@@ -508,19 +507,6 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
             stream.send(message)
         })
-        
-//        let item = MessageReferenceStorageItem()
-//        item.kind = .systemMessage
-//        item.owner = self.owner
-//        item.jid = jid
-//        item.primary = UUID().uuidString
-//        let body = "Verification request from \(self.owner)"
-//        AccountManager.shared.find(for: self.owner)?.messages.sendSystemMessage(
-//            body,
-//            attachments: [item],
-//            to: jid,
-//            conversationType: .regular
-//        )
     }
     
     func acceptVerificationRequest(jid: String, sid: String) -> String {

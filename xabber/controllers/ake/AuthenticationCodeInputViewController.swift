@@ -131,6 +131,38 @@ class AuthenticationCodeInputViewController: UIViewController {
     let fullJID: String
     let sid: String
     
+    let stackLabels: UIStackView = {
+        let stack = UIStackView()
+        stack.alignment = .center
+        stack.axis = .vertical
+        stack.spacing = 15
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        return stack
+    }()
+    
+    let titleLabel: UILabel = {
+        let label = UILabel()
+        label.textAlignment = .center
+        label.numberOfLines = 0
+        label.font = UIFont.systemFont(ofSize: UIFont.labelFontSize, weight: .semibold)
+        return label
+    }()
+    
+    let descriptionLabel: UILabel = {
+        let label = UILabel()
+        label.textAlignment = .center
+        label.numberOfLines = 2
+        label.lineBreakMode = .byWordWrapping
+        return label
+    }()
+    
+    let sidLabel: UILabel = {
+        let label = UILabel()
+        label.textAlignment = .center
+        label.numberOfLines = 0
+        return label
+    }()
+    
     let code: AuthenticationPasscodeEditView = {
         let view = AuthenticationPasscodeEditView()
         view.translatesAutoresizingMaskIntoConstraints = false
@@ -198,7 +230,14 @@ class AuthenticationCodeInputViewController: UIViewController {
     }
     
     private func setupUI() {
-        self.title = "Passcode lock"
+        view.addSubview(stackLabels)
+        stackLabels.addArrangedSubview(titleLabel)
+        stackLabels.addArrangedSubview(descriptionLabel)
+        stackLabels.addArrangedSubview(sidLabel)
+        
+        titleLabel.text = "Verification code"
+        descriptionLabel.text = "Enter the code provided by your opponent \(self.fullJID)"
+        sidLabel.text = "SID: \(self.sid)"
         
         if #available(iOS 13.0, *) {
             self.view.backgroundColor = .systemBackground
@@ -208,10 +247,14 @@ class AuthenticationCodeInputViewController: UIViewController {
         
         view.addSubview(code)
         
-        NSLayoutConstraint.activate([code.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.6),
-                                     code.heightAnchor.constraint(equalToConstant: 44),
-                                     code.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-                                     code.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -107),
+        NSLayoutConstraint.activate([
+            code.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.6),
+            code.heightAnchor.constraint(equalToConstant: 44),
+            code.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            code.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            stackLabels.topAnchor.constraint(equalTo: view.topAnchor, constant: 15),
+            stackLabels.leftAnchor.constraint(equalTo: view.leftAnchor),
+            stackLabels.rightAnchor.constraint(equalTo: view.rightAnchor),
         ])
     }
 }

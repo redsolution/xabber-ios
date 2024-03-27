@@ -60,19 +60,8 @@ extension ContactInfoViewController: InfoScreenHeaderButtonDelegate {
     }
     
     func onVerifyButtonPressed() {
-//        guard let state = AccountManager.shared.find(for: self.owner)?.akeManager.state else {
-//            return
-//        }
-//        if state == AuthenticatedKeyExchangeManager.State.none {
         let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager
-//        akeManager?.opponent = XMPPJID(string: self.jid)
         akeManager?.sendVerificationRequest(jid: self.jid)
-//        } else if state == AuthenticatedKeyExchangeManager.State.receivedRequest {
-//            let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager
-////            akeManager?.delegate = self
-//            akeManager?.opponent = XMPPJID(string: self.jid)
-////            akeManager?.acceptVerificationRequest(jid: self.jid)
-//        }
     }
     
     func onImageButtonPressed() {

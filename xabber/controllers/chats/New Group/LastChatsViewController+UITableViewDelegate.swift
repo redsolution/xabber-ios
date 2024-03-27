@@ -53,9 +53,8 @@ extension LastChatsViewController: UITableViewDelegate {
                     let code = akeManager.acceptVerificationRequest(jid: jid, sid: sid)
                     self.canUpdateDataset = true
                     self.runDatasetUpdateTask()
-                    let vc = ShowCodeViewController()
-                    vc.code = code
-                    vc.owner = self.owner
+                    let vc = ShowCodeViewController(owner: self.owner, jid: jid, code: code, sid: sid)
+                    vc.configure()
                     self.present(vc, animated: true)
                 }
                 let disagreeAction = UIAlertAction(title: "Reject", style: .destructive) { action in
@@ -83,9 +82,8 @@ extension LastChatsViewController: UITableViewDelegate {
                 } catch {
                     fatalError()
                 }
-                let vc = ShowCodeViewController()
-                vc.code = code
-                vc.owner = owner
+                let vc = ShowCodeViewController(owner: owner, jid: jid, code: code, sid: sid)
+                vc.configure()
                 self.present(vc, animated: true)
                 return
             } else if self.datasource[index].verificationState == .receivedRequestAccept {

@@ -10,19 +10,91 @@ import Foundation
 import UIKit
 
 class ShowCodeViewController: UIViewController {
-    var code: String? = nil
-    var owner: String? = nil
+    var code: String = ""
+    var owner: String = ""
+    var jid: String = ""
+    var sid: String = ""
     
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        self.title = "Tell to your opponent"
-        self.view.backgroundColor = .systemBackground
+    init(owner: String, jid: String, code: String, sid: String) {
+        self.owner = owner
+        self.jid = jid
+        self.code = code
+        self.sid = sid
+        super.init(nibName: nil, bundle: nil)
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    let codeLabel: UILabel = {
         let label = UILabel()
         label.translatesAutoresizingMaskIntoConstraints = false
-        label.text = code
         label.font = UIFont.systemFont(ofSize: 20)
-        self.view.addSubview(label)
-        label.centerXAnchor.constraint(equalTo: self.view.centerXAnchor).isActive = true
-        label.centerYAnchor.constraint(equalTo: self.view.centerYAnchor).isActive = true
+        return label
+    }()
+    
+    let stackLabels: UIStackView = {
+        let stack = UIStackView()
+        stack.alignment = .center
+        stack.axis = .vertical
+        stack.spacing = 15
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        return stack
+    }()
+    
+    let titleLabel: UILabel = {
+        let label = UILabel()
+        label.textAlignment = .center
+        label.numberOfLines = 0
+        label.font = UIFont.systemFont(ofSize: UIFont.labelFontSize, weight: .semibold)
+        return label
+    }()
+    
+    let descriptionLabel: UILabel = {
+        let label = UILabel()
+        label.textAlignment = .center
+        label.numberOfLines = 2
+        label.lineBreakMode = .byWordWrapping
+        return label
+    }()
+    
+    let sidLabel: UILabel = {
+        let label = UILabel()
+        label.textAlignment = .center
+        label.numberOfLines = 0
+        return label
+    }()
+    
+    private func setupUI() {
+        view.addSubview(stackLabels)
+        stackLabels.addArrangedSubview(titleLabel)
+        stackLabels.addArrangedSubview(descriptionLabel)
+        stackLabels.addArrangedSubview(sidLabel)
+        
+        titleLabel.text = "Verification code"
+        descriptionLabel.text = "Tell the code to your opponent \(self.jid)"
+        sidLabel.text = "SID: \(self.sid)"
+        
+        if #available(iOS 13.0, *) {
+            self.view.backgroundColor = .systemBackground
+        } else {
+            self.view.backgroundColor = .white
+        }
+        
+        codeLabel.text = self.code
+        self.view.addSubview(codeLabel)
+        
+        NSLayoutConstraint.activate([
+            stackLabels.topAnchor.constraint(equalTo: view.topAnchor, constant: 15),
+            stackLabels.leftAnchor.constraint(equalTo: view.leftAnchor),
+            stackLabels.rightAnchor.constraint(equalTo: view.rightAnchor),
+            codeLabel.centerXAnchor.constraint(equalTo: self.view.centerXAnchor),
+            codeLabel.centerYAnchor.constraint(equalTo: self.view.centerYAnchor)
+        ])
+    }
+    
+    func configure() {
+        setupUI()
     }
 }
