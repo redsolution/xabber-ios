@@ -14,12 +14,14 @@ class ShowCodeViewController: UIViewController {
     var owner: String = ""
     var jid: String = ""
     var sid: String = ""
+    var isVerificationWithUsersDevice: Bool = false
     
-    init(owner: String, jid: String, code: String, sid: String) {
+    init(owner: String, jid: String, code: String, sid: String, isVerificationWithUsersDevice: Bool) {
         self.owner = owner
         self.jid = jid
         self.code = code
         self.sid = sid
+        self.isVerificationWithUsersDevice = isVerificationWithUsersDevice
         super.init(nibName: nil, bundle: nil)
     }
     
@@ -54,7 +56,7 @@ class ShowCodeViewController: UIViewController {
     let descriptionLabel: UILabel = {
         let label = UILabel()
         label.textAlignment = .center
-        label.numberOfLines = 2
+        label.numberOfLines = 3
         label.lineBreakMode = .byWordWrapping
         return label
     }()
@@ -73,7 +75,11 @@ class ShowCodeViewController: UIViewController {
         stackLabels.addArrangedSubview(sidLabel)
         
         titleLabel.text = "Verification code"
-        descriptionLabel.text = "Tell the code to your opponent \(self.jid)"
+        if isVerificationWithUsersDevice {
+            descriptionLabel.text = "You have agreed to verification with your other device, enter this code there"
+        } else {
+            descriptionLabel.text = "You have agreed to verification with your contact \(self.jid), tell this code to contact"
+        }
         sidLabel.text = "SID: \(self.sid)"
         
         if #available(iOS 13.0, *) {

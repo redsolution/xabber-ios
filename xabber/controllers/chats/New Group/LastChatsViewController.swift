@@ -1185,7 +1185,10 @@ extension LastChatsViewController {
                                         [VerificationSessionStorageItem.VerififcationState.sentRequest.rawValue,
                                          VerificationSessionStorageItem.VerififcationState.receivedRequest.rawValue,
                                          VerificationSessionStorageItem.VerififcationState.acceptedRequest.rawValue,
-                                         VerificationSessionStorageItem.VerififcationState.receivedRequestAccept.rawValue],
+                                         VerificationSessionStorageItem.VerififcationState.receivedRequestAccept.rawValue,
+                                         VerificationSessionStorageItem.VerififcationState.failed.rawValue,
+                                         VerificationSessionStorageItem.VerififcationState.rejected.rawValue,
+                                         VerificationSessionStorageItem.VerififcationState.trusted.rawValue],
                                         Array(enabledAccounts.value),
                                         Array(enabledAccounts.value)
                                     ])

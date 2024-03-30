@@ -84,14 +84,23 @@ extension AppDelegate : UNUserNotificationCenterDelegate {
         case NotifyManager.notificationMessageActionDeclineGroup:
             _ = NotifyManager.shared.onDeclineGroupNotification(response: response, handler: completionHandler)
         default:
-            if let id = content.userInfo["stanzaId"] as? String {
-                NotifyManager.shared.deliveredNotificationsIds.insert(id)
+            switch content.categoryIdentifier {
+            case NotifyManager.notificationMessageCategory:
+                if let id = content.userInfo["stanzaId"] as? String {
+                    NotifyManager.shared.deliveredNotificationsIds.insert(id)
+                }
+                NotifyManager
+                    .shared
+                    .onTouchMessageNotification(userInfo: content.userInfo,
+                                                atStart: false,
+                                                handler: completionHandler)
+                break
+            case NotifyManager.notificationVerificationCategory:
+                NotifyManager.shared.onTouchVerificationNotification(userInfo: content.userInfo, handler: completionHandler)
+                break
+            default:
+                break
             }
-            NotifyManager
-                .shared
-                .onTouchMessageNotification(userInfo: content.userInfo,
-                                            atStart: false,
-                                            handler: completionHandler)
         }
     }
 }

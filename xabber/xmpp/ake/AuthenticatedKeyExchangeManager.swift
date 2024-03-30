@@ -90,7 +90,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         var code: String = ""
         do {
             let realm = try WRealm.safe()
-            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, jid: jid, sid: sid))
+            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner,sid: sid))
             code = instance!.code
         } catch {
             DDLogDebug("AuthenticatedKeyExchange \(#function). \(error.localizedDescription)")
@@ -197,11 +197,13 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 return false
             }
             
+            var title = ""
+            
             if authenticatedKeyExchange.element(forName: "verification-start") != nil {
                 let timestamp = Date().timeIntervalSince1970
                 do {
                     let realm = try WRealm.safe()
-                    if realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, jid: jid.bare, sid: sid)) != nil {
+                    if realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) != nil {
                         return true
                     }
                     guard let verificationStart = authenticatedKeyExchange.element(forName: "verification-start"),
@@ -226,7 +228,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                     instance.sid = sid
                     instance.opponentDeviceId = opponentDeviceID
                     instance.state = .receivedRequest
-                    instance.primary = VerificationSessionStorageItem.genPrimary(owner: self.owner, jid: jid.bare, sid: sid)
+                    instance.primary = VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)
                     instance.timestamp = String(timestamp)
                     try realm.write {
                         realm.add(instance)
@@ -235,17 +237,14 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                     DDLogDebug("AuthenticatedKeyExchange \(#function). \(error.localizedDescription)")
                     fatalError()
                 }
-                
-                self.showNotification(title: jid.bare, body: "Verification request received", sid: sid, timestamp: timestamp)
-                
-                return true
+                title = "Verification request received"
             } else if authenticatedKeyExchange.element(forName: "verification-accepted") != nil {
                 let byteSequence = self.generateByteSequence()
                 let timestamp = Date().timeIntervalSince1970
                 
                 do {
                     let realm = try WRealm.safe()
-                    guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, jid: jid.bare, sid: sid)) else {
+                    guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) else {
                         return true
                     }
                     if instance.state != .sentRequest {
@@ -274,9 +273,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                     fatalError()
                 }
                 
-                self.showNotification(title: jid.bare, body: "Verification request accepted", sid: sid, timestamp: timestamp)
-                
-                return true
+                title = "Verification request accepted"
             } else if authenticatedKeyExchange.element(forName: "hash") != nil && authenticatedKeyExchange.element(forName: "salt") != nil {
                 guard let hashEncrypted = authenticatedKeyExchange.element(forName: "hash"),
                       let byteSequenceEncrypted = authenticatedKeyExchange.element(forName: "salt") else {
@@ -287,7 +284,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 
                 do {
                     let realm = try WRealm.safe()
-                    guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, jid: jid.bare, sid: sid)) else {
+                    guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) else {
                         return true
                     }
                     if instance.state != .acceptedRequest {
@@ -308,6 +305,18 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                     let child = self.getMessageChildsForErrorMessage(sid: sid, reason: "Hashes didn't match")
                     let message = XMPPMessage(messageType: .chat, to: jid, elementID: UUID().uuidString, child: child)
                     self.sendMessage(message: message)
+                    do {
+                        let realm = try WRealm.safe()
+                        guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) else {
+                            fatalError()
+                        }
+                        try realm.write {
+                            instance.state = .failed
+                        }
+                    } catch {
+                        fatalError()
+                    }
+                    self.showNotification(title: jid.bare, owner: self.owner, body: "Verification failed", sid: sid, timestamp: Date().timeIntervalSince1970)
                     return true
                 }
                 let hash = self.calculateHashForInitiator(jid: jid.bare, sid: sid)
@@ -339,7 +348,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 
                 do {
                     let realm = try WRealm.safe()
-                    let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, jid: jid.bare, sid: sid))
+                    let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid))
                     if instance?.state != .hashSentToOpponent {
                         return true
                     }
@@ -373,66 +382,75 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 
                 do {
                     let realm = try WRealm.safe()
-                    let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, jid: jid.bare, sid: sid))
+                    let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid))
+                    if hash != myHash {
+                        sendErrorMessage(fullJID: jid, sid: sid, reason: "Hashes didn't match")
+                        self.showNotification(title: jid.bare, owner: self.owner, body: "Verification failed", sid: sid, timestamp: Date().timeIntervalSince1970)
+                        try realm.write {
+                            instance?.state = .failed
+                        }
+                        return true
+                    }
                     try realm.write {
-                        realm.delete(instance!)
+                        instance?.state = .trusted
                     }
                 } catch {
                     DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
                     fatalError()
                 }
                 
-                if hash != myHash {
-                    sendErrorMessage(fullJID: jid, sid: sid, reason: "Hashes didn't match")
-                    self.showNotification(title: jid.bare, body: "Verification failed", sid: sid, timestamp: Date().timeIntervalSince1970)
-                    
-                    return true
-                }
-                
                 self.writeTrustedDevice(jid: jid.bare, deviceId: deviceId)
                 self.sendSuccessfulVerificationMessage(fullJID: jid, sid: sid)
                 
-                self.showNotification(title: jid.bare, body: "Verification completed successfully", sid: sid, timestamp: Date().timeIntervalSince1970)
-                
-                return true
+                title = "Verification completed successfully"
             } else if authenticatedKeyExchange.element(forName: "verification-successful") != nil {
                 var deviceId: Int = 0
                 do {
                     let realm = try WRealm.safe()
-                    let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, jid: jid.bare, sid: sid))
+                    let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid))
                     if instance?.state != .hashSentToInitiator {
                         return true
                     }
                     deviceId = instance!.opponentDeviceId
                     
                     try realm.write {
-                        realm.delete(instance!)
+                        instance?.state = .trusted
                     }
                 } catch {
                     fatalError()
                 }
                 
                 self.writeTrustedDevice(jid: jid.bare, deviceId: deviceId)
-                self.showNotification(title: jid.bare, body: "Verification completed successfully", sid: sid, timestamp: Date().timeIntervalSince1970)
                 
-                return true
+                title = "Verification completed successfully"
             } else if authenticatedKeyExchange.element(forName: "verification-rejected") != nil {
                 do {
                     let realm = try WRealm.safe()
-                    guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, jid: jid.bare, sid: sid)) else {
+                    guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) else {
                         return true
                     }
                     try realm.write {
-                        realm.delete(instance)
+                        instance.state = .rejected
                     }
                 } catch {
                     fatalError()
                 }
-                
-                self.showNotification(title: jid.bare, body: "Verification rejected", sid: sid, timestamp: Date().timeIntervalSince1970)
-                
-                return true
+                title = "Verification rejected"
+            } else if authenticatedKeyExchange.element(forName: "verification-failed") != nil {
+                do {
+                    let realm = try WRealm.safe()
+                    guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) else {
+                        return true
+                    }
+                    try realm.write {
+                        instance.state = .failed
+                    }
+                } catch {
+                    fatalError()
+                }
+                title = "Verification failed"
             }
+            self.showNotification(title: jid.bare, owner: self.owner, body: title, sid: sid, timestamp: Date().timeIntervalSince1970)
         }
         return true
     }
@@ -469,7 +487,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         
         do {
             let realm = try WRealm.safe()
-            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, jid: jid, sid: sid))
+            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid))
             try realm.write {
                 if salt != "" {
                     instance?.opponentByteSequence = salt
@@ -502,7 +520,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             instance.jid = jid
             instance.sid = sid
             instance.state = .sentRequest
-            instance.primary = VerificationSessionStorageItem.genPrimary(owner: instance.owner, jid: jid, sid: instance.sid)
+            instance.primary = VerificationSessionStorageItem.genPrimary(owner: instance.owner, sid: instance.sid)
             instance.timestamp = String(Date().timeIntervalSince1970)
             try realm.write {
                 realm.add(instance)
@@ -530,7 +548,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         do {
             let realm = try WRealm.safe()
             
-            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, jid: jid, sid: sid))
+            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid))
             deviceId = instance!.opponentDeviceId
             fullJID = instance!.fullJID
             
@@ -570,7 +588,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         
         do {
             let realm = try WRealm.safe()
-            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, jid: fullJID.bare, sid: sid))
+            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid))
             deviceId = instance!.opponentDeviceId
             byteSequence = try instance!.byteSequence.base64decoded()
             opponentByteSequence = try instance!.opponentByteSequence.base64decoded()
@@ -634,7 +652,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         
         do {
             let realm = try WRealm.safe()
-            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, jid: jid, sid: sid))
+            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid))
             try realm.write {
                 instance?.opponentByteSequence = opponentByteSequence!.toBase64()
             }
@@ -668,7 +686,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         
         do {
             let realm = try WRealm.safe()
-            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, jid: jid, sid: sid))
+            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid))
             
             code = instance!.code
             byteSequence = try instance!.byteSequence.base64decoded()
@@ -739,7 +757,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         var fullJID: String
         do {
             let realm = try WRealm.safe()
-            guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, jid: jid, sid: sid)) else {
+            guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) else {
                 return
             }
             fullJID = instance.fullJID
@@ -762,8 +780,29 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         self.sendMessage(message: message)
     }
     
-    func showNotification(title: String, body: String, sid: String, timestamp: TimeInterval) {
-        NotifyManager.shared.update(withVerificationMessage: body, displayName: title, sid: sid, timestamp: timestamp)
+    func showNotification(title: String, owner: String, body: String, sid: String, timestamp: TimeInterval) {
+        NotifyManager.shared.update(withVerificationMessage: body, owner: owner, displayName: title, sid: sid, timestamp: timestamp)
         NotifyManager.shared.showNotify(forType: .verification)
+    }
+    
+    func showFailedRejectedSuccessfulAlert(state: VerificationSessionStorageItem.VerififcationState, jid: String, sid: String) {
+        var alert = UIAlertController()
+        switch state {
+        case .failed:
+            let action = UIAlertAction(title: "Okay", style: .cancel)
+            alert = UIAlertController(title: "", message: "Verification session with \(jid) failed.\nSID: \(sid)", preferredStyle: UIAlertController.Style.alert)
+            alert.addAction(action)
+        case .rejected:
+            let action = UIAlertAction(title: "Okay", style: .cancel)
+            alert = UIAlertController(title: "", message: "Verification session with \(jid) rejected.\nSID: \(sid)", preferredStyle: UIAlertController.Style.alert)
+            alert.addAction(action)
+        case .trusted: 
+            let action = UIAlertAction(title: "Okay", style: .cancel)
+            alert = UIAlertController(title: "", message: "Verification session with \(jid) was successful, the device is now trusted.\nSID: \(sid)", preferredStyle: UIAlertController.Style.alert)
+            alert.addAction(action)
+        default:
+            fatalError()
+        }
+        getAppTabBar()?.viewControllers?.first?.present(alert, animated: true)
     }
 }

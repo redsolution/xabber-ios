@@ -53,7 +53,11 @@ extension LastChatsViewController: UITableViewDelegate {
                     let code = akeManager.acceptVerificationRequest(jid: jid, sid: sid)
                     self.canUpdateDataset = true
                     self.runDatasetUpdateTask()
-                    let vc = ShowCodeViewController(owner: self.owner, jid: jid, code: code, sid: sid)
+                    var isVerificationWithUsersDevice = false
+                    if jid == owner {
+                        isVerificationWithUsersDevice = true
+                    }
+                    let vc = ShowCodeViewController(owner: self.owner, jid: jid, code: code, sid: sid, isVerificationWithUsersDevice: isVerificationWithUsersDevice)
                     vc.configure()
                     self.present(vc, animated: true)
                 }
@@ -77,12 +81,16 @@ extension LastChatsViewController: UITableViewDelegate {
                 var code: String
                 do {
                     let realm = try WRealm.safe()
-                    let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: owner, jid: jid, sid: sid))
+                    let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: owner, sid: sid))
                     code = instance!.code
                 } catch {
                     fatalError()
                 }
-                let vc = ShowCodeViewController(owner: owner, jid: jid, code: code, sid: sid)
+                var isVerificationWithUsersDevice = false
+                if jid == owner {
+                    isVerificationWithUsersDevice = true
+                }
+                let vc = ShowCodeViewController(owner: owner, jid: jid, code: code, sid: sid, isVerificationWithUsersDevice: isVerificationWithUsersDevice)
                 vc.configure()
                 self.present(vc, animated: true)
                 return
@@ -90,8 +98,42 @@ extension LastChatsViewController: UITableViewDelegate {
                 guard let sid = self.datasource[index].verificationSessionSid else {
                     return
                 }
-                let vc = AuthenticationCodeInputViewController(owner: owner, jid: jid, sid: sid)
+                var isVerificationWithUsersDevice = false
+                if jid == owner {
+                    isVerificationWithUsersDevice = true
+                }
+                let vc = AuthenticationCodeInputViewController(owner: owner, jid: jid, sid: sid, isVerificationWithUsersDevice: isVerificationWithUsersDevice)
                 self.present(vc, animated: true)
+                return
+            } else if self.datasource[index].verificationState == .failed || self.datasource[index].verificationState == .rejected || self.datasource[index].verificationState == .trusted {
+                guard let sid = self.datasource[index].verificationSessionSid else {
+                    return
+                }
+                do {
+                    let realm = try WRealm.safe()
+                    let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: owner, sid: sid))
+                    try realm.write {
+                        realm.delete(instance!)
+                    }
+                } catch {
+                    fatalError()
+                }
+                
+                var alertMessage = ""
+                if self.datasource[index].verificationState == .failed {
+                    alertMessage = "Verification session with \(self.datasource[index].jid) failed.\nSID: \(self.datasource[index].verificationSessionSid!)"
+                } else if self.datasource[index].verificationState == .rejected {
+                    alertMessage = "Verification session with \(self.datasource[index].jid) rejected.\nSID: \(self.datasource[index].verificationSessionSid!)"
+                } else if self.datasource[index].verificationState == .trusted {
+                    alertMessage = "Verification session with \(self.datasource[index].jid) was successful, the device is now trusted.\nSID: \(self.datasource[index].verificationSessionSid!)"
+                }
+                let action = UIAlertAction(title: "Okay", style: .cancel) { _ in
+                    self.canUpdateDataset = true
+                    self.runDatasetUpdateTask()
+                }
+                let alert = UIAlertController(title: "", message: alertMessage, preferredStyle: UIAlertController.Style.alert)
+                alert.addAction(action)
+                self.present(alert, animated: true)
                 return
             }
             let vc = ChatViewController()

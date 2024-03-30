@@ -19,6 +19,8 @@ class VerificationSessionStorageItem: Object {
         case hashSentToOpponent = "hash_sent_to_opponent"
         case hashSentToInitiator = "hash_sent_to_initiator"
         case trusted = "trusted"
+        case rejected = "rejected"
+        case failed = "failed"
     }
     
     override static func primaryKey() -> String? {
@@ -48,7 +50,7 @@ class VerificationSessionStorageItem: Object {
         }
     }
     
-    static func genPrimary(owner: String, jid: String, sid: String) -> String {
+    static func genPrimary(owner: String, sid: String) -> String {
         return [owner, sid].prp()
     }
 }

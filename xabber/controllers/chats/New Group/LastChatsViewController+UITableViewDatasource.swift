@@ -60,6 +60,15 @@ extension LastChatsViewController: UITableViewDataSource {
                     } else {
                         message = "Tell \(item.jid) the code to continue verification"
                     }
+                } else if item.verificationState == VerificationSessionStorageItem.VerififcationState.failed {
+                    label = "Verification failed"
+                    message = "Verification session with \(item.jid)"
+                } else if item.verificationState == VerificationSessionStorageItem.VerififcationState.rejected {
+                    label = "Verification rejected"
+                    message = "Verification session with \(item.jid)"
+                } else if item.verificationState == VerificationSessionStorageItem.VerififcationState.trusted {
+                    label = "Verification successful"
+                    message = "Verification session with \(item.jid)"
                 } else {
                     label = "Outcoming verification request"
                     if item.verificationState == VerificationSessionStorageItem.VerififcationState.sentRequest {

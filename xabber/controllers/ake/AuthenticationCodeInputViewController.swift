@@ -130,6 +130,7 @@ class AuthenticationCodeInputViewController: UIViewController {
     let owner: String
     let fullJID: String
     let sid: String
+    let isVerificationWithUsersDevice: Bool
     
     let stackLabels: UIStackView = {
         let stack = UIStackView()
@@ -151,7 +152,7 @@ class AuthenticationCodeInputViewController: UIViewController {
     let descriptionLabel: UILabel = {
         let label = UILabel()
         label.textAlignment = .center
-        label.numberOfLines = 2
+        label.numberOfLines = 3
         label.lineBreakMode = .byWordWrapping
         return label
     }()
@@ -169,11 +170,12 @@ class AuthenticationCodeInputViewController: UIViewController {
         return view
     }()
     
-    init(owner: String, jid: String, sid: String) {
+    init(owner: String, jid: String, sid: String, isVerificationWithUsersDevice: Bool) {
         self.owner = owner
         self.fullJID = jid
         self.sid = sid
         self.code.keyboardType = .default
+        self.isVerificationWithUsersDevice = isVerificationWithUsersDevice
         super.init(nibName: nil, bundle: nil)
     }
     
@@ -200,7 +202,7 @@ class AuthenticationCodeInputViewController: UIViewController {
             
             do {
                 let realm = try WRealm.safe()
-                let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, jid: XMPPJID(string: self.fullJID)!.bare, sid: self.sid))
+                let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: self.sid))
                 deviceId = String(instance!.opponentDeviceId)
                 saltCiphertext = instance!.opponentByteSequenceEncrypted
                 saltIv = instance!.opponentByteSequenceIv
@@ -215,7 +217,7 @@ class AuthenticationCodeInputViewController: UIViewController {
             
             do {
                 let realm = try WRealm.safe()
-                let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, jid: XMPPJID(string: self.fullJID)!.bare, sid: self.sid))
+                let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: self.sid))
                 try realm.write {
                     instance?.opponentByteSequence = salt.toBase64()
                     instance?.opponentDeviceId = Int(deviceId)!
@@ -236,7 +238,11 @@ class AuthenticationCodeInputViewController: UIViewController {
         stackLabels.addArrangedSubview(sidLabel)
         
         titleLabel.text = "Verification code"
-        descriptionLabel.text = "Enter the code provided by your opponent \(self.fullJID)"
+        if isVerificationWithUsersDevice {
+            descriptionLabel.text = "You accepted a verification request from your other device, enter the code displayed on that device"
+        } else {
+            descriptionLabel.text = "The contact \(self.fullJID) to whom you sent a verification request accepted it, enter the code provided by this contact"
+        }
         sidLabel.text = "SID: \(self.sid)"
         
         if #available(iOS 13.0, *) {
