@@ -118,6 +118,8 @@ extension ChatViewController {
                     descriptionText = "Identities of users in this group are public, so any member can contact you using your real XMPP ID."
                 case .omemo, .omemo1, .axolotl:
                     descriptionText = "Messages in this chat are encrypted with end-to-end encryption. You must always confirm the identity of your contact by verifying encryption keys fingerprints."
+                    case .notifications:
+                        descriptionText = "fdg"
                 }
                 let modifiedDesccription = NSMutableAttributedString(
                     attributedString: NSAttributedString(string: descriptionText,

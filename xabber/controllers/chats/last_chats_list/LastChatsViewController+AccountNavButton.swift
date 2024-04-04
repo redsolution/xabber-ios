@@ -104,14 +104,8 @@ class AccountNavButton: UIButton {
 extension LastChatsViewController {
     @objc
     internal func onAccountNavButtonPress(_ sender: UIButton) {
-        let vc = SettingsViewController() //AccountInfoViewController()
-        vc.jid = self.topAccountJid
-        vc.isModal = false
+        let vc = NotificationsListViewController() //AccountInfoViewController()
+        vc.owner = self.topAccountJid
         self.navigationController?.pushViewController(vc, animated: true)
-//        let nvc = UINavigationController(rootViewController: vc)
-//        nvc.modalPresentationStyle = .fullScreen
-//        nvc.modalTransitionStyle = .coverVertical
-//        self.definesPresentationContext = true
-//        self.present(nvc, animated: true, completion: nil)
     }
 }

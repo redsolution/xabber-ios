@@ -110,7 +110,14 @@ class ServerDiscoManager: AbstractXMPPManager {
         default: return false
         }
     }
-    
+//    <iq xmlns="jabber:client" lang="ru" to="igor.boldin@redsolution.com/xabber-ios-BF9ED1E2" from="notify.redsolution.com" type="result" id="DA41EFEC-DB97-42F1-BAA1-31DB09E0A438">
+//      <query xmlns="http://jabber.org/protocol/disco#info">
+//        <identity name="Notification service" type="notification" category="component"/>
+//        <feature var="http://jabber.org/protocol/disco#info"/>
+//        <feature var="http://jabber.org/protocol/disco#items"/>
+//        <feature var="urn:xabber:notify:0"/>
+//      </query>
+//    </iq>
     func readFeatures(withIQ iq: XMPPIQ) -> Bool {
         guard let elementId = iq.elementID,
             iq.iqType == .result,
@@ -127,10 +134,17 @@ class ServerDiscoManager: AbstractXMPPManager {
             if parseClientIdentity(iq: iq) {
                 return true
             }
+            if let jid = iq.from?.bare {
+                if getNotificationServiceNode(query, jid: iq.from!.bare) {
+                    return true
+                }
+            }
+                
             if let identity = query.element(forName: "identity") {
                 let type = identity.attributeStringValue(forName: "type")
                 let category = identity.attributeStringValue(forName: "category")
                 let name = identity.attributeStringValue(forName: "name")
+                
                 if category == "client" {
                     return true
                 } else if type == "file" && category == "store" {
@@ -268,6 +282,16 @@ class ServerDiscoManager: AbstractXMPPManager {
                 }
             }
         }
+    }
+    
+    private func getNotificationServiceNode(_ query: DDXMLElement, jid: String) -> Bool {
+        if let identity = query.element(forName: "identity"),
+           identity.attributeStringValue(forName: "type") == "notification",
+           identity.attributeStringValue(forName: "category") == "component" {
+            AccountManager.shared.find(for: self.owner)?.notifications.configure(for: jid)
+            return true
+        }
+        return false
     }
     
     private func parseHTTPSettings(_ query: DDXMLElement, node: String) {

@@ -24,7 +24,7 @@ import XMPPFramework
 
 class PushNotificationsManager: AbstractXMPPManager {
     
-    static let suitName: String = "group.com.xabber"
+    static let suitName: String = "group.com.xabber.push"
     
     var enable: Bool = true
     var node: String = ""
@@ -115,7 +115,7 @@ class PushNotificationsManager: AbstractXMPPManager {
         self.node = node
         self.service = service
         print("PUSH DEFAULTS", PushNotificationsManager.getDefaultsForPush(for: node))
-        AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, stream in
+        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
             user.push.enable(xmppStream: stream) { result in
                 user.pushStatusMessage.accept(result)
             }
@@ -157,6 +157,27 @@ class PushNotificationsManager: AbstractXMPPManager {
         }
         xmppStream.send(XMPPIQ(iqType: .set, elementID: elementId, child: enable))
 
+        do {
+            let pushSecrets = try CredentialsManager.shared.getPushCredentials(for: self.node)
+            try CredentialsManager.shared.storePushCredentials(
+                node: self.node,
+                jid: pushSecrets.jid,
+                host: pushSecrets.host,
+                secret: secret,
+                service: pushSecrets.service
+            )
+        } catch {
+            try? CredentialsManager.shared.storePushCredentials(
+                node: node,
+                jid: self.owner,
+                host: jid.domain,
+                secret: secret,
+                service: ""
+            )
+            print(error)
+        }
+        
+        
         PushNotificationsManager.updateDefaultsForPush(node, key: "username", value: jid.user!)
         PushNotificationsManager.updateDefaultsForPush(node, key: "host", value: jid.domain)
         PushNotificationsManager.updateDefaultsForPush(node, key: "resource", value: jid.resource ?? "xabber-push-service")
@@ -199,7 +220,20 @@ class PushNotificationsManager: AbstractXMPPManager {
 //            ToastPresenter(message: "Enable push receive").present(animated: true)
 //        }
 //        queryIds.remove(elementId)
-        PushNotificationsManager.updateDefaultsForPush(self.node, key: "get_url", value: url)
+        do {
+            let pushSecrets = try CredentialsManager.shared.getPushCredentials(for: self.node)
+            try CredentialsManager.shared.storePushCredentials(
+                node: self.node,
+                jid: pushSecrets.jid,
+                host: pushSecrets.host,
+                secret: pushSecrets.secret,
+                service: url
+            )
+        } catch {
+            DDLogDebug(error.localizedDescription)
+        }
+        
+//        PushNotificationsManager.updateDefaultsForPush(self.node, key: "get_url", value: url)
         return true
     }
     

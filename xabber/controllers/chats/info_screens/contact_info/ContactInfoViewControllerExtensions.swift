@@ -61,6 +61,6 @@ extension ContactInfoViewController: InfoVCDelegate {
 
     func scrollToMediaGallery() {
         guard let y = tableView.tableFooterView?.frame.height else { return }
-        tableView.setContentOffset(CGPoint(x: 0, y: tableView.contentSize.height - y - headerHeightMin - 12), animated: true)
+        tableView.setContentOffset(CGPoint(x: 0, y: tableView.contentSize.height - y - 12), animated: true)
     }
 }

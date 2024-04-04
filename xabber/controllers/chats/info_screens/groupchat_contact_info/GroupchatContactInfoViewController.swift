@@ -98,7 +98,7 @@ class GroupchatContactInfoViewController: BaseViewController {
 //    var headerHeightMax: CGFloat = 304//256
 //    var headerHeightMin: CGFloat = 162//156
     
-    var headerHeightMax: CGFloat = 274
+    var headerHeightMax: CGFloat = 332
     var headerHeightMin: CGFloat = 180//150
     
     internal let headerView: InfoScreenHeaderView = {
@@ -127,7 +127,7 @@ class GroupchatContactInfoViewController: BaseViewController {
     }()
     
     internal let saveIndicator: UIBarButtonItem = {
-        let indicator = UIActivityIndicatorView(style: UIActivityIndicatorView.Style.gray)
+        let indicator = UIActivityIndicatorView(style: .medium)
         indicator.startAnimating()
         let button = UIBarButtonItem(customView: indicator)
         

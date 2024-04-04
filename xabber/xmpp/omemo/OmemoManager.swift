@@ -153,6 +153,8 @@ open class OmemoManager: AbstractXMPPManager {
                 instance.conversationType = .omemo
                 instance.messageDate = Date()
                 instance.primary = LastChatsStorageItem.genPrimary(jid: jid, owner: self.owner, conversationType: .omemo)
+                instance.isFreshNotEmptyEncryptedChat = true
+                instance.rosterItem = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: self.owner))
                 
                 try realm.write {
                     realm.add(instance, update: .modified)

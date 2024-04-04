@@ -136,7 +136,7 @@ class InfoScreenHeaderView: UIView {
         
         stack.axis = .vertical
         stack.alignment = .center
-        stack.distribution = .fill
+        stack.distribution = .equalCentering
         
         stack.spacing = 6
 //        stack.isLayoutMarginsRelativeArrangement = true
@@ -149,11 +149,13 @@ class InfoScreenHeaderView: UIView {
         let button = RoundedAvatarButton(frame: CGRect(square: 128),
                                          avatarMaskResourceName: AccountMasksManager.shared.mask128pt)
         
-        button.setContentHuggingPriority(.defaultLow, for: .vertical)
-        button.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        button.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        button.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+//        button.setContentHuggingPriority(.defaultLow, for: .vertical)
+//        button.setContentHuggingPriority(.defaultLow, for: .horizontal)
+//        button.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+//        button.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
         button.layer.masksToBounds = true
+        button.contentVerticalAlignment = .fill
+        button.contentHorizontalAlignment = .fill
         button.imageView?.contentMode = .scaleAspectFill
         button.contentMode = .scaleAspectFill
         
@@ -173,9 +175,10 @@ class InfoScreenHeaderView: UIView {
     
     let imageActivityIndicator: UIActivityIndicatorView = {
         let indicator = UIActivityIndicatorView()
+        
         indicator.translatesAutoresizingMaskIntoConstraints = false
         indicator.stopAnimating()
-        indicator.style = .white
+        indicator.style = .medium
         
         return indicator
     }()
@@ -188,17 +191,6 @@ class InfoScreenHeaderView: UIView {
         
         return view
     }()
-    
-//    let titleLabel: UILabel = {
-//        let label = UILabel()
-//
-//        label.font = UIFont.preferredFont(forTextStyle: .title1)
-//        label.adjustsFontSizeToFitWidth = true
-//        label.minimumScaleFactor = 0.5
-//        label.setContentCompressionResistancePriority(.defaultHigh, for: .vertical)
-//
-//        return label
-//    }()
     
     let subtitleLabel: UILabel = {
         let label = UILabel()
@@ -287,8 +279,7 @@ class InfoScreenHeaderView: UIView {
     let coloredView: UIView = {
         let view = UIView()
         
-//        view.backgroundColor = UIColor(white: 0.9, alpha: 0.5)
-        view.backgroundColor = .groupTableViewBackground
+        view.backgroundColor = .systemGroupedBackground
         
         return view
     }()
@@ -333,20 +324,20 @@ class InfoScreenHeaderView: UIView {
     }
     
     internal func activateConstraints() {
+        let offsetHeight: CGFloat = 0
+//        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
+//            offsetHeight += bottomInset
+//        }
         NSLayoutConstraint.activate([
-            imageButton.topAnchor.constraint(equalTo: stack.topAnchor, constant: 60),//20
-            imageButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 0), // было 60
-            imageButton.heightAnchor.constraint(lessThanOrEqualToConstant: 128),
-            imageButton.widthAnchor.constraint(equalTo: imageButton.heightAnchor, multiplier: 1),
+            imageButton.topAnchor.constraint(equalTo: stack.topAnchor, constant: offsetHeight),//20
+            imageButton.heightAnchor.constraint(equalToConstant: 128),
+            imageButton.heightAnchor.constraint(equalToConstant: 128),
+            imageButton.widthAnchor.constraint(equalToConstant: 128),//: imageButton.heightAnchor, multiplier: 1),
 //            titleButton.heightAnchor.constraint(lessThanOrEqualToConstant: 32),
             titleButton.heightAnchor.constraint(equalToConstant: 32),
-            subtitleLabel.heightAnchor.constraint(lessThanOrEqualToConstant: 18),
-            thirdLineLabel.heightAnchor.constraint(lessThanOrEqualToConstant: 18),
-            buttonsStack.heightAnchor.constraint(lessThanOrEqualToConstant: 84),
-            firstButton.widthAnchor.constraint(equalToConstant:  72),
-            secondButton.widthAnchor.constraint(equalToConstant: 72),
-            thirdButton.widthAnchor.constraint(equalToConstant:  72),
-            fourthButton.widthAnchor.constraint(equalToConstant: 72),
+            subtitleLabel.heightAnchor.constraint(equalToConstant: 18),
+            thirdLineLabel.heightAnchor.constraint(equalToConstant: 18),
+            buttonsStack.heightAnchor.constraint(equalToConstant: 64),
             buttonsStack.leftAnchor.constraint(equalTo: stack.leftAnchor, constant: 20),
             buttonsStack.rightAnchor.constraint(equalTo: stack.rightAnchor, constant: -20),
         ])
@@ -375,19 +366,19 @@ class InfoScreenHeaderView: UIView {
     var currentUrl: String? = ""
     
     public final func configure(avatarUrl: String?, jid: String, owner: String, userId: String?, title: String?, subtitle: String?, thirdLine: String? = nil, titleColor: UIColor? = nil) {
-        print("AAAAAAAAAAAAAAF", avatarUrl)
         if currentUrl != avatarUrl {
-            DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 256) { image in
+            DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 128) { image in
                 if let image = image {
                     self.imageButton.setImage(image, for: .normal)
                     self.currentUrl = avatarUrl
                 } else {
-                    self.imageButton.setImage(UIImageView.getDefaultAvatar(for: jid, owner: owner, size: 256), for: .normal)
+                    self.imageButton.setImage(UIImageView.getDefaultAvatar(for: jid, owner: owner, size: 128), for: .normal)
                 }
             }
         }
         
         titleButton.setTitle(title, for: .normal)
+        
         if CommonConfigManager.shared.config.supports_multiaccounts {
             self.subtitleLabel.text = jid
         } else {
@@ -416,22 +407,18 @@ class InfoScreenHeaderView: UIView {
         
         backgroundColor = .clear
         addSubview(stack)
-        if #available(iOS 11.0, *) {
-            if let topOffset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
-                stack.fillSuperviewWithOffset(top: topOffset, bottom: 4, left: 0, right: 0)
-            } else {
-                stack.fillSuperviewWithOffset(top: 0, bottom: 4, left: 0, right: 0)
-            }
+        if let topOffset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
+            stack.fillSuperviewWithOffset(top: topOffset, bottom: 4, left: 0, right: 0)
         } else {
             stack.fillSuperviewWithOffset(top: 0, bottom: 4, left: 0, right: 0)
         }
-        
-        
         stack.addArrangedSubview(imageButton)
         stack.addArrangedSubview(titleButton)
         stack.addArrangedSubview(subtitleLabel)
         stack.addArrangedSubview(thirdLineLabel)
         stack.addArrangedSubview(buttonsStack)
+        
+        stack.setCustomSpacing(16, after: imageButton)
         
         imageButton.imageView?.addSubview(darkenedView)
         imageButton.imageView?.addSubview(imageActivityIndicator)

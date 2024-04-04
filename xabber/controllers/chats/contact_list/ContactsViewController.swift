@@ -793,14 +793,7 @@ class ContactsViewController: BaseViewController {
     internal func onAccountNavButtonPress(_ sender: UIButton) {
         let vc = SettingsViewController() //AccountInfoViewController()
         vc.jid = self.topAccountJid
-        vc.isModal = false
-        self.navigationController?.pushViewController(vc, animated: true)
-//        let nvc = UINavigationController(rootViewController: vc)
-//        nvc.modalPresentationStyle = .fullScreen
-//        nvc.modalTransitionStyle = .coverVertical
-//        self.definesPresentationContext = true
-//        self.present(nvc, animated: true, completion: nil)
-    }
+        self.navigationController?.pushViewController(vc, animated: true)    }
     
     private final func configureNavbar() {
         navigationController?

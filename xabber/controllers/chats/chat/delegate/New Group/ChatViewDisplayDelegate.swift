@@ -229,6 +229,8 @@ extension ChatViewController: MessagesDisplayDelegate {
             }
         case .omemo, .omemo1, .axolotl:
             return "Encrypted chat"
+            case .notifications:
+                return "Notificastions"
         }
         
         

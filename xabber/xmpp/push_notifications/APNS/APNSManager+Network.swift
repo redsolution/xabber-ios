@@ -44,7 +44,7 @@ extension APNSManager {
             "Content-Type" : "application/json"
         ]
         
-        let hashString = [String(describing: UIDevice.current.identifierForVendor!), CommonConfigManager.shared.config.app_name].prp()
+        let hashString = [String(describing: UIDevice.current.identifierForVendor!), CommonConfigManager.shared.config.bundle_id, "prod"].prp()
         
         
         let params: [String: String] = [
@@ -91,7 +91,7 @@ extension APNSManager {
             "Authorization" : APNSManager.authKey(),
             "Content-Type" : "application/json"
         ]
-        let hashString = [String(describing: UIDevice.current.identifierForVendor!), CommonConfigManager.shared.config.app_name].prp()
+        let hashString = [String(describing: UIDevice.current.identifierForVendor!), CommonConfigManager.shared.config.bundle_id, "prod"].prp()
         
         let params = [
             "target": [jid, hashString].joined(separator: "/"),

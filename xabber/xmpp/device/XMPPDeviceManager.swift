@@ -384,7 +384,7 @@ class XMPPDeviceManager: AbstractXMPPManager {
                 let tokensToDelete = realm.objects(DeviceStorageItem.self).filter("owner == %@ AND NOT uid IN %@", self.owner, uids)
                 
                 realm.delete(tokensToDelete)
-                
+                let notificationInstances = realm.objects(NotificationStorageItem.self).filter("owner == %@ AND category_ == %@ AND shouldShow == false", self.owner, XMPPNotificationsManager.Category.device.rawValue)
                 query.elements(forName: "device").forEach { item in
                     if let uid = item.attributeStringValue(forName: "id"),
                        let client = item.element(forName: "client")?.stringValue,
@@ -395,6 +395,15 @@ class XMPPDeviceManager: AbstractXMPPManager {
                         let device = item.element(forName: "info")?.stringValue ?? ""
                         let omemoId = item.element(forName: "omemo-id")?.stringValueAsNSInteger()
                         let descr = item.element(forName: "description")?.stringValue
+                        
+                        if let notification = notificationInstances.first(where: { $0.metadata?["deviceId"] as? String == uid }) {
+                            var metadata = notification.metadata
+                            metadata?["ip"] = ip
+                            metadata?["client"] = client
+                            metadata?["device"] = device
+                            notification.metadata = metadata
+                            notification.shouldShow = true
+                        }
                         if let instance = realm.object(ofType: DeviceStorageItem.self, forPrimaryKey: [uid, self.owner].prp()) {
                             instance.client = client
                             instance.device = device
@@ -440,7 +449,7 @@ class XMPPDeviceManager: AbstractXMPPManager {
         }
 //        print(self.deviceId, deviceId)
         self.deviceId = deviceId
-        
+        CredentialsManager.shared.setXabberDeviceId(for: owner, deviceId: deviceId)
         CredentialsManager.shared.setItem(for: owner, secret: secret)
         let deviceInfo = [[UIDevice.modelName, ","].joined(),  "iOS", UIDevice.current.systemVersion].joined(separator: " ")
         let clientInfo = CommonConfigManager.shared.config.app_name

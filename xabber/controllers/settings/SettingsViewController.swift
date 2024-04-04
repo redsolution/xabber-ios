@@ -257,11 +257,13 @@ class SettingsViewController: BaseViewController {
     
     internal let tableView: UITableView = {
         let view = InsetGroupedTableView(frame: .zero)
+        
         view.register(AccountCell.self, forCellReuseIdentifier: AccountCell.cellName)
         view.register(UITableViewCell.self, forCellReuseIdentifier: "AddAccountCell")
         view.register(UITableViewCell.self, forCellReuseIdentifier: "SettingsItem")
         view.register(DeviceCell.self, forCellReuseIdentifier: DeviceCell.cellName)
         view.register(SettingsItemDetailViewController.SelectorCell.self, forCellReuseIdentifier: SettingsItemDetailViewController.SelectorCell.cellName)
+        
         return view
     }()
     
@@ -289,7 +291,6 @@ class SettingsViewController: BaseViewController {
     internal var datasource: [Datasource] = []
     internal var editButton: UIBarButtonItem? = nil
     internal var doneEditButton: UIBarButtonItem? = nil
-    internal var cancelButton: UIBarButtonItem? = nil
     internal var barButtonItemAddAccount: UIBarButtonItem? = nil
     
     internal let headerView: InfoScreenHeaderView = {
@@ -298,9 +299,9 @@ class SettingsViewController: BaseViewController {
         return view
     }()
     
-    var scrollViewContentOffsetYCopy: CGFloat = 0
-    var headerHeightMax: CGFloat = 254
-    var headerHeightMin: CGFloat = 0
+//    var scrollViewContentOffsetYCopy: CGFloat = 0
+    var headerHeightMax: CGFloat = 232
+//    var headerHeightMin: CGFloat = 0
     var nickname = ""
     
     internal var resources: Results<ResourceStorageItem>? = nil
@@ -316,7 +317,6 @@ class SettingsViewController: BaseViewController {
     var quota: String = ""
     var used: String = ""
     
-    var isModal: Bool = false
     var shouldShowTabBar: Bool = false
     
     internal func subscribe() {
@@ -484,14 +484,16 @@ class SettingsViewController: BaseViewController {
     }
     
     func navigationBarButtonsConfigure(multiAccounts: Bool) {
-        
-        cancelButton = isModal ? UIBarButtonItem(title: "Close".localizeString(id: "close", arguments: []), style: .plain, target: self, action: #selector(dismissScreen)) : nil
         barButtonItemAddAccount = (CommonConfigManager.shared.config.supports_multiaccounts && !multiAccounts) ?
         UIBarButtonItem(image: #imageLiteral(resourceName: "contact-add").withRenderingMode(.alwaysTemplate),
                         style: .plain,
                         target: self,
                         action: #selector(addAccount)) : nil
-        navigationItem.setLeftBarButtonItems([cancelButton, barButtonItemAddAccount].compactMap { $0 } , animated: false)
+        if (CommonConfigManager.shared.config.supports_multiaccounts && !multiAccounts) {
+            navigationItem.leftItemsSupplementBackButton = true
+            navigationItem.setLeftBarButtonItems([barButtonItemAddAccount].compactMap { $0 } , animated: false)
+        }
+        
         
         if multiAccounts {
             if self.tableView.isEditing {
@@ -614,11 +616,6 @@ class SettingsViewController: BaseViewController {
             }
         }
         
-        
-        if isModal {
-            return
-        }
-
         var interfaceChilds = [
             Datasource(section: .chat, title: Datasource.Section.chat.description(), childs: [
                 Datasource(section: .chat, title: "Background", itemType: .selector,
@@ -717,12 +714,8 @@ class SettingsViewController: BaseViewController {
     
     internal func configure() {
         self.navigationItem.backButtonTitle = "Settings".localizeString(id: "settings", arguments: [])
-        if let topOffset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
-            headerHeightMax += topOffset
-            headerHeightMin += topOffset
-        }
         view.addSubview(tableView)
-        tableView.fillSuperview()
+//        tableView.fillSuperview()
         
         do {
             let realm = try WRealm.safe()
@@ -760,15 +753,16 @@ class SettingsViewController: BaseViewController {
     }
     
     func headerViewConfig() {
-        if view.subviews.contains(headerView) {
-            return
-        }
-        self.headerView.frame = CGRect(x: 0, y: -(scrollViewContentOffsetYCopy + headerHeightMax - 20), width: view.frame.width, height: headerHeightMax)
-        self.view.addSubview(headerView)
-        tableView.contentInset = UIEdgeInsets(top: headerHeightMax - 100, bottom: 0, left: 0, right: 0)
-        tableView.setContentOffset(CGPoint(x: 0, y: -(headerHeightMax - 20)), animated: false)
-        headerView.delegate = self
-        headerView.buttonsStack.isHidden = true
+        tableView.fillSuperviewWithOffset(top: -56, bottom: 0, left: 0, right: 0)
+        tableView.delegate = self
+        tableView.dataSource = self
+        headerView.frame = CGRect(
+            width: view.frame.width,
+            height: headerHeightMax
+        )
+        tableView.tableHeaderView = headerView
+        self.headerView.delegate = self
+        self.headerView.buttonsStack.isHidden = true
     }
     
     override func reloadDatasource() {
@@ -811,15 +805,15 @@ class SettingsViewController: BaseViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         
-        XMPPUIActionManager.shared.performRequest(owner: self.jid) { stream, session in
-            session.blocked?.requestBlocklist(stream)
-            session.vcardManager?.requestItem(stream, jid: self.jid)
-        } fail: {
-            AccountManager.shared.find(for: self.jid)?.action({ (user, stream) in
-                user.blocked.requestBlocklist(stream)
-                user.vcards.requestItem(stream, jid: self.jid)
-            })
-        }
+//        XMPPUIActionManager.shared.performRequest(owner: self.jid) { stream, session in
+//            session.blocked?.requestBlocklist(stream)
+//            session.vcardManager?.requestItem(stream, jid: self.jid)
+//        } fail: {
+//            AccountManager.shared.find(for: self.jid)?.action({ (user, stream) in
+//                user.blocked.requestBlocklist(stream)
+//                user.vcards.requestItem(stream, jid: self.jid)
+//            })
+//        }
     }
     
     override func viewWillDisappear(_ animated: Bool) {

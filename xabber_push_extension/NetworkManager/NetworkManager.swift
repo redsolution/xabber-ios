@@ -27,17 +27,17 @@ class NetworkManager: NSObject {
     private var url: URL
     private var token: String
     private var jid: String
-    private var password: String
+    private var deviceId: String
     
     public var delegate: PushPayloadDelegate? = nil
     
-    init(service url: String, jid: String, token: String, password: String) {
+    init(service url: String, jid: String, deviceId: String, token: String) {
         guard let url = URL(string: url) else {
             fatalError()
         }
         self.jid = jid
-        self.password = password
         self.token = token
+        self.deviceId = deviceId
         self.url = url
     }
     
@@ -52,23 +52,26 @@ class NetworkManager: NSObject {
         let formedUrl = components.url!
         var request = URLRequest(url: formedUrl)
         request.httpMethod = "GET"
-        request.addValue(host, forHTTPHeaderField: "XMPP-Domain")
-        if token.isNotEmpty {
-            request.addValue("Bearer \(self.token)", forHTTPHeaderField: "Authorization")
-        } else if password.isNotEmpty {
-            let credentials = "\(jid):\(password)".toBase64()
-            request.addValue("Basic \(credentials)", forHTTPHeaderField: "Authorization")
-        } else {
-            fatalError()
-        }
-//        print("request", request, request.httpMethod, request.httpBody, request.allHTTPHeaderFields)
+        request.addValue(host, forHTTPHeaderField: "Xmpp-Domain")
+//        request.addValue("Bearer \(self.token)", forHTTPHeaderField: "Authorization")
+        
+        let credentials = "\(self.jid)/\(self.deviceId):\(self.token)".toBase64()
+        request.addValue("Basic \(credentials)", forHTTPHeaderField: "Authorization")
+        
         let task = URLSession.shared.dataTask(with: request) { (data, response, error) in
             if let data = data,
                let message = String(data: data, encoding: .utf8),
                let document = try? DDXMLDocument(xmlString: "<root>\(message)</root>", options: 0),
                let element = document.rootElement()?.elements(forName: "message").first {
                 self.read(message: element)
-                print(element.prettyXMLString())
+            } else {
+                if let data = data,
+                   let message = String(data: data, encoding: .utf8) {
+                    self.delegate?.didDisconnectWithError(message)
+                } else {
+                    self.delegate?.didDisconnectWithError("\((response as? HTTPURLResponse)?.description)")
+                }
+                
             }
         }
         task.resume()

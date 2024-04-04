@@ -208,7 +208,7 @@ class APNSManager: NSObject {
         guard AccountManager.shared.find(for: decoratedJid.bare) != nil else {
             throw APNSError.userNotExist
         }
-        
+        print("REGISTR INFO", registrationInfo.node, service)
         AccountManager.shared.find(for: decoratedJid.bare)?.update(forPushNode: registrationInfo.node!, withService: service)
 //        PushLogger.shared.push("receive node & service of push service for \(jid)")
         

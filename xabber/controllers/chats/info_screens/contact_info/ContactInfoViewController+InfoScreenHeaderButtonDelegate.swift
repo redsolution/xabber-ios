@@ -46,8 +46,7 @@ extension ContactInfoViewController: InfoScreenHeaderButtonDelegate {
     }
     
     func onSecondButtonPressed() {
-//        print(#function)
-        VoIPManager.shared.startCall(owner: self.owner, jid: self.jid)
+        onStartEncryptedChat()
     }
     
     func onThirdButtonPressed() {
@@ -109,6 +108,22 @@ extension ContactInfoViewController: InfoScreenHeaderButtonDelegate {
         let chatVc = ChatViewController()
         chatVc.owner = self.owner
         chatVc.jid = self.jid
+        chatVc.conversationType = self.conversationType
+        navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
+        navigationController?.navigationBar.shadowImage = nil
+        if let rootVc = navigationController?.viewControllers.first {
+            navigationController?.setViewControllers([rootVc, chatVc], animated: true)
+        } else {
+            navigationController?.pushViewController(chatVc, animated: true)
+        }
+    }
+    
+    internal func onStartEncryptedChat() {
+        AccountManager.shared.find(for: self.owner)?.omemo.initChat(jid: self.jid)
+        let chatVc = ChatViewController()
+        chatVc.owner = self.owner
+        chatVc.jid = self.jid
+        chatVc.conversationType = .omemo
         navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
         navigationController?.navigationBar.shadowImage = nil
         if let rootVc = navigationController?.viewControllers.first {

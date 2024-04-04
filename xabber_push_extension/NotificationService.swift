@@ -24,7 +24,7 @@ import KissXML
 import CryptoSwift
 
 class NotificationService: UNNotificationServiceExtension {
-    static let suitName: String = "group.com.xabber"
+    static let suitName: String = "group.com.xabber.push"
     
     enum InviteKind: String {
         case group = "group"
@@ -219,6 +219,7 @@ class NotificationService: UNNotificationServiceExtension {
     var creditionals: [String: Any] = [:]
     var owner: String = ""
     var identifier: String = ""
+    var deviceId: String? = nil
     
     var notificationType: Actions = .none
     
@@ -274,12 +275,37 @@ class NotificationService: UNNotificationServiceExtension {
     }
     
     private func retrieveCreditionals(for key: String) -> String? {
-        //let uniqueServiceName = "clandestino.keychain"
-        //let uniqueAccessGroup = "group.clandestino"
-//        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-//                                       accessGroup: CredentialsManager.uniqueAccessGroup())
-//        return keychain.string(forKey: key)
-        return nil
+//        let uniqueServiceName = "clandestino.keychain"
+//        let uniqueAccessGroup = "group.clandestino"
+        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
+                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+        return keychain.string(forKey: key)
+//        return nil
+    }
+    
+    var pushData: CredentialsManager.PushSecretData? = nil
+    
+    func loadCredentials(for node: String, payload: PayloadData, retry: Int = 0) {
+        do {
+            let pushSecrets = try CredentialsManager.staticGetPushCredentials(for: node)
+            self.owner = pushSecrets.jid
+            self.pushData = pushSecrets
+            self.deviceId = CredentialsManager.getXabberDeviceId(for: self.owner)
+            self.notificationType = payload.action
+            self.action(for: payload)
+        } catch {
+            if retry > 100 {
+                if let bestAttemptContent = bestAttemptContent {
+                    bestAttemptContent.title = CommonConfigManager.shared.config.app_name
+                    bestAttemptContent.body = "node:\(node), bad secret: \(error)"
+                    self.contentHandler?(bestAttemptContent)
+                }
+                return
+            } else {
+                self.loadCredentials(for: node, payload: payload, retry: retry + 1)
+            }
+            
+        }
     }
     
     override func didReceive(_ request: UNNotificationRequest, withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
@@ -290,7 +316,7 @@ class NotificationService: UNNotificationServiceExtension {
         bestAttemptContent?.sound = .default
         bestAttemptContent?.title = CommonConfigManager.shared.config.app_name
         bestAttemptContent?.body = "New message"
-        contentHandler(bestAttemptContent!)
+//        contentHandler(bestAttemptContent!)
 //        return
         payload = "\(request.content.userInfo)"
 //        print(payload)
@@ -300,29 +326,21 @@ class NotificationService: UNNotificationServiceExtension {
             guard let body = request.content.userInfo["body"] as? String,
                 let payload = parse(payload: body) else {
                 bestAttemptContent.title = CommonConfigManager.shared.config.app_name
-                bestAttemptContent.body = "New message"
+                bestAttemptContent.body = "fail to parse"
                 contentHandler(bestAttemptContent)
                 return
             }
-
-//            print("REQUEST USER INFO")
-//            print(request.content.userInfo)
-
-            let creditionals = getAccounts(request.content.userInfo)
-            guard let username = creditionals["username"] as? String,
-                let host = creditionals["host"] as? String else {
-                    bestAttemptContent.title = CommonConfigManager.shared.config.app_name
-                    bestAttemptContent.body = "New message"
-                    contentHandler(bestAttemptContent)
-                    return
+            
+            guard let node = request.content.userInfo["target"] as? String else {
+                bestAttemptContent.title = CommonConfigManager.shared.config.app_name
+                bestAttemptContent.body = "bad node: \(request.content.userInfo["target"] as? String ?? "")"
+                contentHandler(bestAttemptContent)
+                return
             }
-            self.owner = [username, host].joined(separator: "@")
-            notificationType = payload.action
-            action(for: payload)
+            self.loadCredentials(for: node, payload: payload)
+            
         } else {
-            self.contentHandler = nil
-            UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [identifier])
-            UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [identifier])
+            return
         }
     }
     
@@ -350,87 +368,67 @@ class NotificationService: UNNotificationServiceExtension {
     }
     
     internal func onMessage(_ payload: PayloadData) {
-        let hotp = HOTPAuth(jid: owner)
-        let hotpPassword = hotp.getHOTPValueFor()
-        var password = hotpPassword ?? ""
-        var token = ""
-        if password.isEmpty {
-            password = retrieveCreditionals(for: owner) ?? ""
-            token = retrieveCreditionals(for: [owner, "token"].joined(separator: "_")) ?? ""
-        }
-        
-        guard let secret = creditionals["secret"] as? String,
-            password.isNotEmpty || token.isNotEmpty else {
-                bestAttemptContent?.title = CommonConfigManager.shared.config.app_name
-                bestAttemptContent?.body = "New message"
-                contentHandler?(bestAttemptContent!)
-            return
-        }
-        let stanzaId = payload.messageStanzaID(key: secret)
-        let remoteArchiveJid = stanzaId?.by == owner ? nil : stanzaId?.by
-        if let get_url = creditionals["get_url"] as? String {
-            let manager = NetworkManager(
-                service: get_url,
-                jid: self.owner,
-                token: token,
-                password: password
-            )
-            guard let host = creditionals["host"] as? String else {
-                fatalError()
-            }
-            manager.delegate = self
-            manager.getMessage(host: host, messageId: stanzaId!.id, by: remoteArchiveJid)
-        } else {
-            ws = WebsocketManager(self.owner,
-                                  resource: self.creditionals["resource"] as? String ?? "xabber-push-service",
-                                  password: password,
-                                  token: token,
-                                  stanzaId: stanzaId?.id,
-                                  websocketUrl: creditionals["websocket_url"] as? String,
-                                  remoteArchiveJid: remoteArchiveJid)
-            ws?.connect()
-            ws?.delegate = self
-        }
-    }
-    
-    internal func onSubscribe(_ payload: PayloadData) {
-        let hotp = HOTPAuth(jid: owner)
-        let hotpPassword = hotp.getHOTPValueFor()
-        let password = retrieveCreditionals(for: owner) ?? hotpPassword ?? ""
-        let token = retrieveCreditionals(for: [owner, "token"].joined(separator: "_")) ?? ""
-        
-        guard password.isNotEmpty || token.isNotEmpty,
-            let content = self.bestAttemptContent,
-            let secret = creditionals["secret"] as? String else {
+        guard let pushData = self.pushData else {
             bestAttemptContent?.title = CommonConfigManager.shared.config.app_name
-            bestAttemptContent?.body = "Incoming chat request"
+            bestAttemptContent?.body = "ERROR \(payload.action.rawValue)"
             contentHandler?(bestAttemptContent!)
             return
         }
-        guard let from = payload.subscribtionRequestFrom(key: secret) else {
-//            content.subtitle = "Error on decrypt"
-            contentHandler?(content)
-            return
-        }
-//        if let stanza = payload.subscribtionRequestStanza(key: secret) {
-//            let defaults  = UserDefaults.init(suiteName: NotificationService.suitName)
-//            var stanzas: [String] = defaults?.object(forKey: "com.xabber.presences.temporary.\(owner)") as? [String] ?? []
-//            stanzas.append(stanza)
-//            defaults?.set(stanzas, forKey: "com.xabber.presences.temporary.\(owner)")
-//        }
-        ws = WebsocketManager(
-            self.owner,
-            resource: self.creditionals["resource"] as? String ?? "xabber-push-service",
-            password: password,
-            token: "",//token,
-            stanzaId: nil,
-            websocketUrl: creditionals["websocket_url"] as? String,
-            remoteArchiveJid: nil,
-            isVcardRequest: true,
-            vcardJid: from
+        let hotp = HOTPAuth(jid: owner)
+        let token = hotp.getTOTPValueForTest()
+        let stanzaId = payload.messageStanzaID(key: pushData.secret)
+        let remoteArchiveJid = stanzaId?.by == pushData.jid ? nil : stanzaId?.by
+        let manager = NetworkManager(
+            service: pushData.service,
+            jid: pushData.jid,
+            deviceId: self.deviceId ?? "",
+            token: token!
         )
-        ws?.connect()
-        ws?.delegate = self
+        manager.delegate = self
+        manager.getMessage(host: pushData.host, messageId: stanzaId!.id, by: remoteArchiveJid)
+    }
+    
+    internal func onSubscribe(_ payload: PayloadData) {
+        bestAttemptContent?.title = CommonConfigManager.shared.config.app_name
+        if let from = payload.subscribtionRequestFrom(key: pushData?.secret ?? "") {
+            bestAttemptContent?.body = "Incoming chat request from \(from)"
+        } else {
+            bestAttemptContent?.body = "Incoming chat request"
+        }
+        contentHandler?(bestAttemptContent!)
+        return
+//        guard password.isNotEmpty || token.isNotEmpty,
+//            let content = self.bestAttemptContent,
+//            let secret = creditionals["secret"] as? String else {
+//            bestAttemptContent?.title = CommonConfigManager.shared.config.app_name
+//            bestAttemptContent?.body = "Incoming chat request"
+//            contentHandler?(bestAttemptContent!)
+//            return
+//        }
+//        guard let from = payload.subscribtionRequestFrom(key: secret) else {
+////            content.subtitle = "Error on decrypt"
+//            contentHandler?(content)
+//            return
+//        }
+////        if let stanza = payload.subscribtionRequestStanza(key: secret) {
+////            let defaults  = UserDefaults.init(suiteName: NotificationService.suitName)
+////            var stanzas: [String] = defaults?.object(forKey: "com.xabber.presences.temporary.\(owner)") as? [String] ?? []
+////            stanzas.append(stanza)
+////            defaults?.set(stanzas, forKey: "com.xabber.presences.temporary.\(owner)")
+////        }
+//        ws = WebsocketManager(
+//            self.owner,
+//            resource: self.creditionals["resource"] as? String ?? "xabber-push-service",
+//            password: password,
+//            token: "",//token,
+//            stanzaId: nil,
+//            websocketUrl: creditionals["websocket_url"] as? String,
+//            remoteArchiveJid: nil,
+//            isVcardRequest: true,
+//            vcardJid: from
+//        )
+//        ws?.connect()
+//        ws?.delegate = self
         
     }
     
@@ -485,20 +483,17 @@ class NotificationService: UNNotificationServiceExtension {
     }
     
     internal func onUpdate(_ payload: PayloadData) {
-        let hotp = HOTPAuth(jid: owner)
-        let hotpPassword = hotp.getHOTPValueFor()
-        let password = retrieveCreditionals(for: owner) ?? hotpPassword ?? ""
-        let token = retrieveCreditionals(for: [owner, "token"].joined(separator: "_")) ?? ""
-
-        
-        guard let secret = creditionals["secret"] as? String,
-            password.isNotEmpty || token.isNotEmpty else {
-            bestAttemptContent?.title = "Xabber"
-            bestAttemptContent?.body = "New \(payload.action.rawValue)"
+        self.editMark = "✏️"
+        guard let pushData = self.pushData else {
+            bestAttemptContent?.title = CommonConfigManager.shared.config.app_name
+            bestAttemptContent?.body = "ERROR \(payload.action.rawValue)"
             contentHandler?(bestAttemptContent!)
             return
         }
-        let stanzaId = payload.messageStanzaID(key: secret)
+        let hotp = HOTPAuth(jid: owner)
+        let token = hotp.getTOTPValueForTest()
+        let stanzaId = payload.messageStanzaID(key: pushData.secret)
+        let remoteArchiveJid = stanzaId?.by == pushData.jid ? nil : stanzaId?.by
         UNUserNotificationCenter
             .current()
             .getDeliveredNotifications { (notifications) in
@@ -511,32 +506,14 @@ class NotificationService: UNNotificationServiceExtension {
                             .removeDeliveredNotifications(withIdentifiers: [identifier])
                 }
             }
-        
-        self.editMark = "✏️"
-        let remoteArchiveJid = stanzaId?.by == owner ? nil : stanzaId?.by
-        if let get_url = creditionals["get_url"] as? String {
-            let manager = NetworkManager(
-                service: get_url,
-                jid: self.owner,
-                token: token,
-                password: password
-            )
-            guard let host = creditionals["host"] as? String else {
-                fatalError()
-            }
-            manager.delegate = self
-            manager.getMessage(host: host, messageId: stanzaId!.id, by: remoteArchiveJid)
-        } else {
-            ws = WebsocketManager(self.owner,
-                                  resource: self.creditionals["resource"] as? String ?? "xabber-push-service",
-                                  password: password,
-                                  token: token,
-                                  stanzaId: stanzaId?.id,
-                                  websocketUrl: creditionals["websocket_url"] as? String,
-                                  remoteArchiveJid: remoteArchiveJid)
-            ws?.connect()
-            ws?.delegate = self
-        }
+        let manager = NetworkManager(
+            service: pushData.service,
+            jid: pushData.jid,
+            deviceId: self.deviceId ?? "",
+            token: token!
+        )
+        manager.delegate = self
+        manager.getMessage(host: pushData.host, messageId: stanzaId!.id, by: remoteArchiveJid)
     }
 }
 
@@ -547,21 +524,21 @@ extension NotificationService: PushPayloadDelegate {
     }
     
     func didDisconnectWithError(_ error: String) {
-        if retryCount < 5 {
-            Timer.scheduledTimer(withTimeInterval: 2, repeats: false) { _ in
-                self.ws?.connect()
-                self.retryCount += 1
-            }
-        } else {
+//        if retryCount < 5 {
+//            Timer.scheduledTimer(withTimeInterval: 2, repeats: false) { _ in
+//                self.ws?.connect()
+//                self.retryCount += 1
+//            }
+//        } else {
             if let bestAttemptContent = bestAttemptContent {
                 bestAttemptContent.body = error
-                bestAttemptContent.title = "st4 New message \(error)"//.localizeString(id: "new_chat_messages", arguments: [])
-                if owner.isNotEmpty {
-                    bestAttemptContent.body = "To \(self.owner)"
-                }
+                bestAttemptContent.title = "st4"//.localizeString(id: "new_chat_messages", arguments: [])
+//                if owner.isNotEmpty {
+//                    bestAttemptContent.body = "To \(self.owner)"
+//                }
                 contentHandler?(bestAttemptContent)
             }
-        }
+//        }
     }
     
     private final func updateContentFor(message payload: [String : String]) {

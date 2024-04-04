@@ -204,20 +204,22 @@ extension GroupchatInfoViewController: UITableViewDataSource {
     
     
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        let value = scrollView.contentOffset.y
-        var height = abs(value)
-        if height > self.headerHeightMax {
-            height = self.headerHeightMax
-        }
-        if height < self.headerHeightMin {
-            height = self.headerHeightMin
-        }
-        if value < 0 {
-            UIView.performWithoutAnimation {
-                self.headerView.frame = CGRect(x: 0, y: 0, width: self.view.frame.width, height: height)
-                self.headerView.update()
-            }
-        }
+//        let value = scrollView.contentOffset.y
+////        self.scrollViewContentOffsetYCopy = value
+//        var height = abs(value)
+//        print(value)
+//        if height > self.headerHeightMax {
+//            height = self.headerHeightMax
+//        }
+//        if height < self.headerHeightMin {
+//            height = self.headerHeightMin
+//            self.navigationController?.setNavigationBarHidden(false, animated: true)
+//        }
+//        if value < 0 {
+//            UIView.performWithoutAnimation {
+//                self.headerView.frame = CGRect(x: 0, y: -(value + headerHeightMax - 20), width: view.frame.width, height: headerHeightMax)
+//            }
+//        }
     }
 }
 

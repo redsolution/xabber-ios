@@ -309,7 +309,7 @@ class ApplicationStateManager: NSObject {
                             .sorted(byKeyPath: "date", ascending: false)
                             .first
                         $0.lastMessage = lastMessage
-                        $0.lastMessageId = lastMessage?.messageId ?? ""
+//                        $0.lastMessageId = lastMessage?.messageId ?? ""
                     }
                 }
             }

@@ -63,6 +63,8 @@ extension ContactInfoViewController: UITableViewDelegate {
                 editCircles()
             case "fingerprints":
                 showFingerprints()
+            case "start_encrypted_chat":
+                onStartEncryptedChat()
             default: break
             }
         }

@@ -55,32 +55,16 @@ extension ContactsViewController {
                     vc.isModal = false
                     vc.configure(for: jid)
                     self.navigationController?.pushViewController(vc, animated: true)
-//                    let nvc = UINavigationController(rootViewController: vc)
-//                    nvc.modalPresentationStyle = .fullScreen
-//                    nvc.modalTransitionStyle = .coverVertical
-//                    self.definesPresentationContext = true
-//                    self.present(nvc, animated: true, completion: nil)
                 case "settings":
-                    let vc = SettingsViewController() //AccountInfoViewController()
-                    vc.isModal = false
+                    let vc = SettingsViewController()
                     vc.jid = jid
                     self.navigationController?.pushViewController(vc, animated: true)
-//                    let nvc = UINavigationController(rootViewController: vc)
-//                    nvc.modalPresentationStyle = .fullScreen
-//                    nvc.modalTransitionStyle = .coverVertical
-//                    self.definesPresentationContext = true
-//                    self.present(nvc, animated: true, completion: nil)
                 case "add-contact":
                     let vc = AddContactViewController()
                     vc.isModal = false
                     vc.owner = jid
                     vc.delegate = self
                     self.navigationController?.pushViewController(vc, animated: true)
-//                    let nvc = UINavigationController(rootViewController: vc)
-//                    nvc.modalPresentationStyle = .fullScreen
-//                    nvc.modalTransitionStyle = .coverVertical
-//                    self.definesPresentationContext = true
-//                    self.present(nvc, animated: true, completion: nil)
                 default: break
                 }
             }

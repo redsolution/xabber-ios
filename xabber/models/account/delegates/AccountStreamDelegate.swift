@@ -236,6 +236,7 @@ extension Account: XMPPStreamDelegate {
             AccountManager.shared.markAsConnected(jid: jid)
             break
         case self.omemo.read(withIQ: iq): break
+        case self.notifications.read(withIQ: iq): break
         case self.x509Manager.read(withIQ: iq): break
         default: return false
         }
@@ -289,6 +290,9 @@ extension Account: XMPPStreamDelegate {
         switch message.messageType ?? .chat {
             case .chat, .normal:
 
+            if self.notifications.read(withMessage: message) {
+                return
+            }
             if self.groupchats.readMessage(withMessage: message) {
                 return
             }

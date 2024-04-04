@@ -299,7 +299,6 @@ class LastCallsViewController: BaseViewController {
     internal func onAccountNavButtonPress(_ sender: UIButton) {
         let vc = SettingsViewController() //AccountInfoViewController()
         vc.jid = self.topAccountJid
-        vc.isModal = true
         let nvc = UINavigationController(rootViewController: vc)
         nvc.modalPresentationStyle = .fullScreen
         nvc.modalTransitionStyle = .coverVertical

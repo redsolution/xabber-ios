@@ -80,6 +80,7 @@ final class Account: NSObject {
     var x509Manager: X509XMPPManager
     var omemo: OmemoManager
     var deliveryReceipts: MessageDeliveryReceipts
+    var notifications: XMPPNotificationsManager
     
     var smStorage: XMPPStreamManagementMemoryStorage
     var sm: XMPPStreamManagement
@@ -166,6 +167,7 @@ final class Account: NSObject {
         self.smStorage = XMPPStreamManagementMemoryStorage()
         self.sm = XMPPStreamManagement(storage: self.smStorage, dispatchQueue: queue)
         self.deliveryReceipts = MessageDeliveryReceipts(withOwner: self.jid)
+        self.notifications = XMPPNotificationsManager(withOwner: self.jid)
         // start init NSObject
         super.init()
         self.registerModules()
@@ -327,6 +329,7 @@ final class Account: NSObject {
  **/
     @objc
     public final func connect() {
+        
         if self.delayedConnectTimer != nil {
             self.delayedConnectTimer?.invalidate()
             self.delayedConnectTimer = nil

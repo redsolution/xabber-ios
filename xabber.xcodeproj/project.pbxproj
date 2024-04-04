@@ -110,6 +110,7 @@
 		660AE35F238574CA00E7FC00 /* CreateNewGroupViewController+DescriptionCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660AE35E238574CA00E7FC00 /* CreateNewGroupViewController+DescriptionCell.swift */; };
 		660B4A4C28C8A72300C39903 /* CredentialsExpiredViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660B4A4B28C8A72300C39903 /* CredentialsExpiredViewController.swift */; };
 		660B4A4E28C8AC6400C39903 /* CredentialsExpiredPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660B4A4D28C8AC6400C39903 /* CredentialsExpiredPresenter.swift */; };
+		660B6DAE2BBC152F0040E20E /* NotificationsListViewController+ItemCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660B6DAD2BBC152F0040E20E /* NotificationsListViewController+ItemCell.swift */; };
 		660D497D2653C9AA00480A75 /* whitelabel_res.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 660D497C2653C9AA00480A75 /* whitelabel_res.xcassets */; };
 		660D49802653CFBA00480A75 /* SignUpBaseViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660D497F2653CFBA00480A75 /* SignUpBaseViewController.swift */; };
 		660F27DF2202DBB600A11AAC /* ResourceInfoViewController+StatusCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660F27DE2202DBB600A11AAC /* ResourceInfoViewController+StatusCell.swift */; };
@@ -560,6 +561,8 @@
 		66C1C9FE220180EA00EF8F4C /* XCopyableLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C1C9FD220180EA00EF8F4C /* XCopyableLabel.swift */; };
 		66C1CA012201BF3100EF8F4C /* ResourceInfoViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C1CA002201BF3000EF8F4C /* ResourceInfoViewController.swift */; };
 		66C23EC120CA6C3700F98C2E /* BadgedButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C23EC020CA6C3700F98C2E /* BadgedButton.swift */; };
+		66C28E792BA87098000AF10B /* XMPPNotificationsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C28E782BA87098000AF10B /* XMPPNotificationsManager.swift */; };
+		66C28E7B2BA87845000AF10B /* XMPPNotificationsManagerStorageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C28E7A2BA87845000AF10B /* XMPPNotificationsManagerStorageItem.swift */; };
 		66C3CEDF26145EC70028EBAE /* XMPPBackgroundTask+EndTaskDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C3CEDE26145EC70028EBAE /* XMPPBackgroundTask+EndTaskDelegate.swift */; };
 		66C50C3428676AF900460BA0 /* TrustedDeviceTableCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C50C3328676AF900460BA0 /* TrustedDeviceTableCell.swift */; };
 		66C5807E246BD45C006D3A71 /* SettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C5807D246BD45C006D3A71 /* SettingsViewController.swift */; };
@@ -631,6 +634,7 @@
 		66DF9E5A2B2B3D1E00D454A3 /* ImageToBase64.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6652EB44203BF95B0088C8FA /* ImageToBase64.swift */; };
 		66E024CF228A8B1F00796184 /* SDPParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66E024CE228A8B1F00796184 /* SDPParser.swift */; };
 		66E125782487E3B2005D096B /* ContactsViewController+AddContactDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66E125772487E3B2005D096B /* ContactsViewController+AddContactDelegate.swift */; };
+		66E319102BA8550300F149B1 /* NotificationsListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66E3190F2BA8550300F149B1 /* NotificationsListViewController.swift */; };
 		66E452C32A70390A00E7DF03 /* DeliveryReceiptsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66E452C22A70390A00E7DF03 /* DeliveryReceiptsManager.swift */; };
 		66E5A9832B29DF4D00C097B5 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66E5A9822B29DF4D00C097B5 /* NotificationService.swift */; };
 		66E5A9872B29DF4D00C097B5 /* xabber_push_extension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 66E5A9802B29DF4D00C097B5 /* xabber_push_extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -669,6 +673,8 @@
 		66F1F8092715903C00F67C08 /* CredentialsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F1F8082715903C00F67C08 /* CredentialsManager.swift */; };
 		66F2566424A376F9002FC961 /* XMPPActionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F2566324A376F9002FC961 /* XMPPActionManager.swift */; };
 		66F2566624A379FF002FC961 /* XMPPActionManager+XMPPStreamDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F2566524A379FF002FC961 /* XMPPActionManager+XMPPStreamDelegate.swift */; };
+		66F41D692BA1DB060042ECC9 /* credential_store.plist in Resources */ = {isa = PBXBuildFile; fileRef = 6662AA92291BCC4E001A6D59 /* credential_store.plist */; };
+		66F41D6A2BA1DC060042ECC9 /* CredentialsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F1F8082715903C00F67C08 /* CredentialsManager.swift */; };
 		66F453AB261C36AE0086983D /* MessageSizeCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F453AA261C36AE0086983D /* MessageSizeCache.swift */; };
 		66F6A66022D5C554007B7A29 /* LastChatsViewController+EmptyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F6A65F22D5C554007B7A29 /* LastChatsViewController+EmptyView.swift */; };
 		66F7511D23E2ADDE00A26CE9 /* ChatViewController+HighPrioritySubscribtions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F7511C23E2ADDE00A26CE9 /* ChatViewController+HighPrioritySubscribtions.swift */; };
@@ -1063,6 +1069,7 @@
 		660AE35E238574CA00E7FC00 /* CreateNewGroupViewController+DescriptionCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CreateNewGroupViewController+DescriptionCell.swift"; sourceTree = "<group>"; };
 		660B4A4B28C8A72300C39903 /* CredentialsExpiredViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialsExpiredViewController.swift; sourceTree = "<group>"; };
 		660B4A4D28C8AC6400C39903 /* CredentialsExpiredPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialsExpiredPresenter.swift; sourceTree = "<group>"; };
+		660B6DAD2BBC152F0040E20E /* NotificationsListViewController+ItemCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NotificationsListViewController+ItemCell.swift"; sourceTree = "<group>"; };
 		660D497C2653C9AA00480A75 /* whitelabel_res.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = whitelabel_res.xcassets; sourceTree = "<group>"; };
 		660D497F2653CFBA00480A75 /* SignUpBaseViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignUpBaseViewController.swift; sourceTree = "<group>"; };
 		660F27DE2202DBB600A11AAC /* ResourceInfoViewController+StatusCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ResourceInfoViewController+StatusCell.swift"; sourceTree = "<group>"; };
@@ -1518,6 +1525,8 @@
 		66C1C9FD220180EA00EF8F4C /* XCopyableLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XCopyableLabel.swift; sourceTree = "<group>"; };
 		66C1CA002201BF3000EF8F4C /* ResourceInfoViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResourceInfoViewController.swift; sourceTree = "<group>"; };
 		66C23EC020CA6C3700F98C2E /* BadgedButton.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = BadgedButton.swift; sourceTree = "<group>"; };
+		66C28E782BA87098000AF10B /* XMPPNotificationsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XMPPNotificationsManager.swift; sourceTree = "<group>"; };
+		66C28E7A2BA87845000AF10B /* XMPPNotificationsManagerStorageItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XMPPNotificationsManagerStorageItem.swift; sourceTree = "<group>"; };
 		66C3CEDE26145EC70028EBAE /* XMPPBackgroundTask+EndTaskDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "XMPPBackgroundTask+EndTaskDelegate.swift"; sourceTree = "<group>"; };
 		66C50C3328676AF900460BA0 /* TrustedDeviceTableCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrustedDeviceTableCell.swift; sourceTree = "<group>"; };
 		66C5807D246BD45C006D3A71 /* SettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewController.swift; sourceTree = "<group>"; };
@@ -1583,6 +1592,7 @@
 		66DF9E572B2B39C400D454A3 /* String+isNotEmpty.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "String+isNotEmpty.swift"; sourceTree = "<group>"; };
 		66E024CE228A8B1F00796184 /* SDPParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SDPParser.swift; sourceTree = "<group>"; };
 		66E125772487E3B2005D096B /* ContactsViewController+AddContactDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContactsViewController+AddContactDelegate.swift"; sourceTree = "<group>"; };
+		66E3190F2BA8550300F149B1 /* NotificationsListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsListViewController.swift; sourceTree = "<group>"; };
 		66E452C22A70390A00E7DF03 /* DeliveryReceiptsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeliveryReceiptsManager.swift; sourceTree = "<group>"; };
 		66E5A9802B29DF4D00C097B5 /* xabber_push_extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = xabber_push_extension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		66E5A9822B29DF4D00C097B5 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
@@ -2113,6 +2123,7 @@
 		66159E18201EDE4900B1CF92 /* xmpp */ = {
 			isa = PBXGroup;
 			children = (
+				66C28E772BA8706C000AF10B /* notifications */,
 				66E452C12A7038EE00E7DF03 /* delivery_receipts */,
 				66A098EA282D37EE00B9BEC5 /* x509 */,
 				6695786227A1317A00A6C4AB /* omemo */,
@@ -2160,6 +2171,7 @@
 		6619B81D248E8034007089D2 /* account_info */ = {
 			isa = PBXGroup;
 			children = (
+				66E3190E2BA854D400F149B1 /* notifications */,
 				66999CB627DA0B440046CED3 /* encryption */,
 				1A93993327DA0DE200CEEBF6 /* quota */,
 				665451C822A9513F0077635D /* security */,
@@ -3645,6 +3657,15 @@
 			path = resource_info;
 			sourceTree = "<group>";
 		};
+		66C28E772BA8706C000AF10B /* notifications */ = {
+			isa = PBXGroup;
+			children = (
+				66C28E782BA87098000AF10B /* XMPPNotificationsManager.swift */,
+				66C28E7A2BA87845000AF10B /* XMPPNotificationsManagerStorageItem.swift */,
+			);
+			path = notifications;
+			sourceTree = "<group>";
+		};
 		66C6E6CA2853103A000E4540 /* realm */ = {
 			isa = PBXGroup;
 			children = (
@@ -3858,6 +3879,15 @@
 				1A297FDD28081EF6007129CD /* TranslationsManager.swift */,
 			);
 			path = TranslationManager;
+			sourceTree = "<group>";
+		};
+		66E3190E2BA854D400F149B1 /* notifications */ = {
+			isa = PBXGroup;
+			children = (
+				66E3190F2BA8550300F149B1 /* NotificationsListViewController.swift */,
+				660B6DAD2BBC152F0040E20E /* NotificationsListViewController+ItemCell.swift */,
+			);
+			path = notifications;
 			sourceTree = "<group>";
 		};
 		66E338182202FC60003B7984 /* chat */ = {
@@ -4346,6 +4376,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				66DF9E562B2B396700D454A3 /* common_config.plist in Resources */,
+				66F41D692BA1DB060042ECC9 /* credential_store.plist in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -4712,6 +4743,7 @@
 				660A45F522C4BC5C0047347D /* AddContactViewController+EditCell.swift in Sources */,
 				6643F30221C2650E00333229 /* LocationMessageSizeCalculator.swift in Sources */,
 				4DC31469291A20D4004B6C9D /* DeliveryAddressViewController.swift in Sources */,
+				66E319102BA8550300F149B1 /* NotificationsListViewController.swift in Sources */,
 				6699599A27ED8D4400976591 /* ContactInfoViewController.swift in Sources */,
 				66AA8DBE2864D9CC00B7547C /* TrustedDevicesViewController.swift in Sources */,
 				6636EDA12464355B000FA8D1 /* StickerMessageCell.swift in Sources */,
@@ -4880,6 +4912,7 @@
 				6622E5BA221ACD8C00331DA3 /* UIButtonRounded.swift in Sources */,
 				660F55F7239A2D1400252608 /* GroupchatBlockedViewController+Flow.swift in Sources */,
 				4D683D22285DE02400FFCB25 /* AccountInfoViewController+InfoScreenHeaderButtonDelegate.swift in Sources */,
+				660B6DAE2BBC152F0040E20E /* NotificationsListViewController+ItemCell.swift in Sources */,
 				66ECBE38243DC86100BF6922 /* MessageManager+TemporaryReceiver.swift in Sources */,
 				6643F32A21C2650E00333229 /* MessageStyle.swift in Sources */,
 				660F55FE239A794F00252608 /* GroupchatInviteListViewController+UITableViewDelegate.swift in Sources */,
@@ -4975,6 +5008,7 @@
 				66AD82A92386D4C10070C740 /* CreateNewGroupViewController+Delegate.swift in Sources */,
 				66A57378220030B100FBAA4C /* AbstractXMPPManager.swift in Sources */,
 				6624562E2498AC9C005510AE /* GroupchatContactInfoViewController+ItemCell.swift in Sources */,
+				66C28E7B2BA87845000AF10B /* XMPPNotificationsManagerStorageItem.swift in Sources */,
 				667BC4AB291E640400B07957 /* SubscribtionsManager.swift in Sources */,
 				6679826E24E5769F003C3815 /* InitialMessageSizeCalculator.swift in Sources */,
 				AFC32A8F2AC3FAE2007A019D /* CloudStorageGalleryViewController.swift in Sources */,
@@ -5019,6 +5053,7 @@
 				6602C4592386646400B65B03 /* CreateNewGroupViewController+JidSelectCell.swift in Sources */,
 				665F923522CF1DB20019D301 /* DefaultAvatarManager.swift in Sources */,
 				665D33D122D890D40034F74E /* LastCallsViewController+ItemCell.swift in Sources */,
+				66C28E792BA87098000AF10B /* XMPPNotificationsManager.swift in Sources */,
 				665451A922A8EA750077635D /* AccountEditViewController.swift in Sources */,
 				6678DFFF249782BD00B3640B /* GroupchatContactInfoViewController+vCardCell.swift in Sources */,
 				66A3168B22AE53CB00EA0773 /* ErrorMessagePresenter.swift in Sources */,
@@ -5280,6 +5315,7 @@
 				66DF9E502B2B37EB00D454A3 /* YUDeviceTypeEnum.swift in Sources */,
 				66DF9E542B2B388F00D454A3 /* ArrayExtension.swift in Sources */,
 				66DF9E472B2B308900D454A3 /* MessagesParser.swift in Sources */,
+				66F41D6A2BA1DC060042ECC9 /* CredentialsManager.swift in Sources */,
 				66DF9E452B2B2F8400D454A3 /* AbstractXMPPParser.swift in Sources */,
 				66DF9E3F2B2B2E1A00D454A3 /* HOTPAuth.swift in Sources */,
 				66E5A9832B29DF4D00C097B5 /* NotificationService.swift in Sources */,

@@ -25,7 +25,7 @@
 import Foundation
 import SwiftKeychainWrapper
 import Curve25519Kit
-import Realm
+//import Realm
 
 class CredentialsManager: NSObject {
     open class var shared: CredentialsManager {
@@ -125,20 +125,20 @@ class CredentialsManager: NSObject {
         
         init(jid: String) {
             self.jid = jid
-            do {
-                let realm = try WRealm.safe()
-                if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid) {
-                    self.counter = UInt64(instance.counter)!
-                    self.isFirstTokenIssued = false
-                }
-            } catch {
-                
-            }
-//            if let counterRaw = self.retrieveCreditionals(for: [jid, "counter"].prp()),
-//               let counter = UInt64(counterRaw) {
-//                self.isFirstTokenIssued = false
-////                self.counter = counter
+//            do {
+//                let realm = try WRealm.safe()
+//                if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid) {
+//                    self.counter = UInt64(instance.counter)!
+//                    self.isFirstTokenIssued = false
+//                }
+//            } catch {
+//                
 //            }
+            if let counterRaw = self.retrieveCreditionals(for: [jid, "counter"].prp()),
+               let counter = UInt64(counterRaw) {
+                self.isFirstTokenIssued = false
+//                self.counter = counter
+            }
             if self.retrieveCreditionals(for: [jid, Kind.token.rawValue].prp()) != nil {
                 self.kind = .token
             }
@@ -204,70 +204,31 @@ class CredentialsManager: NSObject {
         
         public func incrementCounter() {
             print(#function)
-//            if kind == .password {
-//                return
-//            }
-//            return
-            do  {
-                let realm = try WRealm.safe()
-                if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid) {
-                    let counter = UInt64(instance.counter)!
-                    let newCounter = counter + 1
-                    try realm.write {
-                        realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid)?.counter = "\(newCounter)"
-                    }
-                    self.counter = newCounter
-//                    DispatchQueue.main.async {
-//                        ToastPresenter(message: "Increment counter: \(newCounter)").present(animated: true)
-//                    }
-                }
-            } catch {
-                
-            }
-//            if let counterRaw = self.retrieveCreditionals(for: [jid, "counter"].prp()),
-//               let counter = UInt64(counterRaw) {
-//                let newCounter = counter + 1
-//                self.counter = newCounter
+
+            if let counterRaw = self.retrieveCreditionals(for: [jid, "counter"].prp()),
+               let counter = UInt64(counterRaw) {
+                let newCounter = counter + 1
+                self.counter = newCounter
+                self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(newCounter)")
 //                self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(newCounter)")
-////                self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(newCounter)")
-//            } else {
-//                print("FATAL ERROR", #function, self.retrieveCreditionals(for: [jid, "counter"].prp()))
-//            }
+            } else {
+                print("FATAL ERROR", #function, self.retrieveCreditionals(for: [jid, "counter"].prp()))
+            }
         }
         
         public func decrementCounter() {
             print(#function)
-//            if kind == .password {
-//                return
-//            }
-            do {
-                let realm = try WRealm.safe()
-                if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid) {
-                    let counter = UInt64(instance.counter)!
-                    if counter > 1 {
-                        let newCounter = counter - 1
-                        self.counter = newCounter
-                        try realm.write {
-                            realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid)?.counter = "\(newCounter)"
-                        }
-//                        ToastPresenter(message: "Increment counter: \(newCounter)").present(animated: true)
-                    }
-                    
+            if let counterRaw = self.retrieveCreditionals(for: [jid, "counter"].prp()),
+               let counter = UInt64(counterRaw) {
+                if counter > 1 {
+                    let newCounter = counter - 1
+                    self.counter = newCounter
+                    self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(newCounter)")
+                    self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(newCounter)")
                 }
-            } catch {
-                
+            } else {
+                print("FATAL ERROR", #function)
             }
-//            if let counterRaw = self.retrieveCreditionals(for: [jid, "counter"].prp()),
-//               let counter = UInt64(counterRaw) {
-//                if counter > 1 {
-//                    let newCounter = counter - 1
-//                    self.counter = newCounter
-//                    self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(newCounter)")
-//                    self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(newCounter)")
-//                }
-//            } else {
-//                print("FATAL ERROR", #function)
-//            }
             
         }
         
@@ -276,24 +237,24 @@ class CredentialsManager: NSObject {
             return self.retrieveCreditionals(for: [jid, Kind.secret.rawValue].prp())
         }
         
-        func storeCounterToRealm(_ value: UInt64) {
-            do {
-                let realm = try WRealm.safe()
-                try realm.write {
-                    realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid)?.counter = "\(value)"
-                }
-            } catch {
-                
-            }
-        }
+//        func storeCounterToRealm(_ value: UInt64) {
+//            do {
+//                let realm = try WRealm.safe()
+//                try realm.write {
+//                    realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid)?.counter = "\(value)"
+//                }
+//            } catch {
+//                
+//            }
+//        }
         
         public func storeSecret(_ value: String) {
             self.isFirstTokenIssued = true
             self.counter = 1
             self.kind = .secret
             self.storeCreditionals(for: [jid, Kind.secret.rawValue].prp(), value: value)
-//            self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(1)")
-            self.storeCounterToRealm(self.counter)
+            self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(self.counter)")
+//            self.storeCounterToRealm(self.counter)
             self.removeCreditionals(for: [jid, Kind.password.rawValue].prp())
             self.removeCreditionals(for: [jid, Kind.token.rawValue].prp())
         }
@@ -304,8 +265,8 @@ class CredentialsManager: NSObject {
             self.counter = 1
             self.kind = .token
             self.storeCreditionals(for: [jid, Kind.token.rawValue].prp(), value: value)
-//            self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(1)")
-            self.storeCounterToRealm(self.counter)
+            self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(self.counter)")
+//            self.storeCounterToRealm(self.counter)
             self.removeCreditionals(for: [jid, Kind.password.rawValue].prp())
             self.removeCreditionals(for: [jid, Kind.secret.rawValue].prp())
         }
@@ -366,6 +327,24 @@ class CredentialsManager: NSObject {
             storage.insert(item)
             return item
         }
+    }
+    
+    public func setXabberDeviceId(for jid: String, deviceId: String) {
+        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
+                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+        keychain.set(deviceId, forKey: [jid, "xabberDeviceId"].prp(), withAccessibility: .always)
+    }
+    
+    public static func getXabberDeviceId(for jid: String) -> String? {
+        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
+                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+        return keychain.string(forKey: [jid, "xabberDeviceId"].prp())
+    }
+    
+    public func removeXabberDeviceId(for jid: String) {
+        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
+                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+        keychain.removeObject(forKey: [jid, "xabberDeviceId"].prp())
     }
     
     public func setItem(for jid: String, secret: String? = nil, token: String? = nil, password: String? = nil, keepSecret: Bool = false) {
@@ -491,7 +470,7 @@ class CredentialsManager: NSObject {
     public final func setRegistrationId(_ registrationId: Int, for jid: String) {
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
                                        accessGroup: CredentialsManager.uniqueAccessGroup())
-        keychain.set(registrationId, forKey: [jid, "registrationId"].prp())
+        keychain.set(registrationId, forKey: [jid, "registrationId"].prp(), withAccessibility: .always)
     }
     
     public final func removeDeviceId(for jid: String) {
@@ -506,7 +485,7 @@ class CredentialsManager: NSObject {
     public final func storeCertificate(_ data: CFData) {
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
                                        accessGroup: CredentialsManager.uniqueAccessGroup())
-        keychain.set(data as Data, forKey: "yubiko_certificate")
+        keychain.set(data as Data, forKey: "yubiko_certificate", withAccessibility: .always)
     }
     
     public final func loadCertificate() -> CFData? {
@@ -629,7 +608,7 @@ class CredentialsManager: NSObject {
                   return false
               }
         
-        keychain.set(Date().timeIntervalSince1970, forKey: "pincode_timestamp")
+        keychain.set(Date().timeIntervalSince1970, forKey: "pincode_timestamp", withAccessibility: .always)
         
         return true
     }
@@ -640,7 +619,77 @@ class CredentialsManager: NSObject {
             accessGroup: CredentialsManager.uniqueAccessGroup()
         )
         
-        keychain.set(Date().timeIntervalSince1970, forKey: "pincode_timestamp")
+        keychain.set(Date().timeIntervalSince1970, forKey: "pincode_timestamp", withAccessibility: .always)
+    }
+    
+    struct PushSecretData {
+        let host: String
+        let secret: String
+        let jid: String
+        let service: String
+    }
+    
+    public final func storePushCredentials(node: String, jid: String, host: String, secret: String, service: String) throws {
+        let keychain = KeychainWrapper(
+            serviceName: CredentialsManager.uniqueServiceName(),
+            accessGroup: CredentialsManager.uniqueAccessGroup()
+        )
+        let dict: NSDictionary = [
+            "jid": jid,
+            "host": host,
+            "secret": secret,
+            "service": service
+        ]
+
+        let data = try JSONSerialization.data(withJSONObject: dict, options: .sortedKeys)
+
+        let json = String(data: data, encoding: .utf8)
+        if let json = json {
+            print(json)
+            keychain.set(json, forKey: node, withAccessibility: .always)
+        }
+    }
+    
+    public final func getPushCredentials(for node: String) throws -> PushSecretData {
+        let keychain = KeychainWrapper(
+            serviceName: CredentialsManager.uniqueServiceName(),
+            accessGroup: CredentialsManager.uniqueAccessGroup()
+        )
+        guard let jsonString = keychain.string(forKey: node),
+              let data = jsonString.data(using: .utf8),
+              let dict = try JSONSerialization.jsonObject(with: data, options: []) as? NSDictionary,
+              let jid = dict["jid"] as? String,
+              let service = dict["service"] as? String,
+              let host = dict["host"] as? String,
+              let secret = dict["secret"] as? String else {
+            throw CredentialsError.itemNotFound
+        }
+        return PushSecretData(host: host, secret: secret, jid: jid, service: service)
+    }
+    
+    public final func removePushCredentials(for node: String) {
+        let keychain = KeychainWrapper(
+            serviceName: CredentialsManager.uniqueServiceName(),
+            accessGroup: CredentialsManager.uniqueAccessGroup()
+        )
+        keychain.removeObject(forKey: node)
+    }
+    
+    public static func staticGetPushCredentials(for node: String) throws -> PushSecretData {
+        let keychain = KeychainWrapper(
+            serviceName: CredentialsManager.uniqueServiceName(),
+            accessGroup: CredentialsManager.uniqueAccessGroup()
+        )
+        guard let jsonString = keychain.string(forKey: node),
+              let data = jsonString.data(using: .utf8),
+              let dict = try JSONSerialization.jsonObject(with: data, options: []) as? NSDictionary,
+              let jid = dict["jid"] as? String,
+              let service = dict["service"] as? String,
+              let host = dict["host"] as? String,
+              let secret = dict["secret"] as? String else {
+            throw CredentialsError.itemNotFound
+        }
+        return PushSecretData(host: host, secret: secret, jid: jid, service: service)
     }
     
     private final func clearKeychainFull() {

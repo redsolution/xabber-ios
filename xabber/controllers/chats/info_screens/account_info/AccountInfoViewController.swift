@@ -89,15 +89,11 @@ class AccountInfoViewController: BaseViewController {
         }
     }
     
-//    open var jid: String = ""
     open var isModal: Bool = false
     
-//    var headerHeightMax: CGFloat = 206//236//256
-//    var headerHeightMin: CGFloat = 112//156
-    
-    var scrollViewContentOffsetYCopy: CGFloat = 0
-    var headerHeightMax: CGFloat = 254//214//264
-    var headerHeightMin: CGFloat = 0//120//150
+//    var scrollViewContentOffsetYCopy: CGFloat = 0
+    var headerHeightMax: CGFloat = 228
+//    var headerHeightMin: CGFloat = 0
     
     var quota: String = ""
     var used: String = ""
@@ -133,12 +129,6 @@ class AccountInfoViewController: BaseViewController {
         
         return view
     }()
-    
-//    let stateSwitch: UISwitch = {
-//        let view = UISwitch()
-//        
-//        return view
-//    }()
     
     internal var bag: DisposeBag = DisposeBag()
     
@@ -230,24 +220,15 @@ class AccountInfoViewController: BaseViewController {
                     ]),
                 ]),
                 SettingsViewController.Datasource(section: .accountSettings, title: "Cloud storage", key: .manageStorage),
-//                SettingsViewController.Datasource(section: .accountSettings, title: "Encryption and keys", key: "account_encryption")
                 SettingsViewController.Datasource(section: .accountSettings, title: "Devices", key: .accountSessions)
             ]))
     }
     
     
     internal func subscribe() {
-        
-        //datasource = []
         bag = DisposeBag()
         do {
             let realm = try WRealm.safe()
-            
-            if AccountManager.shared.find(for: self.jid) != nil {
-                //self.stateSwitch.isOn = true
-            } else {
-                //self.stateSwitch.isOn = false
-            }
             
             resources = realm
                 .objects(ResourceStorageItem.self)
@@ -296,8 +277,6 @@ class AccountInfoViewController: BaseViewController {
                     } else {
                         self.nickname = XMPPJID(string: self.jid)?.user ?? self.jid
                     }
-                    
-                    
                 }).disposed(by: bag)
             
             Observable
@@ -315,88 +294,62 @@ class AccountInfoViewController: BaseViewController {
                             .count
                         self.blockedContactsCount = results.count - self.groupchatInvitationsCount
                     }
-                    DispatchQueue.main.async {
-                        if self.datasource.count > 3 {
-                            let section = self.datasource.count - 3
-                            self.tableView.reloadRows(at: [IndexPath(row: 0, section: section)],
-                                                      with: .none)
-                        }
+                    if self.datasource.count > 3 {
+                        let section = self.datasource.count - 3
+                        self.tableView.reloadRows(at: [IndexPath(row: 0, section: section)],
+                                                  with: .none)
                     }
                 }).disposed(by: bag)
         } catch {
             DDLogDebug("AccountInfoViewController: \(#function). \(error.localizedDescription)")
         }
     }
-    
-//    func updateQuotaInfo() {
-//        guard let cell = tableView.cellForRow(at: IndexPath.init(row: 0, section: 2)) as? QuotaInfoCell else { return }
-//        cell.reloadData() {
-//            self.tableView.reloadRows(at: [IndexPath.init(row: 0, section: 0)], with: .fade)
-//        }
-//    }
+
     
     internal func unsubscribe() {
         bag = DisposeBag()
     }
     
     internal func activateConstraints() {
-        NSLayoutConstraint.activate([
-            tableView.leftAnchor.constraint(equalTo: view.leftAnchor),
-            tableView.rightAnchor.constraint(equalTo: view.rightAnchor),
-            tableView.topAnchor.constraint(equalTo: view.topAnchor),
-            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        ])
+        
     }
     
     internal func configure() {
-//        navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
-//        navigationController?.navigationBar.shadowImage = UIImage()
         self.navigationController?.isNavigationBarHidden = false
-        navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
-        navigationController?.navigationBar.shadowImage = nil
-        navigationBarButtonsConfigure()
-        updateDatasource()
-        view.addSubview(tableView)
-        tableView.delegate = self
-        tableView.dataSource = self
+        self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
+        self.navigationController?.navigationBar.shadowImage = nil
+        self.navigationBarButtonsConfigure()
+        self.updateDatasource()
+        self.view.addSubview(tableView)
+        self.tableView.delegate = self
+        self.tableView.dataSource = self
 
-//        headerView.frame = CGRect(x: 0, y: 0, width: view.frame.width, height: headerHeightMax)
-//        view.addSubview(headerView)
-//        tableView.contentInset = UIEdgeInsets(top: headerHeightMax - 70, bottom: 0, left: 0, right: 0)//Was: headerHeightMax - 64
-//        tableView.setContentOffset(CGPoint(x: 0, y: -headerHeightMax), animated: true)
-//        headerView.delegate = self
-//        headerView.buttonsStack.isHidden = true
-        headerViewConfig()
+        self.headerViewConfig()
         
-        if isModal {
+        if self.isModal {
             navigationItem.setLeftBarButton(UIBarButtonItem(barButtonSystemItem: .cancel, target: self, action: #selector(dismissScreen)), animated: true)
         }
-        refreshControl.addTarget(self, action: #selector(onRefresh), for: .valueChanged)
+        self.refreshControl.addTarget(self, action: #selector(onRefresh), for: .valueChanged)
         self.tableView.refreshControl = refreshControl
     }
     
     func headerViewConfig() {
-        self.headerView.frame = CGRect(x: 0, y: -(scrollViewContentOffsetYCopy + headerHeightMax - 20), width: view.frame.width, height: headerHeightMax)
-        self.view.addSubview(headerView)
-        print(self.view.subviews.count)
-        tableView.contentInset = UIEdgeInsets(top: headerHeightMax - 100, bottom: 0, left: 0, right: 0)
-        tableView.setContentOffset(CGPoint(x: 0, y: -(headerHeightMax - 20)), animated: true)
-        headerView.delegate = self
-        headerView.buttonsStack.isHidden = true
+        tableView.fillSuperviewWithOffset(top: -56, bottom: 0, left: 0, right: 0)
+        tableView.delegate = self
+        tableView.dataSource = self
+        headerView.frame = CGRect(
+            width: view.frame.width,
+            height: headerHeightMax
+        )
+        tableView.tableHeaderView = headerView
+        self.headerView.delegate = self
+        self.headerView.buttonsStack.isHidden = true
     }
     
     open func configureTokens(for jid: String) {
         self.jid =  jid
-        //view.addSubview(tableView)
-        //tableView.fillSuperview()
-        //tableView.delegate = self
-        //tableView.dataSource = self
-        //hideKeyboardWhenTappedAround()
-        loadTokens()
-        updateTokensDatasorce()
-//        editButton = UIBarButtonItem(barButtonSystemItem: .edit, target: self, action: #selector(self.onEdit))
-//        doneEditButton = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(self.onDoneEditing))
-//        navigationItem.setRightBarButton(editButton, animated: true)
+        self.loadTokens()
+        self.updateTokensDatasorce()
     }
     
     func navigationBarButtonsConfigure() {
@@ -446,22 +399,12 @@ class AccountInfoViewController: BaseViewController {
     
     override func viewDidLoad() {
         super.viewDidLoad()
-        if #available(iOS 11.0, *) {
-            if let topOffset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
-                print(topOffset)
-                headerHeightMax += topOffset
-                headerHeightMin += topOffset
-            }
-        }
         configure()
         activateConstraints()
         title = " "
-//        navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
-//        navigationController?.navigationBar.shadowImage = UIImage()
         self.navigationController?.isNavigationBarHidden = false
         navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
         navigationController?.navigationBar.shadowImage = nil
-        //subscribe()
         
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(reloadDatasource),
@@ -477,8 +420,6 @@ class AccountInfoViewController: BaseViewController {
         super.viewWillAppear(animated)
         subscribe()
         getQuota()
-//        navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
-//        navigationController?.navigationBar.shadowImage = UIImage()
         self.navigationController?.isNavigationBarHidden = false
         navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
         navigationController?.navigationBar.shadowImage = nil

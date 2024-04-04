@@ -345,6 +345,7 @@ public class AccountManager: NSObject {
             $0.endBackgroundUpdateTask()
         }
         self.find(for: jid)?.unsafeAction({ user, stream in
+            CredentialsManager.shared.removePushCredentials(for: user.push.node)
             user.devices.revoke(stream, uids: [user.devices.deviceId ?? ""])
             user.disconnect(hard: hard)
         })

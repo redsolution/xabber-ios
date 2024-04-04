@@ -189,13 +189,13 @@ extension SettingsViewController: UITableViewDataSource {
     }
     
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        let value = scrollView.contentOffset.y
-        self.scrollViewContentOffsetYCopy = value
-
-        if value < 0 {
-            UIView.performWithoutAnimation {
-                self.headerView.frame = CGRect(x: 0, y: -(value + headerHeightMax - 20), width: view.frame.width, height: headerHeightMax)
-            }
-        }
+//        let value = scrollView.contentOffset.y
+//        self.scrollViewContentOffsetYCopy = value
+//
+//        if value < 0 {
+//            UIView.performWithoutAnimation {
+//                self.headerView.frame = CGRect(x: 0, y: -(value + headerHeightMax - 20), width: view.frame.width, height: headerHeightMax)
+//            }
+//        }
     }
 }

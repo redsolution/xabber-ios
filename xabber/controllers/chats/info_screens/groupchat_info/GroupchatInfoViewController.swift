@@ -91,8 +91,8 @@ class GroupchatInfoViewController: BaseViewController {
 //    open var owner: String = ""
 //    open var jid: String = ""
     
-    var headerHeightMax: CGFloat = 282//264
-    var headerHeightMin: CGFloat = 180//150
+    var headerHeightMax: CGFloat = 324//264
+//    var headerHeightMin: CGFloat = 180150
     
     internal let lastSeenDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -341,7 +341,9 @@ class GroupchatInfoViewController: BaseViewController {
                     } else {
                         subtitle = "\(self.membersCount) members".localizeString(id: "groupchats_some_members", arguments: ["\(self.membersCount)"])
                     }
+                    var avatarUrl: String? = nil
                     if let item = results.first {
+                        avatarUrl = item.avatarMaxUrl ?? item.avatarMinUrl ?? item.oldschoolAvatarKey
                         self.nickname = item.displayName
                         if item.groups.toArray().sorted() != self.circles.sorted() {
                             self.circles = item.groups.toArray().sorted()
@@ -354,7 +356,7 @@ class GroupchatInfoViewController: BaseViewController {
                         self.nickname = XMPPJID(string: self.jid)?.user ?? self.jid
                     }
                     self.headerView.configure(
-                        avatarUrl: nil,
+                        avatarUrl: avatarUrl,
                         jid: self.jid,
                         owner: self.owner,
                         userId: nil,
@@ -533,24 +535,17 @@ class GroupchatInfoViewController: BaseViewController {
         navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
         navigationController?.navigationBar.shadowImage = UIImage()
         view.addSubview(tableView)
+        
+        tableView.fillSuperviewWithOffset(top: -56, bottom: 0, left: 0, right: 0)
         tableView.delegate = self
         tableView.dataSource = self
-        
-        if #available(iOS 11.0, *) {
-            if let topOffset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
-                headerHeightMax += topOffset
-                headerHeightMin += topOffset
-            }
-        }
-        
-        headerView.frame = CGRect(x: 0, y: 0, width: view.frame.width, height: headerHeightMax)
-        view.addSubview(headerView)
-        navigationItem.setRightBarButtonItems([infoButton, showQRCodeButton], animated: true)
-//        navigationItem.setRightBarButton(infoButton, animated: true)
-        tableView.contentInset = UIEdgeInsets(top: headerHeightMax - 88, bottom: -44, left: 0, right: 0)
-        tableView.setContentOffset(CGPoint(x: 0, y: -headerHeightMax), animated: true)
-        tableView.showsVerticalScrollIndicator = false
+        headerView.frame = CGRect(
+            width: view.frame.width,
+            height: headerHeightMax
+        )
+        tableView.tableHeaderView = headerView
         headerView.delegate = self
+        
         headerView.firstButton.configure(#imageLiteral(resourceName: "chat"), title: "Chat".localizeString(id: "chat", arguments: []), style: .active)
         headerView.secondButton.configure(#imageLiteral(resourceName: "group-public-add"), title: "Invite".localizeString(id: "groupchat_bar_invite", arguments: []), style: .active)
         headerView.thirdButton.configure(#imageLiteral(resourceName: "bell"), title: "Notifications".localizeString(id: "contact_bar_notifications", arguments: []), style: .active)
@@ -562,7 +557,7 @@ class GroupchatInfoViewController: BaseViewController {
         
         footerView.frame = CGRect(x: 0, y: 0,
                                   width: view.frame.width,
-                                  height: view.frame.height - headerHeightMin)
+                                  height: view.frame.height)
         footerView.mediaButtonsDelegate = self
         footerView.infoVCDelegate = self
         footerView.getReferences()

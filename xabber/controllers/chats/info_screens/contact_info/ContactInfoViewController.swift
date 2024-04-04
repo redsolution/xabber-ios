@@ -67,8 +67,8 @@ class ContactInfoViewController: BaseViewController {
 //    var headerHeightMax: CGFloat = 246//256
 //    var headerHeightMin: CGFloat = 150//156
     
-    var headerHeightMax: CGFloat = 282//264
-    var headerHeightMin: CGFloat = 180//150
+    var headerHeightMax: CGFloat = 324//296//264
+//    var headerHeightMin: CGFloat = 180//150
     
     public var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
     
@@ -89,13 +89,14 @@ class ContactInfoViewController: BaseViewController {
 //        let view = UITableView(frame: .zero, style: .grouped)
         let view = InsetGroupedTableView(frame: .zero)
         
-        view.translatesAutoresizingMaskIntoConstraints = false
+//        view.translatesAutoresizingMaskIntoConstraints = false
         view.register(UITableViewCell.self, forCellReuseIdentifier: "TextCell")
         view.register(UITableViewCell.self, forCellReuseIdentifier: "ButtonCell")
         view.register(VCardCell.self, forCellReuseIdentifier: VCardCell.cellName)
         view.register(ResourceInfoCell.self, forCellReuseIdentifier: ResourceInfoCell.cellName)
         view.register(EditCirclesCell.self, forCellReuseIdentifier: EditCirclesCell.cellName)
         view.register(SettingsViewController.DeviceCell.self, forCellReuseIdentifier: SettingsViewController.DeviceCell.cellName)
+        
         
         return view
     }()
@@ -185,6 +186,7 @@ class ContactInfoViewController: BaseViewController {
                         
             Observable
                 .collection(from: realm.objects(vCardStorageItem.self).filter("jid == %@", jid))
+                .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
                 .subscribe(onNext: { (results) in
                     var newDatasource: [Datasource] = []
                     if let item = results.first {
@@ -207,57 +209,42 @@ class ContactInfoViewController: BaseViewController {
 //                            newDatasource.append(Datasource(.vcard, title: "About", subtitle: "View full vCard", key: "about_section", childs: []))
                         }
                     }
-                    
-                    newDatasource.append(Datasource(.text, title: "", childs: [
-                        Datasource(.button, title: "Circles".localizeString(id: "contact_circle", arguments: []), key: "circles")
-                    ]))
-                    
-                    if self.conversationType == .omemo {
-                        do {
-                            let realm = try WRealm.safe()
-                            let collectionOwner = realm
-                                .objects(SignalDeviceStorageItem.self)
-                                .filter("jid == %@ AND owner == %@ AND state_ != %@", self.owner, self.owner, SignalDeviceStorageItem.TrustState.trusted.rawValue).count
-                            let collectionJid = realm
-                                .objects(SignalDeviceStorageItem.self)
-                                .filter("jid == %@ AND owner == %@", self.jid, self.owner, SignalDeviceStorageItem.TrustState.trusted.rawValue)
-                            
-                            
-                            var indicator: UIImage? = nil
-                            var color: UIColor? = nil
-                            
-                            if collectionJid.toArray().filter({ $0.state == .fingerprintChanged }).count > 0 {
-                                color = .systemRed
-                                indicator = UIImage(systemName: "exclamationmark.triangle.fill")
-                            } else if collectionJid.toArray().filter({ $0.state != .trusted }).count > 0 {
-                                color = .systemOrange
-                                indicator = UIImage(systemName: "exclamationmark.triangle.fill")
-                            } else if collectionJid.count == 0 {
-                                color = .secondaryLabel
-                                indicator = UIImage(systemName: "lock.fill")
-                            } else if collectionJid.toArray().filter({ $0.isTrustedByCertificate }).count > 0 {
-                                color = .systemGreen
-                                indicator = UIImage(systemName: "lock.circle.fill")
-                            } else {
-                                color = .systemGreen
-                                indicator = UIImage(systemName: "lock.fill")
-                            }
-                            
-//                            var subtitle = ""
-//                            if collectionOwner > 0 {
-//                                subtitle = "⚠️"
-//                            } else if collectionJid > 0 {
-//                                subtitle = "⚠️"
-//                            }
-                            newDatasource.append(Datasource(.text, title: "", childs: [
-                                Datasource(.button, title: "Identity verification".localizeString(id: "contact_fingerprints", arguments: []), subtitle: "\(collectionJid.count)", image: indicator, color: color, key: "fingerprints")
-                            ]))
-                        } catch {
-                            DDLogDebug("ContactInfoViewController: \(#function). \(error.localizedDescription)")
-                        }
+                    do {
+                        let realm = try WRealm.safe()
+//                        let collectionOwner = realm
+//                            .objects(SignalDeviceStorageItem.self)
+//                            .filter("jid == %@ AND owner == %@ AND state_ != %@", self.owner, self.owner, SignalDeviceStorageItem.TrustState.trusted.rawValue).count
+                        let collectionJid = realm
+                            .objects(SignalDeviceStorageItem.self)
+                            .filter("jid == %@ AND owner == %@", self.jid, self.owner, SignalDeviceStorageItem.TrustState.trusted.rawValue)
                         
+                        
+                        var indicator: UIImage? = nil
+                        var color: UIColor? = nil
+                        
+                        if collectionJid.toArray().filter({ $0.state == .fingerprintChanged }).count > 0 {
+                            color = .systemRed
+                            indicator = UIImage(systemName: "exclamationmark.triangle.fill")
+                        } else if collectionJid.toArray().filter({ $0.state != .trusted }).count > 0 {
+                            color = .systemOrange
+                            indicator = UIImage(systemName: "exclamationmark.triangle.fill")
+                        } else if collectionJid.count == 0 {
+                            color = .secondaryLabel
+                            indicator = UIImage(systemName: "lock.fill")
+                        } else if collectionJid.toArray().filter({ $0.isTrustedByCertificate }).count > 0 {
+                            color = .systemGreen
+                            indicator = UIImage(systemName: "lock.circle.fill")
+                        } else {
+                            color = .systemGreen
+                            indicator = UIImage(systemName: "lock.fill")
+                        }
+                        newDatasource.append(Datasource(.text, title: "Encryption", childs: [
+                            Datasource(.button, title: "Identity verification".localizeString(id: "contact_fingerprints", arguments: []), subtitle: "\(collectionJid.count)", image: indicator, color: color, key: "fingerprints"),
+                            Datasource(.button, title: "Encrypted chat", subtitle: "", image: indicator, color: color, key: "start_encrypted_chat")
+                        ]))
+                    } catch {
+                        DDLogDebug("ContactInfoViewController: \(#function). \(error.localizedDescription)")
                     }
-                    
                     self.datasource = newDatasource
                     self.tableView.reloadData()
                 })
@@ -266,37 +253,37 @@ class ContactInfoViewController: BaseViewController {
             
             Observable.collection(from: realm.objects(BlockStorageItem.self)
                     .filter("owner == %@ AND jid == %@", self.owner, self.jid))
-                .debounce(.milliseconds(80), scheduler: MainScheduler.asyncInstance)
+                .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
                 .subscribe(onNext: { (results) in
                     self.isBlocked = !results.isEmpty
                     if results.isEmpty {
-                        DispatchQueue.main.async {
+//                        DispatchQueue.main.async {
                             self.headerView.fourthButton.configure(#imageLiteral(resourceName: "cancel"),
                                                                    title: "Block".localizeString(id: "contact_bar_block", arguments: []),
                                                                    style: .danger)
-                        }
+//                        }
                     } else {
-                        DispatchQueue.main.async {
+//                        DispatchQueue.main.async {
                             self.headerView.fourthButton.configure(#imageLiteral(resourceName: "cancel"),
                                                                    title: "Unblock".localizeString(id: "contact_bar_unblock", arguments: []),
                                                                    style: .active)
-                        }
+//                        }
                     }
-                    DispatchQueue.main.async {
+//                    DispatchQueue.main.async {
                         if self.datasource.isNotEmpty {
                             let section = self.datasource.count - 1
                             guard let row = self.datasource[section]
                                 .childs
                                 .firstIndex(where: { $0.key == "block_chat_button" }) else { return }
                             let indexPath = IndexPath(row: row, section: section)
-                            UIView.performWithoutAnimation {
+//                            UIView.performWithoutAnimation {
                                 if let visibleIndexPaths = self.tableView.indexPathsForVisibleRows,
                                     visibleIndexPaths.contains(indexPath) {
                                     self.tableView.reloadRows(at: [indexPath], with: .none)
                                 }
-                            }
+//                            }
                         }
-                    }
+//                    }
                 })
                 .disposed(by: bag)
             
@@ -321,13 +308,13 @@ class ContactInfoViewController: BaseViewController {
                             }
                         }
                     } else {
-                        DispatchQueue.main.async {
+//                        DispatchQueue.main.async {
                             self.headerView.thirdButton.configure(#imageLiteral(resourceName: "bell"),
                                           title: "Notifications".localizeString(id: "contact_bar_notifications", arguments: []),
                                      style: .active)
-                        }
+//                        }
                     }
-                    DispatchQueue.main.async {
+//                    DispatchQueue.main.async {
                         if self.datasource.isNotEmpty {
                             let section = self.datasource.count - 1
                             guard let row = self.datasource[section]
@@ -341,7 +328,7 @@ class ContactInfoViewController: BaseViewController {
                                 }
                             }
                         }
-                    }
+//                    }
                 }).disposed(by: bag)
         } catch {
             DDLogDebug("ContactInfoViewController: \(#function). \(error.localizedDescription)")
@@ -356,31 +343,34 @@ class ContactInfoViewController: BaseViewController {
     internal func configure() {
         navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
         navigationController?.navigationBar.shadowImage = UIImage()
+        navigationItem.setRightBarButtonItems([editButton, showQRCodeButton], animated: false)
         view.addSubview(tableView)
-        tableView.fillSuperviewWithOffset(top: 0, bottom: 0, left: 0, right: 0)
+        if let topOffset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
+            tableView.fillSuperviewWithOffset(top: -56, bottom: 0, left: 0, right: 0)
+            headerView.frame = CGRect(
+                width: view.frame.width,
+                height: headerHeightMax
+            )
+        } else {
+            tableView.fillSuperviewWithOffset(top: -56, bottom: 0, left: 0, right: 0)
+            headerView.frame = CGRect(
+                width: view.frame.width,
+                height: headerHeightMax
+            )
+        }
+        
         tableView.delegate = self
         tableView.dataSource = self
-        if #available(iOS 11.0, *) {
-            if let topOffset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
-                headerHeightMax += topOffset
-                headerHeightMin += topOffset
-            }
-        }
-        headerView.frame = CGRect(x: 0, y: 0, width: view.frame.width, height: headerHeightMax)
-        view.addSubview(headerView)
         
-        navigationItem.setRightBarButtonItems([editButton, showQRCodeButton], animated: true)
-        tableView.contentInset = UIEdgeInsets(top: headerHeightMax - 88, bottom: -44, left: 0, right: 0) //Was: headerHeightMax - 64
-        tableView.setContentOffset(CGPoint(x: 0, y: -headerHeightMax), animated: true)
-        tableView.showsVerticalScrollIndicator = false
+        tableView.tableHeaderView = headerView
         headerView.delegate = self
+        
         headerView.firstButton.configure(#imageLiteral(resourceName: "chat"),
                                          title: "Chat".localizeString(id: "chat_viewer", arguments: []),
                                          style: .active)
-        headerView.secondButton.configure(#imageLiteral(resourceName: "call"),
-                                          title: "Call".localizeString(id: "contact_bar_call", arguments: []),
-                                          style: .active,
-                                          enabled: false)
+        headerView.secondButton.configure(UIImage(systemName: "lock.circle")!,
+                                          title: "Secret chat",
+                                          style: .active)
         headerView.secondButton.isHidden = true
         headerView.thirdButton.configure(#imageLiteral(resourceName: "bell"),
                                          title: "Notifications".localizeString(id: "contact_bar_notifications", arguments: []),
@@ -388,15 +378,13 @@ class ContactInfoViewController: BaseViewController {
         headerView.fourthButton.configure(#imageLiteral(resourceName: "cancel"),
                                           title: "Block".localizeString(id: "contact_bar_block", arguments: []),
                                           style: .danger)
-//        headerView.subtitleLabel.isHidden = true
-        
         footerView.conversationType = self.conversationType
         footerView.jid = self.jid
         footerView.owner = self.owner
         
         footerView.frame = CGRect(x: 0, y: 0,
                                   width: view.frame.width,
-                                  height: view.frame.height - headerHeightMin)
+                                  height: view.frame.height)
         footerView.mediaButtonsDelegate = self
         footerView.infoVCDelegate = self
         tableView.tableFooterView = footerView
@@ -405,25 +393,24 @@ class ContactInfoViewController: BaseViewController {
         editButton.action = #selector(onEditContact)
         showQRCodeButton.target = self
         showQRCodeButton.action = #selector(showQRCode)
-        AccountManager.shared.find(for: owner)?.action({ (user, stream) in
-//            user.vCardAvatars.fetch(stream, for: self.jid)
-            user.vcards.requestItem(stream, jid: self.jid)
-        })
+        
+        title = " "
+        footerView.imagesButton.isSelected = true
+        
     }
     
     override func viewDidLoad() {
         super.viewDidLoad()
         configure()
-        title = " "
-        navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
-        navigationController?.navigationBar.shadowImage = UIImage()
-        
-        footerView.imagesButton.isSelected = true
         
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(reloadDatasource),
                                                name: .newMaskSelected,
                                                object: nil)
+        
+        AccountManager.shared.find(for: owner)?.action({ (user, stream) in
+            user.vcards.requestItem(stream, jid: self.jid)
+        })
     }
     
     override func reloadDatasource() {
