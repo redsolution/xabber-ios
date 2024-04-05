@@ -206,7 +206,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         return true
     }
     
-    private func requestArchive(_ stream: XMPPStream, jid: String, isContinues: Bool, conversationType: ClientSynchronizationManager.ConversationType, before: String? = nil, start: Date? = nil, nextPage: String? = nil, max: Int? = nil, callback: (() -> Void)? = nil) {
+    internal func requestArchive(_ stream: XMPPStream, jid: String, isContinues: Bool, conversationType: ClientSynchronizationManager.ConversationType, before: String? = nil, start: Date? = nil, nextPage: String? = nil, max: Int? = nil, callback: (() -> Void)? = nil) {
         let isGroupchat = [.group, .channel].contains(conversationType)
         let elementId = "MAM: \(NanoID.new(8))"
         let query = DDXMLElement(name: "query", xmlns: getPrimaryNamespace())
