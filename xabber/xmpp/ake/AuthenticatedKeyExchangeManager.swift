@@ -46,6 +46,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
     internal var trustedKey: [UInt8]? = nil
     
     override func onStreamPrepared(_ stream: XMPPStream) {
+        super.onStreamPrepared(stream)
         guard let localStore = AccountManager.shared.find(for: owner)?.omemo.localStore else {
             return
         }
@@ -63,7 +64,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         self.trustedKey = (String(self.deviceID!) + "::" + fingerprint).bytes
     }
     
-    func generateByteSequence() -> [UInt8] {
+    private final func generateByteSequence() -> [UInt8] {
         var bytes = [UInt8](repeating: 0, count: 32)
         let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
         if status == errSecSuccess {
@@ -74,11 +75,11 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         }
     }
     
-    func generateCode() -> String {
+    private final func generateCode() -> String {
         return String(Int.random(in: 100000...999999))
     }
     
-    func calculateSharedKey(jid: String, deviceId: Int) -> [UInt8] {
+    private final func calculateSharedKey(jid: String, deviceId: Int) -> [UInt8] {
         let keyPair = Curve25519.load(fromPublicKey: self.keyPair?.publicKey, andPrivateKey: self.keyPair?.privateKey)
         let opponentPublicKey = getUsersPublicKey(jid: jid, deviceId: deviceId)
         
@@ -86,7 +87,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         return sharedKey
     }
     
-    func calculateEncryptionKey(jid: String, sid: String, sharedKey: [UInt8]) -> [UInt8] {
+    private final func calculateEncryptionKey(jid: String, sid: String, sharedKey: [UInt8]) -> [UInt8] {
         var code: String = ""
         do {
             let realm = try WRealm.safe()
@@ -98,13 +99,6 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         let stringToHash = sharedKey + Array(SHA256.hash(data: (code.bytes)).makeIterator())
         let encryptionKey = Array(SHA256.hash(data: stringToHash).makeIterator())
         return encryptionKey
-    }
-    
-    // TODO: use this method
-    func sendMessage(message: XMPPMessage) {
-        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-            stream.send(message)
-        })
     }
     
     func getUsersPublicKey(jid: String, deviceId: Int) -> [UInt8] {
@@ -182,6 +176,8 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         
         return authenticatedKeyExchange
     }
+    
+    
     
     func didReceivedVerificationMessage(_ message: XMPPMessage) -> Bool {
         if isArchivedMessage(message) {
@@ -304,7 +300,9 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 if !checkHashFromInitiator(jid: jid.bare, sid: sid, deviceId: deviceId, hashEncrypted: hashEncrypted, byteSequenceEncrypted: byteSequenceEncrypted) {
                     let child = self.getMessageChildsForErrorMessage(sid: sid, reason: "Hashes didn't match")
                     let message = XMPPMessage(messageType: .chat, to: jid, elementID: UUID().uuidString, child: child)
-                    self.sendMessage(message: message)
+                    AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, stream in
+                        stream.send(message)
+                    })
                     do {
                         let realm = try WRealm.safe()
                         guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) else {
@@ -333,7 +331,9 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 authenticatedKeyExchangeChild.addChild(hashChild)
                 
                 let message = XMPPMessage(messageType: .chat, to: jid, elementID: UUID().uuidString, child: authenticatedKeyExchangeChild)
-                self.sendMessage(message: message)
+                AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, stream in
+                    stream.send(message)
+                })
                 
                 return true
             } else if authenticatedKeyExchange.element(forName: "hash") != nil {
@@ -777,7 +777,9 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         
         let message = XMPPMessage(messageType: .chat, to: XMPPJID(string: fullJID), elementID: UUID().uuidString, child: authenticatedKeyExchange)
         
-        self.sendMessage(message: message)
+        AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, stream in
+            stream.send(message)
+        })
     }
     
     func showNotification(title: String, owner: String, body: String, sid: String, timestamp: TimeInterval) {

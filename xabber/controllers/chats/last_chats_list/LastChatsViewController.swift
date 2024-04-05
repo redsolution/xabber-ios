@@ -754,14 +754,13 @@ class LastChatsViewController: BaseViewController {
         if showSkeleton.value {
             self.canUpdateDataset = false
             self.datasource = self.mapDataset()
-            self.datasource = self.getVerifySessionItems() + self.datasource
             self.tableView.reloadData()
             self.canUpdateDataset = true
             return
         }
         self.updateQueue.sync {
             self.canUpdateDataset = false
-            let newDataset = self.getVerifySessionItems() + self.mapDataset()
+            let newDataset = self.mapDataset()
             let changes = diff(old: self.datasource, new: newDataset)
             let indexPaths = self.convertChangeset(changes: changes)
             DispatchQueue.main.async {
@@ -1234,30 +1233,57 @@ class LastChatsViewController: BaseViewController {
 }
 
 extension LastChatsViewController {
-    func getVerifySessionItems() -> [Datasource] {
-        let predicateForVerifySessions = NSPredicate(format: "state_ IN %@ AND (owner IN %@ OR jid IN %@)",
-                                    argumentArray: [
-                                        [VerificationSessionStorageItem.VerififcationState.sentRequest.rawValue,
-                                         VerificationSessionStorageItem.VerififcationState.receivedRequest.rawValue,
-                                         VerificationSessionStorageItem.VerififcationState.acceptedRequest.rawValue,
-                                         VerificationSessionStorageItem.VerififcationState.receivedRequestAccept.rawValue,
-                                         VerificationSessionStorageItem.VerififcationState.failed.rawValue,
-                                         VerificationSessionStorageItem.VerififcationState.rejected.rawValue,
-                                         VerificationSessionStorageItem.VerififcationState.trusted.rawValue],
-                                        Array(enabledAccounts.value),
-                                        Array(enabledAccounts.value)
-                                    ])
-        do {
-            let realm = try WRealm.safe()
-            let verifyStorageList = realm.objects(VerificationSessionStorageItem.self).filter(predicateForVerifySessions)
-            if verifyStorageList.isEmpty {
-                return []
-            }
-            return verifyStorageList.compactMap { item in
-                Datasource(jid: item.jid, owner: item.owner, username: item.jid, message: "Verification session", date: Date(timeIntervalSince1970: Double(item.timestamp)!), state: nil, isMute: false, isSynced: false, status: .online, entity: nil, conversationType: .regular, unread: 0, unreadString: "", color: UIColor.blue, isDraft: false, hasAttachment: false, userNickname: nil, isSystemMessage: true, isPinned: false, subRequest: false, isEncrypted: false, avatarUrl: nil, hasErrorInChat: false, updateTS: 0, verificationSessionSid: item.sid, verificationState: item.state)
-            }
-        } catch {
-            fatalError()
-        }
-    }
+//    func getVerifySessionItems() -> [Datasource] {
+//        let predicateForVerifySessions = NSPredicate(format: "state_ IN %@ AND (owner IN %@ OR jid IN %@)",
+//                                    argumentArray: [
+//                                        [VerificationSessionStorageItem.VerififcationState.sentRequest.rawValue,
+//                                         VerificationSessionStorageItem.VerififcationState.receivedRequest.rawValue,
+//                                         VerificationSessionStorageItem.VerififcationState.acceptedRequest.rawValue,
+//                                         VerificationSessionStorageItem.VerififcationState.receivedRequestAccept.rawValue,
+//                                         VerificationSessionStorageItem.VerififcationState.failed.rawValue,
+//                                         VerificationSessionStorageItem.VerififcationState.rejected.rawValue,
+//                                         VerificationSessionStorageItem.VerififcationState.trusted.rawValue],
+//                                        Array(enabledAccounts.value),
+//                                        Array(enabledAccounts.value)
+//                                    ])
+//        do {
+//            let realm = try WRealm.safe()
+//            let verifyStorageList = realm.objects(VerificationSessionStorageItem.self).filter(predicateForVerifySessions)
+//            if verifyStorageList.isEmpty {
+//                return []
+//            }
+//            return verifyStorageList.compactMap { item in
+//                Datasource(
+//                    jid: item.jid,
+//                    owner: item.owner,
+//                    username: item.jid,
+//                    message: "Verification session",
+//                    date: Date(timeIntervalSince1970: Double(item.timestamp)!),
+//                    state: nil,
+//                    isMute: false,
+//                    isSynced: false,
+//                    status: .online,
+//                    entity: nil,
+//                    conversationType: .regular,
+//                    unread: 0,
+//                    unreadString: "",
+//                    color: UIColor.blue,
+//                    isDraft: false,
+//                    hasAttachment: false,
+//                    userNickname: nil,
+//                    isSystemMessage: true,
+//                    isPinned: false,
+//                    subRequest: false,
+//                    isEncrypted: false,
+//                    avatarUrl: nil,
+//                    hasErrorInChat: false,
+//                    updateTS: 0,
+//                    verificationSessionSid: item.sid,
+//                    verificationState: item.state
+//                )
+//            }
+//        } catch {
+//            fatalError()
+//        }
+//    }
 }
