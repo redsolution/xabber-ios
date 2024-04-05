@@ -14,12 +14,6 @@ import CryptoKit
 import CryptoSwift
 import RealmSwift
 
-// TODO: пуш при входящем запросе или ответе на запрос, если пользователь находится вне приложения, локальное уведомление, если пользователь находится в приложении
-// TODO: отображение окна с вводом кода при нажатии на ячейку в списке чатов
-// TODO: удаление ячейки с запросом при принятии или отклонении запроса
-// TODO: обновление списка чатов при неверном вводе кода (ячейка с сессией должна пропасть)
-// TODO: контроллер ввода кода и отображения кода переместить
-
 class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
     enum State{
         case none
@@ -399,8 +393,14 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                     fatalError()
                 }
                 
-                self.writeTrustedDevice(jid: jid.bare, deviceId: deviceId)
                 self.sendSuccessfulVerificationMessage(fullJID: jid, sid: sid)
+                
+                if self.owner == jid.bare {
+                    guard let trustSharingManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager else {
+                        fatalError()
+                    }
+                    trustSharingManager.sendMessageWithContactsDevices(opponentFullJid: jid, deviceId: self.deviceID!, opponentDeviceId: deviceId)
+                }
                 
                 title = "Verification completed successfully"
             } else if authenticatedKeyExchange.element(forName: "verification-successful") != nil {
@@ -420,7 +420,12 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                     fatalError()
                 }
                 
-                self.writeTrustedDevice(jid: jid.bare, deviceId: deviceId)
+                if self.owner == jid.bare {
+                    guard let trustSharingManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager else {
+                        fatalError()
+                    }
+                    trustSharingManager.sendMessageWithContactsDevices(opponentFullJid: jid, deviceId: self.deviceID!, opponentDeviceId: deviceId)
+                }
                 
                 title = "Verification completed successfully"
             } else if authenticatedKeyExchange.element(forName: "verification-rejected") != nil {
@@ -455,11 +460,28 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         return true
     }
     
+//    func didReceivedTrustSharingMessage(_ message: XMPPMessage) -> Bool {
+//        if isArchivedMessage(message) {
+//            return false
+//        } else if isCarbonCopy(message) {
+//            return false
+//        } else if isCarbonForwarded(message) {
+//            return false
+//        } else  {
+//            guard let share = message.element(forName: "share", xmlns: getPrimaryNamespace()),
+//                  let jid = message.from,
+//                  let sid = authenticatedKeyExchange.attributeStringValue(forName: "sid") else {
+//                return false
+//            }
+//        }
+//    }
+    
     func writeTrustedDevice(jid: String, deviceId: Int) {
         do {
             let realm = try WRealm.safe()
             if let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: jid, deviceId: deviceId)) {
                 try realm.write {
+                    instance.trustDate = Date()
                     instance.state = .trusted
                 }
             }
@@ -626,9 +648,10 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         authenticatedKeyExchange.addChild(verificationSuccessful)
         
         let message = XMPPMessage(messageType: .chat, to: fullJID, elementID: UUID().uuidString, child: authenticatedKeyExchange)
-        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-            stream.send(message)
-        })
+//        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+//            stream.send(message)
+//        })
+        self.sendMessage(message: message)
     }
     
     func sendErrorMessage(fullJID: XMPPJID, sid: String, reason: String) {
@@ -636,10 +659,8 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         
         let message = XMPPMessage(messageType: .chat, to: fullJID, elementID: UUID().uuidString, child: child)
         message.addAttribute(withName: "from", stringValue: self.owner)
-        
-        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-            stream.send(message)
-        })
+
+        self.sendMessage(message: message)
     }
     
     func checkHashFromInitiator(jid: String, sid: String, deviceId: Int, hashEncrypted: DDXMLElement, byteSequenceEncrypted: DDXMLElement) -> Bool {
@@ -800,7 +821,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             alert.addAction(action)
         case .trusted: 
             let action = UIAlertAction(title: "Okay", style: .cancel)
-            alert = UIAlertController(title: "", message: "Verification session with \(jid) was successful, the device is now trusted.\nSID: \(sid)", preferredStyle: UIAlertController.Style.alert)
+            alert = UIAlertController(title: "", message: "Verification session with \(jid) successful, the device is now trusted.\nSID: \(sid)", preferredStyle: UIAlertController.Style.alert)
             alert.addAction(action)
         default:
             fatalError()

@@ -41,6 +41,7 @@ class SignalDeviceStorageItem: Object {
     @objc dynamic var state_: String = TrustState.unknown.rawValue
 
     @objc dynamic var updateDate: Date = Date()
+    @objc dynamic var trustDate: Date = Date(timeIntervalSince1970: -1)
     @objc dynamic var fingerprint: String = ""
     @objc dynamic var freshlyUpdated: Bool = false
     @objc dynamic var isTrustedByCertificate: Bool = false

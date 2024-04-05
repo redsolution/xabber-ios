@@ -82,6 +82,7 @@ final class Account: NSObject {
     var deliveryReceipts: MessageDeliveryReceipts
     var notifications: XMPPNotificationsManager
     var akeManager: AuthenticatedKeyExchangeManager
+    var trustSharingManager: TrustSharingManager
     
     var smStorage: XMPPStreamManagementMemoryStorage
     var sm: XMPPStreamManagement
@@ -170,6 +171,7 @@ final class Account: NSObject {
         self.deliveryReceipts = MessageDeliveryReceipts(withOwner: self.jid)
         self.notifications = XMPPNotificationsManager(withOwner: self.jid)
         self.akeManager = AuthenticatedKeyExchangeManager(withOwner: self.jid)
+        self.trustSharingManager = TrustSharingManager(withOwner: self.jid)
         // start init NSObject
         super.init()
         self.registerModules()
@@ -317,6 +319,7 @@ final class Account: NSObject {
             self.omemo,
             self.deliveryReceipts,
             self.akeManager,
+            self.trustSharingManager,
         ]
         extensions.forEach {
             [unowned self] module in

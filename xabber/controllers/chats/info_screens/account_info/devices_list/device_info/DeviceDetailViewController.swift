@@ -344,7 +344,8 @@ extension DeviceDetailViewController: UITableViewDelegate {
             
         case "omemo_state_trusted":
             let items: [ActionSheetPresenter.Item] = [
-                ActionSheetPresenter.Item(destructive: true, title: "Delete", value: "delete")
+                ActionSheetPresenter.Item(destructive: true, title: "Delete", value: "delete"),
+                ActionSheetPresenter.Item(destructive: false, title: "Untrust", value: "untrust")
             ]
             ActionSheetPresenter().present(
                 in: self,
@@ -360,6 +361,7 @@ extension DeviceDetailViewController: UITableViewDelegate {
                             if let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.jid, deviceId: self.omemoDeviceID)) {
                                 try realm.write {
                                     instance.state = .trusted
+                                    instance.trustDate = Date()
                                 }
                             }
                             
@@ -380,6 +382,22 @@ extension DeviceDetailViewController: UITableViewDelegate {
                         DispatchQueue.main.async {
                             self.goBack()
                         }
+                    case "untrust":
+                        do {
+                            let realm = try Realm()
+                            if let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.jid, deviceId: self.omemoDeviceID)) {
+                                try realm.write {
+                                    instance.state = .unknown
+                                    instance.trustDate = Date(timeIntervalSince1970: -1)
+                                }
+                            }
+                            
+                            DispatchQueue.main.async {
+                                self.goBack()
+                            }
+                        } catch {
+                            DDLogDebug("DeviceDetailViewController: \(#function). \(error.localizedDescription)")
+                        }
                     default:
                         break
                     }
@@ -387,6 +405,7 @@ extension DeviceDetailViewController: UITableViewDelegate {
         case "omemo_state_fingerprint_changed", "omemo_state_undefined":
             let items: [ActionSheetPresenter.Item] = [
                 ActionSheetPresenter.Item(destructive: false, title: "Verify", value: "verify"),
+                ActionSheetPresenter.Item(destructive: false, title: "Trust", value: "trust"),
                 ActionSheetPresenter.Item(destructive: true, title: "Delete device", value: "delete")
             ]
             ActionSheetPresenter().present(
