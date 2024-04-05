@@ -305,7 +305,7 @@ class ChatListTableViewCell: UITableViewCell {
                                 isSynced: Bool,
                                 isGroupchat: Bool,
                                 status: ResourceStatus,
-                                entity: RosterItemEntity,
+                                entity: RosterItemEntity?,
                                 conversationType: ClientSynchronizationManager.ConversationType,
                                 unread: Int,
                                 unreadString: String?,

@@ -17,7 +17,6 @@
 ##
 ##
 ##
-
 platform :ios, '12.1'
 
 use_frameworks!
@@ -67,7 +66,7 @@ target 'xabber_push_extension' do
     inherit! :search_paths
 #    pod 'RealmSwift', :git => 'https://github.com/realm/realm-swift.git', :tag => 'v10.35.0'
     pod 'SwiftKeychainWrapper'
-    pod 'Starscream', :git => 'https://github.com/daltoniam/Starscream.git', :tag => '4.0.4' 
+    pod 'Starscream', :git => 'https://github.com/daltoniam/Starscream.git', :tag => '4.0.4'
     pod 'KissXML'
     pod 'CryptoSwift', :git => 'https://github.com/krzyzanowskim/CryptoSwift.git', :tag => '1.8.1'
     pod 'Curve25519Kit', :git => 'https://github.com/whspr/Curve25519Kit.git', :branch => 'mkirk/framework-friendly'
@@ -79,7 +78,7 @@ post_install do |installer|
         puts target.name
         target.build_configurations.each do |config|
             config.build_settings['CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF'] = 'NO'
-	    config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
+        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
         end
     end
 end

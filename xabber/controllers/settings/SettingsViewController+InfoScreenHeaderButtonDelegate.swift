@@ -27,7 +27,6 @@ import MaterialComponents.MDCPalettes
 import AVFoundation
 
 extension SettingsViewController: InfoScreenHeaderButtonDelegate {
-    
     func shouldUpdateAvatar() -> UIImage? {
         AccountManager.shared.find(for: jid)?.action({ (user, stream) in
 //            user.PEPAvatars.refreshAvatar(jid: self.jid)
@@ -301,6 +300,10 @@ extension SettingsViewController: InfoScreenHeaderButtonDelegate {
                 }
             }
         }
+    }
+    
+    func onVerifyButtonPressed() {
+        
     }
 }
 

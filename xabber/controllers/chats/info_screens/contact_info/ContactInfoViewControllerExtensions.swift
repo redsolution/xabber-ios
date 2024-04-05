@@ -20,6 +20,7 @@
 
 import Foundation
 import UIKit
+import XMPPFramework
 
 //MARK: - Protocols
 protocol InfoVCDelegate {

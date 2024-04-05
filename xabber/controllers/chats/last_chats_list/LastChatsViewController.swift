@@ -68,7 +68,7 @@ class LastChatsViewController: BaseViewController {
         let isMute: Bool
         let isSynced: Bool
         let status: ResourceStatus
-        let entity: RosterItemEntity
+        let entity: RosterItemEntity?
         let conversationType: ClientSynchronizationManager.ConversationType
         let unread: Int
         let unreadString: String?
@@ -83,6 +83,8 @@ class LastChatsViewController: BaseViewController {
         let avatarUrl: String?
         let hasErrorInChat: Bool
         let updateTS: Double
+        let verificationSessionSid: String?
+        let verificationState: VerificationSessionStorageItem.VerififcationState?
         
         static func compareContent(_ a: LastChatsViewController.Datasource, _ b: LastChatsViewController.Datasource) -> Bool {
             return a.jid == b.jid
@@ -363,6 +365,29 @@ class LastChatsViewController: BaseViewController {
                     DDLogDebug("LastChatsViewController: \(#function). RX state: disposed")
                 }
                 .disposed(by: datasetBag)
+            
+            let predicateForVerifySessions = NSPredicate(format: "state_ IN %@ AND (owner IN %@ OR jid IN %@)",
+                                        argumentArray: [
+                                            [VerificationSessionStorageItem.VerififcationState.sentRequest.rawValue,
+                                             VerificationSessionStorageItem.VerififcationState.receivedRequest.rawValue,
+                                             VerificationSessionStorageItem.VerififcationState.acceptedRequest.rawValue,
+                                             VerificationSessionStorageItem.VerififcationState.receivedRequestAccept.rawValue],
+                                            Array(enabledAccounts.value),
+                                            Array(enabledAccounts.value)
+                                        ])
+            Observable
+                .collection(from: realm.objects(VerificationSessionStorageItem.self).filter(predicateForVerifySessions))
+                .debounce(.milliseconds(400), scheduler: MainScheduler.asyncInstance)
+                .subscribe { (results) in
+                    self.runDatasetUpdateTask()
+                } onError: { (error) in
+                    DDLogDebug("LastChatsViewController: \(#function). RX error: \(error.localizedDescription)")
+                } onCompleted: {
+                    DDLogDebug("LastChatsViewController: \(#function). RX state: completed")
+                } onDisposed: {
+                    DDLogDebug("LastChatsViewController: \(#function). RX state: disposed")
+                }
+                .disposed(by: datasetBag)
 
             canUpdateDataset = true
             runDatasetUpdateTask()
@@ -441,7 +466,9 @@ class LastChatsViewController: BaseViewController {
                     isEncrypted: false,
                     avatarUrl: nil,
                     hasErrorInChat: false,
-                    updateTS: 0
+                    updateTS: 0,
+                    verificationSessionSid: nil,
+                    verificationState: nil
                 )
             }
         }
@@ -510,7 +537,6 @@ class LastChatsViewController: BaseViewController {
             var collection = realm
                 .objects(LastChatsStorageItem.self)
                 .filter(predicate)
-                
             
             if pinnedChatsSorting {
                 collection = collection.sorted(by: [
@@ -680,7 +706,9 @@ class LastChatsViewController: BaseViewController {
                     isEncrypted: [.omemo, .axolotl, .omemo1].contains(item.conversationType),
                     avatarUrl: item.rosterItem?.avatarMinUrl ?? item.rosterItem?.avatarMaxUrl ?? item.rosterItem?.oldschoolAvatarKey,
                     hasErrorInChat: item.hasErrorInChat,
-                    updateTS: item.updateTS
+                    updateTS: item.updateTS,
+                    verificationSessionSid: nil,
+                    verificationState: nil
                 )
             }
         } catch {
@@ -726,13 +754,14 @@ class LastChatsViewController: BaseViewController {
         if showSkeleton.value {
             self.canUpdateDataset = false
             self.datasource = self.mapDataset()
+            self.datasource = self.getVerifySessionItems() + self.datasource
             self.tableView.reloadData()
             self.canUpdateDataset = true
             return
         }
         self.updateQueue.sync {
             self.canUpdateDataset = false
-            let newDataset = self.mapDataset()
+            let newDataset = self.getVerifySessionItems() + self.mapDataset()
             let changes = diff(old: self.datasource, new: newDataset)
             let indexPaths = self.convertChangeset(changes: changes)
             DispatchQueue.main.async {
@@ -1201,5 +1230,34 @@ class LastChatsViewController: BaseViewController {
     
     deinit {
         unsubscribe()
+    }
+}
+
+extension LastChatsViewController {
+    func getVerifySessionItems() -> [Datasource] {
+        let predicateForVerifySessions = NSPredicate(format: "state_ IN %@ AND (owner IN %@ OR jid IN %@)",
+                                    argumentArray: [
+                                        [VerificationSessionStorageItem.VerififcationState.sentRequest.rawValue,
+                                         VerificationSessionStorageItem.VerififcationState.receivedRequest.rawValue,
+                                         VerificationSessionStorageItem.VerififcationState.acceptedRequest.rawValue,
+                                         VerificationSessionStorageItem.VerififcationState.receivedRequestAccept.rawValue,
+                                         VerificationSessionStorageItem.VerififcationState.failed.rawValue,
+                                         VerificationSessionStorageItem.VerififcationState.rejected.rawValue,
+                                         VerificationSessionStorageItem.VerififcationState.trusted.rawValue],
+                                        Array(enabledAccounts.value),
+                                        Array(enabledAccounts.value)
+                                    ])
+        do {
+            let realm = try WRealm.safe()
+            let verifyStorageList = realm.objects(VerificationSessionStorageItem.self).filter(predicateForVerifySessions)
+            if verifyStorageList.isEmpty {
+                return []
+            }
+            return verifyStorageList.compactMap { item in
+                Datasource(jid: item.jid, owner: item.owner, username: item.jid, message: "Verification session", date: Date(timeIntervalSince1970: Double(item.timestamp)!), state: nil, isMute: false, isSynced: false, status: .online, entity: nil, conversationType: .regular, unread: 0, unreadString: "", color: UIColor.blue, isDraft: false, hasAttachment: false, userNickname: nil, isSystemMessage: true, isPinned: false, subRequest: false, isEncrypted: false, avatarUrl: nil, hasErrorInChat: false, updateTS: 0, verificationSessionSid: item.sid, verificationState: item.state)
+            }
+        } catch {
+            fatalError()
+        }
     }
 }

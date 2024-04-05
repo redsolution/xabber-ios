@@ -81,6 +81,7 @@ final class Account: NSObject {
     var omemo: OmemoManager
     var deliveryReceipts: MessageDeliveryReceipts
     var notifications: XMPPNotificationsManager
+    var akeManager: AuthenticatedKeyExchangeManager
     
     var smStorage: XMPPStreamManagementMemoryStorage
     var sm: XMPPStreamManagement
@@ -168,6 +169,7 @@ final class Account: NSObject {
         self.sm = XMPPStreamManagement(storage: self.smStorage, dispatchQueue: queue)
         self.deliveryReceipts = MessageDeliveryReceipts(withOwner: self.jid)
         self.notifications = XMPPNotificationsManager(withOwner: self.jid)
+        self.akeManager = AuthenticatedKeyExchangeManager(withOwner: self.jid)
         // start init NSObject
         super.init()
         self.registerModules()
@@ -250,6 +252,11 @@ final class Account: NSObject {
 **/
     func configureBase() {
 //        DefaultAvatarManager.shared.updateAvatars(for: self.jid)
+        self.sm.autoResume = true
+        self.sm.activate(self.xmppStream)
+        self.sm.addDelegate(self, delegateQueue: self.queue)
+        self.sm.automaticallyRequestAcks(afterStanzaCount: 8, orTimeout: 20)
+        self.sm.enable(withResumption: true, maxTimeout: 3600)
         if isConfigured {
             return
         }
@@ -260,11 +267,7 @@ final class Account: NSObject {
         self.reconnect.reconnectDelay = 1
         self.reconnect.reconnectTimerInterval = 2
 
-        self.sm.autoResume = true
-        self.sm.activate(self.xmppStream)
-        self.sm.addDelegate(self, delegateQueue: self.queue)
-        self.sm.automaticallyRequestAcks(afterStanzaCount: 8, orTimeout: 20)
-        self.sm.enable(withResumption: true, maxTimeout: 3600)
+        
     }
     
 /**
@@ -312,7 +315,8 @@ final class Account: NSObject {
             self.syncManager,
             self.x509Manager,
             self.omemo,
-            self.deliveryReceipts
+            self.deliveryReceipts,
+            self.akeManager,
         ]
         extensions.forEach {
             [unowned self] module in

@@ -36,9 +36,11 @@ enum NotifyType {
     case newResourceDetect
     case contactGoOnline
     case contactGoOffline
+    case verification
 }
 
 class NotifyItem {
+    var owner: String? = nil
     var from: String
     var to: String
     var message: String
@@ -149,6 +151,7 @@ class NotifyManager {
     public static let notificationPushMessageCategory = "com.xabber.ios.message.push"
     public static let notificationSubscribtionCategory = "com.xabber.ios.subscribtion"
     public static let notificationInviteCategory = "com.xabber.ios.invite"
+    public static let notificationVerificationCategory = "com.xabber.ios.verification"
     public static let notificationMessageActionReply =          [notificationMessageCategory, ".reply"].joined()
     public static let notificationMessageActionMarkAsRead =     [notificationMessageCategory, ".read"].joined()
     public static let notificationMessageActionSetMute =        [notificationMessageCategory, ".mute"].joined()
@@ -166,6 +169,7 @@ class NotifyManager {
     var newResource: NotifyItem
     var contactOnline: NotifyItem
     var contactOffline: NotifyItem
+    var verification: NotifyItem
 
     var unreadMessagesCount: Int = 0
     
@@ -201,6 +205,7 @@ class NotifyManager {
         self.newResource = NotifyItem(from: "", to: "", message: "", date: self.lastOpen, conversationType: "")
         self.contactOnline = NotifyItem(from: "", to: "", message: "", date: self.lastOpen, conversationType: "")
         self.contactOffline = NotifyItem(from: "", to: "", message: "", date: self.lastOpen, conversationType: "")
+        self.verification = NotifyItem(from: "", to: "", message: "", date: self.lastOpen, conversationType: "")
         
         DispatchQueue.main.async {
             self.subscribe()
@@ -495,6 +500,15 @@ class NotifyManager {
             self.showNotify(forType: .contactGoOffline)
         }
     }
+    
+    func update(withVerificationMessage message: String, owner: String, displayName: String, sid: String, timestamp: TimeInterval) {
+        self.verification.message = message
+        self.verification.displayName = displayName
+        self.verification.timestamp = timestamp
+        self.verification.Id = sid
+        self.verification.owner = owner
+        self.showNotify(forType: .verification)
+    }
 
     func showNotify(forType type: NotifyType) {
         let content = UNMutableNotificationContent()
@@ -567,6 +581,18 @@ class NotifyManager {
         case .contactGoOffline:
             DDLogDebug("notify of some contact go offline")
             break
+        case .verification:
+            DDLogDebug("notify of verification message")
+            content.categoryIdentifier = NotifyManager.notificationVerificationCategory
+            content.userInfo = [
+                "owner": self.verification.owner!,
+                "sid": self.verification.Id
+            ]
+            content.title = self.verification.displayName
+            content.body = self.verification.message
+            content.sound = MusicBox.shared.getNotificationSound(for: .newMessage)
+            notificationRequest = self.verification.Id
+            break
         }
         let trigger = UNTimeIntervalNotificationTrigger.init(timeInterval: 0.1, repeats: false)
         let request = UNNotificationRequest(identifier: notificationRequest, content: content, trigger: trigger)
@@ -579,7 +605,10 @@ class NotifyManager {
                 !self.deliveredNotificationsIds.contains(request.content.userInfo["stanzaId"] as? String ?? "none") {
                     UNUserNotificationCenter.current().add(request) {
                         error in
-                        DDLogDebug("cant show notify \(notificationRequest): \(error?.localizedDescription ?? "")")
+                        if error != nil {
+                            DDLogDebug("cant show notify \(notificationRequest): \(error?.localizedDescription ?? "")")
+                            return
+                        }
                     }
                 }
             }
@@ -591,17 +620,14 @@ class NotifyManager {
     }
     
     func showSimpleNotify(withTitle title: String, subtitle: String, body: String) {
-        if !_DEBUG { return }
         let content = UNMutableNotificationContent()
         let dateFormatter = DateFormatter()
         dateFormatter.dateStyle = .medium
         dateFormatter.timeStyle = .medium
-        var notificationRequest = "simpleNotify"
+        var notificationRequest = "simpleNotify \(UUID().uuidString)"
         content.title = title
         content.subtitle = subtitle
         content.body = "\(body)\n\(dateFormatter.string(from: Date()))"
-        content.sound = MusicBox.shared.getNotificationSound()
-        notificationRequest = UUID().uuidString
         let trigger = UNTimeIntervalNotificationTrigger.init(timeInterval: 0.1, repeats: false)
         let request = UNNotificationRequest(identifier: notificationRequest, content: content, trigger: trigger)
         DispatchQueue.main.async {
@@ -1022,6 +1048,78 @@ class NotifyManager {
             Timer.scheduledTimer(withTimeInterval: 3, repeats: false) { (_) in
                 completionHandler?()
             }
+        }
+    }
+    
+    public final func onTouchVerificationNotification(userInfo: [AnyHashable: Any], handler completionHandler: (() -> Void)? = nil) {
+        guard let owner = userInfo["owner"] as? String,
+              let sid = userInfo["sid"] as? String else {
+            fatalError()
+        }
+        
+        do {
+            let realm = try WRealm.safe()
+            guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: owner, sid: sid)),
+                  let akeManager = AccountManager.shared.find(for: owner)?.akeManager,
+                  let xabberTabBar: XabberTabBar = getAppTabBar(),
+                  let navigationController = xabberTabBar.viewControllers?.first as? UINavigationController else {
+                return
+            }
+            
+            var isVerificationWithUsersDevice = false
+            if instance.jid == owner {
+                isVerificationWithUsersDevice = true
+            }
+            
+            switch instance.state {
+            case VerificationSessionStorageItem.VerififcationState.receivedRequest:
+                let agreeAction = UIAlertAction(title: "Accept", style: UIAlertAction.Style.default) { action in
+                    let code = akeManager.acceptVerificationRequest(jid: instance.jid, sid: sid)
+                    let vc = ShowCodeViewController(owner: owner, jid: instance.jid, code: code, sid: sid, isVerificationWithUsersDevice: isVerificationWithUsersDevice)
+                    vc.configure()
+                    navigationController.present(vc, animated: true)
+                }
+                let disagreeAction = UIAlertAction(title: "Reject", style: .destructive) { action in
+                    akeManager.rejectRequestToVerify(jid: instance.jid, sid: sid)
+                }
+                let alert = UIAlertController(title: "Verification session", message: "Do you want to accept verification request from \(instance.jid)?", preferredStyle: UIAlertController.Style.alert)
+                alert.addAction(agreeAction)
+                alert.addAction(disagreeAction)
+                
+                navigationController.present(alert, animated: true)
+                break
+            case VerificationSessionStorageItem.VerififcationState.acceptedRequest:
+                let vc = ShowCodeViewController(owner: owner, jid: instance.jid, code: instance.code, sid: sid, isVerificationWithUsersDevice: isVerificationWithUsersDevice)
+                vc.configure()
+                navigationController.present(vc, animated: true)
+                break
+            case VerificationSessionStorageItem.VerififcationState.receivedRequestAccept:
+                let vc = AuthenticationCodeInputViewController(owner: owner, jid: instance.jid, sid: sid, isVerificationWithUsersDevice: isVerificationWithUsersDevice)
+                navigationController.present(vc, animated: true)
+                break
+            case VerificationSessionStorageItem.VerififcationState.failed:
+                akeManager.showFailedRejectedSuccessfulAlert(state: .failed, jid: instance.jid, sid: sid)
+                try realm.write {
+                    realm.delete(instance)
+                }
+                break
+            case VerificationSessionStorageItem.VerififcationState.rejected:
+                akeManager.showFailedRejectedSuccessfulAlert(state: .rejected, jid: instance.jid, sid: sid)
+                try realm.write {
+                    realm.delete(instance)
+                }
+                break
+            case VerificationSessionStorageItem.VerififcationState.trusted:
+                akeManager.showFailedRejectedSuccessfulAlert(state: .trusted, jid: instance.jid, sid: sid)
+                try realm.write {
+                    realm.delete(instance)
+                }
+                break
+            default:
+                break
+            }
+        } catch {
+            fatalError()
         }
     }
     
