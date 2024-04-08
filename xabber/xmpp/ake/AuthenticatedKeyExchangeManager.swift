@@ -73,7 +73,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         return String(Int.random(in: 100000...999999))
     }
     
-    private final func calculateSharedKey(jid: String, deviceId: Int) -> [UInt8] {
+    internal final func calculateSharedKey(jid: String, deviceId: Int) -> [UInt8] {
         let keyPair = Curve25519.load(fromPublicKey: self.keyPair?.publicKey, andPrivateKey: self.keyPair?.privateKey)
         let opponentPublicKey = getUsersPublicKey(jid: jid, deviceId: deviceId)
         
@@ -648,10 +648,10 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         authenticatedKeyExchange.addChild(verificationSuccessful)
         
         let message = XMPPMessage(messageType: .chat, to: fullJID, elementID: UUID().uuidString, child: authenticatedKeyExchange)
-//        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-//            stream.send(message)
-//        })
-        self.sendMessage(message: message)
+        AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, stream in
+            stream.send(message)
+        })
+
     }
     
     func sendErrorMessage(fullJID: XMPPJID, sid: String, reason: String) {
@@ -660,7 +660,10 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         let message = XMPPMessage(messageType: .chat, to: fullJID, elementID: UUID().uuidString, child: child)
         message.addAttribute(withName: "from", stringValue: self.owner)
 
-        self.sendMessage(message: message)
+        AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, stream in
+            stream.send(message)
+        })
+
     }
     
     func checkHashFromInitiator(jid: String, sid: String, deviceId: Int, hashEncrypted: DDXMLElement, byteSequenceEncrypted: DDXMLElement) -> Bool {
@@ -809,23 +812,25 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
     }
     
     func showFailedRejectedSuccessfulAlert(state: VerificationSessionStorageItem.VerififcationState, jid: String, sid: String) {
-        var alert = UIAlertController()
-        switch state {
-        case .failed:
-            let action = UIAlertAction(title: "Okay", style: .cancel)
-            alert = UIAlertController(title: "", message: "Verification session with \(jid) failed.\nSID: \(sid)", preferredStyle: UIAlertController.Style.alert)
-            alert.addAction(action)
-        case .rejected:
-            let action = UIAlertAction(title: "Okay", style: .cancel)
-            alert = UIAlertController(title: "", message: "Verification session with \(jid) rejected.\nSID: \(sid)", preferredStyle: UIAlertController.Style.alert)
-            alert.addAction(action)
-        case .trusted: 
-            let action = UIAlertAction(title: "Okay", style: .cancel)
-            alert = UIAlertController(title: "", message: "Verification session with \(jid) successful, the device is now trusted.\nSID: \(sid)", preferredStyle: UIAlertController.Style.alert)
-            alert.addAction(action)
-        default:
-            fatalError()
+        DispatchQueue.main.async {
+            var alert = UIAlertController()
+            switch state {
+            case .failed:
+                let action = UIAlertAction(title: "Okay", style: .cancel)
+                alert = UIAlertController(title: "", message: "Verification session with \(jid) failed.\nSID: \(sid)", preferredStyle: UIAlertController.Style.alert)
+                alert.addAction(action)
+            case .rejected:
+                let action = UIAlertAction(title: "Okay", style: .cancel)
+                alert = UIAlertController(title: "", message: "Verification session with \(jid) rejected.\nSID: \(sid)", preferredStyle: UIAlertController.Style.alert)
+                alert.addAction(action)
+            case .trusted:
+                let action = UIAlertAction(title: "Okay", style: .cancel)
+                alert = UIAlertController(title: "", message: "Verification session with \(jid) successful, the device is now trusted.\nSID: \(sid)", preferredStyle: UIAlertController.Style.alert)
+                alert.addAction(action)
+            default:
+                fatalError()
+            }
+            getAppTabBar()?.viewControllers?.first?.present(alert, animated: true)
         }
-        getAppTabBar()?.viewControllers?.first?.present(alert, animated: true)
     }
 }
