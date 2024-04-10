@@ -50,7 +50,9 @@ extension LastChatsViewController: UITableViewDelegate {
                     return
                 }
                 let agreeAction = UIAlertAction(title: "Accept", style: UIAlertAction.Style.default) { action in
-                    let code = akeManager.acceptVerificationRequest(jid: jid, sid: sid)
+                    guard let code = akeManager.acceptVerificationRequest(jid: jid, sid: sid) else {
+                        return
+                    }
                     self.canUpdateDataset = true
                     self.runDatasetUpdateTask()
                     var isVerificationWithUsersDevice = false

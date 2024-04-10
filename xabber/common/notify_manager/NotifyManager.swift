@@ -1074,7 +1074,9 @@ class NotifyManager {
             switch instance.state {
             case VerificationSessionStorageItem.VerififcationState.receivedRequest:
                 let agreeAction = UIAlertAction(title: "Accept", style: UIAlertAction.Style.default) { action in
-                    let code = akeManager.acceptVerificationRequest(jid: instance.jid, sid: sid)
+                    guard let code = akeManager.acceptVerificationRequest(jid: instance.jid, sid: sid) else {
+                        return
+                    }
                     let vc = ShowCodeViewController(owner: owner, jid: instance.jid, code: code, sid: sid, isVerificationWithUsersDevice: isVerificationWithUsersDevice)
                     vc.configure()
                     navigationController.present(vc, animated: true)

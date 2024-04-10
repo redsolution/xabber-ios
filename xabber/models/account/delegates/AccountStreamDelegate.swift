@@ -314,8 +314,8 @@ extension Account: XMPPStreamDelegate {
                     return
                 } else if self.omemo.didReceiveOmemoMessage(message) {
                     return
-                } else if self.akeManager.didReceivedVerificationMessage(message) {
-                    return
+//                } else if self.akeManager.didReceivedVerificationMessage(message) {
+//                    return
                 } else if self.trustSharingManager.didReceivedTrustedSharingMessage(message) {
                     return
                 } else {
@@ -333,8 +333,8 @@ extension Account: XMPPStreamDelegate {
                     return
                 } else if self.omemo.didReceiveOmemoMessage(message) {
                     return
-                } else if self.akeManager.didReceivedVerificationMessage(message) {
-                    return
+//                } else if self.akeManager.didReceivedVerificationMessage(message) {
+//                    return
                 } else if self.trustSharingManager.didReceivedTrustedSharingMessage(message) {
                     return
                 } else {
@@ -355,8 +355,8 @@ extension Account: XMPPStreamDelegate {
                 }
                 if self.omemo.didReceiveOmemoMessage(message) {
                     return
-                } else if self.akeManager.didReceivedVerificationMessage(message) {
-                    return
+//                } else if self.akeManager.didReceivedVerificationMessage(message) {
+//                    return
                 } else if self.trustSharingManager.didReceivedTrustedSharingMessage(message) {
                     return
                 } else if self.chatMarkers.read(withMessage: message) {
@@ -383,8 +383,8 @@ extension Account: XMPPStreamDelegate {
                 }
                 if self.omemo.didReceiveOmemoMessage(message) {
                     return
-                } else if self.akeManager.didReceivedVerificationMessage(message) {
-                    return
+//                } else if self.akeManager.didReceivedVerificationMessage(message) {
+//                    return
                 } else if self.trustSharingManager.didReceivedTrustedSharingMessage(message) {
                     return
                 } else {

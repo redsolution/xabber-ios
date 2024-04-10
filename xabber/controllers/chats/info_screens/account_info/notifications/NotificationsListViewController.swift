@@ -98,6 +98,7 @@ class NotificationsListViewController: SimpleBaseViewController {
         let view = UITableView(frame: .zero, style: .plain)
         
         view.register(DeviceItemCell.self, forCellReuseIdentifier: DeviceItemCell.cellName)
+        view.register(VerificationSessionItemCell.self, forCellReuseIdentifier: VerificationSessionItemCell.cellName)
         
         return view
     }()
@@ -122,6 +123,8 @@ class NotificationsListViewController: SimpleBaseViewController {
         let key: String
         let date: Date
         let category: XMPPNotificationsManager.Category
+        let verificationState: VerificationSessionStorageItem.VerififcationState?
+        let verificationSid: String?
     }
     
     var datasource: [Datasource] = []
@@ -162,12 +165,22 @@ class NotificationsListViewController: SimpleBaseViewController {
                 .filter("category_ IN %@", [
                     XMPPNotificationsManager.Category.device.rawValue,
                     XMPPNotificationsManager.Category.mention.rawValue,
-                    XMPPNotificationsManager.Category.contact.rawValue
-                ])
+                    XMPPNotificationsManager.Category.contact.rawValue,
+                    XMPPNotificationsManager.Category.trust.rawValue
+                ]).sorted(byKeyPath: "date", ascending: false)
             self.datasource = [
                 mapResult(allNotifications, title: "", key: "all"),
 //                mapResult(readNotifications, title: "Displayed notifgication", key: "read")
             ].compactMap({ return $0.childs.isNotEmpty ? $0 : nil })
+            
+//            var sortedDatasource: [Datasource] = []
+//            for item in self.datasource {
+//                let childs = item.childs.sorted(by: { $0.date > $1.date })
+//                sortedDatasource.append(Datasource(title: item.title, key: item.key, childs: childs))
+//            }
+//            
+//            self.datasource = sortedDatasource
+            
             self.emptyScreenShowObserver.accept(self.datasource.isEmpty)
         } catch {
             DDLogDebug("NotificationsListViewController: \(#function). \(error.localizedDescription)")
@@ -179,7 +192,44 @@ class NotificationsListViewController: SimpleBaseViewController {
             (item) in
             switch item.category {
                 case .trust:
-                    return nil
+                    do {
+                        let realm = try WRealm.safe()
+                        guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: item.verificationSid!)) else {
+//                              let localStore = AccountManager.shared.find(for: owner)?.omemo.localStore else {
+                            return nil
+                        }
+//                        var deviceID = localStore.localDeviceId()
+//                        deviceID = Int(item.deviceId!)!
+                        if item.verificationState == .acceptedRequest && instance.state == .receivedRequest && instance.myDeviceId != Int(item.deviceId!)! {
+                            try realm.write {
+                                realm.delete(instance)
+                                realm.delete(item)
+                            }
+                            return nil
+                        } else if item.verificationState == .rejected && instance.state == .receivedRequest {
+                            try realm.write {
+                                realm.delete(instance)
+                                realm.delete(item)
+                            }
+                            return nil
+                        }
+                        if item.verificationState != instance.state {
+                            return nil
+                        }
+                    } catch {
+                        fatalError()
+                    }
+                    return DatasourceChild(
+                        owner: item.owner,
+                        jid: item.associatedJid ?? item.jid,
+                        title: item.associatedJid ?? item.jid,
+                        message: item.text ?? "",
+                        key: item.associatedJid ?? item.jid,
+                        date: item.date,
+                        category: item.category,
+                        verificationState: item.verificationState,
+                        verificationSid: item.verificationSid
+                    )
                 case .contact:
                     guard let jid = item.associatedJid,
                           let nick = item.displayedNick else {
@@ -192,7 +242,9 @@ class NotificationsListViewController: SimpleBaseViewController {
                         message: "New subscribtion request from \(jid)",
                         key: jid,
                         date: item.date,
-                        category: item.category
+                        category: item.category,
+                        verificationState: nil,
+                        verificationSid: nil
                     )
                 case .device:
                     guard let deviceId = item.metadata?["deviceId"] as? String else {
@@ -205,7 +257,9 @@ class NotificationsListViewController: SimpleBaseViewController {
                         message: item.text ?? " ",//"Detected new login from \(ip) by \(client) on \(device) device",
                         key: deviceId,
                         date: item.date,
-                        category: item.category
+                        category: item.category,
+                        verificationState: nil,
+                        verificationSid: nil
                     )
                 case .mention:
                     return nil
@@ -226,6 +280,7 @@ class NotificationsListViewController: SimpleBaseViewController {
                 .debounce(.milliseconds(200), scheduler: MainScheduler.asyncInstance)
                 .subscribe { _ in
                     self.getAndMapDatasource()
+                    self.tableView.reloadData()
                 } onError: { _ in
                     
                 } onCompleted: {
@@ -267,7 +322,11 @@ extension NotificationsListViewController: UITableViewDataSource {
         let item = self.datasource[indexPath.section].childs[indexPath.row]
         switch item.category {
             case .trust:
-                fatalError()
+                guard let cell = tableView.dequeueReusableCell(withIdentifier: VerificationSessionItemCell.cellName, for: indexPath) as? VerificationSessionItemCell else {
+                    fatalError()
+                }
+                cell.configure(item.jid!, owner: self.owner, username: "username", date: item.date, verificationState: item.verificationState!)
+                return cell
             case .contact:
                 fatalError()
             case .device:
@@ -296,7 +355,7 @@ extension NotificationsListViewController: UITableViewDelegate {
         let item = self.datasource[indexPath.section].childs[indexPath.row]
         switch item.category {
             case .trust:
-                return 84
+                return tableView.estimatedRowHeight
             case .contact:
                 return 84
             case .device:
@@ -313,6 +372,106 @@ extension NotificationsListViewController: UITableViewDelegate {
         let item = self.datasource[indexPath.section].childs[indexPath.row]
         switch item.category {
             case .trust:
+            if item.verificationState == .receivedRequest {
+                guard let sid = item.verificationSid,
+                      let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
+                    return
+                }
+                let agreeAction = UIAlertAction(title: "Accept", style: UIAlertAction.Style.default) { action in
+                    guard let code = akeManager.acceptVerificationRequest(jid: item.jid!, sid: sid) else {
+                        return
+                    }
+                    self.loadDatasource()
+                    self.tableView.reloadData()
+                    var isVerificationWithUsersDevice = false
+                    if item.jid == self.owner {
+                        isVerificationWithUsersDevice = true
+                    }
+                    let vc = ShowCodeViewController(owner: self.owner, jid: item.jid!, code: code, sid: sid, isVerificationWithUsersDevice: isVerificationWithUsersDevice)
+                    vc.configure()
+                    self.present(vc, animated: true)
+                }
+                let disagreeAction = UIAlertAction(title: "Reject", style: .destructive) { action in
+                    akeManager.rejectRequestToVerify(jid: item.jid!, sid: sid)
+                    self.loadDatasource()
+                    self.tableView.reloadData()
+                }
+                let alert = UIAlertController(title: "Verification session", message: "Do you want to accept verification request from \(item.jid!)?", preferredStyle: UIAlertController.Style.alert)
+                alert.addAction(agreeAction)
+                alert.addAction(disagreeAction)
+                self.present(alert, animated: true)
+                return
+            }  else if item.verificationState == .sentRequest {
+                return
+            } else if item.verificationState == VerificationSessionStorageItem.VerififcationState.acceptedRequest {
+                guard let sid = item.verificationSid,
+                      let jid = item.jid,
+                      let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
+                    return
+                }
+                var code: String
+                do {
+                    let realm = try WRealm.safe()
+                    guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) else {
+                        DDLogDebug("NotificationsListViewController: this instance of VerificationSessionStorageItem is not exist")
+                        return
+                    }
+                    code = instance.code
+                } catch {
+                    fatalError()
+                }
+                var isVerificationWithUsersDevice = false
+                if item.jid == self.owner {
+                    isVerificationWithUsersDevice = true
+                }
+                let vc = ShowCodeViewController(owner: self.owner, jid: jid, code: code, sid: sid, isVerificationWithUsersDevice: isVerificationWithUsersDevice)
+                vc.configure()
+                self.present(vc, animated: true)
+                return
+            } else if item.verificationState == .receivedRequestAccept {
+                guard let sid = item.verificationSid,
+                      let jid = item.jid else {
+                    return
+                }
+                var isVerificationWithUsersDevice = false
+                if jid == self.owner {
+                    isVerificationWithUsersDevice = true
+                }
+                let vc = AuthenticationCodeInputViewController(owner: self.owner, jid: jid, sid: sid, isVerificationWithUsersDevice: isVerificationWithUsersDevice)
+                self.present(vc, animated: true)
+                return
+            } else if item.verificationState == .failed || item.verificationState == .rejected || item.verificationState == .trusted {
+                guard let sid = item.verificationSid,
+                      let jid = item.jid else {
+                    return
+                }
+                do {
+                    let realm = try WRealm.safe()
+                    let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid))
+                    try realm.write {
+                        realm.delete(instance!)
+                    }
+                } catch {
+                    fatalError()
+                }
+                
+                var alertMessage = ""
+                if item.verificationState == .failed {
+                    alertMessage = "Verification session with \(jid) failed.\nSID: \(item.verificationSid!)"
+                } else if item.verificationState == .rejected {
+                    alertMessage = "Verification session with \(jid) rejected.\nSID: \(item.verificationSid!)"
+                } else if item.verificationState == .trusted {
+                    alertMessage = "Verification session with \(jid) was successful, the device is now trusted.\nSID: \(item.verificationSid!)"
+                }
+                let action = UIAlertAction(title: "Okay", style: .cancel) { action in
+                    self.loadDatasource()
+                    self.tableView.reloadData()
+                }
+                let alert = UIAlertController(title: "", message: alertMessage, preferredStyle: UIAlertController.Style.alert)
+                alert.addAction(action)
+                self.present(alert, animated: true)
+                return
+            }
                 break
             case .contact:
                 break
