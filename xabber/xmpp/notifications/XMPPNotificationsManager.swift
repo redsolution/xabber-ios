@@ -150,6 +150,10 @@ class XMPPNotificationsManager: AbstractXMPPManager {
                         }
                         instance.date = date ?? Date()
                     } else if let akeElement = messageContainer.element(forName: "authenticated-key-exchange") {
+                        if XMPPMessage(from: messageContainer).from == AccountManager.shared.find(for: self.owner)!.xmppStream.myJID {
+                            return true
+                        }
+                        
                         guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
                               let sid = akeElement.attributeStringValue(forName: "sid") else {
                             fatalError()
@@ -166,16 +170,19 @@ class XMPPNotificationsManager: AbstractXMPPManager {
                             if sessionInstance != nil && deviceID == sessionInstance?.myDeviceId {
                                 let predicate = NSPredicate(format: "verificationSid == %@", argumentArray: [sid])
                                 let notificationInstance = realm.objects(NotificationStorageItem.self).filter(predicate).first
-                                if akeElement.element(forName: "verification-accepted") != nil {
-                                    try realm.write {
-                                        notificationInstance?.verificationState = .acceptedRequest
-                                    }
-                                } else if akeElement.element(forName: "verification-rejected") != nil {
-                                    try realm.write {
-                                        realm.delete(notificationInstance!)
+                                if notificationInstance != nil {
+                                    if akeElement.element(forName: "verification-accepted") != nil {
+                                        try realm.write {
+                                            notificationInstance?.verificationState = .acceptedRequest
+                                        }
+                                        return true
+                                    } else if akeElement.element(forName: "verification-rejected") != nil {
+                                        try realm.write {
+                                            realm.delete(notificationInstance!)
+                                        }
+                                        return true
                                     }
                                 }
-                                return true
                             }
                         }
                         
@@ -222,6 +229,8 @@ class XMPPNotificationsManager: AbstractXMPPManager {
                             instance.verificationState_ = verificationStateRaw
                             instance.verificationSid = sid
                         }
+                    } else {
+                        return false
                     }
                     try realm.write {
                         realm.add(instance)

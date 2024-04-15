@@ -412,7 +412,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                     guard let trustSharingManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager else {
                         fatalError()
                     }
-                    trustSharingManager.sendMessageWithContactsDevices(opponentFullJid: jid, deviceId: deviceIdRecipient, opponentDeviceId: deviceId)
+                    trustSharingManager.sendNotificationWithContactsDevices(opponentFullJid: jid, deviceId: deviceIdRecipient, opponentDeviceId: deviceId)
                 }
                 
                 title = "Verification completed successfully"
@@ -436,7 +436,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                     guard let trustSharingManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager else {
                         fatalError()
                     }
-                    trustSharingManager.sendMessageWithContactsDevices(opponentFullJid: jid, deviceId: deviceIdRecipient, opponentDeviceId: deviceId)
+                    trustSharingManager.sendNotificationWithContactsDevices(opponentFullJid: jid, deviceId: deviceIdRecipient, opponentDeviceId: deviceId)
                 }
                 
                 title = "Verification completed successfully"
@@ -521,27 +521,9 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                         
         let childs = self.getMessageChildsForVerififcationRequest(sid: sid)
         let message = XMPPMessage(messageType: .chat, to: XMPPJID(string: jid), elementID: UUID().uuidString, child: childs)
-        message.addAttribute(withName: "from", stringValue: self.owner)
+        message.addAttribute(withName: "from", stringValue: AccountManager.shared.find(for: self.owner)!.xmppStream.myJID!.full)
         
-        let iq = self.getNotificationContainer(message: message, notificationTo: XMPPJID(string: jid)!.bareJID)
-        
-//        let forwarded = DDXMLElement(name: "forwarded", xmlns: "urn:xmpp:forward:0")
-//        forwarded.addChild(message)
-//        
-//        let notification = DDXMLElement(name: "notification")
-//        notification.addChild(forwarded)
-//        
-//        let address = DDXMLElement(name: "address")
-//        address.addAttribute(withName: "type", stringValue: "to")
-//        address.addAttribute(withName: "jid", stringValue: jid)
-//        let addresses = DDXMLElement(name: "addresses", xmlns: "http://jabber.org/protocol/address")
-//        addresses.addChild(address)
-//        
-//        let notify = DDXMLElement(name: "notify", xmlns: "urn:xabber:xen:0")
-//        notify.addChild(notification)
-//        notify.addChild(addresses)
-//        
-//        let iq = XMPPIQ(iqType: .set, to: XMPPJID(string: jid)!.bareJID, child: notify)
+        let iq = self.getNotificationContainer(message: message, notificationTo: XMPPJID(string: jid)!)
 
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
             stream.send(iq)
@@ -646,7 +628,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         let child = self.getMessageChildsToSendHashAndSaltToOpponent(sid: sid, encryptedHash: resultHash.encrypted.toBase64(), ivHash: resultHash.iv.toBase64(), encryptedSalt: resultSalt.encrypted.toBase64(), ivSalt: resultSalt.iv.toBase64())
         
         let messageToSend = XMPPMessage(messageType: .chat, to: fullJID, elementID: UUID().uuidString, child: child)
-        messageToSend.addAttribute(withName: "from", stringValue: self.owner)
+        messageToSend.addAttribute(withName: "from", stringValue: AccountManager.shared.find(for: self.owner)!.xmppStream.myJID!.full)
         
         let iq = self.getNotificationContainer(message: messageToSend, notificationTo: fullJID)
         
@@ -687,24 +669,6 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         
         let iq = self.getNotificationContainer(message: message, notificationTo: fullJID)
         
-//        let forwarded = DDXMLElement(name: "forwarded", xmlns: "urn:xmpp:forward:0")
-//        forwarded.addChild(message)
-//        
-//        let notification = DDXMLElement(name: "notification")
-//        notification.addChild(forwarded)
-//        
-//        let address = DDXMLElement(name: "address")
-//        address.addAttribute(withName: "type", stringValue: "to")
-//        address.addAttribute(withName: "jid", stringValue: fullJID.full)
-//        let addresses = DDXMLElement(name: "addresses", xmlns: "http://jabber.org/protocol/address")
-//        addresses.addChild(address)
-//        
-//        let notify = DDXMLElement(name: "notify", xmlns: "urn:xabber:xen:0")
-//        notify.addChild(notification)
-//        notify.addChild(addresses)
-//        
-//        let iq = XMPPIQ(iqType: .set, to: fullJID.bareJID, child: notify)
-        
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
             stream.send(iq)
         })
@@ -717,24 +681,6 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         message.addAttribute(withName: "from", stringValue: AccountManager.shared.find(for: self.owner)!.xmppStream.myJID!.full)
         
         let iq = self.getNotificationContainer(message: message, notificationTo: fullJID)
-        
-//        let forwarded = DDXMLElement(name: "forwarded", xmlns: "urn:xmpp:forward:0")
-//        forwarded.addChild(message)
-//        
-//        let notification = DDXMLElement(name: "notification")
-//        notification.addChild(forwarded)
-//        
-//        let address = DDXMLElement(name: "address")
-//        address.addAttribute(withName: "type", stringValue: "to")
-//        address.addAttribute(withName: "jid", stringValue: fullJID.full)
-//        let addresses = DDXMLElement(name: "addresses", xmlns: "http://jabber.org/protocol/address")
-//        addresses.addChild(address)
-//        
-//        let notify = DDXMLElement(name: "notify", xmlns: "urn:xabber:xen:0")
-//        notify.addChild(notification)
-//        notify.addChild(addresses)
-//        
-//        let iq = XMPPIQ(iqType: .set, to: fullJID.bareJID, child: notify)
         
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
             stream.send(iq)
@@ -874,7 +820,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         authenticatedKeyExchange.addChild(verificationRejected)
         
         let message = XMPPMessage(messageType: .chat, to: XMPPJID(string: fullJID), elementID: UUID().uuidString, child: authenticatedKeyExchange)
-        message.addAttribute(withName: "from", stringValue: self.owner)
+        message.addAttribute(withName: "from", stringValue: AccountManager.shared.find(for: self.owner)!.xmppStream.myJID!.full)
         
         let iq = self.getNotificationContainer(message: message.copy() as! XMPPMessage, notificationTo: XMPPJID(string: fullJID)!)
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
