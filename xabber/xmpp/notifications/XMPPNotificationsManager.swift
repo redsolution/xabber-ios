@@ -149,86 +149,91 @@ class XMPPNotificationsManager: AbstractXMPPManager {
                             date = dateFormatter.date(from: dateString)
                         }
                         instance.date = date ?? Date()
-                    } else if let akeElement = messageContainer.element(forName: "authenticated-key-exchange") {
-                        if XMPPMessage(from: messageContainer).from == AccountManager.shared.find(for: self.owner)!.xmppStream.myJID {
-                            return true
-                        }
-                        
-                        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
-                              let sid = akeElement.attributeStringValue(forName: "sid") else {
-                            fatalError()
-                        }
-                        
-                        // if received own notification
-                        if bareMessage.element(forName: "addresses")?.element(forName: "address")?.attributeStringValue(forName: "jid") == self.owner {
-                            let sessionInstance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid))
-                            guard let localStore = AccountManager.shared.find(for: owner)?.omemo.localStore else {
-                                fatalError()
-                            }
-                            let deviceID = localStore.localDeviceId()
-                            // if there is a session with this device
-                            if sessionInstance != nil && deviceID == sessionInstance?.myDeviceId {
-                                let predicate = NSPredicate(format: "verificationSid == %@", argumentArray: [sid])
-                                let notificationInstance = realm.objects(NotificationStorageItem.self).filter(predicate).first
-                                if notificationInstance != nil {
-                                    if akeElement.element(forName: "verification-accepted") != nil {
-                                        try realm.write {
-                                            notificationInstance?.verificationState = .acceptedRequest
-                                        }
-                                        return true
-                                    } else if akeElement.element(forName: "verification-rejected") != nil {
-                                        try realm.write {
-                                            realm.delete(notificationInstance!)
-                                        }
-                                        return true
-                                    }
-                                }
-                            }
-                        }
-                        
-                        let dateString = bareMessage.element(forName: "time")?.attributeStringValue(forName: "stamp")
-                        instance.category = .trust
-                        
-                        var date: Date? = nil
-                        let dateFormatter = DateFormatter()
-                        dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
-                        date = dateFormatter.date(from: dateString!)
-                        if date == nil {
-                            let dateFormatter = DateFormatter()
-                            dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZ"
-                            date = dateFormatter.date(from: dateString!)
-                        }
-                        instance.date = date!
-                        instance.verificationSid = sid
-                        
-                        if akeElement.element(forName: "verification-accepted") != nil {
-                            instance.verificationState = .acceptedRequest
-                            instance.deviceId = akeElement.element(forName: "verification-accepted")?.attributeStringValue(forName: "device-id")
-                        } else if akeElement.element(forName: "verification-rejected") != nil {
-                            instance.verificationState = .rejected
-                        }
-                        
-                        if akeManager.didReceivedVerificationMessage(XMPPMessage(from: messageContainer)) {
-                            var fullJID = ""
-                            var verificationStateRaw = ""
-                            do {
-                                let realm = try WRealm.safe()
-                                guard let verificationSessionInstance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) else {
-                                    return true
-                                }
-                                fullJID = verificationSessionInstance.fullJID
-                                verificationStateRaw = verificationSessionInstance.state.rawValue
-                            } catch {
-                                fatalError()
-                            }
-                            
-                            instance.category = .trust
-                            instance.associatedJid = XMPPJID(string: fullJID)?.bare
-                            instance.shouldShow = true
-                            instance.text = ""
-                            instance.verificationState_ = verificationStateRaw
-                            instance.verificationSid = sid
-                        }
+//                    } else if let akeElement = messageContainer.element(forName: "authenticated-key-exchange") {
+//                        if XMPPMessage(from: messageContainer).from == AccountManager.shared.find(for: self.owner)!.xmppStream.myJID {
+//                            return true
+//                        }
+//                        
+//                        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
+//                              let sid = akeElement.attributeStringValue(forName: "sid") else {
+//                            fatalError()
+//                        }
+//                        
+//                        // if received own notification
+//                        if bareMessage.element(forName: "addresses")?.element(forName: "address")?.attributeStringValue(forName: "jid") == self.owner {
+//                            let sessionInstance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid))
+//                            guard let localStore = AccountManager.shared.find(for: owner)?.omemo.localStore else {
+//                                fatalError()
+//                            }
+//                            let deviceID = localStore.localDeviceId()
+//                            // if there is a session with this device
+////                            if sessionInstance != nil && deviceID == sessionInstance?.myDeviceId {
+//                            if XMPPMessage(from: messageContainer).to == AccountManager.shared.find(for: self.owner)!.xmppStream.myJID {
+//                                let predicate = NSPredicate(format: "verificationSid == %@", argumentArray: [sid])
+//                                guard let notificationInstance = realm.objects(NotificationStorageItem.self).filter(predicate).first else {
+//                                    return true
+//                                }
+////                                if notificationInstance != nil {
+//                                if akeElement.element(forName: "verification-accepted") != nil {
+//                                    try realm.write {
+//                                        notificationInstance.verificationState = .acceptedRequest
+//                                    }
+//                                    return true
+//                                } else if akeElement.element(forName: "verification-rejected") != nil {
+//                                    try realm.write {
+////                                            realm.delete(notificationInstance!)
+//                                        notificationInstance.verificationState = .rejected
+//                                    }
+//                                    return true
+//                                }
+////                                }
+////                                return true
+//                            }
+//                        }
+//                        
+//                        let dateString = bareMessage.element(forName: "time")?.attributeStringValue(forName: "stamp")
+//                        instance.category = .trust
+//                        
+//                        var date: Date? = nil
+//                        let dateFormatter = DateFormatter()
+//                        dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
+//                        date = dateFormatter.date(from: dateString!)
+//                        if date == nil {
+//                            let dateFormatter = DateFormatter()
+//                            dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZ"
+//                            date = dateFormatter.date(from: dateString!)
+//                        }
+//                        instance.date = date!
+//                        instance.verificationSid = sid
+//                        
+//                        if akeElement.element(forName: "verification-accepted") != nil {
+//                            instance.verificationState = .acceptedRequest
+//                            instance.deviceId = akeElement.element(forName: "verification-accepted")?.attributeStringValue(forName: "device-id")
+//                        } else if akeElement.element(forName: "verification-rejected") != nil {
+//                            instance.verificationState = .rejected
+//                        }
+//                        
+//                        if akeManager.didReceivedVerificationMessage(XMPPMessage(from: messageContainer)) {
+//                            var fullJID = ""
+//                            var verificationStateRaw = ""
+//                            do {
+//                                let realm = try WRealm.safe()
+//                                guard let verificationSessionInstance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) else {
+//                                    return true
+//                                }
+//                                fullJID = verificationSessionInstance.fullJID
+//                                verificationStateRaw = verificationSessionInstance.state.rawValue
+//                            } catch {
+//                                fatalError()
+//                            }
+//                            
+//                            instance.category = .trust
+//                            instance.associatedJid = XMPPJID(string: fullJID)?.bare
+//                            instance.shouldShow = true
+//                            instance.text = ""
+//                            instance.verificationState_ = verificationStateRaw
+//                            instance.verificationSid = sid
+//                        }
                     } else {
                         return false
                     }

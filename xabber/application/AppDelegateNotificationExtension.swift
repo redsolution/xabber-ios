@@ -39,7 +39,7 @@ extension AppDelegate : UNUserNotificationCenterDelegate {
         let verificationCategory = NotifyManager.notificationVerificationCategory
         
         switch category {
-        case messageCategory, subscriptionCategory, verificationCategory:
+        case messageCategory, subscriptionCategory:
             if notificationInAppAlertLastChats {
                 if notificationInAppSound {
                     completionHandler([.banner, .sound])
@@ -59,6 +59,20 @@ extension AppDelegate : UNUserNotificationCenterDelegate {
                     } else {
                         completionHandler([.banner])
                     }
+                }
+            }
+        case verificationCategory:
+            if notificationInAppAlertLastChats {
+                if notificationInAppSound {
+                    completionHandler([.banner, .sound])
+                } else {
+                    completionHandler([.banner])
+                }
+            } else {
+                if notificationInAppSound {
+                    completionHandler([.banner, .sound])
+                } else {
+                    completionHandler([.banner])
                 }
             }
         default:

@@ -224,7 +224,7 @@ class NotificationsListViewController: SimpleBaseViewController {
                         jid: item.associatedJid ?? item.jid,
                         title: item.associatedJid ?? item.jid,
                         message: item.text ?? "",
-                        key: item.associatedJid ?? item.jid,
+                        key: item.uniqueId,
                         date: item.date,
                         category: item.category,
                         verificationState: item.verificationState,
@@ -381,6 +381,18 @@ extension NotificationsListViewController: UITableViewDelegate {
                     guard let code = akeManager.acceptVerificationRequest(jid: item.jid!, sid: sid) else {
                         return
                     }
+                    do {
+                        let realm = try WRealm.safe()
+                        guard let notificationInstance = realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: NotificationStorageItem.genPrimary(owner: self.owner, jid: item.jid!, uniqueId: item.key)) else {
+                            fatalError()
+                        }
+                        try realm.write {
+                            notificationInstance.verificationState = .acceptedRequest
+                        }
+                    } catch {
+                        fatalError()
+                    }
+                    
                     self.loadDatasource()
                     self.tableView.reloadData()
                     var isVerificationWithUsersDevice = false

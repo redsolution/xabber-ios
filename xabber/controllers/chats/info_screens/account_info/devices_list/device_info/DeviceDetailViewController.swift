@@ -421,6 +421,7 @@ extension DeviceDetailViewController: UITableViewDelegate {
                             let realm = try Realm()
                             if let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.jid, deviceId: self.omemoDeviceID)) {
                                 try realm.write {
+                                    instance.trustDate = Date()
                                     instance.state = .trusted
                                 }
                             }
@@ -443,10 +444,11 @@ extension DeviceDetailViewController: UITableViewDelegate {
                             self.goBack()
                         }
                     case "verify":
-                        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else { fatalError()
+                        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
+                            fatalError()
                         }
-                        let fullJid = self.jid + "/" + self.resource!
-                        akeManager.sendVerificationRequest(jid: fullJid)
+//                        let fullJid = self.jid + "/" + self.resource!
+                        akeManager.sendVerificationRequest(jid: self.jid, deviceId: String(self.omemoDeviceID))
                         break
                     default:
                         break

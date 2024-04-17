@@ -262,6 +262,7 @@ extension OmemoManager {
         case device = "urn:xmpp:omemo:2:devices"
         case bundle = "urn:xmpp:omemo:2:bundles"
         case update = "urn:xmpp:omemo:2:bundles:update"
+        case trustList = "urn:xmpp:trustsharing:0:items"
     }
     
     public final func subscribeNode(_ xmppStream: XMPPStream, jid: String, node: NodeType) {
