@@ -202,7 +202,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         guard let authenticatedKeyExchange = messageContainer.element(forName: "authenticated-key-exchange", xmlns: getPrimaryNamespace()),
               let jid = XMPPMessage(from: messageContainer).from,
               let sid = authenticatedKeyExchange.attributeStringValue(forName: "sid"),
-              let timestamp = authenticatedKeyExchange.attributeStringValue(forName: "timestamp")else {
+              let timestamp = authenticatedKeyExchange.attributeStringValue(forName: "timestamp") else {
             return false
         }
         
@@ -319,10 +319,13 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             do {
                 let realm = try WRealm.safe()
                 guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) else {
-                    return false
+                    return true
                 }
                 if instance.state != .sentRequest {
-                    return false
+                    try realm.write {
+                        realm.delete(instance)
+                    }
+                    return true
                 }
                 
                 guard let verificationAccepted = authenticatedKeyExchange.element(forName: "verification-accepted"),
@@ -356,7 +359,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         } else if authenticatedKeyExchange.element(forName: "hash") != nil && authenticatedKeyExchange.element(forName: "salt") != nil {
             guard let hashEncrypted = authenticatedKeyExchange.element(forName: "hash"),
                   let byteSequenceEncrypted = authenticatedKeyExchange.element(forName: "salt") else {
-                return false
+                return true
             }
             
             var deviceId: Int = 0
@@ -364,7 +367,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             do {
                 let realm = try WRealm.safe()
                 guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) else {
-                    return false
+                    return true
                 }
                 
                 deviceId = instance.opponentDeviceId
@@ -431,7 +434,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             return true
         } else if authenticatedKeyExchange.element(forName: "hash") != nil {
             guard let hashEncrypted = authenticatedKeyExchange.element(forName: "hash") else {
-                return false
+                return true
             }
             
             var deviceId: Int = 0
@@ -442,7 +445,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             do {
                 let realm = try WRealm.safe()
                 guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) else {
-                    return false
+                    return true
                 }
                 
                 guard let notificationInstance = realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: NotificationStorageItem.genPrimary(owner: self.owner, jid: jid.bare, uniqueId: uniqueMessageId)) else {
@@ -511,13 +514,12 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 fatalError()
             }
             if self.owner == jid.bare {
-                trustSharingManager.sendNotificationWithContactsDevices(opponentFullJid: jid, deviceId: deviceIdRecipient, opponentDeviceId: deviceId)
-                guard let localStore = AccountManager.shared.find(for: owner)?.omemo.localStore else {
-                    fatalError()
-                }
-                trustSharingManager.publicOwnTrustedDevices(publisherDeviceId: String(localStore.localDeviceId()))
+                trustSharingManager.sendNotificationWithContactsDevices(opponentFullJid: jid.bareJID, deviceId: deviceIdRecipient)
+                trustSharingManager.publicOwnTrustedDevices(publisherDeviceId: String(deviceIdRecipient))
+                trustSharingManager.getUserTrustedDevices(jid: jid.bareJID, deviceId: String(deviceId))
             } else {
-                
+                trustSharingManager.getUserTrustedDevices(jid: jid.bareJID)
+                trustSharingManager.sendNotificationWithContactsDevices(opponentFullJid: XMPPJID(string: self.owner)!, deviceId: deviceIdRecipient)
             }
             
             title = "Verification completed successfully"
@@ -526,7 +528,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             do {
                 let realm = try WRealm.safe()
                 guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) else {
-                    return false
+                    return true
                 }
                 guard let notificationInstance = realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: NotificationStorageItem.genPrimary(owner: self.owner, jid: jid.bare, uniqueId: uniqueMessageId)) else {
                     fatalError()
@@ -541,12 +543,18 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             } catch {
                 fatalError()
             }
+            self.writeTrustedDevice(jid: jid.bare, deviceId: deviceId)
             
+            guard let trustSharingManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager else {
+                fatalError()
+            }
             if self.owner == jid.bare {
-                guard let trustSharingManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager else {
-                    fatalError()
-                }
-                trustSharingManager.sendNotificationWithContactsDevices(opponentFullJid: jid, deviceId: deviceIdRecipient, opponentDeviceId: deviceId)
+                trustSharingManager.sendNotificationWithContactsDevices(opponentFullJid: jid.bareJID, deviceId: deviceIdRecipient)
+                trustSharingManager.publicOwnTrustedDevices(publisherDeviceId: String(deviceIdRecipient))
+                trustSharingManager.getUserTrustedDevices(jid: jid.bareJID, deviceId: String(deviceId))
+            } else {
+                trustSharingManager.getUserTrustedDevices(jid: jid.bareJID)
+                trustSharingManager.sendNotificationWithContactsDevices(opponentFullJid: XMPPJID(string: self.owner)!, deviceId: deviceIdRecipient)
             }
             
             title = "Verification completed successfully"
@@ -554,14 +562,14 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             do {
                 let realm = try WRealm.safe()
                 guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) else {
-                    return false
+                    return true
                 }
                 guard let notificationInstance = realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: NotificationStorageItem.genPrimary(owner: self.owner, jid: jid.bare, uniqueId: uniqueMessageId)) else {
                     fatalError()
                 }
                 
                 if instance.state != .sentRequest {
-                    return false
+                    return true
                 }
                 
                 try realm.write {
@@ -576,7 +584,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             do {
                 let realm = try WRealm.safe()
                 guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) else {
-                    return false
+                    return true
                 }
                 guard let notificationInstance = realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: NotificationStorageItem.genPrimary(owner: self.owner, jid: jid.bare, uniqueId: uniqueMessageId)) else {
                     fatalError()
@@ -613,7 +621,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         do {
             let realm = try WRealm.safe()
             
-            let predicate = NSPredicate(format: "owner == %@ AND myDeviceId == %@ AND jid == %@ AND state_ == %@", argumentArray: [self.owner, self.deviceID!, jid, VerificationSessionStorageItem.VerififcationState.sentRequest.rawValue])
+            let predicate = NSPredicate(format: "owner == %@ AND myDeviceId == %@ AND jid == %@", argumentArray: [self.owner, self.deviceID!, jid])
             let oldInstances = realm.objects(VerificationSessionStorageItem.self).filter(predicate)
             if !oldInstances.isEmpty {
                 try realm.write {
@@ -680,13 +688,24 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         let message = XMPPMessage(messageType: .chat, to: XMPPJID(string: fullJID), elementID: UUID().uuidString, child: child)
         message.addAttribute(withName: "from", stringValue: AccountManager.shared.find(for: self.owner)!.xmppStream.myJID!.full)
         
-        let iq = self.getNotificationContainer(message: message.copy() as! XMPPMessage, notificationTo: XMPPJID(string: fullJID)!)
+        let iq = self.getNotificationContainer(message: message, notificationTo: XMPPJID(string: fullJID)!)
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
             stream.send(iq)
         })
         
         if XMPPJID(string: fullJID)!.bare != self.owner {
-            let iqToMyDevices = self.getNotificationContainer(message: message.copy() as! XMPPMessage, notificationTo: XMPPJID(string: self.owner)!)
+            let verificationAccepted = DDXMLElement(name: "verification-accepted")
+            verificationAccepted.addAttribute(withName: "device-id", stringValue: String(self.deviceID!))
+            
+            let akeXML = DDXMLElement(name: "authenticated-key-exchange", xmlns: "urn:xabber:trust")
+            akeXML.addAttribute(withName: "sid", stringValue: sid)
+            akeXML.addAttribute(withName: "timestamp", stringValue: (message.element(forName: "authenticated-key-exchange")?.attributeStringValue(forName: "timestamp"))!)
+            akeXML.addChild(verificationAccepted)
+            
+            let message = XMPPMessage(messageType: .chat, to: XMPPJID(string: fullJID), elementID: UUID().uuidString, child: akeXML)
+            message.addAttribute(withName: "from", stringValue: AccountManager.shared.find(for: self.owner)!.xmppStream.myJID!.full)
+            
+            let iqToMyDevices = self.getNotificationContainer(message: message, notificationTo: XMPPJID(string: self.owner)!)
             AccountManager.shared.find(for: self.owner)?.action({ user, stream in
                 stream.send(iqToMyDevices)
             })
@@ -941,15 +960,27 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         let message = XMPPMessage(messageType: .chat, to: XMPPJID(string: fullJID), elementID: UUID().uuidString, child: authenticatedKeyExchange)
         message.addAttribute(withName: "from", stringValue: AccountManager.shared.find(for: self.owner)!.xmppStream.myJID!.full)
         
-        let iq = self.getNotificationContainer(message: message.copy() as! XMPPMessage, notificationTo: XMPPJID(string: fullJID)!)
+        let iq = self.getNotificationContainer(message: message, notificationTo: XMPPJID(string: fullJID)!)
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
             stream.send(iq)
         })
         
-        let iqToMyDevices = self.getNotificationContainer(message: message.copy() as! XMPPMessage, notificationTo: XMPPJID(string: self.owner)!)
-        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-            stream.send(iqToMyDevices)
-        })
+        if XMPPJID(string: fullJID)!.bare != self.owner {
+            let verificationRejected = DDXMLElement(name: "verification-rejected")
+            
+            let akeXML = DDXMLElement(name: "authenticated-key-exchange", xmlns: "urn:xabber:trust")
+            akeXML.addAttribute(withName: "sid", stringValue: sid)
+            akeXML.addAttribute(withName: "timestamp", stringValue: (message.element(forName: "authenticated-key-exchange")?.attributeStringValue(forName: "timestamp"))!)
+            akeXML.addChild(verificationRejected)
+            
+            let message = XMPPMessage(messageType: .chat, to: XMPPJID(string: fullJID), elementID: UUID().uuidString, child: akeXML)
+            message.addAttribute(withName: "from", stringValue: AccountManager.shared.find(for: self.owner)!.xmppStream.myJID!.full)
+            
+            let iqToMyDevices = self.getNotificationContainer(message: message, notificationTo: XMPPJID(string: self.owner)!)
+            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                stream.send(iqToMyDevices)
+            })
+        }
     }
     
     func showNotification(title: String, owner: String, body: String, sid: String, timestamp: TimeInterval) {

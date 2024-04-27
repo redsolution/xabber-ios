@@ -238,6 +238,7 @@ extension Account: XMPPStreamDelegate {
         case self.omemo.read(withIQ: iq): break
         case self.notifications.read(withIQ: iq): break
         case self.x509Manager.read(withIQ: iq): break
+        case self.trustSharingManager.read(withIQ: iq): break
         default: return false
         }
         return true
@@ -416,6 +417,9 @@ extension Account: XMPPStreamDelegate {
                 return
             }
             if self.msgDeleteManager.read(headline: message) {
+                return
+            }
+            if self.trustSharingManager.didReceivedTrustedSharingEvent(message: message) {
                 return
             }
         case .error:

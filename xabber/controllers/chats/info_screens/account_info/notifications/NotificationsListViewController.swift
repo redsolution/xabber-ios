@@ -195,11 +195,9 @@ class NotificationsListViewController: SimpleBaseViewController {
                     do {
                         let realm = try WRealm.safe()
                         guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: item.verificationSid!)) else {
-//                              let localStore = AccountManager.shared.find(for: owner)?.omemo.localStore else {
                             return nil
                         }
-//                        var deviceID = localStore.localDeviceId()
-//                        deviceID = Int(item.deviceId!)!
+                        
                         if item.verificationState == .acceptedRequest && instance.state == .receivedRequest && instance.myDeviceId != Int(item.deviceId!)! {
                             try realm.write {
                                 realm.delete(instance)

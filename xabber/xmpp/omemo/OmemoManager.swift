@@ -110,6 +110,7 @@ open class OmemoManager: AbstractXMPPManager {
                 return
             }
             self.updateMyDevice(stream)
+            AccountManager.shared.find(for: self.owner)?.trustSharingManager.publicOwnTrustedDevices(publisherDeviceId: String(deviceId))
         } catch {
             DDLogDebug("OmemoManager: \(#function). \(error.localizedDescription)")
         }

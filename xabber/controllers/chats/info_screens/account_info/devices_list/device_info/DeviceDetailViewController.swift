@@ -313,12 +313,6 @@ extension DeviceDetailViewController: UITableViewDelegate {
             let vc = AccountConnectionViewController()
             vc.configure(for: jid)
             self.navigationController?.pushViewController(vc, animated: true)
-            
-//            let nvc = UINavigationController(rootViewController: vc)
-//            nvc.modalPresentationStyle = .fullScreen
-//            nvc.modalTransitionStyle = .coverVertical
-//            self.definesPresentationContext = true
-//            self.present(nvc, animated: true, completion: nil)
         case "omemo_signed_by":
             if self.dangerInEncryption {
                 ActionSheetPresenter().present(
@@ -392,6 +386,12 @@ extension DeviceDetailViewController: UITableViewDelegate {
                                 }
                             }
                             
+                            guard let trustSharingManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager,
+                                  let localStore = AccountManager.shared.find(for: self.owner)?.omemo.localStore else {
+                                fatalError()
+                            }
+                            trustSharingManager.publicOwnTrustedDevices(publisherDeviceId: String(localStore.localDeviceId()))
+                            
                             DispatchQueue.main.async {
                                 self.goBack()
                             }
@@ -425,6 +425,12 @@ extension DeviceDetailViewController: UITableViewDelegate {
                                     instance.state = .trusted
                                 }
                             }
+                            
+                            guard let trustSharingManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager,
+                                  let localStore = AccountManager.shared.find(for: self.owner)?.omemo.localStore else {
+                                fatalError()
+                            }
+                            trustSharingManager.publicOwnTrustedDevices(publisherDeviceId: String(localStore.localDeviceId()))
                             
                             DispatchQueue.main.async {
                                 self.goBack()
