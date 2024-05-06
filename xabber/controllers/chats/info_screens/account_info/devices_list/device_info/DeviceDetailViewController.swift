@@ -155,6 +155,11 @@ class DeviceDetailViewController: SimpleBaseViewController {
                             )
                         )
                     }
+                    if omemoDevice.trustedByDeviceId != nil {
+                        encryptionDatasource.append(
+                            Datasource(title: "Trusted by", value: omemoDevice.trustedByDeviceId, key: "omemo_trusted_by")
+                        )
+                    }
                     if !canEdit {
                         encryptionDatasource.append(trustElement)
                     }
@@ -383,6 +388,7 @@ extension DeviceDetailViewController: UITableViewDelegate {
                                 try realm.write {
                                     instance.state = .unknown
                                     instance.trustDate = Date(timeIntervalSince1970: -1)
+                                    instance.trustedByDeviceId = nil
                                 }
                             }
                             
@@ -453,8 +459,10 @@ extension DeviceDetailViewController: UITableViewDelegate {
                         guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
                             fatalError()
                         }
-//                        let fullJid = self.jid + "/" + self.resource!
                         akeManager.sendVerificationRequest(jid: self.jid, deviceId: String(self.omemoDeviceID))
+                        DispatchQueue.main.async {
+                            self.goBack()
+                        }
                         break
                     default:
                         break
@@ -573,6 +581,13 @@ extension DeviceDetailViewController: UITableViewDataSource {
             }
             cell.accessoryType = .none
             cell.selectionStyle = .none
+            return cell
+        case "omemo_trusted_by":
+            let cell = UITableViewCell(style: .value1, reuseIdentifier: "SimpleCell")
+            cell.textLabel?.text = item.title
+            cell.detailTextLabel?.text = item.value
+            cell.accessoryType = .none
+            
             return cell
         default:
             let cell = UITableViewCell(style: .value1, reuseIdentifier: "SimpleCell")

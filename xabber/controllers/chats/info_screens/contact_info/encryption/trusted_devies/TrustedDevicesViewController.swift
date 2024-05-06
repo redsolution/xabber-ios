@@ -25,6 +25,7 @@ import CocoaLumberjack
 import TOInsetGroupedTableView
 import CoreMedia
 import RxSwift
+import XMPPFramework
 
 
 class TrustedDevicesViewController: SimpleBaseViewController {
@@ -44,8 +45,9 @@ class TrustedDevicesViewController: SimpleBaseViewController {
         var subtitle: String?
         var key: String
         var signed: Bool
+        var trustedBy: String?
         
-        init(_ kind: Kind, name: String, state: SignalDeviceStorageItem.TrustState, fingerprint: String, deviceId: Int, editable: Bool, subtitle: String? = nil, key: String = "", signed: Bool = false) {
+        init(_ kind: Kind, name: String, state: SignalDeviceStorageItem.TrustState, fingerprint: String, deviceId: Int, editable: Bool, subtitle: String? = nil, key: String = "", signed: Bool = false, trustedBy: String? = nil) {
             self.kind = kind
             self.name = name
             self.state = state
@@ -55,6 +57,7 @@ class TrustedDevicesViewController: SimpleBaseViewController {
             self.subtitle = subtitle
             self.key = key
             self.signed = signed
+            self.trustedBy = trustedBy
         }
     }
     
@@ -174,7 +177,8 @@ class TrustedDevicesViewController: SimpleBaseViewController {
                         fingerprint: $0.fingerprint,
                         deviceId: $0.deviceId,
                         editable: true,
-                        signed: $0.isTrustedByCertificate
+                        signed: $0.isTrustedByCertificate,
+                        trustedBy: $0.trustedByDeviceId
                     )
                 }
             ]
@@ -276,7 +280,7 @@ extension TrustedDevicesViewController: UITableViewDataSource {
                     return UITableViewCell(frame: .zero)
             }
             
-            cell.configure(name: item.name, state: item.state, fingerprint: item.fingerprint, devieId: "\(item.deviceId)", editable: item.editable, signed: item.signed)
+            cell.configure(name: item.name, state: item.state, fingerprint: item.fingerprint, devieId: "\(item.deviceId)", editable: item.editable, signed: item.signed, trustedBy: item.trustedBy)
             cell.deviceId = item.deviceId
             cell.callback = self.trustStateChanged
 
@@ -291,13 +295,21 @@ extension TrustedDevicesViewController {
         do {
             let realm = try Realm()
             if let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.jid, deviceId: deviceId)) {
+                guard let trustSharingManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager else {
+                    fatalError()
+                }
                 try realm.write {
                     if value {
                         instance.state = .trusted
+                        instance.trustDate = Date()
+                        trustSharingManager.getUserTrustedDevices(jid: XMPPJID(string: self.jid)!)
                     } else {
                         instance.state = .ignore
+                        instance.trustDate = Date(timeIntervalSince1970: -1)
+                        instance.trustedByDeviceId = nil
                     }
                 }
+                trustSharingManager.sendNotificationWithContactsDevices(opponentFullJid: XMPPJID(string: self.owner)!, deviceId: (AccountManager.shared.find(for: self.owner)?.omemo.localStore.localDeviceId())!)
             }
         } catch {
             DDLogDebug("TrustedDevicesViewController: \(#function). \(error.localizedDescription)")

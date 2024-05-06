@@ -32,8 +32,6 @@ class DeviceInfoTableCell: UITableViewCell {
         stack.axis = .horizontal
         stack.distribution = .fill
         stack.spacing = 8
-//        stack.isLayoutMarginsRelativeArrangement = true
-//        stack.layoutMargins = UIEdgeInsets(top: 10, bottom: 12, left: 20, right: 16)
         return stack
     }()
     
@@ -89,12 +87,8 @@ class DeviceInfoTableCell: UITableViewCell {
     
     private func activateConstraints() {
         NSLayoutConstraint.activate([
-//            topStack.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 0.9),
-//            deviceLabel.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 0.9),
             descriptionLabel.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 0.9),
             rightStack.widthAnchor.constraint(equalToConstant: 20),
-//            trustIconView.widthAnchor.constraint(equalToConstant: 18),
-//            trustIconView.heightAnchor.constraint(equalToConstant: 23)
         ])
     }
     

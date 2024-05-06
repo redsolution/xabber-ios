@@ -28,6 +28,11 @@ class TrustedDeviceTableCell: UITableViewCell {
     
     open var deviceId: Int = 0
     
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        self.trustedByLabel.text = nil
+    }
+    
     var stack: UIStackView = {
         let stack = UIStackView()
         stack.alignment = .leading
@@ -48,6 +53,13 @@ class TrustedDeviceTableCell: UITableViewCell {
         return stack
     }()
     
+    var bottomStack: UIStackView = {
+        let stack = UIStackView()
+        stack.axis = .horizontal
+        stack.distribution = .equalSpacing
+        return stack
+    }()
+    
     var clientLabel: UILabel = {
         let label = UILabel()
         label.text = " "
@@ -61,6 +73,13 @@ class TrustedDeviceTableCell: UITableViewCell {
         label.text = " "
         label.font = UIFont.systemFont(ofSize: 14, weight: .regular)
         label.textColor = MDCPalette.grey.tint900
+        return label
+    }()
+    
+    var trustedByLabel: UILabel = {
+        let label = UILabel()
+        label.font = UIFont.systemFont(ofSize: 14, weight: .regular)
+        label.textColor = MDCPalette.grey.tint700
         return label
     }()
     
@@ -102,11 +121,13 @@ class TrustedDeviceTableCell: UITableViewCell {
     
     private func activateConstraints() {
         topStack.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 0.9).isActive = true
-        deviceLabel.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 0.9).isActive = true
+        bottomStack.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 0.9).isActive = true
+        deviceLabel.leadingAnchor.constraint(equalTo: bottomStack.leadingAnchor).isActive = true
+        trustedByLabel.trailingAnchor.constraint(equalTo: bottomStack.trailingAnchor).isActive = true
         fingerprintLabel.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 0.9).isActive = true
     }
     
-    func configure(name: String, state: SignalDeviceStorageItem.TrustState, fingerprint: String, devieId: String, editable: Bool, signed: Bool = false) {
+    func configure(name: String, state: SignalDeviceStorageItem.TrustState, fingerprint: String, devieId: String, editable: Bool, signed: Bool = false, trustedBy: String? = nil) {
         if state == .trusted {
             stateSwitch.isOn = true
         } else {
@@ -127,6 +148,9 @@ class TrustedDeviceTableCell: UITableViewCell {
         }
         clientLabel.text = name
         deviceLabel.text = devieId
+        if trustedBy != nil {
+            trustedByLabel.text = "trusted by: \(trustedBy!)"
+        }
         if !signed {
             self.stateSwitch.isHidden = !editable
         }
@@ -143,7 +167,16 @@ class TrustedDeviceTableCell: UITableViewCell {
         
         stack.addArrangedSubview(topStack)
         stack.addArrangedSubview(fingerprintLabel)
-        stack.addArrangedSubview(deviceLabel)
+//        stack.addArrangedSubview(deviceLabel)
+        
+//        if trustedByLabel.text != nil {
+            bottomStack.addArrangedSubview(deviceLabel)
+            bottomStack.addArrangedSubview(trustedByLabel)
+            stack.addArrangedSubview(bottomStack)
+//        } else {
+//            stack.addArrangedSubview(deviceLabel)
+//        }
+        
         activateConstraints()
         stateSwitch.addTarget(self, action: #selector(onStateChange), for: .valueChanged)
         selectionStyle = .none

@@ -545,6 +545,13 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             }
             self.writeTrustedDevice(jid: jid.bare, deviceId: deviceId)
             
+            if let presentedShowVodeViewController = UIApplication.shared.keyWindow?.rootViewController?.presentedViewController as? ShowCodeViewController {
+                DispatchQueue.main.async {
+                    presentedShowVodeViewController.dismiss(animated: true)
+                }
+                
+            }
+            
             guard let trustSharingManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager else {
                 fatalError()
             }
@@ -597,6 +604,13 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 fatalError()
             }
             title = "Verification failed"
+            
+            if let presentedShowVodeViewController = UIApplication.shared.keyWindow?.rootViewController?.presentedViewController as? ShowCodeViewController {
+                DispatchQueue.main.async {
+                    presentedShowVodeViewController.dismiss(animated: true)
+                }
+                
+            }
         }
         self.showNotification(title: jid.bare, owner: self.owner, body: title, sid: sid, timestamp: Date().timeIntervalSince1970)
         return true

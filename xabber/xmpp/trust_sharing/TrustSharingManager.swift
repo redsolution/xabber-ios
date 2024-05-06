@@ -33,18 +33,21 @@ class TrustSharingManager: AbstractXMPPManager {
     
     func didReceivedTrustedSharingMessage(message: XMPPMessage) -> Bool {
         //TODO: implement handling archive messages
+        let bareMessage: XMPPMessage
         if isArchivedMessage(message) {
-            return false
+            bareMessage = getArchivedMessageContainer(message)!
         } else if isCarbonCopy(message) {
             return false
         } else if isCarbonForwarded(message) {
             return false
+        } else {
+            bareMessage = message
         }
         
-        guard let notify = message.element(forName: "notify", xmlns: XMPPNotificationsManager.xmlns) ?? message.element(forName: "notification", xmlns: XMPPNotificationsManager.xmlns) else {
+        guard let notify = bareMessage.element(forName: "notify", xmlns: XMPPNotificationsManager.xmlns) ?? bareMessage.element(forName: "notification", xmlns: XMPPNotificationsManager.xmlns) else {
             return false
         }
-        let uniqueMessageId = getUniqueMessageId(message, owner: self.owner)
+        let uniqueMessageId = getUniqueMessageId(bareMessage, owner: self.owner)
         guard let messageContainer = notify.element(forName: "forwarded")?.element(forName: "message") else {
             return false
         }
@@ -62,7 +65,7 @@ class TrustSharingManager: AbstractXMPPManager {
             return false
         }
         
-        if message.from?.full == AccountManager.shared.find(for: self.owner)!.xmppStream.myJID!.full {
+        if jid.full == AccountManager.shared.find(for: self.owner)!.xmppStream.myJID!.full {
             return true
         }
         
@@ -115,10 +118,20 @@ class TrustSharingManager: AbstractXMPPManager {
                 let trustsList = item.elements(forName: "trust")
                 for trust in trustsList {
                     guard let trustKey = try String(bytes: (trust.stringValue?.base64decoded())!, encoding: .utf8),
-                          let deviceId = Int(trustKey.components(separatedBy: "::")[0]) else {
+                          let itemDeviceId = Int(trustKey.components(separatedBy: "::")[0]) else {
                         fatalError()
                     }
-                    akeManager.writeTrustedDevice(jid: deviceOwner ?? XMPPMessage(from: messageContainer).from!.bare, deviceId: deviceId)
+                    let predicate = NSPredicate(format: "owner == %@ AND jid == %@ AND deviceId == %@", argumentArray: [self.owner, deviceOwner!, itemDeviceId])
+                    let realm = try WRealm.safe()
+                    guard let instance = realm.objects(SignalDeviceStorageItem.self).filter(predicate).first else {
+                        fatalError()
+                    }
+                    if instance.state != SignalDeviceStorageItem.TrustState.trusted {
+                        akeManager.writeTrustedDevice(jid: deviceOwner ?? XMPPMessage(from: messageContainer).from!.bare, deviceId: itemDeviceId)
+                        try realm.write {
+                            instance.trustedByDeviceId = String(deviceId)
+                        }
+                    }
                 }
             }
             return true
@@ -137,6 +150,13 @@ class TrustSharingManager: AbstractXMPPManager {
               let signature = try! share.element(forName: "signature")?.stringValue?.base64decoded(),
               let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
             return false
+        }
+        
+        guard let deviceId = AccountManager.shared.find(for: self.owner)?.omemo.localStore.localDeviceId() else {
+            fatalError()
+        }
+        if String(deviceId) == publisherDeviceId {
+            return true
         }
         
         let predicateForSessions = NSPredicate(format: "owner == %@ AND jid == %@ AND deviceId == %@", argumentArray: [self.owner, jid.bare, Int(publisherDeviceId)!])
@@ -175,6 +195,7 @@ class TrustSharingManager: AbstractXMPPManager {
         if itemList.isEmpty {
             return false
         }
+        var isPublicationNeeded = false
         for item in itemList {
             guard let publisherDeviceId = item.attributeStringValue(forName: "id"),
                   let share = item.element(forName: "share"),
@@ -225,10 +246,18 @@ class TrustSharingManager: AbstractXMPPManager {
                         do {
                             let realm = try WRealm.safe()
                             guard let instance = realm.objects(SignalDeviceStorageItem.self).filter(predicateForDevices).first else {
-                                fatalError()
+                                continue
                             }
                             if instance.state != SignalDeviceStorageItem.TrustState.trusted {
                                 akeManager.writeTrustedDevice(jid: jid.bare, deviceId: deviceId)
+                                try realm.write {
+                                    instance.trustedByDeviceId = publisherDeviceId
+                                }
+                                
+                                // if the device has trusted its device then it should publish a new list of trusted devices of the device
+                                if self.owner == jid.bare {
+                                    isPublicationNeeded = true
+                                }
                                 
                                 let item = DDXMLElement(name: "item")
                                 item.addAttribute(withName: "id", stringValue: String(deviceId))
@@ -252,6 +281,12 @@ class TrustSharingManager: AbstractXMPPManager {
             } catch {
                 fatalError()
             }
+        }
+        if isPublicationNeeded {
+            guard let localStore = AccountManager.shared.find(for: owner)?.omemo.localStore else {
+                fatalError()
+            }
+            self.publicOwnTrustedDevices(publisherDeviceId: String(localStore.localDeviceId()))
         }
         return true
     }
