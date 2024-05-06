@@ -170,17 +170,8 @@ class NotificationsListViewController: SimpleBaseViewController {
                 ]).sorted(byKeyPath: "date", ascending: false)
             self.datasource = [
                 mapResult(allNotifications, title: "", key: "all"),
-//                mapResult(readNotifications, title: "Displayed notifgication", key: "read")
             ].compactMap({ return $0.childs.isNotEmpty ? $0 : nil })
-            
-//            var sortedDatasource: [Datasource] = []
-//            for item in self.datasource {
-//                let childs = item.childs.sorted(by: { $0.date > $1.date })
-//                sortedDatasource.append(Datasource(title: item.title, key: item.key, childs: childs))
-//            }
-//            
-//            self.datasource = sortedDatasource
-            
+
             self.emptyScreenShowObserver.accept(self.datasource.isEmpty)
         } catch {
             DDLogDebug("NotificationsListViewController: \(#function). \(error.localizedDescription)")

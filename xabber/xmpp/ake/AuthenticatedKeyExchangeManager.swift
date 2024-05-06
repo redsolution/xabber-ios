@@ -278,7 +278,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                     return false
                 }
                 
-                let predicate = NSPredicate(format: "owner == %@ AND myDeviceId == %@ AND opponentDeviceId == %@", argumentArray: [self.owner, deviceIdRecipient, opponentDeviceID])
+                let predicate = NSPredicate(format: "owner == %@ AND myDeviceId == %@ AND jid == %@", argumentArray: [self.owner, deviceIdRecipient, jid.bare])
                 let oldInstances = realm.objects(VerificationSessionStorageItem.self).filter(predicate).sorted(byKeyPath: "timestamp", ascending: false)
                 if !oldInstances.isEmpty {
                     if oldInstances.first!.timestamp < authenticatedKeyExchange.attributeStringValue(forName: "timestamp")! {

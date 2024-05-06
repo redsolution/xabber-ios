@@ -49,11 +49,11 @@ class DeviceDetailViewController: SimpleBaseViewController {
     
     open var uid: String = ""
     open var canEdit: Bool = false
-    private var datasource: [[Datasource]] = []
+    internal var datasource: [[Datasource]] = []
     
-    private var omemoDeviceID: Int = -1
+    open var omemoDeviceID: Int = -1
     
-    private var resource: String? = nil
+    internal var resource: String? = nil
     private var statusTitle: String? = nil
     private var status: ResourceStatus = .offline
     

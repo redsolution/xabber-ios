@@ -360,8 +360,9 @@ extension ContactInfoViewController: InfoScreenHeaderButtonDelegate {
     @objc
     func showFingerprints() {
         let vc = TrustedDevicesViewController()
-        vc.jid = self.jid
         vc.owner = self.owner
+        vc.jid = self.jid
+        
         self.navigationController?.pushViewController(vc, animated: true)
     }
 }
