@@ -26,7 +26,6 @@ protocol InfoScreenHeaderButtonDelegate {
     func onSecondButtonPressed()
     func onThirdButtonPressed()
     func onFourthButtonPressed()
-    func onVerifyButtonPressed()
     func onImageButtonPressed()
     func onTitleButtonPressed()
     func shouldUpdateAvatar() -> UIImage?

@@ -51,10 +51,6 @@ class TrustSharingManager: AbstractXMPPManager {
         guard let messageContainer = notify.element(forName: "forwarded")?.element(forName: "message") else {
             return false
         }
-        guard let jidRaw = messageContainer.attributeStringValue(forName: "from"),
-              let jid = XMPPJID(string: jidRaw)?.bare else {
-            return false
-        }
         guard let share = messageContainer.element(forName: "share", xmlns: getPrimaryNamespace()),
               let jid = XMPPMessage(from: messageContainer).from,
               let signature = try! share.element(forName: "signature")?.stringValue?.base64decoded(),
@@ -112,6 +108,9 @@ class TrustSharingManager: AbstractXMPPManager {
             return true
         }
         
+//        var myTrustedDevicesByThisDevice: Set<Int> = []
+//        var trustedDevicesFromList: Set<Int> = []
+        
         do {
             for item in trustedItemsList {
                 let deviceOwner = item.attributeStringValue(forName: "owner")
@@ -121,6 +120,9 @@ class TrustSharingManager: AbstractXMPPManager {
                           let itemDeviceId = Int(trustKey.components(separatedBy: "::")[0]) else {
                         fatalError()
                     }
+                    
+//                    trustedDevicesFromList.insert(itemDeviceId)
+                    
                     let predicate = NSPredicate(format: "owner == %@ AND jid == %@ AND deviceId == %@", argumentArray: [self.owner, deviceOwner!, itemDeviceId])
                     let realm = try WRealm.safe()
                     guard let instance = realm.objects(SignalDeviceStorageItem.self).filter(predicate).first else {
@@ -131,9 +133,33 @@ class TrustSharingManager: AbstractXMPPManager {
                         try realm.write {
                             instance.trustedByDeviceId = String(deviceId)
                         }
+                        self.getUserTrustedDevices(jid: XMPPJID(string: deviceOwner!)!, deviceId: String(itemDeviceId))
                     }
                 }
             }
+//            let realm = try WRealm.safe()
+//            let instances = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND trustedByDeviceId == %@ AND state_ == %@", self.owner, String(deviceId), "trusted")
+//            for instance in instances {
+//                myTrustedDevicesByThisDevice.insert(instance.deviceId)
+//            }
+//            
+//            let devicesToUntrust = myTrustedDevicesByThisDevice.subtracting(trustedDevicesFromList)
+//            let devicesToTrust = trustedDevicesFromList.subtracting(myTrustedDevicesByThisDevice)
+//            
+//            for deviceIdToUntrust in devicesToUntrust {
+//                let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: jid.bare, deviceId: deviceIdToUntrust))
+//                try realm.write {
+//                    instance?.state = .unknown
+//                }
+//            }
+//            
+//            for deviceIdToTrust in devicesToTrust {
+//                let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: jid.bare, deviceId: deviceIdToTrust))
+//                try realm.write {
+//                    instance?.state = .trusted
+//                }
+//            }
+            
             return true
         } catch {
             fatalError()

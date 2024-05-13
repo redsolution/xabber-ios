@@ -58,11 +58,6 @@ extension ContactInfoViewController: InfoScreenHeaderButtonDelegate {
         onBlock()
     }
     
-    func onVerifyButtonPressed() {
-        let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager
-        akeManager?.sendVerificationRequest(jid: self.jid)
-    }
-    
     func onImageButtonPressed() {
         print(#function)
     }

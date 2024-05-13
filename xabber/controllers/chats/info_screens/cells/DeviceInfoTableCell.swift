@@ -94,7 +94,9 @@ class DeviceInfoTableCell: UITableViewCell {
     
     func configure(fingerprint: String? = nil, client: String, device: String, description descr: String, ip: String, lastAuth date: Date?, current: Bool, editable: Bool, isOnline: Bool, trustState: SignalDeviceStorageItem.TrustState? = nil, hasBundle: Bool? = nil, isTrustebByCertificate: Bool = false, trustedBy: String? = nil) {
         
-        if trustedBy != nil {
+        if trustedBy == "manual" {
+            descriptionLabel.text = "\(ip) ⦁ trusted by \(trustedBy!)"
+        } else if trustedBy != nil {
             descriptionLabel.text = "\(ip) ⦁ trusted via: \(trustedBy!)"
         } else if date != nil {
             let today = Date()

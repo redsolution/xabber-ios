@@ -275,6 +275,11 @@ class DeviceDetailViewController: SimpleBaseViewController {
             }
         }
     }
+    
+    override func onAppear() {
+        self.loadDatasource()
+        self.tableView.reloadData()
+    }
 }
 
 extension DeviceDetailViewController: UITableViewDelegate {
@@ -468,6 +473,13 @@ extension DeviceDetailViewController: UITableViewDelegate {
                         break
                     }
                 }
+        case "manual_verification":
+            let vc = ManualVerificationDeviceViewController()
+            vc.owner = self.owner
+            vc.jid = self.jid
+            vc.deviceId = String(self.omemoDeviceID)
+            self.navigationController?.pushViewController(vc, animated: true)
+            return
         default:
             break
         }
@@ -587,6 +599,15 @@ extension DeviceDetailViewController: UITableViewDataSource {
             cell.textLabel?.text = item.title
             cell.detailTextLabel?.text = item.value
             cell.accessoryType = .none
+            
+            return cell
+        case "manual_verification":
+            let cell = UITableViewCell(style: .value1, reuseIdentifier: "SimpleCell")
+            cell.textLabel?.text = item.title
+            cell.textLabel?.textColor = .systemOrange
+            cell.accessoryType = .none
+            cell.imageView?.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withRenderingMode(.alwaysTemplate)
+            cell.imageView?.tintColor = .systemOrange
             
             return cell
         default:

@@ -268,14 +268,6 @@ class InfoScreenHeaderView: UIView {
         return button
     }()
     
-    let verifyButton: HeaderButton = {
-        let button = HeaderButton()
-        
-        button.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
-        
-        return button
-    }()
-    
     let separatorLine: UIView = {
         let view = UIView()
         
@@ -319,11 +311,6 @@ class InfoScreenHeaderView: UIView {
     @objc
     private func onFourthButtonPressed() {
         self.delegate?.onFourthButtonPressed()
-    }
-    
-    @objc
-    private func onVerifyButtonPressed() {
-        self.delegate?.onVerifyButtonPressed()
     }
     
     @objc
@@ -437,7 +424,7 @@ class InfoScreenHeaderView: UIView {
         imageButton.imageView?.addSubview(darkenedView)
         imageButton.imageView?.addSubview(imageActivityIndicator)
         
-        [firstButton, secondButton, thirdButton, fourthButton, verifyButton].forEach {
+        [firstButton, secondButton, thirdButton, fourthButton].forEach {
             $0.layer.backgroundColor = UIColor.white.cgColor
             $0.layer.cornerRadius = 8
             $0.layer.masksToBounds = true
@@ -449,14 +436,12 @@ class InfoScreenHeaderView: UIView {
         buttonsStack.addArrangedSubview(secondButton)
         buttonsStack.addArrangedSubview(thirdButton)
         buttonsStack.addArrangedSubview(fourthButton)
-        buttonsStack.addArrangedSubview(verifyButton)
         imageButton.addTarget(self, action: #selector(onImageButtonPressed), for: .touchUpInside)
         titleButton.addTarget(self, action: #selector(onTitleButtonPressed), for: .touchUpInside)
         firstButton.button.addTarget(self, action: #selector(onFirstButtonPressed), for: .touchUpInside)
         secondButton.button.addTarget(self, action: #selector(onSecondButtonPressed), for: .touchUpInside)
         thirdButton.button.addTarget(self, action: #selector(onThirdButtonPressed), for: .touchUpInside)
         fourthButton.button.addTarget(self, action: #selector(onFourthButtonPressed), for: .touchUpInside)
-        verifyButton.button.addTarget(self, action: #selector(onVerifyButtonPressed), for: .touchUpInside)
         update()
     }
     

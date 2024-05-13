@@ -518,8 +518,8 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 trustSharingManager.publicOwnTrustedDevices(publisherDeviceId: String(deviceIdRecipient))
                 trustSharingManager.getUserTrustedDevices(jid: jid.bareJID, deviceId: String(deviceId))
             } else {
-                trustSharingManager.getUserTrustedDevices(jid: jid.bareJID)
                 trustSharingManager.sendNotificationWithContactsDevices(opponentFullJid: XMPPJID(string: self.owner)!, deviceId: deviceIdRecipient)
+                trustSharingManager.getUserTrustedDevices(jid: jid.bareJID, deviceId: String(deviceId))
             }
             
             title = "Verification completed successfully"
@@ -560,8 +560,8 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 trustSharingManager.publicOwnTrustedDevices(publisherDeviceId: String(deviceIdRecipient))
                 trustSharingManager.getUserTrustedDevices(jid: jid.bareJID, deviceId: String(deviceId))
             } else {
-                trustSharingManager.getUserTrustedDevices(jid: jid.bareJID)
                 trustSharingManager.sendNotificationWithContactsDevices(opponentFullJid: XMPPJID(string: self.owner)!, deviceId: deviceIdRecipient)
+                trustSharingManager.getUserTrustedDevices(jid: jid.bareJID, deviceId: String(deviceId))
             }
             
             title = "Verification completed successfully"

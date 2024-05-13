@@ -262,10 +262,24 @@ class TrustedDevicesViewController: SimpleBaseViewController {
                     }
                 )
             }
-        datasource.append([Datasource(.button, name: "Untrust all", key: "untrust_all")])
         } catch {
             DDLogDebug("TrustedDevicesViewController: \(#function). \(error.localizedDescription)")
         }
+        
+        do {
+            let realm = try WRealm.safe()
+            let instances = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid)
+            for instance in instances {
+                if instance.state == .trusted {
+                    datasource.append([Datasource(.button, name: "Untrust all", key: "untrust_all")])
+                    return
+                }
+            }
+            datasource.append([Datasource(.button, name: "Verify", key: "verify")])
+        } catch {
+            fatalError()
+        }
+        
     }
     
     override func onAppear() {
@@ -303,6 +317,39 @@ extension TrustedDevicesViewController: UITableViewDelegate {
                 let vc = DevicesListViewController()
                 vc.configure(for: self.owner)
                 navigationController?.pushViewController(vc, animated: true)
+                return
+            case "untrust_all":
+                do {
+                    let realm = try Realm()
+                    let instances = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid)
+                    for instance in instances {
+                        if instance.state == .unknown {
+                            continue
+                        }
+                        try realm.write {
+                            instance.state = .unknown
+                            instance.trustDate = Date(timeIntervalSince1970: -1)
+                            instance.trustedByDeviceId = nil
+                        }
+                    }
+                    
+                    guard let trustSharingManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager,
+                          let localStore = AccountManager.shared.find(for: self.owner)?.omemo.localStore else {
+                        fatalError()
+                    }
+                    trustSharingManager.sendNotificationWithContactsDevices(opponentFullJid: XMPPJID(string: self.owner)!, deviceId: localStore.localDeviceId())
+                } catch {
+                    fatalError()
+                }
+                tableView.reloadData()
+                return
+            case "verify":
+                guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
+                    fatalError()
+                }
+                akeManager.sendVerificationRequest(jid: self.jid)
+                tableView.reloadData()
+                
                 return
             case "cancel_verification":
                 guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
@@ -374,10 +421,7 @@ extension TrustedDevicesViewController: UITableViewDelegate {
                 
                 return
             case "reject_verification":
-                guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
-                      let fullJidString = item.verificationJid,
-                      let fullJid = XMPPJID(string: fullJidString),
-                      let sid = item.verificationSid else {
+                guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
                     fatalError()
                 }
                 
@@ -479,32 +523,32 @@ extension TrustedDevicesViewController: UITableViewDataSource {
     
 }
 
-extension TrustedDevicesViewController {
-    private func trustStateChanged(_ value: Bool, deviceId: Int) {
-        do {
-            let realm = try Realm()
-            if let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.jid, deviceId: deviceId)) {
-                guard let trustSharingManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager else {
-                    fatalError()
-                }
-                try realm.write {
-                    if value {
-                        instance.state = .trusted
-                        instance.trustDate = Date()
-                        trustSharingManager.getUserTrustedDevices(jid: XMPPJID(string: self.jid)!)
-                    } else {
-                        instance.state = .ignore
-                        instance.trustDate = Date(timeIntervalSince1970: -1)
-                        instance.trustedByDeviceId = nil
-                    }
-                }
-                trustSharingManager.sendNotificationWithContactsDevices(opponentFullJid: XMPPJID(string: self.owner)!, deviceId: (AccountManager.shared.find(for: self.owner)?.omemo.localStore.localDeviceId())!)
-            }
-        } catch {
-            DDLogDebug("TrustedDevicesViewController: \(#function). \(error.localizedDescription)")
-        }
-    }
-}
+//extension TrustedDevicesViewController {
+//    private func trustStateChanged(_ value: Bool, deviceId: Int) {
+//        do {
+//            let realm = try Realm()
+//            if let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.jid, deviceId: deviceId)) {
+//                guard let trustSharingManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager else {
+//                    fatalError()
+//                }
+//                try realm.write {
+//                    if value {
+//                        instance.state = .trusted
+//                        instance.trustDate = Date()
+//                        trustSharingManager.getUserTrustedDevices(jid: XMPPJID(string: self.jid)!)
+//                    } else {
+//                        instance.state = .ignore
+//                        instance.trustDate = Date(timeIntervalSince1970: -1)
+//                        instance.trustedByDeviceId = nil
+//                    }
+//                }
+//                trustSharingManager.sendNotificationWithContactsDevices(opponentFullJid: XMPPJID(string: self.owner)!, deviceId: (AccountManager.shared.find(for: self.owner)?.omemo.localStore.localDeviceId())!)
+//            }
+//        } catch {
+//            DDLogDebug("TrustedDevicesViewController: \(#function). \(error.localizedDescription)")
+//        }
+//    }
+//}
 
 extension TrustedDevicesViewController: XabberUpdateIfNeededDelegate {
     func updateIfNeeded() {

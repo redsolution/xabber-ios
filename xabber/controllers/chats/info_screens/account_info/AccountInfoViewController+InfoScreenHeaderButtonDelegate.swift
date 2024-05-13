@@ -313,10 +313,6 @@ extension AccountInfoViewController: InfoScreenHeaderButtonDelegate {
         }
     }
     
-    func onVerifyButtonPressed() {
-        
-    }
-    
 //    @objc
 //    internal func onStateSwitchValueChanged(_ sender: UISwitch) {
 //        if sender.isOn {
