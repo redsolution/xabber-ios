@@ -32,17 +32,11 @@ struct SubscribtionsPresenter {
         let vc = SubscribtionsListViewController()
         vc.controllerCloseReason = .modal
         vc.owner = AccountManager.shared.users.first?.jid ?? ""
-//        vc.isModal = true
-        let nvc = UINavigationController()
-        nvc.viewControllers = [vc]
         if var topController = UIApplication.shared.keyWindow?.rootViewController {
             while let presentedViewController = topController.presentedViewController {
                 topController = presentedViewController
             }
-            nvc.modalPresentationStyle = .overFullScreen
-            nvc.modalTransitionStyle = .coverVertical
-            topController.definesPresentationContext = true
-            topController.present(nvc, animated: animated, completion: nil)
+            showModal(vc, from: topController)
         }
     }
 }

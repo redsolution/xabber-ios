@@ -117,9 +117,7 @@ extension AccountEditViewController {
         vc.delegate = self
         vc.palette = nil
         vc.lastSettedEmoji = nil
-        vc.modalTransitionStyle = .coverVertical
-        vc.modalPresentationStyle = .overFullScreen
-        present(vc, animated: true, completion: nil)
+        showModal(vc, from: self)
     }
 
     

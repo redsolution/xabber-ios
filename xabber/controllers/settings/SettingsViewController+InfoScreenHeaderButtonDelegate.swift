@@ -76,11 +76,7 @@ extension SettingsViewController: InfoScreenHeaderButtonDelegate {
             vc.username = displayedName
             vc.jid = self.jid
             vc.stringValue = "xmpp:\(self.jid)"
-            let nvc = UINavigationController(rootViewController: vc)
-            nvc.modalPresentationStyle = .fullScreen
-            nvc.modalTransitionStyle = .coverVertical
-            self.definesPresentationContext = true
-            self.present(nvc, animated: true, completion: nil)
+            showModal(vc, from: self)
         } catch {
             DDLogDebug("GroupchatInfoViewController: \(#function). \(error.localizedDescription)")
         }
@@ -160,9 +156,7 @@ extension SettingsViewController: InfoScreenHeaderButtonDelegate {
         vc.delegate = self
         vc.palette = nil
         vc.lastSettedEmoji = nil
-        vc.modalTransitionStyle = .coverVertical
-        vc.modalPresentationStyle = .overFullScreen
-        present(vc, animated: true, completion: nil)
+        showModal(vc, from: self)
     }
     
     internal final func onOpenEmojiPicker() {

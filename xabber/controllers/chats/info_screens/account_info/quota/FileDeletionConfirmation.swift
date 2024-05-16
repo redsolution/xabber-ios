@@ -76,7 +76,7 @@ class FileDeletionConfirmation: BaseViewController {
     
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        self.navigationController?.navigationBar.prefersLargeTitles = false
+//        self.navigationController?.navigationBar.prefersLargeTitles = false
     }
     
     override func viewDidAppear(_ animated: Bool) {

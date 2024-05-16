@@ -54,7 +54,7 @@ class ChatListTableViewCell: UITableViewCell {
         stack.distribution = .fill
         stack.spacing = 0
         stack.isLayoutMarginsRelativeArrangement = true
-        stack.layoutMargins = UIEdgeInsets(top: 6, bottom: 6, left: 72, right: 4)
+        stack.layoutMargins = UIEdgeInsets(top: 6, bottom: 6, left: 96, right: 4)
         
         return stack
     }()
@@ -115,7 +115,7 @@ class ChatListTableViewCell: UITableViewCell {
     }()
     
     let userImageView: UIView = {
-        let view = UIView(frame: CGRect(square: 56))
+        let view = UIView(frame: CGRect(square: 64))
         
         view.backgroundColor = .clear
         
@@ -123,8 +123,8 @@ class ChatListTableViewCell: UITableViewCell {
     }()
     
     let avatarView: UIImageView = {
-        let view = UIImageView(frame: CGRect(square: 56))
-        if let image = UIImage(named: AccountMasksManager.shared.mask56pt), AccountMasksManager.shared.load() != "square" {
+        let view = UIImageView(frame: CGRect(square: 64))
+        if let image = UIImage(named: AccountMasksManager.shared.mask56pt)?.upscale(dimension: 64), AccountMasksManager.shared.load() != "square" {
             view.mask = UIImageView(image: image)
         } else {
             view.mask = nil
@@ -139,8 +139,8 @@ class ChatListTableViewCell: UITableViewCell {
     let statusIndicator: RoundedStatusView = {
         let view = RoundedStatusView()
         
-        view.frame = CGRect(x: 41,
-                            y: 41,
+        view.frame = CGRect(x: 49,
+                            y: 49,
                             width: 12,
                             height: 12)
 
@@ -319,11 +319,11 @@ class ChatListTableViewCell: UITableViewCell {
                                 avatarUrl: String?,
                                 hasErrorInChat: Bool) {
 
-        DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 56) { image in
+        DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 64) { image in
             if let image = image {
                 self.avatarView.image = image
             } else {
-                self.avatarView.image = UIImageView.getDefaultAvatar(for: username, owner: owner, size: 56)
+                self.avatarView.image = UIImageView.getDefaultAvatar(for: username, owner: owner, size: 64)
             }
         }
         
@@ -355,7 +355,7 @@ class ChatListTableViewCell: UITableViewCell {
 //        }
         
         if isPinned {
-            self.contentView.backgroundColor = MDCPalette.grey.tint100
+//            self.contentView.backgroundColor = MDCPalette.grey.tint100
             self.pinnedIndicator.isHidden = false
         } else {
             self.pinnedIndicator.isHidden = true
@@ -388,8 +388,8 @@ class ChatListTableViewCell: UITableViewCell {
         accountIndicator.backgroundColor = color
                     
         if [.incognitoChat, .groupchat, .server, .privateChat, .issue].contains(entity) {
-            statusIndicator.frame = CGRect(x: 39,
-                                           y: 39,
+            statusIndicator.frame = CGRect(x: 47,
+                                           y: 47,
                                            width: 16,
                                            height: 16)
             statusIndicator.border(1)
@@ -435,11 +435,11 @@ class ChatListTableViewCell: UITableViewCell {
         }
         
         if hasErrorInChat {
-            self.contentView.backgroundColor = UIColor(red: 255/255, green: 235/255, blue: 238/255, alpha: 1.0)
+//            self.contentView.backgroundColor = UIColor(red: 255/255, green: 235/255, blue: 238/255, alpha: 1.0)
             self.errorIndicator.isHidden = false
         } else {
             self.errorIndicator.isHidden = true
-            self.contentView.backgroundColor = .systemBackground
+//            self.contentView.backgroundColor = .systemBackground
         }
         
         if subRequest {
@@ -462,7 +462,7 @@ class ChatListTableViewCell: UITableViewCell {
     }
     
     func setMask() {
-        if let image = UIImage(named: AccountMasksManager.shared.mask56pt), AccountMasksManager.shared.load() != "square" {
+        if let image = UIImage(named: AccountMasksManager.shared.mask56pt)?.upscale(dimension: 64), AccountMasksManager.shared.load() != "square" {
             avatarView.mask = UIImageView(image: image)
         } else {
             avatarView.mask = nil
@@ -488,7 +488,7 @@ class ChatListTableViewCell: UITableViewCell {
         avatarView.image = nil
         errorIndicator.isHidden = true
         
-        self.contentView.backgroundColor = .systemBackground
+        self.contentView.backgroundColor = .clear//.systemBackground
 
         badgeString = ""
         badgeView.setTitle(nil, for: .normal)
@@ -496,8 +496,8 @@ class ChatListTableViewCell: UITableViewCell {
             bottomStack.layoutMargins = UIEdgeInsets(top: 0, bottom: 0, left: 0, right: 8)
         }
         if statusIndicator.frame.width > 14 {
-            statusIndicator.frame = CGRect(x: 41,
-                                           y: 41,
+            statusIndicator.frame = CGRect(x: 49,
+                                           y: 49,
                                            width: 12,
                                            height: 12)
             statusIndicator.border(1)
@@ -513,10 +513,10 @@ class ChatListTableViewCell: UITableViewCell {
         contentView.addSubview(infoStack)
         infoStack.fillSuperviewWithOffset(top: 0, bottom: 4, left: 2, right: 0)
         
-        backgroundColor = .systemBackground
+        backgroundColor = .clear//.systemBackground
         
         accountIndicator.frame = CGRect(x: 0.5, y: 1, width: 2, height: 74)
-        userImageView.frame = CGRect(x: 10, y: 10, width: 56, height: 56)
+        userImageView.frame = CGRect(x: 16, y: 10, width: 64, height: 64)
         addSubview(accountIndicator)
         addSubview(userImageView)
         
@@ -553,7 +553,7 @@ class ChatListTableViewCell: UITableViewCell {
         subBadgeView.isHidden = true
         errorIndicator.isHidden = true
         
-        self.selectionStyle = .none
+//        self.selectionStyle = .none
         separatorInset = UIEdgeInsets(top: 0, bottom: 0, left: 74, right: 0)
         activateConstraints()
         layoutIfNeeded()

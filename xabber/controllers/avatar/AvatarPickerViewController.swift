@@ -544,10 +544,13 @@ class AvatarPickerViewController: BaseViewController {
     @objc
     private final func onEditAvatarButtonTouchUpInside(_ sender: UIButton) {
         let vc = EmojiPickerViewController()
-        vc.modalTransitionStyle = .coverVertical
-        vc.modalPresentationStyle = .overFullScreen
         vc.delegate = self
-        self.present(vc, animated: true, completion: nil)
+        showModal(vc, from: self)
+        
+//        vc.modalTransitionStyle = .coverVertical
+//        vc.modalPresentationStyle = .overFullScreen
+////        vc.delegate = self
+//        self.present(vc, animated: true, completion: nil)
     }
 }
 

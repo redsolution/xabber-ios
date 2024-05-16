@@ -84,11 +84,7 @@ extension ContactInfoViewController: InfoScreenHeaderButtonDelegate {
         vc.jid = self.jid
         vc.owner = self.owner
         vc.isCircleSelectView = true
-        let nvc = UINavigationController(rootViewController: vc)
-        nvc.modalPresentationStyle = .fullScreen
-        nvc.modalTransitionStyle = .coverVertical
-        self.definesPresentationContext = true
-        self.present(nvc, animated: true, completion: nil)
+        showModal(vc, from: self)
     }
     
     func onQRCode() {
@@ -100,11 +96,7 @@ extension ContactInfoViewController: InfoScreenHeaderButtonDelegate {
             vc.username = displayedName
             vc.jid = self.jid
             vc.stringValue = "xmpp:\(self.jid)"
-            let nvc = UINavigationController(rootViewController: vc)
-            nvc.modalPresentationStyle = .fullScreen
-            nvc.modalTransitionStyle = .coverVertical
-            self.definesPresentationContext = true
-            self.present(nvc, animated: true, completion: nil)
+            showModal(vc, from: self)
         } catch {
             DDLogDebug("GroupchatInfoViewController: \(#function). \(error.localizedDescription)")
         }
@@ -347,11 +339,7 @@ extension ContactInfoViewController: InfoScreenHeaderButtonDelegate {
             vc.username = displayedName
             vc.jid = self.jid
             vc.stringValue = "xmpp:\(self.jid)"
-            let nvc = UINavigationController(rootViewController: vc)
-            nvc.modalPresentationStyle = .fullScreen
-            nvc.modalTransitionStyle = .coverVertical
-            self.definesPresentationContext = true
-            self.present(nvc, animated: true, completion: nil)
+            showModal(vc, from: self)
         } catch {
             DDLogDebug("GroupchatInfoViewController: \(#function). \(error.localizedDescription)")
         }

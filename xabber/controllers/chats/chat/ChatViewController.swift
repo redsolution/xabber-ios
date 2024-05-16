@@ -563,6 +563,11 @@ class ChatViewController: MessagesViewController {
         }
     }
     
+    internal let gradient = CAGradientLayer()
+    internal let backgroundView = UIView()
+    internal let backgroundImage = UIImageView()
+    internal let gradientView = UIView()
+    
     private func configure() {
         restorationIdentifier = "CHAT_VIEW_CONTROLLER_RID"
         ownerSender = Sender(
@@ -570,7 +575,9 @@ class ChatViewController: MessagesViewController {
             displayName: AccountManager.shared.find(for: owner)?.username ?? ""
         )
         accountPallete = AccountColorManager.shared.palette(for: owner)
-                
+//        
+//        self.navigationController?.navigationBar.prefersLargeTitles = false
+        
         self.messagesCollectionView.prefetchDataSource = self
         self.messagesCollectionView.messagesDataSource = self
         self.messagesCollectionView.messageCellDelegate = self
@@ -595,12 +602,11 @@ class ChatViewController: MessagesViewController {
             titleLabel.textColor = accountPallete.tint700
         }
         
-        let backgroundView = UIView(frame: self.view.bounds)
-        let backgroundImage = UIImageView(frame: self.view.bounds)
+        backgroundView.frame = self.view.bounds
+        backgroundImage.frame = self.view.bounds
         
-        let gradientView = UIView(frame: self.view.bounds)
+        gradientView.frame = self.view.bounds
         
-        let gradient = CAGradientLayer()
         gradient.frame = self.view.bounds
         
         gradient.startPoint = CGPoint(x: 0.0, y: 1.0)
@@ -675,11 +681,48 @@ class ChatViewController: MessagesViewController {
                 }
             })
         }
-        
-        
+        previousFrame = self.view.bounds
+    }
+    
+    var previousFrame: CGRect = .zero
+    
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
         
     }
+    
+    override func shouldChangeFrame() {
+        super.shouldChangeFrame()
+        if previousFrame == self.view.bounds {
+            return
+        }
+        previousFrame = self.view.bounds
+        print("WILL LAYOUT")
+        backgroundView.frame = self.view.bounds
+        backgroundImage.frame = self.view.bounds
         
+        gradientView.frame = self.view.bounds
+        
+        gradient.frame = self.view.bounds
+        toolsButton.frame = CGRect(
+            x: self.view.bounds.width - 44,
+            y: self.view.bounds.height - 88 - (UIDevice.needBottomOffset ? 44 : 0),
+            width: 36,
+            height: 44
+        )
+        
+        var inputHeight: CGFloat = 49 + self.xabberInputView.keyboardHeight
+        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
+            inputHeight += bottomInset
+        }
+        
+        let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
+        self.xabberInputView.setupFrames(frame)
+//        self.xabberInputView.update(screenHeight: self.view.bounds.height, keyboardHeight: self.xabberInputView.keyboardHeight)
+        (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
+            .cache.invalidate()
+    }
+    
     private func unsubscribe() {
         NotifyManager.shared.currentDialog = nil
         self.bag = DisposeBag()
@@ -859,6 +902,7 @@ class ChatViewController: MessagesViewController {
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+//        self.navigationController?.navigationBar.prefersLargeTitles = false
         if [.omemo, .omemo1, .axolotl].contains(conversationType) {
             self.startWatchingSignatureTimer()
             if SignatureManager.shared.isSignatureSetted {

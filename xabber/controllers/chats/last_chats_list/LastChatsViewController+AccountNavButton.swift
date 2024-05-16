@@ -104,8 +104,9 @@ class AccountNavButton: UIButton {
 extension LastChatsViewController {
     @objc
     internal func onAccountNavButtonPress(_ sender: UIButton) {
-        let vc = NotificationsListViewController() //AccountInfoViewController()
-        vc.owner = self.topAccountJid
+        let vc = AccountInfoViewController()
+        vc.jid = self.topAccountJid
+        vc.configureTokens(for: self.topAccountJid)
         self.navigationController?.pushViewController(vc, animated: true)
     }
 }

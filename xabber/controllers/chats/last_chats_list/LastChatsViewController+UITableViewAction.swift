@@ -24,8 +24,9 @@ import MaterialComponents.MDCPalettes
 
 extension LastChatsViewController {
     func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
-        let index = showArchivedSection.value ? indexPath.row - 1 : indexPath.row
-        if index < 0 { return nil }
+        let index = indexPath.row
+//        let index = showArchivedSection.value ? indexPath.row - 1 : indexPath.row
+//        if index < 0 { return nil }
 
         let isMuted = self.datasource[index].isMute
         let deleteAction = UIContextualAction(style: .destructive,
@@ -116,9 +117,9 @@ extension LastChatsViewController {
     }
     
     func tableView(_ tableView: UITableView, leadingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
-        
-        let index = showArchivedSection.value ? indexPath.row - 1 : indexPath.row
-        if index < 0 { return nil }
+        let index = indexPath.row
+//        let index = showArchivedSection.value ? indexPath.row - 1 : indexPath.row
+//        if index < 0 { return nil }
         if AccountManager.shared.connectingUsers.value.isEmpty {
             let pinAction = UIContextualAction(style: .normal,
                                                title: "Pin".localizeString(id: "message_pin", arguments: [])) {

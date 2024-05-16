@@ -76,9 +76,7 @@ extension NewEntityViewController {
 //        vc.jid = self.jid
 //        vc.stringValue = "xmpp:\(self.jid)"
         vc.delegate = self
-        vc.modalTransitionStyle = .coverVertical
-        vc.modalPresentationStyle = .overFullScreen
-        present(vc, animated: true, completion: nil)
+        showModal(vc, from: self)
     }
 }
 

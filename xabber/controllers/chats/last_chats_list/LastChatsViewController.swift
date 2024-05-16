@@ -131,9 +131,9 @@ class LastChatsViewController: BaseViewController {
         view.register(SkeletonCell.self, forCellReuseIdentifier: SkeletonCell.cellName)
         
         view.tableFooterView = UIView(frame: .zero)
-        view.allowsMultipleSelection = false
-        view.allowsMultipleSelectionDuringEditing = false
-        view.cellLayoutMarginsFollowReadableWidth = false
+//        view.allowsMultipleSelection = false
+//        view.allowsMultipleSelectionDuringEditing = false
+//        view.cellLayoutMarginsFollowReadableWidth = false
         
         return view
     }()
@@ -143,31 +143,7 @@ class LastChatsViewController: BaseViewController {
         
         return view
     }()
-    
-    internal let customTitleLabel: UILabel = {
-        let label = UILabel()
         
-        label.textAlignment = .center
-        label.font = UIFont.systemFont(ofSize: 18, weight: UIFont.Weight.medium)
-        
-        return label
-    }()
-    
-    internal let dropDownButton: UIBarButtonItem = {
-        let button = UIBarButtonItem(image: #imageLiteral(resourceName: "chevron-down").withRenderingMode(.alwaysTemplate),
-                                     style: .plain,
-                                     target: nil,
-                                     action: nil)
-        button.tintColor = MDCPalette.grey.tint600
-        return button
-    }()
-    
-    internal let addButton: UIBarButtonItem = {
-        let button = UIBarButtonItem(barButtonSystemItem: .add, target: nil, action: nil)
-        button.tintColor = .systemGray
-        return button
-    }()
-    
     internal let securityButton: UIBarButtonItem = {
         let button = UIBarButtonItem(image: UIImage(named: "security"), style: UIBarButtonItem.Style.plain, target: nil, action: nil)
         
@@ -225,6 +201,12 @@ class LastChatsViewController: BaseViewController {
         return view
     }()
     
+    internal let bottomBar: BottomBarView = {
+        let view = BottomBarView(frame: .zero)
+        
+        return view
+    }()
+    
     internal var isFirstLayout: Bool = false
     internal var isFirstLayoutSearchController: Bool = false
     
@@ -242,7 +224,7 @@ class LastChatsViewController: BaseViewController {
     
     internal var enabledAccounts: BehaviorRelay<Set<String>> = BehaviorRelay(value: Set<String>())
     
-    internal var showArchivedSection: BehaviorRelay<Bool> = BehaviorRelay<Bool>(value: false)
+//    internal var showArchivedSection: BehaviorRelay<Bool> = BehaviorRelay<Bool>(value: false)
     internal var isArchivedSectionShowed: Bool = false
     internal var unreadArchivedChatsCount: Int = 0
     internal var archivedSectionSubtitleText: NSAttributedString = NSAttributedString()
@@ -259,35 +241,28 @@ class LastChatsViewController: BaseViewController {
     
     internal var isSkeletonShowed: Bool = false
     
+    open var splitDelegate: SplitViewControllerDelegate? = nil
+    
     internal func updateTitle(_ value: Filter) {
-        DispatchQueue.main.async {
-            do {
-                let realm = try WRealm.safe()
-                let accounts = Set(realm.objects(AccountStorageItem.self).toArray().compactMap { return $0.jid })
-                let filteredConnectingUsers = AccountManager.shared.connectingUsers.value.filter({ accounts.contains($0) })
-                if filteredConnectingUsers.isNotEmpty {
-                    self.customTitleLabel.text = "Connecting...".localizeString(id: "account_state_connecting", arguments: [])
-                    self.customTitleLabel.sizeToFit()
-                    self.customTitleLabel.layoutIfNeeded()
-                    return
-                }
-            } catch {
-                
+        do {
+            let realm = try WRealm.safe()
+            let accounts = Set(realm.objects(AccountStorageItem.self).toArray().compactMap { return $0.jid })
+            let filteredConnectingUsers = AccountManager.shared.connectingUsers.value.filter({ accounts.contains($0) })
+            if filteredConnectingUsers.isNotEmpty {
+                self.bottomBar.connectionState = .connecting
+            } else {
+                self.bottomBar.connectionState = .normal
             }
-            
-            switch value {
-                case .chats:
-                    self.customTitleLabel.text = "Chats".localizeString(id: "toolbar__menu_item__chats", arguments: [])
-                    getAppTabBar()?.tabBar.items?.first?.title = "Chats".localizeString(id: "toolbar__menu_item__chats", arguments: [])
-                case .unread:
-                    self.customTitleLabel.text = "Unread".localizeString(id: "unread_chats", arguments: [])
-                    getAppTabBar()?.tabBar.items?.first?.title = "Unread".localizeString(id: "unread_chats", arguments: [])
-                case .archived:
-                    self.customTitleLabel.text = "Archived".localizeString(id: "archived_chats", arguments: [])
-                    getAppTabBar()?.tabBar.items?.first?.title = "Archived".localizeString(id: "archived_chats", arguments: [])
-            }
-            self.customTitleLabel.sizeToFit()
-            self.customTitleLabel.layoutIfNeeded()
+        } catch {
+            DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
+        }
+        switch value {
+            case .chats:
+                self.title = "Chats".localizeString(id: "toolbar__menu_item__chats", arguments: [])
+            case .unread:
+                self.title = "Unread".localizeString(id: "unread_chats", arguments: [])
+            case .archived:
+                self.title = "Archived".localizeString(id: "archived_chats", arguments: [])
         }
     }
     
@@ -304,7 +279,7 @@ class LastChatsViewController: BaseViewController {
                 predicate = NSPredicate(format: "isArchived == %@ AND owner IN %@", argumentArray: [false, Array(enabledAccounts.value)])
                 pinnedChatsSorting = true
             case .unread:
-                showArchivedSection.accept(false)
+//                showArchivedSection.accept(false)
                 predicate = NSPredicate(format: "isArchived == %@ AND (unread > %@ OR rosterItem.ask_ IN %@) AND owner IN %@",
                                         argumentArray: [false,
                                                         0,
@@ -352,7 +327,7 @@ class LastChatsViewController: BaseViewController {
             
             Observable
                 .collection(from: chatsObserver!)
-                .debounce(.milliseconds(400), scheduler: MainScheduler.asyncInstance)
+                .debounce(.milliseconds(70), scheduler: MainScheduler.asyncInstance)
                 .skip(1)
                 .subscribe { (results) in
                     print(#function, "show skeleton")
@@ -424,11 +399,11 @@ class LastChatsViewController: BaseViewController {
                     .subscribe(onNext: { (results) in
                         self.archivedSectionSubtitleText = self.updateArchivedSectionTitle()
                         self.unreadArchivedChatsCount = results.toArray().filter({ $0.unread > 0 }).compactMap{ return $0.unread }.reduce(0, +)
-                        if self.showArchivedSection.value {
-                            UIView.performWithoutAnimation {
-                                self.tableView.reloadRows(at: [IndexPath(row: 0, section: 0)], with: .none)
-                            }
-                        }
+//                        if self.showArchivedSection.value {
+//                            UIView.performWithoutAnimation {
+//                                self.tableView.reloadRows(at: [IndexPath(row: 0, section: 0)], with: .none)
+//                            }
+//                        }
                     })
                     .disposed(by: datasetBag)
             }
@@ -965,28 +940,6 @@ class LastChatsViewController: BaseViewController {
             })
             .disposed(by: bag)
         
-        showArchivedSection
-            .asObservable()
-            .subscribe(onNext: { (value) in
-                if value && (self.archivedChats?.isEmpty ?? true) {
-                    self.isArchivedSectionShowed = false
-                    self.showArchivedSection.accept(false)
-                    return
-                }
-                if value == self.isArchivedSectionShowed { return }
-                if value {
-                    self.pullDownTableHeaderView.changeState(to: .disabled)
-                    self.tableView.insertRows(at: [IndexPath(row: 0, section: 0)], with: .top)
-                } else {
-                    self.pullDownTableHeaderView.changeState(to: .normal)
-                    UIView.performWithoutAnimation {
-                        self.tableView.deleteRows(at: [IndexPath(row: 0, section: 0)], with: .none)
-                    }
-                }
-                self.isArchivedSectionShowed = value
-            })
-            .disposed(by: bag)
-        
         do {
             let realm = try  WRealm.safe()
             let collection = realm
@@ -1004,8 +957,6 @@ class LastChatsViewController: BaseViewController {
                         self.accountNavButton.update(jid: self.topAccountJid, status: item.resource?.status ?? .offline)
                         self.unreadAllMessagesButton.isEnabled = AccountManager.shared.connectingUsers.value.isEmpty
                         getAppTabBar()?.updateColor()
-                        self.customTitleLabel.textColor = AccountColorManager.shared.topColor()
-                        self.addButton.tintColor = AccountColorManager.shared.topColor()
                         self.unreadAllMessagesButton.backgroundColor = AccountManager.shared.connectingUsers.value.isNotEmpty ? MDCPalette.grey.tint500 : AccountColorManager.shared.topPalette().tint500
                     }
                 }).disposed(by: bag)
@@ -1031,6 +982,7 @@ class LastChatsViewController: BaseViewController {
                          object: UIApplication.shared)
     }
     
+    
     @objc
     private func willEnterForeground() {
         print(#function)
@@ -1046,6 +998,8 @@ class LastChatsViewController: BaseViewController {
     }
     
     internal func configure() {
+        self.restorationIdentifier = "LastChatsViewController"
+        self.restoresFocusAfterTransition = true
         title = " "
         view.addSubview(tableView)
         tableView.fillSuperview()
@@ -1053,11 +1007,8 @@ class LastChatsViewController: BaseViewController {
         tableView.delegate = self
         tableView.prefetchDataSource = self
         
-        if #available(iOS 13.0, *) {
-            tableView.backgroundColor = .systemBackground
-        } else {
-            tableView.backgroundColor = .white
-        }
+//        tableView.backgroundColor = .clear
+        
         
         emptyView.configure(image: #imageLiteral(resourceName: "buffer160").withRenderingMode(.alwaysTemplate),
                             title: "Chats list is empty".localizeString(id: "chats_list_is_empty", arguments: []),
@@ -1087,9 +1038,6 @@ class LastChatsViewController: BaseViewController {
                 self.topAccountJid = item.jid
                 self.accountNavButton.update(jid: self.topAccountJid, status: item.resource?.status ?? .offline)
                 self.unreadAllMessagesButton.isEnabled = AccountManager.shared.connectingUsers.value.isEmpty
-                getAppTabBar()?.updateColor()
-                self.customTitleLabel.textColor = AccountColorManager.shared.topColor()
-                self.addButton.tintColor = AccountColorManager.shared.topColor()
                 self.unreadAllMessagesButton.backgroundColor = AccountManager.shared.connectingUsers.value.isNotEmpty ? MDCPalette.grey.tint500 : AccountColorManager.shared.topPalette().tint500
             }
             
@@ -1097,39 +1045,61 @@ class LastChatsViewController: BaseViewController {
         } catch {
             DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
         }
-        configureNavbar()
+//        configureNavbar()
     }
-
-    internal func configureNavbar() {
-        if !archivedMode {
-            addButton.target = self
-            addButton.action = #selector(onAddContact)
-            securityButton.target = self
-            securityButton.action = #selector(onRegisterYubikey)
-            if CommonConfigManager.shared.config.use_yubikey {
-                navigationItem.setRightBarButtonItems([addButton, securityButton], animated: true)
-            } else {
-                navigationItem.setRightBarButtonItems([addButton], animated: true)
-            }
-            let leftButton = UIBarButtonItem(customView: accountNavButton)
-            accountNavButton.addTarget(self, action: #selector(onAccountNavButtonPress), for: .touchUpInside)
-            navigationItem.setLeftBarButton(leftButton, animated: true)
-            unreadAllMessagesButton.frame = CGRect(
-                x: (view.frame.width - 156) / 2,
-                y: view.frame.height - 96 - (UIDevice.needBottomOffset ? 32 : 0),
-                width: 156,
-                height: 36
-            )
-            unreadAllMessagesButton.addTarget(self, action: #selector(self.onReadAllMessages), for: .touchUpInside)
-            view.addSubview(unreadAllMessagesButton)
+    
+    @objc
+    private func onSidebarButtonTouchUp(_ sender: UIBarButtonItem) {
+        self.splitViewController?.show(.primary)
+    }
+    
+    internal func configureBars() {
+        self.title = "Chats"
+        self.navigationController?.navigationBar.prefersLargeTitles = true
+        self.bottomBar.splitViewController = self.splitViewController
+        self.view.addSubview(bottomBar)
+        self.view.bringSubviewToFront(bottomBar)
+        var inputHeight: CGFloat = 49
+        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
+            inputHeight += bottomInset
         }
-        navigationController?
-            .navigationBar
-            .titleTextAttributes = [NSAttributedString.Key.foregroundColor: AccountColorManager.shared.topColor()]
         
-        customTitleLabel.textColor = AccountColorManager.shared.topColor()
-        self.navigationItem.titleView = customTitleLabel
+        let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
+        bottomBar.updateFrame(to: frame)
+        self.splitViewController?.navigationItem.setLeftBarButtonItems([], animated: true)
+        
+        let sidebarButton = UIBarButtonItem(image: UIImage(systemName: "sidebar.left"), style: .plain, target: self, action: #selector(onSidebarButtonTouchUp))
+        
+        if UIDevice.current.userInterfaceIdiom != .pad {
+            self.navigationItem.setHidesBackButton(true, animated: false)
+            self.navigationItem.setLeftBarButton(sidebarButton, animated: true)
+        }
+        bottomBar.leftCallback = self.onLeftBarButtonTapped
     }
+    
+    var normalState: Filter = .chats
+    
+    func onLeftBarButtonTapped() {
+        if self.filter.value != .unread {
+            self.normalState = self.filter.value
+            self.filter.accept(.unread)
+        } else {
+            self.filter.accept(self.normalState)
+        }
+    }
+    
+    override func shouldChangeFrame() {
+        super.shouldChangeFrame()
+        var inputHeight: CGFloat = 49
+        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
+            inputHeight += bottomInset
+        }
+        
+        let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
+        bottomBar.updateFrame(to: frame)
+    }
+    
+    
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -1182,6 +1152,8 @@ class LastChatsViewController: BaseViewController {
         } else {
             self.securityButton.tintColor = .systemRed
         }
+        configureBars()
+//        self.navigationController?.navigationBar.prefersLargeTitles = true
     }
     
     override func viewDidAppear(_ animated: Bool) {
@@ -1210,6 +1182,10 @@ class LastChatsViewController: BaseViewController {
             }
         }
         isFirstLayout = true
+//        self.splitViewController?.navigationItem.setLeftBarButtonItems([], animated: true)
+//        self.splitViewController?.navigationItem.setHidesBackButton(true, animated: true)
+//        self.navigationItem.setLeftBarButtonItems([], animated: true)
+//        self.navigationItem.setHidesBackButton(true, animated: true)
     }
     
     override func viewWillDisappear(_ animated: Bool) {

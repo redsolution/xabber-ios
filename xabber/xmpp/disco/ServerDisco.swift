@@ -389,7 +389,7 @@ class ServerDiscoManager: AbstractXMPPManager {
     open func sendIdentity(_ xmppStream: XMPPStream, to jid: XMPPJID?, for elementId: String) {
 //        if CallManager.shared.inCall.value { return }
         let query = DDXMLElement(name: "query", xmlns: "http://jabber.org/protocol/disco#info")
-        query.addAttribute(withName: "node", stringValue: "https://www.xabber.com#\(generateVer())")
+        query.addAttribute(withName: "node", stringValue: "https://www.xabber.com#xabber-ios-ng")
         let identity = DDXMLElement.element(withName: "identity") as! DDXMLElement
 //        identity.addAttribute(withName: "xml:lang", stringValue: "en")
         identity.addAttribute(withName: "category", stringValue: "client")

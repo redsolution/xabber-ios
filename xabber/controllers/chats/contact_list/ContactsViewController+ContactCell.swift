@@ -53,8 +53,8 @@ extension ContactsViewController {
         }()
         
         internal let avatarView: UIImageView = {
-            let view = UIImageView(frame: CGRect(square: 48))
-            if let image = UIImage(named: AccountMasksManager.shared.mask48pt), AccountMasksManager.shared.load() != "square" {
+            let view = UIImageView(frame: CGRect(square: 64))
+            if let image = UIImage(named: AccountMasksManager.shared.mask48pt)?.upscale(dimension: 64), AccountMasksManager.shared.load() != "square" {
                 view.mask = UIImageView(image: image)
             } else {
                 view.mask = nil
@@ -100,8 +100,8 @@ extension ContactsViewController {
         
         internal func activateConstraints() {
             NSLayoutConstraint.activate([
-                avatarView.heightAnchor.constraint(equalToConstant: 48),
-                avatarView.widthAnchor.constraint(equalToConstant: 48),
+                avatarView.heightAnchor.constraint(equalToConstant: 64),
+                avatarView.widthAnchor.constraint(equalToConstant: 64),
                 statusIndicator.heightAnchor.constraint(equalToConstant: 18),
                 statusIndicator.widthAnchor.constraint(equalToConstant: 18)
             ])
@@ -109,7 +109,7 @@ extension ContactsViewController {
         
         open func configure(title: String, subtitle: String, status: ResourceStatus, entity: RosterItemEntity, jid: String, owner: String, showAvatar: Bool, avatarUrl: String?) {
             titleLabel.text = title
-            subtitleLabel.text = JidManager.shared.prepareJid(jid: subtitle)
+            subtitleLabel.text = subtitle//JidManager.shared.prepareJid(jid: subtitle)
             
             switch entity {
             case .groupchat, .incognitoChat, .bot, .server, .issue:
@@ -121,11 +121,11 @@ extension ContactsViewController {
             }
             if showAvatar {
                 avatarView.isHidden = false
-                DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 48) { image in
+                DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 64) { image in
                     if let image = image {
                         self.avatarView.image = image
                     } else {
-                        self.avatarView.image = UIImageView.getDefaultAvatar(for: jid, owner: owner, size: 48)
+                        self.avatarView.image = UIImageView.getDefaultAvatar(for: jid, owner: owner, size: 64)
                     }
                 }
             } else {
@@ -134,7 +134,7 @@ extension ContactsViewController {
         }
         
         func setMask() {
-            if let image = UIImage(named: AccountMasksManager.shared.mask48pt), AccountMasksManager.shared.load() != "square" {
+            if let image = UIImage(named: AccountMasksManager.shared.mask48pt)?.upscale(dimension: 64), AccountMasksManager.shared.load() != "square" {
                 avatarView.mask = UIImageView(image: image)
             } else {
                 avatarView.mask = nil
@@ -144,8 +144,6 @@ extension ContactsViewController {
         override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
             super.init(style: style, reuseIdentifier: reuseIdentifier)
             contentView.addSubview(stack)
-            self.layer.shouldRasterize = true
-            self.layer.rasterizationScale = UIScreen.main.scale
             stack.fillSuperview()
             stack.addArrangedSubview(avatarView)
             stack.addArrangedSubview(labelsStack)
@@ -153,8 +151,8 @@ extension ContactsViewController {
             labelsStack.addArrangedSubview(titleLabel)
             labelsStack.addArrangedSubview(subtitleLabel)
             activateConstraints()
-            separatorInset = UIEdgeInsets(top: 0, bottom: 0, left: 66, right: 0)
-            selectionStyle = .none
+            separatorInset = UIEdgeInsets(top: 0, bottom: 0, left: 74, right: 0)
+//            selectionStyle = .none
         }
         
         required init?(coder aDecoder: NSCoder) {

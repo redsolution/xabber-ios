@@ -662,12 +662,15 @@
 		66EAF7F52407C13100207AD3 /* InlineMediaBaseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66EAF7F42407C13100207AD3 /* InlineMediaBaseView.swift */; };
 		66EAF7F72407E7EB00207AD3 /* InlineAudioGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66EAF7F62407E7EB00207AD3 /* InlineAudioGridView.swift */; };
 		66EAF7FA2407EB8000207AD3 /* UIEdgeInsets+Init.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66EAF7F92407EB8000207AD3 /* UIEdgeInsets+Init.swift */; };
+		66EB12922BC7F85200524E1B /* NotificationsSubscribtionsListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66EB12912BC7F85200524E1B /* NotificationsSubscribtionsListViewController.swift */; };
 		66EB6A7A238D659E0024531C /* TextViewPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66EB6A79238D659E0024531C /* TextViewPresenter.swift */; };
 		66EBBE8A2278270600E9D620 /* IceCandidate+Decoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66EBBE892278270600E9D620 /* IceCandidate+Decoder.swift */; };
 		66ECBE38243DC86100BF6922 /* MessageManager+TemporaryReceiver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66ECBE37243DC86100BF6922 /* MessageManager+TemporaryReceiver.swift */; };
 		66ED0D462488CDA10053CBEF /* ContactInfoViewController- UITableViewDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66ED0D452488CDA00053CBEF /* ContactInfoViewController- UITableViewDataSource.swift */; };
 		66ED0D482488CE140053CBEF /* ContactInfoViewController- UITableViewDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66ED0D472488CE140053CBEF /* ContactInfoViewController- UITableViewDelegate.swift */; };
 		66ED0D4C2488FA700053CBEF /* InfoScreenHeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66ED0D4B2488FA700053CBEF /* InfoScreenHeaderView.swift */; };
+		66EF49A92BCEAADD00984187 /* EmptyChatViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66EF49A82BCEAADD00984187 /* EmptyChatViewController.swift */; };
+		66EF49AB2BCEAB7B00984187 /* SplitViewControllerDelegateProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66EF49AA2BCEAB7B00984187 /* SplitViewControllerDelegateProtocol.swift */; };
 		66EFC5B92923C98700398D77 /* SubscribtionsListViewControllerTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66EFC5B82923C98700398D77 /* SubscribtionsListViewControllerTest.swift */; };
 		66F0AADC2BC00E8600079DA6 /* TrustSharingManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F0AADB2BC00E8600079DA6 /* TrustSharingManager.swift */; };
 		66F0C440215D0B940010A16E /* ForwardItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F0C43F215D0B940010A16E /* ForwardItem.swift */; };
@@ -682,10 +685,13 @@
 		66F7511F23E2AE0D00A26CE9 /* ChatViewController+LowPrioritySubscribtions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F7511E23E2AE0D00A26CE9 /* ChatViewController+LowPrioritySubscribtions.swift */; };
 		66F7EAB02AE696FA00F915AD /* UIImage+Avatar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F7EAAF2AE696FA00F915AD /* UIImage+Avatar.swift */; };
 		66F85B1423DECFC200899797 /* ChatViewController+AudioMessages.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F85B1323DECFC200899797 /* ChatViewController+AudioMessages.swift */; };
+		66F8F4F32BD6410C00449848 /* LeftMenuViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F8F4F22BD6410C00449848 /* LeftMenuViewController.swift */; };
 		66F9071A2260B76400F64A37 /* APNSManager+Network.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F907192260B76400F64A37 /* APNSManager+Network.swift */; };
 		66F985D7231E37400013A0BD /* MessageReferenceStorageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F985D6231E37400013A0BD /* MessageReferenceStorageItem.swift */; };
 		66F985D9231E43E80013A0BD /* MessageReferenceParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F985D8231E43E80013A0BD /* MessageReferenceParser.swift */; };
 		66F9F35123E9A6860035061B /* ChatViewController+MessagesPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F9F35023E9A6860035061B /* ChatViewController+MessagesPanel.swift */; };
+		66FA15E02BD7C514009AAC55 /* BottomBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66FA15DF2BD7C514009AAC55 /* BottomBarView.swift */; };
+		66FB3C772BDCFF5E00D4BEEA /* UIViewController+Modal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66FB3C762BDCFF5E00D4BEEA /* UIViewController+Modal.swift */; };
 		66FB564C208DE5D500BE2BA4 /* CellWithBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66FB564B208DE5D500BE2BA4 /* CellWithBadge.swift */; };
 		66FC80282667BBE400357C58 /* SignUpEnableNotificationsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66FC80272667BBE400357C58 /* SignUpEnableNotificationsViewController.swift */; };
 		66FCEB13238E596100B3DC2C /* DeleteItemPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66FCEB12238E596100B3DC2C /* DeleteItemPresenter.swift */; };
@@ -1627,12 +1633,15 @@
 		66EAF7F42407C13100207AD3 /* InlineMediaBaseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InlineMediaBaseView.swift; sourceTree = "<group>"; };
 		66EAF7F62407E7EB00207AD3 /* InlineAudioGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InlineAudioGridView.swift; sourceTree = "<group>"; };
 		66EAF7F92407EB8000207AD3 /* UIEdgeInsets+Init.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIEdgeInsets+Init.swift"; sourceTree = "<group>"; };
+		66EB12912BC7F85200524E1B /* NotificationsSubscribtionsListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsSubscribtionsListViewController.swift; sourceTree = "<group>"; };
 		66EB6A79238D659E0024531C /* TextViewPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextViewPresenter.swift; sourceTree = "<group>"; };
 		66EBBE892278270600E9D620 /* IceCandidate+Decoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "IceCandidate+Decoder.swift"; sourceTree = "<group>"; };
 		66ECBE37243DC86100BF6922 /* MessageManager+TemporaryReceiver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MessageManager+TemporaryReceiver.swift"; sourceTree = "<group>"; };
 		66ED0D452488CDA00053CBEF /* ContactInfoViewController- UITableViewDataSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContactInfoViewController- UITableViewDataSource.swift"; sourceTree = "<group>"; };
 		66ED0D472488CE140053CBEF /* ContactInfoViewController- UITableViewDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContactInfoViewController- UITableViewDelegate.swift"; sourceTree = "<group>"; };
 		66ED0D4B2488FA700053CBEF /* InfoScreenHeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InfoScreenHeaderView.swift; sourceTree = "<group>"; };
+		66EF49A82BCEAADD00984187 /* EmptyChatViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmptyChatViewController.swift; sourceTree = "<group>"; };
+		66EF49AA2BCEAB7B00984187 /* SplitViewControllerDelegateProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitViewControllerDelegateProtocol.swift; sourceTree = "<group>"; };
 		66EFC5B82923C98700398D77 /* SubscribtionsListViewControllerTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscribtionsListViewControllerTest.swift; sourceTree = "<group>"; };
 		66F0AADB2BC00E8600079DA6 /* TrustSharingManager.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = TrustSharingManager.swift; sourceTree = "<group>"; };
 		66F0C43F215D0B940010A16E /* ForwardItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForwardItem.swift; sourceTree = "<group>"; };
@@ -1645,10 +1654,13 @@
 		66F7511E23E2AE0D00A26CE9 /* ChatViewController+LowPrioritySubscribtions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewController+LowPrioritySubscribtions.swift"; sourceTree = "<group>"; };
 		66F7EAAF2AE696FA00F915AD /* UIImage+Avatar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIImage+Avatar.swift"; sourceTree = "<group>"; };
 		66F85B1323DECFC200899797 /* ChatViewController+AudioMessages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewController+AudioMessages.swift"; sourceTree = "<group>"; };
+		66F8F4F22BD6410C00449848 /* LeftMenuViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeftMenuViewController.swift; sourceTree = "<group>"; };
 		66F907192260B76400F64A37 /* APNSManager+Network.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "APNSManager+Network.swift"; sourceTree = "<group>"; };
 		66F985D6231E37400013A0BD /* MessageReferenceStorageItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageReferenceStorageItem.swift; sourceTree = "<group>"; };
 		66F985D8231E43E80013A0BD /* MessageReferenceParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageReferenceParser.swift; sourceTree = "<group>"; };
 		66F9F35023E9A6860035061B /* ChatViewController+MessagesPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewController+MessagesPanel.swift"; sourceTree = "<group>"; };
+		66FA15DF2BD7C514009AAC55 /* BottomBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottomBarView.swift; sourceTree = "<group>"; };
+		66FB3C762BDCFF5E00D4BEEA /* UIViewController+Modal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIViewController+Modal.swift"; sourceTree = "<group>"; };
 		66FB564B208DE5D500BE2BA4 /* CellWithBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CellWithBadge.swift; sourceTree = "<group>"; };
 		66FC80272667BBE400357C58 /* SignUpEnableNotificationsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignUpEnableNotificationsViewController.swift; sourceTree = "<group>"; };
 		66FCEB12238E596100B3DC2C /* DeleteItemPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeleteItemPresenter.swift; sourceTree = "<group>"; };
@@ -2116,6 +2128,7 @@
 		66159E16201EDE0800B1CF92 /* controllers */ = {
 			isa = PBXGroup;
 			children = (
+				66EF49A72BCEAAD300984187 /* split */,
 				8491422A2BB1A89B00FC474C /* ake */,
 				4DB32599290FAA18005364DD /* Subscriptions */,
 				660B4A4A28C8A70700C39903 /* credentials */,
@@ -3616,6 +3629,7 @@
 		66BCD4A0214655D1008AA315 /* bars */ = {
 			isa = PBXGroup;
 			children = (
+				66FA15DE2BD7C4F8009AAC55 /* bottom_bar */,
 				66AD011522D714E900823398 /* tab_bar */,
 				6644E27B213D0FBA001726DD /* NavBarController.swift */,
 			);
@@ -3703,6 +3717,7 @@
 			isa = PBXGroup;
 			children = (
 				66C8EEBE2477B3FE002125F9 /* UIViewController+Keyboard.swift */,
+				66FB3C762BDCFF5E00D4BEEA /* UIViewController+Modal.swift */,
 			);
 			path = UIViewController;
 			sourceTree = "<group>";
@@ -3899,6 +3914,7 @@
 		66E3190E2BA854D400F149B1 /* notifications */ = {
 			isa = PBXGroup;
 			children = (
+				66EB12902BC7F82400524E1B /* subscribtions */,
 				66E3190F2BA8550300F149B1 /* NotificationsListViewController.swift */,
 				660B6DAD2BBC152F0040E20E /* NotificationsListViewController+ItemCell.swift */,
 			);
@@ -3989,6 +4005,14 @@
 			path = UIEdgeInsets;
 			sourceTree = "<group>";
 		};
+		66EB12902BC7F82400524E1B /* subscribtions */ = {
+			isa = PBXGroup;
+			children = (
+				66EB12912BC7F85200524E1B /* NotificationsSubscribtionsListViewController.swift */,
+			);
+			path = subscribtions;
+			sourceTree = "<group>";
+		};
 		66ECBE36243DC83D00BF6922 /* messages_manager */ = {
 			isa = PBXGroup;
 			children = (
@@ -4042,6 +4066,16 @@
 			path = views;
 			sourceTree = "<group>";
 		};
+		66EF49A72BCEAAD300984187 /* split */ = {
+			isa = PBXGroup;
+			children = (
+				66EF49A82BCEAADD00984187 /* EmptyChatViewController.swift */,
+				66EF49AA2BCEAB7B00984187 /* SplitViewControllerDelegateProtocol.swift */,
+				66F8F4F22BD6410C00449848 /* LeftMenuViewController.swift */,
+			);
+			path = split;
+			sourceTree = "<group>";
+		};
 		66F0AADA2BC00E8600079DA6 /* trust_sharing */ = {
 			isa = PBXGroup;
 			children = (
@@ -4093,6 +4127,14 @@
 				666E1F602204589000172F55 /* ChatViewController+PrefetchDatasource.swift */,
 			);
 			path = datasource;
+			sourceTree = "<group>";
+		};
+		66FA15DE2BD7C4F8009AAC55 /* bottom_bar */ = {
+			isa = PBXGroup;
+			children = (
+				66FA15DF2BD7C514009AAC55 /* BottomBarView.swift */,
+			);
+			path = bottom_bar;
 			sourceTree = "<group>";
 		};
 		66FD316622815231001B10C7 /* Date */ = {
@@ -4846,6 +4888,7 @@
 				669B6CB620E4F84300A12CE9 /* Checkbox.swift in Sources */,
 				66DA9F0D2237944400A98A05 /* WebRTCClient.swift in Sources */,
 				666E1F59220430BB00172F55 /* ChatViewController+MessageLabelDelegate.swift in Sources */,
+				66FB3C772BDCFF5E00D4BEEA /* UIViewController+Modal.swift in Sources */,
 				6697CF6F206D081D006CA2DF /* ChatStates.swift in Sources */,
 				662EAB972549766C00807083 /* ChatViewController+XabberInputBarDelegate.swift in Sources */,
 				66992538240689F900AD9953 /* InlineMessageView.swift in Sources */,
@@ -5079,6 +5122,7 @@
 				66C1C9FE220180EA00EF8F4C /* XCopyableLabel.swift in Sources */,
 				6643F31F21C2650E00333229 /* MessagesCollectionView.swift in Sources */,
 				663926A2247E3E6100FE6335 /* ContactsViewController+UITableViewDelegate.swift in Sources */,
+				66EF49AB2BCEAB7B00984187 /* SplitViewControllerDelegateProtocol.swift in Sources */,
 				66DB9507256156CE00E956CB /* KeyboardService.swift in Sources */,
 				666D909B245C72A600978FD3 /* XabberUpdateIfNeededDelegate.swift in Sources */,
 				665CF70C2731183000F39FD8 /* TextEditBaseCell.swift in Sources */,
@@ -5116,6 +5160,8 @@
 				661D24F326CBEAD600031AF9 /* GroupchatInfoEditItemViewController.swift in Sources */,
 				66BCD5522110850C00D7D5A3 /* XMPPMessageInlineExtension.swift in Sources */,
 				66C8CA762510A71700CA7271 /* LastChatsStorageItem.swift in Sources */,
+				66EF49A92BCEAADD00984187 /* EmptyChatViewController.swift in Sources */,
+				66F8F4F32BD6410C00449848 /* LeftMenuViewController.swift in Sources */,
 				665D33CB22D887C00034F74E /* LastCallsViewController.swift in Sources */,
 				6643F32B21C2650E00333229 /* NSConstraintLayoutSet.swift in Sources */,
 				660A45FB22C4C0100047347D /* AddContactViewController+UITextFieldDelegate.swift in Sources */,
@@ -5236,6 +5282,7 @@
 				6624562C2498AC8F005510AE /* GroupchatContactInfoViewController+InfoCell.swift in Sources */,
 				665D63A42399429E005B4E9E /* GroupchatBlockedViewController.swift in Sources */,
 				66D26E61240548D7004190A8 /* UILabel+LastLineWidth.swift in Sources */,
+				66FA15E02BD7C514009AAC55 /* BottomBarView.swift in Sources */,
 				66AA29BC24C0687C007CD532 /* Data+TempSaveExtension.swift in Sources */,
 				66DED55722AA60CE008E5710 /* AccountColorViewController+UITableViewDatasource.swift in Sources */,
 				66A995EE28473E2E00F241C5 /* MessageSigningInfoViewController.swift in Sources */,
@@ -5270,6 +5317,7 @@
 				66B3700220A443DF0022F71B /* AccountConnectBehaviorExtension.swift in Sources */,
 				66AD011922D7376700823398 /* LastChatsViewController+UITableViewPrefetchingDataSource.swift in Sources */,
 				66F2566424A376F9002FC961 /* XMPPActionManager.swift in Sources */,
+				66EB12922BC7F85200524E1B /* NotificationsSubscribtionsListViewController.swift in Sources */,
 				6643F32C21C2650E00333229 /* Sender.swift in Sources */,
 				660093CB22DF2CFD00C5F16B /* LastCallsViewController+UITableViewAction.swift in Sources */,
 				662BA62D273BA07500E13AF4 /* TokenCounterIncorrectPresenter.swift in Sources */,

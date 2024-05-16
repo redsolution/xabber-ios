@@ -277,7 +277,7 @@ class ModernXabberInputView: UIView {
     
     open var accountPalette: MDCPalette = AccountColorManager.colors.first!.palette
     
-    private var keyboardHeight: CGFloat = 0
+    public var keyboardHeight: CGFloat = 0
     private var screenHeight: CGFloat = 0
     
     private var sendButtonState: SendButtonState = .record
@@ -435,6 +435,7 @@ class ModernXabberInputView: UIView {
     
     override init(frame: CGRect) {
         super.init(frame: frame)
+        self.setupFrames(frame)
         self.setup()
         self.activateConstraints()
     }
@@ -453,7 +454,8 @@ class ModernXabberInputView: UIView {
         )
     }
     
-    final func setup() {
+    public func setupFrames(_ frame: CGRect) {
+        self.frame = frame
         let attachButtonFrame = CGRect(
             origin: CGPoint(x: 0, y: 0),
             size: CGSize(width: 44, height: 38)
@@ -481,6 +483,16 @@ class ModernXabberInputView: UIView {
         )
         
         blurredEffectView.frame = self.bounds
+        selectionPanel.frame = CGRect(
+            origin: CGPoint(x: 16, y: 6),
+            size: CGSize(width: self.bounds.width - 32, height: 38)
+        )
+        selectionPanel.update()
+    }
+    
+    final func setup() {
+        
+        
         self.addSubview(self.blurredEffectView)
         
         contentView.addSubview(attachButton)
@@ -489,11 +501,7 @@ class ModernXabberInputView: UIView {
         contentView.addSubview(sendButton)
         contentView.addSubview(stateButton)
         addSubview(contentView)
-        selectionPanel.frame = CGRect(
-            origin: CGPoint(x: 16, y: 6),
-            size: CGSize(width: self.bounds.width - 32, height: 38)
-        )
-        selectionPanel.update()
+        
         addSubview(selectionPanel)
         addSubview(forwardPanel)
         

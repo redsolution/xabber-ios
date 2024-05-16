@@ -118,10 +118,10 @@ class XabberTabBar: UITabBarController {
                 let vc = LastCallsViewController()
                 self.callsDelegate = vc
                 nav.viewControllers = [vc]
-//            case "DiscoverNavBarViewController":
-//                let vc = DiscoverViewController()
+            case "NotificationsNavBarViewController":
+                let vc = NotificationsListViewController()
 //                self.discoverDelegate = vc
-//                nav.viewControllers = [vc]
+                nav.viewControllers = [vc]
             default: break
             }
         }

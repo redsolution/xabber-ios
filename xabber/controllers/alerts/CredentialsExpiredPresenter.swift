@@ -31,16 +31,11 @@ struct CredentialsExpiredPresenter {
         (UIApplication.shared.delegate as? AppDelegate)?.credentialsExpiredPresenterShowed = true
         let vc = CredentialsExpiredViewController()
         vc.owner = jid
-        let nvc = UINavigationController()
-        nvc.viewControllers = [vc]
         if var topController = UIApplication.shared.keyWindow?.rootViewController {
             while let presentedViewController = topController.presentedViewController {
                 topController = presentedViewController
             }
-            nvc.modalPresentationStyle = .overFullScreen
-            nvc.modalTransitionStyle = .coverVertical
-            topController.definesPresentationContext = true
-            topController.present(nvc, animated: animated, completion: nil)
+            showModal(vc, from: topController)
         }
     }
 }
