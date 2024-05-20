@@ -140,10 +140,14 @@ class DeviceDetailViewController: SimpleBaseViewController {
                         trustElement = Datasource(title: "Action required", value: "Undefined", key: "omemo_state_undefined")
                     }
                     encryptionDatasource = [
-                        Datasource(title: "Device ID", value: "\(omemoDevice.deviceId)", key: "omemo_deviceId"),
-                        Datasource(title: "Fingerprint", value: omemoDevice.fingerprint, key: "omemo_fingerprint")
-                        
+                        Datasource(title: "Device ID", value: "\(omemoDevice.deviceId)", key: "omemo_deviceId")
                     ]
+                    
+                    if omemoDevice.name != nil {
+                        encryptionDatasource.append(Datasource(title: "Name", value: "\(omemoDevice.name!)", key: "omemo_device_name"))
+                    }
+                    encryptionDatasource.append(Datasource(title: "Fingerprint", value: omemoDevice.fingerprint, key: "omemo_fingerprint"))
+                    
                     if omemoDevice.signature != nil {
                         self.dangerInEncryption = omemoDevice.signedBy != self.jid
                         self.issuedFor = omemoDevice.signedBy
@@ -484,6 +488,16 @@ extension DeviceDetailViewController: UITableViewDelegate {
             break
         }
         tableView.deselectRow(at: indexPath, animated: true)
+    }
+    
+    func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+        if datasource[section].first?.key == "status" {
+            return "Private information"
+        } else if datasource[section].first?.key == "omemo_deviceId" {
+            return "Public information"
+        } else {
+            return nil
+        }
     }
 }
 
