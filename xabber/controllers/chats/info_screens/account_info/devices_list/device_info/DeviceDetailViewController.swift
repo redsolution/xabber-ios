@@ -49,11 +49,11 @@ class DeviceDetailViewController: SimpleBaseViewController {
     
     open var uid: String = ""
     open var canEdit: Bool = false
-    private var datasource: [[Datasource]] = []
+    internal var datasource: [[Datasource]] = []
     
-    private var omemoDeviceID: Int = -1
+    open var omemoDeviceID: Int = -1
     
-    private var resource: String? = nil
+    internal var resource: String? = nil
     private var statusTitle: String? = nil
     private var status: ResourceStatus = .offline
     
@@ -153,6 +153,11 @@ class DeviceDetailViewController: SimpleBaseViewController {
                                 value: omemoDevice.signedBy == self.jid ? "Clandestino" : "",
                                 key: "omemo_signed_by"
                             )
+                        )
+                    }
+                    if omemoDevice.trustedByDeviceId != nil {
+                        encryptionDatasource.append(
+                            Datasource(title: "Trusted by", value: omemoDevice.trustedByDeviceId, key: "omemo_trusted_by")
                         )
                     }
                     if !canEdit {
@@ -270,6 +275,11 @@ class DeviceDetailViewController: SimpleBaseViewController {
             }
         }
     }
+    
+    override func onAppear() {
+        self.loadDatasource()
+        self.tableView.reloadData()
+    }
 }
 
 extension DeviceDetailViewController: UITableViewDelegate {
@@ -313,12 +323,6 @@ extension DeviceDetailViewController: UITableViewDelegate {
             let vc = AccountConnectionViewController()
             vc.configure(for: jid)
             self.navigationController?.pushViewController(vc, animated: true)
-            
-//            let nvc = UINavigationController(rootViewController: vc)
-//            nvc.modalPresentationStyle = .fullScreen
-//            nvc.modalTransitionStyle = .coverVertical
-//            self.definesPresentationContext = true
-//            self.present(nvc, animated: true, completion: nil)
         case "omemo_signed_by":
             if self.dangerInEncryption {
                 ActionSheetPresenter().present(
@@ -389,8 +393,15 @@ extension DeviceDetailViewController: UITableViewDelegate {
                                 try realm.write {
                                     instance.state = .unknown
                                     instance.trustDate = Date(timeIntervalSince1970: -1)
+                                    instance.trustedByDeviceId = nil
                                 }
                             }
+                            
+                            guard let trustSharingManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager,
+                                  let localStore = AccountManager.shared.find(for: self.owner)?.omemo.localStore else {
+                                fatalError()
+                            }
+                            trustSharingManager.publicOwnTrustedDevices(publisherDeviceId: String(localStore.localDeviceId()))
                             
                             DispatchQueue.main.async {
                                 self.goBack()
@@ -421,9 +432,16 @@ extension DeviceDetailViewController: UITableViewDelegate {
                             let realm = try Realm()
                             if let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.jid, deviceId: self.omemoDeviceID)) {
                                 try realm.write {
+                                    instance.trustDate = Date()
                                     instance.state = .trusted
                                 }
                             }
+                            
+                            guard let trustSharingManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager,
+                                  let localStore = AccountManager.shared.find(for: self.owner)?.omemo.localStore else {
+                                fatalError()
+                            }
+                            trustSharingManager.publicOwnTrustedDevices(publisherDeviceId: String(localStore.localDeviceId()))
                             
                             DispatchQueue.main.async {
                                 self.goBack()
@@ -443,15 +461,25 @@ extension DeviceDetailViewController: UITableViewDelegate {
                             self.goBack()
                         }
                     case "verify":
-                        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else { fatalError()
+                        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
+                            fatalError()
                         }
-                        let fullJid = self.jid + "/" + self.resource!
-                        akeManager.sendVerificationRequest(jid: fullJid)
+                        akeManager.sendVerificationRequest(jid: self.jid, deviceId: String(self.omemoDeviceID))
+                        DispatchQueue.main.async {
+                            self.goBack()
+                        }
                         break
                     default:
                         break
                     }
                 }
+        case "manual_verification":
+//            let vc = ManualVerificationDeviceViewController()
+//            vc.owner = self.owner
+//            vc.jid = self.jid
+//            vc.deviceId = String(self.omemoDeviceID)
+//            self.navigationController?.pushViewController(vc, animated: true)
+            return
         default:
             break
         }
@@ -565,6 +593,22 @@ extension DeviceDetailViewController: UITableViewDataSource {
             }
             cell.accessoryType = .none
             cell.selectionStyle = .none
+            return cell
+        case "omemo_trusted_by":
+            let cell = UITableViewCell(style: .value1, reuseIdentifier: "SimpleCell")
+            cell.textLabel?.text = item.title
+            cell.detailTextLabel?.text = item.value
+            cell.accessoryType = .none
+            
+            return cell
+        case "manual_verification":
+            let cell = UITableViewCell(style: .value1, reuseIdentifier: "SimpleCell")
+            cell.textLabel?.text = item.title
+            cell.textLabel?.textColor = .systemOrange
+            cell.accessoryType = .none
+            cell.imageView?.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withRenderingMode(.alwaysTemplate)
+            cell.imageView?.tintColor = .systemOrange
+            
             return cell
         default:
             let cell = UITableViewCell(style: .value1, reuseIdentifier: "SimpleCell")

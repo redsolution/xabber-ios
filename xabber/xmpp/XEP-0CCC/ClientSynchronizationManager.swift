@@ -50,7 +50,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         case omemo = "urn:xmpp:omemo:2"
         case omemo1 = "urn:xmpp:omemo:1"
         case axolotl = "eu.siacs.conversations.axolotl"
-        case notifications = "urn:xabber:notify:0"
+        case notifications = "urn:xabber:xen:0"
     }
     
     static public let primaryNamespace = "https://xabber.com/protocol/synchronization"

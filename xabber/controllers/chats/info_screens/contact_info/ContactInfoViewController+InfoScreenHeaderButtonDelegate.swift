@@ -58,11 +58,6 @@ extension ContactInfoViewController: InfoScreenHeaderButtonDelegate {
         onBlock()
     }
     
-    func onVerifyButtonPressed() {
-        let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager
-        akeManager?.sendVerificationRequest(jid: self.jid)
-    }
-    
     func onImageButtonPressed() {
         print(#function)
     }
@@ -348,8 +343,9 @@ extension ContactInfoViewController: InfoScreenHeaderButtonDelegate {
     @objc
     func showFingerprints() {
         let vc = TrustedDevicesViewController()
-        vc.jid = self.jid
         vc.owner = self.owner
+        vc.jid = self.jid
+        
         self.navigationController?.pushViewController(vc, animated: true)
     }
 }

@@ -389,6 +389,11 @@ class LastChatsViewController: BaseViewController {
                     } else {
                         self.unreadAllMessagesButton.isHidden = true
                     }
+                    do {
+                        try self.updateBottomTitle()
+                    } catch {
+                        DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
+                    }
                 })
                 .disposed(by: datasetBag)
             
@@ -1075,9 +1080,72 @@ class LastChatsViewController: BaseViewController {
             self.navigationItem.setLeftBarButton(sidebarButton, animated: true)
         }
         bottomBar.leftCallback = self.onLeftBarButtonTapped
+        self.bottomBar.leftButton.setImage(UIImage(systemName: self.filter.value == .unread ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate), for: .normal)
+        self.bottomBar.titleCallback = self.onTitleBarButtonTapped
     }
     
     var normalState: Filter = .chats
+    
+    func onTitleBarButtonTapped() {
+        if self.filter.value == .unread {
+            do {
+                let realm = try  WRealm.safe()
+                let collection = realm
+                    .objects(LastChatsStorageItem.self)
+                    .filter("isArchived == false AND unread > 0 AND owner IN %@", Array(self.enabledAccounts.value))
+                    .sorted(byKeyPath: "messageDate", ascending: false)
+
+                let unreadLastChatsArray = collection.toArray()
+                try realm.write {
+                    collection.forEach { $0.unread = 0 }
+                }
+                self.enabledAccounts.value.forEach {
+                    AccountManager.shared.find(for: $0)?.unsafeAction({ user, stream in
+                        user.messages.readAllMessages()
+                    })
+                }
+                self.canUpdateDataset = true
+                self.runDatasetUpdateTask()
+            } catch {
+                DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
+            }
+            self.filter.accept(.chats)
+        }
+    }
+    
+    func updateBottomTitle() throws {
+        let realm = try WRealm.safe()
+        var title = ""
+        switch self.filter.value {
+            case .archived:
+//                let archivedCount = realm.objects(LastChatsStorageItem.self).filter("isArchived == true").count
+//                title = "\(archivedCount) archived chats"
+//                if archivedCount == 1 {
+//                    title = "\(archivedCount) archived chat"
+//                }
+                title = CommonConfigManager.shared.config.app_name
+                bottomBar.titleButton.backgroundColor = .clear
+            case .unread:
+//                let unreadCount = realm.objects(LastChatsStorageItem.self).filter("isArchived == false AND unread > 0").compactMap { return $0.unread }.reduce(0, +)
+//                title = "\(unreadCount) unread chats"
+//                if unreadCount == 1 {
+//                    title = "\(unreadCount) unread chat"
+//                }
+                title = "Mark all as read".localizeString(id: "mark_all_as_read_button", arguments: [])
+                bottomBar.titleButton.backgroundColor = AccountColorManager.shared.topPalette().tint200
+                bottomBar.titleButton.layer.cornerRadius = 8
+                bottomBar.titleButton.layer.masksToBounds = true
+            case .chats:
+//                let chatsCount = realm.objects(LastChatsStorageItem.self).filter("isArchived == false").count
+//                title = "\(chatsCount) chats loaded"
+//                if chatsCount == 1 {
+//                    title = "\(chatsCount) chat loaded"
+//                }
+                title = CommonConfigManager.shared.config.app_name
+                bottomBar.titleButton.backgroundColor = .clear
+        }
+        bottomBar.titleButton.setTitle(title, for: .normal)
+    }
     
     func onLeftBarButtonTapped() {
         if self.filter.value != .unread {
@@ -1085,6 +1153,12 @@ class LastChatsViewController: BaseViewController {
             self.filter.accept(.unread)
         } else {
             self.filter.accept(self.normalState)
+        }
+        self.bottomBar.leftButton.setImage(UIImage(systemName: self.filter.value == .unread ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate), for: .normal)
+        do {
+            try self.updateBottomTitle()
+        } catch {
+            DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
         }
     }
     
@@ -1110,7 +1184,6 @@ class LastChatsViewController: BaseViewController {
                 user.cloudStorage.getStats()
             }
         }
-        
         NotifyManager.shared.setLastChats(displayed: true)
         title = " "
         configure()
@@ -1119,17 +1192,6 @@ class LastChatsViewController: BaseViewController {
                                                selector: #selector(reloadDatasource),
                                                name: .newMaskSelected,
                                                object: nil)
-//        do {
-//            let realm = try WRealm.safe()
-//            realm.objects(LastChatsStorageItem.self).forEach {
-//                DefaultAvatarManager.shared.getAvatar(jid: $0.jid, owner: $0.owner, size: 56) { image in
-//                    self.avatarView.image = image
-//                }
-//            }
-//        } catch {
-//            DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
-//        }
-        
     }
     
     override func reloadDatasource() {

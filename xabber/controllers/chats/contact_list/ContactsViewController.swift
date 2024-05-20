@@ -861,7 +861,7 @@ class ContactsViewController: BaseViewController {
         self.bottomBar.updateFrame(to: frame)
         self.splitViewController?.navigationItem.setLeftBarButtonItems([], animated: true)
         
-        self.bottomBar.leftButton.setImage(UIImage(systemName: self.showOffline ? "circle" : "circle.fill")?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate), for: .normal)
+        self.bottomBar.leftButton.setImage(UIImage(systemName: self.showOffline ? "person.crop.circle" : "person.crop.circle.badge")?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate), for: .normal)
         
         let sidebarButton = UIBarButtonItem(image: UIImage(systemName: "sidebar.left"), style: .plain, target: self, action: #selector(onSidebarButtonTouchUp))
         
@@ -881,7 +881,7 @@ class ContactsViewController: BaseViewController {
 //                self.bottomBar.leftButton.imageView?.setSymbolImage(image, contentTransition: .replace)
 //            }
 //        } else {
-        self.bottomBar.leftButton.setImage(UIImage(systemName: self.showOffline ? "circle" : "circle.fill")?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate), for: .normal)
+        self.bottomBar.leftButton.setImage(UIImage(systemName: self.showOffline ? "person.crop.circle" : "person.crop.circle.badge")?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate), for: .normal)
 //        }
         
         self.canUpdateDataset = true

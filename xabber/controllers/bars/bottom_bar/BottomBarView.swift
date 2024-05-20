@@ -23,6 +23,7 @@ class BottomBarView: UIView {
         stack.axis = .horizontal
         stack.distribution = .fill
         stack.alignment = .center
+        stack.spacing = 24
         
         return stack
     }()
@@ -52,29 +53,41 @@ class BottomBarView: UIView {
         return button
     }()
     
-    let titleLabel: UILabel = {
-        let label = UILabel()
+//    let titleLabel: UILabel = {
+//        let label = UILabel()
+//        
+//        label.text = "Xabber"
+//        label.textAlignment = .center
+//        
+//        return label
+//    }()
+    
+    let titleButton: UIButton = {
+        let button = UIButton()
         
-        label.text = "Xabber"
-        label.textAlignment = .center
+        button.setTitle(CommonConfigManager.shared.config.app_name , for: .normal)
+        button.setTitleColor(.label, for: .normal)
         
-        return label
+        return button
     }()
     
     private var currentConnectionState: ApplicationConnectionState = .offline
     
     open var connectionState: ApplicationConnectionState {
         set {
-            switch newValue {
-                case .connecting:
-                    self.titleLabel.text = "Connecting..."
-                case .normal:
-                    self.titleLabel.text = CommonConfigManager.shared.config.app_name
-                case .offline:
-                    self.titleLabel.text = "Offline"
-            }
-            self.titleLabel.sizeToFit()
-            self.titleLabel.layoutIfNeeded()
+//            switch newValue {
+//                case .connecting:
+//                    self.titleButton.setTitle("Connecting...", for: .normal)
+////                    self.titleLabel.text =
+//                case .normal:
+////                    self.titleLabel.text = CommonConfigManager.shared.config.app_name
+//                    self.titleButton.setTitle(CommonConfigManager.shared.config.app_name, for: .normal)
+//                case .offline:
+//                    self.titleButton.setTitle("Offline", for: .normal)
+////                    self.titleLabel.text =
+//            }
+//            self.titleLabel.sizeToFit()
+//            self.titleLabel.layoutIfNeeded()
             self.currentConnectionState = newValue
         } get {
             return currentConnectionState
@@ -92,7 +105,7 @@ class BottomBarView: UIView {
         }
         
         stack.addArrangedSubview(leftButton)
-        stack.addArrangedSubview(titleLabel)
+        stack.addArrangedSubview(titleButton)
         stack.addArrangedSubview(rightButton)
         NSLayoutConstraint.activate([
             leftButton.widthAnchor.constraint(equalToConstant: 44),
@@ -102,6 +115,7 @@ class BottomBarView: UIView {
         ])
         rightButton.addTarget(self, action: #selector(onRightButtonTouchUp), for: .touchUpInside)
         leftButton.addTarget(self, action: #selector(onLeftButtonTouchUp), for: .touchUpInside)
+        titleButton.addTarget(self, action: #selector(onTitleButtonTouchUp), for: .touchUpInside)
     }
     
     func updateFrame(to frame: CGRect) {
@@ -120,15 +134,19 @@ class BottomBarView: UIView {
     }
     
     open var leftCallback: (() -> Void)? = nil
+    open var titleCallback: (() -> Void)? = nil
     
     @objc
     func onLeftButtonTouchUp(_ sender: UIButton) {
         leftCallback?()
     }
     
+    @objc
+    func onTitleButtonTouchUp(_ sender: UIButton) {
+        titleCallback?()
+    }
+    
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
-    
-    
 }

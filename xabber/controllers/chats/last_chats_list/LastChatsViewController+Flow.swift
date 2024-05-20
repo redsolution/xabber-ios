@@ -92,12 +92,13 @@ extension LastChatsViewController {
         } catch {
             DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
         }
-        DispatchQueue.main.async {
-            self.filter.accept(.chats)
-            getAppTabBar()?.tabBar.items?.first?.image = #imageLiteral(resourceName: "chat-outline")
-            getAppTabBar()?.tabBar.items?.first?.selectedImage = #imageLiteral(resourceName: "chat-outline")
-            getAppTabBar()?.tabBar.items?.first?.title = "Chats".localizeString(id: "toolbar__menu_item__chats", arguments: [])
-        }
+        self.filter.accept(.chats)
+//        DispatchQueue.main.async {
+//            
+//            getAppTabBar()?.tabBar.items?.first?.image = #imageLiteral(resourceName: "chat-outline")
+//            getAppTabBar()?.tabBar.items?.first?.selectedImage = #imageLiteral(resourceName: "chat-outline")
+//            getAppTabBar()?.tabBar.items?.first?.title = "Chats".localizeString(id: "toolbar__menu_item__chats", arguments: [])
+//        }
     }
     
     internal final func pinChat(jid: String, owner: String, conversationType: ClientSynchronizationManager.ConversationType) {

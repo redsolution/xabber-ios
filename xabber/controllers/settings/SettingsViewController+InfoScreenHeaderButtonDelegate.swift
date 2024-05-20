@@ -295,10 +295,6 @@ extension SettingsViewController: InfoScreenHeaderButtonDelegate {
             }
         }
     }
-    
-    func onVerifyButtonPressed() {
-        
-    }
 }
 
 extension SettingsViewController: AvatarPickerViewControllerDelegate {

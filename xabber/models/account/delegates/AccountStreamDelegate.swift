@@ -238,6 +238,7 @@ extension Account: XMPPStreamDelegate {
         case self.omemo.read(withIQ: iq): break
         case self.notifications.read(withIQ: iq): break
         case self.x509Manager.read(withIQ: iq): break
+        case self.trustSharingManager.read(withIQ: iq): break
         default: return false
         }
         return true
@@ -314,9 +315,9 @@ extension Account: XMPPStreamDelegate {
                     return
                 } else if self.omemo.didReceiveOmemoMessage(message) {
                     return
-                } else if self.akeManager.didReceivedVerificationMessage(message) {
+                } else if self.akeManager.didReceivedVerificationMessage(message: message) {
                     return
-                } else if self.trustSharingManager.didReceivedTrustedSharingMessage(message) {
+                } else if self.trustSharingManager.didReceivedTrustedSharingMessage(message: message) {
                     return
                 } else {
                     self.messages.receiveArchived(message)
@@ -333,9 +334,9 @@ extension Account: XMPPStreamDelegate {
                     return
                 } else if self.omemo.didReceiveOmemoMessage(message) {
                     return
-                } else if self.akeManager.didReceivedVerificationMessage(message) {
+                } else if self.akeManager.didReceivedVerificationMessage(message: message) {
                     return
-                } else if self.trustSharingManager.didReceivedTrustedSharingMessage(message) {
+                } else if self.trustSharingManager.didReceivedTrustedSharingMessage(message: message) {
                     return
                 } else {
                     self.messages.receiveCarbon(message)
@@ -355,9 +356,9 @@ extension Account: XMPPStreamDelegate {
                 }
                 if self.omemo.didReceiveOmemoMessage(message) {
                     return
-                } else if self.akeManager.didReceivedVerificationMessage(message) {
+                } else if self.akeManager.didReceivedVerificationMessage(message: message) {
                     return
-                } else if self.trustSharingManager.didReceivedTrustedSharingMessage(message) {
+                } else if self.trustSharingManager.didReceivedTrustedSharingMessage(message: message) {
                     return
                 } else if self.chatMarkers.read(withMessage: message) {
                     return
@@ -383,9 +384,9 @@ extension Account: XMPPStreamDelegate {
                 }
                 if self.omemo.didReceiveOmemoMessage(message) {
                     return
-                } else if self.akeManager.didReceivedVerificationMessage(message) {
+                } else if self.akeManager.didReceivedVerificationMessage(message: message) {
                     return
-                } else if self.trustSharingManager.didReceivedTrustedSharingMessage(message) {
+                } else if self.trustSharingManager.didReceivedTrustedSharingMessage(message: message) {
                     return
                 } else {
                     self.messages.receiveRuntime(message)
@@ -416,6 +417,9 @@ extension Account: XMPPStreamDelegate {
                 return
             }
             if self.msgDeleteManager.read(headline: message) {
+                return
+            }
+            if self.trustSharingManager.didReceivedTrustedSharingEvent(message: message) {
                 return
             }
         case .error:

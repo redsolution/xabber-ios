@@ -227,6 +227,7 @@ final class Account: NSObject {
         self.disco.register(devices)
         self.disco.register(omemo)
         self.disco.register(x509Manager)
+        self.disco.register(trustSharingManager)
     }
     
     public final func registerRegularPushForAccount() {

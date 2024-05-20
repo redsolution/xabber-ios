@@ -13,7 +13,7 @@ import CocoaLumberjack
 
 class XMPPNotificationsManager: AbstractXMPPManager {
     
-    static let xmlns: String = "urn:xabber:notify:0"
+    static let xmlns: String = "urn:xabber:xen:0"
     
     open var node: String? =  nil
     
@@ -149,6 +149,8 @@ class XMPPNotificationsManager: AbstractXMPPManager {
                             date = dateFormatter.date(from: dateString)
                         }
                         instance.date = date ?? Date()
+                    } else {
+                        return false
                     }
                     try realm.write {
                         realm.add(instance)
@@ -160,9 +162,6 @@ class XMPPNotificationsManager: AbstractXMPPManager {
             } else {
                 return false
             }
-            
-//        }
-        return false
     }
     
     public func update(_ stream: XMPPStream) {

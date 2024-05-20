@@ -32,8 +32,6 @@ class DeviceInfoTableCell: UITableViewCell {
         stack.axis = .horizontal
         stack.distribution = .fill
         stack.spacing = 8
-//        stack.isLayoutMarginsRelativeArrangement = true
-//        stack.layoutMargins = UIEdgeInsets(top: 10, bottom: 12, left: 20, right: 16)
         return stack
     }()
     
@@ -89,40 +87,48 @@ class DeviceInfoTableCell: UITableViewCell {
     
     private func activateConstraints() {
         NSLayoutConstraint.activate([
-//            topStack.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 0.9),
-//            deviceLabel.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 0.9),
             descriptionLabel.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 0.9),
             rightStack.widthAnchor.constraint(equalToConstant: 20),
-//            trustIconView.widthAnchor.constraint(equalToConstant: 18),
-//            trustIconView.heightAnchor.constraint(equalToConstant: 23)
         ])
     }
     
-    func configure(fingerprint: String? = nil, client: String, device: String, description descr: String, ip: String, lastAuth date: Date, current: Bool, editable: Bool, isOnline: Bool, trustState: SignalDeviceStorageItem.TrustState? = nil, hasBundle: Bool? = nil, isTrustebByCertificate: Bool = false) {
+    func configure(fingerprint: String? = nil, client: String, device: String, description descr: String, ip: String, lastAuth date: Date?, current: Bool, editable: Bool, isOnline: Bool, trustState: SignalDeviceStorageItem.TrustState? = nil, hasBundle: Bool? = nil, isTrustebByCertificate: Bool = false, trustedBy: String? = nil) {
         
-        let today = Date()
-        
-        var dateString = "Unknown"
-        
-        let diffComponents = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date, to: today)
-        let year = diffComponents.year ?? 0
-        let month = diffComponents.month ?? 0
-        let day = diffComponents.day ?? 0
-        let hour = diffComponents.hour ?? 0
-        let minutes = diffComponents.minute ?? 0
-        let seconds = diffComponents.second ?? 0
-        if year > 0 {
-            dateString = "\(year) year ago"
-        } else if month > 0 {
-            dateString = "\(month) month ago"
-        } else if day > 0 {
-            dateString = "\(day) days ago"
-        } else if hour > 0 {
-            dateString = "\(hour) hours ago"
-        } else if minutes > 0 {
-            dateString = "\(minutes) min ago"
-        } else if seconds > 0 {
-            dateString = "\(seconds) seconds ago"
+        if trustedBy == "manual" {
+            descriptionLabel.text = "\(ip) ⦁ trusted by \(trustedBy!)"
+        } else if trustedBy != nil {
+            descriptionLabel.text = "\(ip) ⦁ trusted via: \(trustedBy!)"
+        } else if date != nil {
+            let today = Date()
+            
+            var dateString = "Unknown"
+            
+            let diffComponents = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date!, to: today)
+            let year = diffComponents.year ?? 0
+            let month = diffComponents.month ?? 0
+            let day = diffComponents.day ?? 0
+            let hour = diffComponents.hour ?? 0
+            let minutes = diffComponents.minute ?? 0
+            let seconds = diffComponents.second ?? 0
+            if year > 0 {
+                dateString = "\(year) year ago"
+            } else if month > 0 {
+                dateString = "\(month) month ago"
+            } else if day > 0 {
+                dateString = "\(day) days ago"
+            } else if hour > 0 {
+                dateString = "\(hour) hours ago"
+            } else if minutes > 0 {
+                dateString = "\(minutes) min ago"
+            } else if seconds > 0 {
+                dateString = "\(seconds) seconds ago"
+            }
+            
+            descriptionLabel.text = "\(ip) ⦁ \(dateString)"
+        } else if trustState == .trusted {
+            descriptionLabel.text = "\(ip) ⦁ trusted by code"
+        } else {
+            descriptionLabel.text = "\(ip)"
         }
         
         if device.isNotEmpty {
@@ -176,7 +182,6 @@ class DeviceInfoTableCell: UITableViewCell {
             }
         }
         
-        descriptionLabel.text = "\(ip) ⦁ \(dateString)"
         
         
         if editable {
