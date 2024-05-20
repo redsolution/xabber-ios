@@ -177,7 +177,7 @@ class TrustedDevicesViewController: SimpleBaseViewController {
                 
                 switch verificationSession!.state {
                 case .sentRequest:
-                    text = "Outcoming verification request"
+                    text = "Outgoing verification request"
                     secondaryText = "Verification request has been sent to the contact."
                     buttonTitle = "Cancel"
                     buttonKey = "cancel_verification"
@@ -207,7 +207,7 @@ class TrustedDevicesViewController: SimpleBaseViewController {
                     buttonTitle = "Close"
                     buttonKey = "hide_session"
                 case .receivedRequestAccept:
-                    text = "Outcoming verification request"
+                    text = "Outgoing verification request"
                     secondaryText = "The contact accepted the verification request."
                     buttonTitle = "Enter the code"
                     buttonKey = "enter_verification_code"
@@ -492,6 +492,7 @@ extension TrustedDevicesViewController: UITableViewDataSource {
             let cell = UITableViewCell(style: .value1, reuseIdentifier: "SimpleButtonCell")
             cell.textLabel?.text = item.name
             cell.detailTextLabel?.text = item.subtitle
+            cell.textLabel?.textColor = .systemBlue
             
             if item.key == "open_devices_danger" {
                 cell.textLabel?.textColor = .systemOrange

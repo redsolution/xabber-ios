@@ -97,7 +97,7 @@ class DeviceInfoTableCell: UITableViewCell {
         if trustedBy == "manual" {
             descriptionLabel.text = "\(ip) ⦁ trusted by \(trustedBy!)"
         } else if trustedBy != nil {
-            descriptionLabel.text = "\(ip) ⦁ trusted via: \(trustedBy!)"
+            descriptionLabel.text = "\(ip) ⦁ trusted via \(trustedBy!)"
         } else if date != nil {
             let today = Date()
             
