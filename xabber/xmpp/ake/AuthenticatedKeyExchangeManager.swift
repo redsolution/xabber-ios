@@ -75,10 +75,11 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
     }
     
     internal final func calculateSharedKey(jid: String, deviceId: Int) -> [UInt8] {
-        let keyPair = Curve25519.load(fromPublicKey: self.keyPair?.publicKey, andPrivateKey: self.keyPair?.privateKey)
+        let keyPair = AccountManager.shared.find(for: owner)?.omemo.localStore.getIdentityKeyPair()
+        let keyPairCurve25519 = Curve25519.load(fromPublicKey: keyPair!.publicKey, andPrivateKey: keyPair!.privateKey)
         let opponentPublicKey = getUsersPublicKey(jid: jid, deviceId: deviceId)
         
-        let sharedKey = Array(Curve25519.generateSharedSecret(fromPublicKey: Data(opponentPublicKey), andKeyPair: keyPair))
+        let sharedKey = Array(Curve25519.generateSharedSecret(fromPublicKey: Data(opponentPublicKey), andKeyPair: keyPairCurve25519))
         return sharedKey
     }
     
@@ -194,7 +195,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         guard let notify = bareMessage.element(forName: "notify", xmlns: XMPPNotificationsManager.xmlns) ?? bareMessage.element(forName: "notification", xmlns: XMPPNotificationsManager.xmlns) else {
             return false
         }
-        let uniqueMessageId = getUniqueMessageId(message, owner: self.owner)
+        let uniqueMessageId = getUniqueMessageId(bareMessage, owner: self.owner)
         guard let messageContainer = notify.element(forName: "forwarded")?.element(forName: "message") else {
             return false
         }
@@ -896,7 +897,20 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         } catch {
             DDLogDebug("AuthenticatedKeyExchange \(#function). \(error.localizedDescription)")
         }
-        let stringToHash = self.trustedKey! + Array(code.utf8) + byteSequence + opponentByteSequence
+        
+        guard let localStore = AccountManager.shared.find(for: owner)?.omemo.localStore else {
+            fatalError()
+        }
+        
+        let keyPair = localStore.getIdentityKeyPair()
+        let deviceID = localStore.localDeviceId()
+        
+        let publicKey = Array(keyPair.publicKey.dropFirst())
+        let fingerprint = publicKey.toHexString()
+        
+        let trustedKey = (String(deviceID) + "::" + fingerprint).bytes
+        
+        let stringToHash = trustedKey + Array(code.utf8) + byteSequence + opponentByteSequence
         let hash = Array(SHA256.hash(data: stringToHash).makeIterator())
 
         return hash
