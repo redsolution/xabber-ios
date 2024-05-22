@@ -433,14 +433,14 @@ extension TrustedDevicesViewController: UITableViewDelegate {
                 return
             }
         case .device:
-                break
-//            let vc = ContactDeviceDetailViewController()
-//            vc.owner = self.owner
-//            vc.jid = self.jid
-//            vc.canEdit = false
-//            vc.delegate = self
-//            vc.omemoDeviceID = item.deviceId!
-//            self.navigationController?.pushViewController(vc, animated: true)
+            let vc = ContactDeviceDetailViewController()
+            vc.owner = self.owner
+            vc.jid = self.jid
+            vc.canEdit = false
+            vc.delegate = self
+            vc.omemoDeviceID = item.deviceId!
+            self.navigationController?.pushViewController(vc, animated: true)
+            break
         case .session:
             return
         }

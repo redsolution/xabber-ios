@@ -82,6 +82,7 @@ class AuthenticationPasscodeEditView: UIView, UITextInputTraits {
         let pin = UIView()
         let label = UILabel()
         label.translatesAutoresizingMaskIntoConstraints = false
+        label.font = UIFont(name: "Courier New", size: 25)
         label.text = String(char)
         pin.addSubview(label)
         label.centerXAnchor.constraint(equalTo: pin.centerXAnchor).isActive = true
