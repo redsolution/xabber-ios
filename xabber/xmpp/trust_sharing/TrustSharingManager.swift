@@ -126,7 +126,7 @@ class TrustSharingManager: AbstractXMPPManager {
                     let predicate = NSPredicate(format: "owner == %@ AND jid == %@ AND deviceId == %@", argumentArray: [self.owner, deviceOwner!, itemDeviceId])
                     let realm = try WRealm.safe()
                     guard let instance = realm.objects(SignalDeviceStorageItem.self).filter(predicate).first else {
-                        return true
+                        fatalError()
                     }
                     if instance.state != SignalDeviceStorageItem.TrustState.trusted {
                         akeManager.writeTrustedDevice(jid: deviceOwner ?? XMPPMessage(from: messageContainer).from!.bare, deviceId: itemDeviceId)
