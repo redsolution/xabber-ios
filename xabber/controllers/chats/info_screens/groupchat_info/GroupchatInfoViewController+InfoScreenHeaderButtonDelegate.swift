@@ -79,11 +79,7 @@ extension GroupchatInfoViewController: InfoScreenHeaderButtonDelegate {
         vc.owner = self.owner
         vc.isGroupchat = true
         vc.isCircleSelectView = true
-        let nvc = UINavigationController(rootViewController: vc)
-        nvc.modalPresentationStyle = .fullScreen
-        nvc.modalTransitionStyle = .coverVertical
-        self.definesPresentationContext = true
-        self.present(nvc, animated: true, completion: nil)
+        showModal(vc, from: self)
     }
     
     internal func openChat() {
@@ -104,11 +100,7 @@ extension GroupchatInfoViewController: InfoScreenHeaderButtonDelegate {
         shouldResetNavbar = false
         let vc = GroupchatInviteViewController()
         vc.configure(jid: self.jid, owner: self.owner)
-        let nvc = UINavigationController(rootViewController: vc)
-        nvc.modalPresentationStyle = .fullScreen
-        nvc.modalTransitionStyle = .coverVertical
-        self.definesPresentationContext = true
-        self.present(nvc, animated: true, completion: nil)
+        showModal(vc, from: self)
     }
     
     internal func onChangeNotifications() {
@@ -221,11 +213,7 @@ extension GroupchatInfoViewController: InfoScreenHeaderButtonDelegate {
         let vc = GroupchatSettingsViewController()
         vc.isStatus = false
         vc.configure(self.owner, jid: self.jid)
-        let nvc = UINavigationController(rootViewController: vc)
-        nvc.modalPresentationStyle = .fullScreen
-        nvc.modalTransitionStyle = .coverVertical
-        self.definesPresentationContext = true
-        self.present(nvc, animated: true, completion: nil)
+        showModal(vc, from: self)
 //        self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
 //        self.navigationController?.navigationBar.shadowImage = nil
 //        navigationController?.pushViewController(vc, animated: true)
@@ -263,11 +251,7 @@ extension GroupchatInfoViewController: InfoScreenHeaderButtonDelegate {
         vc.isStatus = true
         vc.entity = self.isIncognitoChat ? .incognitoChat : .groupchat
         vc.configure(self.owner, jid: self.jid)
-        let nvc = UINavigationController(rootViewController: vc)
-        nvc.modalPresentationStyle = .fullScreen
-        nvc.modalTransitionStyle = .coverVertical
-        self.definesPresentationContext = true
-        self.present(nvc, animated: true, completion: nil)
+        showModal(vc, from: self)
 //        self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
 //        self.navigationController?.navigationBar.shadowImage = nil
 //        navigationController?.pushViewController(vc, animated: true)
@@ -283,12 +267,7 @@ extension GroupchatInfoViewController: InfoScreenHeaderButtonDelegate {
             vc.username = displayedName
             vc.jid = self.jid
             vc.stringValue = "xmpp:\(self.jid)"
-            let nvc = UINavigationController(rootViewController: vc)
-            nvc.modalPresentationStyle = .fullScreen
-            nvc.modalTransitionStyle = .coverVertical
-            self.definesPresentationContext = true
-            self.shouldResetNavbar = false
-            self.present(nvc, animated: true, completion: nil)
+            showModal(vc, from: self)
         } catch {
             DDLogDebug("GroupchatInfoViewController: \(#function). \(error.localizedDescription)")
         }
@@ -379,8 +358,6 @@ extension GroupchatInfoViewController: InfoScreenHeaderButtonDelegate {
     
     private final func showGroupInfo() {
         let vc = GroupchatInfoViewControllerSecondary()
-        vc.modalTransitionStyle = .coverVertical
-        vc.modalPresentationStyle = .overCurrentContext
         vc.owner = self.owner
         vc.jid = self.jid
         vc.isViewForAdmin = self.canBeChanged
@@ -520,9 +497,7 @@ extension GroupchatInfoViewController: InfoScreenHeaderButtonDelegate {
         vc.delegate = self
         vc.palette = nil
         vc.lastSettedEmoji = nil
-        vc.modalTransitionStyle = .coverVertical
-        vc.modalPresentationStyle = .overFullScreen
-        present(vc, animated: true, completion: nil)
+        showModal(vc, from: self)
     }
     
     internal final func onOpenEmojiPicker() {

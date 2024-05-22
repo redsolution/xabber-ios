@@ -36,7 +36,7 @@ func getAppVersion() -> String {
 }
 
 @UIApplicationMain
-class AppDelegate: UIResponder, UIApplicationDelegate {
+ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     var window: UIWindow?
     var pushRegistry: PKPushRegistry!
@@ -47,6 +47,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
      
     var blurEffectView: UIVisualEffectView?
      
+    var splitController: UISplitViewController? = nil
+    
     var credentialsExpiredPresenterShowed: Bool = false
     
     func application(_ application: UIApplication, willFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
@@ -89,6 +91,33 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             
             navigationController.isNavigationBarHidden = true
             window?.rootViewController = navigationController
+        } else {
+            let vc = UISplitViewController(style: .tripleColumn)
+            vc.navigationItem.largeTitleDisplayMode = .always
+            vc.navigationController?.navigationBar.prefersLargeTitles = true
+            vc.restorationIdentifier = "MainSplitViewController"
+            vc.restoresFocusAfterTransition = true
+            let chatsVc = LastChatsViewController()
+            let primaryVc = LeftMenuViewController()
+            let emptyChatVc = EmptyChatViewController()
+            primaryVc.chatsVc = chatsVc
+            chatsVc.splitDelegate = emptyChatVc
+            chatsVc.navigationController?.navigationBar.prefersLargeTitles = true
+            vc.minimumPrimaryColumnWidth = 320
+            vc.minimumSupplementaryColumnWidth = 320
+            vc.displayModeButtonVisibility = .always
+            vc.preferredDisplayMode = .oneBesideSecondary//.oneBesideSecondary//.allVisible
+            vc.preferredSplitBehavior = .displace//.tile
+            vc.primaryBackgroundStyle = .sidebar
+            
+            vc.delegate = self
+            vc.viewControllers = [
+                primaryVc,
+                chatsVc,
+                UINavigationController(rootViewController: emptyChatVc)
+            ]
+            window?.rootViewController = vc
+            self.splitController = vc
         }
         
         AccountManager.shared.load(!self.isPushKit)
@@ -127,10 +156,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     
     func appTabBarTitlesInit() {
         
-        let titleIDs: [String] = ["toolbar__menu_item__chats", "category_title_contacts", "category_settings"]
-        let titles: [String] = ["Chats", "Contacts", "Settings"]
+        let titleIDs: [String] = ["toolbar__menu_item__chats", "category_title_contacts", "contact_bar_notifications", "category_settings"]
+        let titles: [String] = ["Chats", "Contacts", "Notifications","Settings"]
         
-        guard let items = getAppTabBar()?.tabBar.items, items.count == 3 else { return }
+        guard let items = getAppTabBar()?.tabBar.items, items.count == 4 else { return }
         
         for (index, item) in items.enumerated() {
             item.title = titles[index].localizeString(id: titleIDs[index], arguments: [])
@@ -162,6 +191,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         AccountManager.shared.users.forEach {
             user in
             user.xmppStream.asyncSocket.disconnect()
+        }
+        if UIDevice.current.userInterfaceIdiom == .pad {
+//            self.splitViewController?.show(.supplementary)
+            self.splitController?.hide(.primary)
+        } else {
+            UIView.performWithoutAnimation {
+                self.splitController?.show(.supplementary)
+                self.splitController?.hide(.primary)
+            }
         }
     }
 
@@ -360,3 +398,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
     
 }
+
+extension AppDelegate: UISplitViewControllerDelegate {
+
+    func splitViewController(_ svc: UISplitViewController, topColumnForCollapsingToProposedTopColumn proposedTopColumn: UISplitViewController.Column) -> UISplitViewController.Column {
+          // This guarantees the app launches in chart list when on portrait mode
+        return .supplementary
+    }
+    
+    
+    
+}
+

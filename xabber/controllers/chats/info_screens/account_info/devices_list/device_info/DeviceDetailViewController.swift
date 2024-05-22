@@ -478,11 +478,11 @@ extension DeviceDetailViewController: UITableViewDelegate {
                     }
                 }
         case "manual_verification":
-            let vc = ManualVerificationDeviceViewController()
-            vc.owner = self.owner
-            vc.jid = self.jid
-            vc.deviceId = String(self.omemoDeviceID)
-            self.navigationController?.pushViewController(vc, animated: true)
+//            let vc = ManualVerificationDeviceViewController()
+//            vc.owner = self.owner
+//            vc.jid = self.jid
+//            vc.deviceId = String(self.omemoDeviceID)
+//            self.navigationController?.pushViewController(vc, animated: true)
             return
         default:
             break

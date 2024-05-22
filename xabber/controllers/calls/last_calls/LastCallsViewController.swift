@@ -283,11 +283,7 @@ class LastCallsViewController: BaseViewController {
     
     private final func showAddDialog() {
         let vc = NewCallViewController()
-        let nvc = UINavigationController(rootViewController: vc)
-        nvc.modalPresentationStyle = .fullScreen
-        nvc.modalTransitionStyle = .coverVertical
-        self.definesPresentationContext = true
-        self.present(nvc, animated: true, completion: nil)
+        showModal(vc, from: self)
     }
     
     @objc
@@ -299,24 +295,65 @@ class LastCallsViewController: BaseViewController {
     internal func onAccountNavButtonPress(_ sender: UIButton) {
         let vc = SettingsViewController() //AccountInfoViewController()
         vc.jid = self.topAccountJid
-        let nvc = UINavigationController(rootViewController: vc)
-        nvc.modalPresentationStyle = .fullScreen
-        nvc.modalTransitionStyle = .coverVertical
-        self.definesPresentationContext = true
-        self.present(nvc, animated: true, completion: nil)
+        showModal(vc, from: self)
     }
     
-    private final func configureNavbar() {
-        addButton.target = self
-        addButton.action = #selector(onAddButtonPress)
+//    private final func configureNavbar() {
+//        addButton.target = self
+//        addButton.action = #selector(onAddButtonPress)
+//        
+//        navigationItem.setRightBarButton(addButton,
+//                                         animated: true)
+//        let leftButton = UIBarButtonItem(customView: accountNavButton)
+//        accountNavButton.addTarget(self, action: #selector(onAccountNavButtonPress), for: .touchUpInside)
+//        navigationItem.setLeftBarButton(leftButton, animated: true)
+//        customTitleLabel.textColor = AccountColorManager.shared.topColor()
+//        self.navigationItem.titleView = customTitleLabel
+//    }
+    
+    internal let bottomBar: BottomBarView = {
+        let view = BottomBarView(frame: .zero)
         
-        navigationItem.setRightBarButton(addButton,
-                                         animated: true)
-        let leftButton = UIBarButtonItem(customView: accountNavButton)
-        accountNavButton.addTarget(self, action: #selector(onAccountNavButtonPress), for: .touchUpInside)
-        navigationItem.setLeftBarButton(leftButton, animated: true)
-        customTitleLabel.textColor = AccountColorManager.shared.topColor()
-        self.navigationItem.titleView = customTitleLabel
+        return view
+    }()
+    
+    @objc
+    private func onSidebarButtonTouchUp(_ sender: UIBarButtonItem) {
+        self.splitViewController?.show(.primary)
+    }
+    
+    internal func configureBars() {
+        self.title = "Calls"
+        self.navigationController?.navigationBar.prefersLargeTitles = true
+        self.bottomBar.splitViewController = self.splitViewController
+        self.view.addSubview(bottomBar)
+        self.view.bringSubviewToFront(bottomBar)
+        var inputHeight: CGFloat = 49
+        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
+            inputHeight += bottomInset
+        }
+        
+        let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
+        bottomBar.updateFrame(to: frame)
+        self.splitViewController?.navigationItem.setLeftBarButtonItems([], animated: true)
+        
+        let sidebarButton = UIBarButtonItem(image: UIImage(systemName: "sidebar.left"), style: .plain, target: self, action: #selector(onSidebarButtonTouchUp))
+        
+        if UIDevice.current.userInterfaceIdiom != .pad {
+            self.navigationItem.setHidesBackButton(true, animated: false)
+            self.navigationItem.setLeftBarButton(sidebarButton, animated: true)
+        }
+    }
+    
+    override func shouldChangeFrame() {
+        super.shouldChangeFrame()
+        var inputHeight: CGFloat = 49
+        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
+            inputHeight += bottomInset
+        }
+        
+        let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
+        bottomBar.updateFrame(to: frame)
     }
     
     internal func configure() {
@@ -365,7 +402,7 @@ class LastCallsViewController: BaseViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         configure()
-        configureNavbar()
+//        configureNavbar()
         configureSearchBar()
         load()
         activateConstraints()
@@ -383,6 +420,7 @@ class LastCallsViewController: BaseViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         subscribe()
+        configureBars()
         NotifyManager.shared.setLastChats(displayed: false)
         self.tabBarController?.tabBar.isHidden = false
         self.tabBarController?.tabBar.layoutIfNeeded()

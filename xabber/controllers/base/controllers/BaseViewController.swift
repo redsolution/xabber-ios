@@ -48,6 +48,20 @@ class BaseViewController: UIViewController {
     func languageChanged() {
         print("Notification received")
     }
+//        
+//    override func viewWillLayoutSubviews() {
+//        super.viewWillLayoutSubviews()
+//        self.shouldChangeFrame()
+//    }
+    
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        self.shouldChangeFrame()
+    }
+    
+    public func shouldChangeFrame() {
+        
+    }
     
     private func removeNotificationObserer() {
         NotificationCenter.default.removeObserver(self)

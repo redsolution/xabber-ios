@@ -147,11 +147,7 @@ extension ChatViewController: MessagesSelectionPanelActionDelegate {
         vc.owner = self.owner
         vc.forwardIds = messages
         vc.delegate = self
-        let nvc = UINavigationController(rootViewController: vc)
-        nvc.modalPresentationStyle = .fullScreen
-        nvc.modalTransitionStyle = .coverVertical
-        self.definesPresentationContext = true
-        self.present(nvc, animated: true, completion: nil)
+        showModal(vc, from: self)
     }
     
     internal func cancelSelection() {

@@ -201,8 +201,32 @@ class SubscribtionsListViewController: SimpleBaseViewController {
                     self.dismiss(animated: true)
                     
                 case .signin, .startup:
-                    let viewController: UIViewController = UIStoryboard(name: "Main", bundle: nil).instantiateViewController(withIdentifier: "tabBarControllerRID") as UIViewController
-                    (UIApplication.shared.delegate as! AppDelegate).window?.rootViewController = viewController
+                    let vc = UISplitViewController(style: .tripleColumn)
+                    vc.navigationItem.largeTitleDisplayMode = .always
+                    vc.navigationController?.navigationBar.prefersLargeTitles = true
+                    vc.restorationIdentifier = "MainSplitViewController"
+                    vc.restoresFocusAfterTransition = true
+                    let chatsVc = LastChatsViewController()
+                    let primaryVc = LeftMenuViewController()
+                    let emptyChatVc = EmptyChatViewController()
+                    primaryVc.chatsVc = chatsVc
+                    chatsVc.splitDelegate = emptyChatVc
+                    chatsVc.navigationController?.navigationBar.prefersLargeTitles = true
+                    vc.minimumPrimaryColumnWidth = 320
+                    vc.minimumSupplementaryColumnWidth = 320
+                    vc.displayModeButtonVisibility = .always
+                    vc.preferredDisplayMode = .oneBesideSecondary//.oneBesideSecondary//.allVisible
+                    vc.preferredSplitBehavior = .displace//.tile
+                    vc.primaryBackgroundStyle = .sidebar
+                    
+                    vc.delegate = (UIApplication.shared.delegate as! AppDelegate)
+                    vc.viewControllers = [
+                        primaryVc,
+                        chatsVc,
+                        UINavigationController(rootViewController: emptyChatVc)
+                    ]
+                    (UIApplication.shared.delegate as! AppDelegate).window?.rootViewController = vc
+                    (UIApplication.shared.delegate as! AppDelegate).splitController = vc
                 default:
                     self.dismiss(animated: true)
                     self.navigationController?.popViewController(animated: true)

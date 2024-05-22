@@ -211,6 +211,7 @@ class ContactsViewController: BaseViewController {
         var collapsed: Bool? = nil
         var groupPrimary: String? = nil
         var avatarUrl: String? = nil
+        var conversationType: ClientSynchronizationManager.ConversationType = .regular
         
         init(_ kind: Kind, owner: String, jid: String? = nil, group: String? = nil, subtitle: String? = nil, avatarUrl: String? = nil) {
             self.kind = kind
@@ -428,15 +429,19 @@ class ContactsViewController: BaseViewController {
                                 out.title = contact.displayName
                                 out.status = resource?.status
                                 out.entity = resource?.entity
+                                out.conversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
                                 switch resource?.entity ?? .contact {
-                                case .groupchat:
-                                    out.subtitle = "Public group".localizeString(id: "intro_public_group", arguments: [])
-                                case .privateChat:
-                                    out.subtitle = "Private chat".localizeString(id: "intro_private_chat", arguments: [])
-                                case .incognitoChat:
-                                    out.subtitle = "Incognito group".localizeString(id: "intro_incognito_group", arguments: [])
-                                default:
-                                    out.subtitle = contact.jid
+                                    case .groupchat:
+                                        out.subtitle = "Public group".localizeString(id: "intro_public_group", arguments: [])
+                                        out.conversationType = .group
+                                    case .privateChat:
+                                        out.subtitle = "Private chat".localizeString(id: "intro_private_chat", arguments: [])
+                                        out.conversationType = .group
+                                    case .incognitoChat:
+                                        out.subtitle = "Incognito group".localizeString(id: "intro_incognito_group", arguments: [])
+                                        out.conversationType = .group
+                                    default:
+                                        out.subtitle = contact.jid
                                 }
                                 if self.showOffline {
                                     return out
@@ -741,7 +746,7 @@ class ContactsViewController: BaseViewController {
             .asObservable()
             .subscribe(onNext: { (values) in
                 self.showAvatars = SettingManager.shared.get(bool: "roster_showAvatars")
-                self.showOffline = SettingManager.shared.get(bool: "roster_showOfflineContacts")
+//                self.showOffline = SettingManager.shared.get(bool: "roster_showOfflineContacts")
             })
             .disposed(by: accountsBag)
         
@@ -795,52 +800,116 @@ class ContactsViewController: BaseViewController {
         vc.jid = self.topAccountJid
         self.navigationController?.pushViewController(vc, animated: true)    }
     
-    private final func configureNavbar() {
-        navigationController?
-            .navigationBar
-            .titleTextAttributes = [NSAttributedString.Key.foregroundColor: AccountColorManager.shared.topColor()]
-//        title = "Contacts"
-        self.title = " "
-        self.navigationController?.title = " "
-        addButton.target = self
-        addButton.action = #selector(onAddButtonPress)
+//    private final func configureNavbar() {
+//        navigationController?
+//            .navigationBar
+//            .titleTextAttributes = [NSAttributedString.Key.foregroundColor: AccountColorManager.shared.topColor()]
+////        title = "Contacts"
+//        self.title = " "
+//        self.navigationController?.title = " "
+//        addButton.target = self
+//        addButton.action = #selector(onAddButtonPress)
+//        
+//        navigationItem.setRightBarButton(addButton,
+//                                         animated: true)
+//        let leftButton = UIBarButtonItem(customView: accountNavButton)
+//        accountNavButton.addTarget(self, action: #selector(onAccountNavButtonPress), for: .touchUpInside)
+//        navigationItem.setLeftBarButton(leftButton, animated: true)
+//        customTitleLabel.textColor = AccountColorManager.shared.topColor()
+//        self.navigationItem.titleView = customTitleLabel
+//        
+//        do {
+//            let realm = try  WRealm.safe()
+//            
+//            if let item = realm
+//                .objects(AccountStorageItem.self)
+//                .filter("enabled == true")
+//                .sorted(byKeyPath: "order", ascending: true)
+//                .first {
+//                self.topAccountJid = item.jid
+//                self.accountNavButton.update(jid: item.jid, status: item.resource?.status ?? .offline)
+//            }
+//            
+//        } catch {
+//            DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
+//        }
+//    }
+    
+    internal let bottomBar: BottomBarView = {
+        let view = BottomBarView(frame: .zero)
         
-        navigationItem.setRightBarButton(addButton,
-                                         animated: true)
-        let leftButton = UIBarButtonItem(customView: accountNavButton)
-        accountNavButton.addTarget(self, action: #selector(onAccountNavButtonPress), for: .touchUpInside)
-        navigationItem.setLeftBarButton(leftButton, animated: true)
-        customTitleLabel.textColor = AccountColorManager.shared.topColor()
-        self.navigationItem.titleView = customTitleLabel
-        
-        do {
-            let realm = try  WRealm.safe()
-            
-            if let item = realm
-                .objects(AccountStorageItem.self)
-                .filter("enabled == true")
-                .sorted(byKeyPath: "order", ascending: true)
-                .first {
-                self.topAccountJid = item.jid
-                self.accountNavButton.update(jid: item.jid, status: item.resource?.status ?? .offline)
-            }
-            
-        } catch {
-            DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
+        return view
+    }()
+    
+    @objc
+    private func onSidebarButtonTouchUp(_ sender: UIBarButtonItem) {
+        self.splitViewController?.show(.primary)
+    }
+    
+    internal func configureBars() {
+        self.title = "Contacts"
+        self.navigationController?.navigationBar.prefersLargeTitles = true
+        self.bottomBar.splitViewController = self.splitViewController
+        self.view.addSubview(bottomBar)
+        self.view.bringSubviewToFront(bottomBar)
+        var inputHeight: CGFloat = 49
+        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
+            inputHeight += bottomInset
         }
+        
+        let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
+        self.bottomBar.updateFrame(to: frame)
+        self.splitViewController?.navigationItem.setLeftBarButtonItems([], animated: true)
+        
+        self.bottomBar.leftButton.setImage(UIImage(systemName: self.showOffline ? "person.crop.circle" : "person.crop.circle.badge")?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate), for: .normal)
+        
+        let sidebarButton = UIBarButtonItem(image: UIImage(systemName: "sidebar.left"), style: .plain, target: self, action: #selector(onSidebarButtonTouchUp))
+        
+        if UIDevice.current.userInterfaceIdiom != .pad {
+            self.navigationItem.setHidesBackButton(true, animated: false)
+            self.navigationItem.setLeftBarButton(sidebarButton, animated: true)
+        }
+        self.bottomBar.leftCallback = onLeftBarButtonTouchUp
+    }
+    
+    func onLeftBarButtonTouchUp() {
+        self.showOffline = !self.showOffline
+//        self.bottomBar.leftButton.setImage(UIImage(systemName: self.showOffline ? "circle" : "circle.fill")?.upscale(dimension: 24), for: .normal)
+        
+//        if #available(iOS 17.0, *) {
+//            if let image = UIImage(systemName: self.showOffline ? "circle" : "circle.fill")?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate) {
+//                self.bottomBar.leftButton.imageView?.setSymbolImage(image, contentTransition: .replace)
+//            }
+//        } else {
+        self.bottomBar.leftButton.setImage(UIImage(systemName: self.showOffline ? "person.crop.circle" : "person.crop.circle.badge")?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate), for: .normal)
+//        }
+        
+        self.canUpdateDataset = true
+        self.runDatasetUpdateTask()
+    }
+    
+    override func shouldChangeFrame() {
+        super.shouldChangeFrame()
+        var inputHeight: CGFloat = 49
+        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
+            inputHeight += bottomInset
+        }
+        
+        let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
+        bottomBar.updateFrame(to: frame)
     }
     
     internal func updateTitle() {
-        if AccountManager.shared.connectingUsers.value.isNotEmpty {
-            customTitleLabel.text = "Connecting...".localizeString(id: "account_state_connecting", arguments: [])
-            customTitleLabel.sizeToFit()
-            customTitleLabel.layoutIfNeeded()
-            return
-        }
-        customTitleLabel.text = "Contacts".localizeString(id: "contacts", arguments: [])
-        
-        customTitleLabel.sizeToFit()
-        customTitleLabel.layoutIfNeeded()
+//        if AccountManager.shared.connectingUsers.value.isNotEmpty {
+//            customTitleLabel.text = "Connecting...".localizeString(id: "account_state_connecting", arguments: [])
+//            customTitleLabel.sizeToFit()
+//            customTitleLabel.layoutIfNeeded()
+//            return
+//        }
+//        customTitleLabel.text = "Contacts".localizeString(id: "contacts", arguments: [])
+//        
+//        customTitleLabel.sizeToFit()
+//        customTitleLabel.layoutIfNeeded()
     }
     
     internal func configure() {
@@ -866,9 +935,7 @@ class ContactsViewController: BaseViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         configure()
-        configureNavbar()
         configureSearchBar()
-        getAppTabBar()?.tabBar.items?[1].title = "Contacts".localizeString(id: "contacts", arguments: [])
         
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(reloadDatasource),
@@ -882,6 +949,7 @@ class ContactsViewController: BaseViewController {
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        configureBars()
         subscribe()
         NotifyManager.shared.setLastChats(displayed: false)
         updateTitle()

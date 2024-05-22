@@ -373,16 +373,7 @@ class AccountInfoViewController: BaseViewController {
         let vc = AccountColorViewController()
         vc.isModal = true
         vc.configure(for: jid)
-        if #available(iOS 13.0, *) {
-            vc.modalPresentationStyle = .automatic
-        } else {
-            vc.modalPresentationStyle = .pageSheet
-        }
-        let nvc = UINavigationController(rootViewController: vc)
-        nvc.modalPresentationStyle = .fullScreen
-        nvc.modalTransitionStyle = .coverVertical
-        self.definesPresentationContext = true
-        self.present(nvc, animated: true, completion: nil)
+        showModal(vc, from: self)
     }
     
     private func getQuota() {

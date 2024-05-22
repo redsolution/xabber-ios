@@ -156,11 +156,7 @@ extension SubforwardsViewController: MessageCellDelegate {
     internal func showSubforwards(_ items: [MessageForwardsInlineStorageItem.Model]) {
         let vc = SubforwardsViewController()
         vc.configure(owner, jid: jid, items: items)
-        let nvc = UINavigationController(rootViewController: vc)
-        nvc.modalPresentationStyle = .fullScreen
-        nvc.modalTransitionStyle = .coverVertical
-        self.definesPresentationContext = true
-        self.present(nvc, animated: true, completion: nil)
+        showModal(vc, from: self)
     }
     
     internal func openFile(_ url: URL?) {

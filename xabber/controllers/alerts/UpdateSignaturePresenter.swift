@@ -26,16 +26,11 @@ struct UpdateSignaturePresenter {
     
     func present() {
         let vc = YubikeyApproveViewController()
-        let nvc = UINavigationController()
-        nvc.viewControllers = [vc]
         if var topController = UIApplication.shared.keyWindow?.rootViewController {
             while let presentedViewController = topController.presentedViewController {
                 topController = presentedViewController
             }
-            nvc.modalPresentationStyle = .overFullScreen
-            nvc.modalTransitionStyle = .coverVertical
-            topController.definesPresentationContext = true
-            topController.present(nvc, animated: true, completion: nil)
+            showModal(vc, from: topController)
         }
     }
 }

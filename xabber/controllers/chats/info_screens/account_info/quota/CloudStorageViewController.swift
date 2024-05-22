@@ -175,7 +175,7 @@ class CloudStorageViewController: BaseViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         
-        self.navigationController?.navigationBar.prefersLargeTitles = false
+//        self.navigationController?.navigationBar.prefersLargeTitles = false
         subscribe()
         AccountManager.shared.find(for: self.jid)?.action({ user, _ in
             user.cloudStorage.getStats()

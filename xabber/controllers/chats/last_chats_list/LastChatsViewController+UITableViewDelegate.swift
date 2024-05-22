@@ -26,32 +26,23 @@ import CocoaLumberjack
 extension LastChatsViewController: UITableViewDelegate {
     
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return 76
+        return 84
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         if self.showSkeleton.value {
             return
         }
-        let index = showArchivedSection.value ? indexPath.row - 1 : indexPath.row
-        if index < 0 {
-            let vc = LastChatsViewController()
-            self.hidesBottomBarWhenPushed = false
-            vc.hidesBottomBarWhenPushed = true
-            vc.filter.accept(.archived)
-            vc.archivedMode = true
-            self.navigationController?.pushViewController(vc, animated: true)
-        } else {
-            let jid = self.datasource[index].jid
-            let owner = self.datasource[index].owner
-            let vc = ChatViewController()
-            self.hidesBottomBarWhenPushed = false
-            vc.hidesBottomBarWhenPushed = true
-            vc.owner = owner
-            vc.jid = jid
-            vc.conversationType = self.datasource[index].conversationType
-            vc.entity = self.datasource[index].entity!
-            self.navigationController?.pushViewController(vc, animated: true)
-        }
+        let index = indexPath.row
+
+        let jid = self.datasource[index].jid
+        let owner = self.datasource[index].owner
+        let vc = ChatViewController()
+        vc.owner = owner
+        vc.jid = jid
+        vc.conversationType = self.datasource[index].conversationType
+        self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: vc), sender: self)
+        self.splitViewController?.hide(.primary)
+
     }
 }

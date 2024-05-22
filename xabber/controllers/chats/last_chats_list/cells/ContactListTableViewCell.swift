@@ -37,8 +37,8 @@ class ContactListTableViewCell: BaseTableCell {
     }()
     
     private let avatarView: UIImageView = {
-        let view = UIImageView(frame: CGRect(square: 48))
-        if let image = UIImage(named: "white_mask_48pt") {
+        let view = UIImageView(frame: CGRect(square: 64))
+        if let image = UIImage(named: "white_mask_48pt")?.upscale(dimension: 64) {
             view.mask = UIImageView(image: image)
         } else {
             view.mask = nil
@@ -81,7 +81,7 @@ class ContactListTableViewCell: BaseTableCell {
     override func activateConstraints() {
         super.activateConstraints()
         let constaints: [NSLayoutConstraint] = [
-            avatarView.widthAnchor.constraint(equalToConstant: 48),
+            avatarView.widthAnchor.constraint(equalToConstant: 64),
             avatarView.heightAnchor.constraint(equalTo: avatarView.widthAnchor),
         ]
         NSLayoutConstraint.activate(constaints)
@@ -111,7 +111,7 @@ class ContactListTableViewCell: BaseTableCell {
             if let image = image {
                 self.avatarView.image = image
             } else {
-                self.avatarView.image = UIImageView.getDefaultAvatar(for: jid, owner: owner, size: 96)
+                self.avatarView.image = UIImageView.getDefaultAvatar(for: jid, owner: owner, size: 128)
             }
         }
     }

@@ -93,17 +93,17 @@ extension LastChatsViewController {
     }
     
     internal func configurePullToArchived() {
-        refreshControl.addTarget(self, action: #selector(self.onPullToArchiveChanged), for: .valueChanged)
-        tableView.addSubview(refreshControl)
-        pullDownTableHeaderView.frame = CGRect(x: 0, y: -44, width: self.view.frame.width, height: 44)
-        tableView.addSubview(pullDownTableHeaderView)
+//        refreshControl.addTarget(self, action: #selector(self.onPullToArchiveChanged), for: .valueChanged)
+//        tableView.addSubview(refreshControl)
+//        pullDownTableHeaderView.frame = CGRect(x: 0, y: -44, width: self.view.frame.width, height: 44)
+//        tableView.addSubview(pullDownTableHeaderView)
     }
     
-    @objc
-    internal func onPullToArchiveChanged(_ sender: UIRefreshControl) {
-        sender.endRefreshing()
-        if archivedChats?.isEmpty ?? true { return }
-        if filter.value != .chats { return }
-        showArchivedSection.accept(true)
-    }
+//    @objc
+//    internal func onPullToArchiveChanged(_ sender: UIRefreshControl) {
+//        sender.endRefreshing()
+//        if archivedChats?.isEmpty ?? true { return }
+//        if filter.value != .chats { return }
+//        showArchivedSection.accept(true)
+//    }
 }

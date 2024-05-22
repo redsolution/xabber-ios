@@ -27,7 +27,7 @@ extension ContactsViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         let item = datasource[indexPath.section][indexPath.row]
         switch item.kind {
-        case .contact: return 64
+        case .contact: return 80
         case .group: return 44
         case .collapsed: return 3
         case .collapsedLast: return 6
@@ -48,46 +48,36 @@ extension ContactsViewController: UITableViewDelegate {
     
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        if self.isCellTapped {
-            return
-        }
-        self.isCellTapped = true
+//        if self.isCellTapped {
+//            return
+//        }
+//        self.isCellTapped = true
         let item = datasource[indexPath.section][indexPath.row]
         switch item.kind {
-        case .group:
-            if let group = item.groupPrimary {
-                collapseGroup(group, value: !(item.collapsed ?? true))
-            }
-            tableView.deselectRow(at: indexPath, animated: true)
-            self.canUpdateDataset = true
-            self.runDatasetUpdateTask()
-        case .contact:
-            tableView.deselectRow(at: indexPath, animated: true)
-            guard let jid = item.jid else { return }
-            var groupchatDescr: String = ""
-            var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
-            do {
-                let realm = try WRealm.safe()
-                if let instance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: [jid, item.owner].prp()) {
-                    conversationType = .group
-                    groupchatDescr = instance.descr
+            case .group:
+                if let group = item.groupPrimary {
+                    collapseGroup(group, value: !(item.collapsed ?? true))
                 }
-            } catch {
-                DDLogDebug("ContactsViewController: \(#function). \(error.localizedDescription)")
-            }
-            let vc = ChatViewController()
-            self.hidesBottomBarWhenPushed = false
-            vc.hidesBottomBarWhenPushed = true
-            vc.owner = item.owner
-            vc.jid = jid
-            vc.conversationType = conversationType
-            vc.entity = item.entity ?? .contact
-            vc.groupchatDescr = groupchatDescr
-            self.navigationController?.pushViewController(vc, animated: true)
-        default: break
+                tableView.deselectRow(at: indexPath, animated: true)
+                self.canUpdateDataset = true
+                self.runDatasetUpdateTask()
+            case .contact:
+                
+    //            tableView.deselectRow(at: indexPath, animated: true)
+                guard let jid = item.jid else { return }
+                
+                let owner = item.owner
+                let vc = ChatViewController()
+                vc.owner = owner
+                vc.jid = jid
+                vc.conversationType = item.conversationType
+                self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: vc), sender: self)
+                self.splitViewController?.hide(.primary)
+                
+            default: break
         }
-        do {
-            self.isCellTapped = false
-        }
+//        do {
+//            self.isCellTapped = false
+//        }
     }
 }

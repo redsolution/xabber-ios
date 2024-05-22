@@ -32,18 +32,19 @@ extension LastChatsViewController: UITableViewDataSource {
             
             return cell
         }
-        if showArchivedSection.value && indexPath.row == 0 {
-            guard let cell = tableView.dequeueReusableCell(withIdentifier: ArchivedCell.cellName, for: indexPath) as? ArchivedCell else {
-                fatalError()
-            }
-            
-            cell.configure(title: "Archived chats".localizeString(id: "archived_chats_title", arguments: []),
-                           text: self.archivedSectionSubtitleText,
-                           count: self.unreadArchivedChatsCount)
-            
-            return cell
-        } else {
-            let index = showArchivedSection.value ? indexPath.row - 1 : indexPath.row
+//        if showArchivedSection.value && indexPath.row == 0 {
+//            guard let cell = tableView.dequeueReusableCell(withIdentifier: ArchivedCell.cellName, for: indexPath) as? ArchivedCell else {
+//                fatalError()
+//            }
+//            
+//            cell.configure(title: "Archived chats".localizeString(id: "archived_chats_title", arguments: []),
+//                           text: self.archivedSectionSubtitleText,
+//                           count: self.unreadArchivedChatsCount)
+//            
+//            return cell
+//        } else {
+            let index = indexPath.row
+//            let index = showArchivedSection.value ? indexPath.row - 1 : indexPath.row
             let item = datasource[index]
             guard let cell = tableView.dequeueReusableCell(withIdentifier: ChatListTableViewCell.cellName,
                                                            for: indexPath) as? ChatListTableViewCell else {
@@ -78,8 +79,12 @@ extension LastChatsViewController: UITableViewDataSource {
             )
             cell.setMask()
             
+            let view = UIView()
+            view.backgroundColor = AccountColorManager.shared.palette(for: item.owner).tint50
+            cell.selectedBackgroundView = view
+        
             return cell
-        }
+//        }
         
     }
     
@@ -89,33 +94,33 @@ extension LastChatsViewController: UITableViewDataSource {
     
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         let count = datasource.count
-        return showArchivedSection.value ? count + 1 : count
+        return count
     }
     
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        if showArchivedSection.value && !(tableView.indexPathsForVisibleRows?.contains(IndexPath(row: 0, section: 0)) ?? false) {
-            showArchivedSection.accept(false)
-        }
+//        if showArchivedSection.value && !(tableView.indexPathsForVisibleRows?.contains(IndexPath(row: 0, section: 0)) ?? false) {
+//            showArchivedSection.accept(false)
+//        }
     }
     
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        if scrollView.contentOffset.y < -132 && scrollView.contentOffset.y > -232 {
-            if archivedChats?.isEmpty ?? true { return }
-            if filter.value != .chats { return }
-            let alpha = (abs(scrollView.contentOffset.y) - 132.0) / 100
-            if showArchivedSection.value {
-                if self.pullDownTableHeaderView.alpha > alpha {
-                    UIView.performWithoutAnimation {
-                        self.pullDownTableHeaderView.alpha = alpha
-                    }
-                }
-            } else {
-                UIView.performWithoutAnimation {
-                    self.pullDownTableHeaderView.alpha = alpha
-                }
-            }
-            
-        }
+//        if scrollView.contentOffset.y < -132 && scrollView.contentOffset.y > -232 {
+//            if archivedChats?.isEmpty ?? true { return }
+//            if filter.value != .chats { return }
+//            let alpha = (abs(scrollView.contentOffset.y) - 132.0) / 100
+//            if showArchivedSection.value {
+//                if self.pullDownTableHeaderView.alpha > alpha {
+//                    UIView.performWithoutAnimation {
+//                        self.pullDownTableHeaderView.alpha = alpha
+//                    }
+//                }
+//            } else {
+//                UIView.performWithoutAnimation {
+//                    self.pullDownTableHeaderView.alpha = alpha
+//                }
+//            }
+//            
+//        }
     }
     
     func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {

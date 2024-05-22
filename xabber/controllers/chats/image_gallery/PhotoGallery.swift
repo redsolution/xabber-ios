@@ -620,14 +620,6 @@ extension PhotoGallery {
         let objectsToShare = [image, imageUrls[currentPage]] as [Any]
         let activityVC = UIActivityViewController(activityItems: objectsToShare, applicationActivities: nil)
         activityVC.excludedActivityTypes = []
-        if UIDevice.current.userInterfaceIdiom == .pad {
-            activityVC.modalPresentationStyle = .popover
-            if let popoverController = activityVC.popoverPresentationController {
-                popoverController.sourceView = self.view
-                popoverController.sourceRect = CGRect(x: self.view.bounds.width - self.view.bounds.width / 4 - 24, y: 170, width: self.view.bounds.width / 4 , height: self.view.bounds.height / 4)
-                popoverController.permittedArrowDirections = []
-            }
-        }
-        self.present(activityVC, animated: true, completion: nil)
+        showModal(activityVC, from: self)
     }
 }

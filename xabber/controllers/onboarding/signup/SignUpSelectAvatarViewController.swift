@@ -311,9 +311,7 @@ class SignUpSelectAvatarViewController: SignUpBaseViewController {
         vc.delegate = self
         vc.palette = avatarPalette
         vc.lastSettedEmoji = avatarEmoji
-        vc.modalTransitionStyle = .coverVertical
-        vc.modalPresentationStyle = .overFullScreen
-        present(vc, animated: true, completion: nil)
+        showModal(vc, from: self)
     }
     
     private final func onEmojiSelected() {

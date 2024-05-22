@@ -49,6 +49,11 @@ extension ContactsViewController: UITableViewDataSource {
                 avatarUrl: item.avatarUrl
             )
             cell.setMask()
+                
+            let view = UIView()
+            view.backgroundColor = AccountColorManager.shared.palette(for: item.owner).tint50
+            cell.selectedBackgroundView = view
+            
             return cell
         case .group:
             guard let cell = tableView.dequeueReusableCell(withIdentifier: GroupCell.cellName,

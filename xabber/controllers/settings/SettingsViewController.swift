@@ -784,7 +784,7 @@ class SettingsViewController: BaseViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         title = ""
-        getAppTabBar()?.tabBar.items![2].title = "Settings".localizeString(id: "settings", arguments: [])
+        getAppTabBar()?.tabBar.items?[3].title = "Settings".localizeString(id: "settings", arguments: [])
         NotifyManager.shared.setLastChats(displayed: false)
         
         getQuotaFromRealm()

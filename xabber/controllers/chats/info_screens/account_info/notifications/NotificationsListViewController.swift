@@ -98,7 +98,10 @@ class NotificationsListViewController: SimpleBaseViewController {
         let view = UITableView(frame: .zero, style: .plain)
         
         view.register(DeviceItemCell.self, forCellReuseIdentifier: DeviceItemCell.cellName)
+        view.register(ContactItemCell.self, forCellReuseIdentifier: ContactItemCell.cellName)
         view.register(VerificationSessionItemCell.self, forCellReuseIdentifier: VerificationSessionItemCell.cellName)
+        
+        view.separatorStyle = .none
         
         return view
     }()
@@ -165,10 +168,28 @@ class NotificationsListViewController: SimpleBaseViewController {
                 .filter("category_ IN %@", [
                     XMPPNotificationsManager.Category.device.rawValue,
                     XMPPNotificationsManager.Category.mention.rawValue,
-                    XMPPNotificationsManager.Category.contact.rawValue,
                     XMPPNotificationsManager.Category.trust.rawValue
                 ]).sorted(byKeyPath: "date", ascending: false)
+            let contactNotifications = realm
+                .objects(NotificationStorageItem.self)
+                .filter("category_ IN %@", [
+                    XMPPNotificationsManager.Category.contact.rawValue
+                ])
+            let contactDatasource = Datasource(title: "", key: "contact", childs: [
+                DatasourceChild(
+                    owner: "",
+                    jid: "",
+                    title: "",
+                    message: "",
+                    key: "",
+                    date: Date(),
+                    category: .contact,
+                    verificationState: nil,
+                    verificationSid: nil
+                )
+            ])
             self.datasource = [
+                mapResult(contactNotifications, title: "", key: "contact"),
                 mapResult(allNotifications, title: "", key: "all"),
             ].compactMap({ return $0.childs.isNotEmpty ? $0 : nil })
 
@@ -221,13 +242,13 @@ class NotificationsListViewController: SimpleBaseViewController {
                     )
                 case .contact:
                     guard let jid = item.associatedJid,
-                          let nick = item.displayedNick else {
+                          let nick = item.displayedNick ?? item.associatedJid else {
                         return nil
                     }
                     return DatasourceChild(
                         owner: item.owner,
                         jid: item.associatedJid,
-                        title: "\(nick)",
+                        title: nick,
                         message: "New subscribtion request from \(jid)",
                         key: jid,
                         date: item.date,
@@ -258,6 +279,18 @@ class NotificationsListViewController: SimpleBaseViewController {
         }))
     }
     
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        self.tabBarController?.tabBar.isHidden = false
+        self.tabBarController?.tabBar.layoutIfNeeded()
+    }
+    
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        self.tabBarController?.tabBar.isHidden = false
+        self.tabBarController?.tabBar.layoutIfNeeded()
+    }
+    
     override func subscribe() {
         super.subscribe()
         
@@ -268,7 +301,7 @@ class NotificationsListViewController: SimpleBaseViewController {
                 .collection(from: collectionObserver)
                 .debounce(.milliseconds(200), scheduler: MainScheduler.asyncInstance)
                 .subscribe { _ in
-                    self.getAndMapDatasource()
+                    self.loadDatasource()
                     self.tableView.reloadData()
                 } onError: { _ in
                     
@@ -304,6 +337,9 @@ extension NotificationsListViewController: UITableViewDataSource {
     }
     
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        if self.datasource[section].key == "contact" {
+            return 1
+        }
         return self.datasource[section].childs.count
     }
     
@@ -317,7 +353,19 @@ extension NotificationsListViewController: UITableViewDataSource {
                 cell.configure(item.jid!, owner: self.owner, username: "username", date: item.date, verificationState: item.verificationState!)
                 return cell
             case .contact:
-                fatalError()
+                guard let cell = tableView.dequeueReusableCell(withIdentifier: ContactItemCell.cellName, for: indexPath) as? ContactItemCell else {
+                    fatalError()
+                }
+                
+                let message_more = "\(self.datasource[indexPath.section].childs.first?.title ?? "undefined") and  \(self.datasource[indexPath.section].childs.count) contacts more"
+                
+                let message = "\(self.datasource[indexPath.section].childs.first?.title ?? "undefined") sent a subscri"
+                cell.configure(owner: item.owner, username: item.title, title: "Subscribtion requests", message: self.datasource[indexPath.section].childs.count > 1 ? message_more : message )
+                
+//                cell.collectionView.delegate = self
+//                cell.collectionView.dataSource = self
+//                
+                return cell
             case .device:
                 guard let cell = tableView.dequeueReusableCell(withIdentifier: DeviceItemCell.cellName, for: indexPath) as? DeviceItemCell else {
                     fatalError()
@@ -346,7 +394,7 @@ extension NotificationsListViewController: UITableViewDelegate {
             case .trust:
                 return tableView.estimatedRowHeight
             case .contact:
-                return 84
+                return 74
             case .device:
                 return tableView.estimatedRowHeight
             case .mention:
@@ -475,7 +523,9 @@ extension NotificationsListViewController: UITableViewDelegate {
             }
                 break
             case .contact:
-                break
+                let vc = NotificationsSubscribtionsListViewController()
+                vc.owner = item.owner
+                self.navigationController?.pushViewController(vc, animated: true)
             case .device:
                 do {
                     let realm = try WRealm.safe()
@@ -501,4 +551,35 @@ extension NotificationsListViewController: UITableViewDelegate {
         }
         
     }
+}
+
+extension NotificationsListViewController: UICollectionViewDataSource {
+    
+    func numberOfSections(in collectionView: UICollectionView) -> Int {
+        return 1
+    }
+    
+    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
+        if self.datasource[0].key == "contact" {
+            return self.datasource[0].childs.count
+        }
+        return 0
+    }
+    
+    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+        guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: ContactOldItemCell.ScrollCell.cellName, for: indexPath) as? ContactOldItemCell.ScrollCell else {
+            fatalError()
+        }
+        let item = self.datasource[0].childs[indexPath.item]
+        
+        cell.configure(owner: item.owner, username: item.title)
+        
+        return cell
+    }
+    
+    
+}
+
+extension NotificationsListViewController: UICollectionViewDelegate {
+    
 }
