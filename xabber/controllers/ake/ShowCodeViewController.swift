@@ -32,7 +32,7 @@ class ShowCodeViewController: UIViewController {
     let codeLabel: UILabel = {
         let label = UILabel()
         label.translatesAutoresizingMaskIntoConstraints = false
-        label.font = UIFont(name: "Courier New", size: 25)
+        label.font = UIFont.monospacedSystemFont(ofSize: 25, weight: .regular)
         return label
     }()
     

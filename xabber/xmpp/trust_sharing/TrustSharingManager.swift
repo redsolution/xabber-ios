@@ -108,9 +108,6 @@ class TrustSharingManager: AbstractXMPPManager {
             return true
         }
         
-//        var myTrustedDevicesByThisDevice: Set<Int> = []
-//        var trustedDevicesFromList: Set<Int> = []
-        
         do {
             for item in trustedItemsList {
                 let deviceOwner = item.attributeStringValue(forName: "owner")
@@ -120,8 +117,6 @@ class TrustSharingManager: AbstractXMPPManager {
                           let itemDeviceId = Int(trustKey.components(separatedBy: "::")[0]) else {
                         fatalError()
                     }
-                    
-//                    trustedDevicesFromList.insert(itemDeviceId)
                     
                     let predicate = NSPredicate(format: "owner == %@ AND jid == %@ AND deviceId == %@", argumentArray: [self.owner, deviceOwner!, itemDeviceId])
                     let realm = try WRealm.safe()
@@ -137,28 +132,6 @@ class TrustSharingManager: AbstractXMPPManager {
                     }
                 }
             }
-//            let realm = try WRealm.safe()
-//            let instances = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND trustedByDeviceId == %@ AND state_ == %@", self.owner, String(deviceId), "trusted")
-//            for instance in instances {
-//                myTrustedDevicesByThisDevice.insert(instance.deviceId)
-//            }
-//            
-//            let devicesToUntrust = myTrustedDevicesByThisDevice.subtracting(trustedDevicesFromList)
-//            let devicesToTrust = trustedDevicesFromList.subtracting(myTrustedDevicesByThisDevice)
-//            
-//            for deviceIdToUntrust in devicesToUntrust {
-//                let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: jid.bare, deviceId: deviceIdToUntrust))
-//                try realm.write {
-//                    instance?.state = .unknown
-//                }
-//            }
-//            
-//            for deviceIdToTrust in devicesToTrust {
-//                let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: jid.bare, deviceId: deviceIdToTrust))
-//                try realm.write {
-//                    instance?.state = .trusted
-//                }
-//            }
             
             return true
         } catch {
@@ -170,11 +143,11 @@ class TrustSharingManager: AbstractXMPPManager {
         guard let jid = message.from,
               let event = message.element(forName: "event"),
               let items = event.element(forName: "items"),
+              items.attributeStringValue(forName: "node") == self.node,
               let item = items.element(forName: "item"),
               let publisherDeviceId = item.attributeStringValue(forName: "id"),
               let share = item.element(forName: "share"),
-              let signature = try! share.element(forName: "signature")?.stringValue?.base64decoded(),
-              let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
+              let timestamp = share.element(forName: "trusted-items")?.attributeStringValue(forName: "timestamp") else {
             return false
         }
         
@@ -192,6 +165,10 @@ class TrustSharingManager: AbstractXMPPManager {
                 return true
             }
             if instance.state != SignalDeviceStorageItem.TrustState.trusted {
+                return true
+            }
+            
+            if instance.lastTrustedItemsUpdateTimestamp == timestamp {
                 return true
             }
         } catch {
@@ -225,6 +202,7 @@ class TrustSharingManager: AbstractXMPPManager {
         for item in itemList {
             guard let publisherDeviceId = item.attributeStringValue(forName: "id"),
                   let share = item.element(forName: "share"),
+                  let timestamp = share.element(forName: "trusted-items")?.attributeStringValue(forName: "timestamp"),
                   let signature = try! share.element(forName: "signature")?.stringValue?.base64decoded(),
                   let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
                 return false
@@ -238,6 +216,9 @@ class TrustSharingManager: AbstractXMPPManager {
                 }
                 if instance.state != SignalDeviceStorageItem.TrustState.trusted {
                     continue
+                }
+                try realm.write {
+                    instance.lastTrustedItemsUpdateTimestamp = timestamp
                 }
             } catch {
                 fatalError()
@@ -261,6 +242,7 @@ class TrustSharingManager: AbstractXMPPManager {
             }
             
             do {
+                let realm = try WRealm.safe()
                 for item in trustedItemsList {
                     let trustsList = item.elements(forName: "trust")
                     for trust in trustsList {
@@ -270,7 +252,6 @@ class TrustSharingManager: AbstractXMPPManager {
                         }
                         let predicateForDevices = NSPredicate(format: "owner == %@ AND jid == %@ AND deviceId == %@", argumentArray: [self.owner, jid.bare, deviceId])
                         do {
-                            let realm = try WRealm.safe()
                             guard let instance = realm.objects(SignalDeviceStorageItem.self).filter(predicateForDevices).first else {
                                 continue
                             }
