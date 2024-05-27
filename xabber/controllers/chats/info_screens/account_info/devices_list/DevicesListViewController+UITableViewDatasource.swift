@@ -71,6 +71,8 @@ extension DevicesListViewController: UITableViewDataSource {
                 }
                 cell.configure(for: item.title, style: .danger)
                 return cell
+            case .session:
+                fatalError()
             }
         case .token:
             guard let cell = tableView.dequeueReusableCell(withIdentifier: DeviceInfoTableCell.cellName, for: indexPath) as? DeviceInfoTableCell else {
@@ -116,6 +118,29 @@ extension DevicesListViewController: UITableViewDataSource {
                 isTrustebByCertificate: brokenItem.isTrustedByCertificate
             )
             return cell
+        case .session:
+            if item.childs.isEmpty || item.childs[indexPath.row].kind == .session {
+                item = item.childs[indexPath.row]
+                let cell = UITableViewCell()
+                var cellConfig = cell.defaultContentConfiguration()
+                cellConfig.image = UIImage(systemName: "lock.circle.fill")?.upscale(dimension: 40).withTintColor(.systemBlue)
+                cellConfig.text = item.title
+                cellConfig.secondaryText = item.value ?? nil
+                
+                cell.contentConfiguration = cellConfig
+                return cell
+            }
+            
+            item = item.childs[indexPath.row]
+            
+            let cell = UITableViewCell()
+            var cellConfig = cell.defaultContentConfiguration()
+            cellConfig.text = item.title
+            cellConfig.textProperties.color = .systemBlue
+            cellConfig.textProperties.alignment = .center
+            cell.contentConfiguration = cellConfig
+            
+            return cell
         }
         
     }
@@ -126,6 +151,7 @@ extension DevicesListViewController: UITableViewDataSource {
         case .current, .button: return item.childs.count
         case .token: return devices.count
         case .broken: return brokenOmemoDevices.count
+        case .session: return item.childs.count
         }
     }
     
@@ -133,11 +159,14 @@ extension DevicesListViewController: UITableViewDataSource {
         if section == 1 && self.devices.count == 1 {
             return nil
         }
+        if datasource[section].kind == .session {
+            return "Active verification session"
+        }
         return datasource[section].title
     }
     
     func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
-        if self.devices.isEmpty {
+        if self.devices.isEmpty || datasource[section].kind == .session {
             return nil
         }
         return datasource[section].value

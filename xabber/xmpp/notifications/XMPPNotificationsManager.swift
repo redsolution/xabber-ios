@@ -165,7 +165,7 @@ class XMPPNotificationsManager: AbstractXMPPManager {
     }
     
     public func update(_ stream: XMPPStream) {
-        guard isAvailable(), let node = self.node else { return }
+        guard isAvailable(), let node = self.node, node.isNotEmpty, XMPPJID(string: node)?.bare != nil else { return }
         do {
             let realm = try WRealm.safe()
             let lastId = realm.object(ofType: XMPPNotificationsManagerStorageItem.self, forPrimaryKey: XMPPNotificationsManagerStorageItem.genPrimary(owner: self.owner))?.lastItemId

@@ -1061,8 +1061,7 @@ class NotifyManager {
             let realm = try WRealm.safe()
             guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: owner, sid: sid)),
                   let akeManager = AccountManager.shared.find(for: owner)?.akeManager,
-                  let xabberTabBar: XabberTabBar = getAppTabBar(),
-                  let navigationController = xabberTabBar.viewControllers?.first as? UINavigationController else {
+                  let presenter = (UIApplication.shared.delegate as? AppDelegate)?.splitController else {
                 return
             }
             
@@ -1079,7 +1078,7 @@ class NotifyManager {
                     }
                     let vc = ShowCodeViewController(owner: owner, jid: instance.jid, code: code, sid: sid, isVerificationWithUsersDevice: isVerificationWithUsersDevice)
                     vc.configure()
-                    navigationController.present(vc, animated: true)
+                    presenter.present(vc, animated: true)
                 }
                 let disagreeAction = UIAlertAction(title: "Reject", style: .destructive) { action in
                     akeManager.rejectRequestToVerify(jid: instance.jid, sid: sid)
@@ -1088,16 +1087,16 @@ class NotifyManager {
                 alert.addAction(agreeAction)
                 alert.addAction(disagreeAction)
                 
-                navigationController.present(alert, animated: true)
+                presenter.present(alert, animated: true)
                 break
             case VerificationSessionStorageItem.VerififcationState.acceptedRequest:
                 let vc = ShowCodeViewController(owner: owner, jid: instance.jid, code: instance.code, sid: sid, isVerificationWithUsersDevice: isVerificationWithUsersDevice)
                 vc.configure()
-                navigationController.present(vc, animated: true)
+                presenter.present(vc, animated: true)
                 break
             case VerificationSessionStorageItem.VerififcationState.receivedRequestAccept:
                 let vc = AuthenticationCodeInputViewController(owner: owner, jid: instance.jid, sid: sid, isVerificationWithUsersDevice: isVerificationWithUsersDevice)
-                navigationController.present(vc, animated: true)
+                presenter.present(vc, animated: true)
                 break
             case VerificationSessionStorageItem.VerififcationState.failed:
                 akeManager.showFailedRejectedSuccessfulAlert(state: .failed, jid: instance.jid, sid: sid)

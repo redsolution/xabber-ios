@@ -93,6 +93,7 @@ class TrustedDevicesViewController: SimpleBaseViewController {
             navigationItem.backButtonDisplayMode = .minimal
         }
         self.navigationItem.backButtonTitle = self.title
+        self.navigationItem.largeTitleDisplayMode = .never
         tableView.delegate = self
         tableView.dataSource = self
         refreshControl.attributedTitle = NSAttributedString(string: "Pull to refresh")
@@ -175,48 +176,7 @@ class TrustedDevicesViewController: SimpleBaseViewController {
                 let sid = verificationSession!.sid
                 let fullJid = verificationSession!.fullJID != "" ? verificationSession!.fullJID : verificationSession!.jid
                 
-                switch verificationSession!.state {
-                case .sentRequest:
-                    text = "Outgoing verification request"
-                    secondaryText = "Verification request has been sent to the contact."
-                    buttonTitle = "Cancel"
-                    buttonKey = "cancel_verification"
-                case .receivedRequest:
-                    text = "Incoming verification request"
-                    secondaryText = "Contact want's to establish a trusted connection with you."
-                    buttonTitle = "Accept"
-                    buttonKey = "accept_verification"
-                case .acceptedRequest:
-                    text = "Incoming verification request"
-                    secondaryText = "You have accepted the verification request."
-                    buttonTitle = "Show code"
-                    buttonKey = "show_verification_code"
-                case .trusted:
-                    text = "Verification successful"
-                    secondaryText = "The verification session was completed successfully. Now you trust this contact's devices."
-                    buttonTitle = "Close"
-                    buttonKey = "hide_session"
-                case .rejected:
-                    text = "Verification rejected"
-                    secondaryText = "The verification session rejected."
-                    buttonTitle = "Close"
-                    buttonKey = "hide_session"
-                case .failed:
-                    text = "Verification failed"
-                    secondaryText = "The verification session failed."
-                    buttonTitle = "Close"
-                    buttonKey = "hide_session"
-                case .receivedRequestAccept:
-                    text = "Outgoing verification request"
-                    secondaryText = "The contact accepted the verification request."
-                    buttonTitle = "Enter the code"
-                    buttonKey = "enter_verification_code"
-                default:
-                    text = "In process..."
-                    secondaryText = nil
-                    buttonTitle = nil
-                    buttonKey = nil
-                }
+                (text, secondaryText, buttonTitle, buttonKey) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: verificationSession!.state)
                 
                 datasource = [
                     [Datasource(.session, name: text, subtitle: secondaryText, verificationSid: sid, verificationJid: fullJid)]
@@ -224,7 +184,9 @@ class TrustedDevicesViewController: SimpleBaseViewController {
                 
                 if buttonKey != nil {
                     datasource[0].append(Datasource(.button, name: buttonTitle!, key: buttonKey!, verificationSid: sid, verificationJid: fullJid))
-                    if buttonKey == "accept_verification" {
+                    if buttonKey == "show_verification_code" || buttonKey == "enter_verification_code" {
+                        datasource[0].append(Datasource(.button, name: "Cancel", key: "cancel_verification", verificationSid: sid, verificationJid: fullJid))
+                    } else if buttonKey == "accept_verification" {
                         datasource[0].append(Datasource(.button, name: "Reject", key: "reject_verification", verificationSid: sid, verificationJid: fullJid))
                     }
                 }
@@ -271,7 +233,7 @@ class TrustedDevicesViewController: SimpleBaseViewController {
             let instances = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid)
             for instance in instances {
                 if instance.state == .trusted {
-                    datasource.append([Datasource(.button, name: "Untrust all", key: "untrust_all")])
+                    datasource.append([Datasource(.button, name: "Revoke trust", key: "revoke_trust")])
                     return
                 }
             }
@@ -280,6 +242,58 @@ class TrustedDevicesViewController: SimpleBaseViewController {
             fatalError()
         }
         
+    }
+    
+    static func getCellPropertiesForVerificationSession(verificationState: VerificationSessionStorageItem.VerififcationState) -> (String, String?, String?, String?) {
+        let text: String
+        let secondaryText: String?
+        let buttonTitle: String?
+        let buttonKey: String?
+        
+        switch verificationState {
+        case .sentRequest:
+            text = "Outgoing verification request"
+            secondaryText = "Verification request has been sent to the contact."
+            buttonTitle = "Cancel"
+            buttonKey = "cancel_verification"
+        case .receivedRequest:
+            text = "Incoming verification request"
+            secondaryText = "Contact want's to establish a trusted connection with you."
+            buttonTitle = "Accept"
+            buttonKey = "accept_verification"
+        case .acceptedRequest:
+            text = "Incoming verification request"
+            secondaryText = "You have accepted the verification request."
+            buttonTitle = "Show code"
+            buttonKey = "show_verification_code"
+        case .trusted:
+            text = "Verification successful"
+            secondaryText = "The verification session was completed successfully. Now you trust this contact's devices."
+            buttonTitle = "Close"
+            buttonKey = "hide_session"
+        case .rejected:
+            text = "Verification rejected"
+            secondaryText = "The verification session rejected."
+            buttonTitle = "Close"
+            buttonKey = "hide_session"
+        case .failed:
+            text = "Verification failed"
+            secondaryText = "The verification session failed."
+            buttonTitle = "Close"
+            buttonKey = "hide_session"
+        case .receivedRequestAccept:
+            text = "Outgoing verification request"
+            secondaryText = "The contact accepted the verification request."
+            buttonTitle = "Enter the code"
+            buttonKey = "enter_verification_code"
+        default:
+            text = "In process..."
+            secondaryText = nil
+            buttonTitle = nil
+            buttonKey = nil
+        }
+        
+        return (text, secondaryText, buttonTitle, buttonKey)
     }
     
     override func onAppear() {
@@ -291,7 +305,6 @@ class TrustedDevicesViewController: SimpleBaseViewController {
         })
 
     }
-    
 }
 
 extension TrustedDevicesViewController: UITableViewDelegate {
@@ -318,7 +331,7 @@ extension TrustedDevicesViewController: UITableViewDelegate {
                 vc.configure(for: self.owner)
                 navigationController?.pushViewController(vc, animated: true)
                 return
-            case "untrust_all":
+            case "revoke_trust":
                 do {
                     let realm = try Realm()
                     let instances = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid)
@@ -372,8 +385,6 @@ extension TrustedDevicesViewController: UITableViewDelegate {
                 return
             case "accept_verification":
                 guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
-                      let fullJidString = item.verificationJid,
-                      let fullJid = XMPPJID(string: fullJidString),
                       let sid = item.verificationSid else {
                     fatalError()
                 }
@@ -498,7 +509,7 @@ extension TrustedDevicesViewController: UITableViewDataSource {
             if item.key == "open_devices_danger" {
                 cell.textLabel?.textColor = .systemOrange
                 cell.detailTextLabel?.textColor = .systemOrange
-            } else if item.key == "untrust_all" {
+            } else if item.key == "revoke_trust" {
                 cell.textLabel?.textColor = .systemRed
             }
             
