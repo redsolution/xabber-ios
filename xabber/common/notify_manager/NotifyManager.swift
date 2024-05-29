@@ -1095,7 +1095,8 @@ class NotifyManager {
                 presenter.present(vc, animated: true)
                 break
             case VerificationSessionStorageItem.VerififcationState.receivedRequestAccept:
-                let vc = AuthenticationCodeInputViewController(owner: owner, jid: instance.jid, sid: sid, isVerificationWithUsersDevice: isVerificationWithUsersDevice)
+                let vc = AuthenticationCodeInputViewController()
+                vc.configure(owner: owner, jid: instance.jid, sid: sid, isVerificationWithUsersDevice: isVerificationWithUsersDevice)
                 presenter.present(vc, animated: true)
                 break
             case VerificationSessionStorageItem.VerififcationState.failed:

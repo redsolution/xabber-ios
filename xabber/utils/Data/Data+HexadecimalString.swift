@@ -19,6 +19,24 @@
 //
 
 import Foundation
+import CryptoKit
+
+
+
+extension DataProtocol {
+    var sha256Digest: SHA256Digest { SHA256.hash(data: self) }
+    var sha256Data: Data { .init(sha256Digest) }
+}
+
+extension SHA256Digest {
+    var data: Data { .init(self) }
+}
+
+extension StringProtocol {
+    var data: Data { .init(utf8) }
+    var sha256Digest: SHA256Digest { data.sha256Digest }
+    var sha256Data: Data { data.sha256Data }
+}
 
 extension Data {
     struct HexEncodingOptions: OptionSet {
@@ -33,10 +51,12 @@ extension Data {
     
     func formattedFingerprint() -> String {
         return self
+            .sha256Digest
+            .data
             .map { String(format: "%02hhX", $0) }
             .joined()
             .chunked(of: 8)
-            .compactMap{ return $0.count == 8 ? $0 : nil }
+//            .compactMap{ return $0.count == 8 ? $0 : nil }
             .joined(separator: " ")
     }
 }

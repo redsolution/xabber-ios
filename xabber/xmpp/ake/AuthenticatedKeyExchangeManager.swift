@@ -444,11 +444,16 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             var opponentByteSequence: [UInt8] = []
             var code: String = ""
             
+            var omemoFingerprint = ""
+            
             do {
                 let realm = try WRealm.safe()
                 guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) else {
                     return true
                 }
+                
+                let deviceInstance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: jid.bare, deviceId: instance.opponentDeviceId))
+                omemoFingerprint = deviceInstance!.fingerprint.replacingOccurrences(of: " ", with: "").lowercased()
                 
                 guard let notificationInstance = realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: NotificationStorageItem.genPrimary(owner: self.owner, jid: jid.bare, uniqueId: uniqueMessageId)) else {
                     fatalError()
@@ -478,9 +483,9 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                                                   deviceId: deviceId,
                                                   encryptedXML: hashEncrypted)
             
-            let opponentTrustedKey = String(deviceId) + "::" + fingerprint
+            let opponentTrustedKey = String(deviceId) + "::" + omemoFingerprint
             
-            let stringToHash = opponentTrustedKey.bytes + Array(code.utf8) + opponentByteSequence + byteSequence
+            let stringToHash = opponentTrustedKey.bytes + code.bytes + opponentByteSequence + byteSequence
             let myHash = Array(SHA256.hash(data: stringToHash).makeIterator())
             
             do {
@@ -560,7 +565,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             if self.owner == jid.bare {
                 trustSharingManager.sendNotificationWithContactsDevices(opponentFullJid: jid.bareJID, deviceId: deviceIdRecipient)
                 trustSharingManager.publicOwnTrustedDevices(publisherDeviceId: String(deviceIdRecipient))
-                trustSharingManager.getUserTrustedDevices(jid: jid.bareJID, deviceId: String(deviceId))
+//                trustSharingManager.getUserTrustedDevices(jid: jid.bareJID, deviceId: String(deviceId))
             } else {
                 trustSharingManager.sendNotificationWithContactsDevices(opponentFullJid: XMPPJID(string: self.owner)!, deviceId: deviceIdRecipient)
                 trustSharingManager.getUserTrustedDevices(jid: jid.bareJID, deviceId: String(deviceId))
@@ -732,7 +737,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
     
     func getNotificationContainer(message: XMPPMessage, notificationTo: XMPPJID) -> XMPPIQ {
         let forwarded = DDXMLElement(name: "forwarded", xmlns: "urn:xmpp:forward:0")
-        forwarded.addChild(message)
+        forwarded.addChild(message.copy() as! DDXMLElement)
         
         let notification = DDXMLElement(name: "notification")
         notification.addChild(forwarded)
@@ -758,6 +763,8 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         var opponentByteSequence: [UInt8] = []
         var code: String = ""
         
+        var myTrustedKey = ""
+        
         do {
             let realm = try WRealm.safe()
             let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid))
@@ -769,11 +776,17 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 instance?.state = .hashSentToOpponent
                 instance?.timestamp = String(Date().timeIntervalSince1970)
             }
+            
+            let deviceInstance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: instance!.myDeviceId))
+            let omemoFingerprint = deviceInstance!.fingerprint.replacingOccurrences(of: " ", with: "").lowercased()
+            myTrustedKey = String(deviceInstance!.deviceId) + "::" + omemoFingerprint
         } catch {
             DDLogDebug("AuthenticatedKeyExchange \(#function). \(error.localizedDescription)")
         }
         
-        let stringToHash = self.trustedKey! + Array(code.utf8) + opponentByteSequence
+        
+        
+        let stringToHash = myTrustedKey.bytes + code.bytes + opponentByteSequence
         let hash = Array(SHA256.hash(data: stringToHash).makeIterator())
         
         let resultHash = self.encrypt(jid: fullJID.bare, sid: sid, deviceId: deviceId, data: hash)
@@ -831,6 +844,8 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         var code: String = ""
         var byteSequence: [UInt8] = []
         
+        var omemoFingerprint = ""
+        
         do {
             let realm = try WRealm.safe()
             let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid))
@@ -841,14 +856,14 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             deviceId = String(instance!.opponentDeviceId)
             code = instance!.code
             byteSequence = try instance!.byteSequence.base64decoded()
+            
+            let deviceInstance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: jid, deviceId: Int(deviceId)!))
+            omemoFingerprint = deviceInstance!.fingerprint.replacingOccurrences(of: " ", with: "").lowercased()
         } catch {
             DDLogDebug("AuthenticatedKeyExchange \(#function). \(error.localizedDescription)")
         }
         
-        let publicKey = self.getUsersPublicKey(jid: jid, deviceId: Int(deviceId)!)
-        let fingerprint = publicKey.toHexString()
-        
-        let opponentTrustedKey = deviceId + "::" + fingerprint
+        let opponentTrustedKey = deviceId + "::" + omemoFingerprint
         
         let stringToHash = Data(opponentTrustedKey.bytes + Array(code.utf8) + byteSequence)
         let myHash = Array(SHA256.hash(data: stringToHash).makeIterator())
@@ -865,6 +880,8 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         var byteSequence: [UInt8] = []
         var opponentByteSequence: [UInt8] = []
         
+        var omemoFingerprint = ""
+        
         do {
             let realm = try WRealm.safe()
             let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid))
@@ -877,6 +894,9 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 instance?.state = .hashSentToInitiator
                 instance?.timestamp = String(Date().timeIntervalSince1970)
             }
+            
+            let deviceInstance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: instance!.myDeviceId))
+            omemoFingerprint = deviceInstance!.fingerprint.replacingOccurrences(of: " ", with: "").lowercased()
         } catch {
             DDLogDebug("AuthenticatedKeyExchange \(#function). \(error.localizedDescription)")
         }
@@ -891,10 +911,17 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         let publicKey = Array(keyPair.publicKey.dropFirst())
         let fingerprint = publicKey.toHexString()
         
-        let trustedKey = (String(deviceID) + "::" + fingerprint).bytes
+        let trustedKey = (String(deviceID) + "::" + omemoFingerprint).bytes
         
         let stringToHash = trustedKey + Array(code.utf8) + byteSequence + opponentByteSequence
         let hash = Array(SHA256.hash(data: stringToHash).makeIterator())
+        
+        
+        print("opponentTrustedKey: \(String(bytes: trustedKey, encoding: .utf8)!)")
+        print("code b64: \(code.bytes.toBase64())")
+        print("byteSequence b64: \(byteSequence.toBase64())")
+        print("stringToHash bs64: \(stringToHash.toBase64())")
+        print("hash b64: \(hash.toBase64())")
 
         return hash
     }

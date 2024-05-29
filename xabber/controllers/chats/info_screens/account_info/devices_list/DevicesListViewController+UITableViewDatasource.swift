@@ -123,11 +123,17 @@ extension DevicesListViewController: UITableViewDataSource {
                 item = item.childs[indexPath.row]
                 let cell = UITableViewCell()
                 var cellConfig = cell.defaultContentConfiguration()
+            
                 cellConfig.image = UIImage(systemName: "lock.circle.fill")?.upscale(dimension: 40).withTintColor(.systemBlue)
                 cellConfig.text = item.title
                 cellConfig.secondaryText = item.value ?? nil
                 
                 cell.contentConfiguration = cellConfig
+                
+                let button = UIButton(type: .close)
+//                button.imageView?.image = UIImage(systemName: "xmark")?.withTintColor(.black)
+                cell.accessoryView = button
+                
                 return cell
             }
             
@@ -136,8 +142,11 @@ extension DevicesListViewController: UITableViewDataSource {
             let cell = UITableViewCell()
             var cellConfig = cell.defaultContentConfiguration()
             cellConfig.text = item.title
-            cellConfig.textProperties.color = .systemBlue
-            cellConfig.textProperties.alignment = .center
+            if item.value == "reject_verification" {
+                cellConfig.textProperties.color = .systemRed
+            } else {
+                cellConfig.textProperties.color = .systemBlue
+            }
             cell.contentConfiguration = cellConfig
             
             return cell

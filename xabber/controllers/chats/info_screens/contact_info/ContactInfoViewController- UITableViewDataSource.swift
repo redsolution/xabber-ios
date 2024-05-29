@@ -32,6 +32,20 @@ extension ContactInfoViewController: UITableViewDataSource {
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let item = datasource[indexPath.section].childs[indexPath.row]
+//        if datasource[indexPath.section].childs[0].kind == .session {
+//            // if the button is from the verification session section
+//            if item.kind == .button {
+//                let cell = UITableViewCell()
+//                var cellConfig = cell.defaultContentConfiguration()
+//                cellConfig.text = item.title
+//                cellConfig.textProperties.color = .systemBlue
+//                cellConfig.textProperties.alignment = .center
+//                cell.contentConfiguration = cellConfig
+//                
+//                return cell
+//            }
+//        }
+//        
         switch item.kind {
         case .text:
             let cell = tableView.dequeueReusableCell(withIdentifier: "TextCell", for: indexPath)
@@ -118,6 +132,15 @@ extension ContactInfoViewController: UITableViewDataSource {
                 cell.textLabel?.textColor = .systemBlue
                 return cell
             }
+//        case .session:
+//            let cell = UITableViewCell()
+//            var cellConfig = cell.defaultContentConfiguration()
+//            cellConfig.image = UIImage(systemName: "lock.circle.fill")?.upscale(dimension: 40).withTintColor(.systemBlue)
+//            cellConfig.text = item.title
+//            cellConfig.secondaryText = item.subtitle ?? nil
+//            
+//            cell.contentConfiguration = cellConfig
+//            return cell
         }
     }
     

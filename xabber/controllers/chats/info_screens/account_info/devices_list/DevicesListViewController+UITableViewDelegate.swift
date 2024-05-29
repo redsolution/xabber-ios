@@ -100,7 +100,7 @@ extension DevicesListViewController: UITableViewDelegate {
             case "cancel_verification":
                 guard let akeManager = AccountManager.shared.find(for: self.jid)?.akeManager,
                       let fullJidString = item.verificationFullJid,
-                      let fullJid = XMPPJID(string: fullJidString),
+                      let fullJid = XMPPJID(string: self.jid),
                       let sid = item.verificationSid else {
                     fatalError()
                 }
@@ -166,7 +166,8 @@ extension DevicesListViewController: UITableViewDelegate {
                 
                 return
             case "enter_verification_code":
-                let vc = AuthenticationCodeInputViewController(owner: self.jid, jid: self.jid, sid: item.verificationSid!, isVerificationWithUsersDevice: true)
+                let vc = AuthenticationCodeInputViewController()
+                vc.configure(owner: self.jid, jid: self.jid, sid: item.verificationSid!, isVerificationWithUsersDevice: true)
                 self.navigationController!.present(vc, animated: true)
                 
                 return

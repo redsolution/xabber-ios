@@ -486,7 +486,7 @@ extension NotificationsListViewController: UITableViewDelegate {
                 if jid == self.owner {
                     isVerificationWithUsersDevice = true
                 }
-                let vc = AuthenticationCodeInputViewController(owner: self.owner, jid: jid, sid: sid, isVerificationWithUsersDevice: isVerificationWithUsersDevice)
+                let vc = AuthenticationCodeInputViewController()
                 self.present(vc, animated: true)
                 return
             } else if item.verificationState == .failed || item.verificationState == .rejected || item.verificationState == .trusted {
