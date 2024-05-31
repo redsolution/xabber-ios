@@ -20,6 +20,7 @@
 
 import Foundation
 import UIKit
+import XMPPFramework
 
 extension ContactInfoViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
@@ -27,7 +28,7 @@ extension ContactInfoViewController: UITableViewDelegate {
             return tableView.estimatedRowHeight
         }
         switch datasource[indexPath.section].childs[indexPath.row].kind {
-        case .vcard: return 44
+//        case .session: return tableView.estimatedRowHeight
         default: return 44
         }
     }
@@ -65,6 +66,84 @@ extension ContactInfoViewController: UITableViewDelegate {
                 showFingerprints()
             case "start_encrypted_chat":
                 onStartEncryptedChat()
+//            case "cancel_verification":
+//                guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
+//                      let fullJidString = item.verificationJid,
+//                      let fullJid = XMPPJID(string: fullJidString),
+//                      let sid = item.verificationSid else {
+//                    fatalError()
+//                }
+//                do {
+//                    let realm = try WRealm.safe()
+//                    let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid))
+//                    try realm.write {
+//                        realm.delete(instance!)
+//                    }
+//                } catch {
+//                    fatalError()
+//                }
+//                akeManager.sendErrorMessage(fullJID: fullJid, sid: sid, reason: "Сontact canceled verification session")
+//                tableView.reloadData()
+//                return
+//            case "accept_verification":
+//                guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
+////                      let fullJidString = item.verificationJid,
+////                      let fullJid = XMPPJID(string: fullJidString),
+//                      let sid = item.verificationSid else {
+//                    fatalError()
+//                }
+//                guard let code = akeManager.acceptVerificationRequest(jid: self.jid, sid: sid) else {
+//                    return
+//                }
+//                let vc = ShowCodeViewController(owner: self.owner, jid: self.jid, code: code, sid: sid, isVerificationWithUsersDevice: false)
+//                vc.configure()
+//                self.navigationController!.present(vc, animated: true)
+//                tableView.reloadData()
+//                return
+//            case "show_verification_code":
+//                let code: String
+//                do {
+//                    let realm = try WRealm.safe()
+//                    guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: item.verificationSid!)) else {
+//                        fatalError()
+//                    }
+//                    code = instance.code
+//                } catch {
+//                    fatalError()
+//                }
+//                
+//                let vc = ShowCodeViewController(owner: self.owner, jid: self.jid, code: code, sid: item.verificationSid!, isVerificationWithUsersDevice: false)
+//                vc.configure()
+//                self.navigationController!.present(vc, animated: true)
+//                
+//                return
+//            case "hide_session":
+//                do {
+//                    let realm = try WRealm.safe()
+//                    let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: item.verificationSid!))
+//                    try realm.write {
+//                        realm.delete(instance!)
+//                    }
+//                } catch {
+//                    fatalError()
+//                }
+//                tableView.reloadData()
+//                
+//                return
+//            case "enter_verification_code":
+//                let vc = AuthenticationCodeInputViewController(owner: self.owner, jid: self.jid, sid: item.verificationSid!, isVerificationWithUsersDevice: false)
+//                self.navigationController!.present(vc, animated: true)
+//                
+//                return
+//            case "reject_verification":
+//                guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
+//                    fatalError()
+//                }
+//                
+//                akeManager.rejectRequestToVerify(jid: self.jid, sid: item.verificationSid!)
+//                tableView.reloadData()
+//                
+//                return
             default: break
             }
         }

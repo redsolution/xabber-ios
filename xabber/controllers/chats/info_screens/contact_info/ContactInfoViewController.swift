@@ -35,6 +35,7 @@ class ContactInfoViewController: BaseViewController {
             case resource
             case vcard
             case button
+//            case session
         }
         
         var kind: Kind
@@ -43,10 +44,12 @@ class ContactInfoViewController: BaseViewController {
         var image: UIImage? = nil
         var key: String?
         var color: UIColor?
+        var verificationSid: String?
+        var verificationJid: String?
         
         var childs: [Datasource]
         
-        init(_ kind: Kind, title: String, subtitle: String? = nil, image: UIImage? = nil, color: UIColor? = nil,  key: String? = nil, childs: [Datasource] = []) {
+        init(_ kind: Kind, title: String, subtitle: String? = nil, image: UIImage? = nil, color: UIColor? = nil,  key: String? = nil, childs: [Datasource] = [], verificationSid: String? = nil, verificationJid: String? = nil) {
             self.kind = kind
             self.title = title
             if subtitle?.isEmpty ?? true {
@@ -58,6 +61,8 @@ class ContactInfoViewController: BaseViewController {
             self.childs = childs
             self.image = image
             self.color = color
+            self.verificationSid = verificationSid
+            self.verificationJid = verificationJid
         }
     }
     
@@ -86,10 +91,8 @@ class ContactInfoViewController: BaseViewController {
     }()
     
     internal let tableView: UITableView = {
-//        let view = UITableView(frame: .zero, style: .grouped)
         let view = InsetGroupedTableView(frame: .zero)
         
-//        view.translatesAutoresizingMaskIntoConstraints = false
         view.register(UITableViewCell.self, forCellReuseIdentifier: "TextCell")
         view.register(UITableViewCell.self, forCellReuseIdentifier: "ButtonCell")
         view.register(VCardCell.self, forCellReuseIdentifier: VCardCell.cellName)
@@ -179,9 +182,6 @@ class ContactInfoViewController: BaseViewController {
                             titleColor: AccountColorManager.shared.primaryColor(for: self.owner)
                         )
                     }
-                    
-                    
-                    
                 }).disposed(by: bag)
                         
             Observable
@@ -189,8 +189,8 @@ class ContactInfoViewController: BaseViewController {
                 .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
                 .subscribe(onNext: { (results) in
                     var newDatasource: [Datasource] = []
+                    
                     if let item = results.first {
-                        
                         var vcardSection: [Datasource] = []
                         
                         if item.given.isNotEmpty {
@@ -205,15 +205,10 @@ class ContactInfoViewController: BaseViewController {
                         
                         if vcardSection.isNotEmpty {
                             newDatasource.append(Datasource(.vcard, title: "About".localizeString(id: "about", arguments: []), subtitle: "View full vCard", key: "about_section", childs: vcardSection))
-                        } else {
-//                            newDatasource.append(Datasource(.vcard, title: "About", subtitle: "View full vCard", key: "about_section", childs: []))
                         }
                     }
                     do {
                         let realm = try WRealm.safe()
-//                        let collectionOwner = realm
-//                            .objects(SignalDeviceStorageItem.self)
-//                            .filter("jid == %@ AND owner == %@ AND state_ != %@", self.owner, self.owner, SignalDeviceStorageItem.TrustState.trusted.rawValue).count
                         let collectionJid = realm
                             .objects(SignalDeviceStorageItem.self)
                             .filter("jid == %@ AND owner == %@", self.jid, self.owner, SignalDeviceStorageItem.TrustState.trusted.rawValue)
@@ -378,19 +373,6 @@ class ContactInfoViewController: BaseViewController {
         headerView.fourthButton.configure(#imageLiteral(resourceName: "cancel"),
                                           title: "Block".localizeString(id: "contact_bar_block", arguments: []),
                                           style: .danger)
-
-        // headerView.verifyButton.configure(#imageLiteral(resourceName: "security"), title: "Send verify", style: .active)
-        
-//        if state == AuthenticatedKeyExchangeManager.State.none {
-//            headerView.verifyButton.configure(#imageLiteral(resourceName: "security"), title: "Send verify", style: .active)
-//        } else if state == AuthenticatedKeyExchangeManager.State.receivedRequest {
-//            headerView.verifyButton.configure(#imageLiteral(resourceName: "check"), title: "Accept verify", style: .active)
-//        } else if state == AuthenticatedKeyExchangeManager.State.trusted {
-//            headerView.verifyButton.configure(#imageLiteral(resourceName: "security"), title: "Trusted", style: .inactive, enabled: false)
-//        } else {
-//            headerView.verifyButton.configure(#imageLiteral(resourceName: "clock"), title: "Wait", style: .inactive, enabled: false)
-//        }
-//        headerView.subtitleLabel.isHidden = true
         
         footerView.conversationType = self.conversationType
         footerView.jid = self.jid

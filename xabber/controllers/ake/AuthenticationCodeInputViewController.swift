@@ -11,126 +11,30 @@ import UIKit
 import SignalProtocolObjC
 import XMPPFramework
 
-class AuthenticationPasscodeEditView: UIView, UITextInputTraits {
-    var code: String = "" {
-        didSet {
-            updateStack(by: code)
-            if code.count == maxLength, let didFinishedEnterCode = didFinishedEnterCode {
-                self.resignFirstResponder()
-                didFinishedEnterCode(code)
-            }
-        }
-    }
+class AuthenticationCodeInputViewController: UIViewController, UITextFieldDelegate {
+    var owner: String = ""
+    var jid: String = ""
+    var sid: String = ""
+    var isVerificationWithUsersDevice: Bool = false
     
-    var didFinishedEnterCode: ((String) -> Void)?
-    
-    var maxLength = 6
-    var keyboardType: UIKeyboardType = .default
-    let stack = UIStackView()
-    
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        setupUI()
-        showKeyboardIfNeeded()
-    }
-    
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-    
-    func setupUI() {
-        addSubview(stack)
-        self.backgroundColor = .clear
-        stack.backgroundColor = .clear
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: self.leadingAnchor),
-                                     stack.trailingAnchor.constraint(equalTo: self.trailingAnchor),
-                                     stack.topAnchor.constraint(equalTo: self.topAnchor),
-                                     stack.bottomAnchor.constraint(equalTo: self.bottomAnchor)
-                                    ])
-        stack.axis = .horizontal
-        stack.distribution = .fillEqually
-        updateStack(by: code)
-    }
-    
-    func updateStack(by code: String) {
-        var pins: [UIView] = Array(code).map { pin(char: $0) }
+    internal let scrollView: UIScrollView = {
+        let view = UIScrollView(frame: .zero)
         
-        while pins.count != 6 {
-            pins.append(emptyPin())
-        }
         
-        stack.removeAllArrangedSubviews()
-        for view in pins {
-            stack.addArrangedSubview(view)
-        }
+        return view
+    }()
+    
+    internal let containerView: UIView = {
+        let view = UIView()
         
-    }
+        return view
+    }()
     
-    private func emptyPin() -> UIView {
-        let pin = UIView()
-        let label = UILabel()
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.text = "_"
-        pin.addSubview(label)
-        label.centerXAnchor.constraint(equalTo: pin.centerXAnchor).isActive = true
-        label.centerYAnchor.constraint(equalTo: pin.centerYAnchor).isActive = true
-        return pin
-    }
-    
-    private func pin(char: Character) -> UIView {
-        let pin = UIView()
-        let label = UILabel()
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.text = String(char)
-        pin.addSubview(label)
-        label.centerXAnchor.constraint(equalTo: pin.centerXAnchor).isActive = true
-        label.centerYAnchor.constraint(equalTo: pin.centerYAnchor).isActive = true
-        return pin
-    }
-    
-    override var canBecomeFirstResponder: Bool {
-        return true
-    }
-    
-    private func showKeyboardIfNeeded() {
-        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(showKeyboard))
-        self.addGestureRecognizer(tapGesture)
-    }
-    
-    @objc private func showKeyboard() {
-        self.becomeFirstResponder()
-    }
-}
-
-extension AuthenticationPasscodeEditView: UIKeyInput {
-    var hasText: Bool {
-        return code.count > 0
-    }
-    
-    func insertText(_ text: String) {
-        guard code.count < maxLength else {
-            return
-        }
-        code.append(contentsOf: text)
-        print(code)
-    }
-    
-    func deleteBackward() {
-        if hasText {
-            code.removeLast()
-        }
-        print(code)
-    }
-    
-    
-}
-
-class AuthenticationCodeInputViewController: UIViewController {
-    let owner: String
-    let fullJID: String
-    let sid: String
-    let isVerificationWithUsersDevice: Bool
+    let headerView: InfoScreenHeaderView = {
+        let view = InfoScreenHeaderView(frame: .zero)
+        
+        return view
+    }()
     
     let stackLabels: UIStackView = {
         let stack = UIStackView()
@@ -149,101 +53,109 @@ class AuthenticationCodeInputViewController: UIViewController {
         return label
     }()
     
-    let descriptionLabel: UILabel = {
+    let subtitleLabel: UILabel = {
         let label = UILabel()
         label.textAlignment = .center
-        label.numberOfLines = 3
+        label.numberOfLines = 0
         label.lineBreakMode = .byWordWrapping
         return label
     }()
     
-    let sidLabel: UILabel = {
+    let descriptionLabel: UILabel = {
         let label = UILabel()
-        label.textAlignment = .center
         label.numberOfLines = 0
+        
         return label
     }()
     
-    let code: AuthenticationPasscodeEditView = {
-        let view = AuthenticationPasscodeEditView()
-        view.translatesAutoresizingMaskIntoConstraints = false
-        return view
+    let code: UITextField = {
+        let textField = UITextField()
+        textField.typingAttributes = [NSAttributedString.Key.kern: 5]
+        textField.font = UIFont.monospacedSystemFont(ofSize: 48, weight: .regular)
+        textField.textAlignment = .center
+        
+        return textField
     }()
     
-    init(owner: String, jid: String, sid: String, isVerificationWithUsersDevice: Bool) {
-        self.owner = owner
-        self.fullJID = jid
-        self.sid = sid
-        self.code.keyboardType = .default
-        self.isVerificationWithUsersDevice = isVerificationWithUsersDevice
-        super.init(nibName: nil, bundle: nil)
-    }
+    let cancelButton: UIButton = {
+        let button = UIButton()
+        button.setTitle("Cancel verification", for: .normal)
+        button.setTitleColor(.systemBlue, for: .normal)
+        
+        button.translatesAutoresizingMaskIntoConstraints = false
+        
+        return button
+    }()
     
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+    func configure(owner: String, jid: String, sid: String, isVerificationWithUsersDevice: Bool) {
+        self.owner = owner
+        self.jid = jid
+        self.sid = sid
+        self.isVerificationWithUsersDevice = isVerificationWithUsersDevice
+        
+        loadDatasource()
+        setupUI()
+        
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(self.keyboardWillShowNotification(_:)),
+            name: UIWindow.keyboardWillShowNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(self.keyboardWillHideNotification(_:)),
+            name: UIWindow.keyboardWillHideNotification,
+            object: nil
+        )
     }
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         code.becomeFirstResponder()
-    }
-    
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        setupUI()
-        code.didFinishedEnterCode = { code in
-            guard let ake = AccountManager.shared.find(for: self.owner)?.akeManager else {
-                return
-            }
-            
-            var deviceId: String = ""
-            var saltCiphertext: String = ""
-            var saltIv: String = ""
-            
-            do {
-                let realm = try WRealm.safe()
-                let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: self.sid))
-                deviceId = String(instance!.opponentDeviceId)
-                saltCiphertext = instance!.opponentByteSequenceEncrypted
-                saltIv = instance!.opponentByteSequenceIv
-                try realm.write {
-                    instance?.code = code
-                }
-            } catch {
-                DDLogDebug("AuthenticationCodeInputViewController \(#function). \(error.localizedDescription)")
-            }
-            
-            let salt = ake.decrypt(jid: XMPPJID(string: self.fullJID)!.bare, sid: self.sid, deviceId: Int(deviceId)!, ciphertext: try! saltCiphertext.base64decoded(), iv: try! saltIv.base64decoded())
-            
-            do {
-                let realm = try WRealm.safe()
-                let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: self.sid))
-                try realm.write {
-                    instance?.opponentByteSequence = salt.toBase64()
-                    instance?.opponentDeviceId = Int(deviceId)!
-                }
-            } catch {
-                DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
-            }
-            
-            ake.sendHashToOpponent(fullJID: XMPPJID(string: self.fullJID)!, sid: self.sid)
-            self.dismiss(animated: true)
-        }
+        code.returnKeyType = .send
+        code.delegate = self
     }
     
     private func setupUI() {
-        view.addSubview(stackLabels)
-        stackLabels.addArrangedSubview(titleLabel)
-        stackLabels.addArrangedSubview(descriptionLabel)
-        stackLabels.addArrangedSubview(sidLabel)
+        view.addSubview(scrollView)
+        scrollView.fillSuperview()
+        containerView.frame = CGRect(origin: .zero, size: CGSize(width: UIScreen.main.bounds.width, height: UIScreen.main.bounds.height))
+        scrollView.contentSize = CGSize(width: containerView.frame.width, height: containerView.frame.height - 70)
+        scrollView.addSubview(containerView)
+        containerView.addSubview(stackLabels)
+        containerView.addSubview(cancelButton)
         
-        titleLabel.text = "Verification code"
-        if isVerificationWithUsersDevice {
-            descriptionLabel.text = "You accepted a verification request from your other device, enter the code displayed on that device"
-        } else {
-            descriptionLabel.text = "The contact \(self.fullJID) to whom you sent a verification request accepted it, enter the code provided by this contact"
-        }
-        sidLabel.text = "SID: \(self.sid)"
+        headerView.buttonsStack.removeFromSuperview()
+        headerView.subtitleLabel.textColor = .systemBlue
+        
+        stackLabels.addArrangedSubview(titleLabel)
+        stackLabels.addArrangedSubview(subtitleLabel)
+        stackLabels.addArrangedSubview(headerView)
+        stackLabels.addArrangedSubview(descriptionLabel)
+        stackLabels.addArrangedSubview(code)
+        
+        stackLabels.setCustomSpacing(40, after: descriptionLabel)
+        headerView.stack.fillSuperviewWithOffset(top: 40, bottom: 40, left: 0, right: 0)
+        
+        cancelButton.addTarget(self, action: #selector(onCancelButtonPressed), for: .touchUpInside)
+        
+        titleLabel.text = "Identity Verification"
+//        if isVerificationWithUsersDevice {
+        subtitleLabel.text = "You are establishing a secure connection with:"
+//        } else {
+//            subtitleLabel.text = "The contact \(self.fullJID) to whom you sent a verification request accepted it, enter the code provided by this contact"
+//        }
+//        descriptionLabel.text = "SID: \(self.sid)"
+        
+        let attributedString = NSMutableAttributedString(string: "1.\tCarefully verify the ")
+        let infixAttributedString = NSAttributedString(string: "address", attributes: [NSAttributedString.Key.foregroundColor: UIColor.systemBlue])
+        attributedString.append(infixAttributedString)
+        attributedString.append(NSAttributedString(string: " and identity of this contact.\n\n2.\tEnter the verification code provided by your contact to confirm the secure connection:"))
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.headIndent = 28
+        attributedString.addAttributes([NSAttributedString.Key.paragraphStyle: paragraphStyle], range: NSRange(location: 0, length: attributedString.length))
+        descriptionLabel.attributedText = attributedString
         
         if #available(iOS 13.0, *) {
             self.view.backgroundColor = .systemBackground
@@ -251,16 +163,158 @@ class AuthenticationCodeInputViewController: UIViewController {
             self.view.backgroundColor = .white
         }
         
-        view.addSubview(code)
-        
         NSLayoutConstraint.activate([
-            code.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.6),
-            code.heightAnchor.constraint(equalToConstant: 44),
-            code.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            code.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            stackLabels.topAnchor.constraint(equalTo: view.topAnchor, constant: 15),
-            stackLabels.leftAnchor.constraint(equalTo: view.leftAnchor),
-            stackLabels.rightAnchor.constraint(equalTo: view.rightAnchor),
+            stackLabels.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 24),
+            stackLabels.leftAnchor.constraint(equalTo: containerView.leftAnchor, constant: 24),
+            stackLabels.rightAnchor.constraint(equalTo: view.rightAnchor, constant: -24),
+            headerView.titleButton.topAnchor.constraint(equalTo: headerView.imageButton.bottomAnchor, constant: 6),
+            headerView.subtitleLabel.topAnchor.constraint(equalTo: headerView.titleButton.bottomAnchor, constant: 6),
+            cancelButton.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
+            cancelButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -110),
         ])
+    }
+    
+    @objc
+    func onCancelButtonPressed() {
+        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
+            fatalError()
+        }
+        
+        do {
+            let realm = try WRealm.safe()
+            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: self.sid))
+            try realm.write {
+                realm.delete(instance!)
+            }
+        } catch {
+            fatalError()
+        }
+        
+        akeManager.sendErrorMessage(fullJID: XMPPJID(string: self.jid)!, sid: self.sid, reason: "Сontact canceled verification session")
+        self.dismiss(animated: true)
+    }
+    
+    func loadDatasource() {
+        do {
+            let realm = try WRealm.safe()
+            let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: self.jid, owner: self.owner))
+            if let instance = instance {
+                self.headerView.configure(
+                    avatarUrl: instance.avatarMaxUrl ?? instance.avatarMinUrl ?? instance.oldschoolAvatarKey,
+                    jid: self.jid,
+                    owner: self.owner,
+                    userId: nil,
+                    title: instance.displayName,
+                    subtitle: self.jid,
+                    thirdLine: nil,
+                    titleColor: .black
+                )
+            } else {
+                self.headerView.configure(
+                    avatarUrl: nil,
+                    jid: self.jid,
+                    owner: self.owner,
+                    userId: nil,
+                    title: self.jid,
+                    subtitle: self.jid,
+                    thirdLine: nil,
+                    titleColor: .black
+                )
+            }
+        } catch {
+            fatalError()
+        }
+    }
+    
+    @objc
+    func keyboardWillShowNotification(_ notification: Notification) {
+        if let userInfo = notification.userInfo {
+            if let frameValue = userInfo[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue {
+                let frame = frameValue.cgRectValue
+                let keyboardVisibleHeight = frame.size.height
+                switch (userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber, userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber) {
+                case let (.some(duration), .some(curve)):
+                    let options = UIView.AnimationOptions(rawValue: curve.uintValue)
+                    
+                    let codeBottomLine = self.code.frame.origin.y + self.code.frame.height
+                    let keyboardTopLine = self.view.frame.height - keyboardVisibleHeight
+                    
+                    UIView.animate(
+                        withDuration: TimeInterval(duration.doubleValue),
+                        delay: 0,
+                        options: options,
+                        animations: {
+                            self.scrollView.contentOffset.y = codeBottomLine - keyboardTopLine + 30
+                            return
+                        }, completion: { finished in
+                    })
+                default:
+                    break
+                }
+            }
+        }
+        
+    }
+    
+    @objc func keyboardWillHideNotification(_ notification: NSNotification) {
+        if let userInfo = notification.userInfo {
+            
+            switch (userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber, userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber) {
+            case let (.some(duration), .some(curve)):
+                let options = UIView.AnimationOptions(rawValue: curve.uintValue)
+                
+                UIView.animate(
+                    withDuration: TimeInterval(duration.doubleValue),
+                    delay: 0,
+                    options: options,
+                    animations: {
+                        self.scrollView.contentOffset.y = 0
+                        return
+                    }, completion: { finished in
+                })
+            default:
+                break
+            }
+        }
+    }
+    
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        guard let ake = AccountManager.shared.find(for: self.owner)?.akeManager else {
+            return false
+        }
+        
+        var deviceId: String = ""
+        var saltCiphertext: String = ""
+        var saltIv: String = ""
+        
+        do {
+            let realm = try WRealm.safe()
+            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: self.sid))
+            deviceId = String(instance!.opponentDeviceId)
+            saltCiphertext = instance!.opponentByteSequenceEncrypted
+            saltIv = instance!.opponentByteSequenceIv
+            try realm.write {
+                instance?.code = code.text!
+            }
+        } catch {
+            DDLogDebug("AuthenticationCodeInputViewController \(#function). \(error.localizedDescription)")
+        }
+        
+        let salt = ake.decrypt(jid: XMPPJID(string: self.jid)!.bare, sid: self.sid, deviceId: Int(deviceId)!, ciphertext: try! saltCiphertext.base64decoded(), iv: try! saltIv.base64decoded())
+        
+        do {
+            let realm = try WRealm.safe()
+            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: self.sid))
+            try realm.write {
+                instance?.opponentByteSequence = salt.toBase64()
+                instance?.opponentDeviceId = Int(deviceId)!
+            }
+        } catch {
+            DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
+        }
+        
+        ake.sendHashToOpponent(fullJID: XMPPJID(string: self.jid)!, sid: self.sid)
+        self.dismiss(animated: true)
+        return true
     }
 }

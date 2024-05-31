@@ -44,15 +44,28 @@ class TrustSharingManager: AbstractXMPPManager {
             bareMessage = message
         }
         
-        guard let notify = bareMessage.element(forName: "notify", xmlns: XMPPNotificationsManager.xmlns) ?? bareMessage.element(forName: "notification", xmlns: XMPPNotificationsManager.xmlns) else {
+        guard let notify = bareMessage.element(forName: "notify", xmlns: XMPPNotificationsManager.xmlns) ?? bareMessage.element(forName: "notification", xmlns: XMPPNotificationsManager.xmlns),
+              let encryptedMessage = notify.element(forName: "forwarded")?.element(forName: "message"),
+              let omemoManager = AccountManager.shared.find(for: self.owner)?.omemo else {
             return false
         }
-        let uniqueMessageId = getUniqueMessageId(bareMessage, owner: self.owner)
-        guard let messageContainer = notify.element(forName: "forwarded")?.element(forName: "message") else {
+        
+        let messageContainer: DDXMLElement
+        do {
+            guard let messageContainerr = try omemoManager.decryptMessage(XMPPMessage(from: encryptedMessage)) else {
+                return false
+            }
+            messageContainer = messageContainerr
+        } catch {
             return false
         }
-        guard let share = messageContainer.element(forName: "share", xmlns: getPrimaryNamespace()),
-              let jid = XMPPMessage(from: messageContainer).from,
+//        let uniqueMessageId = getUniqueMessageId(bareMessage, owner: self.owner)
+//        guard let messageContainer = notify.element(forName: "forwarded")?.element(forName: "message") else {
+//            return false
+//        }
+        guard let content = messageContainer.element(forName: "content"),
+              let jid = messageContainer.element(forName: "from")?.attributeStringValue(forName: "jid"),
+              let share = content.element(forName: "share", xmlns: getPrimaryNamespace()),
               let signature = try! share.element(forName: "signature")?.stringValue?.base64decoded(),
               let identity = share.element(forName: "identity"),
               let fingerprint = identity.stringValue,
@@ -61,11 +74,11 @@ class TrustSharingManager: AbstractXMPPManager {
             return false
         }
         
-        if jid.full == AccountManager.shared.find(for: self.owner)!.xmppStream.myJID!.full {
+        if deviceId == omemoManager.localStore.localDeviceId() {
             return true
         }
         
-        let predicate = NSPredicate(format: "owner == %@ AND jid == %@ AND deviceId == %@", argumentArray: [self.owner, jid.bare, deviceId])
+        let predicate = NSPredicate(format: "owner == %@ AND jid == %@ AND deviceId == %@", argumentArray: [self.owner, jid, deviceId])
         do {
             let realm = try WRealm.safe()
             guard let instance = realm.objects(SignalDeviceStorageItem.self).filter(predicate).first else {
@@ -87,29 +100,25 @@ class TrustSharingManager: AbstractXMPPManager {
             for trust in trustsList {
                 stringToVerifySignature += "<" + trust.attributeStringValue(forName: "timestamp")! + "/" + trust.stringValue!
             }
-            stringToVerifySignature += "<"
         }
         
-        let userPublicKey = akeManager.getUsersPublicKey(jid: jid.bare, deviceId: deviceId)
+        let userPublicKey = akeManager.getUsersPublicKey(jid: jid, deviceId: deviceId)
         if !Ed25519.verifySignature(Data(signature), publicKey: Data(userPublicKey), data: Data(stringToVerifySignature.bytes)) {
             do {
                 let realm = try WRealm.safe()
                 guard let instance = realm.objects(VerificationSessionStorageItem.self).filter(predicate).first else {
                     fatalError()
                 }
-                akeManager.sendErrorMessage(fullJID: jid, sid: instance.sid, reason: "Error when exchanging trusted devices")
-                akeManager.showNotification(title: jid.bare, owner: self.owner, body: "Verification failed", sid: instance.sid, timestamp: Date().timeIntervalSince1970)
-                try realm.write {
-                    instance.state = .failed
-                }
+//                akeManager.sendErrorMessage(fullJID: XMPPJID(string: jid)!, sid: instance.sid, reason: "Error when exchanging trusted devices")
+//                akeManager.showNotification(title: jid, owner: self.owner, body: "Verification failed", sid: instance.sid, timestamp: Date().timeIntervalSince1970)
+//                try realm.write {
+//                    instance.state = .failed
+//                }
             } catch {
                 fatalError()
             }
             return true
         }
-        
-//        var myTrustedDevicesByThisDevice: Set<Int> = []
-//        var trustedDevicesFromList: Set<Int> = []
         
         do {
             for item in trustedItemsList {
@@ -121,12 +130,10 @@ class TrustSharingManager: AbstractXMPPManager {
                         fatalError()
                     }
                     
-//                    trustedDevicesFromList.insert(itemDeviceId)
-                    
                     let predicate = NSPredicate(format: "owner == %@ AND jid == %@ AND deviceId == %@", argumentArray: [self.owner, deviceOwner!, itemDeviceId])
                     let realm = try WRealm.safe()
                     guard let instance = realm.objects(SignalDeviceStorageItem.self).filter(predicate).first else {
-                        fatalError()
+                        return true
                     }
                     if instance.state != SignalDeviceStorageItem.TrustState.trusted {
                         akeManager.writeTrustedDevice(jid: deviceOwner ?? XMPPMessage(from: messageContainer).from!.bare, deviceId: itemDeviceId)
@@ -137,28 +144,6 @@ class TrustSharingManager: AbstractXMPPManager {
                     }
                 }
             }
-//            let realm = try WRealm.safe()
-//            let instances = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND trustedByDeviceId == %@ AND state_ == %@", self.owner, String(deviceId), "trusted")
-//            for instance in instances {
-//                myTrustedDevicesByThisDevice.insert(instance.deviceId)
-//            }
-//            
-//            let devicesToUntrust = myTrustedDevicesByThisDevice.subtracting(trustedDevicesFromList)
-//            let devicesToTrust = trustedDevicesFromList.subtracting(myTrustedDevicesByThisDevice)
-//            
-//            for deviceIdToUntrust in devicesToUntrust {
-//                let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: jid.bare, deviceId: deviceIdToUntrust))
-//                try realm.write {
-//                    instance?.state = .unknown
-//                }
-//            }
-//            
-//            for deviceIdToTrust in devicesToTrust {
-//                let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: jid.bare, deviceId: deviceIdToTrust))
-//                try realm.write {
-//                    instance?.state = .trusted
-//                }
-//            }
             
             return true
         } catch {
@@ -170,11 +155,11 @@ class TrustSharingManager: AbstractXMPPManager {
         guard let jid = message.from,
               let event = message.element(forName: "event"),
               let items = event.element(forName: "items"),
+              items.attributeStringValue(forName: "node") == self.node,
               let item = items.element(forName: "item"),
               let publisherDeviceId = item.attributeStringValue(forName: "id"),
               let share = item.element(forName: "share"),
-              let signature = try! share.element(forName: "signature")?.stringValue?.base64decoded(),
-              let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
+              let timestamp = share.element(forName: "trusted-items")?.attributeStringValue(forName: "timestamp") else {
             return false
         }
         
@@ -192,6 +177,10 @@ class TrustSharingManager: AbstractXMPPManager {
                 return true
             }
             if instance.state != SignalDeviceStorageItem.TrustState.trusted {
+                return true
+            }
+            
+            if instance.lastTrustedItemsUpdateTimestamp == timestamp {
                 return true
             }
         } catch {
@@ -225,6 +214,7 @@ class TrustSharingManager: AbstractXMPPManager {
         for item in itemList {
             guard let publisherDeviceId = item.attributeStringValue(forName: "id"),
                   let share = item.element(forName: "share"),
+                  let timestamp = share.element(forName: "trusted-items")?.attributeStringValue(forName: "timestamp"),
                   let signature = try! share.element(forName: "signature")?.stringValue?.base64decoded(),
                   let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
                 return false
@@ -239,6 +229,9 @@ class TrustSharingManager: AbstractXMPPManager {
                 if instance.state != SignalDeviceStorageItem.TrustState.trusted {
                     continue
                 }
+                try realm.write {
+                    instance.lastTrustedItemsUpdateTimestamp = timestamp
+                }
             } catch {
                 fatalError()
             }
@@ -252,7 +245,7 @@ class TrustSharingManager: AbstractXMPPManager {
                 for trust in trustsList {
                     stringToVerifySignature += "<" + trust.attributeStringValue(forName: "timestamp")! + "/" + trust.stringValue!
                 }
-                stringToVerifySignature += "<"
+//                stringToVerifySignature += "<"
             }
             
             let userPublicKey = akeManager.getUsersPublicKey(jid: jid.bare, deviceId: Int(publisherDeviceId)!)
@@ -261,6 +254,7 @@ class TrustSharingManager: AbstractXMPPManager {
             }
             
             do {
+                let realm = try WRealm.safe()
                 for item in trustedItemsList {
                     let trustsList = item.elements(forName: "trust")
                     for trust in trustsList {
@@ -270,7 +264,6 @@ class TrustSharingManager: AbstractXMPPManager {
                         }
                         let predicateForDevices = NSPredicate(format: "owner == %@ AND jid == %@ AND deviceId == %@", argumentArray: [self.owner, jid.bare, deviceId])
                         do {
-                            let realm = try WRealm.safe()
                             guard let instance = realm.objects(SignalDeviceStorageItem.self).filter(predicateForDevices).first else {
                                 continue
                             }
@@ -285,18 +278,18 @@ class TrustSharingManager: AbstractXMPPManager {
                                     isPublicationNeeded = true
                                 }
                                 
-                                let item = DDXMLElement(name: "item")
-                                item.addAttribute(withName: "id", stringValue: String(deviceId))
-                                let itemsToGet = DDXMLElement(name: "items")
-                                itemsToGet.addAttribute(withName: "node", stringValue: self.node)
-                                itemsToGet.addChild(item)
-                                let pubsub = DDXMLElement(name: "pubsub", xmlns: "http://jabber.org/protocol/pubsub")
-                                pubsub.addChild(itemsToGet)
-                                let iq = XMPPIQ(iqType: .get, to: jid, child: pubsub)
-                                
-                                AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                                    stream.send(iq)
-                                })
+//                                let item = DDXMLElement(name: "item")
+//                                item.addAttribute(withName: "id", stringValue: String(deviceId))
+//                                let itemsToGet = DDXMLElement(name: "items")
+//                                itemsToGet.addAttribute(withName: "node", stringValue: self.node)
+//                                itemsToGet.addChild(item)
+//                                let pubsub = DDXMLElement(name: "pubsub", xmlns: "http://jabber.org/protocol/pubsub")
+//                                pubsub.addChild(itemsToGet)
+//                                let iq = XMPPIQ(iqType: .get, to: jid, child: pubsub)
+//                                
+//                                AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+//                                    stream.send(iq)
+//                                })
                             }
                         } catch {
                             fatalError()
@@ -321,6 +314,8 @@ class TrustSharingManager: AbstractXMPPManager {
         let share = DDXMLElement(name: "share", xmlns: self.getPrimaryNamespace())
         share.addAttribute(withName: "usage", stringValue: "urn:xmpp:omemo:2")
         
+        var omemoFingerprint = ""
+        
         do {
             let realm = try WRealm.safe()
             let predicate = NSPredicate(format: "owner == %@ AND jid != %@ AND state_ == %@", argumentArray: [self.owner, self.owner, "trusted"])
@@ -337,29 +332,33 @@ class TrustSharingManager: AbstractXMPPManager {
             for jid in jids {
                 let trustedItems = DDXMLElement(name: "trusted-items")
                 trustedItems.addAttribute(withName: "owner", stringValue: jid)
-                trustedItems.addAttribute(withName: "timestamp", stringValue: String(Date().timeIntervalSince1970))
+                trustedItems.addAttribute(withName: "timestamp", stringValue: String(Date().timeIntervalSince1970.rounded()))
                 for instance in instances {
                     if instance.jid == jid {
                         let trustedKey = String(instance.deviceId) + "::" + instance.fingerprint
                         let trust = DDXMLElement(name: "trust", stringValue: trustedKey.toBase64())
-                        trust.addAttribute(withName: "timestamp", stringValue: String(instance.trustDate.timeIntervalSince1970))
+                        trust.addAttribute(withName: "timestamp", stringValue: String(instance.trustDate.timeIntervalSince1970.rounded()))
                         trustedItems.addChild(trust)
                     }
                 }
                 share.addChild(trustedItems)
             }
+            
+            let deviceInstance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: deviceId))
+            omemoFingerprint = deviceInstance!.fingerprint.replacingOccurrences(of: " ", with: "").lowercased()
         } catch {
             fatalError()
         }
         
         guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
+              let omemoManager = AccountManager.shared.find(for: self.owner)?.omemo,
               let privateKey = akeManager.keyPair?.privateKey.bytes else {
             fatalError()
         }
         let publicKey = akeManager.getUsersPublicKey(jid: self.owner, deviceId: deviceId)
         let fingerprint = publicKey.toHexString()
         
-        let identityXML = DDXMLElement(name: "identity", stringValue: fingerprint)
+        let identityXML = DDXMLElement(name: "identity", stringValue: omemoFingerprint)
         identityXML.addAttribute(withName: "id", stringValue: String(deviceId))
         share.addChild(identityXML)
         
@@ -372,7 +371,6 @@ class TrustSharingManager: AbstractXMPPManager {
             for trust in trustsList {
                 stringToHash += "<" + trust.attributeStringValue(forName: "timestamp")! + "/" + trust.stringValue!
             }
-            stringToHash += "<"
         }
         
         let keyPair = Curve25519.load(fromPublicKey: akeManager.keyPair?.publicKey, andPrivateKey: akeManager.keyPair?.privateKey)
@@ -385,7 +383,17 @@ class TrustSharingManager: AbstractXMPPManager {
         let message = XMPPMessage(messageType: .chat, to: opponentFullJid, elementID: UUID().uuidString, child: share)
         message.addAttribute(withName: "from", stringValue: AccountManager.shared.find(for: self.owner)!.xmppStream.myJID!.full)
         
-        let iq = akeManager.getNotificationContainer(message: message, notificationTo: opponentFullJid)
+        let omemoEnvelope = omemoManager.prepareStanzaContent(message: "", date: Date(), jid: opponentFullJid.bare, additionalContent: [message], ignoreTimeSignature: true)
+        let omemoEncrypted = try! omemoManager.encryptMessage(message: omemoEnvelope!, to: opponentFullJid.bare)
+        let omemoMessage = XMPPMessage(messageType: .chat, to: opponentFullJid, elementID: UUID().uuidString, child: omemoEncrypted)
+        omemoMessage.addBody("Message was encrypted by OMEMO".localizeString(id: "message_omemo_encryption", arguments: []))
+        let encryptionElement = DDXMLElement(name: "encryption", xmlns: "urn:xmpp:eme:0")
+        encryptionElement.addAttribute(withName: "namespace", stringValue: "urn:xmpp:omemo:2")
+        omemoMessage.addChild(encryptionElement)
+        omemoMessage.addOriginId(UUID().uuidString)
+        omemoMessage.addAttribute(withName: "from", stringValue: self.owner)
+        
+        let iq = akeManager.getNotificationContainer(message: XMPPMessage(from: omemoMessage), notificationTo: opponentFullJid)
         
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
             stream.send(iq)
@@ -395,19 +403,25 @@ class TrustSharingManager: AbstractXMPPManager {
     func publicOwnTrustedDevices(publisherDeviceId: String) {
         let share = DDXMLElement(name: "share", xmlns: self.getPrimaryNamespace())
         share.addAttribute(withName: "usage", stringValue: "urn:xmpp:omemo:2")
+        
+        var omemoFingerprint = ""
+        
         do {
             let realm = try WRealm.safe()
             let predicate = NSPredicate(format: "owner == %@ AND jid == %@ AND state_ == %@", argumentArray: [self.owner, self.owner, "trusted"])
             let instances = realm.objects(SignalDeviceStorageItem.self).filter(predicate)
             let trustedItems = DDXMLElement(name: "trusted-items")
-            trustedItems.addAttribute(withName: "timestamp", stringValue: String(Date().timeIntervalSince1970))
+            trustedItems.addAttribute(withName: "timestamp", stringValue: String(Date().timeIntervalSince1970.rounded()))
             for instance in instances {
-                let trustedKey = String(instance.deviceId) + "::" + instance.fingerprint
+                let trustedKey = String(instance.deviceId) + "::" + instance.fingerprint.replacingOccurrences(of: " ", with: "").lowercased()
                 let trust = DDXMLElement(name: "trust", stringValue: trustedKey.toBase64())
-                trust.addAttribute(withName: "timestamp", stringValue: String(instance.trustDate.timeIntervalSince1970))
+                trust.addAttribute(withName: "timestamp", stringValue: String(instance.trustDate.timeIntervalSince1970.rounded()))
                 trustedItems.addChild(trust)
             }
             share.addChild(trustedItems)
+            
+            let deviceInstance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: Int(publisherDeviceId)!))
+            omemoFingerprint = deviceInstance!.fingerprint.replacingOccurrences(of: " ", with: "").lowercased()
         } catch {
             fatalError()
         }
@@ -421,7 +435,7 @@ class TrustSharingManager: AbstractXMPPManager {
         
         let fingerprint = publicKey.toHexString()
         
-        let identityXML = DDXMLElement(name: "identity", stringValue: fingerprint)
+        let identityXML = DDXMLElement(name: "identity", stringValue: omemoFingerprint)
         identityXML.addAttribute(withName: "id", stringValue: String(publisherDeviceId))
         share.addChild(identityXML)
         
@@ -434,7 +448,6 @@ class TrustSharingManager: AbstractXMPPManager {
             for trust in trustsList {
                 stringToHash += "<" + trust.attributeStringValue(forName: "timestamp")! + "/" + trust.stringValue!
             }
-            stringToHash += "<"
         }
         
         let keyPairCurve25519 = Curve25519.load(fromPublicKey: keyPair.publicKey, andPrivateKey: keyPair.privateKey)

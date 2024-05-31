@@ -34,18 +34,21 @@ class DevicesListViewController: BaseViewController {
             case token
             case broken
             case button
+            case session
         }
         
         var kind: Kind
         var title: String
-        var value: String
+        var value: String?
         var date: Date
         var status: ResourceStatus
         var editable: Bool
         var current: Bool
         var childs: [Datasource]
+        var verificationSid: String?
+        var verificationFullJid: String?
         
-        init(_ kind: Kind, title: String, value: String = "", date: Date = Date(), status: ResourceStatus = .offline, current: Bool = false, editable: Bool, childs: [Datasource] = []) {
+        init(_ kind: Kind, title: String, value: String? = nil, date: Date = Date(), status: ResourceStatus = .offline, current: Bool = false, editable: Bool, verificationSid: String? = nil, verificationFullJid: String? = nil, childs: [Datasource] = []) {
             self.kind = kind
             self.title = title
             self.value = value
@@ -53,6 +56,8 @@ class DevicesListViewController: BaseViewController {
             self.date = date
             self.current = current
             self.editable = editable
+            self.verificationSid = verificationSid
+            self.verificationFullJid = verificationFullJid
             self.childs = childs
         }
     }
@@ -69,6 +74,7 @@ class DevicesListViewController: BaseViewController {
     internal var omemoDevices: Array<SignalDeviceStorageItem> = []
     internal var brokenOmemoDevices: Array<SignalDeviceStorageItem> = []
     internal var omemoBundles: [SignalIdentityStorageItem] = []
+    internal var activeVerificationSession: VerificationSessionStorageItem? = nil
     
     internal let tableView: UITableView = {
 //        let view = UITableView(frame: .zero, style: .grouped)
@@ -108,6 +114,8 @@ class DevicesListViewController: BaseViewController {
                 .filter("owner == %@ AND jid == %@", jid, jid)
                 .toArray()
             
+            activeVerificationSession = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.jid, self.jid).first
+            
             self.brokenOmemoDevices = omemoDevices.filter {
                 device in
                 return !(devices.contains(where: {
@@ -120,7 +128,30 @@ class DevicesListViewController: BaseViewController {
     }
     
     internal func update() {
-        datasource = [Datasource(.current,
+        datasource = []
+        if activeVerificationSession != nil {
+            var text: String
+            var secondaryText, buttonTitle, buttonKey: String?
+            
+            (text, secondaryText, buttonTitle, buttonKey) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: self.activeVerificationSession!.state)
+            
+            datasource = [
+                Datasource(.session, title: "", value: "", editable: false, childs: [
+                    Datasource(.session, title: text, value: secondaryText, editable: false)
+                ])
+            ]
+            
+            if buttonKey != nil {
+                datasource[0].childs.append(Datasource(.button, title: buttonTitle!, value: buttonKey, editable: false, verificationSid: activeVerificationSession!.sid, verificationFullJid: activeVerificationSession!.fullJID))
+                if buttonKey == "show_verification_code" || buttonKey == "enter_verification_code" {
+                    datasource[0].childs.append(Datasource(.button, title: "Cancel", value: "cancel_verification", editable: false, verificationSid: activeVerificationSession!.sid, verificationFullJid: activeVerificationSession!.fullJID))
+                } else if buttonKey == "accept_verification" {
+                    datasource[0].childs.append(Datasource(.button, title: "Reject", value: "reject_verification", editable: false, verificationSid: activeVerificationSession!.sid, verificationFullJid: activeVerificationSession!.fullJID))
+                }
+            }
+        }
+        
+        datasource.append(Datasource(.current,
                                  title: "This device".localizeString(id: "settings_account__label_current_session", arguments: []),
                                  value: "Logs out all devices except this one.".localizeString(id: "settings_account_label_log_out_all", arguments: []),
                                  editable: false,
@@ -128,8 +159,8 @@ class DevicesListViewController: BaseViewController {
                                                      title: " ",
                                                      value: account.resource?.resource ?? "",
                                                      editable: false),
-                                          Datasource(.button, title: "Terminate all other sessions".localizeString(id: "account_terminate_all_sessions", arguments: []), editable: false)])
-        ]
+                                          Datasource(.button, title: "Terminate all other sessions".localizeString(id: "account_terminate_all_sessions", arguments: []), editable: false)]))
+        
         if devices.isNotEmpty {
             datasource.append(Datasource(.token,
                                          title: "Active devices".localizeString(id: "settings_account__label_active_sessions", arguments: []),
@@ -185,6 +216,24 @@ class DevicesListViewController: BaseViewController {
                     self.tableView.reloadData()
                 })
                 .disposed(by: bag)
+            
+            let verificationSessions = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.jid, self.jid)
+            Observable
+                .collection(from: verificationSessions)
+                .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
+                .subscribe { results in
+                DispatchQueue.main.async {
+                    self.load()
+                    self.update()
+                    self.tableView.reloadData()
+                }
+            } onError: { error in
+                
+            } onCompleted: {
+                
+            } onDisposed: {
+                
+            }.disposed(by: self.bag)
         } catch {
             DDLogDebug("DevicesListViewController: \(#function). \(error.localizedDescription)")
         }
