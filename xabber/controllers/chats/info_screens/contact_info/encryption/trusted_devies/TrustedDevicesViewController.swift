@@ -497,7 +497,6 @@ extension TrustedDevicesViewController: UITableViewDataSource {
                 } else {
                     cellConfig.textProperties.color = .systemBlue
                 }
-//                cellConfig.textProperties.alignment = .center
                 cell.contentConfiguration = cellConfig
                 
                 return cell
