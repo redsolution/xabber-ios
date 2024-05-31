@@ -125,8 +125,8 @@ extension LastChatsViewController {
         }()
         
         let avatarView: SkeletonView = {
-            let view = SkeletonView(frame: CGRect(square: 56))
-            if let image = UIImage(named: AccountMasksManager.shared.mask56pt), AccountMasksManager.shared.load() != "square" {
+            let view = SkeletonView(frame: CGRect(square: 64))
+            if let image = UIImage(named: AccountMasksManager.shared.mask56pt)?.upscale(dimension: 64), AccountMasksManager.shared.load() != "square" {
                 view.mask = UIImageView(image: image)
             } else {
                 view.mask = nil
@@ -163,14 +163,14 @@ extension LastChatsViewController {
         
         func setup() {
             self.backgroundColor = .systemBackground
-            self.userImageView.frame = CGRect(x: 10, y: 10, width: 56, height: 56)
+            self.userImageView.frame = CGRect(x: 10, y: 10, width: 64, height: 64)
             self.usernameView.frame = CGRect(
-                origin: CGPoint(x: 72, y: 6),
-                size: CGSize(width: UIScreen.main.bounds.width - 88, height: 18)
+                origin: CGPoint(x: 96, y: 10),
+                size: CGSize(width: UIScreen.main.bounds.width - 102, height: 18)
             )
             self.messageView.frame = CGRect(
-                origin: CGPoint(x: 72, y: 32),
-                size: CGSize(width: UIScreen.main.bounds.width - 88, height: 32)
+                origin: CGPoint(x: 96, y: 38),
+                size: CGSize(width: UIScreen.main.bounds.width - 102, height: 32)
             )
             self.addSubview(self.userImageView)
             self.userImageView.addSubview(self.avatarView)

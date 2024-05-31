@@ -1322,13 +1322,11 @@ class GroupchatManager: AbstractXMPPManager {
     
     private final func onCreate(_ iq: XMPPIQ) -> Bool {
         guard let elementId = iq.elementID,
+            let query = iq.element(forName: "query", xmlns: xmlns("create")),
             queryIds.contains(elementId),
             let from = iq.from?.domain,
-            iq.element(forName: "error") == nil,
-            let query = iq.element(forName: "query", xmlns: xmlns("create")) else {//,
-//            let localPart = query.element(forName: "localpart")?.stringValue,
-//            let jid = XMPPJID(string: [localPart, from].joined(separator: "@"))?.bare else {
-                return false
+            iq.element(forName: "error") == nil else {
+            return false
         }
         
         var unwrappedJid: String? = query.element(forName: "jid")?.stringValue
@@ -1343,42 +1341,24 @@ class GroupchatManager: AbstractXMPPManager {
         queryIds.remove(elementId)
         if let item = queueItems.first(where: { $0.elementId == elementId }) {
             if item.value == "peer-to-peer" {
-                XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
-                    session.groupchat?.join(stream, uiConnection: true, groupchat: jid) { (nil) in
+                AccountManager.shared.find(for: self.owner)?.unsafeAction({ (user, stream) in
+                    user.groupchats.join(stream, uiConnection: false, groupchat: jid) { (nil) in
                         
                     }
-                }, fail: {
-                    AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                        user.groupchats.join(stream, uiConnection: false, groupchat: jid) { (nil) in
-                            
-                        }
-                    })
                 })
-                DispatchQueue.main.async {
-                    getAppTabBar()?.displayChat(
-                        owner: self.owner,
-                        jid: jid,
-                        entity: .privateChat,
-                        conversationType: .group
-                    )
-                }
             }
             item.callback?("success")
             queueItems.remove(item)
         }
         
         queueItems.insert(QueueItem(.join, elementId: [jid, "create"].prp(), callback: nil))
-        AccountManager.shared.find(for: owner)?.action({ (user, stream) in
+        AccountManager.shared.find(for: owner)?.unsafeAction({ (user, stream) in
+            user.roster.setContact(stream, jid: jid, nickname: query.element(forName: "name")?.stringValue)
             stream.send(XMPPPresence(type: .subscribe, to: XMPPJID(string: jid)))
             stream.send(XMPPPresence(type: .subscribed, to: XMPPJID(string: jid)))
         })
         do {
             let realm = try  WRealm.safe()
-            if let name = query.element(forName: "name")?.stringValue {
-                AccountManager.shared.find(for: owner)?.action({ (user, stream) in
-                    user.roster.setContact(stream, jid: jid, nickname: name, groups: [])
-                })
-            }
             if realm.object(ofType: GroupChatStorageItem.self,
                             forPrimaryKey: [jid, owner].prp()) == nil {
                 let instance = GroupChatStorageItem()

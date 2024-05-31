@@ -51,6 +51,54 @@ class LastChats: AbstractXMPPManager {
         }
     }
     
+    public final func initChat(jid: String, conversationType: ClientSynchronizationManager.ConversationType) {
+        do {
+            let realm = try WRealm.safe()
+            if realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: self.owner, conversationType: conversationType)) == nil {
+                let initialMessageInstance = MessageStorageItem()
+
+                initialMessageInstance.configureInitialMessage(
+                    owner,
+                    opponent: jid,
+                    conversationType: conversationType,
+                    text: conversationType == .omemo ? "Encrypted chat created".localizeString(id: "encrypted_chat_created", arguments: []) : "New chat created",
+                    date: Date(),
+                    isRead: true
+                )
+
+                initialMessageInstance.isDeleted = false
+                let instance = LastChatsStorageItem()
+                instance.owner = self.owner
+                instance.jid = jid
+                instance.conversationType = conversationType
+                instance.messageDate = Date()
+                instance.primary = LastChatsStorageItem.genPrimary(jid: jid, owner: self.owner, conversationType: conversationType)
+                instance.isFreshNotEmptyEncryptedChat = conversationType == .omemo
+                instance.rosterItem = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: self.owner))
+                
+                try realm.write {
+                    realm.add(instance, update: .modified)
+                    if let messageInstance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: initialMessageInstance.primary) {
+                        instance.lastMessage = messageInstance
+                    } else {
+                        instance.lastMessage = initialMessageInstance
+                    }
+                }
+            }
+            if conversationType == .omemo {
+                XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, _ in
+                    AccountManager.shared.find(for: self.owner)?.omemo.getContactDevices(stream, jid: jid)
+                } fail: {
+                    AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                        user.omemo.getContactDevices(stream, jid: jid)
+                    })
+                }
+            }
+        } catch {
+            DDLogDebug("LastChats: \(#function). \(error.localizedDescription)")
+        }
+    }
+    
     static func remove(for owner: String, commitTransaction: Bool) {
         do {
             let realm = try WRealm.safe()

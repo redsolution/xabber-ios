@@ -42,6 +42,16 @@ class VCardManager: AbstractXMPPManager {
     
     internal var queue: SynchronizedArray<String> = SynchronizedArray<String>()
     
+    override func namespaces() -> [String] {
+        return [
+            "vcard-temp"
+        ]
+    }
+    
+    override func getPrimaryNamespace() -> String {
+        return namespaces().first!
+    }
+    
     static public func getVcardStructure(_ vcard: vCardStorageItem, jid: String) -> [VCardMetaItem] {
         var out: [VCardMetaItem] = []
         
@@ -140,11 +150,7 @@ class VCardManager: AbstractXMPPManager {
             ])
         return out
     }
-    
-    override func namespaces() -> [String] {
-        return ["vcard-temp"]
-    }
-    
+        
     internal func actualizeAccountUsername() {
         do {
             var result: String = "\(owner.split(separator: "@").first ?? "")"
@@ -167,9 +173,13 @@ class VCardManager: AbstractXMPPManager {
     }
     
     override func read(withIQ iq: XMPPIQ) -> Bool {
-        guard let from = iq.from?.bare,
-            let query = iq.element(forName: "vCard", xmlns: "vcard-temp") else {
+        guard let elementID = iq.elementID,
+            let from = iq.from?.bare,
+            let query = iq.element(forName: "vCard", xmlns: getPrimaryNamespace()) else {
                 return false
+        }
+        if elementID == self.addContactVcardCheckId {
+            self.addContactVcardCheckCallback?(from, iq.iqType != .error)
         }
         if iq.element(forName: "error") != nil || iq.iqType == .error {
             do {
@@ -426,12 +436,22 @@ class VCardManager: AbstractXMPPManager {
         }
     }
     
-    public final func requestItem(_ xmppStream: XMPPStream, jid: String) {
-        var to: XMPPJID? = nil
-        if jid != self.owner {
-            to = XMPPJID(string: jid)
+    open var addContactVcardCheckCallback: ((String, Bool) -> Void)? = nil
+    open var addContactVcardCheckId: String? = nil
+    
+    public final func requestItem(_ xmppStream: XMPPStream, jid: String, addContactVcardCheckCallback: ((String, Bool) -> Void)? = nil) {
+        let elementId = "vCard: \(NanoID.new(8))"
+        let iq = XMPPIQ(
+            iqType: .get,
+            to: jid == self.owner ? nil : XMPPJID(string: jid),
+            elementID: elementId,
+            child: DDXMLElement(name: "vCard", xmlns: getPrimaryNamespace())
+        )
+        if addContactVcardCheckCallback != nil {
+            self.addContactVcardCheckCallback = addContactVcardCheckCallback
+            self.addContactVcardCheckId = elementId
         }
-        xmppStream.send(XMPPIQ(iqType: .get, to: to, elementID: xmppStream.generateUUID, child: DDXMLElement(name: "vCard", xmlns: "vcard-temp")))
+        xmppStream.send(iq)
     }
     
     func update(_ xmppStream: XMPPStream) {

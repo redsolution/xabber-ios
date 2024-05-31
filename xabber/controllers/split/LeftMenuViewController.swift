@@ -61,11 +61,7 @@ class LeftMenuViewController: UIViewController {
             let label = UILabel()
             
             label.font = UIFont.preferredFont(forTextStyle: .body)
-            if #available(iOS 13.0, *) {
-                label.textColor = .label
-            } else {
-                label.textColor = .darkText
-            }
+            label.textColor = .label
             
             return label
         }()
@@ -74,11 +70,7 @@ class LeftMenuViewController: UIViewController {
             let label = UILabel()
             
             label.font = UIFont.preferredFont(forTextStyle: .caption1)
-            if #available(iOS 13.0, *) {
-                label.textColor = .secondaryLabel
-            } else {
-                label.textColor = MDCPalette.grey.tint500//.systemGray
-            }
+            label.textColor = .secondaryLabel
             
             return label
         }()
@@ -148,12 +140,26 @@ class LeftMenuViewController: UIViewController {
     var archivedVc: LastChatsViewController? = nil
     var callsVc: LastCallsViewController? = nil
     var notificationsVc: NotificationsListViewController? = nil
+    var notificationsCategoriesVc: NotificationsCategoriesViewController? = nil
     var contactsVc: ContactsViewController? = nil
     
     private let tableView: UITableView = {
         let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(UITableViewCell.self, forCellReuseIdentifier: "tablecell")
+        view.separatorStyle = .none
+        
+        return view
+    }()
+    
+    internal let accountButton: UIButton = {
+        let button = UIButton(frame: .zero)
+        
+        return button
+    }()
+    
+    internal let accountView: AccountView = {
+        let view = AccountView()
         
         return view
     }()
@@ -174,14 +180,20 @@ class LeftMenuViewController: UIViewController {
                 Datasource(title: "Contacts", icon: "person.2", key: "contacts", subtitle: "\(contactsCount)"),
                 Datasource(title: "Archive", icon: "archivebox", key: "archive", subtitle: "\(archivedCount)"),
     //            Datasource(title: "Saved messages", icon: "bookmark", key: "saved"),
-            ],[
+            ],
+//            [
     //            Datasource(title: "About", icon: "lightbulb", key: "about"),
-                Datasource(title: "Settings", icon: "gear", key: "settings", subtitle: ""),
-            ]
+//                Datasource(title: "Settings", icon: "gear", key: "settings", subtitle: ""),
+//            ]
            ]
         } catch {
             DDLogDebug("LeftMenuViewController: \(#function). \(error.localizedDescription)")
         }
+        
+    }
+    
+    @objc
+    private func onAppear() {
         
     }
     
@@ -205,7 +217,7 @@ class LeftMenuViewController: UIViewController {
                 .collection(from: accounts)
                 .subscribe { results in
                     if let item = results.first {
-                        self.bottomBar.update(nickname: item.username, jid: item.jid, status: .online, avatarUrl: item.avatarMaxUrl ?? item.avatarMinUrl ?? item.oldschoolAvatarKey ?? "none")
+                        self.accountView.update(nickname: item.username, jid: item.jid, status: .online, avatarUrl: item.avatarMaxUrl ?? item.avatarMinUrl ?? item.oldschoolAvatarKey ?? "none")
                     }
                 } onError: { _ in
                     
@@ -321,11 +333,11 @@ class LeftMenuViewController: UIViewController {
         self.bag = DisposeBag()
     }
     
-    internal let bottomBar: AccountView = {
-        let view = AccountView()
-        
-        return view
-    }()
+//    internal let bottomBar: AccountView = {
+//        let view = AccountView()
+//        
+//        return view
+//    }()
     
     public func configure() {
         self.title = CommonConfigManager.shared.config.app_name.capitalized
@@ -336,16 +348,35 @@ class LeftMenuViewController: UIViewController {
         tableView.delegate = self
         tableView.dataSource = self
         loadDatasource()
-        bottomBar.configure()
-        self.view.addSubview(bottomBar)
-        self.view.bringSubviewToFront(bottomBar)
+        
+//        bottomBar.configure()
+//        self.view.addSubview(bottomBar)
+//        self.view.bringSubviewToFront(bottomBar)
         var inputHeight: CGFloat = 80
         if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
             inputHeight += bottomInset
         }
-        
-        let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
-        bottomBar.frame = frame
+        let size = CGSize(width: self.view.bounds.width, height: inputHeight)
+        let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: size)
+//        bottomBar.frame = frame
+        self.accountView.frame = CGRect(origin: .zero, size: size)
+        self.accountView.configure()
+        self.accountButton.frame = frame
+        self.accountButton.addSubview(accountView)
+        self.view.addSubview(accountButton)
+        self.view.bringSubviewToFront(accountButton)
+        self.accountButton.addTarget(self, action: #selector(onAccountButton), for: .touchUpInside)
+        self.accountView.isUserInteractionEnabled = false
+    }
+    
+    @objc
+    func onAccountButton(_ sender: UIButton) {
+        let vc = SettingsViewController()
+        vc.jid = AccountManager.shared.users.first?.jid ?? ""
+        vc.owner = AccountManager.shared.users.first?.jid ?? ""
+        showModal(vc, from: self)
+        self.splitViewController?.show(.supplementary)
+        self.splitViewController?.hide(.primary)
     }
     
     override func viewDidLoad() {
@@ -360,6 +391,12 @@ class LeftMenuViewController: UIViewController {
                                                selector: #selector(languageChanged),
                                                name: .newLanguageSelected,
                                                object: nil)
+        NotificationCenter
+            .default
+            .addObserver(self,
+                         selector: #selector(onAppear),
+                         name: UIApplication.willEnterForegroundNotification,
+                         object: UIApplication.shared)
     }
 
     @objc
@@ -378,6 +415,7 @@ class LeftMenuViewController: UIViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -410,6 +448,11 @@ extension LeftMenuViewController: UITableViewDataSource {
         
         cell.detailTextLabel?.text = text == "0" ? "" : text
         
+        cell.backgroundColor = .clear
+        cell.layer.cornerRadius = 8
+        cell.layer.masksToBounds = true
+        
+        
         return cell
     }
     
@@ -424,7 +467,6 @@ extension LeftMenuViewController: UITableViewDelegate {
     private func show(controller vc: UIViewController) {
         if UIDevice.current.userInterfaceIdiom == .pad {
             self.splitViewController?.setViewController(vc, for: .supplementary)
-//            self.splitViewController?.show(.supplementary)
             self.splitViewController?.hide(.primary)
         } else {
             UIView.performWithoutAnimation {
@@ -438,9 +480,11 @@ extension LeftMenuViewController: UITableViewDelegate {
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         let key = self.datasource[indexPath.section][indexPath.row].key
+        self.onAppear()
         switch key {
             case "chat":
                 if let vc = self.chatsVc {
+                    vc.filter.accept(.chats)
                     self.show(controller: vc)
                 } else {
                     let vc = LastChatsViewController()
@@ -451,10 +495,16 @@ extension LeftMenuViewController: UITableViewDelegate {
                 let vc = SettingsViewController()
                 vc.jid = AccountManager.shared.users.first?.jid ?? ""
                 vc.owner = AccountManager.shared.users.first?.jid ?? ""
-                showModal(vc, from: self)
                 self.splitViewController?.show(.supplementary)
                 self.splitViewController?.hide(.primary)
+                showModal(vc, from: self)
             case "calls":
+                if self.chatsVc?.filter.value == .unread {
+                    self.chatsVc?.filter.accept(.chats)
+                }
+                if self.archivedVc?.filter.value == .unread {
+                    self.archivedVc?.filter.accept(.archived)
+                }
                 if let vc = self.callsVc {
                     self.show(controller: vc)
                 } else {
@@ -463,6 +513,12 @@ extension LeftMenuViewController: UITableViewDelegate {
                     self.show(controller: vc)
                 }
             case "mentions":
+                if self.chatsVc?.filter.value == .unread {
+                    self.chatsVc?.filter.accept(.chats)
+                }
+                if self.archivedVc?.filter.value == .unread {
+                    self.archivedVc?.filter.accept(.archived)
+                }
                 if let vc = self.notificationsVc {
                     self.show(controller: vc)
                 } else {
@@ -471,31 +527,68 @@ extension LeftMenuViewController: UITableViewDelegate {
                     self.show(controller: vc)
                 }
             case "notifications":
-                if let vc = self.notificationsVc {
-                    self.show(controller: vc)
-                } else {
-                    let vc = NotificationsListViewController()
-                    self.notificationsVc = vc
-                    self.show(controller: vc)
+                if self.chatsVc?.filter.value == .unread {
+                    self.chatsVc?.filter.accept(.chats)
                 }
+                if self.archivedVc?.filter.value == .unread {
+                    self.archivedVc?.filter.accept(.archived)
+                }
+                if UIDevice.current.userInterfaceIdiom == .pad {
+                    if let vc = self.notificationsCategoriesVc {
+                        let svc = NotificationsListViewController()
+                        self.show(controller: vc)
+                        self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: svc), sender: self)
+                        
+                    } else {
+                        let vc = NotificationsCategoriesViewController()
+                        self.notificationsCategoriesVc = vc
+                        let svc = NotificationsListViewController()
+                        
+                        self.show(controller: vc)
+                        self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: svc), sender: self)
+                    }
+                } else {
+                    if let vc = self.notificationsVc {
+                        self.show(controller: vc)
+                    } else {
+                        let vc = NotificationsListViewController()
+                        self.notificationsVc = vc
+                        self.show(controller: vc)
+                    }
+                }
+                
             case "contacts":
+                if self.chatsVc?.filter.value == .unread {
+                    self.chatsVc?.filter.accept(.chats)
+                }
+                if self.archivedVc?.filter.value == .unread {
+                    self.archivedVc?.filter.accept(.archived)
+                }
                 if let vc = self.contactsVc {
                     self.show(controller: vc)
                 } else {
                     let vc = ContactsViewController()
                     self.contactsVc = vc
                     self.show(controller: vc)
-                }
+                 }
             case "archive":
                 if let vc = self.archivedVc {
+                    vc.filter.accept(.archived)
                     self.show(controller: vc)
                 } else {
                     let vc = LastChatsViewController()
-                    vc.filter.accept(LastChatsViewController.Filter.archived)
+                    vc.shouldShowBottomBar = false
+                    vc.filter.accept(.archived)
                     self.archivedVc = vc
                     self.show(controller: vc)
                 }
             case "saved":
+                if self.chatsVc?.filter.value == .unread {
+                    self.chatsVc?.filter.accept(.chats)
+                }
+                if self.archivedVc?.filter.value == .unread {
+                    self.archivedVc?.filter.accept(.archived)
+                }
                 if let vc = self.chatsVc {
                     vc.filter.accept(LastChatsViewController.Filter.chats)
                     self.show(controller: vc)

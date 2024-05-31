@@ -77,18 +77,15 @@ extension LastCallsViewController {
         }
         
         open func configure(onCreateChatCallback: @escaping (() -> Void)) {
-            if #available(iOS 13.0, *) {
-                backgroundColor = .systemBackground
-            } else {
-                backgroundColor = .white
-            }
+            backgroundColor = .systemBackground
             addSubview(stack)
             stack.fillSuperview()
             stack.addArrangedSubview(UIStackView())
             stack.addArrangedSubview(centerStack)
             stack.addArrangedSubview(UIStackView())
             centerStack.addArrangedSubview(titleLabel)
-            centerStack.addArrangedSubview(newChatButton)
+//            centerStack.addArrangedSubview(newChatButton)
+            titleLabel.text = "Under construction"
             titleLabel.text = "You don't have any calls".localizeString(id: "chat_no_calls_hint", arguments: [])
             newChatButton.setTitle("Add someone to your contacts, then send some messages."
                                     .localizeString(id: "chat_add_contacts_hint",

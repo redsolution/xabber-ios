@@ -103,6 +103,8 @@ class NotificationsListViewController: SimpleBaseViewController {
         
         view.separatorStyle = .none
         
+        view.allowsSelection = true
+        
         return view
     }()
     
@@ -145,7 +147,7 @@ class NotificationsListViewController: SimpleBaseViewController {
     
     override func configure() {
         super.configure()
-        self.title = "Notifications"
+        self.title = "All"
         self.tableView.dataSource = self
         self.tableView.delegate = self
         self.emptyView.configure {
@@ -351,6 +353,12 @@ extension NotificationsListViewController: UITableViewDataSource {
                     fatalError()
                 }
                 cell.configure(item.jid!, owner: self.owner, username: "username", date: item.date, verificationState: item.verificationState!)
+                cell.accessoryType = .disclosureIndicator
+                
+                let view = UIView()
+                view.backgroundColor = AccountColorManager.shared.palette(for: item.owner).tint50
+                cell.selectedBackgroundView = view
+                
                 return cell
             case .contact:
                 guard let cell = tableView.dequeueReusableCell(withIdentifier: ContactItemCell.cellName, for: indexPath) as? ContactItemCell else {
@@ -365,6 +373,12 @@ extension NotificationsListViewController: UITableViewDataSource {
 //                cell.collectionView.delegate = self
 //                cell.collectionView.dataSource = self
 //                
+                cell.accessoryType = .disclosureIndicator
+                
+                let view = UIView()
+                view.backgroundColor = AccountColorManager.shared.palette(for: item.owner).tint50
+                cell.selectedBackgroundView = view
+                
                 return cell
             case .device:
                 guard let cell = tableView.dequeueReusableCell(withIdentifier: DeviceItemCell.cellName, for: indexPath) as? DeviceItemCell else {
@@ -373,6 +387,12 @@ extension NotificationsListViewController: UITableViewDataSource {
                 
                 cell.configure("", owner: self.owner, username: XMPPJID(string: self.owner)?.domain ?? self.owner, title: item.title, message: item.message, date: item.date)
 //                cell.accessoryType = .disclosureIndicator
+                cell.accessoryType = .disclosureIndicator
+                
+                
+                let view = UIView()
+                view.backgroundColor = AccountColorManager.shared.palette(for: item.owner).tint50
+                cell.selectedBackgroundView = view
                 
                 return cell
             case .mention:
@@ -475,7 +495,9 @@ extension NotificationsListViewController: UITableViewDelegate {
                 }
                 let vc = ShowCodeViewController(owner: self.owner, jid: jid, code: code, sid: sid, isVerificationWithUsersDevice: isVerificationWithUsersDevice)
                 vc.configure()
-                self.present(vc, animated: true)
+                self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: vc), sender: self)
+                self.splitViewController?.hide(.primary)
+//                self.present(vc, animated: true)
                 return
             } else if item.verificationState == .receivedRequestAccept {
                 guard let sid = item.verificationSid,
@@ -525,7 +547,9 @@ extension NotificationsListViewController: UITableViewDelegate {
             case .contact:
                 let vc = NotificationsSubscribtionsListViewController()
                 vc.owner = item.owner
-                self.navigationController?.pushViewController(vc, animated: true)
+                self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: vc), sender: self)
+                self.splitViewController?.hide(.primary)
+//                self.navigationController?.pushViewController(vc, animated: true)
             case .device:
                 do {
                     let realm = try WRealm.safe()
@@ -534,11 +558,15 @@ extension NotificationsListViewController: UITableViewDelegate {
                         vc.owner = item.owner
                         vc.jid = item.owner
                         vc.uid = item.key
-                        self.navigationController?.pushViewController(vc, animated: true)
+                        self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: vc), sender: self)
+                        self.splitViewController?.hide(.primary)
+//                        self.navigationController?.pushViewController(vc, animated: true)
                     } else {
                         let vc = DevicesListViewController()
                         vc.configure(for: item.owner)
-                        self.navigationController?.pushViewController(vc, animated: true)
+                        self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: vc), sender: self)
+                        self.splitViewController?.hide(.primary)
+//                        self.navigationController?.pushViewController(vc, animated: true)
                     }
                 } catch {
                     DDLogDebug("NotificationListViewController: \(#function). \(error.localizedDescription)")

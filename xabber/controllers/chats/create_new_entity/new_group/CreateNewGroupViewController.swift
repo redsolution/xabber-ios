@@ -69,37 +69,7 @@ class CreateNewGroupViewController: BaseViewController {
     internal var creatingOwnerJid: String? = nil
     
     internal var datasource: [[CellKind]] = []
-    
-    private var tableViewBottomInset: CGFloat = 8 {
-        didSet {
-            self.tableView.contentOffset.y = self.tableViewBottomInset
-            self.tableView.contentInset.bottom = self.tableViewBottomInset
-            self.tableView.scrollIndicatorInsets.bottom = self.tableViewBottomInset
-        }
-    }
-    private var automaticallyAddedBottomInset: CGFloat {
-        if #available(iOS 11.0, *) {
-            return tableView.adjustedContentInset.bottom - tableView.contentInset.bottom
-        } else {
-            return 0
-        }
-    }
-    
-    private var additionalBottomInset: CGFloat = 8 {
-        didSet {
-            let delta = additionalBottomInset - oldValue
-            tableViewBottomInset += delta
-        }
-    }
-    
-    private var initialBottomInset: CGFloat {
-        if #available(iOS 11, *) {
-            return 0
-        } else {
-            return 8
-        }
-    }
-    
+        
     internal let saveButton: UIBarButtonItem = {
         let button = UIBarButtonItem(title: "Create".localizeString(id: "create", arguments: []),
                                      style: .plain, target: nil, action: nil)
@@ -121,8 +91,6 @@ class CreateNewGroupViewController: BaseViewController {
 //        let view = UITableView(frame: .zero, style: .grouped)
         let view = InsetGroupedTableView(frame: .zero)
         
-        view.keyboardDismissMode = .interactive
-        
         view.register(DescriptionCell.self, forCellReuseIdentifier: DescriptionCell.cellName)
         view.register(ItemCell.self, forCellReuseIdentifier: ItemCell.cellName)
         view.register(JidSelectCell.self, forCellReuseIdentifier: JidSelectCell.cellName)
@@ -131,39 +99,8 @@ class CreateNewGroupViewController: BaseViewController {
         return view
     }()
     
-    internal let dimmedView: UIView = {
-        let view = UIView()
-        
-        view.backgroundColor = UIColor.black.withAlphaComponent(0.1)
-        
-        return view
-    }()
-    
-    internal func requiredScrollViewBottomInset(forKeyboardFrame keyboardFrame: CGRect) -> CGFloat {
-        let intersection = tableView.frame.intersection(keyboardFrame)
-        if intersection.isNull || intersection.maxY < tableView.frame.maxY {
-            return max(initialBottomInset, additionalBottomInset - automaticallyAddedBottomInset)
-        } else {
-            return max(initialBottomInset, intersection.height + additionalBottomInset - automaticallyAddedBottomInset)
-        }
-    }
-    
-    @objc
-    internal func handleKeyboardDidChangeState(_ notification: Notification) {
-        guard let keyboardStartFrameInScreenCoords = notification
-            .userInfo?[UIResponder.keyboardFrameBeginUserInfoKey] as? CGRect,
-            !keyboardStartFrameInScreenCoords.isEmpty,
-            let keyboardEndFrameInScreenCoords = notification
-                .userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
-        let keyboardEndFrame = view.convert(keyboardEndFrameInScreenCoords, from: view.window)
-        let newBottomInset = requiredScrollViewBottomInset(forKeyboardFrame: keyboardEndFrame)
-        print("AAAAAAKKKAAAA", newBottomInset)
-        tableViewBottomInset = newBottomInset
-    }
-    
     internal func subscribe() {
         bag = DisposeBag()
-        addObservers()
         name
             .asObservable()
             .subscribe(onNext: { (value) in
@@ -198,36 +135,16 @@ class CreateNewGroupViewController: BaseViewController {
             })
             .disposed(by: bag)
         
-        inSaveMode
-            .asObservable()
-//            .debounce(.milliseconds(5), scheduler: MainScheduler.asyncInstance)
-            .subscribe(onNext: { (value) in
-                if value {
-                    self.tableView.resignFirstResponder()
-                    self.dimmedView.frame = self.view.bounds
-                    self.view.addSubview(self.dimmedView)
-                    self.view.bringSubviewToFront(self.dimmedView)
-                } else {
-                    self.dimmedView.removeFromSuperview()
-                }
-            }).disposed(by: bag)
+//        inSaveMode
+//            .asObservable()
+////            .debounce(.milliseconds(5), scheduler: MainScheduler.asyncInstance)
+//            .subscribe(onNext: { (value) in
+//
+//            }).disposed(by: bag)
     }
     
     internal func unsubscribe() {
         bag = DisposeBag()
-        removeObservers()
-    }
-    
-    func addObservers() {
-        NotificationCenter.default.addObserver(self, selector: #selector(self.handleKeyboardDidChangeState(_:)), name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
-    }
-    
-    func removeObservers() {
-        NotificationCenter.default.removeObserver(self, name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
-    }
-    
-    internal func activateConstraints() {
-        
     }
     
     internal func configureNavbar() {
@@ -237,7 +154,6 @@ class CreateNewGroupViewController: BaseViewController {
             title = "New group".localizeString(id: "groupchats_new_group", arguments: [])
         }
         navigationItem.setRightBarButton(saveButton, animated: true)
-//        saveButton.action = #selector(onSave)
     }
     
     internal func configureDatasource() {
@@ -247,9 +163,7 @@ class CreateNewGroupViewController: BaseViewController {
             sectionHeaders = [
                 "Select XMPP account".localizeString(id: "select_xmpp_account", arguments: []),
                 "Group name".localizeString(id: "groupchat_name", arguments: []),
-                "Group XMPP ID".localizeString(id: "groupchats_group_xmpp_id", arguments: []),
-                "Settings".localizeString(id: "settings", arguments: []),
-                "Description".localizeString(id: "groupchat_description", arguments: [])
+                "Group XMPP ID".localizeString(id: "groupchats_group_xmpp_id", arguments: [])
             ]
             
             sectionFooter = [
@@ -258,22 +172,16 @@ class CreateNewGroupViewController: BaseViewController {
                 "For example: Developer`s chat"
                     .localizeString(id: "groupchats_example_chat_name", arguments: []),
                 "You can select custom server, which support groups."
-                    .localizeString(id: "groupchats_select_custom_server_hint", arguments: []),
-                nil,
-                nil
+                    .localizeString(id: "groupchats_select_custom_server_hint", arguments: [])
             ]
             
             datasource = [[.account],
                           [.common],
-                          [.server],
-                          [.membership, .index],
-                          [.description]]
+                          [.server]]
         } else {
             sectionHeaders = [
                 nil,
                 "Group XMPP ID".localizeString(id: "groupchats_group_xmpp_id", arguments: []),
-                "Settings".localizeString(id: "settings", arguments: []),
-                "Description".localizeString(id: "groupchat_description", arguments: [])
             ]
             
             sectionFooter = [
@@ -281,14 +189,10 @@ class CreateNewGroupViewController: BaseViewController {
                     .localizeString(id: "groupchats_example_chat_name", arguments: []),
                 "You can select custom server, which support groups."
                     .localizeString(id: "groupchats_select_custom_server_hint", arguments: []),
-                nil,
-                nil
             ]
             
             datasource = [[.common],
-                          [.server],
-                          [.membership, .index],
-                          [.description]]
+                          [.server]]
         }
     }
     
@@ -300,7 +204,6 @@ class CreateNewGroupViewController: BaseViewController {
         tableView.dataSource = self
         configureNavbar()
         configureDatasource()
-        hideKeyboardWhenTappedAround()
         
     }
     
@@ -319,8 +222,6 @@ class CreateNewGroupViewController: BaseViewController {
         if let selected = tableView.indexPathForSelectedRow {
             tableView.deselectRow(at: selected, animated: animated)
         }
-//        XMPPUIActionManager.shared.close()
-        XMPPUIActionManager.shared.open(owner: account["value"]!)
     }
     
     override func viewWillDisappear(_ animated: Bool) {

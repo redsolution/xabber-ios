@@ -655,7 +655,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 realm.add(instance)
             }
         } catch {
-            fatalError()
+            DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
         }
                         
         let childs = self.getMessageChildsForVerififcationRequest(sid: sid, deviceId: deviceId)

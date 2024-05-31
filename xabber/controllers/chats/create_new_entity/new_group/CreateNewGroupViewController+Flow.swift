@@ -38,8 +38,8 @@ extension CreateNewGroupViewController {
         }
         
         
-        XMPPUIActionManager.shared.performRequest(owner: self.account["value"]!, action: { (stream, session) in
-            session.groupchat?.create(
+        AccountManager.shared.find(for: self.account["value"]!)?.action({ (user, stream) in
+            user.groupchats.create(
                 stream,
                 server: self.server["value"]!,
                 name: self.name.value!,
@@ -61,57 +61,7 @@ extension CreateNewGroupViewController {
                     }
                 }
             }
-        }, fail: {
-            AccountManager.shared.find(for: self.account["value"]!)?.action({ (user, stream) in
-                user.groupchats.create(
-                    stream,
-                    server: self.server["value"]!,
-                    name: self.name.value!,
-                    localPart: self.localpart,
-                    privacy: GroupChatStorageItem.Privacy(rawValue: privacyValue),
-                    membership: GroupChatStorageItem.Membership(rawValue: self.membership["value"]!),
-                    index: GroupChatStorageItem.Index(rawValue: self.index["value"]!),
-                    description: self.descr
-                ) { response in
-                    DispatchQueue.main.async {
-                        if let value = response {
-                            if value == "success" {
-                                self.onSuccess()
-                            } else if value == "conflict" {
-                                self.onError(conflict: true)
-                            } else {
-                                self.onError(conflict: false)
-                            }
-                        }
-                    }
-                }
-            })
         })
-
-        
-        
-        
-//        onCreate
-//            .asObservable()
-//            .timeout(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
-//            .subscribe(onNext: { (value) in
-//                DispatchQueue.main.async {
-//                    if let value = value {
-//                        if value == "success" {
-//                            self.onSuccess()
-//                        } else if value == "conflict" {
-//                            self.onError(conflict: true)
-//                        } else {
-//                            self.onError(conflict: false)
-//                        }
-//                    }
-//                }
-//            }, onError: { (error) in
-//                DispatchQueue.main.async {
-//                    self.onError(conflict: false)
-//                }
-//            })
-//            .disposed(by: bag)
     }
     
     internal func onSuccess() {
@@ -132,15 +82,29 @@ extension CreateNewGroupViewController {
 //                _ = user.mam.requestHistory(stream, to: jid, count: 2, callback: nil)
 //            })
 //        }
-
-        self.navigationController?.dismiss(animated: true, completion: {
-            self.delegate?.didAddContact(
-                owner: owner,
-                jid: jid,
-                entity: self.createIncognitoGroup ? .incognitoChat : .groupchat,
-                conversationType: .group
-            )
-        })
+        
+        DispatchQueue.main.async {
+            self.dismiss(animated: true) {
+                let splitVc = (UIApplication.shared.delegate as? AppDelegate)?.splitController
+                let vc = ChatViewController()
+                vc.jid = jid
+                vc.owner = owner
+                vc.conversationType = .group
+                
+                splitVc?.showDetailViewController(UINavigationController(rootViewController: vc), sender: self)
+                splitVc?.hide(.primary)
+            }
+        }
+        
+        
+//        self.navigationController?.dismiss(animated: true, completion: {
+//            self.delegate?.didAddContact(
+//                owner: owner,
+//                jid: jid,
+//                entity: self.createIncognitoGroup ? .incognitoChat : .groupchat,
+//                conversationType: .group
+//            )
+//        })
         
 //        DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + 0.5) {
 //            do {

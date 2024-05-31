@@ -77,9 +77,3 @@ extension ContactsViewController: SearchResultsDelegateProtocol {
         self.navigationController?.pushViewController(vc, animated: true)
     }
 }
-
-extension ContactsViewController: NewEntityViewControllerDelegate {
-    func openChat(_ jid: String, owner: String) {
-        openChat(owner: owner, jid: jid, conversationType: .omemo)
-    }
-}

@@ -26,8 +26,9 @@ extension UIImageView {
         let color = AccountColorManager.shared.palette(for: owner)
         let conf = LetterAvatarBuilderConfiguration()
         conf.useSingleLetter = true
-        conf.username = username
-        conf.backgroundColors = [color.tint700, color.tint600, color.tint500, color.tint400, color.tint300]
+        conf.username = username.capitalized
+        conf.backgroundColors = [color.tint100, color.tint200]//, color.tint300]//, color.tint400, color.tint300]
+        conf.lettersColor = color.tint900
         conf.size = CGSize(square: size)
         let image = UIImage.makeLetterAvatar(withConfiguration: conf)
         return image

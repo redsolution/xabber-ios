@@ -474,12 +474,13 @@ class ChatViewController: MessagesViewController {
         }
         vc.owner = self.owner
         vc.jid = self.jid
-        self.title = " "
+//        self.title = " "
 //        self.topMenuShowObserver.accept(false)
-        self.navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
-        self.navigationController?.navigationBar.shadowImage = UIImage()
-        self.navigationController?.navigationBar.layoutIfNeeded()
-        self.navigationController?.pushViewController(vc, animated: true)
+//        self.navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
+//        self.navigationController?.navigationBar.shadowImage = UIImage()
+//        self.navigationController?.navigationBar.layoutIfNeeded()
+//        self.navigationController?.pushViewController(vc, animated: true)
+        showModal(vc, from: self)
     }
         
     @objc
@@ -576,7 +577,8 @@ class ChatViewController: MessagesViewController {
         )
         accountPallete = AccountColorManager.shared.palette(for: owner)
 //        
-//        self.navigationController?.navigationBar.prefersLargeTitles = false
+        self.navigationController?.navigationBar.prefersLargeTitles = false
+        self.navigationController?.navigationItem.largeTitleDisplayMode = .never
         
         self.messagesCollectionView.prefetchDataSource = self
         self.messagesCollectionView.messagesDataSource = self

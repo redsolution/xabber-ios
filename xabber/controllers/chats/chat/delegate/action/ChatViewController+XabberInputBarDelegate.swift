@@ -346,6 +346,7 @@ extension ChatViewController: XabberInputBarDelegate {
     
     func sendButtonTouchUp( with text: String) {
         func sendMessage(_ text: String) {
+            
             self.xabberInputView.textField.text = ""
             self.xabberInputView.textViewDidChange()
             let forwarded: [String] = self.attachedMessagesIds.value
@@ -357,6 +358,7 @@ extension ChatViewController: XabberInputBarDelegate {
                 editedMessage.isNotEmpty {
                 let primary = editedMessage
                 AccountManager.shared.find(for: self.owner)?.unsafeAction({ (user, stream) in
+                    user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
                     user.messages.editSimpleMessage(text, primary: primary)
                     (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
                             .invalidateLastMessageCachedSize(primary: primary)
@@ -365,7 +367,7 @@ extension ChatViewController: XabberInputBarDelegate {
                 })
             } else {
                 AccountManager.shared.find(for: self.owner)?.unsafeAction({ (user, stream) in
-                    
+                    user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
                     user.messages.sendSimpleMessage(
                         text,
                         to: self.jid,

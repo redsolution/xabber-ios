@@ -133,6 +133,14 @@ extension ChatViewController {
                 self.lastReadMessageId = item.lastReadId
                 if self.showSkeletonObserver.value != (!item.isSynced) {
                     self.showSkeletonObserver.accept(!item.isSynced)
+                    if item.isSynced {
+                        self.updateQueue
+                            .asyncAfter(deadline: .now() + 3) {
+                            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                                user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
+                            })
+                        }
+                    }
 //                    if !self.showSkeletonObserver.value {
 //                        self.canUpdateDataset = true
 //                        self.runDatasetUpdateTask(shouldScrollToLastMessage: true)

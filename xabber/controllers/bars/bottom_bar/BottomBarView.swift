@@ -39,7 +39,7 @@ class BottomBarView: UIView {
         let button = UIButton()
         
         button.setImage(UIImage(systemName: "line.3.horizontal.decrease.circle")?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate), for: .normal)
-        button.tintColor = .systemBlue
+        button.tintColor = .tintColor
         
         return button
     }()
@@ -48,7 +48,7 @@ class BottomBarView: UIView {
         let button = UIButton()
         
         button.setImage(UIImage(systemName: "plus")?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate), for: .normal)
-        button.tintColor = .systemBlue
+        button.tintColor = .tintColor
         
         return button
     }()
@@ -127,7 +127,7 @@ class BottomBarView: UIView {
     
     @objc
     func onRightButtonTouchUp(_ sender: UIButton) {
-        let vc = NewEntityViewController()
+        let vc = CreateNewEntityViewController()
         if let splitVc = self.splitViewController {
             showModal(vc, from: splitVc)
         }
