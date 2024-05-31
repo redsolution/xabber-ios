@@ -475,9 +475,6 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 fatalError()
             }
             
-            let publicKey = self.getUsersPublicKey(jid: jid.bare, deviceId: deviceId)
-            let fingerprint = publicKey.toHexString()
-            
             let hash = self.decryptElementFromXML(jid: jid.bare,
                                                   sid: sid,
                                                   deviceId: deviceId,
@@ -908,20 +905,10 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         let keyPair = localStore.getIdentityKeyPair()
         let deviceID = localStore.localDeviceId()
         
-        let publicKey = Array(keyPair.publicKey.dropFirst())
-        let fingerprint = publicKey.toHexString()
-        
         let trustedKey = (String(deviceID) + "::" + omemoFingerprint).bytes
         
         let stringToHash = trustedKey + Array(code.utf8) + byteSequence + opponentByteSequence
         let hash = Array(SHA256.hash(data: stringToHash).makeIterator())
-        
-        
-        print("opponentTrustedKey: \(String(bytes: trustedKey, encoding: .utf8)!)")
-        print("code b64: \(code.bytes.toBase64())")
-        print("byteSequence b64: \(byteSequence.toBase64())")
-        print("stringToHash bs64: \(stringToHash.toBase64())")
-        print("hash b64: \(hash.toBase64())")
 
         return hash
     }
