@@ -231,13 +231,18 @@ class TrustedDevicesViewController: SimpleBaseViewController {
         do {
             let realm = try WRealm.safe()
             let instances = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid)
+            var isVerifyNeeded = false
             for instance in instances {
-                if instance.state == .trusted {
-                    datasource.append([Datasource(.button, name: "Revoke trust", key: "revoke_trust")])
-                    return
+                if instance.state == .unknown {
+                    isVerifyNeeded = true
+                    break
                 }
             }
-            datasource.append([Datasource(.button, name: "Verify", key: "verify")])
+            if isVerifyNeeded {
+                datasource.append([Datasource(.button, name: "Verify", key: "verify")])
+            } else {
+                datasource.append([Datasource(.button, name: "Revoke trust", key: "revoke_trust")])
+            }
         } catch {
             fatalError()
         }
@@ -527,13 +532,9 @@ extension TrustedDevicesViewController: UITableViewDataSource {
 
             return cell
         case .session:
-            let cell = UITableViewCell()
-            var cellConfig = cell.defaultContentConfiguration()
-            cellConfig.image = UIImage(systemName: "lock.circle.fill")?.upscale(dimension: 40).withTintColor(.systemBlue)
-            cellConfig.text = item.name
-            cellConfig.secondaryText = item.subtitle ?? nil
+            let cell = VerificationSessionTableViewCell()
+            cell.configure(owner: self.owner, jid: self.jid, sid: item.verificationSid!, title: item.name, subtitle: item.subtitle)
             
-            cell.contentConfiguration = cellConfig
             return cell
         }
     }

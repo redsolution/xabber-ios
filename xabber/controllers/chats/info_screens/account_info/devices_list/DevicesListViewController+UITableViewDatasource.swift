@@ -20,18 +20,11 @@
 
 import Foundation
 import UIKit
+import MaterialComponents.MDCPalettes
 
 extension DevicesListViewController: UITableViewDataSource {
     
     func numberOfSections(in tableView: UITableView) -> Int {
-//        if tokens?.isEmpty ?? true {
-//            return 0
-//        } else if tokens?.count == 1 {
-//            return 1
-//        }
-//        if tokens?.isEmpty ?? true {
-//            return 1
-//        }
         return datasource.count
     }
     
@@ -69,7 +62,12 @@ extension DevicesListViewController: UITableViewDataSource {
                 guard let cell = tableView.dequeueReusableCell(withIdentifier: ButtonTableViewCell.cellName, for: indexPath) as? ButtonTableViewCell else {
                     return UITableViewCell(frame: .zero)
                 }
-                cell.configure(for: item.title, style: .danger)
+                switch item.value {
+                case "verify_own_devices":
+                    cell.configure(for: item.title, style: .normal)
+                default:
+                    cell.configure(for: item.title, style: .danger)
+                }
                 return cell
             case .session:
                 fatalError()
@@ -121,18 +119,9 @@ extension DevicesListViewController: UITableViewDataSource {
         case .session:
             if item.childs.isEmpty || item.childs[indexPath.row].kind == .session {
                 item = item.childs[indexPath.row]
-                let cell = UITableViewCell()
-                var cellConfig = cell.defaultContentConfiguration()
-            
-                cellConfig.image = UIImage(systemName: "lock.circle.fill")?.upscale(dimension: 40).withTintColor(.systemBlue)
-                cellConfig.text = item.title
-                cellConfig.secondaryText = item.value ?? nil
                 
-                cell.contentConfiguration = cellConfig
-                
-                let button = UIButton(type: .close)
-//                button.imageView?.image = UIImage(systemName: "xmark")?.withTintColor(.black)
-                cell.accessoryView = button
+                let cell = VerificationSessionTableViewCell()
+                cell.configure(owner: self.jid, jid: self.jid, sid: item.verificationSid!, title: item.title, subtitle: item.value)
                 
                 return cell
             }
