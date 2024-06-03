@@ -46,7 +46,21 @@ extension DevicesListViewController: UITableViewDelegate {
             let item = datasource[indexPath.section].childs[indexPath.row]
             switch item.kind {
             case .button:
-                onRevokeAll()
+                switch item.value {
+                case "verify_own_devices":
+                    guard let akeManager = AccountManager.shared.find(for: self.jid)?.akeManager else {
+                        fatalError()
+                    }
+                    akeManager.sendVerificationRequest(jid: self.jid)
+                    
+                    self.load()
+                    self.update()
+                    tableView.reloadData()
+                case "terminate_all_sessions":
+                    onRevokeAll()
+                default:
+                    return
+                }
             case .token:
                 showTokenInfo(uid: currentDevice, canEdit: true)
             default:
@@ -99,7 +113,7 @@ extension DevicesListViewController: UITableViewDelegate {
             switch item.value {
             case "cancel_verification":
                 guard let akeManager = AccountManager.shared.find(for: self.jid)?.akeManager,
-                      let fullJidString = item.verificationFullJid,
+//                      let fullJidString = item.verificationFullJid,
                       let fullJid = XMPPJID(string: self.jid),
                       let sid = item.verificationSid else {
                     fatalError()

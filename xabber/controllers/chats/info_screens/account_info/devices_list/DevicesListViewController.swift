@@ -137,7 +137,7 @@ class DevicesListViewController: BaseViewController {
             
             datasource = [
                 Datasource(.session, title: "", value: "", editable: false, childs: [
-                    Datasource(.session, title: text, value: secondaryText, editable: false)
+                    Datasource(.session, title: text, value: secondaryText, editable: false, verificationSid: activeVerificationSession!.sid, verificationFullJid: activeVerificationSession!.fullJID)
                 ])
             ]
             
@@ -159,7 +159,8 @@ class DevicesListViewController: BaseViewController {
                                                      title: " ",
                                                      value: account.resource?.resource ?? "",
                                                      editable: false),
-                                          Datasource(.button, title: "Terminate all other sessions".localizeString(id: "account_terminate_all_sessions", arguments: []), editable: false)]))
+                                          Datasource(.button, title: "Verify all unknown devices", value: "verify_own_devices", editable: false),
+                                          Datasource(.button, title: "Terminate all other sessions".localizeString(id: "account_terminate_all_sessions", arguments: []), value: "terminate_all_sessions", editable: false)]))
         
         if devices.isNotEmpty {
             datasource.append(Datasource(.token,

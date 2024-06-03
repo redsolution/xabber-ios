@@ -223,6 +223,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             date = dateFormatter.date(from: dateString!)
         }
         
+        var toDeviceId: String? = nil
         do {
             let realm = try WRealm.safe()
             if realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: NotificationStorageItem.genPrimary(owner: self.owner, jid: jid.bare, uniqueId: uniqueMessageId)) != nil {
@@ -238,7 +239,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             instance.verificationSid = sid
             instance.associatedJid = jid.bare
             
-            let toDeviceId = authenticatedKeyExchange.element(forName: "verification-start")?.attributeStringValue(forName: "to-device-id")
+            toDeviceId = authenticatedKeyExchange.element(forName: "verification-start")?.attributeStringValue(forName: "to-device-id")
             if toDeviceId != nil {
                 guard let localStore = AccountManager.shared.find(for: owner)?.omemo.localStore else {
                     fatalError()
@@ -280,6 +281,11 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                     return false
                 }
                 
+                let deviceInstance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: jid.bare, deviceId: opponentDeviceID))
+                if deviceInstance?.state == .trusted {
+                    return true
+                }
+                
                 let predicate = NSPredicate(format: "owner == %@ AND myDeviceId == %@ AND jid == %@", argumentArray: [self.owner, deviceIdRecipient, jid.bare])
                 let oldInstances = realm.objects(VerificationSessionStorageItem.self).filter(predicate).sorted(byKeyPath: "timestamp", ascending: false)
                 if !oldInstances.isEmpty {
@@ -315,6 +321,32 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 fatalError()
             }
             title = "Verification request received"
+            
+            if jid.bare == self.owner && toDeviceId == nil {
+                guard let presenter = (UIApplication.shared.delegate as? AppDelegate)?.splitController else {
+                    return true
+                }
+                
+//                let agreeAction = UIAlertAction(title: "Accept", style: UIAlertAction.Style.default) { action in
+//                    
+//                }
+//                let disagreeAction = UIAlertAction(title: "Revoke", style: .destructive) { action in
+//                    
+//                }
+//                let alert = UIAlertController(title: "Device Verification", message: "Do you want to accept verification request from yout new device?", preferredStyle: UIAlertController.Style.alert)
+//                alert.addAction(agreeAction)
+//                alert.addAction(disagreeAction)
+                
+                let vc = VerificationConfirmationViewController()
+                
+                
+                
+                DispatchQueue.main.async {
+                    vc.configure(sid: sid)
+                    showModal(vc, from: presenter)
+//                    presenter.present(vc, animated: true)
+                }
+            }
         } else if authenticatedKeyExchange.element(forName: "verification-accepted") != nil {
             let byteSequence = self.generateByteSequence()
             
@@ -790,6 +822,9 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         let resultSalt = self.encrypt(jid: fullJID.bare, sid: sid, deviceId: deviceId, data: byteSequence)
         
         let child = self.getMessageChildsToSendHashAndSaltToOpponent(sid: sid, encryptedHash: resultHash.encrypted.toBase64(), ivHash: resultHash.iv.toBase64(), encryptedSalt: resultSalt.encrypted.toBase64(), ivSalt: resultSalt.iv.toBase64())
+        child.addChild(DDXMLElement(name: "my-trusted-key", stringValue: myTrustedKey))
+        child.addChild(DDXMLElement(name: "code", stringValue: code))
+        child.addChild(DDXMLElement(name: "opponent-byte-sequence", stringValue: opponentByteSequence.toBase64()))
         
         let messageToSend = XMPPMessage(messageType: .chat, to: fullJID, elementID: UUID().uuidString, child: child)
         messageToSend.addAttribute(withName: "from", stringValue: AccountManager.shared.find(for: self.owner)!.xmppStream.myJID!.full)
@@ -862,7 +897,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         
         let opponentTrustedKey = deviceId + "::" + omemoFingerprint
         
-        let stringToHash = Data(opponentTrustedKey.bytes + Array(code.utf8) + byteSequence)
+        let stringToHash = Data(opponentTrustedKey.bytes + code.bytes + byteSequence)
         let myHash = Array(SHA256.hash(data: stringToHash).makeIterator())
         
         if hash != myHash {
