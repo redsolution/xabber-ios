@@ -280,10 +280,9 @@ class LastChatsViewController: BaseViewController {
                 pinnedChatsSorting = true
             case .unread:
 //                showArchivedSection.accept(false)
-                predicate = NSPredicate(format: "isArchived == %@ AND (unread > %@ OR rosterItem.ask_ IN %@) AND owner IN %@",
+                predicate = NSPredicate(format: "isArchived == %@ AND unread > %@ AND owner IN %@",
                                         argumentArray: [false,
                                                         0,
-                                                        [RosterStorageItem.Ask.in.rawValue, RosterStorageItem.Ask.both.rawValue, RosterStorageItem.Ask.none.rawValue],
                                                         Array(enabledAccounts.value)])
                 tableView.scrollToRow(at: IndexPath(row: 0, section: 0), at: .top, animated: false)
             case .archived:
@@ -483,14 +482,13 @@ class LastChatsViewController: BaseViewController {
                     var excludedJids = Array(enabledAccounts.value).compactMap({XMPPJID(string: $0)!.domain})
                     excludedJids.append(CommonConfigManager.shared.config.support_jid)
                     let basePredicate = NSPredicate(
-                        format: "isArchived == %@ AND owner IN %@ AND (conversationType_ == %@ OR jid IN %@) AND (unread > %@ OR rosterItem.ask_ IN %@)",
+                        format: "isArchived == %@ AND owner IN %@ AND (conversationType_ == %@ OR jid IN %@) AND unread > %@",
                         argumentArray: [
                             false,
                             Array(enabledAccounts.value),
                             lockedType.rawValue,
                             excludedJids,
-                            0,
-                            [RosterStorageItem.Ask.in.rawValue, RosterStorageItem.Ask.both.rawValue],
+                            0
                         ]
                     )
                     let unreadedJidsNew = Array(Set(realm
@@ -501,22 +499,20 @@ class LastChatsViewController: BaseViewController {
                     self.unreadedJids = Array(Set(self.unreadedJids))
                     print(unreadedJids)
                     predicate = NSPredicate(
-                        format: "isArchived == %@ AND owner IN %@ AND (conversationType_ == %@ OR jid IN %@) AND (unread > %@ OR rosterItem.ask_ IN %@ OR jid IN %@)",
+                        format: "isArchived == %@ AND owner IN %@ AND (conversationType_ == %@ OR jid IN %@) AND (unread > %@ %@ OR jid IN %@)",
                         argumentArray: [
                             false,
                             Array(enabledAccounts.value),
                             lockedType.rawValue,
                             excludedJids,
                             0,
-                            [RosterStorageItem.Ask.in.rawValue, RosterStorageItem.Ask.both.rawValue],
                             unreadedJids
                         ]
                     )
                 } else {
-                    let basePredicate = NSPredicate(format: "isArchived == %@ AND (unread > %@ OR rosterItem.ask_ IN %@) AND owner IN %@",
+                    let basePredicate = NSPredicate(format: "isArchived == %@ AND unread > %@ AND owner IN %@",
                                                     argumentArray: [false,
                                                                     0,
-                                                                    [RosterStorageItem.Ask.in.rawValue, RosterStorageItem.Ask.both.rawValue],
                                                                     Array(enabledAccounts.value)])
                     let unreadedJidsNew = Array(Set(realm
                         .objects(LastChatsStorageItem.self)
@@ -524,12 +520,14 @@ class LastChatsViewController: BaseViewController {
                         .compactMap({ return $0.jid })))
                     self.unreadedJids.append(contentsOf: unreadedJidsNew)
                     self.unreadedJids = Array(Set(self.unreadedJids))
-                    predicate = NSPredicate(format: "isArchived == %@ AND (unread > %@ OR rosterItem.ask_ IN %@ OR jid IN %@) AND owner IN %@",
-                                            argumentArray: [false,
-                                                            0,
-                                                            [RosterStorageItem.Ask.in.rawValue, RosterStorageItem.Ask.both.rawValue],
-                                                            unreadedJids,
-                                                            Array(enabledAccounts.value)])
+                    predicate = NSPredicate(
+                        format: "isArchived == %@ AND (unread > %@ IN %@ OR jid IN %@) AND owner IN %@",
+                        argumentArray: [false,
+                                        0,
+                                        unreadedJids,
+                                        Array(enabledAccounts.value)
+                                       ]
+                    )
                     
                 }
             case .archived:
@@ -575,12 +573,12 @@ class LastChatsViewController: BaseViewController {
 
                 }
                 
-                let subscriptionRequest: Bool
-                if let rosterItem = item.rosterItem {
-                    subscriptionRequest = rosterItem.isThereSubscriptionRequest()
-                } else {
-                    subscriptionRequest = false
-                }
+                let subscriptionRequest: Bool = false
+//                if let rosterItem = item.rosterItem {
+//                    subscriptionRequest = rosterItem.isThereSubscriptionRequest()
+//                } else {
+//                    subscriptionRequest = false
+//                }
                 
                 let primaryResource = item.rosterItem?.getPrimaryResource()
                 

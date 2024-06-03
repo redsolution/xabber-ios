@@ -2565,9 +2565,9 @@ class GroupchatManager: AbstractXMPPManager {
     
     func read(_ stream: XMPPStream, withIQ iq: XMPPIQ) -> Bool {
         switch true {
+        case onCreate(iq): return true
         case onError(iq): return true
         case onUser(iq): return true
-        case onCreate(iq): return true
         case onEditChatSettingsForm(iq): return true
         case onEditStatusForm(iq): return true
         case onEditDefaultRightsForm(iq): return true
