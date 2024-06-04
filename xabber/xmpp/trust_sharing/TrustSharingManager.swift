@@ -32,7 +32,6 @@ class TrustSharingManager: AbstractXMPPManager {
     }
     
     func didReceivedTrustedSharingMessage(message: XMPPMessage) -> Bool {
-        //TODO: implement handling archive messages
         let bareMessage: XMPPMessage
         if isArchivedMessage(message) {
             bareMessage = getArchivedMessageContainer(message)!

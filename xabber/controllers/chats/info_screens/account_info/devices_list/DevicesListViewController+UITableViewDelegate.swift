@@ -50,27 +50,26 @@ extension DevicesListViewController: UITableViewDelegate {
             let item = datasource[indexPath.section].childs[indexPath.row]
             switch item.kind {
             case .button:
-                switch item.value {
-                case "verify_own_devices":
-                    guard let akeManager = AccountManager.shared.find(for: self.jid)?.akeManager else {
-                        fatalError()
-                    }
-                    akeManager.sendVerificationRequest(jid: self.jid)
-                    
-                    self.load()
-                    self.update()
-                    tableView.reloadData()
-                case "terminate_all_sessions":
-                    onRevokeAll()
-                default:
-                    return
-                }
+                onRevokeAll()
             case .token:
                 showTokenInfo(uid: currentDevice, canEdit: true)
             default:
                 break
             }
         case .token:
+            if indexPath.row == 0 {
+                guard let akeManager = AccountManager.shared.find(for: self.jid)?.akeManager else {
+                    fatalError()
+                }
+                akeManager.sendVerificationRequest(jid: self.jid)
+                
+                self.load()
+                self.update()
+                tableView.reloadData()
+                
+                return
+            }
+            
             let uid = devices[indexPath.row - 1].uid
             showTokenInfo(uid: uid, canEdit: false)
         case .button:

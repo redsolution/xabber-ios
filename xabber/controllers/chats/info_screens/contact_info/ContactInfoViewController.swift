@@ -35,7 +35,7 @@ class ContactInfoViewController: BaseViewController {
             case resource
             case vcard
             case button
-//            case session
+            case session
         }
         
         var kind: Kind
@@ -209,6 +209,23 @@ class ContactInfoViewController: BaseViewController {
                     }
                     do {
                         let realm = try WRealm.safe()
+                        
+                        let verificationInstance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid).first
+                        if let verificationInstance = verificationInstance {
+                            let (text, secondaryText, buttonTitle, buttonKey) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: verificationInstance.state)
+                            let verificationDatasource = Datasource(.text, title: "Active verification session", key: "verification-session", childs: [
+                                Datasource(.session, title: text, subtitle: secondaryText, verificationSid: verificationInstance.sid, verificationJid: self.jid)
+                            ])
+                            
+                            if buttonKey != nil {
+                                verificationDatasource.childs.append(Datasource(.button, title: buttonTitle!, key: buttonKey, verificationSid: verificationInstance.sid, verificationJid: self.jid))
+                                if buttonKey == "accept_verification" {
+                                    verificationDatasource.childs.append(Datasource(.button, title: "Reject", key: "reject_verification", verificationSid: verificationInstance.sid, verificationJid: self.jid))
+                                }
+                            }
+                            newDatasource.append(verificationDatasource)
+                        }
+                        
                         let collectionJid = realm
                             .objects(SignalDeviceStorageItem.self)
                             .filter("jid == %@ AND owner == %@", self.jid, self.owner, SignalDeviceStorageItem.TrustState.trusted.rawValue)
@@ -233,7 +250,7 @@ class ContactInfoViewController: BaseViewController {
                             color = .systemGreen
                             indicator = UIImage(systemName: "lock.fill")
                         }
-                        newDatasource.append(Datasource(.text, title: "Encryption", childs: [
+                        newDatasource.append(Datasource(.text, title: "Encryption", key: "encryption", childs: [
                             Datasource(.button, title: "Identity verification".localizeString(id: "contact_fingerprints", arguments: []), subtitle: "\(collectionJid.count)", image: indicator, color: color, key: "fingerprints"),
                             Datasource(.button, title: "Encrypted chat", subtitle: "", image: indicator, color: color, key: "start_encrypted_chat")
                         ]))
@@ -324,6 +341,73 @@ class ContactInfoViewController: BaseViewController {
                             }
                         }
 //                    }
+                }).disposed(by: bag)
+            
+            Observable
+                .collection(from: realm
+                    .objects(VerificationSessionStorageItem.self)
+                    .filter("owner == %@ AND jid == %@", owner, jid))
+                .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
+                .subscribe(onNext: { (results) in
+                    if self.datasource.isEmpty {
+                        return
+                    }
+                    guard let item = results.first else {
+                        let section = self.datasource.firstIndex(where: { $0.key == "verification-session" })
+                        if let section = section {
+                            self.datasource.remove(at: section)
+                            self.tableView.reloadData()
+                        }
+                        
+                        return
+                    }
+                    
+                    do {
+                        let section = self.datasource.firstIndex(where: { $0.key == "verification-session" })
+                        if let section = section {
+                            let row = self.datasource[section].childs.firstIndex(where: { $0.kind == .session })
+                            
+                            let (text, secondaryText, buttonTitle, buttonKey) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: item.state)
+                            let verificationDatasource = Datasource(.text, title: "Active verification session", key: "verification-session", childs: [
+                                Datasource(.session, title: text, subtitle: secondaryText, verificationSid: item.sid, verificationJid: self.jid)
+                            ])
+                            
+                            if buttonKey != nil {
+                                verificationDatasource.childs.append(Datasource(.button, title: buttonTitle!, key: buttonKey, verificationSid: item.sid, verificationJid: self.jid))
+                                if buttonKey == "accept_verification" {
+                                    verificationDatasource.childs.append(Datasource(.button, title: "Reject", key: "reject_verification", verificationSid: item.sid, verificationJid: self.jid))
+                                }
+                            }
+                            self.datasource[section] = verificationDatasource
+                            self.tableView.reloadData()
+                            
+                            return
+                        }
+                        
+                        let realm = try WRealm.safe()
+                        
+                        let verificationInstance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid).first
+                        if let verificationInstance = verificationInstance {
+                            let (text, secondaryText, buttonTitle, buttonKey) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: verificationInstance.state)
+                            let verificationDatasource = Datasource(.text, title: "Active verification session", key: "verification-session", childs: [
+                                Datasource(.session, title: text, subtitle: secondaryText, verificationSid: verificationInstance.sid, verificationJid: self.jid)
+                            ])
+                            
+                            if buttonKey != nil {
+                                verificationDatasource.childs.append(Datasource(.button, title: buttonTitle!, key: buttonKey, verificationSid: verificationInstance.sid, verificationJid: self.jid))
+                                if buttonKey == "accept_verification" {
+                                    verificationDatasource.childs.append(Datasource(.button, title: "Reject", key: "reject_verification", verificationSid: verificationInstance.sid, verificationJid: self.jid))
+                                }
+                            }
+                            self.datasource.insert(verificationDatasource, at: self.datasource.firstIndex(where: { $0.key == "encryption" })!)
+                            self.tableView.reloadData()
+                            
+                            return
+                        }
+                        
+                    } catch {
+                        fatalError()
+                    }
                 }).disposed(by: bag)
         } catch {
             DDLogDebug("ContactInfoViewController: \(#function). \(error.localizedDescription)")

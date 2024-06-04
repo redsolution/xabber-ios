@@ -32,20 +32,6 @@ extension ContactInfoViewController: UITableViewDataSource {
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let item = datasource[indexPath.section].childs[indexPath.row]
-//        if datasource[indexPath.section].childs[0].kind == .session {
-//            // if the button is from the verification session section
-//            if item.kind == .button {
-//                let cell = UITableViewCell()
-//                var cellConfig = cell.defaultContentConfiguration()
-//                cellConfig.text = item.title
-//                cellConfig.textProperties.color = .systemBlue
-//                cellConfig.textProperties.alignment = .center
-//                cell.contentConfiguration = cellConfig
-//                
-//                return cell
-//            }
-//        }
-//        
         switch item.kind {
         case .text:
             let cell = tableView.dequeueReusableCell(withIdentifier: "TextCell", for: indexPath)
@@ -95,52 +81,64 @@ extension ContactInfoViewController: UITableViewDataSource {
                 return dcell
             } else if item.key == "delete_chat_button" {
                 let cell = tableView.dequeueReusableCell(withIdentifier: "ButtonCell", for: indexPath)
-                cell.textLabel?.text = item.title
-                cell.detailTextLabel?.text = item.subtitle
+                var contentConfig = UITableViewCell().defaultContentConfiguration()
+                
+                contentConfig.text = item.title
+                contentConfig.secondaryText = item.subtitle
                 if item.key == "block_chat_button" {
                     if self.isBlocked {
-                        cell.textLabel?.text = "Unblock".localizeString(id: "contact_bar_unblock", arguments: [])
+                        contentConfig.text = "Unblock".localizeString(id: "contact_bar_unblock", arguments: [])
                     } else {
-                        cell.textLabel?.text = "Block".localizeString(id: "contact_bar_block", arguments: [])
+                        contentConfig.text = "Block".localizeString(id: "contact_bar_block", arguments: [])
                     }
                 } else if item.key == "notify_chat_button" {
                     if self.isMuted {
-                        cell.textLabel?.text = "Enable notifications".localizeString(id: "groupchat_enable_notificaions", arguments: [])
+                        contentConfig.text = "Enable notifications".localizeString(id: "groupchat_enable_notificaions", arguments: [])
                     } else {
-                        cell.textLabel?.text = "Disable notifications".localizeString(id: "groupchats_disable_notifications", arguments: [])
+                        contentConfig.text = "Disable notifications".localizeString(id: "groupchats_disable_notifications", arguments: [])
                     }
                 }
-                cell.textLabel?.textColor = .systemRed
+                contentConfig.textProperties.color = .systemRed
+                cell.contentConfiguration = contentConfig
+                
+                return cell
+            } else if item.key == "reject_verification" {
+                let cell = tableView.dequeueReusableCell(withIdentifier: "ButtonCell", for: indexPath)
+                var contentConfig = UITableViewCell().defaultContentConfiguration()
+                contentConfig.textProperties.color = .systemRed
+                contentConfig.text = item.title
+                cell.contentConfiguration = contentConfig
+                
                 return cell
             } else {
                 let cell = tableView.dequeueReusableCell(withIdentifier: "ButtonCell", for: indexPath)
-                cell.textLabel?.text = item.title
-                cell.detailTextLabel?.text = item.subtitle
+                var contentConfig = UITableViewCell().defaultContentConfiguration()
+                
+                contentConfig.text = item.title
+                contentConfig.secondaryText = item.subtitle
                 if item.key == "block_chat_button" {
                     if self.isBlocked {
-                        cell.textLabel?.text = "Unblock".localizeString(id: "contact_bar_unblock", arguments: [])
+                        contentConfig.text = "Unblock".localizeString(id: "contact_bar_unblock", arguments: [])
                     } else {
-                        cell.textLabel?.text = "Block".localizeString(id: "contact_bar_block", arguments: [])
+                        contentConfig.text = "Block".localizeString(id: "contact_bar_block", arguments: [])
                     }
                 } else if item.key == "notify_chat_button" {
                     if self.isMuted {
-                        cell.textLabel?.text = "Enable notifications".localizeString(id: "groupchat_enable_notificaions", arguments: [])
+                        contentConfig.text = "Enable notifications".localizeString(id: "groupchat_enable_notificaions", arguments: [])
                     } else {
-                        cell.textLabel?.text = "Disable notifications".localizeString(id: "groupchats_disable_notifications", arguments: [])
+                        contentConfig.text = "Disable notifications".localizeString(id: "groupchats_disable_notifications", arguments: [])
                     }
                 }
-                cell.textLabel?.textColor = .systemBlue
+                contentConfig.textProperties.color = .systemBlue
+                cell.contentConfiguration = contentConfig
+                
                 return cell
             }
-//        case .session:
-//            let cell = UITableViewCell()
-//            var cellConfig = cell.defaultContentConfiguration()
-//            cellConfig.image = UIImage(systemName: "lock.circle.fill")?.upscale(dimension: 40).withTintColor(.systemBlue)
-//            cellConfig.text = item.title
-//            cellConfig.secondaryText = item.subtitle ?? nil
-//            
-//            cell.contentConfiguration = cellConfig
-//            return cell
+        case .session:
+            let cell = VerificationSessionTableViewCell()
+            cell.configure(owner: self.owner, jid: self.jid, sid: item.verificationSid!, title: item.title, subtitle: item.subtitle)
+            
+            return cell
         }
     }
     

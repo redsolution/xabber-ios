@@ -92,6 +92,7 @@ class SettingsViewController: BaseViewController {
             case delete
             case none
             case afterburn
+            case session
             
             func description() -> String {
                 switch self {
@@ -145,7 +146,7 @@ class SettingsViewController: BaseViewController {
                     return "Delete account".localizeString(id: "account_delete", arguments: [])
                 case .afterburn:
                     return "Burning messages"
-                case .none:
+                default:
                     return ""
                 }
             }
@@ -180,6 +181,7 @@ class SettingsViewController: BaseViewController {
         var toggle: Bool = false
         var viewController: UIViewController.Type?
         var itemType: ItemType = .plain
+        var verificationSid: String?
         
         init(section: Section,
              title: String? = nil,
@@ -192,7 +194,7 @@ class SettingsViewController: BaseViewController {
              toggle: Bool = false,
              childs: [Datasource] = [],
              key: Keys? = nil, //String? = nil,
-             assetReference: String? = nil) {
+             assetReference: String? = nil, verificationSid: String? = nil) {
             self.section = section
             self.title = title
             self.subtitle = subtitle
@@ -205,6 +207,7 @@ class SettingsViewController: BaseViewController {
             self.values = values
             self.current = current
             self.toggle = toggle
+            self.verificationSid = verificationSid
         }
     }
     
@@ -560,6 +563,19 @@ class SettingsViewController: BaseViewController {
                         titleColor: AccountColorManager.shared.primaryColor(for: self.jid)
                     )
                 }
+                
+                if let sessionInstance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.owner).first {
+                    let (text, secondaryText, buttonTitle, buttonKey) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: sessionInstance.state)
+                    let verificationDatasource = Datasource(section: .session, title: "Active verifiaction sessions", childs: [Datasource(section: .session, title: text, subtitle: secondaryText, verificationSid: sessionInstance.sid)])
+                    
+                    if buttonKey != nil {
+                        verificationDatasource.childs.append(Datasource(section: .session, title: buttonTitle, values: [buttonKey!], verificationSid: sessionInstance.sid))
+                        if buttonKey == "accept_verification" {
+                            verificationDatasource.childs.append(Datasource(section: .session, title: "Reject", values: ["reject-verification"], verificationSid: sessionInstance.sid))
+                        }
+                    }
+                    datasource.append(verificationDatasource)
+                }
             } catch {
                 DDLogDebug("SettingsViewController:\(#function). \(error.localizedDescription)")
             }
@@ -612,7 +628,8 @@ class SettingsViewController: BaseViewController {
             
             if AccountManager.shared.find(for: self.jid)?.cloudStorage.isAvailable() ?? false {
                 let item = Datasource(section: .accountSettings, title: "Cloud storage", key: .manageStorage)
-                datasource[0].childs.insert(item, at: 1)
+                let sectionToInsert = datasource.firstIndex(where: { $0.section == .accountSettings })
+                datasource[sectionToInsert!].childs.insert(item, at: 1)
             }
         }
         
