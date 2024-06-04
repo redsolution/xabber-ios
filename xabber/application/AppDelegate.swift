@@ -104,7 +104,7 @@ func getAppVersion() -> String {
             chatsVc.splitDelegate = emptyChatVc
             chatsVc.navigationController?.navigationItem.largeTitleDisplayMode = .always
             chatsVc.navigationController?.navigationBar.prefersLargeTitles = true
-            vc.minimumPrimaryColumnWidth = 320
+//            vc.minimumPrimaryColumnWidth = 320
 //            vc.minimumSupplementaryColumnWidth = 320
             vc.displayModeButtonVisibility = .always
             vc.preferredDisplayMode = .oneBesideSecondary//.oneBesideSecondary//.allVisible

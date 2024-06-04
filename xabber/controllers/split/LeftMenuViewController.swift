@@ -78,32 +78,54 @@ class LeftMenuViewController: UIViewController {
         internal let statusIndicator: RoundedStatusView = {
             let view = RoundedStatusView()
             
-            view.frame = CGRect(square: 18)
+            view.frame = CGRect(
+                origin: CGPoint(x: 34, y: 34),
+                size: CGSize(square: 12)
+            )
+            
+            return view
+        }()
+        
+        let userImageView: UIView = {
+            let view = UIView(frame: CGRect(square: 48))
+            
+            view.backgroundColor = .clear
+            
+            return view
+        }()
+        
+        let errorIndicator: UIImageView = {
+            let view = UIImageView(image: UIImage(systemName: "exclamationmark.triangle.fill")?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate))
+            
+            view.tintColor = .systemOrange
+//            view.isHidden = true
             
             return view
         }()
         
         internal func activateConstraints() {
             NSLayoutConstraint.activate([
-                avatarView.heightAnchor.constraint(equalToConstant: 48),
-                avatarView.widthAnchor.constraint(equalToConstant: 48),
-                statusIndicator.heightAnchor.constraint(equalToConstant: 18),
-                statusIndicator.widthAnchor.constraint(equalToConstant: 18)
+//                errorIndicator.widthAnchor.constraint(equalToConstant: 24),
+                errorIndicator.heightAnchor.constraint(equalToConstant: 24),
             ])
         }
         
         public func configure() {
             addSubview(stack)
             if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
-                stack.fillSuperviewWithOffset(top: 0, bottom: bottomInset, left: 12, right: 8)
+                stack.fillSuperviewWithOffset(top: 0, bottom: bottomInset + 8, left: 70, right: 8)
             } else {
-                stack.fillSuperviewWithOffset(top: 0, bottom: 0, left: 8, right: 12)
+                stack.fillSuperviewWithOffset(top: 0, bottom: 8, left: 70, right: 8)
             }
-            stack.addArrangedSubview(avatarView)
+//            stack.addArrangedSubview(avatarView)
             stack.addArrangedSubview(labelsStack)
-            stack.addArrangedSubview(statusIndicator)
+            stack.addArrangedSubview(errorIndicator)
             labelsStack.addArrangedSubview(titleLabel)
             labelsStack.addArrangedSubview(subtitleLabel)
+            addSubview(userImageView)
+            userImageView.frame = CGRect(x: 20, y: 10, width: 48, height: 48)
+            userImageView.addSubview(avatarView)
+            userImageView.addSubview(statusIndicator)
             activateConstraints()
         }
         
@@ -212,6 +234,35 @@ class LeftMenuViewController: UIViewController {
             let section = 0
             
             let accounts = realm.objects(AccountStorageItem.self).sorted(byKeyPath: "order")
+            let enabledAccounts = accounts.toArray().compactMap({ return $0.enabled ? $0.jid : nil })
+            
+            let badDevices = realm
+                .objects(SignalDeviceStorageItem.self)
+                .filter("owner IN %@ AND state_ IN %@", enabledAccounts, [SignalDeviceStorageItem.TrustState.unknown.rawValue, SignalDeviceStorageItem.TrustState.fingerprintChanged.rawValue])
+            
+            Observable
+                .collection(from: badDevices)
+                .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
+                .subscribe { results in
+                    if results.isEmpty {
+                        self.accountView.errorIndicator.isHidden = true
+                        return
+                    }
+                    self.accountView.errorIndicator.isHidden = false
+                    if results.filter({ $0.state == .fingerprintChanged }).count > 0 {
+                        self.accountView.errorIndicator.tintColor = .systemRed
+                        return
+                    }
+                    self.accountView.errorIndicator.tintColor = .systemOrange
+                    
+                } onError: { _ in
+                    
+                } onCompleted: {
+                    
+                } onDisposed: {
+                    
+                }.disposed(by: bag)
+
             
             Observable
                 .collection(from: accounts)
@@ -348,16 +399,20 @@ class LeftMenuViewController: UIViewController {
         tableView.delegate = self
         tableView.dataSource = self
         loadDatasource()
-        
-//        bottomBar.configure()
-//        self.view.addSubview(bottomBar)
-//        self.view.bringSubviewToFront(bottomBar)
+    }
+    
+    func setupBottomBar() {
         var inputHeight: CGFloat = 80
+        var leftInset: CGFloat = 0
         if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
             inputHeight += bottomInset
         }
-        let size = CGSize(width: self.view.bounds.width, height: inputHeight)
-        let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: size)
+        
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            leftInset += 100
+        }
+        let size = CGSize(width: self.view.bounds.width - leftInset, height: inputHeight)
+        let frame = CGRect(origin: CGPoint(x: leftInset, y: self.view.bounds.height - inputHeight), size: size)
 //        bottomBar.frame = frame
         self.accountView.frame = CGRect(origin: .zero, size: size)
         self.accountView.configure()
@@ -367,6 +422,12 @@ class LeftMenuViewController: UIViewController {
         self.view.bringSubviewToFront(accountButton)
         self.accountButton.addTarget(self, action: #selector(onAccountButton), for: .touchUpInside)
         self.accountView.isUserInteractionEnabled = false
+        NSLayoutConstraint.activate([
+            self.accountButton.leadingAnchor.constraint(equalTo: self.view.leadingAnchor),
+            self.accountButton.trailingAnchor.constraint(equalTo: self.view.trailingAnchor),
+            self.accountButton.bottomAnchor.constraint(equalTo: self.view.bottomAnchor),
+            self.accountButton.heightAnchor.constraint(equalToConstant: 80),
+        ])
     }
     
     @objc
@@ -415,6 +476,7 @@ class LeftMenuViewController: UIViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        setupBottomBar()
         
     }
 

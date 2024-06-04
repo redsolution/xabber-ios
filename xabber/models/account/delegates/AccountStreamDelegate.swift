@@ -225,7 +225,7 @@ extension Account: XMPPStreamDelegate {
             break
         case self.cloudStorage.read(withIQ: iq): break
         case self.xTokens.read(withIQ: iq): break
-        case self.groupchats.read(withIQ: iq): break
+        case self.groupchats.read(sender, withIQ: iq): break
         case self.blocked.read(withIQ: iq): break
         case self.msgDeleteManager.read(withIQ: iq): break
         case self.vcards.read(withIQ: iq):
