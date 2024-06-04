@@ -102,18 +102,25 @@ func getAppVersion() -> String {
             let emptyChatVc = EmptyChatViewController()
             primaryVc.chatsVc = chatsVc
             chatsVc.splitDelegate = emptyChatVc
+            chatsVc.navigationController?.navigationItem.largeTitleDisplayMode = .always
             chatsVc.navigationController?.navigationBar.prefersLargeTitles = true
             vc.minimumPrimaryColumnWidth = 320
-            vc.minimumSupplementaryColumnWidth = 320
+//            vc.minimumSupplementaryColumnWidth = 320
             vc.displayModeButtonVisibility = .always
             vc.preferredDisplayMode = .oneBesideSecondary//.oneBesideSecondary//.allVisible
             vc.preferredSplitBehavior = .displace//.tile
             vc.primaryBackgroundStyle = .sidebar
             
             vc.delegate = self
+            
+            let chatsNvc = UINavigationController(rootViewController: chatsVc)
+            
+            chatsNvc.navigationController?.navigationItem.largeTitleDisplayMode = .always
+            chatsNvc.navigationController?.navigationBar.prefersLargeTitles = true
+            
             vc.viewControllers = [
                 primaryVc,
-                chatsVc,
+                chatsNvc,
                 UINavigationController(rootViewController: emptyChatVc)
             ]
             window?.rootViewController = vc
@@ -402,6 +409,9 @@ func getAppVersion() -> String {
 extension AppDelegate: UISplitViewControllerDelegate {
 
     func splitViewController(_ svc: UISplitViewController, topColumnForCollapsingToProposedTopColumn proposedTopColumn: UISplitViewController.Column) -> UISplitViewController.Column {
+        
+        svc.navigationController?.navigationItem.largeTitleDisplayMode = .always
+        svc.navigationController?.navigationBar.prefersLargeTitles = true
           // This guarantees the app launches in chart list when on portrait mode
         return .supplementary
     }

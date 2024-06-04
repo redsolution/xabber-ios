@@ -24,4 +24,5 @@ protocol PushPayloadDelegate {
     func didDisconnectWithError(_ error: String)
     func didUpdateContent(payload: [String: String])
     func didReceiveSync(stanza: String)
+    func didReceiveStartVerification(payload: [String: String])
 }

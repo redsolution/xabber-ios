@@ -245,7 +245,7 @@ extension NotificationsListViewController {
             
             
             
-            self.selectionStyle = .none
+//            self.selectionStyle = .none
             separatorInset = UIEdgeInsets(top: 0, bottom: 0, left: 74, right: 0)
             activateConstraints()
             layoutIfNeeded()
@@ -270,9 +270,9 @@ extension NotificationsListViewController {
             print("awaked from nib")
         }
         
-        override func setSelected(_ selected: Bool, animated: Bool) {
-            super.setSelected(selected, animated: animated)
-        }
+//        override func setSelected(_ selected: Bool, animated: Bool) {
+//            super.setSelected(selected, animated: animated)
+//        }
     }
     
     class ContactOldItemCell: UITableViewCell {
@@ -475,9 +475,9 @@ extension NotificationsListViewController {
             print("awaked from nib")
         }
         
-        override func setSelected(_ selected: Bool, animated: Bool) {
-            super.setSelected(selected, animated: animated)
-        }
+//        override func setSelected(_ selected: Bool, animated: Bool) {
+//            super.setSelected(selected, animated: animated)
+//        }
     }
     
     class ContactItemCell: UITableViewCell {
@@ -695,7 +695,7 @@ extension NotificationsListViewController {
             
             
             
-            self.selectionStyle = .none
+//            self.selectionStyle = .none
             separatorInset = UIEdgeInsets(top: 0, bottom: 0, left: 74, right: 0)
             activateConstraints()
             layoutIfNeeded()
@@ -721,10 +721,10 @@ extension NotificationsListViewController {
             super.awakeFromNib()
             print("awaked from nib")
         }
-        
-        override func setSelected(_ selected: Bool, animated: Bool) {
-            super.setSelected(selected, animated: animated)
-        }
+//        
+//        override func setSelected(_ selected: Bool, animated: Bool) {
+//            super.setSelected(selected, animated: animated)
+//        }
     }
 }
 
@@ -926,7 +926,7 @@ extension NotificationsListViewController {
             avatarContainer.addSubview(badgeIndicator)
             avatarContainer.bringSubviewToFront(badgeIndicator)
             
-            self.selectionStyle = .none
+//            self.selectionStyle = .none
             separatorInset = UIEdgeInsets(top: 0, bottom: 0, left: 74, right: 0)
 //            activateConstraints()
             layoutIfNeeded()

@@ -151,6 +151,15 @@ class NotificationService: UNNotificationServiceExtension {
             return nil
         }
         
+        public func decryptedPayload(key: String) -> String? {
+            if let decrypted = decrypt(by: key),
+                let document = try? DDXMLDocument(xmlString: decrypted, options: 0),
+                let rootElement = document.rootElement()?.stringValue {
+                return rootElement
+            }
+            return nil
+        }
+        
         public func messageStanzaID(key: String) -> StanzaId? {
             if let decrypted = decrypt(by: key),
                 let document = try? DDXMLDocument(xmlString: decrypted, options: 0),
@@ -518,6 +527,16 @@ class NotificationService: UNNotificationServiceExtension {
 }
 
 extension NotificationService: PushPayloadDelegate {
+    func didReceiveStartVerification(payload: [String : String]) {
+
+        if let bestAttemptContent = bestAttemptContent {
+            bestAttemptContent.body = "\(payload["from"] ?? "Somebody") ask you to verify yourself"
+            bestAttemptContent.title = "New verification request"
+
+            contentHandler?(bestAttemptContent)
+        }
+    }
+    
     func didReceiveSync(stanza: String) {
         let defaults  = UserDefaults.init(suiteName: NotificationService.suitName)
         defaults?.set(stanza, forKey: "com.xabber.sync.temporary.\(owner)")

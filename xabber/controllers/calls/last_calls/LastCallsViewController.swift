@@ -343,6 +343,7 @@ class LastCallsViewController: BaseViewController {
             self.navigationItem.setHidesBackButton(true, animated: false)
             self.navigationItem.setLeftBarButton(sidebarButton, animated: true)
         }
+        self.bottomBar.isHidden = true
     }
     
     override func shouldChangeFrame() {
@@ -362,9 +363,9 @@ class LastCallsViewController: BaseViewController {
         tableView.dataSource = self
         tableView.delegate = self
         
-        emptyView.configure(image: #imageLiteral(resourceName: "buffer160").withRenderingMode(.alwaysTemplate),
-                            title: "Calls list is empty".localizeString(id: "chat_calls_list_hint", arguments: []),
-                            subtitle: "Try to make a call".localizeString(id: "chat_try_make_call_hint", arguments: []),
+        emptyView.configure(image: (UIImage(systemName: "phone")?.upscale(dimension: 160).withRenderingMode(.alwaysTemplate))!,
+                            title: "Under construction",
+                            subtitle: "",
                             buttonTitle: "Make a call".localizeString(id: "chat_make_call_hint", arguments: [])) {
             self.showAddDialog()
             
@@ -403,7 +404,7 @@ class LastCallsViewController: BaseViewController {
         super.viewDidLoad()
         configure()
 //        configureNavbar()
-        configureSearchBar()
+//        configureSearchBar()
         load()
         activateConstraints()
         

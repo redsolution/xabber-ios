@@ -36,7 +36,7 @@ extension ContactsViewController {
             stack.spacing = 8
             
             stack.isLayoutMarginsRelativeArrangement = true
-            stack.layoutMargins = UIEdgeInsets(top: 8, bottom: 8, left: 16, right: 18)
+            stack.layoutMargins = UIEdgeInsets(top: 8, bottom: 8, left: 96, right: 4)
             
             return stack
         }()
@@ -125,7 +125,7 @@ extension ContactsViewController {
                     if let image = image {
                         self.avatarView.image = image
                     } else {
-                        self.avatarView.image = UIImageView.getDefaultAvatar(for: jid, owner: owner, size: 64)
+                        self.avatarView.image = UIImageView.getDefaultAvatar(for: title.capitalized, owner: owner, size: 64)
                     }
                 }
             } else {
@@ -143,15 +143,17 @@ extension ContactsViewController {
         
         override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
             super.init(style: style, reuseIdentifier: reuseIdentifier)
+            avatarView.frame = CGRect(x: 16, y: 10, width: 64, height: 64)
+            addSubview(avatarView)
             contentView.addSubview(stack)
             stack.fillSuperview()
-            stack.addArrangedSubview(avatarView)
+//            stack.addArrangedSubview(avatarView)
             stack.addArrangedSubview(labelsStack)
             stack.addArrangedSubview(statusIndicator)
             labelsStack.addArrangedSubview(titleLabel)
             labelsStack.addArrangedSubview(subtitleLabel)
             activateConstraints()
-            separatorInset = UIEdgeInsets(top: 0, bottom: 0, left: 74, right: 0)
+            separatorInset = UIEdgeInsets(top: 0, bottom: 0, left: 96, right: 0)
 //            selectionStyle = .none
         }
         

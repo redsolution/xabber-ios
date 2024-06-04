@@ -26,17 +26,7 @@ import YubiKit
 
 extension LastChatsViewController {
     
-    internal final func showAddDialog() {
-        let vc = NewEntityViewController()
-        vc.addContactDelegate = self
-        vc.delegate = self
-        self.navigationController?.pushViewController(vc, animated: true)
-//        let nvc = UINavigationController(rootViewController: vc)
-//        nvc.modalPresentationStyle = .fullScreen
-//        nvc.modalTransitionStyle = .coverVertical
-//        self.definesPresentationContext = true
-//        self.present(nvc, animated: true, completion: nil)
-    }
+
     
     internal final func showRegisterYubikeyDialog() {
         if SignatureManager.shared.certificate != nil {
@@ -57,11 +47,6 @@ extension LastChatsViewController {
                 }
             }
         }
-    }
-    
-    @objc
-    internal func onAddContact() {
-        showAddDialog()
     }
     
     @objc
@@ -345,9 +330,3 @@ extension LastChatsViewController {
     
 }
 
-
-extension LastChatsViewController: NewEntityViewControllerDelegate {
-    func openChat(_ jid: String, owner: String) {
-        openChat(owner: owner, jid: jid, conversationType: .omemo)
-    }
-}

@@ -777,23 +777,6 @@ class ContactsViewController: BaseViewController {
         bag = DisposeBag()
     }
     
-    private final func showAddDialog() {
-        let vc = NewEntityViewController()
-        vc.addContactDelegate = self
-        vc.delegate = self
-        self.navigationController?.pushViewController(vc, animated: true)
-//        let nvc = UINavigationController(rootViewController: vc)
-//        nvc.modalPresentationStyle = .fullScreen
-//        nvc.modalTransitionStyle = .coverVertical
-//        self.definesPresentationContext = true
-//        self.present(nvc, animated: true, completion: nil)
-    }
-    
-    @objc
-    internal func onAddButtonPress() {
-        showAddDialog()
-    }
-    
     @objc
     internal func onAccountNavButtonPress(_ sender: UIButton) {
         let vc = SettingsViewController() //AccountInfoViewController()
@@ -923,7 +906,8 @@ class ContactsViewController: BaseViewController {
                             title: "Contacts list is empty".localizeString(id: "contacts_list_is_empty", arguments: []),
                             subtitle: "Try to add a contact".localizeString(id: "try_to_add_a_contact", arguments: []),
                             buttonTitle: "Add contact".localizeString(id: "application_action_no_contacts", arguments: [])) {
-            self.showAddDialog()
+            let vc = CreateNewEntityViewController()
+            showModal(vc, from: self)
         }
         
         emptyView.isHidden = true

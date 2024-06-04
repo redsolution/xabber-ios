@@ -102,7 +102,7 @@ class EmptyStateView: UIView {
         centerStack.addArrangedSubview(iconImage)
         centerStack.addArrangedSubview(titleLabel)
         centerStack.addArrangedSubview(subtitleLabel)
-        centerStack.addArrangedSubview(button)
+//        centerStack.addArrangedSubview(button)
 //        titleLabel.text = title
 //        subtitleLabel.text = subtitle
         

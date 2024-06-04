@@ -87,6 +87,13 @@ class NetworkManager: NSObject {
             .first {
             var payload: [String: String] = ["stanza": stanza.compactXMLString()]
             var groupchatReference: DDXMLElement? = nil
+            if let authElement = message.elements(forName: "authenticated-key-exchange").first {
+                if let verificationElement = authElement.elements(forName: "verification-start").first {
+                    let from = message.attribute(forName: "from")?.stringValue?.split(separator: "@").first as? String
+                    self.delegate?.didReceiveStartVerification(payload: ["from": from ?? "somebody"])
+                    return
+                }
+            }
             if let groupchatReferences = message.elements(forName: "x").first(where: { $0.xmlns() == "https://xabber.com/protocol/groups" })?.elements(forName: "reference") {
                 print("GROUPCHAT", groupchatReferences)
                 if let nickname = getGrouchatUserNickname(groupchatReferences) {
