@@ -62,21 +62,24 @@ extension DevicesListViewController: UITableViewDataSource {
                 guard let cell = tableView.dequeueReusableCell(withIdentifier: ButtonTableViewCell.cellName, for: indexPath) as? ButtonTableViewCell else {
                     return UITableViewCell(frame: .zero)
                 }
-                switch item.value {
-                case "verify_own_devices":
-                    cell.configure(for: item.title, style: .normal)
-                default:
-                    cell.configure(for: item.title, style: .danger)
-                }
+                cell.configure(for: item.title, style: .danger)
                 return cell
             case .session:
                 fatalError()
             }
         case .token:
+            if indexPath.row == 0 {
+                guard let cell = tableView.dequeueReusableCell(withIdentifier: ButtonTableViewCell.cellName, for: indexPath) as? ButtonTableViewCell else {
+                    return UITableViewCell(frame: .zero)
+                }
+                cell.configure(for: "Verify all unknown devices", style: .normal)
+                return cell
+            }
+            
             guard let cell = tableView.dequeueReusableCell(withIdentifier: DeviceInfoTableCell.cellName, for: indexPath) as? DeviceInfoTableCell else {
                     return UITableViewCell(frame: .zero)
             }
-            let deviceItem = devices[indexPath.row]
+            let deviceItem = devices[indexPath.row - 1]
             var trustState: SignalDeviceStorageItem.TrustState? = nil
             var isTrustedByCert: Bool = false
             if let omemoDevice = omemoDevices.first(where: { $0.deviceId == deviceItem.omemoDeviceId }) {
@@ -147,7 +150,7 @@ extension DevicesListViewController: UITableViewDataSource {
         let item = datasource[section]
         switch item.kind {
         case .current, .button: return item.childs.count
-        case .token: return devices.count
+        case .token: return devices.count + 1
         case .broken: return brokenOmemoDevices.count
         case .session: return item.childs.count
         }

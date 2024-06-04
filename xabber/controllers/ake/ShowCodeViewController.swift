@@ -17,18 +17,18 @@ class ShowCodeViewController: UIViewController {
     var sid: String = ""
     var isVerificationWithUsersDevice: Bool = false
     
-    init(owner: String, jid: String, code: String, sid: String, isVerificationWithUsersDevice: Bool) {
-        self.owner = owner
-        self.jid = jid
-        self.code = code
-        self.sid = sid
-        self.isVerificationWithUsersDevice = isVerificationWithUsersDevice
-        super.init(nibName: nil, bundle: nil)
-    }
+//    init(owner: String, jid: String, code: String, sid: String, isVerificationWithUsersDevice: Bool) {
+//        self.owner = owner
+//        self.jid = jid
+//        self.code = code
+//        self.sid = sid
+//        self.isVerificationWithUsersDevice = isVerificationWithUsersDevice
+//        super.init(nibName: nil, bundle: nil)
+//    }
     
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
+//    required init?(coder: NSCoder) {
+//        fatalError("init(coder:) has not been implemented")
+//    }
     
     let headerView: InfoScreenHeaderView = {
         let view = InfoScreenHeaderView(frame: .zero)
@@ -138,7 +138,13 @@ class ShowCodeViewController: UIViewController {
         ])
     }
     
-    func configure() {
+    func configure(owner: String, jid: String, code: String, sid: String, isVerificationWithUsersDevice: Bool) {
+        self.owner = owner
+        self.jid = jid
+        self.code = code
+        self.sid = sid
+        self.isVerificationWithUsersDevice = isVerificationWithUsersDevice
+        
         loadDatasource()
         setupUI()
     }

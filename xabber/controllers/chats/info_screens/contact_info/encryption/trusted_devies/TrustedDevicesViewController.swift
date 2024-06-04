@@ -396,8 +396,8 @@ extension TrustedDevicesViewController: UITableViewDelegate {
                 guard let code = akeManager.acceptVerificationRequest(jid: self.jid, sid: sid) else {
                     return
                 }
-                let vc = ShowCodeViewController(owner: self.owner, jid: self.jid, code: code, sid: sid, isVerificationWithUsersDevice: false)
-                vc.configure()
+                let vc = ShowCodeViewController()
+                vc.configure(owner: self.owner, jid: self.jid, code: code, sid: sid, isVerificationWithUsersDevice: false)
                 self.navigationController!.present(vc, animated: true)
                 tableView.reloadData()
                 return
@@ -413,8 +413,8 @@ extension TrustedDevicesViewController: UITableViewDelegate {
                     fatalError()
                 }
                 
-                let vc = ShowCodeViewController(owner: self.owner, jid: self.jid, code: code, sid: item.verificationSid!, isVerificationWithUsersDevice: false)
-                vc.configure()
+                let vc = ShowCodeViewController()
+                vc.configure(owner: self.owner, jid: self.jid, code: code, sid: item.verificationSid!, isVerificationWithUsersDevice: false)
                 self.navigationController!.present(vc, animated: true)
                 
                 return

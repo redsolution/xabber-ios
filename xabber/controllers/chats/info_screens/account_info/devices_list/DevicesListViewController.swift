@@ -129,28 +129,6 @@ class DevicesListViewController: BaseViewController {
     
     internal func update() {
         datasource = []
-        if activeVerificationSession != nil {
-            var text: String
-            var secondaryText, buttonTitle, buttonKey: String?
-            
-            (text, secondaryText, buttonTitle, buttonKey) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: self.activeVerificationSession!.state)
-            
-            datasource = [
-                Datasource(.session, title: "", value: "", editable: false, childs: [
-                    Datasource(.session, title: text, value: secondaryText, editable: false, verificationSid: activeVerificationSession!.sid, verificationFullJid: activeVerificationSession!.fullJID)
-                ])
-            ]
-            
-            if buttonKey != nil {
-                datasource[0].childs.append(Datasource(.button, title: buttonTitle!, value: buttonKey, editable: false, verificationSid: activeVerificationSession!.sid, verificationFullJid: activeVerificationSession!.fullJID))
-                if buttonKey == "show_verification_code" || buttonKey == "enter_verification_code" {
-                    datasource[0].childs.append(Datasource(.button, title: "Cancel", value: "cancel_verification", editable: false, verificationSid: activeVerificationSession!.sid, verificationFullJid: activeVerificationSession!.fullJID))
-                } else if buttonKey == "accept_verification" {
-                    datasource[0].childs.append(Datasource(.button, title: "Reject", value: "reject_verification", editable: false, verificationSid: activeVerificationSession!.sid, verificationFullJid: activeVerificationSession!.fullJID))
-                }
-            }
-        }
-        
         datasource.append(Datasource(.current,
                                  title: "This device".localizeString(id: "settings_account__label_current_session", arguments: []),
                                  value: "Logs out all devices except this one.".localizeString(id: "settings_account_label_log_out_all", arguments: []),
@@ -159,15 +137,34 @@ class DevicesListViewController: BaseViewController {
                                                      title: " ",
                                                      value: account.resource?.resource ?? "",
                                                      editable: false),
-                                          Datasource(.button, title: "Verify all unknown devices", value: "verify_own_devices", editable: false),
                                           Datasource(.button, title: "Terminate all other sessions".localizeString(id: "account_terminate_all_sessions", arguments: []), value: "terminate_all_sessions", editable: false)]))
+        
+        if activeVerificationSession != nil {
+            var text: String
+            var secondaryText, buttonTitle, buttonKey: String?
+            
+            (text, secondaryText, buttonTitle, buttonKey) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: self.activeVerificationSession!.state)
+            
+            datasource.append(Datasource(.session, title: "", value: "", editable: false, childs: [
+                    Datasource(.session, title: text, value: secondaryText, editable: false, verificationSid: activeVerificationSession!.sid, verificationFullJid: activeVerificationSession!.fullJID)
+                ]))
+            
+            if buttonKey != nil {
+                datasource[1].childs.append(Datasource(.button, title: buttonTitle!, value: buttonKey, editable: false, verificationSid: activeVerificationSession!.sid, verificationFullJid: activeVerificationSession!.fullJID))
+                if buttonKey == "show_verification_code" || buttonKey == "enter_verification_code" {
+                    datasource[1].childs.append(Datasource(.button, title: "Cancel", value: "cancel_verification", editable: false, verificationSid: activeVerificationSession!.sid, verificationFullJid: activeVerificationSession!.fullJID))
+                } else if buttonKey == "accept_verification" {
+                    datasource[1].childs.append(Datasource(.button, title: "Reject", value: "reject_verification", editable: false, verificationSid: activeVerificationSession!.sid, verificationFullJid: activeVerificationSession!.fullJID))
+                }
+            }
+        }
         
         if devices.isNotEmpty {
             datasource.append(Datasource(.token,
                                          title: "Active devices".localizeString(id: "settings_account__label_active_sessions", arguments: []),
                                          value: "You can terminate sessions you don`t need. Official Clandestino clients wipe all user data from the device upon session termination.".localizeString(id: "account_settings_terminate_description", arguments: []),
                        editable: false,
-                       childs: []))
+                                         childs: [Datasource(.button, title: "Verify all unknown devices", editable: false)]))
         }
         
         if brokenOmemoDevices.isNotEmpty {

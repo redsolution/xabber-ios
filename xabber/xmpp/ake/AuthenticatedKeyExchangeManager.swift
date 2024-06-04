@@ -342,7 +342,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 
                 
                 DispatchQueue.main.async {
-                    vc.configure(sid: sid)
+                    vc.configure(owner: self.owner, sid: sid)
                     showModal(vc, from: presenter)
 //                    presenter.present(vc, animated: true)
                 }

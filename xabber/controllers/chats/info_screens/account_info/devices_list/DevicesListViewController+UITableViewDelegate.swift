@@ -32,7 +32,11 @@ extension DevicesListViewController: UITableViewDelegate {
                 return 44
             }
             return 60
-        case .token, .broken: return 60
+        case .token, .broken:
+            if indexPath.row == 0 {
+                return 44
+            }
+            return 60
         case .button: return 44
         case .session: return tableView.estimatedRowHeight
         }
@@ -67,7 +71,7 @@ extension DevicesListViewController: UITableViewDelegate {
                 break
             }
         case .token:
-            let uid = devices[indexPath.row].uid
+            let uid = devices[indexPath.row - 1].uid
             showTokenInfo(uid: uid, canEdit: false)
         case .button:
             let item = datasource[indexPath.section].childs[indexPath.row]
@@ -140,8 +144,8 @@ extension DevicesListViewController: UITableViewDelegate {
                 guard let code = akeManager.acceptVerificationRequest(jid: self.jid, sid: sid) else {
                     return
                 }
-                let vc = ShowCodeViewController(owner: self.jid, jid: self.jid, code: code, sid: sid, isVerificationWithUsersDevice: true)
-                vc.configure()
+                let vc = ShowCodeViewController()
+                vc.configure(owner: self.jid, jid: self.jid, code: code, sid: sid, isVerificationWithUsersDevice: true)
                 self.navigationController!.present(vc, animated: true)
                 self.load()
                 self.update()
@@ -159,8 +163,8 @@ extension DevicesListViewController: UITableViewDelegate {
                     fatalError()
                 }
                 
-                let vc = ShowCodeViewController(owner: self.jid, jid: self.jid, code: code, sid: item.verificationSid!, isVerificationWithUsersDevice: true)
-                vc.configure()
+                let vc = ShowCodeViewController()
+                vc.configure(owner: self.jid, jid: self.jid, code: code, sid: item.verificationSid!, isVerificationWithUsersDevice: true)
                 self.navigationController!.present(vc, animated: true)
                 
                 return
@@ -234,7 +238,7 @@ extension DevicesListViewController: UITableViewDelegate {
             
             let hasConnection = !AccountManager.shared.connectingUsers.value.contains(self.jid)
             if hasConnection {
-                let item = self.devices[indexPath.row]
+                let item = self.devices[indexPath.row - 1]
                 let uid = item.uid
 //                XMPPUIActionManager.shared.performRequest(owner: self.jid) { stream, session in
 //                    session.devices?.revoke(stream, uids: [uid])
