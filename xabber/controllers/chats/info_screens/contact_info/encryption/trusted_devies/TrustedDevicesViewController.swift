@@ -259,8 +259,8 @@ class TrustedDevicesViewController: SimpleBaseViewController {
         case .sentRequest:
             text = "Outgoing Verification Request"
             secondaryText = "Verification request has been sent to the contact."
-            buttonTitle = "Cancel"
-            buttonKey = "cancel_verification"
+            buttonTitle = nil
+            buttonKey = nil
         case .receivedRequest:
             text = "Incoming Verification request"
             secondaryText = "Contact has requested to establish a trusted encryption session with you. If you accept, you’ll be presented with a security code which you’ll need to pass to your contact via a trusted channel."
@@ -274,18 +274,18 @@ class TrustedDevicesViewController: SimpleBaseViewController {
         case .trusted:
             text = "Verification successful"
             secondaryText = "The verification session was completed successfully. Now you trust this contact's devices."
-            buttonTitle = "Close"
-            buttonKey = "hide_session"
+            buttonTitle = nil
+            buttonKey = nil
         case .rejected:
             text = "Verification rejected"
             secondaryText = "The verification session rejected."
-            buttonTitle = "Close"
-            buttonKey = "hide_session"
+            buttonTitle = nil
+            buttonKey = nil
         case .failed:
             text = "Verification failed"
             secondaryText = "The verification session failed."
-            buttonTitle = "Close"
-            buttonKey = "hide_session"
+            buttonTitle = nil
+            buttonKey = nil
         case .receivedRequestAccept:
             text = "Outgoing Verification Request"
             secondaryText = "The contact accepted the verification request."

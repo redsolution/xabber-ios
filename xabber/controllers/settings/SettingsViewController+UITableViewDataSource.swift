@@ -57,7 +57,27 @@ extension SettingsViewController: UITableViewDataSource {
                            statusText: item.statusMessage,
                            enabled: item.enabled)
             return cell
-        
+        case .session:
+            let item = datasource[indexPath.section].childs[indexPath.row]
+            if item.values.isNotEmpty {
+                let cell = UITableViewCell()
+                var contentConfig = cell.defaultContentConfiguration()
+                contentConfig.text = item.title
+                if item.values.first == "reject-verification" {
+                    contentConfig.textProperties.color = .systemRed
+                    
+                } else {
+                    contentConfig.textProperties.color = .systemBlue
+                }
+                cell.contentConfiguration = contentConfig
+                
+                return cell
+            } else {
+                let cell = VerificationSessionTableViewCell()
+                cell.configure(owner: self.owner, jid: self.owner, sid: item.verificationSid!, title: item.title!, subtitle: item.subtitle)
+                
+                return cell
+            }
         default:
             let item = datasource[indexPath.section].childs[indexPath.row]
             

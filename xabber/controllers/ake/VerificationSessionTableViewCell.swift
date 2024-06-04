@@ -101,13 +101,22 @@ class VerificationSessionTableViewCell: UITableViewCell {
         do {
             let realm = try WRealm.safe()
             let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: self.sid))
+            
+            if instance?.state == .receivedRequest {
+                akeManager.rejectRequestToVerify(jid: self.jid, sid: self.sid)
+                
+                return
+            } else if instance?.state != VerificationSessionStorageItem.VerififcationState.failed && instance?.state != VerificationSessionStorageItem.VerififcationState.trusted && instance?.state != VerificationSessionStorageItem.VerififcationState.rejected {
+                akeManager.sendErrorMessage(fullJID: fullJid, sid: self.sid, reason: "Сontact canceled verification session")
+            }
             try realm.write {
                 realm.delete(instance!)
             }
+            
+            return
         } catch {
             fatalError()
         }
-        akeManager.sendErrorMessage(fullJID: fullJid, sid: self.sid, reason: "Сontact canceled verification session")
     }
     
     func activateConstraints() {

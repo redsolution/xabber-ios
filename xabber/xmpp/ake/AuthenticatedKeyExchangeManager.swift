@@ -1013,7 +1013,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         
         let authenticatedKeyExchange = DDXMLElement(name: "authenticated-key-exchange", xmlns: getPrimaryNamespace())
         authenticatedKeyExchange.addAttribute(withName: "sid", stringValue: sid)
-        authenticatedKeyExchange.addAttribute(withName: "timestamp", stringValue: String(Date().timeIntervalSince1970))
+        authenticatedKeyExchange.addAttribute(withName: "timestamp", stringValue: String(Date().timeIntervalSince1970.rounded()))
         let verificationRejected = DDXMLElement(name: "verification-rejected")
         authenticatedKeyExchange.addChild(verificationRejected)
         
