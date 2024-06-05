@@ -48,7 +48,7 @@ class VerificationSessionTableViewCell: UITableViewCell {
     }()
     
     let closeButton: UIButton = {
-        let button = UIButton(frame: CGRect(width: 20, height: 20))
+        let button = UIButton()
         button.translatesAutoresizingMaskIntoConstraints = false
         button.setImage(UIImage(systemName: "xmark"), for: .normal)
         button.tintColor = .lightGray
@@ -88,6 +88,7 @@ class VerificationSessionTableViewCell: UITableViewCell {
         stack.addArrangedSubview(customImageView)
         stack.addArrangedSubview(labelsStack)
         stack.addArrangedSubview(closeButton)
+        stack.contentMode = .scaleAspectFit
         
         closeButton.addTarget(self, action: #selector(onCloseButtonPressed), for: .touchUpInside)
     }
@@ -122,7 +123,7 @@ class VerificationSessionTableViewCell: UITableViewCell {
     func activateConstraints() {
         NSLayoutConstraint.activate([
             customImageView.widthAnchor.constraint(equalToConstant: 40),
-            closeButton.imageView!.rightAnchor.constraint(equalTo: closeButton.rightAnchor),
+            closeButton.leftAnchor.constraint(equalTo: stack.leftAnchor)
         ])
     }
 }

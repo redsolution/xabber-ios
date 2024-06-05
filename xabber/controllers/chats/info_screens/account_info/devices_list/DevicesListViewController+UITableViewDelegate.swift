@@ -114,27 +114,6 @@ extension DevicesListViewController: UITableViewDelegate {
                 return
             }
             switch item.value {
-            case "cancel_verification":
-                guard let akeManager = AccountManager.shared.find(for: self.jid)?.akeManager,
-//                      let fullJidString = item.verificationFullJid,
-                      let fullJid = XMPPJID(string: self.jid),
-                      let sid = item.verificationSid else {
-                    fatalError()
-                }
-                do {
-                    let realm = try WRealm.safe()
-                    let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.jid, sid: sid))
-                    try realm.write {
-                        realm.delete(instance!)
-                    }
-                } catch {
-                    fatalError()
-                }
-                akeManager.sendErrorMessage(fullJID: fullJid, sid: sid, reason: "Сontact canceled verification session")
-                self.load()
-                self.update()
-                tableView.reloadData()
-                return
             case "accept_verification":
                 guard let akeManager = AccountManager.shared.find(for: self.jid)?.akeManager,
                       let sid = item.verificationSid else {

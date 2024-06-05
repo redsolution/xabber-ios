@@ -53,55 +53,6 @@ extension SettingsViewController: UITableViewDelegate {
                         self.showAccountInfo(item.jid, isEnabled: item.enabled)
                     }
                 }
-            case .session:
-                let item = datasource[indexPath.section].childs[indexPath.row]
-                switch item.values.first {
-                case "accept_verification":
-                    guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
-                          let sid = item.verificationSid else {
-                        fatalError()
-                    }
-                    guard let code = akeManager.acceptVerificationRequest(jid: self.owner, sid: sid) else {
-                        return
-                    }
-                    let vc = ShowCodeViewController()
-                    vc.configure(owner: self.owner, jid: self.jid, code: code, sid: sid, isVerificationWithUsersDevice: false)
-                    self.navigationController!.present(vc, animated: true)
-                    
-                    return
-                case "show_verification_code":
-                    let code: String
-                    do {
-                        let realm = try WRealm.safe()
-                        guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: item.verificationSid!)) else {
-                            fatalError()
-                        }
-                        code = instance.code
-                    } catch {
-                        fatalError()
-                    }
-                    
-                    let vc = ShowCodeViewController()
-                    vc.configure(owner: self.owner, jid: self.owner, code: code, sid: item.verificationSid!, isVerificationWithUsersDevice: true)
-                    self.navigationController!.present(vc, animated: true)
-                    
-                    return
-                case "enter_verification_code":
-                    let vc = AuthenticationCodeInputViewController()
-                    vc.configure(owner: self.owner, jid: self.owner, sid: item.verificationSid!, isVerificationWithUsersDevice: false)
-                    self.navigationController!.present(vc, animated: true)
-                    
-                    return
-                case "reject_verification":
-                    guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
-                        fatalError()
-                    }
-                    akeManager.rejectRequestToVerify(jid: self.jid, sid: item.verificationSid!)
-                    
-                    return
-                default:
-                    fatalError()
-                }
             default: break
             }
             return
@@ -218,6 +169,55 @@ extension SettingsViewController: UITableViewDelegate {
         case .interface, .settings, .languages:
             self.showSettings(by: menuItem.key?.rawValue)
             return
+        case .session:
+            let item = datasource[indexPath.section].childs[indexPath.row]
+            switch item.values.first {
+            case "accept_verification":
+                guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
+                      let sid = item.verificationSid else {
+                    fatalError()
+                }
+                guard let code = akeManager.acceptVerificationRequest(jid: self.owner, sid: sid) else {
+                    return
+                }
+                let vc = ShowCodeViewController()
+                vc.configure(owner: self.owner, jid: self.jid, code: code, sid: sid, isVerificationWithUsersDevice: false)
+                self.navigationController!.present(vc, animated: true)
+                
+                return
+            case "show_verification_code":
+                let code: String
+                do {
+                    let realm = try WRealm.safe()
+                    guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: item.verificationSid!)) else {
+                        fatalError()
+                    }
+                    code = instance.code
+                } catch {
+                    fatalError()
+                }
+                
+                let vc = ShowCodeViewController()
+                vc.configure(owner: self.owner, jid: self.owner, code: code, sid: item.verificationSid!, isVerificationWithUsersDevice: true)
+                self.navigationController!.present(vc, animated: true)
+                
+                return
+            case "enter_verification_code":
+                let vc = AuthenticationCodeInputViewController()
+                vc.configure(owner: self.owner, jid: self.owner, sid: item.verificationSid!, isVerificationWithUsersDevice: false)
+                self.navigationController!.present(vc, animated: true)
+                
+                return
+            case "reject_verification":
+                guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
+                    fatalError()
+                }
+                akeManager.rejectRequestToVerify(jid: self.jid, sid: item.verificationSid!)
+                
+                return
+            default:
+                fatalError()
+            }
         default:
             self.view.makeToast("Feature is non implemented")
             return

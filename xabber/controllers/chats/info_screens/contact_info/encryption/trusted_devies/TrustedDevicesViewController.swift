@@ -184,9 +184,7 @@ class TrustedDevicesViewController: SimpleBaseViewController {
                 
                 if buttonKey != nil {
                     datasource[0].append(Datasource(.button, name: buttonTitle!, key: buttonKey!, verificationSid: sid, verificationJid: fullJid))
-                    if buttonKey == "show_verification_code" || buttonKey == "enter_verification_code" {
-                        datasource[0].append(Datasource(.button, name: "Cancel", key: "cancel_verification", verificationSid: sid, verificationJid: fullJid))
-                    } else if buttonKey == "accept_verification" {
+                    if buttonKey == "accept_verification" {
                         datasource[0].append(Datasource(.button, name: "Reject", key: "reject_verification", verificationSid: sid, verificationJid: fullJid))
                     }
                 }
@@ -368,25 +366,6 @@ extension TrustedDevicesViewController: UITableViewDelegate {
                 akeManager.sendVerificationRequest(jid: self.jid)
                 tableView.reloadData()
                 
-                return
-            case "cancel_verification":
-                guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
-                      let fullJidString = item.verificationJid,
-                      let fullJid = XMPPJID(string: fullJidString),
-                      let sid = item.verificationSid else {
-                    fatalError()
-                }
-                do {
-                    let realm = try WRealm.safe()
-                    let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid))
-                    try realm.write {
-                        realm.delete(instance!)
-                    }
-                } catch {
-                    fatalError()
-                }
-                akeManager.sendErrorMessage(fullJID: fullJid, sid: sid, reason: "Сontact canceled verification session")
-                tableView.reloadData()
                 return
             case "accept_verification":
                 guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,

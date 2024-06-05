@@ -17,19 +17,6 @@ class ShowCodeViewController: UIViewController {
     var sid: String = ""
     var isVerificationWithUsersDevice: Bool = false
     
-//    init(owner: String, jid: String, code: String, sid: String, isVerificationWithUsersDevice: Bool) {
-//        self.owner = owner
-//        self.jid = jid
-//        self.code = code
-//        self.sid = sid
-//        self.isVerificationWithUsersDevice = isVerificationWithUsersDevice
-//        super.init(nibName: nil, bundle: nil)
-//    }
-    
-//    required init?(coder: NSCoder) {
-//        fatalError("init(coder:) has not been implemented")
-//    }
-    
     let headerView: InfoScreenHeaderView = {
         let view = InfoScreenHeaderView(frame: .zero)
         
@@ -40,6 +27,7 @@ class ShowCodeViewController: UIViewController {
         let label = UILabel()
         label.translatesAutoresizingMaskIntoConstraints = false
         label.font = UIFont.monospacedSystemFont(ofSize: 48, weight: .regular)
+        
         return label
     }()
     
@@ -49,28 +37,24 @@ class ShowCodeViewController: UIViewController {
         stack.axis = .vertical
         stack.spacing = 15
         stack.translatesAutoresizingMaskIntoConstraints = false
+        
         return stack
-    }()
-    
-    let titleLabel: UILabel = {
-        let label = UILabel()
-        label.textAlignment = .center
-        label.numberOfLines = 0
-        label.font = UIFont.systemFont(ofSize: UIFont.labelFontSize, weight: .semibold)
-        return label
     }()
     
     let subTitleLabel: UILabel = {
         let label = UILabel()
-        label.textAlignment = .center
+        label.textAlignment = .left
         label.numberOfLines = 0
         label.lineBreakMode = .byWordWrapping
+        
         return label
     }()
     
     let descriptionLabel: UILabel = {
         let label = UILabel()
         label.numberOfLines = 0
+        label.textColor = .systemGray
+        
         return label
     }()
     
@@ -78,7 +62,6 @@ class ShowCodeViewController: UIViewController {
         let button = UIButton()
         button.setTitle("Cancel verification", for: .normal)
         button.setTitleColor(.systemBlue, for: .normal)
-        
         button.translatesAutoresizingMaskIntoConstraints = false
         
         return button
@@ -89,50 +72,49 @@ class ShowCodeViewController: UIViewController {
         view.addSubview(cancelButton)
         
         headerView.buttonsStack.removeFromSuperview()
-        headerView.subtitleLabel.textColor = .systemBlue
+        headerView.subtitleLabel.textColor = .systemGray
         headerView.titleButton.tintColor = .black
+        headerView.backgroundColor = .systemGroupedBackground
         
-        stackLabels.addArrangedSubview(titleLabel)
-        stackLabels.addArrangedSubview(subTitleLabel)
         stackLabels.addArrangedSubview(headerView)
+        stackLabels.addArrangedSubview(subTitleLabel)
         stackLabels.addArrangedSubview(descriptionLabel)
         stackLabels.addArrangedSubview(codeLabel)
         
         stackLabels.setCustomSpacing(40, after: descriptionLabel)
-        headerView.stack.fillSuperviewWithOffset(top: 40, bottom: 40, left: 0, right: 0)
+        headerView.stack.fillSuperview()
         
         cancelButton.addTarget(self, action: #selector(onCancelButtonPressed), for: .touchUpInside)
         
-        titleLabel.text = "Identity Verification"
         if isVerificationWithUsersDevice {
             subTitleLabel.text = "You are about to establish a secure connection with your other device"
         } else {
             subTitleLabel.text = "You are about to establish a secure connection with this account"
         }
         
-        let attributedString = NSMutableAttributedString(string: "1.\tCarefully verify the ")
-        let infixAttributedString = NSAttributedString(string: "address", attributes: [NSAttributedString.Key.foregroundColor: UIColor.systemBlue])
-        attributedString.append(infixAttributedString)
-        attributedString.append(NSAttributedString(string: " and identity of this contact.\n\n2.\tUse a secure method (preferably in person) to ask the contact to verify identity by entering the following code:"))
+        let attributedString = NSMutableAttributedString(string: "1.\tCarefully verify the address and identity of this contact.\n\n2.\tUse a secure method (preferably in person) to ask the contact to verify identity by entering the following code:")
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.headIndent = 28
         attributedString.addAttributes([NSAttributedString.Key.paragraphStyle: paragraphStyle], range: NSRange(location: 0, length: attributedString.length))
         descriptionLabel.attributedText = attributedString
         
-        if #available(iOS 13.0, *) {
-            self.view.backgroundColor = .systemBackground
-        } else {
-            self.view.backgroundColor = .white
-        }
+        self.view.backgroundColor = .systemBackground
         
         codeLabel.text = self.code
         
         NSLayoutConstraint.activate([
-            stackLabels.topAnchor.constraint(equalTo: view.topAnchor, constant: 24),
-            stackLabels.leftAnchor.constraint(equalTo: view.leftAnchor, constant: 24),
-            stackLabels.rightAnchor.constraint(equalTo: view.rightAnchor, constant: -24),
+            stackLabels.topAnchor.constraint(equalTo: view.topAnchor),
+            stackLabels.leftAnchor.constraint(equalTo: view.leftAnchor, constant: 33),
+            stackLabels.rightAnchor.constraint(equalTo: view.rightAnchor, constant: -33),
+            headerView.topAnchor.constraint(equalTo: stackLabels.topAnchor),
+            headerView.bottomAnchor.constraint(equalTo: headerView.subtitleLabel.bottomAnchor, constant: 15),
+            headerView.leftAnchor.constraint(equalTo: view.leftAnchor),
+            headerView.rightAnchor.constraint(equalTo: view.rightAnchor),
             headerView.titleButton.topAnchor.constraint(equalTo: headerView.imageButton.bottomAnchor, constant: 6),
             headerView.subtitleLabel.topAnchor.constraint(equalTo: headerView.titleButton.bottomAnchor, constant: 6),
+            headerView.stack.topAnchor.constraint(equalTo: stackLabels.topAnchor, constant: 48),
+            subTitleLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
+            descriptionLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
             cancelButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             cancelButton.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -70)
         ])

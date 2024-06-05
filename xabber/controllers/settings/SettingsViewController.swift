@@ -476,6 +476,67 @@ class SettingsViewController: BaseViewController {
                     self.load()
                     self.tableView.reloadData()
                 }).disposed(by: bag)
+            
+            Observable
+                .collection(from: realm
+                    .objects(VerificationSessionStorageItem.self)
+                    .filter("owner == %@ AND jid == %@", self.owner, self.owner))
+                .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
+                .subscribe(onNext: { (results) in
+                    if self.datasource.isEmpty {
+                        return
+                    }
+                    guard let item = results.first else {
+                        let section = self.datasource.firstIndex(where: { $0.section == .session })
+                        if let section = section {
+                            self.datasource.remove(at: section)
+                            self.tableView.reloadData()
+                        }
+                        
+                        return
+                    }
+                    
+                    do {
+                        let section = self.datasource.firstIndex(where: { $0.section == .session })
+                        if let section = section {
+                            let (text, secondaryText, buttonTitle, buttonKey) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: item.state)
+                            let verificationDatasource = Datasource(section: .session, title: "Active verifiaction sessions", childs: [Datasource(section: .session, title: text, subtitle: secondaryText, verificationSid: item.sid)])
+                            
+                            if buttonKey != nil {
+                                verificationDatasource.childs.append(Datasource(section: .session, title: buttonTitle, values: [buttonKey!], verificationSid: item.sid))
+                                if buttonKey == "accept_verification" {
+                                    verificationDatasource.childs.append(Datasource(section: .session, title: "Reject", values: ["reject-verification"], verificationSid: item.sid))
+                                }
+                            }
+                            self.datasource[section] = verificationDatasource
+                            self.tableView.reloadData()
+                            
+                            return
+                        }
+                        
+                        let realm = try WRealm.safe()
+                        
+                        let verificationInstance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.owner).first
+                        if let verificationInstance = verificationInstance {
+                            let (text, secondaryText, buttonTitle, buttonKey) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: verificationInstance.state)
+                            let verificationDatasource = Datasource(section: .session, title: "Active verifiaction sessions", childs: [Datasource(section: .session, title: text, subtitle: secondaryText, verificationSid: item.sid)])
+                            
+                            if buttonKey != nil {
+                                verificationDatasource.childs.append(Datasource(section: .session, title: buttonTitle, values: [buttonKey!], verificationSid: item.sid))
+                                if buttonKey == "accept_verification" {
+                                    verificationDatasource.childs.append(Datasource(section: .session, title: "Reject", values: ["reject-verification"], verificationSid: item.sid))
+                                }
+                            }
+                            self.datasource.insert(verificationDatasource, at: self.datasource.firstIndex(where: { $0.section == .accountSettings })!)
+                            self.tableView.reloadData()
+                            
+                            return
+                        }
+                        
+                    } catch {
+                        fatalError()
+                    }
+                }).disposed(by: bag)
         } catch {
             DDLogDebug("SettingsViewController: \(#function). \(error.localizedDescription)")
         }

@@ -151,9 +151,7 @@ class DevicesListViewController: BaseViewController {
             
             if buttonKey != nil {
                 datasource[1].childs.append(Datasource(.button, title: buttonTitle!, value: buttonKey, editable: false, verificationSid: activeVerificationSession!.sid, verificationFullJid: activeVerificationSession!.fullJID))
-                if buttonKey == "show_verification_code" || buttonKey == "enter_verification_code" {
-                    datasource[1].childs.append(Datasource(.button, title: "Cancel", value: "cancel_verification", editable: false, verificationSid: activeVerificationSession!.sid, verificationFullJid: activeVerificationSession!.fullJID))
-                } else if buttonKey == "accept_verification" {
+                if buttonKey == "accept_verification" {
                     datasource[1].childs.append(Datasource(.button, title: "Reject", value: "reject_verification", editable: false, verificationSid: activeVerificationSession!.sid, verificationFullJid: activeVerificationSession!.fullJID))
                 }
             }

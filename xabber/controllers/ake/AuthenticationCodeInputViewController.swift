@@ -20,7 +20,6 @@ class AuthenticationCodeInputViewController: UIViewController, UITextFieldDelega
     internal let scrollView: UIScrollView = {
         let view = UIScrollView(frame: .zero)
         
-        
         return view
     }()
     
@@ -42,20 +41,12 @@ class AuthenticationCodeInputViewController: UIViewController, UITextFieldDelega
         stack.axis = .vertical
         stack.spacing = 15
         stack.translatesAutoresizingMaskIntoConstraints = false
+        
         return stack
-    }()
-    
-    let titleLabel: UILabel = {
-        let label = UILabel()
-        label.textAlignment = .center
-        label.numberOfLines = 0
-        label.font = UIFont.systemFont(ofSize: UIFont.labelFontSize, weight: .semibold)
-        return label
     }()
     
     let subtitleLabel: UILabel = {
         let label = UILabel()
-        label.textAlignment = .center
         label.numberOfLines = 0
         label.lineBreakMode = .byWordWrapping
         return label
@@ -64,6 +55,7 @@ class AuthenticationCodeInputViewController: UIViewController, UITextFieldDelega
     let descriptionLabel: UILabel = {
         let label = UILabel()
         label.numberOfLines = 0
+        label.textColor = .systemGray
         
         return label
     }()
@@ -113,7 +105,7 @@ class AuthenticationCodeInputViewController: UIViewController, UITextFieldDelega
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         code.becomeFirstResponder()
-        code.returnKeyType = .send
+        code.returnKeyType = .continue
         code.delegate = self
     }
     
@@ -127,11 +119,11 @@ class AuthenticationCodeInputViewController: UIViewController, UITextFieldDelega
         containerView.addSubview(cancelButton)
         
         headerView.buttonsStack.removeFromSuperview()
-        headerView.subtitleLabel.textColor = .systemBlue
+        headerView.subtitleLabel.textColor = .systemGray
+        headerView.backgroundColor = .systemGroupedBackground
         
-        stackLabels.addArrangedSubview(titleLabel)
-        stackLabels.addArrangedSubview(subtitleLabel)
         stackLabels.addArrangedSubview(headerView)
+        stackLabels.addArrangedSubview(subtitleLabel)
         stackLabels.addArrangedSubview(descriptionLabel)
         stackLabels.addArrangedSubview(code)
         
@@ -140,35 +132,33 @@ class AuthenticationCodeInputViewController: UIViewController, UITextFieldDelega
         
         cancelButton.addTarget(self, action: #selector(onCancelButtonPressed), for: .touchUpInside)
         
-        titleLabel.text = "Identity Verification"
-//        if isVerificationWithUsersDevice {
-        subtitleLabel.text = "You are establishing a secure connection with:"
-//        } else {
-//            subtitleLabel.text = "The contact \(self.fullJID) to whom you sent a verification request accepted it, enter the code provided by this contact"
-//        }
-//        descriptionLabel.text = "SID: \(self.sid)"
+        if isVerificationWithUsersDevice {
+            subtitleLabel.text = "You are about to establish a secure connection with your other device"
+        } else {
+            subtitleLabel.text = "You are about to establish a secure connection with this account"
+        }
         
-        let attributedString = NSMutableAttributedString(string: "1.\tCarefully verify the ")
-        let infixAttributedString = NSAttributedString(string: "address", attributes: [NSAttributedString.Key.foregroundColor: UIColor.systemBlue])
-        attributedString.append(infixAttributedString)
-        attributedString.append(NSAttributedString(string: " and identity of this contact.\n\n2.\tEnter the verification code provided by your contact to confirm the secure connection:"))
+        let attributedString = NSMutableAttributedString(string: "1.\tCarefully verify the address and identity of this contact.\n\n2.\tEnter the verification code provided by your contact to confirm the secure connection:")
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.headIndent = 28
         attributedString.addAttributes([NSAttributedString.Key.paragraphStyle: paragraphStyle], range: NSRange(location: 0, length: attributedString.length))
         descriptionLabel.attributedText = attributedString
         
-        if #available(iOS 13.0, *) {
-            self.view.backgroundColor = .systemBackground
-        } else {
-            self.view.backgroundColor = .white
-        }
+        self.view.backgroundColor = .systemBackground
         
         NSLayoutConstraint.activate([
-            stackLabels.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 24),
-            stackLabels.leftAnchor.constraint(equalTo: containerView.leftAnchor, constant: 24),
-            stackLabels.rightAnchor.constraint(equalTo: view.rightAnchor, constant: -24),
+            stackLabels.topAnchor.constraint(equalTo: containerView.topAnchor),
+            stackLabels.leftAnchor.constraint(equalTo: containerView.leftAnchor, constant: 33),
+            stackLabels.rightAnchor.constraint(equalTo: view.rightAnchor, constant: -33),
+            headerView.topAnchor.constraint(equalTo: stackLabels.topAnchor),
+            headerView.bottomAnchor.constraint(equalTo: headerView.subtitleLabel.bottomAnchor, constant: 15),
+            headerView.leftAnchor.constraint(equalTo: view.leftAnchor),
+            headerView.rightAnchor.constraint(equalTo: view.rightAnchor),
             headerView.titleButton.topAnchor.constraint(equalTo: headerView.imageButton.bottomAnchor, constant: 6),
             headerView.subtitleLabel.topAnchor.constraint(equalTo: headerView.titleButton.bottomAnchor, constant: 6),
+            headerView.stack.topAnchor.constraint(equalTo: stackLabels.topAnchor, constant: 48),
+            subtitleLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
+            descriptionLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
             cancelButton.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
             cancelButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -110),
         ])
