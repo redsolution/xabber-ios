@@ -110,7 +110,7 @@ extension VerificationConfirmationViewController: UITableViewDelegate {
             }
             
             let vc = ShowCodeViewController()
-            vc.configure(owner: self.owner, jid: self.owner, code: code, sid: self.sid, isVerificationWithUsersDevice: true)
+            vc.configure(owner: self.owner, jid: self.owner, code: code, sid: self.sid, isVerificationWithOwnDevice: true)
             self.dismiss(animated: true)
             guard let presenter = (UIApplication.shared.delegate as? AppDelegate)?.splitController else {
                 fatalError()

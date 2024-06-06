@@ -181,7 +181,7 @@ extension SettingsViewController: UITableViewDelegate {
                     return
                 }
                 let vc = ShowCodeViewController()
-                vc.configure(owner: self.owner, jid: self.jid, code: code, sid: sid, isVerificationWithUsersDevice: false)
+                vc.configure(owner: self.owner, jid: self.jid, code: code, sid: sid, isVerificationWithOwnDevice: true)
                 self.navigationController!.present(vc, animated: true)
                 
                 return
@@ -198,13 +198,13 @@ extension SettingsViewController: UITableViewDelegate {
                 }
                 
                 let vc = ShowCodeViewController()
-                vc.configure(owner: self.owner, jid: self.owner, code: code, sid: item.verificationSid!, isVerificationWithUsersDevice: true)
+                vc.configure(owner: self.owner, jid: self.owner, code: code, sid: item.verificationSid!, isVerificationWithOwnDevice: true)
                 self.navigationController!.present(vc, animated: true)
                 
                 return
             case "enter_verification_code":
                 let vc = AuthenticationCodeInputViewController()
-                vc.configure(owner: self.owner, jid: self.owner, sid: item.verificationSid!, isVerificationWithUsersDevice: false)
+                vc.configure(owner: self.owner, jid: self.owner, sid: item.verificationSid!, isVerificationWithUsersDevice: true)
                 self.navigationController!.present(vc, animated: true)
                 
                 return

@@ -75,7 +75,7 @@ extension ContactInfoViewController: UITableViewDelegate {
                     return
                 }
                 let vc = ShowCodeViewController()
-                vc.configure(owner: self.owner, jid: self.jid, code: code, sid: sid, isVerificationWithUsersDevice: false)
+                vc.configure(owner: self.owner, jid: self.jid, code: code, sid: sid, isVerificationWithOwnDevice: false)
                 self.navigationController!.present(vc, animated: true)
                 
                 return
@@ -92,7 +92,7 @@ extension ContactInfoViewController: UITableViewDelegate {
                 }
                 
                 let vc = ShowCodeViewController()
-                vc.configure(owner: self.owner, jid: self.jid, code: code, sid: item.verificationSid!, isVerificationWithUsersDevice: false)
+                vc.configure(owner: self.owner, jid: self.jid, code: code, sid: item.verificationSid!, isVerificationWithOwnDevice: false)
                 self.navigationController!.present(vc, animated: true)
                 
                 return

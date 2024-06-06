@@ -14,6 +14,7 @@ import XMPPFramework
 class AuthenticationCodeInputViewController: UIViewController, UITextFieldDelegate {
     var owner: String = ""
     var jid: String = ""
+    var deviceId: String = ""
     var sid: String = ""
     var isVerificationWithUsersDevice: Bool = false
     
@@ -47,13 +48,16 @@ class AuthenticationCodeInputViewController: UIViewController, UITextFieldDelega
     
     let subtitleLabel: UILabel = {
         let label = UILabel()
+        label.font = UIFont.systemFont(ofSize: 17)
         label.numberOfLines = 0
         label.lineBreakMode = .byWordWrapping
+        
         return label
     }()
     
     let descriptionLabel: UILabel = {
         let label = UILabel()
+        label.font = UIFont.systemFont(ofSize: 17)
         label.numberOfLines = 0
         label.textColor = .systemGray
         
@@ -132,18 +136,6 @@ class AuthenticationCodeInputViewController: UIViewController, UITextFieldDelega
         
         cancelButton.addTarget(self, action: #selector(onCancelButtonPressed), for: .touchUpInside)
         
-        if isVerificationWithUsersDevice {
-            subtitleLabel.text = "You are about to establish a secure connection with your other device"
-        } else {
-            subtitleLabel.text = "You are about to establish a secure connection with this account"
-        }
-        
-        let attributedString = NSMutableAttributedString(string: "1.\tCarefully verify the address and identity of this contact.\n\n2.\tEnter the verification code provided by your contact to confirm the secure connection:")
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.headIndent = 28
-        attributedString.addAttributes([NSAttributedString.Key.paragraphStyle: paragraphStyle], range: NSRange(location: 0, length: attributedString.length))
-        descriptionLabel.attributedText = attributedString
-        
         self.view.backgroundColor = .systemBackground
         
         NSLayoutConstraint.activate([
@@ -160,7 +152,7 @@ class AuthenticationCodeInputViewController: UIViewController, UITextFieldDelega
             subtitleLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
             descriptionLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
             cancelButton.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
-            cancelButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -110),
+            cancelButton.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -70),
         ])
     }
     
@@ -187,6 +179,53 @@ class AuthenticationCodeInputViewController: UIViewController, UITextFieldDelega
     func loadDatasource() {
         do {
             let realm = try WRealm.safe()
+            
+            var publicName = ""
+            var client = ""
+            var ip = ""
+            var date = ""
+            
+            if isVerificationWithUsersDevice {
+                let realm = try WRealm.safe()
+                let sessionInstance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: self.sid))
+                self.deviceId = String(sessionInstance!.opponentDeviceId)
+                
+                let dateFormatter = DateFormatter()
+                dateFormatter.dateFormat = "MMM d, yyyy"
+                let dateRaw = Date(timeIntervalSince1970: TimeInterval(floatLiteral: Double(sessionInstance!.timestamp)!))
+                date = dateFormatter.string(from: dateRaw)
+                
+                let deviceInstance = realm.objects(DeviceStorageItem.self).filter("owner == %@ AND omemoDeviceId == %@", self.jid, Int(self.deviceId)!).first
+                client = deviceInstance!.client
+                ip = deviceInstance!.ip
+                
+                let omemoInstance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: Int(self.deviceId)!))
+                publicName = omemoInstance!.name ?? deviceInstance!.device + " (\(deviceInstance!.omemoDeviceId))"
+                
+                self.headerView.configure(avatarUrl: nil, jid: "", owner: "", userId: nil, title: publicName, subtitle: nil, titleColor: .black)
+                self.headerView.subtitleLabel.text = ip + " • " + date
+                self.headerView.imageButton.imageEdgeInsets = UIEdgeInsets(top: 20, bottom: 20, left: 20, right: 20)
+                self.headerView.imageButton.backgroundColor = .white
+                
+                if client == "XabberIOS" {
+                    self.headerView.imageButton.setImage(UIImage(systemName: "iphone")?.withTintColor(.systemBlue), for: .normal)
+                } else if client == "Xabber for Web" {
+                    self.headerView.imageButton.setImage(UIImage(systemName: "desktopcomputer")?.withTintColor(.systemBlue), for: .normal)
+                } else {
+                    self.headerView.imageButton.setImage(UIImage(systemName: "questionmark")?.withTintColor(.systemBlue), for: .normal)
+                }
+                
+                subtitleLabel.text = "You are verifying this device to ensure secure and encrypted communication."
+                
+                let attributedString = NSMutableAttributedString(string: "1.\tEnsure the other device is displaying the verification code.\n\n2.\tEnter the verification code displayed on the other device to complete the encryption key exchange:")
+                let paragraphStyle = NSMutableParagraphStyle()
+                paragraphStyle.headIndent = 28
+                attributedString.addAttributes([NSAttributedString.Key.paragraphStyle: paragraphStyle], range: NSRange(location: 0, length: attributedString.length))
+                descriptionLabel.attributedText = attributedString
+                
+                return
+            }
+            
             let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: self.jid, owner: self.owner))
             if let instance = instance {
                 self.headerView.configure(
@@ -211,6 +250,14 @@ class AuthenticationCodeInputViewController: UIViewController, UITextFieldDelega
                     titleColor: .black
                 )
             }
+            
+            subtitleLabel.text = "You are establishing a secure connection with this contact."
+            
+            let attributedString = NSMutableAttributedString(string: "1.\tCarefully verify the address and identity of this contact.\n\n2.\tEnter the verification code provided by your contact to confirm the secure connection:")
+            let paragraphStyle = NSMutableParagraphStyle()
+            paragraphStyle.headIndent = 28
+            attributedString.addAttributes([NSAttributedString.Key.paragraphStyle: paragraphStyle], range: NSRange(location: 0, length: attributedString.length))
+            descriptionLabel.attributedText = attributedString
         } catch {
             fatalError()
         }
@@ -243,7 +290,6 @@ class AuthenticationCodeInputViewController: UIViewController, UITextFieldDelega
                 }
             }
         }
-        
     }
     
     @objc func keyboardWillHideNotification(_ notification: NSNotification) {

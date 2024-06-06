@@ -457,7 +457,7 @@ extension NotificationsListViewController: UITableViewDelegate {
                         isVerificationWithUsersDevice = true
                     }
                     let vc = ShowCodeViewController()
-                    vc.configure(owner: self.owner, jid: item.jid!, code: code, sid: sid, isVerificationWithUsersDevice: isVerificationWithUsersDevice)
+                    vc.configure(owner: self.owner, jid: item.jid!, code: code, sid: sid, isVerificationWithOwnDevice: isVerificationWithUsersDevice)
                     self.present(vc, animated: true)
                 }
                 let disagreeAction = UIAlertAction(title: "Reject", style: .destructive) { action in
@@ -494,7 +494,7 @@ extension NotificationsListViewController: UITableViewDelegate {
                     isVerificationWithUsersDevice = true
                 }
                 let vc = ShowCodeViewController()
-                vc.configure(owner: self.owner, jid: jid, code: code, sid: sid, isVerificationWithUsersDevice: isVerificationWithUsersDevice)
+                vc.configure(owner: self.owner, jid: jid, code: code, sid: sid, isVerificationWithOwnDevice: isVerificationWithUsersDevice)
                 self.present(vc, animated: true)
                 return
             } else if item.verificationState == .receivedRequestAccept {

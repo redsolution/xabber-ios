@@ -1077,7 +1077,7 @@ class NotifyManager {
                         return
                     }
                     let vc = ShowCodeViewController()
-                    vc.configure(owner: owner, jid: instance.jid, code: code, sid: sid, isVerificationWithUsersDevice: isVerificationWithUsersDevice)
+                    vc.configure(owner: owner, jid: instance.jid, code: code, sid: sid, isVerificationWithOwnDevice: isVerificationWithUsersDevice)
                     presenter.present(vc, animated: true)
                 }
                 let disagreeAction = UIAlertAction(title: "Reject", style: .destructive) { action in
@@ -1091,7 +1091,7 @@ class NotifyManager {
                 break
             case VerificationSessionStorageItem.VerififcationState.acceptedRequest:
                 let vc = ShowCodeViewController()
-                vc.configure(owner: owner, jid: instance.jid, code: instance.code, sid: sid, isVerificationWithUsersDevice: isVerificationWithUsersDevice)
+                vc.configure(owner: owner, jid: instance.jid, code: instance.code, sid: sid, isVerificationWithOwnDevice: isVerificationWithUsersDevice)
                 presenter.present(vc, animated: true)
                 break
             case VerificationSessionStorageItem.VerififcationState.receivedRequestAccept:

@@ -123,7 +123,7 @@ extension DevicesListViewController: UITableViewDelegate {
                     return
                 }
                 let vc = ShowCodeViewController()
-                vc.configure(owner: self.jid, jid: self.jid, code: code, sid: sid, isVerificationWithUsersDevice: true)
+                vc.configure(owner: self.jid, jid: self.jid, code: code, sid: sid, isVerificationWithOwnDevice: true)
                 self.navigationController!.present(vc, animated: true)
                 self.load()
                 self.update()
@@ -142,7 +142,7 @@ extension DevicesListViewController: UITableViewDelegate {
                 }
                 
                 let vc = ShowCodeViewController()
-                vc.configure(owner: self.jid, jid: self.jid, code: code, sid: item.verificationSid!, isVerificationWithUsersDevice: true)
+                vc.configure(owner: self.jid, jid: self.jid, code: code, sid: item.verificationSid!, isVerificationWithOwnDevice: true)
                 self.navigationController!.present(vc, animated: true)
                 
                 return
