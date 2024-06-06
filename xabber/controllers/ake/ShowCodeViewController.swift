@@ -10,36 +10,29 @@ import Foundation
 import UIKit
 import XMPPFramework
 
-class ShowCodeViewController: UIViewController {
-    var code: String = ""
-    var owner: String = ""
-    var jid: String = ""
-    var sid: String = ""
-    var isVerificationWithUsersDevice: Bool = false
+class ShowCodeViewController: SimpleBaseViewController {
     
-//    init(owner: String, jid: String, code: String, sid: String, isVerificationWithUsersDevice: Bool) {
-//        self.owner = owner
-//        self.jid = jid
-//        self.code = code
-//        self.sid = sid
-//        self.isVerificationWithUsersDevice = isVerificationWithUsersDevice
-//        super.init(nibName: nil, bundle: nil)
-//    }
+    open var code: String = ""
+    open var deviceId: String = ""
+    open var sid: String = ""
+    open var isVerificationWithOwnDevice: Bool = false
     
-//    required init?(coder: NSCoder) {
-//        fatalError("init(coder:) has not been implemented")
-//    }
+    var headerHeightMax: CGFloat = 236
     
-    let headerView: InfoScreenHeaderView = {
+    internal let headerView: InfoScreenHeaderView = {
         let view = InfoScreenHeaderView(frame: .zero)
+                
+        view.additionalTopOffset = 56
         
         return view
     }()
     
     let codeLabel: UILabel = {
         let label = UILabel()
+        
         label.translatesAutoresizingMaskIntoConstraints = false
         label.font = UIFont.monospacedSystemFont(ofSize: 48, weight: .regular)
+        
         return label
     }()
     
@@ -49,28 +42,25 @@ class ShowCodeViewController: UIViewController {
         stack.axis = .vertical
         stack.spacing = 15
         stack.translatesAutoresizingMaskIntoConstraints = false
+        
         return stack
-    }()
-    
-    let titleLabel: UILabel = {
-        let label = UILabel()
-        label.textAlignment = .center
-        label.numberOfLines = 0
-        label.font = UIFont.systemFont(ofSize: UIFont.labelFontSize, weight: .semibold)
-        return label
     }()
     
     let subTitleLabel: UILabel = {
         let label = UILabel()
-        label.textAlignment = .center
+        label.font = UIFont.systemFont(ofSize: 17)
         label.numberOfLines = 0
         label.lineBreakMode = .byWordWrapping
+        
         return label
     }()
     
     let descriptionLabel: UILabel = {
         let label = UILabel()
+        label.font = UIFont.systemFont(ofSize: 17)
         label.numberOfLines = 0
+        label.textColor = .systemGray
+        
         return label
     }()
     
@@ -78,22 +68,21 @@ class ShowCodeViewController: UIViewController {
         let button = UIButton()
         button.setTitle("Cancel verification", for: .normal)
         button.setTitleColor(.systemBlue, for: .normal)
-        
         button.translatesAutoresizingMaskIntoConstraints = false
         
         return button
     }()
     
-    private func setupUI() {
+    override func configure() {
+        super.configure()
+        
         view.addSubview(stackLabels)
         view.addSubview(cancelButton)
         
-        headerView.subtitleLabel.textColor = .systemBlue
-        headerView.titleButton.tintColor = .black
+        headerView.backgroundColor = .systemGroupedBackground
         
-        stackLabels.addArrangedSubview(titleLabel)
+        view.addSubview(headerView)
         stackLabels.addArrangedSubview(subTitleLabel)
-        stackLabels.addArrangedSubview(headerView)
         stackLabels.addArrangedSubview(descriptionLabel)
         stackLabels.addArrangedSubview(codeLabel)
         
@@ -101,11 +90,10 @@ class ShowCodeViewController: UIViewController {
         
         cancelButton.addTarget(self, action: #selector(onCancelButtonPressed), for: .touchUpInside)
         
-        titleLabel.text = "Identity Verification"
-        if isVerificationWithUsersDevice {
-            subTitleLabel.text = "You are about to establish a secure connection with your other device"
-        } else {
+        if isVerificationWithOwnDevice {
             subTitleLabel.text = "You are about to establish a secure connection with this account"
+        } else {
+            subTitleLabel.text = "You are about to establish a secure connection with your other device"
         }
         
         let attributedString = NSMutableAttributedString(string: "1.\tCarefully verify the ")
@@ -124,35 +112,22 @@ class ShowCodeViewController: UIViewController {
         }
         
         codeLabel.text = self.code
-        
+                
         NSLayoutConstraint.activate([
-            stackLabels.topAnchor.constraint(equalTo: view.topAnchor, constant: 24),
-            stackLabels.leftAnchor.constraint(equalTo: view.leftAnchor, constant: 24),
-            stackLabels.rightAnchor.constraint(equalTo: view.rightAnchor, constant: -24),
-            headerView.titleButton.topAnchor.constraint(equalTo: headerView.imageButton.bottomAnchor, constant: 6),
-            headerView.subtitleLabel.topAnchor.constraint(equalTo: headerView.titleButton.bottomAnchor, constant: 6),
+            stackLabels.topAnchor.constraint(equalTo: headerView.bottomAnchor, constant: 16),
+            stackLabels.leftAnchor.constraint(equalTo: view.leftAnchor, constant: 33),
+            stackLabels.rightAnchor.constraint(equalTo: view.rightAnchor, constant: -33),
+            subTitleLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
+            descriptionLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
             cancelButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             cancelButton.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -70)
         ])
-    }
-    
-    func configure(owner: String, jid: String, code: String, sid: String, isVerificationWithUsersDevice: Bool) {
-        self.owner = owner
-        self.jid = jid
-        self.code = code
-        self.sid = sid
-        self.isVerificationWithUsersDevice = isVerificationWithUsersDevice
         
-        loadDatasource()
-        setupUI()
+        cancelButton.addTarget(self, action: #selector(onCancelButtonPressed), for: .touchUpInside)
     }
     
     @objc
     func onCancelButtonPressed() {
-        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
-            fatalError()
-        }
-        
         do {
             let realm = try WRealm.safe()
             let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: self.sid))
@@ -160,16 +135,79 @@ class ShowCodeViewController: UIViewController {
                 realm.delete(instance!)
             }
         } catch {
-            fatalError()
+            DDLogDebug("ShowCodeViewController: \(#function). \(error.localizedDescription)")
         }
         
-        akeManager.sendErrorMessage(fullJID: XMPPJID(string: self.jid)!, sid: self.sid, reason: "Сontact canceled verification session")
+        AccountManager.shared.find(for: self.owner)?.akeManager.sendErrorMessage(fullJID: XMPPJID(string: self.jid)!, sid: self.sid, reason: "Сontact canceled verification session")
         self.dismiss(animated: true)
     }
     
-    func loadDatasource() {
+    override func loadDatasource() {
+        super.loadDatasource()
+        
+        codeLabel.text = self.code
         do {
             let realm = try WRealm.safe()
+            
+            var publicName = ""
+            var client = ""
+            var ip = ""
+            var date = ""
+            
+            if isVerificationWithOwnDevice {
+                do {
+                    let realm = try WRealm.safe()
+                    let sessionInstance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: self.sid))
+                    self.deviceId = String(sessionInstance!.opponentDeviceId)
+                    
+                    let deviceInstance = realm.objects(DeviceStorageItem.self).filter("owner == %@ AND omemoDeviceId == %@", self.jid, Int(self.deviceId)!).first
+                    client = deviceInstance!.client
+                    ip = deviceInstance!.ip
+                    
+                    let dateFormatter = DateFormatter()
+                    dateFormatter.dateFormat = "MMM d, yyyy"
+                    let dateRaw = deviceInstance!.authDate
+                    date = dateFormatter.string(from: dateRaw)
+                    
+                    let omemoInstance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: Int(self.deviceId)!))
+                    publicName = omemoInstance!.name ?? deviceInstance!.device + " (\(deviceInstance!.omemoDeviceId))"
+                } catch {
+                    DDLogDebug("ShowCodeViewController: \(#function). \(error.localizedDescription)")
+                }
+                
+                self.headerView.imageButton.imageEdgeInsets = UIEdgeInsets(top: 20, bottom: 20, left: 20, right: 20)
+                self.headerView.imageButton.backgroundColor = .white
+                
+                self.headerView.configure(
+                    avatarUrl: nil,
+                    owner: self.owner,
+                    jid: self.jid,
+                    titleColor: .black,
+                    title: publicName,
+                    subtitle: ip + " • " + date,
+                    thirdLine: nil
+                )
+                
+                
+                if client == "XabberIOS" {
+                    self.headerView.imageButton.setImage(UIImage(systemName: "iphone")?.withTintColor(.systemBlue), for: .normal)
+                } else if client == "Xabber for Web" {
+                    self.headerView.imageButton.setImage(UIImage(systemName: "desktopcomputer")?.withTintColor(.systemBlue), for: .normal)
+                } else {
+                    self.headerView.imageButton.setImage(UIImage(systemName: "questionmark")?.withTintColor(.systemBlue), for: .normal)
+                }
+                
+                subTitleLabel.text = "You are receiving a device verification request to ensure secure and encrypted communication."
+                
+                let attributedString = NSMutableAttributedString(string: "1.\tConfirm that this device is yours and that you recognize the initiating session.\n\n2.\tBelow is the verification code. Display this code to the primary device to complete the encryption key exchange:")
+                let paragraphStyle = NSMutableParagraphStyle()
+                paragraphStyle.headIndent = 28
+                attributedString.addAttributes([NSAttributedString.Key.paragraphStyle: paragraphStyle], range: NSRange(location: 0, length: attributedString.length))
+                descriptionLabel.attributedText = attributedString
+                
+                return
+            }
+            
             let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: self.jid, owner: self.owner))
             if let instance = instance {
                 self.headerView.configure(
@@ -192,8 +230,25 @@ class ShowCodeViewController: UIViewController {
                     thirdLine: nil
                 )
             }
+            
+            subTitleLabel.text = "You are about to establish a secure connection with this contact."
+            
+            let attributedString = NSMutableAttributedString(string: "1.\tCarefully verify the address and identity of this contact.\n\n2.\tUse a secure method (preferably in person) to ask the contact to verify identity by entering the following code:")
+            let paragraphStyle = NSMutableParagraphStyle()
+            paragraphStyle.headIndent = 28
+            attributedString.addAttributes([NSAttributedString.Key.paragraphStyle: paragraphStyle], range: NSRange(location: 0, length: attributedString.length))
+            descriptionLabel.attributedText = attributedString
         } catch {
-            fatalError()
+            DDLogDebug("ShowCodeViewController: \(#function). \(error.localizedDescription)")
         }
+    }
+    
+    override func onAppear() {
+        super.onAppear()
+        headerView.frame = CGRect(
+            width: view.frame.width,
+            height: headerHeightMax
+        )
+        self.headerView.updateSubviews()
     }
 }

@@ -26,6 +26,8 @@ import XMPPFramework.XMPPJID
 
 class InfoScreenHeaderView: UIView {
     
+    open var additionalTopOffset: CGFloat = 0
+    
     let imageButton: RoundedAvatarButton = {
         let button = RoundedAvatarButton(frame: CGRect(square: 128),
                                          avatarMaskResourceName: AccountMasksManager.shared.mask128pt)
@@ -142,7 +144,7 @@ class InfoScreenHeaderView: UIView {
     }
     
     internal func updateSubviews() {
-        let offset: CGFloat = 76
+        let offset: CGFloat = 76 - self.additionalTopOffset
         self.imageButton.frame = CGRect(square: 128)
         self.imageButton.center = CGPoint(x: self.frame.width / 2, y: 112 - offset)
         self.titleButton.frame = CGRect(width: self.frame.width, height: 24)

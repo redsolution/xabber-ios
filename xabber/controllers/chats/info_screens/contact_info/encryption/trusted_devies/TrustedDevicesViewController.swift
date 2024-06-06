@@ -184,9 +184,7 @@ class TrustedDevicesViewController: SimpleBaseViewController {
                 
                 if buttonKey != nil {
                     datasource[0].append(Datasource(.button, name: buttonTitle!, key: buttonKey!, verificationSid: sid, verificationJid: fullJid))
-                    if buttonKey == "show_verification_code" || buttonKey == "enter_verification_code" {
-                        datasource[0].append(Datasource(.button, name: "Cancel", key: "cancel_verification", verificationSid: sid, verificationJid: fullJid))
-                    } else if buttonKey == "accept_verification" {
+                    if buttonKey == "accept_verification" {
                         datasource[0].append(Datasource(.button, name: "Reject", key: "reject_verification", verificationSid: sid, verificationJid: fullJid))
                     }
                 }
@@ -369,55 +367,32 @@ extension TrustedDevicesViewController: UITableViewDelegate {
                 tableView.reloadData()
                 
                 return
-            case "cancel_verification":
-                guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
-                      let fullJidString = item.verificationJid,
-                      let fullJid = XMPPJID(string: fullJidString),
-                      let sid = item.verificationSid else {
-                    fatalError()
-                }
-                do {
-                    let realm = try WRealm.safe()
-                    let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid))
-                    try realm.write {
-                        realm.delete(instance!)
-                    }
-                } catch {
-                    fatalError()
-                }
-                akeManager.sendErrorMessage(fullJID: fullJid, sid: sid, reason: "Сontact canceled verification session")
-                tableView.reloadData()
-                return
             case "accept_verification":
-                guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
-                      let sid = item.verificationSid else {
-                    fatalError()
-                }
-                guard let code = akeManager.acceptVerificationRequest(jid: self.jid, sid: sid) else {
+                    guard let code = AccountManager.shared.find(for: self.owner)?.akeManager.acceptVerificationRequest(jid: self.jid, sid: item.verificationSid ?? "") else {
                     return
                 }
                 let vc = ShowCodeViewController()
-                vc.configure(owner: self.owner, jid: self.jid, code: code, sid: sid, isVerificationWithUsersDevice: false)
+                vc.jid = self.jid
+                vc.owner = self.owner
+                vc.code = code
+                vc.sid = item.verificationSid ?? ""
+                vc.isVerificationWithOwnDevice = false
+                
                 self.navigationController!.present(vc, animated: true)
-                tableView.reloadData()
-                return
             case "show_verification_code":
-                let code: String
                 do {
                     let realm = try WRealm.safe()
-                    guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: item.verificationSid!)) else {
-                        fatalError()
-                    }
-                    code = instance.code
+                    let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: item.verificationSid!))
+                    let vc = ShowCodeViewController()
+                    vc.jid = self.jid
+                    vc.owner = self.owner
+                    vc.code = instance?.code ?? ""
+                    vc.sid = item.verificationSid ?? ""
+                    vc.isVerificationWithOwnDevice = false
+                    self.navigationController!.present(vc, animated: true)
                 } catch {
-                    fatalError()
+                    DDLogDebug("TrustedDevicesViewController: \(#function). \(error.localizedDescription)")
                 }
-                
-                let vc = ShowCodeViewController()
-                vc.configure(owner: self.owner, jid: self.jid, code: code, sid: item.verificationSid!, isVerificationWithUsersDevice: false)
-                self.navigationController!.present(vc, animated: true)
-                
-                return
             case "hide_session":
                 do {
                     let realm = try WRealm.safe()
@@ -425,27 +400,21 @@ extension TrustedDevicesViewController: UITableViewDelegate {
                     try realm.write {
                         realm.delete(instance!)
                     }
+                    tableView.reloadData()
                 } catch {
-                    fatalError()
+                    DDLogDebug("TrustedDevicesViewController: \(#function). \(error.localizedDescription)")
                 }
-                tableView.reloadData()
-                
-                return
             case "enter_verification_code":
                 let vc = AuthenticationCodeInputViewController()
-                vc.configure(owner: self.owner, jid: self.jid, sid: item.verificationSid!, isVerificationWithUsersDevice: false)
+                vc.jid = self.jid
+                vc.owner = self.owner
+                vc.sid = item.verificationSid ?? ""
+                vc.isVerificationWithUsersDevice = false
+            
                 self.navigationController!.present(vc, animated: true)
-                
-                return
             case "reject_verification":
-                guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
-                    fatalError()
-                }
-                
-                akeManager.rejectRequestToVerify(jid: self.jid, sid: item.verificationSid!)
+                AccountManager.shared.find(for: self.owner)?.akeManager.rejectRequestToVerify(jid: self.jid, sid: item.verificationSid!)
                 tableView.reloadData()
-                
-                return
             default:
                 return
             }

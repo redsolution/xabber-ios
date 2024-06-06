@@ -67,15 +67,15 @@ extension ContactInfoViewController: UITableViewDelegate {
             case "start_encrypted_chat":
                 onStartEncryptedChat()
             case "accept_verification":
-                guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
-                      let sid = item.verificationSid else {
-                    fatalError()
-                }
-                guard let code = akeManager.acceptVerificationRequest(jid: self.jid, sid: sid) else {
+                guard let code = AccountManager.shared.find(for: self.owner)?.akeManager.acceptVerificationRequest(jid: self.jid, sid: item.verificationSid ?? "") else {
                     return
                 }
                 let vc = ShowCodeViewController()
-                vc.configure(owner: self.owner, jid: self.jid, code: code, sid: sid, isVerificationWithUsersDevice: false)
+                vc.jid = self.jid
+                vc.owner = self.owner
+                vc.code = code
+                    vc.sid = item.verificationSid ?? ""
+                vc.isVerificationWithOwnDevice = false
                 self.navigationController!.present(vc, animated: true)
                 
                 return
@@ -92,7 +92,12 @@ extension ContactInfoViewController: UITableViewDelegate {
                 }
                 
                 let vc = ShowCodeViewController()
-                vc.configure(owner: self.owner, jid: self.jid, code: code, sid: item.verificationSid!, isVerificationWithUsersDevice: false)
+                vc.jid = self.jid
+                vc.owner = self.owner
+                vc.code = code
+                vc.sid = item.verificationSid ?? ""
+                vc.isVerificationWithOwnDevice = false
+                
                 self.navigationController!.present(vc, animated: true)
                 
                 return
@@ -111,15 +116,16 @@ extension ContactInfoViewController: UITableViewDelegate {
                 return
             case "enter_verification_code":
                 let vc = AuthenticationCodeInputViewController()
-                vc.configure(owner: self.owner, jid: self.jid, sid: item.verificationSid!, isVerificationWithUsersDevice: false)
+                vc.jid = self.jid
+                vc.owner = self.owner
+                vc.sid = item.verificationSid ?? ""
+                vc.isVerificationWithUsersDevice = false
+                
                 self.navigationController!.present(vc, animated: true)
                 
                 return
             case "reject_verification":
-                guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
-                    fatalError()
-                }
-                akeManager.rejectRequestToVerify(jid: self.jid, sid: item.verificationSid!)
+                AccountManager.shared.find(for: self.owner)?.akeManager.rejectRequestToVerify(jid: self.jid, sid: item.verificationSid!)
                 
                 return
             default: break

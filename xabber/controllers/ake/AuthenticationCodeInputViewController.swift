@@ -11,15 +11,16 @@ import UIKit
 import SignalProtocolObjC
 import XMPPFramework
 
-class AuthenticationCodeInputViewController: UIViewController, UITextFieldDelegate {
-    var owner: String = ""
-    var jid: String = ""
-    var sid: String = ""
-    var isVerificationWithUsersDevice: Bool = false
+class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFieldDelegate {
+
+    open var deviceId: String = ""
+    open var sid: String = ""
+    open var isVerificationWithUsersDevice: Bool = false
+    
+    var headerHeightMax: CGFloat = 236
     
     internal let scrollView: UIScrollView = {
         let view = UIScrollView(frame: .zero)
-        
         
         return view
     }()
@@ -33,6 +34,8 @@ class AuthenticationCodeInputViewController: UIViewController, UITextFieldDelega
     let headerView: InfoScreenHeaderView = {
         let view = InfoScreenHeaderView(frame: .zero)
         
+        view.additionalTopOffset = 56
+        
         return view
     }()
     
@@ -42,28 +45,24 @@ class AuthenticationCodeInputViewController: UIViewController, UITextFieldDelega
         stack.axis = .vertical
         stack.spacing = 15
         stack.translatesAutoresizingMaskIntoConstraints = false
+        
         return stack
-    }()
-    
-    let titleLabel: UILabel = {
-        let label = UILabel()
-        label.textAlignment = .center
-        label.numberOfLines = 0
-        label.font = UIFont.systemFont(ofSize: UIFont.labelFontSize, weight: .semibold)
-        return label
     }()
     
     let subtitleLabel: UILabel = {
         let label = UILabel()
-        label.textAlignment = .center
+        label.font = UIFont.systemFont(ofSize: 17)
         label.numberOfLines = 0
         label.lineBreakMode = .byWordWrapping
+        
         return label
     }()
     
     let descriptionLabel: UILabel = {
         let label = UILabel()
+        label.font = UIFont.systemFont(ofSize: 17)
         label.numberOfLines = 0
+        label.textColor = .systemGray
         
         return label
     }()
@@ -87,15 +86,43 @@ class AuthenticationCodeInputViewController: UIViewController, UITextFieldDelega
         return button
     }()
     
-    func configure(owner: String, jid: String, sid: String, isVerificationWithUsersDevice: Bool) {
-        self.owner = owner
-        self.jid = jid
-        self.sid = sid
-        self.isVerificationWithUsersDevice = isVerificationWithUsersDevice
+    override func configure() {
+        super.configure()
+        view.addSubview(scrollView)
+        scrollView.fillSuperview()
         
-        loadDatasource()
-        setupUI()
+        scrollView.addSubview(containerView)
+        containerView.addSubview(stackLabels)
+        containerView.addSubview(cancelButton)
         
+        headerView.backgroundColor = .systemGroupedBackground
+        
+        containerView.addSubview(headerView)
+        
+        stackLabels.addArrangedSubview(subtitleLabel)
+        stackLabels.addArrangedSubview(descriptionLabel)
+        stackLabels.addArrangedSubview(code)
+        
+        stackLabels.setCustomSpacing(40, after: descriptionLabel)
+        
+        cancelButton.addTarget(self, action: #selector(onCancelButtonPressed), for: .touchUpInside)
+        
+        self.view.backgroundColor = .systemBackground
+        
+        NSLayoutConstraint.activate([
+            stackLabels.topAnchor.constraint(equalTo: headerView.bottomAnchor, constant: 16),
+            stackLabels.leftAnchor.constraint(equalTo: containerView.leftAnchor, constant: 33),
+            stackLabels.rightAnchor.constraint(equalTo: view.rightAnchor, constant: -33),
+            subtitleLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
+            descriptionLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
+            cancelButton.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
+            cancelButton.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -70),
+        ])
+
+    }
+    
+    override func addObservers() {
+        super.addObservers()
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(self.keyboardWillShowNotification(_:)),
@@ -113,71 +140,12 @@ class AuthenticationCodeInputViewController: UIViewController, UITextFieldDelega
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         code.becomeFirstResponder()
-        code.returnKeyType = .send
+        code.returnKeyType = .continue
         code.delegate = self
     }
-    
-    private func setupUI() {
-        view.addSubview(scrollView)
-        scrollView.fillSuperview()
-        containerView.frame = CGRect(origin: .zero, size: CGSize(width: UIScreen.main.bounds.width, height: UIScreen.main.bounds.height))
-        scrollView.contentSize = CGSize(width: containerView.frame.width, height: containerView.frame.height - 70)
-        scrollView.addSubview(containerView)
-        containerView.addSubview(stackLabels)
-        containerView.addSubview(cancelButton)
         
-        headerView.subtitleLabel.textColor = .systemBlue
-        
-        stackLabels.addArrangedSubview(titleLabel)
-        stackLabels.addArrangedSubview(subtitleLabel)
-        stackLabels.addArrangedSubview(headerView)
-        stackLabels.addArrangedSubview(descriptionLabel)
-        stackLabels.addArrangedSubview(code)
-        
-        stackLabels.setCustomSpacing(40, after: descriptionLabel)
-        
-        cancelButton.addTarget(self, action: #selector(onCancelButtonPressed), for: .touchUpInside)
-        
-        titleLabel.text = "Identity Verification"
-//        if isVerificationWithUsersDevice {
-        subtitleLabel.text = "You are establishing a secure connection with:"
-//        } else {
-//            subtitleLabel.text = "The contact \(self.fullJID) to whom you sent a verification request accepted it, enter the code provided by this contact"
-//        }
-//        descriptionLabel.text = "SID: \(self.sid)"
-        
-        let attributedString = NSMutableAttributedString(string: "1.\tCarefully verify the ")
-        let infixAttributedString = NSAttributedString(string: "address", attributes: [NSAttributedString.Key.foregroundColor: UIColor.systemBlue])
-        attributedString.append(infixAttributedString)
-        attributedString.append(NSAttributedString(string: " and identity of this contact.\n\n2.\tEnter the verification code provided by your contact to confirm the secure connection:"))
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.headIndent = 28
-        attributedString.addAttributes([NSAttributedString.Key.paragraphStyle: paragraphStyle], range: NSRange(location: 0, length: attributedString.length))
-        descriptionLabel.attributedText = attributedString
-        
-        if #available(iOS 13.0, *) {
-            self.view.backgroundColor = .systemBackground
-        } else {
-            self.view.backgroundColor = .white
-        }
-        
-        NSLayoutConstraint.activate([
-            stackLabels.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 24),
-            stackLabels.leftAnchor.constraint(equalTo: containerView.leftAnchor, constant: 24),
-            stackLabels.rightAnchor.constraint(equalTo: view.rightAnchor, constant: -24),
-            headerView.titleButton.topAnchor.constraint(equalTo: headerView.imageButton.bottomAnchor, constant: 6),
-            headerView.subtitleLabel.topAnchor.constraint(equalTo: headerView.titleButton.bottomAnchor, constant: 6),
-            cancelButton.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
-            cancelButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -110),
-        ])
-    }
-    
     @objc
     func onCancelButtonPressed() {
-        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
-            fatalError()
-        }
-        
         do {
             let realm = try WRealm.safe()
             let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: self.sid))
@@ -185,23 +153,82 @@ class AuthenticationCodeInputViewController: UIViewController, UITextFieldDelega
                 realm.delete(instance!)
             }
         } catch {
-            fatalError()
+            DDLogDebug("AuthenticationCodeInputViewController: \(#function). \(error.localizedDescription)")
         }
         
-        akeManager.sendErrorMessage(fullJID: XMPPJID(string: self.jid)!, sid: self.sid, reason: "Сontact canceled verification session")
+        AccountManager.shared.find(for: self.owner)?.akeManager.sendErrorMessage(fullJID: XMPPJID(string: self.jid)!, sid: self.sid, reason: "Сontact canceled verification session")
         self.dismiss(animated: true)
     }
     
-    func loadDatasource() {
+    override func loadDatasource() {
+        super.loadDatasource()
         do {
             let realm = try WRealm.safe()
-            let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: self.jid, owner: self.owner))
-            if let instance = instance {
+            
+            var publicName = ""
+            var client = ""
+            var ip = ""
+            var date = ""
+            
+            if isVerificationWithUsersDevice {
+                let realm = try WRealm.safe()
+                guard let sessionInstance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: self.sid)) else {
+                    return
+                }
+                self.deviceId = String(sessionInstance.opponentDeviceId)
+                
+                let dateFormatter = DateFormatter()
+                dateFormatter.dateFormat = "MMM d, yyyy"
+                let dateRaw = Date(timeIntervalSince1970: TimeInterval(floatLiteral: Double(sessionInstance.timestamp)!))
+                date = dateFormatter.string(from: dateRaw)
+                
+                let deviceInstance = realm.objects(DeviceStorageItem.self).filter("owner == %@ AND omemoDeviceId == %@", self.jid, Int(self.deviceId)!).first
+                client = deviceInstance!.client
+                ip = deviceInstance!.ip
+                
+                let omemoInstance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: Int(self.deviceId)!))
+                publicName = omemoInstance!.name ?? deviceInstance!.device + " (\(deviceInstance!.omemoDeviceId))"
+                
+                self.headerView.imageButton.imageEdgeInsets = UIEdgeInsets(top: 20, bottom: 20, left: 20, right: 20)
+                self.headerView.imageButton.backgroundColor = .white
+                
                 self.headerView.configure(
-                    avatarUrl: instance.avatarMaxUrl ?? instance.avatarMinUrl ?? instance.oldschoolAvatarKey,
+                    avatarUrl: nil,
                     owner: self.owner,
                     jid: self.jid,
                     titleColor: .black,
+                    title: publicName,
+                    subtitle: ip + " • " + date,
+                    thirdLine: nil
+                )
+                
+                
+                if client == "XabberIOS" {
+                    self.headerView.imageButton.setImage(UIImage(systemName: "iphone")?.withTintColor(.systemBlue), for: .normal)
+                } else if client == "Xabber for Web" {
+                    self.headerView.imageButton.setImage(UIImage(systemName: "desktopcomputer")?.withTintColor(.systemBlue), for: .normal)
+                } else {
+                    self.headerView.imageButton.setImage(UIImage(systemName: "questionmark")?.withTintColor(.systemBlue), for: .normal)
+                }
+                
+                subtitleLabel.text = "You are verifying this device to ensure secure and encrypted communication."
+                
+                let attributedString = NSMutableAttributedString(string: "1.\tEnsure the other device is displaying the verification code.\n\n2.\tEnter the verification code displayed on the other device to complete the encryption key exchange:")
+                let paragraphStyle = NSMutableParagraphStyle()
+                paragraphStyle.headIndent = 28
+                attributedString.addAttributes([NSAttributedString.Key.paragraphStyle: paragraphStyle], range: NSRange(location: 0, length: attributedString.length))
+                descriptionLabel.attributedText = attributedString
+                
+                return
+            }
+            
+            let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: self.jid, owner: self.owner))
+            if let instance = instance {
+                self.headerView.configure(
+                    avatarUrl: instance.avatarUrl,
+                    owner: self.owner,
+                    jid: self.jid,
+                    titleColor: .label,
                     title: instance.displayName,
                     subtitle: self.jid,
                     thirdLine: nil
@@ -211,14 +238,22 @@ class AuthenticationCodeInputViewController: UIViewController, UITextFieldDelega
                     avatarUrl: nil,
                     owner: self.owner,
                     jid: self.jid,
-                    titleColor: .black,
-                    title: self.jid,
+                    titleColor: .label,
+                    title: publicName,
                     subtitle: self.jid,
                     thirdLine: nil
                 )
             }
+            
+            subtitleLabel.text = "You are establishing a secure connection with this contact."
+            
+            let attributedString = NSMutableAttributedString(string: "1.\tCarefully verify the address and identity of this contact.\n\n2.\tEnter the verification code provided by your contact to confirm the secure connection:")
+            let paragraphStyle = NSMutableParagraphStyle()
+            paragraphStyle.headIndent = 28
+            attributedString.addAttributes([NSAttributedString.Key.paragraphStyle: paragraphStyle], range: NSRange(location: 0, length: attributedString.length))
+            descriptionLabel.attributedText = attributedString
         } catch {
-            fatalError()
+            DDLogDebug("AuthenticationCodeInputViewController: \(#function). \(error.localizedDescription)")
         }
     }
     
@@ -240,7 +275,7 @@ class AuthenticationCodeInputViewController: UIViewController, UITextFieldDelega
                         delay: 0,
                         options: options,
                         animations: {
-                            self.scrollView.contentOffset.y = codeBottomLine - keyboardTopLine + 30
+                            self.scrollView.contentOffset.y = self.scrollView.contentOffset.y + keyboardVisibleHeight
                             return
                         }, completion: { finished in
                     })
@@ -249,7 +284,6 @@ class AuthenticationCodeInputViewController: UIViewController, UITextFieldDelega
                 }
             }
         }
-        
     }
     
     @objc func keyboardWillHideNotification(_ notification: NSNotification) {
@@ -275,10 +309,6 @@ class AuthenticationCodeInputViewController: UIViewController, UITextFieldDelega
     }
     
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-        guard let ake = AccountManager.shared.find(for: self.owner)?.akeManager else {
-            return false
-        }
-        
         var deviceId: String = ""
         var saltCiphertext: String = ""
         var saltIv: String = ""
@@ -289,28 +319,52 @@ class AuthenticationCodeInputViewController: UIViewController, UITextFieldDelega
             deviceId = String(instance!.opponentDeviceId)
             saltCiphertext = instance!.opponentByteSequenceEncrypted
             saltIv = instance!.opponentByteSequenceIv
-            try realm.write {
-                instance?.code = code.text!
+            if let text = code.text {
+                try realm.write {
+                    instance?.code = code.text!
+                }
+            } else {
+                return false
             }
-        } catch {
-            DDLogDebug("AuthenticationCodeInputViewController \(#function). \(error.localizedDescription)")
-        }
         
-        let salt = ake.decrypt(jid: XMPPJID(string: self.jid)!.bare, sid: self.sid, deviceId: Int(deviceId)!, ciphertext: try! saltCiphertext.base64decoded(), iv: try! saltIv.base64decoded())
-        
-        do {
-            let realm = try WRealm.safe()
-            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: self.sid))
+            guard let salt = AccountManager
+                .shared
+                .find(for: self.owner)?
+                .akeManager
+                .decrypt(
+                    jid: XMPPJID(string: self.jid)?.bare ?? "",
+                    sid: self.sid,
+                    deviceId: Int(deviceId) ?? -1,
+                    ciphertext: try saltCiphertext.base64decoded(),
+                    iv: try saltIv.base64decoded()
+                ) else {
+                return false
+            }
+            
             try realm.write {
                 instance?.opponentByteSequence = salt.toBase64()
                 instance?.opponentDeviceId = Int(deviceId)!
             }
+            
+            AccountManager.shared.find(for: self.owner)?.akeManager.sendHashToOpponent(fullJID: XMPPJID(string: self.jid)!, sid: self.sid)
+            self.dismiss(animated: true)
+            return true
+            
         } catch {
-            DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
+            DDLogDebug("AuthenticationCodeInputViewController \(#function). \(error.localizedDescription)")
         }
+        return false
+    }
+    
+    override func onAppear() {
+        super.onAppear()
         
-        ake.sendHashToOpponent(fullJID: XMPPJID(string: self.jid)!, sid: self.sid)
-        self.dismiss(animated: true)
-        return true
+        containerView.frame = self.view.bounds
+        scrollView.contentSize = CGSize(width: containerView.frame.width, height: containerView.frame.height - 70)
+        headerView.frame = CGRect(
+            width: view.frame.width,
+            height: headerHeightMax
+        )
+        self.headerView.updateSubviews()
     }
 }

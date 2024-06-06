@@ -357,8 +357,6 @@ class ContactInfoViewController: BaseViewController {
                     do {
                         let section = self.datasource.firstIndex(where: { $0.key == "verification-session" })
                         if let section = section {
-                            let row = self.datasource[section].childs.firstIndex(where: { $0.kind == .session })
-                            
                             let (text, secondaryText, buttonTitle, buttonKey) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: item.state)
                             let verificationDatasource = Datasource(.text, title: "Active verification session", key: "verification-session", childs: [
                                 Datasource(.session, title: text, subtitle: secondaryText, verificationSid: item.sid, verificationJid: self.jid)

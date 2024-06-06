@@ -104,25 +104,23 @@ extension VerificationConfirmationViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         if indexPath.row == 0 {
-            guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
-                  let code = akeManager.acceptVerificationRequest(jid: self.owner, sid: self.sid) else {
-                fatalError()
+            guard let code = AccountManager.shared.find(for: self.owner)?.akeManager.acceptVerificationRequest(jid: self.owner, sid: self.sid) else {
+                return
             }
             
             let vc = ShowCodeViewController()
-            vc.configure(owner: self.owner, jid: self.owner, code: code, sid: self.sid, isVerificationWithUsersDevice: true)
-            self.dismiss(animated: true)
-            guard let presenter = (UIApplication.shared.delegate as? AppDelegate)?.splitController else {
-                fatalError()
+            vc.jid = self.owner
+            vc.owner = self.owner
+            vc.code = code
+            vc.sid = self.sid
+            vc.isVerificationWithOwnDevice = true
+            self.dismiss(animated: true) {
+                (UIApplication.shared.delegate as? AppDelegate)?.splitController?.present(vc, animated: true)
             }
-            presenter.present(vc, animated: true)
             
             return
         } else {
-            guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
-                fatalError()
-            }
-            akeManager.rejectRequestToVerify(jid: self.owner, sid: self.sid)
+            AccountManager.shared.find(for: self.owner)?.akeManager.rejectRequestToVerify(jid: self.owner, sid: self.sid)
             self.dismiss(animated: true)
             
             return

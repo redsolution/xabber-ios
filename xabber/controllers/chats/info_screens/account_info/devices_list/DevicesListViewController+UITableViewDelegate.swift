@@ -114,59 +114,33 @@ extension DevicesListViewController: UITableViewDelegate {
                 return
             }
             switch item.value {
-            case "cancel_verification":
-                guard let akeManager = AccountManager.shared.find(for: self.jid)?.akeManager,
-//                      let fullJidString = item.verificationFullJid,
-                      let fullJid = XMPPJID(string: self.jid),
-                      let sid = item.verificationSid else {
-                    fatalError()
-                }
-                do {
-                    let realm = try WRealm.safe()
-                    let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.jid, sid: sid))
-                    try realm.write {
-                        realm.delete(instance!)
-                    }
-                } catch {
-                    fatalError()
-                }
-                akeManager.sendErrorMessage(fullJID: fullJid, sid: sid, reason: "Сontact canceled verification session")
-                self.load()
-                self.update()
-                tableView.reloadData()
-                return
             case "accept_verification":
-                guard let akeManager = AccountManager.shared.find(for: self.jid)?.akeManager,
-                      let sid = item.verificationSid else {
-                    fatalError()
-                }
-                guard let code = akeManager.acceptVerificationRequest(jid: self.jid, sid: sid) else {
+                guard let code = AccountManager.shared.find(for: self.jid)?.akeManager.acceptVerificationRequest(jid: self.jid, sid: item.verificationSid ?? "") else {
                     return
                 }
                 let vc = ShowCodeViewController()
-                vc.configure(owner: self.jid, jid: self.jid, code: code, sid: sid, isVerificationWithUsersDevice: true)
+                vc.jid = self.jid
+                vc.owner = self.owner
+                vc.code = code
+                vc.sid = item.verificationSid ?? ""
+                vc.isVerificationWithOwnDevice = true
+                
                 self.navigationController!.present(vc, animated: true)
-                self.load()
-                self.update()
-                tableView.reloadData()
-                return
             case "show_verification_code":
-                let code: String
                 do {
                     let realm = try WRealm.safe()
-                    guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.jid, sid: item.verificationSid!)) else {
-                        fatalError()
-                    }
-                    code = instance.code
+                    let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.jid, sid: item.verificationSid!))
+                    let vc = ShowCodeViewController()
+                    vc.jid = self.jid
+                    vc.owner = self.owner
+                    vc.code = instance?.code ?? ""
+                    vc.sid = item.verificationSid ?? ""
+                    vc.isVerificationWithOwnDevice = true
+                    
+                    self.navigationController!.present(vc, animated: true)
                 } catch {
-                    fatalError()
+                    DDLogDebug("DevicesListViewController: \(#function). \(error.localizedDescription)")
                 }
-                
-                let vc = ShowCodeViewController()
-                vc.configure(owner: self.jid, jid: self.jid, code: code, sid: item.verificationSid!, isVerificationWithUsersDevice: true)
-                self.navigationController!.present(vc, animated: true)
-                
-                return
             case "hide_session":
                 do {
                     let realm = try WRealm.safe()
@@ -174,32 +148,25 @@ extension DevicesListViewController: UITableViewDelegate {
                     try realm.write {
                         realm.delete(instance!)
                     }
+                    self.load()
+                    self.update()
+                    tableView.reloadData()
                 } catch {
-                    fatalError()
+                    DDLogDebug("DevicesListViewController: \(#function). \(error.localizedDescription)")
                 }
-                self.load()
-                self.update()
-                tableView.reloadData()
-                
-                return
             case "enter_verification_code":
                 let vc = AuthenticationCodeInputViewController()
-                vc.configure(owner: self.jid, jid: self.jid, sid: item.verificationSid!, isVerificationWithUsersDevice: true)
+                vc.jid = self.jid
+                vc.owner = self.owner
+                vc.sid = item.verificationSid ?? ""
+                vc.isVerificationWithUsersDevice = true
+                
                 self.navigationController!.present(vc, animated: true)
-                
-                return
             case "reject_verification":
-                guard let akeManager = AccountManager.shared.find(for: self.jid)?.akeManager else {
-                    fatalError()
-                }
-                
-                akeManager.rejectRequestToVerify(jid: self.jid, sid: item.verificationSid!)
-                
+                AccountManager.shared.find(for: self.jid)?.akeManager.rejectRequestToVerify(jid: self.jid, sid: item.verificationSid ?? "")
                 self.load()
                 self.update()
                 tableView.reloadData()
-                
-                return
             default:
                 return
             }
@@ -239,13 +206,9 @@ extension DevicesListViewController: UITableViewDelegate {
             if hasConnection {
                 let item = self.devices[indexPath.row - 1]
                 let uid = item.uid
-//                XMPPUIActionManager.shared.performRequest(owner: self.jid) { stream, session in
-//                    session.devices?.revoke(stream, uids: [uid])
-//                } fail: {
                 AccountManager.shared.find(for: self.jid)?.action({ (user, stream) in
                     user.devices.revoke(stream, uids: [uid])
                 })
-//                }
             } else {
                 ActionSheetPresenter().present(
                     in: self,

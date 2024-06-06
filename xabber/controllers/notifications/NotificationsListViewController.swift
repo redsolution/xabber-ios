@@ -430,38 +430,28 @@ extension NotificationsListViewController: UITableViewDelegate {
         switch item.category {
             case .trust:
             if item.verificationState == .receivedRequest {
-                guard let sid = item.verificationSid,
-                      let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
-                    return
-                }
                 let agreeAction = UIAlertAction(title: "Accept", style: UIAlertAction.Style.default) { action in
-                    guard let code = akeManager.acceptVerificationRequest(jid: item.jid!, sid: sid) else {
+                    guard let code = AccountManager.shared.find(for: self.owner)?.akeManager.acceptVerificationRequest(jid: item.jid!, sid: item.verificationSid ?? "") else {
                         return
                     }
                     do {
                         let realm = try WRealm.safe()
-                        guard let notificationInstance = realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: NotificationStorageItem.genPrimary(owner: self.owner, jid: item.jid!, uniqueId: item.key)) else {
-                            fatalError()
-                        }
                         try realm.write {
-                            notificationInstance.verificationState = .acceptedRequest
+                            realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: NotificationStorageItem.genPrimary(owner: self.owner, jid: item.jid!, uniqueId: item.key))?.verificationState = .acceptedRequest
                         }
                     } catch {
-                        fatalError()
-                    }
-                    
-                    self.loadDatasource()
-                    self.tableView.reloadData()
-                    var isVerificationWithUsersDevice = false
-                    if item.jid == self.owner {
-                        isVerificationWithUsersDevice = true
+                        DDLogDebug("NotificationsListViewController: \(#function). \(error.localizedDescription)")
                     }
                     let vc = ShowCodeViewController()
-                    vc.configure(owner: self.owner, jid: item.jid!, code: code, sid: sid, isVerificationWithUsersDevice: isVerificationWithUsersDevice)
+                    vc.jid = item.jid ?? ""
+                    vc.owner = item.owner
+                    vc.code = code
+                    vc.sid = item.verificationSid ?? ""
+                    vc.isVerificationWithOwnDevice = item.jid == item.owner
                     self.present(vc, animated: true)
                 }
                 let disagreeAction = UIAlertAction(title: "Reject", style: .destructive) { action in
-                    akeManager.rejectRequestToVerify(jid: item.jid!, sid: sid)
+                    AccountManager.shared.find(for: self.owner)?.akeManager.rejectRequestToVerify(jid: item.jid!, sid: item.verificationSid ?? "")
                     self.loadDatasource()
                     self.tableView.reloadData()
                 }
@@ -473,43 +463,26 @@ extension NotificationsListViewController: UITableViewDelegate {
             }  else if item.verificationState == .sentRequest {
                 return
             } else if item.verificationState == VerificationSessionStorageItem.VerififcationState.acceptedRequest {
-                guard let sid = item.verificationSid,
-                      let jid = item.jid,
-                      let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
-                    return
-                }
-                var code: String
                 do {
                     let realm = try WRealm.safe()
-                    guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) else {
-                        DDLogDebug("NotificationsListViewController: this instance of VerificationSessionStorageItem is not exist")
-                        return
-                    }
-                    code = instance.code
+                    let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: item.verificationSid ?? ""))
+                    let vc = ShowCodeViewController()
+                    vc.jid = item.jid ?? ""
+                    vc.owner = item.owner
+                    vc.code = instance?.code ?? ""
+                    vc.sid = item.verificationSid ?? ""
+                    vc.isVerificationWithOwnDevice = item.jid == item.owner
+                    self.present(vc, animated: true)
                 } catch {
-                    fatalError()
+                    DDLogDebug("NotificationsListViewController: \(#function). \(error.localizedDescription)")
                 }
-                var isVerificationWithUsersDevice = false
-                if item.jid == self.owner {
-                    isVerificationWithUsersDevice = true
-                }
-                let vc = ShowCodeViewController()
-                vc.configure(owner: self.owner, jid: jid, code: code, sid: sid, isVerificationWithUsersDevice: isVerificationWithUsersDevice)
-                self.present(vc, animated: true)
-                return
             } else if item.verificationState == .receivedRequestAccept {
-                guard let sid = item.verificationSid,
-                      let jid = item.jid else {
-                    return
-                }
-                var isVerificationWithUsersDevice = false
-                if jid == self.owner {
-                    isVerificationWithUsersDevice = true
-                }
                 let vc = AuthenticationCodeInputViewController()
-                vc.configure(owner: self.owner, jid: jid, sid: sid, isVerificationWithUsersDevice: isVerificationWithUsersDevice)
+                vc.jid = item.jid ?? ""
+                vc.owner = item.owner
+                vc.sid = item.verificationSid ?? ""
+                vc.isVerificationWithUsersDevice = item.jid == item.owner
                 self.present(vc, animated: true)
-                return
             } else if item.verificationState == .failed || item.verificationState == .rejected || item.verificationState == .trusted {
                 guard let sid = item.verificationSid,
                       let jid = item.jid else {
