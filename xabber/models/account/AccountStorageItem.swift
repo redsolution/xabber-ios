@@ -69,4 +69,8 @@ class AccountStorageItem: Object {
     @objc dynamic var updatedTS: Double = -1
     @objc dynamic var encryptionUpdatedTS: Double = -1
     @objc dynamic var counter: String = "1"
+    
+    public var avatarUrl: String? {
+        return avatarMaxUrl ?? avatarMinUrl ?? oldschoolAvatarKey
+    }
 }

@@ -75,6 +75,7 @@ class CreateNewEntityViewController: UIViewController {
         
     public func configure() {
         navigationController?.navigationBar.prefersLargeTitles = false
+        navigationItem.backButtonDisplayMode = .minimal
         
         view.addSubview(tableView)
         tableView.fillSuperview()
@@ -187,6 +188,12 @@ extension CreateNewEntityViewController: UITableViewDelegate {
             case "create_incognito":
                 let vc = CreateNewGroupViewController()
                 vc.createIncognitoGroup = true
+                self.navigationController?.pushViewController(vc, animated: true)
+            case "start_secret_chat":
+                let vc = NewSecretChatViewController()
+                self.navigationController?.pushViewController(vc, animated: true)
+            case "qr_code":
+                let vc = QRCodeScannerViewController()
                 self.navigationController?.pushViewController(vc, animated: true)
             default:
                 break

@@ -29,7 +29,7 @@ import CocoaLumberjack
 import TOInsetGroupedTableView
 import XMPPFramework.XMPPJID
 
-class GroupchatInfoViewController: BaseViewController {
+class GroupchatInfoViewController: SimpleBaseViewController {
     
     class Datasource: DiffAware, Equatable, Hashable {
         
@@ -91,7 +91,7 @@ class GroupchatInfoViewController: BaseViewController {
 //    open var owner: String = ""
 //    open var jid: String = ""
     
-    var headerHeightMax: CGFloat = 324//264
+    var headerHeightMax: CGFloat = 156//264
 //    var headerHeightMin: CGFloat = 180150
     
     internal let lastSeenDateFormatter: DateFormatter = {
@@ -141,8 +141,6 @@ class GroupchatInfoViewController: BaseViewController {
         return button
     }()
     
-    internal var bag: DisposeBag = DisposeBag()
-    
     internal var headerConstraintSet: NSLayoutConstraintSet? = nil
     
     internal var contacts: Results<GroupchatUserStorageItem>? = nil
@@ -186,9 +184,8 @@ class GroupchatInfoViewController: BaseViewController {
         UIView.setAnimationsEnabled(true)
     }
 
-    
-    internal func subscribe() {
-        bag = DisposeBag()
+    override func loadDatasource() {
+        super.loadDatasource()
         do {
             let realm = try WRealm.safe()
             
@@ -357,47 +354,15 @@ class GroupchatInfoViewController: BaseViewController {
                     }
                     self.headerView.configure(
                         avatarUrl: avatarUrl,
-                        jid: self.jid,
                         owner: self.owner,
-                        userId: nil,
-                        title: self.nickname,
+                        jid: self.jid,
+                        titleColor: .label,//AccountColorManager.shared.primaryColor(for: self.owner),
+                        title: self.nickname    ,
                         subtitle: subtitle,
-                        thirdLine: nil,
-                        titleColor: AccountColorManager.shared.primaryColor(for: self.owner)
+                        thirdLine: nil
                     )
                 }).disposed(by: bag)
-            
-            Observable.collection(from: realm.objects(LastChatsStorageItem.self)
-                    .filter("owner == %@ AND jid == %@", self.owner, self.jid))
-                .debounce(.milliseconds(80), scheduler: MainScheduler.asyncInstance)
-                .subscribe(onNext: { (results) in
-                    if let item = results.first {
-                        self.isMuted = item.isMuted
-                        let expiredAt = item.muteExpired
-                        print("LAST CHATS MUTE STATE", expiredAt, self.isMuted)
-                        DispatchQueue.main.async {
-                            if expiredAt > Date().timeIntervalSince1970 {
-                                self.headerView.thirdButton.configure(#imageLiteral(resourceName: "bell-sleep"),
-                                                                      title: "Notifications".localizeString(id: "contact_bar_notifications", arguments: []),
-                                    style: .inactive
-                                )
-                            } else {
-                                self.headerView.thirdButton.configure(#imageLiteral(resourceName: "bell-off"),
-                                    title: "Notifications".localizeString(id: "contact_bar_notifications", arguments: []),
-                                    style: .active
-                                )
-                            }
-                            
-                        }
-                    } else {
-                        DispatchQueue.main.async {
-                            self.headerView.thirdButton.configure(#imageLiteral(resourceName: "bell"),
-                                                                  title: "Notifications".localizeString(id: "contact_bar_notifications", arguments: []),
-                                                                  style: .active)
-                        }
-                    }
-                }).disposed(by: bag)
-            
+                        
             Observable
                 .changeset(from: contacts!)
                 .subscribe(onNext: { (results) in
@@ -518,39 +483,19 @@ class GroupchatInfoViewController: BaseViewController {
         }
     }
     
-    internal func unsubscribe() {
-        bag = DisposeBag()
-    }
-    
-    internal func activateConstraints() {
-        NSLayoutConstraint.activate([
-            tableView.leftAnchor.constraint(equalTo: view.leftAnchor),
-            tableView.rightAnchor.constraint(equalTo: view.rightAnchor),
-            tableView.topAnchor.constraint(equalTo: view.topAnchor),
-            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        ])
-    }
-    
-    internal func configure() {
+    override func configure() {
+        super.configure()
         navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
         navigationController?.navigationBar.shadowImage = UIImage()
         view.addSubview(tableView)
         
-        tableView.fillSuperviewWithOffset(top: -56, bottom: 0, left: 0, right: 0)
+        tableView.fillSuperview()
         tableView.delegate = self
         tableView.dataSource = self
-        headerView.frame = CGRect(
-            width: view.frame.width,
-            height: headerHeightMax
-        )
+        
         tableView.tableHeaderView = headerView
         headerView.delegate = self
         
-        headerView.firstButton.configure(#imageLiteral(resourceName: "chat"), title: "Chat".localizeString(id: "chat", arguments: []), style: .active)
-        headerView.secondButton.configure(#imageLiteral(resourceName: "group-public-add"), title: "Invite".localizeString(id: "groupchat_bar_invite", arguments: []), style: .active)
-        headerView.thirdButton.configure(#imageLiteral(resourceName: "bell"), title: "Notifications".localizeString(id: "contact_bar_notifications", arguments: []), style: .active)
-        headerView.fourthButton.configure(#imageLiteral(resourceName: "leave"), title: "Leave".localizeString(id: "groupchat_leave", arguments: []), style: .danger)
-
         footerView.conversationType = .group
         footerView.jid = self.jid
         footerView.owner = self.owner
@@ -574,9 +519,6 @@ class GroupchatInfoViewController: BaseViewController {
     
     override func viewDidLoad() {
         super.viewDidLoad()
-        configure()
-        activateConstraints()
-        title = " "
         XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
             let requestId = session.groupchat?.requestMyRights(stream, groupchat: self.jid)
             self.callbackIds.insert(requestId ?? "")
@@ -584,6 +526,13 @@ class GroupchatInfoViewController: BaseViewController {
             session.groupchat?.requestUsers(stream, groupchat: self.jid)
             session.groupchat?.requestInvitedUsers(stream, groupchat: self.jid)
             session.groupchat?.blockList(stream, groupchat: self.jid)
+            _ = session
+                .groupchat?
+                .requestChatSettingsForm(
+                    stream,
+                    groupchat: self.jid,
+                    callback: self.onChatSettingsFormResponse
+                )
         }, fail: {
             AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
                 let requestId = user.groupchats.requestMyRights(stream, groupchat: self.jid)
@@ -592,27 +541,15 @@ class GroupchatInfoViewController: BaseViewController {
                 user.groupchats.requestUsers(stream, groupchat: self.jid)
                 user.groupchats.requestInvitedUsers(stream, groupchat: self.jid)
                 user.groupchats.blockList(stream, groupchat: self.jid)
-            })
-        })
-        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-            _ = session
-                .groupchat?
-                .requestChatSettingsForm(
-                    stream,
-                    groupchat: self.jid,
-                    callback: self.onChatSettingsFormResponse
-                )
-        } fail: {
-            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                user.groupchats
+                _ = user.groupchats
                     .requestChatSettingsForm(
                         stream,
                         groupchat: self.jid,
                         callback: self.onChatSettingsFormResponse
                     )
             })
-        }
-
+        })
+        
         footerView.imagesButton.isSelected = true
         
         NotificationCenter.default.addObserver(self,
@@ -627,23 +564,17 @@ class GroupchatInfoViewController: BaseViewController {
     }
     
     internal final func onChatSettingsFormResponse(values: [[String: Any]]?, error: String?) {
-        print("values", values?.compactMap({ return $0["var"] }))
         self.groupEditFormValues = values
     }
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        self.contacts = nil
-        subscribe()
-//        self.tableView.reloadData()
-        getAppTabBar()?.hide()
-        shouldResetNavbar = true
-        if !shouldResetNavbar {
-            navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
-            navigationController?.navigationBar.shadowImage = UIImage()
-            navigationController?.navigationBar.setNeedsLayout()
-        }
         
+        headerView.frame = CGRect(
+            width: view.frame.width,
+            height: headerHeightMax
+        )
+        headerView.updateSubviews()
         headerView.setMask()
     }
     

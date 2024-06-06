@@ -92,7 +92,7 @@ class AccountInfoViewController: BaseViewController {
     open var isModal: Bool = false
     
 //    var scrollViewContentOffsetYCopy: CGFloat = 0
-    var headerHeightMax: CGFloat = 228
+    var headerHeightMax: CGFloat = 220
 //    var headerHeightMin: CGFloat = 0
     
     var quota: String = ""
@@ -264,14 +264,13 @@ class AccountInfoViewController: BaseViewController {
                             self.currentResource = nil
                         }
                         self.headerView.configure(
-                            avatarUrl: item.avatarMaxUrl ?? item.avatarMinUrl ?? item.oldschoolAvatarKey,
+                            avatarUrl: item.avatarUrl,
+                            owner: self.owner,
                             jid: self.jid,
-                            owner: self.jid,
-                            userId: nil,
+                            titleColor: AccountColorManager.shared.primaryColor(for: self.owner),
                             title: self.nickname,
                             subtitle: self.jid,
-                            thirdLine: nil,
-                            titleColor: AccountColorManager.shared.primaryColor(for: self.jid)
+                            thirdLine: nil
                         )
                         self.updateDatasource()
                     } else {
@@ -324,7 +323,6 @@ class AccountInfoViewController: BaseViewController {
         self.tableView.delegate = self
         self.tableView.dataSource = self
 
-        self.headerViewConfig()
         
         if self.isModal {
             navigationItem.setLeftBarButton(UIBarButtonItem(barButtonSystemItem: .cancel, target: self, action: #selector(dismissScreen)), animated: true)
@@ -341,9 +339,9 @@ class AccountInfoViewController: BaseViewController {
             width: view.frame.width,
             height: headerHeightMax
         )
+        self.headerView.updateSubviews()
         tableView.tableHeaderView = headerView
         self.headerView.delegate = self
-        self.headerView.buttonsStack.isHidden = true
     }
     
     open func configureTokens(for jid: String) {
@@ -409,6 +407,7 @@ class AccountInfoViewController: BaseViewController {
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        self.headerViewConfig()
         subscribe()
         getQuota()
         self.navigationController?.isNavigationBarHidden = false

@@ -75,6 +75,10 @@ class RosterStorageItem: Object {
     
     var associatedLastChat: LastChatsStorageItem? = nil
     
+    public var avatarUrl: String? {
+        return avatarMaxUrl ?? avatarMinUrl ?? oldschoolAvatarKey
+    }
+    
     public final func isThereSubscriptionRequest() -> Bool {
         if (XMPPJID(string: self.jid)?.isServer ?? true) {
             return false

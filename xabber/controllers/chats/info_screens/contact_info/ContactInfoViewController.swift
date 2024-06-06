@@ -65,17 +65,11 @@ class ContactInfoViewController: BaseViewController {
             self.verificationJid = verificationJid
         }
     }
-    
-//    open var owner: String = ""
-//    open var jid: String = ""
-    
-//    var headerHeightMax: CGFloat = 246//256
-//    var headerHeightMin: CGFloat = 150//156
-    
-    var headerHeightMax: CGFloat = 324//296//264
-//    var headerHeightMin: CGFloat = 180//150
+        
     
     public var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
+    
+    var headerHeightMax: CGFloat = 156
     
     internal let headerView: InfoScreenHeaderView = {
         let view = InfoScreenHeaderView(frame: .zero)
@@ -118,8 +112,6 @@ class ContactInfoViewController: BaseViewController {
     
     internal var bag: DisposeBag = DisposeBag()
     
-    internal var headerConstraintSet: NSLayoutConstraintSet? = nil
-    
     internal var datasource: [Datasource] = []
     
     internal var isBlocked: Bool = false
@@ -131,6 +123,12 @@ class ContactInfoViewController: BaseViewController {
     
     internal var circles: [String] = []
     
+    internal let leftDevicesNavBarButton: UIBarButtonItem = {
+        let button = UIBarButtonItem()
+        
+        return button
+    }()
+    
     internal func subscribe() {
         datasource = []
         bag = DisposeBag()
@@ -140,24 +138,59 @@ class ContactInfoViewController: BaseViewController {
             circles = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner))?.groups.toArray() ?? []
             circles = Array(Set(circles)).sorted()
             
+            if let item = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
+                self.nickname = item.displayName
+                self.headerView.configure(
+                    avatarUrl: item.avatarUrl,
+                    owner: self.owner,
+                    jid: self.jid,
+                    titleColor: .label,//AccountColorManager.shared.primaryColor(for: self.owner),
+                    title: self.nickname,
+                    subtitle: self.jid,
+                    thirdLine: nil
+                )
+                if item.subscribtion == .undefined {
+                    self.isDeleted = true
+                }
+                if item.groups.toArray().sorted() != self.circles.sorted() {
+                    self.circles = item.groups.toArray().sorted()
+                    if let circleSection = self.datasource.firstIndex(where: { $0.childs.first(where: { $0.key == "circles" }) != nil }),
+                       let circleRow = self.datasource[circleSection].childs.firstIndex(where: { $0.key == "circles" }) {
+                        self.tableView.reloadRows(at: [IndexPath(row: circleRow, section: circleSection)], with: .none)
+                    }
+                }
+            } else {
+                self.nickname = self.jid
+                self.isDeleted = true
+                self.headerView.configure(
+                    avatarUrl: nil,
+                    owner: self.owner,
+                    jid: self.jid,
+                    titleColor: .label,//AccountColorManager.shared.primaryColor(for: self.owner),
+                    title: self.jid,
+                    subtitle: self.jid,
+                    thirdLine: nil
+                )
+            }
+            
             Observable
                 .collection(from: realm
                     .objects(RosterStorageItem.self)
                     .filter("owner == %@ AND jid == %@", owner, jid))
+                .skip(1)
                 .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
                 .subscribe(onNext: { (results) in
                     if let item = results.first {
+                        self.nickname = item.displayName
                         self.headerView.configure(
-                            avatarUrl: item.avatarMaxUrl ?? item.avatarMinUrl ?? item.oldschoolAvatarKey,
-                            jid: self.jid,
+                            avatarUrl: item.avatarUrl,
                             owner: self.owner,
-                            userId: nil,
+                            jid: self.jid,
+                            titleColor: .label,//AccountColorManager.shared.primaryColor(for: self.owner),
                             title: self.nickname,
                             subtitle: self.jid,
-                            thirdLine: nil,
-                            titleColor: AccountColorManager.shared.primaryColor(for: self.owner)
+                            thirdLine: nil
                         )
-                        self.nickname = item.displayName
                         if item.subscribtion == .undefined {
                             self.isDeleted = true
                         }
@@ -173,13 +206,12 @@ class ContactInfoViewController: BaseViewController {
                         self.isDeleted = true
                         self.headerView.configure(
                             avatarUrl: nil,
-                            jid: self.jid,
                             owner: self.owner,
-                            userId: nil,
-                            title: self.nickname,
+                            jid: self.jid,
+                            titleColor: .label,//AccountColorManager.shared.primaryColor(for: self.owner),
+                            title: self.jid,
                             subtitle: self.jid,
-                            thirdLine: nil,
-                            titleColor: AccountColorManager.shared.primaryColor(for: self.owner)
+                            thirdLine: nil
                         )
                     }
                 }).disposed(by: bag)
@@ -250,6 +282,8 @@ class ContactInfoViewController: BaseViewController {
                             color = .systemGreen
                             indicator = UIImage(systemName: "lock.fill")
                         }
+                        self.leftDevicesNavBarButton.image = indicator
+                        self.leftDevicesNavBarButton.tintColor = color
                         newDatasource.append(Datasource(.text, title: "Encryption", key: "encryption", childs: [
                             Datasource(.button, title: "Identity verification".localizeString(id: "contact_fingerprints", arguments: []), subtitle: "\(collectionJid.count)", image: indicator, color: color, key: "fingerprints"),
                             Datasource(.button, title: "Encrypted chat", subtitle: "", image: indicator, color: color, key: "start_encrypted_chat")
@@ -268,34 +302,17 @@ class ContactInfoViewController: BaseViewController {
                 .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
                 .subscribe(onNext: { (results) in
                     self.isBlocked = !results.isEmpty
-                    if results.isEmpty {
-//                        DispatchQueue.main.async {
-                            self.headerView.fourthButton.configure(#imageLiteral(resourceName: "cancel"),
-                                                                   title: "Block".localizeString(id: "contact_bar_block", arguments: []),
-                                                                   style: .danger)
-//                        }
-                    } else {
-//                        DispatchQueue.main.async {
-                            self.headerView.fourthButton.configure(#imageLiteral(resourceName: "cancel"),
-                                                                   title: "Unblock".localizeString(id: "contact_bar_unblock", arguments: []),
-                                                                   style: .active)
-//                        }
-                    }
-//                    DispatchQueue.main.async {
-                        if self.datasource.isNotEmpty {
-                            let section = self.datasource.count - 1
-                            guard let row = self.datasource[section]
-                                .childs
-                                .firstIndex(where: { $0.key == "block_chat_button" }) else { return }
-                            let indexPath = IndexPath(row: row, section: section)
-//                            UIView.performWithoutAnimation {
-                                if let visibleIndexPaths = self.tableView.indexPathsForVisibleRows,
-                                    visibleIndexPaths.contains(indexPath) {
-                                    self.tableView.reloadRows(at: [indexPath], with: .none)
-                                }
-//                            }
+                    if self.datasource.isNotEmpty {
+                        let section = self.datasource.count - 1
+                        guard let row = self.datasource[section]
+                            .childs
+                            .firstIndex(where: { $0.key == "block_chat_button" }) else { return }
+                        let indexPath = IndexPath(row: row, section: section)
+                        if let visibleIndexPaths = self.tableView.indexPathsForVisibleRows,
+                            visibleIndexPaths.contains(indexPath) {
+                            self.tableView.reloadRows(at: [indexPath], with: .none)
                         }
-//                    }
+                    }
                 })
                 .disposed(by: bag)
             
@@ -303,44 +320,19 @@ class ContactInfoViewController: BaseViewController {
                     .filter("owner == %@ AND jid == %@", self.owner, self.jid))
                 .debounce(.milliseconds(80), scheduler: MainScheduler.asyncInstance)
                 .subscribe(onNext: { (results) in
-                    if let item = results.first {
-                        self.isMuted = item.isMuted
-                        let expiredAt = item.muteExpired
-                        DispatchQueue.main.async {
-                            if expiredAt > Date().timeIntervalSince1970 {
-                                self.headerView.thirdButton.configure(#imageLiteral(resourceName: "bell-sleep"),
-                                          title: "Notifications".localizeString(id: "contact_bar_notifications", arguments: []),
-                                    style: .inactive
-                                )
-                            } else {
-                                self.headerView.thirdButton.configure(#imageLiteral(resourceName: "bell-off"),
-                                          title: "Notifications".localizeString(id: "contact_bar_notifications", arguments: []),
-                                    style: .active
-                                )
+                    if self.datasource.isNotEmpty {
+                        let section = self.datasource.count - 1
+                        guard let row = self.datasource[section]
+                            .childs
+                            .firstIndex(where: { $0.key == "notify_chat_button" }) else { return }
+                        let indexPath = IndexPath(row: row, section: section)
+                        UIView.performWithoutAnimation {
+                            if let visibleIndexPaths = self.tableView.indexPathsForVisibleRows,
+                                visibleIndexPaths.contains(indexPath) {
+                                self.tableView.reloadRows(at: [indexPath], with: .none)
                             }
                         }
-                    } else {
-//                        DispatchQueue.main.async {
-                            self.headerView.thirdButton.configure(#imageLiteral(resourceName: "bell"),
-                                          title: "Notifications".localizeString(id: "contact_bar_notifications", arguments: []),
-                                     style: .active)
-//                        }
                     }
-//                    DispatchQueue.main.async {
-                        if self.datasource.isNotEmpty {
-                            let section = self.datasource.count - 1
-                            guard let row = self.datasource[section]
-                                .childs
-                                .firstIndex(where: { $0.key == "notify_chat_button" }) else { return }
-                            let indexPath = IndexPath(row: row, section: section)
-                            UIView.performWithoutAnimation {
-                                if let visibleIndexPaths = self.tableView.indexPathsForVisibleRows,
-                                    visibleIndexPaths.contains(indexPath) {
-                                    self.tableView.reloadRows(at: [indexPath], with: .none)
-                                }
-                            }
-                        }
-//                    }
                 }).disposed(by: bag)
             
             Observable
@@ -388,7 +380,9 @@ class ContactInfoViewController: BaseViewController {
                         
                         let verificationInstance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid).first
                         if let verificationInstance = verificationInstance {
-                            let (text, secondaryText, buttonTitle, buttonKey) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: verificationInstance.state)
+                            let (text, secondaryText, buttonTitle, buttonKey) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(
+                                verificationState: verificationInstance.state
+                            )
                             let verificationDatasource = Datasource(.text, title: "Active verification session", key: "verification-session", childs: [
                                 Datasource(.session, title: text, subtitle: secondaryText, verificationSid: verificationInstance.sid, verificationJid: self.jid)
                             ])
@@ -420,43 +414,17 @@ class ContactInfoViewController: BaseViewController {
     
     
     internal func configure() {
-        navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
-        navigationController?.navigationBar.shadowImage = UIImage()
+//        navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
+//        navigationController?.navigationBar.shadowImage = UIImage()
         navigationItem.setRightBarButtonItems([editButton, showQRCodeButton], animated: false)
         view.addSubview(tableView)
-        if let topOffset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
-            tableView.fillSuperviewWithOffset(top: -56, bottom: 0, left: 0, right: 0)
-            headerView.frame = CGRect(
-                width: view.frame.width,
-                height: headerHeightMax
-            )
-        } else {
-            tableView.fillSuperviewWithOffset(top: -56, bottom: 0, left: 0, right: 0)
-            headerView.frame = CGRect(
-                width: view.frame.width,
-                height: headerHeightMax
-            )
-        }
+        
         
         tableView.delegate = self
         tableView.dataSource = self
         
         tableView.tableHeaderView = headerView
         headerView.delegate = self
-        
-        headerView.firstButton.configure(#imageLiteral(resourceName: "chat"),
-                                         title: "Chat".localizeString(id: "chat_viewer", arguments: []),
-                                         style: .active)
-        headerView.secondButton.configure(UIImage(systemName: "lock.circle")!,
-                                          title: "Secret chat",
-                                          style: .active)
-        headerView.secondButton.isHidden = true
-        headerView.thirdButton.configure(#imageLiteral(resourceName: "bell"),
-                                         title: "Notifications".localizeString(id: "contact_bar_notifications", arguments: []),
-                                         style: .active)
-        headerView.fourthButton.configure(#imageLiteral(resourceName: "cancel"),
-                                          title: "Block".localizeString(id: "contact_bar_block", arguments: []),
-                                          style: .danger)
         
         footerView.conversationType = self.conversationType
         footerView.jid = self.jid
@@ -476,7 +444,14 @@ class ContactInfoViewController: BaseViewController {
         
         title = " "
         footerView.imagesButton.isSelected = true
-        
+        leftDevicesNavBarButton.target = self
+        leftDevicesNavBarButton.action = #selector(onLEftDevicesNavBarButtonTouchUp)
+        self.navigationItem.setLeftBarButton(leftDevicesNavBarButton, animated: true)
+    }
+    
+    @objc
+    func onLEftDevicesNavBarButtonTouchUp(_ sender: UIBarButtonItem) {
+        showFingerprints()
     }
     
     override func viewDidLoad() {
@@ -500,16 +475,22 @@ class ContactInfoViewController: BaseViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         subscribe()
-        getAppTabBar()?.hide()
+//        navigationController?.isNavigationBarHidden = true
         navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
         navigationController?.navigationBar.shadowImage = UIImage()
         footerView.getReferences()
+        tableView.fillSuperviewWithOffset(top: 0, bottom: 0, left: 0, right: 0)
+        headerView.frame = CGRect(
+            width: view.frame.width,
+            height: headerHeightMax
+        )
+        self.headerView.updateSubviews()
     }
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
-        navigationController?.navigationBar.shadowImage = UIImage()
+//        navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
+//        navigationController?.navigationBar.shadowImage = UIImage()
     }
     
     override func viewWillDisappear(_ animated: Bool) {

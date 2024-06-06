@@ -31,7 +31,6 @@ class vCardInfoViewController: SimpleBaseViewController {
     
     class Datasource {
         enum Kind {
-            case title
             case text
             case resource
             case vcard
@@ -64,7 +63,13 @@ class vCardInfoViewController: SimpleBaseViewController {
     internal var datasource: [Datasource] = []
     internal var resources: Results<ResourceStorageItem>? = nil
     
-    internal var avatar: UIImage? = nil
+    var headerHeightMax: CGFloat = 164
+    
+    internal let headerView: InfoScreenHeaderView = {
+        let view = InfoScreenHeaderView(frame: .zero)
+                
+        return view
+    }()
     
     internal let tableView: UITableView = {
         let view = InsetGroupedTableView(frame: .zero)
@@ -95,25 +100,9 @@ class vCardInfoViewController: SimpleBaseViewController {
                     var newDatasource: [Datasource] = [
                     ]
                     if let item = results.first {
-//                        self.title = item.generatedNickname
-                        newDatasource.append(
-                            Datasource(.title, title: "", childs: [
-                                Datasource(.title, title: item.generatedNickname, subtitle: self.jid, key: "title")
-                            ])
-                        )
-                        
                         if !(self.resources?.isEmpty ?? true) {
                             newDatasource.append(Datasource(.resource, title: "Connected devices".localizeString(id: "account_connected_devices", arguments: [])))
                         }
-                        
-//                        newDatasource.append(Datasource(.resource, title: "Connected devices"))
-//                        if !self.datasource.contains(where: { $0.kind == .resource }) {
-//                            let devices = Datasource(.resource, title: "Connected devices")
-//                            newDatasource.append(devices)
-//                        }
-//                        UIView.performWithoutAnimation {
-//                            self.tableView.reloadData()
-//                        }
                         
                         let names = Datasource(.vcard, title: "About".localizeString(id: "about", arguments: []), childs: [
                             Datasource(.vcard, title: "First name".localizeString(id: "vcard_given_name", arguments: []), subtitle: item.given),
@@ -127,13 +116,13 @@ class vCardInfoViewController: SimpleBaseViewController {
                         }
                         
                         if item.nickname.isNotEmpty {
-                            newDatasource.append(Datasource(.vcard, title: "", childs: [
+                            newDatasource.append(Datasource(.vcard, title: " ", childs: [
                                 Datasource(.vcard, title: "Nickname".localizeString(id: "vcard_nick_name", arguments: []), subtitle: item.nickname),
                             ]))
                         }
 
                         if item.birthdayString.isNotEmpty {
-                            newDatasource.append(Datasource(.vcard, title: "", childs: [
+                            newDatasource.append(Datasource(.vcard, title: " ", childs: [
                                 Datasource(.vcard, title: "Birthday".localizeString(id: "vcard_birth_date", arguments: []), subtitle: item.birthdayString),
                             ]))
                         }
@@ -209,13 +198,62 @@ class vCardInfoViewController: SimpleBaseViewController {
                         }
                         
                         self.datasource = newDatasource
-                        DispatchQueue.main.async {
-                            self.tableView.reloadData()
-                        }
-                        self.bag = DisposeBag()
+                        self.tableView.reloadData()
                     }
                 })
                 .disposed(by: bag)
+            
+            if let item = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
+                self.headerView.configure(
+                    avatarUrl: item.avatarUrl,
+                    owner: self.owner,
+                    jid: self.jid,
+                    titleColor: .label,//AccountColorManager.shared.primaryColor(for: self.owner),
+                    title: item.displayName,
+                    subtitle: self.jid,
+                    thirdLine: nil
+                )
+            } else {
+                self.headerView.configure(
+                    avatarUrl: nil,
+                    owner: self.owner,
+                    jid: self.jid,
+                    titleColor: .label,//AccountColorManager.shared.primaryColor(for: self.owner),
+                    title: self.jid,
+                    subtitle: self.jid,
+                    thirdLine: nil
+                )
+            }
+            
+            Observable
+                .collection(from: realm
+                    .objects(RosterStorageItem.self)
+                    .filter("owner == %@ AND jid == %@", owner, jid))
+                .skip(1)
+                .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
+                .subscribe(onNext: { (results) in
+                    if let item = results.first {
+                        self.headerView.configure(
+                            avatarUrl: item.avatarUrl,
+                            owner: self.owner,
+                            jid: self.jid,
+                            titleColor: .label,//AccountColorManager.shared.primaryColor(for: self.owner),
+                            title: item.displayName,
+                            subtitle: self.jid,
+                            thirdLine: nil
+                        )
+                    } else {
+                        self.headerView.configure(
+                            avatarUrl: nil,
+                            owner: self.owner,
+                            jid: self.jid,
+                            titleColor: .label,//AccountColorManager.shared.primaryColor(for: self.owner),
+                            title: self.jid,
+                            subtitle: self.jid,
+                            thirdLine: nil
+                        )
+                    }
+                }).disposed(by: bag)
             
             Observable
                 .changeset(from: resources!)
@@ -303,31 +341,12 @@ class vCardInfoViewController: SimpleBaseViewController {
     
     override func subscribe() {
         super.subscribe()
-//        do {
-//            let realm = try WRealm.safe()
-//            let avatarItem = realm.object(ofType: AvatarStorageItem.self, forPrimaryKey: [self.jid, self.owner].prp())
-//            guard let key = avatarItem?.fileUri else { return }
-//            
-//            ImageCache.default.retrieveImage(forKey: key, completionHandler: { result in
-//                switch result {
-//                case .success(let data):
-//                    if data.cacheType != .none {
-//                        self.avatar = data.image
-//                    }
-//                    break
-//                case .failure(_):
-//                    break
-//                }
-//            })
-//        } catch {
-//            DDLogDebug("vCardInfoViewController: \(#function). \(error.localizedDescription)")
-//        }
     }
     
     override func setupSubviews() {
         super.setupSubviews()
         view.addSubview(tableView)
-        tableView.fillSuperviewWithOffset(top: -70, bottom: 0, left: 0, right: 0)
+        tableView.fillSuperview()
     }
     
     override func configure() {
@@ -336,8 +355,7 @@ class vCardInfoViewController: SimpleBaseViewController {
         self.tableView.delegate = self
         
         
-//        navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
-//        navigationController?.navigationBar.shadowImage = UIImage()
+        tableView.tableHeaderView = headerView
     }
     
     override func viewDidLoad() {
@@ -347,22 +365,28 @@ class vCardInfoViewController: SimpleBaseViewController {
                                                selector: #selector(reloadDatasource),
                                                name: .newMaskSelected,
                                                object: nil)
+        
+        AccountManager.shared.find(for: owner)?.action({ (user, stream) in
+            user.vcards.requestItem(stream, jid: self.jid)
+        })
     }
     
     override func reloadDatasource() {
-        tableView.reloadData()
+        headerView.setMask()
+//        tableView.reloadData()
     }
-    
+        
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-//        navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
-//        navigationController?.navigationBar.shadowImage = UIImage()
+        headerView.frame = CGRect(
+            width: view.frame.width,
+            height: headerHeightMax
+        )
+        self.headerView.updateSubviews()
     }
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-//        navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
-//        navigationController?.navigationBar.shadowImage = UIImage()
     }
 }
 
@@ -370,9 +394,6 @@ extension vCardInfoViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         if datasource[indexPath.section].kind == .resource {
             return 64
-        }
-        if datasource[indexPath.section].childs[indexPath.row].kind == .title {
-            return 196
         }
         return 44
     }
@@ -382,6 +403,9 @@ extension vCardInfoViewController: UITableViewDelegate {
     }
     
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+        if datasource.isEmpty {
+            return nil
+        }
         let title = datasource[section].title
         return title.isEmpty ? nil : title
     }
@@ -399,8 +423,6 @@ extension vCardInfoViewController: UITableViewDelegate {
             vc.jid = self.jid
             vc.owner = self.owner
             vc.resource = resource.resource
-            navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
-            navigationController?.navigationBar.shadowImage = nil
             navigationController?.pushViewController(vc, animated: true)
         }
     }
@@ -429,16 +451,6 @@ extension vCardInfoViewController: UITableViewDataSource {
             return cell
         }
         let item = datasource[indexPath.section].childs[indexPath.row]
-        if item.kind == .title {
-            guard let cell = tableView.dequeueReusableCell(withIdentifier: TableHeaderWithAvatarCell.cellName, for: indexPath) as? TableHeaderWithAvatarCell else {
-                fatalError()
-            }
-            
-            cell.configure(avatar: self.avatar, owner: self.owner, jid: self.jid, displayName: item.title)
-            cell.setMask()
-            
-            return cell
-        }
         guard let cell = tableView.dequeueReusableCell(withIdentifier: VCardCell.cellName, for: indexPath) as? VCardCell else {
             fatalError()
         }

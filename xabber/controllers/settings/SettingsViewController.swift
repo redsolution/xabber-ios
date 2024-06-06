@@ -303,7 +303,7 @@ class SettingsViewController: BaseViewController {
     }()
     
 //    var scrollViewContentOffsetYCopy: CGFloat = 0
-    var headerHeightMax: CGFloat = 232
+    var headerHeightMax: CGFloat = 188
 //    var headerHeightMin: CGFloat = 0
     var nickname = ""
     
@@ -349,7 +349,7 @@ class SettingsViewController: BaseViewController {
             
             Observable
                 .collection(from: accountsObserver)
-                .debounce(.milliseconds(700), scheduler: MainScheduler.asyncInstance)
+                .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
                 .skip(1)
                 .subscribe(onNext: { (results) in
                     if let item = results.first {
@@ -361,14 +361,13 @@ class SettingsViewController: BaseViewController {
                             self.currentResource = nil
                         }
                         self.headerView.configure(
-                            avatarUrl: item.avatarMaxUrl ?? item.avatarMinUrl ?? item.oldschoolAvatarKey,
-                            jid: self.jid,
+                            avatarUrl: item.avatarUrl,
                             owner: self.jid,
-                            userId: nil,
-                            title: self.nickname,
-                            subtitle: self.jid,
-                            thirdLine: nil,
-                            titleColor: AccountColorManager.shared.primaryColor(for: self.jid)
+                            jid: self.jid,
+                            titleColor: .label,//AccountColorManager.shared.primaryColor(for: self.owner),
+                            title: item.username,
+                            subtitle: item.jid,
+                            thirdLine: nil
                         )
                     } else {
                         self.nickname = XMPPJID(string: self.jid)?.user ?? self.jid
@@ -385,14 +384,13 @@ class SettingsViewController: BaseViewController {
                     self.currentResource = nil
                 }
                 self.headerView.configure(
-                    avatarUrl: item.avatarMaxUrl ?? item.avatarMinUrl ?? item.oldschoolAvatarKey,
-                    jid: self.jid,
+                    avatarUrl: item.avatarUrl,
                     owner: self.jid,
-                    userId: nil,
-                    title: self.nickname,
-                    subtitle: self.jid,
-                    thirdLine: nil,
-                    titleColor: AccountColorManager.shared.primaryColor(for: self.jid)
+                    jid: self.jid,
+                    titleColor: .label,//AccountColorManager.shared.primaryColor(for: self.owner),
+                    title: item.username,
+                    subtitle: item.jid,
+                    thirdLine: nil
                 )
             } else {
                 self.nickname = XMPPJID(string: self.jid)?.user ?? self.jid
@@ -547,20 +545,19 @@ class SettingsViewController: BaseViewController {
         } else {
             tableView.setEditing(false, animated: false)
             navigationBarButtonsConfigure(multiAccounts: false)
-            headerViewConfig()
+//            headerViewConfig()
             
             do {
                 let realm = try WRealm.safe()
-                if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: self.jid) {
+                if let item = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: self.jid) {
                     self.headerView.configure(
-                        avatarUrl: instance.avatarMaxUrl ?? instance.avatarMinUrl ?? instance.oldschoolAvatarKey,
-                        jid: self.jid,
+                        avatarUrl: item.avatarUrl,
                         owner: self.jid,
-                        userId: nil,
+                        jid: self.jid,
+                        titleColor: .label,//AccountColorManager.shared.primaryColor(for: self.owner),
                         title: self.nickname,
                         subtitle: self.jid,
-                        thirdLine: nil,
-                        titleColor: AccountColorManager.shared.primaryColor(for: self.jid)
+                        thirdLine: nil
                     )
                 }
                 
@@ -770,16 +767,16 @@ class SettingsViewController: BaseViewController {
     }
     
     func headerViewConfig() {
-        tableView.fillSuperviewWithOffset(top: -56, bottom: 0, left: 0, right: 0)
+        tableView.fillSuperviewWithOffset(top: 0, bottom: 0, left: 0, right: 0)
         tableView.delegate = self
         tableView.dataSource = self
         headerView.frame = CGRect(
             width: view.frame.width,
             height: headerHeightMax
         )
+        headerView.updateSubviews()
         tableView.tableHeaderView = headerView
         self.headerView.delegate = self
-        self.headerView.buttonsStack.isHidden = true
     }
     
     override func reloadDatasource() {
@@ -803,7 +800,7 @@ class SettingsViewController: BaseViewController {
         title = ""
         getAppTabBar()?.tabBar.items?[3].title = "Settings".localizeString(id: "settings", arguments: [])
         NotifyManager.shared.setLastChats(displayed: false)
-        
+        headerViewConfig()
         getQuotaFromRealm()
         getQuota()
         subscribe()

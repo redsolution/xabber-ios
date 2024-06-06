@@ -68,12 +68,14 @@ class AddNewContactViewController: UIViewController {
     var errorsObserver: BehaviorRelay<ValidateErrors?> = BehaviorRelay(value: nil)
     var bag: DisposeBag = DisposeBag()
     
+    var accountJid: String = AccountManager.shared.users.first?.jid ?? ""
     var contactJid: BehaviorRelay<String?> = BehaviorRelay(value: nil)
     
     private let tableView: UITableView = {
         let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(FieldWithCheckmarkTableCell.self, forCellReuseIdentifier: FieldWithCheckmarkTableCell.cellName)
+        view.register(UITableViewCell.self, forCellReuseIdentifier: "tablecell")
         
         return view
     }()
@@ -180,8 +182,6 @@ class AddNewContactViewController: UIViewController {
         self.addButton.action = #selector(onAddButtonTouchUpInside)
     }
     
-    var selectedAccount: String? = AccountManager.shared.users.first?.jid
-    
     func changeElementsState(enabled: Bool) {
         DispatchQueue.main.async {
             (self.tableView.cellForRow(at: IndexPath(row: 0, section: 0)) as? FieldWithCheckmarkTableCell)?.textField.isEnabled = enabled
@@ -207,12 +207,12 @@ class AddNewContactViewController: UIViewController {
     
     @objc
     func onAddButtonTouchUpInside(_ sender: UIBarButtonItem) {
-        guard let owner = selectedAccount,
-              let jidRaw = self.contactJid.value,
+        guard let jidRaw = self.contactJid.value,
               jidRaw.isNotEmpty,
               let jid = XMPPJID(string: jidRaw)?.bare else {
             return
         }
+        let owner = accountJid
         let conversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
         self.changeElementsState(enabled: false)
         AccountManager.shared.find(for: owner)?.action({ user, stream in
@@ -229,7 +229,6 @@ class AddNewContactViewController: UIViewController {
                             } else {
                                 self.errorsObserver.accept(.notFound)
                                 DispatchQueue.main.async {
-//                                    self.tableView.reloadData()
                                     self.view.makeToast("Contact server not found")
                                 }
                             }
@@ -295,7 +294,7 @@ class AddNewContactViewController: UIViewController {
 extension AddNewContactViewController: UITableViewDataSource {
     
     func numberOfSections(in tableView: UITableView) -> Int {
-        return 1
+        return 2
     }
     
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
@@ -303,18 +302,32 @@ extension AddNewContactViewController: UITableViewDataSource {
     }
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        guard let cell = tableView.dequeueReusableCell(withIdentifier: FieldWithCheckmarkTableCell.cellName, for: indexPath) as? FieldWithCheckmarkTableCell else {
-            fatalError()
+        if indexPath.section == 0 {
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: FieldWithCheckmarkTableCell.cellName, for: indexPath) as? FieldWithCheckmarkTableCell else {
+                fatalError()
+            }
+            
+            cell.configure()
+            cell.textField.text = self.contactJid.value
+            cell.textFieldDelegate = self
+            
+            return cell
+        } else {
+            let cell = UITableViewCell(style: .value1, reuseIdentifier: "tablecell")
+            
+            cell.textLabel?.text = self.accountJid
+            cell.selectionStyle = .none
+            cell.accessoryType = .disclosureIndicator
+            
+            return cell
         }
         
-        cell.configure()
-        cell.textField.text = self.contactJid.value
-        cell.textFieldDelegate = self
-        
-        return cell
     }
     
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+        if section == 1 {
+            return "Selected XMPP Account"
+        }
         return "Contact XMPP ID"
     }
     
@@ -329,7 +342,23 @@ extension AddNewContactViewController: UITableViewDelegate {
     }
         
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        
+        if indexPath.section == 1 {
+            let vc = NewContactSelectAccountViewController()
+            vc.configure(
+                AccountManager.shared.users.compactMap { return $0.jid },
+                title: "Select account".localizeString(id: "choose_account", arguments: []),
+                header: nil,
+                footer: nil,
+                current: self.accountJid
+            ) {
+                (value) in
+                self.accountJid = value
+                DispatchQueue.main.async {
+                    self.tableView.reloadRows(at: [IndexPath(row: 0, section: 1)],with: .none)
+                }
+            }
+            navigationController?.pushViewController(vc, animated: true)
+        }
     }
 }
 

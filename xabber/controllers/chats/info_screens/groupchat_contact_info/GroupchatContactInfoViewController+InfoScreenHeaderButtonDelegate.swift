@@ -753,16 +753,6 @@ extension GroupchatContactInfoViewController: InfoScreenHeaderButtonDelegate {
                                                 animated: true,
                                                 completion: nil)
             } else {
-                self.headerView.configure(
-                    avatarUrl: nil, 
-                    jid: self.jid,
-                    owner: self.owner,
-                    userId: self.userId,
-                    title: self.userNickname,
-                    subtitle: self.userJid,
-                    thirdLine: nil,
-                    titleColor: AccountColorManager.shared.primaryColor(for: self.owner)
-                )
                 self.tableView.reloadData()
             }
         }

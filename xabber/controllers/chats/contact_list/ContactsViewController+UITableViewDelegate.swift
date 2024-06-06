@@ -27,7 +27,7 @@ extension ContactsViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         let item = datasource[indexPath.section][indexPath.row]
         switch item.kind {
-        case .contact: return 80
+        case .contact: return 84
         case .group: return 44
         case .collapsed: return 3
         case .collapsedLast: return 6

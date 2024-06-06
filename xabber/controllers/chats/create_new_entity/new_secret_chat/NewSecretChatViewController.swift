@@ -20,7 +20,6 @@
 
 import Foundation
 import UIKit
-//import Realm
 import RealmSwift
 import RxCocoa
 import RxSwift
@@ -33,8 +32,11 @@ class NewSecretChatViewController: SimpleBaseViewController {
     struct Datasource {
         let owner: String
         let jid: String
-        let username: String
+        let username: NSAttributedString
         let avatarUrl: String?
+        let hasSecretChat: Bool
+        let hasBrokenDevices: Bool
+        let hasUntrustedDevices: Bool
     }
     
     internal var datasource: [Datasource] = []
@@ -42,7 +44,7 @@ class NewSecretChatViewController: SimpleBaseViewController {
     public var delegate: AddContactDelegate? = nil
     
     private let tableView: UITableView = {
-        let view = InsetGroupedTableView(frame: .zero)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(ContactListTableViewCell.self, forCellReuseIdentifier: ContactListTableViewCell.cellName)
         
@@ -74,13 +76,64 @@ class NewSecretChatViewController: SimpleBaseViewController {
         return collection.compactMap {
             do {
                 let realm = try WRealm.safe()
-                if realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: $0.jid, owner: $0.owner)) != nil {
+                if $0.jid == $0.owner {
                     return nil
                 }
-            } catch {
+                let devices = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@", $0.owner, $0.jid).toArray()
+                if devices.count == 0 {
+                    return nil
+                }
+                let hasSecretChat = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: $0.jid, owner: $0.owner, conversationType: .omemo)) != nil
+                let hasBrokenDevices = devices.filter({$0.state == .fingerprintChanged}).isNotEmpty
+                let hasUntrustedDevices = devices.filter({$0.state != .trusted}).isNotEmpty
                 
+                let username = $0.displayName
+                
+                let attributedTitle: NSMutableAttributedString = NSMutableAttributedString()
+                let indicatorAttach = NSTextAttachment()
+                var color: UIColor = .label
+                if devices.count == 0 {
+                    color = .secondaryLabel
+                    indicatorAttach.image = UIImage(systemName: "lock.fill")?.withTintColor(.secondaryLabel)
+                    attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
+                } else if hasBrokenDevices {
+                    color = .systemRed
+                    indicatorAttach.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withTintColor(.systemRed)
+                    attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
+                } else if hasUntrustedDevices {
+                    color = .systemOrange
+                    indicatorAttach.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withTintColor(.systemOrange)
+                    attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
+                } else if devices.filter({ $0.isTrustedByCertificate }).count > 0 {
+                    color = .systemGreen
+                    indicatorAttach.image = UIImage(systemName: "lock.circle.fill")?.withTintColor(.systemGreen)
+                    attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
+                } else {
+                    color = .systemGreen
+                    indicatorAttach.image = UIImage(systemName: "lock.fill")?.withTintColor(.systemGreen)
+                    attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
+                }
+                
+                attributedTitle.append(NSAttributedString(string: username, attributes: [
+                    .foregroundColor: color,
+                    .font: UIFont.systemFont(ofSize: 17, weight: .medium)
+                ]))
+                let attributedUsername: NSAttributedString = attributedTitle as NSAttributedString
+                
+                
+                return Datasource(
+                    owner: $0.owner,
+                    jid: $0.jid,
+                    username: attributedUsername,
+                    avatarUrl: $0.avatarMaxUrl ?? $0.avatarMinUrl ?? $0.oldschoolAvatarKey,
+                    hasSecretChat: hasSecretChat,
+                    hasBrokenDevices: hasBrokenDevices,
+                    hasUntrustedDevices: hasUntrustedDevices
+                )
+            } catch {
+                DDLogDebug("NewSecretChatViewController: \(#function). \(error.localizedDescription)")
             }
-            return Datasource(owner: $0.owner, jid: $0.jid, username: $0.displayName, avatarUrl: nil)
+            return nil
         }
     }
     
@@ -96,20 +149,23 @@ class NewSecretChatViewController: SimpleBaseViewController {
 
 extension NewSecretChatViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return 58
+        return 84
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         let item = datasource[indexPath.row]
         AccountManager.shared.find(for: item.owner)?.omemo.initChat(jid: item.jid)
-        self.navigationController?.dismiss(animated: true, completion: {
-            self.delegate?.didAddContact(
-                owner: item.owner,
-                jid: item.jid,
-                entity: .encryptedChat,
-                conversationType: .omemo
-            )
-        })
+        self.dismiss(animated: true) {
+            let splitVc = (UIApplication.shared.delegate as? AppDelegate)?.splitController
+            let vc = ChatViewController()
+            vc.jid = item.jid
+            vc.owner = item.owner
+            vc.conversationType = .omemo
+            
+            splitVc?.showDetailViewController(UINavigationController(rootViewController: vc), sender: self)
+            splitVc?.hide(.primary)
+        }
+        
         
     }
 }
@@ -121,7 +177,7 @@ extension NewSecretChatViewController: UITableViewDataSource {
             fatalError()
         }
         
-        cell.configure(owner: item.owner, jid: item.jid, username: item.username, avatarUrl: item.avatarUrl)
+        cell.configure(owner: item.owner, jid: item.jid, attributedUsername: item.username, username: "", avatarUrl: item.avatarUrl)
         
         return cell
     }

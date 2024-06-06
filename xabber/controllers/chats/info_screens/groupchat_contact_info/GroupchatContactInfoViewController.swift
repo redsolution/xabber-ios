@@ -27,7 +27,7 @@ import RxCocoa
 import CocoaLumberjack
 import TOInsetGroupedTableView
 
-class GroupchatContactInfoViewController: BaseViewController {
+class GroupchatContactInfoViewController: SimpleBaseViewController {
     
     class Datasource {
         enum Kind {
@@ -89,17 +89,11 @@ class GroupchatContactInfoViewController: BaseViewController {
         }
     }
     
-//    open var owner: String = ""
-//    open var jid: String = ""
     open var userId: String = ""
     
     open var shouldResetNavbar: Bool = false
     
-//    var headerHeightMax: CGFloat = 304//256
-//    var headerHeightMin: CGFloat = 162//156
-    
-    var headerHeightMax: CGFloat = 332
-    var headerHeightMin: CGFloat = 180//150
+    var headerHeightMax: CGFloat = 188
     
     internal let headerView: InfoScreenHeaderView = {
         let view = InfoScreenHeaderView(frame: .zero)
@@ -133,10 +127,6 @@ class GroupchatContactInfoViewController: BaseViewController {
         
         return button
     }()
-    
-    internal var bag: DisposeBag = DisposeBag()
-    
-    internal var headerConstraintSet: NSLayoutConstraintSet? = nil
     
     internal var datasource: [Datasource] = []
     internal var formDatasource: [[FormDatasource]] = []
@@ -174,11 +164,18 @@ class GroupchatContactInfoViewController: BaseViewController {
     internal var callbackIds: Set<String> = Set<String>()
     
     internal var inSaveMode: BehaviorRelay<Bool> = BehaviorRelay(value: false)
-
     
-    internal func subscribe() {
+    internal let lastSeenDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        
+        formatter.dateFormat = "MM-dd-yyyy HH:mm"
+        
+        return formatter
+    }()
+    
+    override func loadDatasource() {
+        super.loadDatasource()
         datasource = []
-        bag = DisposeBag()
         do {
             let realm = try WRealm.safe()
             
@@ -188,6 +185,8 @@ class GroupchatContactInfoViewController: BaseViewController {
                     .filter("owner == %@ AND userId == %@", owner, userId))
                 .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
                 .subscribe(onNext: { (results) in
+                    var lastSeen: Date? = nil
+                    var avatarUrl: String? = nil
                     if let item = results.first {
                         self.userJid = item.jid.isNotEmpty ? item.jid : nil
                         var fullReload: Bool = false
@@ -218,7 +217,9 @@ class GroupchatContactInfoViewController: BaseViewController {
                                 toReloadRows.insert(IndexPath(row: 0, section: 1))
                             }
                         }
+                        avatarUrl = item.avatarURI
                         self.isMyProfile = item.isMe
+                        lastSeen = item.lastSeen
                         self.userBadge = item.badge
                         self.userNickname = item.nickname
                         if fullReload {
@@ -244,15 +245,48 @@ class GroupchatContactInfoViewController: BaseViewController {
                         }
                         
                     }
+                    
+                    if let date = lastSeen {
+                        let today = Date()
+                        if abs(today.timeIntervalSince(date)) < 60 {
+                            self.lastSeenDateFormatter.dateFormat = "'last seen just now'"
+                                .localizeString(id: "chat_seen_just_now", arguments: [])
+                        } else if abs(today.timeIntervalSince(date)) < 60 * 60 {
+                            self.lastSeenDateFormatter.dateFormat = "'last seen \(Int(abs(today.timeIntervalSince(date)) / 60)) minutes ago'"
+                                .localizeString(id: "chat_seen_minutes_ago",
+                                                arguments: ["\(Int(abs(today.timeIntervalSince(date)) / 60))"])
+                        } else if abs(today.timeIntervalSince(date)) < 2 * 60 * 60 {
+                            self.lastSeenDateFormatter.dateFormat = "'last seen an hour ago '"
+                                .localizeString(id: "chat_seen_hour_ago", arguments: [])
+                        } else if abs(today.timeIntervalSince(date)) < 12 * 60 * 60 {
+                            self.lastSeenDateFormatter.dateFormat = "'last seen at 'HH:mm"
+                                .localizeString(id: "chat_seen_at", arguments: [])
+                        } else if abs(today.timeIntervalSince(date)) < 24 * 60 * 60 {
+                            self.lastSeenDateFormatter.dateFormat = "'last seen yesterday at 'HH:mm"
+                                .localizeString(id: "chat_seen_yesterday", arguments: [])
+                        }  else if (NSCalendar.current.dateComponents([.day], from: date, to: today).day ?? 0) <= 7 {
+                            self.lastSeenDateFormatter.dateFormat = "'last seen on 'E' at 'HH:mm"
+                                .localizeString(id: "chat_seen_date_time", arguments: [])
+                        } else if (NSCalendar.current.dateComponents([.year], from: date, to: today).year ?? 0) < 1 {
+                            self.lastSeenDateFormatter.dateFormat = "'last seen 'dd MMM"
+                                .localizeString(id: "chat_seen_date", arguments: [])
+                        } else {
+                            self.lastSeenDateFormatter.dateFormat = "'last seen 'd MMM yyyy"
+                                .localizeString(id: "chat_seen_date_year", arguments: [])
+                        }
+                    }
+                    
+                    let offlineString: String = lastSeen == nil ? "Offline".localizeString(id: "account_state_offline", arguments: []) : self.lastSeenDateFormatter.string(from: lastSeen ?? Date(timeIntervalSince1970: 1))
+                    
+                    
                     self.headerView.configure(
-                        avatarUrl: nil,
-                        jid: self.jid,
+                        avatarUrl: avatarUrl,
                         owner: self.owner,
-                        userId: self.userId,
+                        jid: self.jid,
+                        titleColor: .label,//AccountColorManager.shared.primaryColor(for: self.owner),
                         title: self.userNickname,
-                        subtitle: self.userJid,
-                        thirdLine: nil,
-                        titleColor: AccountColorManager.shared.primaryColor(for: self.owner)
+                        subtitle: self.isMyProfile ? "This is you".localizeString(id: "this_is_you", arguments: []) : (self.userOnline ? "Online".localizeString(id: "account_state_connected", arguments: []) : offlineString ) ,
+                        thirdLine: nil
                     )
                 }).disposed(by: bag)
             
@@ -367,46 +401,8 @@ class GroupchatContactInfoViewController: BaseViewController {
                         
                         if item.privacy == .incognito {
                             self.isIncognitoGroup = true
-                            DispatchQueue.main.async {
-                                self.headerView
-                                    .firstButton
-                                    .configure(#imageLiteral(resourceName: "group-private"),
-                                               title: "Private chat".localizeString(id: "intro_private_chat", arguments: []),
-                                               style: self.isMyProfile ? .inactive : .active)
-                            }
                         } else {
                             self.isIncognitoGroup = false
-                            DispatchQueue.main.async {
-                                self.headerView
-                                    .firstButton
-                                    .configure(#imageLiteral(resourceName: "chat"),
-                                               title: "Direct chat".localizeString(id: "groupchat_direct_chat", arguments: []),
-                                               style: self.isMyProfile ? .inactive : .active)
-                            }
-                        }
-                        if item.canChangeBadge {
-                            DispatchQueue.main.async {
-                                self.headerView.thirdButton.configure(#imageLiteral(resourceName: "badge"), title: "Set badge".localizeString(id: "groupchat_set_member_badge", arguments: []), style: .active)
-                            }
-                        } else {
-                            DispatchQueue.main.async {
-                                self.headerView.thirdButton.configure(#imageLiteral(resourceName: "badge"), title: "Set badge".localizeString(id: "groupchat_set_member_badge", arguments: []), style: .inactive)
-                            }
-                        }
-                        if item.canBlockUsers {
-                            DispatchQueue.main.async {
-                                if self.isBlocked {
-                                    self.headerView.fourthButton.configure(#imageLiteral(resourceName: "cancel"), title: "Unblock".localizeString(id: "contact_bar_unblock", arguments: []), style: .danger)
-                                } else if self.isKicked {
-                                    self.headerView.fourthButton.configure(#imageLiteral(resourceName: "cancel"), title: "Block".localizeString(id: "contact_bar_block", arguments: []), style: .danger)
-                                }  else {
-                                    self.headerView.fourthButton.configure(#imageLiteral(resourceName: "kick"), title: "Kick".localizeString(id: "groupchat_kick", arguments: []), style: .danger)
-                                }
-                            }
-                        } else {
-                            DispatchQueue.main.async {
-                                self.headerView.fourthButton.configure(#imageLiteral(resourceName: "kick"), title: "Kick".localizeString(id: "groupchat_kick", arguments: []), style: .inactive)
-                            }
                         }
                         
                         if item.present != self.onlineCount {
@@ -447,16 +443,14 @@ class GroupchatContactInfoViewController: BaseViewController {
             inSaveMode
                 .asObservable()
                 .subscribe(onNext: { (value) in
-                    DispatchQueue.main.async {
-                        self.tableView.isUserInteractionEnabled = !value
-                        if value {
-                            self.navigationItem.setRightBarButton(self.saveIndicator, animated: true)
+                    self.tableView.isUserInteractionEnabled = !value
+                    if value {
+                        self.navigationItem.setRightBarButton(self.saveIndicator, animated: true)
+                    } else {
+                        if (self.canChangeUserPermissions ?? false) {
+                            self.navigationItem.setRightBarButton(self.saveButton, animated: true)
                         } else {
-                            if (self.canChangeUserPermissions ?? false) {
-                                self.navigationItem.setRightBarButton(self.saveButton, animated: true)
-                            } else {
-                                self.navigationItem.setRightBarButton(nil, animated: true)
-                            }
+                            self.navigationItem.setRightBarButton(nil, animated: true)
                         }
                     }
                 })
@@ -467,48 +461,23 @@ class GroupchatContactInfoViewController: BaseViewController {
         }
     }
     
-    internal func unsubscribe() {
-        bag = DisposeBag()
-    }
     
-    internal func activateConstraints() {
-        NSLayoutConstraint.activate([
-            tableView.leftAnchor.constraint(equalTo: view.leftAnchor),
-            tableView.rightAnchor.constraint(equalTo: view.rightAnchor),
-            tableView.topAnchor.constraint(equalTo: view.topAnchor),
-            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        ])
-    }
-    
-    internal func configure() {
+    override func configure() {
+        super.configure()
         view.addSubview(tableView)
+        tableView.fillSuperview()
         tableView.delegate = self
         tableView.dataSource = self
-        if #available(iOS 11.0, *) {
-            if let topOffset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
-                headerHeightMax += topOffset
-                headerHeightMin += topOffset
-            }
-        }
-        headerView.frame = CGRect(x: 0, y: 0, width: view.frame.width, height: headerHeightMax)
-        view.addSubview(headerView)
-        tableView.contentInset = UIEdgeInsets(top: headerHeightMax - 88, bottom: 0, left: 0, right: 0)
-        tableView.setContentOffset(CGPoint(x: 0, y: -headerHeightMax), animated: true)
+        
+        tableView.tableHeaderView = headerView
         headerView.delegate = self
-        headerView.firstButton.configure(#imageLiteral(resourceName: "chat"), title: "Direct chat".localizeString(id: "groupchat_direct_chat", arguments: []), style: .active)
-        headerView.secondButton.configure(#imageLiteral(resourceName: "messages"), title: "Messages".localizeString(id: "groupchat_member_messages", arguments: []), style: .active)
-        headerView.thirdButton.configure(#imageLiteral(resourceName: "badge"), title: "Set badge".localizeString(id: "groupchat_set_member_badge", arguments: []), style: .active)
-        headerView.fourthButton.configure(#imageLiteral(resourceName: "kick"), title: "Kick".localizeString(id: "groupchat_kick", arguments: []), style: .danger)
         
         saveButton.target = self
     }
     
     override func viewDidLoad() {
         super.viewDidLoad()
-        configure()
-        activateConstraints()
-        title = " "
-        
+                
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(reloadDatasource),
                                                name: .newMaskSelected,
@@ -522,7 +491,6 @@ class GroupchatContactInfoViewController: BaseViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         subscribe()
-        getAppTabBar()?.hide()
         navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
         navigationController?.navigationBar.shadowImage = UIImage()
         XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
@@ -532,8 +500,11 @@ class GroupchatContactInfoViewController: BaseViewController {
                 user.groupchats.requestUsers(stream, groupchat: self.jid, userId: self.userId)
             })
         })
-        
-        headerView.setMask()
+        headerView.frame = CGRect(
+            width: view.frame.width,
+            height: headerHeightMax
+        )
+        headerView.updateSubviews()
     }
     
     override func viewDidAppear(_ animated: Bool) {

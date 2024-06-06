@@ -179,6 +179,7 @@
 		662B98B52456F09D009F5879 /* RandomTitleManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662B98B42456F09D009F5879 /* RandomTitleManager.swift */; };
 		662BA62D273BA07500E13AF4 /* TokenCounterIncorrectPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662BA62C273BA07500E13AF4 /* TokenCounterIncorrectPresenter.swift */; };
 		662C08AA247FBA3700818709 /* ContactsViewController+CollapsedCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662C08A9247FBA3700818709 /* ContactsViewController+CollapsedCell.swift */; };
+		662CECD92C1078CE00290AD9 /* NewContactSelectAccountViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662CECD82C1078CE00290AD9 /* NewContactSelectAccountViewController.swift */; };
 		662D4A7524892B2A009E2B22 /* InfoScreenHeaderButtonDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662D4A7424892B2A009E2B22 /* InfoScreenHeaderButtonDelegate.swift */; };
 		662D4A7724892D61009E2B22 /* ContactInfoViewController+InfoScreenHeaderButtonDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662D4A7624892D61009E2B22 /* ContactInfoViewController+InfoScreenHeaderButtonDelegate.swift */; };
 		662D4A792489371D009E2B22 /* RoundedAvatarButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662D4A782489371D009E2B22 /* RoundedAvatarButton.swift */; };
@@ -1147,6 +1148,7 @@
 		662B98B42456F09D009F5879 /* RandomTitleManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RandomTitleManager.swift; sourceTree = "<group>"; };
 		662BA62C273BA07500E13AF4 /* TokenCounterIncorrectPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenCounterIncorrectPresenter.swift; sourceTree = "<group>"; };
 		662C08A9247FBA3700818709 /* ContactsViewController+CollapsedCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContactsViewController+CollapsedCell.swift"; sourceTree = "<group>"; };
+		662CECD82C1078CE00290AD9 /* NewContactSelectAccountViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewContactSelectAccountViewController.swift; sourceTree = "<group>"; };
 		662D4A7424892B2A009E2B22 /* InfoScreenHeaderButtonDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InfoScreenHeaderButtonDelegate.swift; sourceTree = "<group>"; };
 		662D4A7624892D61009E2B22 /* ContactInfoViewController+InfoScreenHeaderButtonDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContactInfoViewController+InfoScreenHeaderButtonDelegate.swift"; sourceTree = "<group>"; };
 		662D4A782489371D009E2B22 /* RoundedAvatarButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoundedAvatarButton.swift; sourceTree = "<group>"; };
@@ -2228,6 +2230,7 @@
 				660AE355238564AF00E7FC00 /* new_group */,
 				66E0C36A2C060B7D00FEFE13 /* CreateNewEntityViewController.swift */,
 				66DF86632C0749E4009C9770 /* AddNewContactViewController.swift */,
+				662CECD82C1078CE00290AD9 /* NewContactSelectAccountViewController.swift */,
 			);
 			path = create_new_entity;
 			sourceTree = "<group>";
@@ -4897,6 +4900,7 @@
 				66A3168922AE34B500EA0773 /* ContactChatMetadata.swift in Sources */,
 				66BEDA8B247FD3900059F65F /* PreaprovedSubscribtionStorageItem.swift in Sources */,
 				665451BE22A9452A0077635D /* AccountNewStatusViewController+UITableViewDelegate.swift in Sources */,
+				662CECD92C1078CE00290AD9 /* NewContactSelectAccountViewController.swift in Sources */,
 				66DED55D22AA63D0008E5710 /* AccountColorManager.swift in Sources */,
 				66A92F1D287466C1001EE8F6 /* DeviceDetailViewController.swift in Sources */,
 				660F55F1239A2C7F00252608 /* GroupchatBlockedViewController+UITableViewDelegate.swift in Sources */,

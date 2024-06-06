@@ -40,16 +40,13 @@ class SimpleBaseViewController: BaseViewController {
     }
     
     public func configure() {
-        if #available(iOS 13.0, *) {
-            view.backgroundColor = .systemBackground
-        } else {
-            view.backgroundColor = .white
-        }
+        self.view.backgroundColor = .systemBackground
         self.navigationItem.backButtonDisplayMode = .minimal
     }
     
     public func subscribe() {
         bag = DisposeBag()
+        loadDatasource()
     }
     
     public func unsubscribe() {
@@ -86,7 +83,6 @@ class SimpleBaseViewController: BaseViewController {
         setupSubviews()
         configure()
         localizeResources()
-        loadDatasource()
     }
     
     override func viewWillAppear(_ animated: Bool) {

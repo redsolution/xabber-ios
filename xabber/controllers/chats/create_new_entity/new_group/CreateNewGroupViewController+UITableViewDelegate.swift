@@ -43,8 +43,6 @@ extension CreateNewGroupViewController: UITableViewDelegate {
                          footer: "Selected account would be a groupchat owner".localizeString(id: "groupchats_new_groupchat_owner", arguments: []),
                          current: account) { (value) in
                 self.account = value
-//                XMPPUIActionManager.shared.close()
-//                XMPPUIActionManager.shared.open(owner: value["value"]!)
                 DispatchQueue.main.async {
                     self.tableView
                         .reloadRows(at: [IndexPath(row: self.datasource[0].firstIndex(where: { $0 == .account })!, section: 0)],

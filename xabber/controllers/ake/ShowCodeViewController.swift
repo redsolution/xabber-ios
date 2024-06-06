@@ -88,7 +88,6 @@ class ShowCodeViewController: UIViewController {
         view.addSubview(stackLabels)
         view.addSubview(cancelButton)
         
-        headerView.buttonsStack.removeFromSuperview()
         headerView.subtitleLabel.textColor = .systemBlue
         headerView.titleButton.tintColor = .black
         
@@ -99,7 +98,6 @@ class ShowCodeViewController: UIViewController {
         stackLabels.addArrangedSubview(codeLabel)
         
         stackLabels.setCustomSpacing(40, after: descriptionLabel)
-        headerView.stack.fillSuperviewWithOffset(top: 40, bottom: 40, left: 0, right: 0)
         
         cancelButton.addTarget(self, action: #selector(onCancelButtonPressed), for: .touchUpInside)
         
@@ -175,25 +173,23 @@ class ShowCodeViewController: UIViewController {
             let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: self.jid, owner: self.owner))
             if let instance = instance {
                 self.headerView.configure(
-                    avatarUrl: instance.avatarMaxUrl ?? instance.avatarMinUrl ?? instance.oldschoolAvatarKey,
-                    jid: self.jid,
+                    avatarUrl: instance.avatarUrl,
                     owner: self.owner,
-                    userId: nil,
+                    jid: self.jid,
+                    titleColor: .black,
                     title: instance.displayName,
                     subtitle: self.jid,
-                    thirdLine: nil,
-                    titleColor: .black
+                    thirdLine: nil
                 )
             } else {
                 self.headerView.configure(
                     avatarUrl: nil,
-                    jid: self.jid,
                     owner: self.owner,
-                    userId: nil,
+                    jid: self.jid,
+                    titleColor: .black,
                     title: self.jid,
                     subtitle: self.jid,
-                    thirdLine: nil,
-                    titleColor: .black
+                    thirdLine: nil
                 )
             }
         } catch {
