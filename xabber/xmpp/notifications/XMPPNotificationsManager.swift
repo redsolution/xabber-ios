@@ -188,6 +188,7 @@ class XMPPNotificationsManager: AbstractXMPPManager {
                                 jid: node,
                                 isContinues: true,
                                 conversationType: .notifications,
+                                flipPage: false,
                                 before: lastId
                             )
                         })

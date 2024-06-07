@@ -207,7 +207,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         return true
     }
     
-    internal func requestArchive(_ stream: XMPPStream, jid: String, isContinues: Bool, conversationType: ClientSynchronizationManager.ConversationType, before: String? = nil, start: Date? = nil, nextPage: String? = nil, max: Int? = nil, callback: (() -> Void)? = nil) {
+    internal func requestArchive(_ stream: XMPPStream, jid: String, isContinues: Bool, conversationType: ClientSynchronizationManager.ConversationType, flipPage: Bool = true, before: String? = nil, start: Date? = nil, nextPage: String? = nil, max: Int? = nil, callback: (() -> Void)? = nil) {
         let isGroupchat = [.group, .channel].contains(conversationType)
         let elementId = "MAM: \(NanoID.new(8))"
         let query = DDXMLElement(name: "query", xmlns: getPrimaryNamespace())
@@ -256,7 +256,9 @@ class MessageArchiveManager: AbstractXMPPManager {
             setElement.addChild(DDXMLElement(name: "before"))
         }
         query.addChild(setElement)
-        query.addChild(DDXMLElement(name: "flip-page"))
+        if flipPage {
+            query.addChild(DDXMLElement(name: "flip-page"))
+        }
         if isGroupchat {
             stream.send(XMPPIQ(iqType: .set, to: XMPPJID(string: jid), elementID: elementId, child: query))
         } else {
