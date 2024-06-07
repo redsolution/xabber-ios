@@ -120,7 +120,7 @@ extension DevicesListViewController: UITableViewDelegate {
                 }
                 let vc = ShowCodeViewController()
                 vc.jid = self.jid
-                vc.owner = self.owner
+                vc.owner = self.jid
                 vc.code = code
                 vc.sid = item.verificationSid ?? ""
                 vc.isVerificationWithOwnDevice = true
@@ -132,7 +132,7 @@ extension DevicesListViewController: UITableViewDelegate {
                     let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.jid, sid: item.verificationSid!))
                     let vc = ShowCodeViewController()
                     vc.jid = self.jid
-                    vc.owner = self.owner
+                    vc.owner = self.jid
                     vc.code = instance?.code ?? ""
                     vc.sid = item.verificationSid ?? ""
                     vc.isVerificationWithOwnDevice = true
@@ -157,7 +157,7 @@ extension DevicesListViewController: UITableViewDelegate {
             case "enter_verification_code":
                 let vc = AuthenticationCodeInputViewController()
                 vc.jid = self.jid
-                vc.owner = self.owner
+                vc.owner = self.jid
                 vc.sid = item.verificationSid ?? ""
                 vc.isVerificationWithUsersDevice = true
                 

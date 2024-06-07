@@ -628,6 +628,12 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 let realm = try WRealm.safe()
                 guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) else {
                     return true
+//                    let instance = VerificationSessionStorageItem()
+//                    instance.owner = self.owner
+//                    instance.sid = sid
+//                    try realm.write {
+//                        realm.add(instance)
+//                    }
                 }
                 guard let notificationInstance = realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: NotificationStorageItem.genPrimary(owner: self.owner, jid: jid.bare, uniqueId: uniqueMessageId)) else {
                     fatalError()
