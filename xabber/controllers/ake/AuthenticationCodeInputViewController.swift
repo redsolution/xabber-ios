@@ -267,7 +267,7 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
                 case let (.some(duration), .some(curve)):
                     let options = UIView.AnimationOptions(rawValue: curve.uintValue)
                     
-                    let codeBottomLine = self.code.frame.origin.y + self.code.frame.height
+                    let codeBottomLine = self.stackLabels.frame.origin.y + self.stackLabels.frame.height + 40 + code.frame.height
                     let keyboardTopLine = self.view.frame.height - keyboardVisibleHeight
                     
                     UIView.animate(
@@ -275,7 +275,7 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
                         delay: 0,
                         options: options,
                         animations: {
-                            self.scrollView.contentOffset.y = self.scrollView.contentOffset.y + keyboardVisibleHeight
+                            self.scrollView.contentOffset.y = codeBottomLine - keyboardTopLine
                             return
                         }, completion: { finished in
                     })

@@ -124,6 +124,24 @@ class ShowCodeViewController: SimpleBaseViewController {
         ])
         
         cancelButton.addTarget(self, action: #selector(onCancelButtonPressed), for: .touchUpInside)
+        
+        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
+            fatalError()
+        }
+        
+        NotificationCenter.default.addObserver(self, selector: #selector(verificationEnded(_:)), name: nil, object: akeManager)
+    }
+    
+    @objc
+    func verificationEnded(_ notification: Notification) {
+        if let userInfo = notification.userInfo {
+            let sid = userInfo["sid"]
+            if self.sid == sid as! String {
+                DispatchQueue.main.async {
+                    self.dismiss(animated: true)
+                }
+            }
+        }
     }
     
     @objc

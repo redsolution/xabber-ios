@@ -88,7 +88,8 @@ class VerificationSessionTableViewCell: UITableViewCell {
         stack.addArrangedSubview(customImageView)
         stack.addArrangedSubview(labelsStack)
         stack.addArrangedSubview(closeButton)
-        stack.contentMode = .scaleAspectFit
+        
+        stack.distribution = .equalCentering
         
         closeButton.addTarget(self, action: #selector(onCloseButtonPressed), for: .touchUpInside)
     }
@@ -123,7 +124,6 @@ class VerificationSessionTableViewCell: UITableViewCell {
     func activateConstraints() {
         NSLayoutConstraint.activate([
             customImageView.widthAnchor.constraint(equalToConstant: 40),
-            closeButton.leftAnchor.constraint(equalTo: stack.leftAnchor)
         ])
     }
 }
