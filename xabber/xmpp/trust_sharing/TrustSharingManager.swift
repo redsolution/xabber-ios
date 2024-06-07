@@ -87,7 +87,7 @@ class TrustSharingManager: AbstractXMPPManager {
                 return true
             }
         } catch {
-            fatalError()
+            DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
         }
         
         var stringToVerifySignature = ""
@@ -109,15 +109,12 @@ class TrustSharingManager: AbstractXMPPManager {
             do {
                 let realm = try WRealm.safe()
                 guard let instance = realm.objects(VerificationSessionStorageItem.self).filter(predicate).first else {
-                    fatalError()
+                    DDLogDebug("TrustSharingManager: \(#function).")
+                    return true
                 }
-//                akeManager.sendErrorMessage(fullJID: XMPPJID(string: jid)!, sid: instance.sid, reason: "Error when exchanging trusted devices")
-//                akeManager.showNotification(title: jid, owner: self.owner, body: "Verification failed", sid: instance.sid, timestamp: Date().timeIntervalSince1970)
-//                try realm.write {
-//                    instance.state = .failed
-//                }
             } catch {
-                fatalError()
+                DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
+                return true
             }
             return true
         }
@@ -129,7 +126,8 @@ class TrustSharingManager: AbstractXMPPManager {
                 for trust in trustsList {
                     guard let trustKey = try String(bytes: (trust.stringValue?.base64decoded())!, encoding: .utf8),
                           let itemDeviceId = Int(trustKey.components(separatedBy: "::")[0]) else {
-                        fatalError()
+                        DDLogDebug("TrustSharingManager: \(#function).")
+                        return true
                     }
                     
                     let predicate = NSPredicate(format: "owner == %@ AND jid == %@ AND deviceId == %@", argumentArray: [self.owner, deviceOwner!, itemDeviceId])

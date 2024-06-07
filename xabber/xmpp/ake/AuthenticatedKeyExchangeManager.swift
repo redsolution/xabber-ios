@@ -327,24 +327,11 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                     return true
                 }
                 
-//                let agreeAction = UIAlertAction(title: "Accept", style: UIAlertAction.Style.default) { action in
-//                    
-//                }
-//                let disagreeAction = UIAlertAction(title: "Revoke", style: .destructive) { action in
-//                    
-//                }
-//                let alert = UIAlertController(title: "Device Verification", message: "Do you want to accept verification request from yout new device?", preferredStyle: UIAlertController.Style.alert)
-//                alert.addAction(agreeAction)
-//                alert.addAction(disagreeAction)
-                
                 let vc = VerificationConfirmationViewController()
-                
-                
                 
                 DispatchQueue.main.async {
                     vc.configure(owner: self.owner, sid: sid)
                     showModal(vc, from: presenter)
-//                    presenter.present(vc, animated: true)
                 }
             }
         } else if authenticatedKeyExchange.element(forName: "verification-accepted") != nil {
@@ -420,6 +407,8 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             }
             
             if !checkHashFromInitiator(jid: jid.bare, sid: sid, deviceId: deviceId, hashEncrypted: hashEncrypted, byteSequenceEncrypted: byteSequenceEncrypted) {
+                NotificationCenter.default.post(name: NSNotification.Name(rawValue: "VerifdicationEnded"), object: self, userInfo: ["sid": sid])
+                
                 let child = self.getMessageChildsForErrorMessage(sid: sid, reason: "Hashes didn't match")
                 
                 let message = XMPPMessage(messageType: .chat, to: jid, elementID: UUID().uuidString, child: child)
@@ -581,12 +570,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             }
             self.writeTrustedDevice(jid: jid.bare, deviceId: deviceId)
             
-            if let presentedShowVodeViewController = UIApplication.shared.keyWindow?.rootViewController?.presentedViewController as? ShowCodeViewController {
-                DispatchQueue.main.async {
-                    presentedShowVodeViewController.dismiss(animated: true)
-                }
-                
-            }
+            NotificationCenter.default.post(name: NSNotification.Name(rawValue: "VerifdicationEnded"), object: self, userInfo: ["sid": sid])
             
             guard let trustSharingManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager else {
                 fatalError()
@@ -625,16 +609,19 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             title = "Verification rejected"
         } else if authenticatedKeyExchange.element(forName: "verification-failed") != nil {
             do {
+                NotificationCenter.default.post(name: NSNotification.Name(rawValue: "VerifdicationEnded"), object: self, userInfo: ["sid": sid])
+                
                 let realm = try WRealm.safe()
                 guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) else {
                     return true
-//                    let instance = VerificationSessionStorageItem()
-//                    instance.owner = self.owner
-//                    instance.sid = sid
-//                    try realm.write {
-//                        realm.add(instance)
-//                    }
                 }
+                if instance.state == .receivedRequest {
+                    try realm.write {
+                        realm.delete(instance)
+                    }
+                    return true
+                }
+                
                 guard let notificationInstance = realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: NotificationStorageItem.genPrimary(owner: self.owner, jid: jid.bare, uniqueId: uniqueMessageId)) else {
                     fatalError()
                 }
@@ -646,13 +633,6 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 fatalError()
             }
             title = "Verification failed"
-            
-            if let presentedShowVodeViewController = UIApplication.shared.keyWindow?.rootViewController?.presentedViewController as? ShowCodeViewController {
-                DispatchQueue.main.async {
-                    presentedShowVodeViewController.dismiss(animated: true)
-                }
-                
-            }
         }
         self.showNotification(title: jid.bare, owner: self.owner, body: title, sid: sid, timestamp: Date().timeIntervalSince1970)
         return true
