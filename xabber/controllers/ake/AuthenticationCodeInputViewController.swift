@@ -33,7 +33,7 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
     
     let headerView: InfoScreenHeaderView = {
         let view = InfoScreenHeaderView(frame: .zero)
-        
+        view.titleButton.titleLabel?.font = UIFont.systemFont(ofSize: 20)
         view.additionalTopOffset = 56
         
         return view

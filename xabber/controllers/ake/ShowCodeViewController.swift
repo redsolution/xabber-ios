@@ -21,7 +21,7 @@ class ShowCodeViewController: SimpleBaseViewController {
     
     internal let headerView: InfoScreenHeaderView = {
         let view = InfoScreenHeaderView(frame: .zero)
-                
+        view.titleButton.titleLabel?.font = UIFont.systemFont(ofSize: 20)
         view.additionalTopOffset = 56
         
         return view
@@ -157,7 +157,7 @@ class ShowCodeViewController: SimpleBaseViewController {
             if isVerificationWithOwnDevice {
                 do {
                     let realm = try WRealm.safe()
-                    let sessionInstance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: self.sid))
+                    let sessionInstance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.jid, sid: self.sid))
                     self.deviceId = String(sessionInstance!.opponentDeviceId)
                     
                     let deviceInstance = realm.objects(DeviceStorageItem.self).filter("owner == %@ AND omemoDeviceId == %@", self.jid, Int(self.deviceId)!).first

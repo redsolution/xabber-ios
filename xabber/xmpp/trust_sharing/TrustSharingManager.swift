@@ -92,6 +92,9 @@ class TrustSharingManager: AbstractXMPPManager {
         
         var stringToVerifySignature = ""
         let trustedItemsList = share.elements(forName: "trusted-items").sorted(by: { $0.attributeStringValue(forName: "timestamp")! > $1.attributeStringValue(forName: "timestamp")! })
+        if trustedItemsList.isEmpty {
+            return true
+        }
         
         for item in trustedItemsList {
             stringToVerifySignature += item.attribute(forName: "timestamp")!.stringValue!
