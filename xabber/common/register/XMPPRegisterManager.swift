@@ -99,7 +99,7 @@ class XMPPRegistrationManager: NSObject {
         self.stream?.disconnect()
         self.stream?.abortConnecting()
         self.stream = XMPPStream()
-        self.stream?.hostName = host
+//        self.stream?.hostName = host
         self.stream?.addDelegate(self, delegateQueue: self.queue)
         self.stream?.myJID = XMPPJID(string: host)
         self.stream?.startTLSPolicy = XMPPStreamStartTLSPolicy.preferred
