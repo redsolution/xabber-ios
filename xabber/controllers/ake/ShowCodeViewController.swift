@@ -126,10 +126,11 @@ class ShowCodeViewController: SimpleBaseViewController {
         cancelButton.addTarget(self, action: #selector(onCancelButtonPressed), for: .touchUpInside)
         
         guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
-            fatalError()
+            DDLogDebug("ShowCodeViewController: \(#function).")
+            return
         }
         
-        NotificationCenter.default.addObserver(self, selector: #selector(verificationEnded(_:)), name: nil, object: akeManager)
+        NotificationCenter.default.addObserver(self, selector: #selector(verificationEnded(_:)), name: NSNotification.Name(rawValue: "ShowCodeViewController"), object: akeManager)
     }
     
     @objc

@@ -346,7 +346,7 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
                 instance?.opponentDeviceId = Int(deviceId)!
             }
             
-            AccountManager.shared.find(for: self.owner)?.akeManager.sendHashToOpponent(fullJID: XMPPJID(string: self.jid)!, sid: self.sid)
+            AccountManager.shared.find(for: self.owner)?.akeManager.sendHashToOpponent(jid: XMPPJID(string: self.jid)!, sid: self.sid)
             self.dismiss(animated: true)
             return true
             

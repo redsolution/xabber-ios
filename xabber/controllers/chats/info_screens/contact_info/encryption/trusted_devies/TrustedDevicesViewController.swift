@@ -158,7 +158,8 @@ class TrustedDevicesViewController: SimpleBaseViewController {
             let realm = try Realm()
             
             guard let myDeviceId = AccountManager.shared.find(for: owner)?.omemo.localStore.localDeviceId() else {
-                fatalError()
+                DDLogDebug("TrustedDevicesViewController: \(#function).")
+                return
             }
             let predicate = NSPredicate(format: "owner == %@ AND myDeviceId == %@ AND jid == %@", argumentArray: [
                 self.owner,
@@ -242,7 +243,8 @@ class TrustedDevicesViewController: SimpleBaseViewController {
                 datasource.append([Datasource(.button, name: "Revoke trust", key: "revoke_trust")])
             }
         } catch {
-            fatalError()
+            DDLogDebug("TrustedDevicesViewController: \(#function). \(error.localizedDescription)")
+            return
         }
         
     }
@@ -351,17 +353,20 @@ extension TrustedDevicesViewController: UITableViewDelegate {
                     
                     guard let trustSharingManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager,
                           let localStore = AccountManager.shared.find(for: self.owner)?.omemo.localStore else {
-                        fatalError()
+                        DDLogDebug("TrustedDevicesViewController: \(#function).")
+                        return
                     }
                     trustSharingManager.sendNotificationWithContactsDevices(opponentFullJid: XMPPJID(string: self.owner)!, deviceId: localStore.localDeviceId())
                 } catch {
-                    fatalError()
+                    DDLogDebug("TrustedDevicesViewController: \(#function). \(error.localizedDescription)")
+                    return
                 }
                 tableView.reloadData()
                 return
             case "verify":
                 guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
-                    fatalError()
+                    DDLogDebug("TrustedDevicesViewController: \(#function).")
+                    return
                 }
                 akeManager.sendVerificationRequest(jid: self.jid)
                 tableView.reloadData()

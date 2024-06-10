@@ -98,7 +98,8 @@ class VerificationSessionTableViewCell: UITableViewCell {
     func onCloseButtonPressed() {
         guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
               let fullJid = XMPPJID(string: self.jid) else {
-            fatalError()
+            DDLogDebug("VerificationSessionTableViewCell: \(#function).")
+            return
         }
         do {
             let realm = try WRealm.safe()
@@ -117,7 +118,8 @@ class VerificationSessionTableViewCell: UITableViewCell {
             
             return
         } catch {
-            fatalError()
+            DDLogDebug("VerificationSessionTableViewCell: \(#function). \(error.localizedDescription)")
+            return
         }
     }
     

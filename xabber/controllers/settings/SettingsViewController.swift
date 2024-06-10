@@ -532,7 +532,8 @@ class SettingsViewController: BaseViewController {
                         }
                         
                     } catch {
-                        fatalError()
+                        DDLogDebug("SettingsViewController: \(#function). \(error.localizedDescription)")
+                        return
                     }
                 }).disposed(by: bag)
         } catch {
