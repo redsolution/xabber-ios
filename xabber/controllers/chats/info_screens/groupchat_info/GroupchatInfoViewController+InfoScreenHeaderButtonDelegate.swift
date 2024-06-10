@@ -28,7 +28,7 @@ import Toast_Swift
 import MaterialComponents.MDCPalettes
 import AVFoundation
 
-extension GroupchatInfoViewController: InfoScreenHeaderButtonDelegate {
+extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
     
     func shouldUpdateAvatar() -> UIImage? {
 //        AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in

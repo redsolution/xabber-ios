@@ -85,27 +85,10 @@ class EmojiPickerViewController: UIViewController {
     private let contentView: UIView = {
         let view = UIView()
         
-        if #available(iOS 13.0, *) {
-            view.backgroundColor = .systemBackground
-        } else {
-            view.backgroundColor = .white
-        }
-        
-        view.layer.cornerRadius = 44
-        view.layer.maskedCorners = [.layerMaxXMinYCorner, .layerMinXMinYCorner]
+        view.backgroundColor = .systemBackground
         
         return view
     }()
-    
-    private let dragToDismissButton: UIButton = {
-        let button = UIButton()
-        
-        button.backgroundColor = UIColor.black.withAlphaComponent(0.23)
-        button.layer.cornerRadius = 3
-        
-        return button
-    }()
-    
     
     private let collectionView: UICollectionView = {
         let flowLayout = EmojiCollectionViewFlowLayout()
@@ -115,13 +98,6 @@ class EmojiPickerViewController: UIViewController {
             EmojiPicketCollectionViewCell.self,
             forCellWithReuseIdentifier: EmojiPicketCollectionViewCell.cellName
         )
-//        view.backgroundColor = MDCPalette.lightBlue.tint100
-        
-        if #available(iOS 13.0, *) {
-            view.backgroundColor = .systemBackground
-        } else {
-            view.backgroundColor = .white
-        }
         
         return view
     }()
@@ -140,51 +116,36 @@ class EmojiPickerViewController: UIViewController {
     private var controls: [UIButton] = []
     
     public func activateConstraints() {
-        
+//        NSLayoutConstraint.activate([
+//            collectionView.topAnchor.constraint(equalTo: view.bottomAnchor, constant: 16),
+//            collectionView.leftAnchor.constraint(equalTo: view.leftAnchor, constant: 24),
+//            collectionView.rightAnchor.constraint(equalTo: view.rightAnchor, constant: 24),
+//            stack.topAnchor.constraint(equalTo: collectionView.bottomAnchor, constant: 16),
+//            stack.heightAnchor.constraint(equalToConstant: 64),
+//            stack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: 8),
+//            stack.leftAnchor.constraint(equalTo: view.leftAnchor, constant: 24),
+//            stack.rightAnchor.constraint(equalTo: view.rightAnchor, constant: 24),
+//        ])
     }
     
     public func setupSubviews() {
-        if UIDevice.current.userInterfaceIdiom == .pad {
-            contentView.frame = CGRect(
-                x: (self.view.frame.width - 414) / 2,
-                y: self.view.frame.height / 2 + 16,
-                width: 414,
-                height: (self.view.frame.height / 2) - 16)
-            dragToDismissButton.frame = CGRect(x: 414 / 2 - 32, y: 8, width: 64, height: 6)
-        } else {
-            contentView.frame = CGRect(
-                x: 0,
-                y: self.view.frame.height / 4 + 16,
-                width: self.view.frame.width,
-                height: (self.view.frame.height / 4) * 3 - 16)
-            dragToDismissButton.frame = CGRect(x: self.view.frame.width / 2 - 32, y: 8, width: 64, height: 6)
-        }
-//        view.isUserInteractionEnabled = false
+        
+        contentView.frame = view.bounds
         view.addSubview(contentView)
-        contentView.addSubview(dragToDismissButton)
         contentView.addSubview(collectionView)
         collectionView.fillSuperviewWithOffset(top: 36, bottom: 82, left: 24, right: 24)
         contentView.addSubview(stack)
-        stack.fillSuperviewWithOffset(top: (self.view.frame.height / 4) * 3 - 16 - 68, bottom: 24, left: 24, right: 24)
+        stack.frame = CGRect(
+            origin: CGPoint(x: 24, y: self.view.frame.height - 64),
+            size: CGSize(width: self.view.frame.width - 44, height: 44)
+        )
+//        stack.fillSuperviewWithOffset(top: (self.view.frame.height / 4) * 3 - 16 - 68, bottom: 24, left: 24, right: 24)
     }
     
     public func configure() {
         collectionView.delegate = self
         collectionView.dataSource = self
         
-        
-        
-        
-        let dismissGestureRecognizer = PanDirectionGestureRecognizer(direction: .vertical, target: self, action: #selector(self.onDismissGestureRecognizerDidChange))
-        dismissGestureRecognizer.delaysTouchesBegan = true
-        dismissGestureRecognizer.maximumNumberOfTouches = 1
-        dismissGestureRecognizer.cancelsTouchesInView = false
-        
-        contentView.addGestureRecognizer(dismissGestureRecognizer)
-//        let dismissGesture = UITapGestureRecognizer(target: self, action: #selector(dismissOnTap))
-//        dismissGesture.delaysTouchesBegan = true
-//        dismissGesture.cancelsTouchesInView = false
-//        self.view.addGestureRecognizer(dismissGesture)
         let flowLayout = UICollectionViewFlowLayout()
         flowLayout.estimatedItemSize = CGSize(square: 64)
         flowLayout.scrollDirection = .vertical
@@ -213,9 +174,9 @@ class EmojiPickerViewController: UIViewController {
                         }
                         if let image = UIImage(named: categoryName, in: Bundle.main, compatibleWith: nil) {
                             let button = UIButton(frame: CGRect(square: 44))
-                            button.setImage(image, for: .normal)
-                            button.backgroundColor = MDCPalette.grey.tint50
-                            button.tintColor = MDCPalette.grey.tint600
+                            button.setImage(image.upscale(dimension: 24).withRenderingMode(.alwaysTemplate), for: .normal)
+//                            button.backgroundColor = MDCPalette.grey.tint50
+                            button.tintColor = offset == 0 ? .tintColor : .secondaryLabel
                             button.tag = offset
                             button.addTarget(self, action: #selector(self.onCategorySelectorTouchUpInside), for: .touchUpInside)
                             controls.append(button)
@@ -253,13 +214,13 @@ class EmojiPickerViewController: UIViewController {
     
     override func viewDidLoad() {
         super.viewDidLoad()
-        setupSubviews()
         configure()
         localizeResources()
     }
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        setupSubviews()
         activateConstraints()
         addObservers()
     }
@@ -286,66 +247,14 @@ class EmojiPickerViewController: UIViewController {
         self.selectedCategoryId = sender.tag
         self.collectionView.reloadData()
         self.collectionView.scrollToItem(at: IndexPath(row: 0, section: 0), at: .top, animated: true)
-    }
-    
-    @objc
-    private final func onDismissGestureRecognizerDidChange(_ sender: UIPanGestureRecognizer) {
-        let y = sender.translation(in: self.contentView).y
-        if sender.state == .ended {
-            if y > 200 {
-                FeedbackManager.shared.tap()
-                self.dismiss(animated: true, completion: nil)
-            }
-            UIView.animate(withDuration: 0.33, delay: 0.0, options: [.curveEaseOut]) {
-                let rect = self.contentView.frame
-                
-                if UIDevice.current.userInterfaceIdiom == .pad {
-                    self.contentView.frame = CGRect(
-                        x: (self.view.frame.width - 414) / 2,
-                        y: self.view.frame.height / 2 + 16,
-                        width: rect.width,
-                        height: rect.height
-                    )
-                } else {
-                    self.contentView.frame = CGRect(
-                        x: 0,
-                        y: self.view.frame.height / 4 + 16,
-                        width: rect.width,
-                        height: rect.height
-                    )
-                }
-                
-                
-            } completion: { result in
-                
-            }
-
-        }
-        if sender.state != .changed { return }
-        let rect = self.contentView.frame
-        if y > 0 {
-            
-            if UIDevice.current.userInterfaceIdiom == .pad {
-                self.contentView.frame = CGRect(
-                    x: (self.view.frame.width - 414) / 2,
-                    y: self.view.frame.height / 2 + 16 + y,
-                    width: rect.width,
-                    height: rect.height
-                )
+        self.controls.forEach {
+            button in
+            if button.tag == sender.tag {
+                button.tintColor = .tintColor
             } else {
-                self.contentView.frame = CGRect(
-                    x: 0,
-                    y: self.view.frame.height / 4 + 16 + y,
-                    width: rect.width,
-                    height: rect.height
-                )
+                button.tintColor = .secondaryLabel
             }
         }
-    }
-    
-    @objc
-    private final func dismissOnTap(_ sender: AnyObject) {
-        
     }
 }
 

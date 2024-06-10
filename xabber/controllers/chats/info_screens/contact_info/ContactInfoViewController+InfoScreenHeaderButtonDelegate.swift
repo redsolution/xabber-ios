@@ -26,38 +26,11 @@ import Toast_Swift
 import CocoaLumberjack
 import XMPPFramework
 
-extension ContactInfoViewController: InfoScreenHeaderButtonDelegate {
+extension ContactInfoViewController: InfoScreenHeaderDelegate {
     func shouldUpdateAvatar() -> UIImage? {
-        AccountManager.shared.find(for: owner)?.action({ (user, stream) in
-//            user.PEPAvatars.refreshAvatar(jid: self.jid)
-        })
-        let conf = LetterAvatarBuilderConfiguration()
-        conf.username = self.nickname.uppercased()
-        conf.size = DefaultAvatarManager.defaultSize
-        conf.backgroundColors = [AccountColorManager.shared.palette(for: owner).tint600]
-        guard let avatar = UIImage.makeLetterAvatar(withConfiguration: conf) else {
-            DDLogDebug("error during generate default avatar for \(self.nickname)")
-            return nil
-        }
-        return avatar
+        return nil
     }
-    
-    func onFirstButtonPressed() {
-        openChat()
-    }
-    
-    func onSecondButtonPressed() {
-        onStartEncryptedChat()
-    }
-    
-    func onThirdButtonPressed() {
-        onChangeNotifications()
-    }
-    
-    func onFourthButtonPressed() {
-        onBlock()
-    }
-    
+        
     func onImageButtonPressed() {
         print(#function)
     }

@@ -21,11 +21,7 @@
 import Foundation
 import UIKit
 
-protocol InfoScreenHeaderButtonDelegate {
-    func onFirstButtonPressed()
-    func onSecondButtonPressed()
-    func onThirdButtonPressed()
-    func onFourthButtonPressed()
+protocol InfoScreenHeaderDelegate {
     func onImageButtonPressed()
     func onTitleButtonPressed()
     func shouldUpdateAvatar() -> UIImage?

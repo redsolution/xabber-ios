@@ -396,6 +396,9 @@ public class AccountManager: NSObject {
                     ReliableMessageDeliveryManager.remove(for: jid, commitTransaction: false)
                     OmemoManager.remove(for: jid, commitTransaction: false)
                     X509XMPPManager.remove(for: jid, commitTransaction: false)
+                    XMPPNotificationsManager.remove(for: jid, commitTransaction: false)
+                    AuthenticatedKeyExchangeManager.remove(for: jid, commitTransaction: false)
+                    TrustSharingManager.remove(for: jid, commitTransaction: false)
                 }
             }
         } catch {

@@ -238,7 +238,7 @@ class LeftMenuViewController: UIViewController {
             
             let badDevices = realm
                 .objects(SignalDeviceStorageItem.self)
-                .filter("owner IN %@ AND state_ IN %@", enabledAccounts, [SignalDeviceStorageItem.TrustState.unknown.rawValue, SignalDeviceStorageItem.TrustState.fingerprintChanged.rawValue])
+                .filter("owner IN %@ AND owner == jid AND state_ IN %@", enabledAccounts, [SignalDeviceStorageItem.TrustState.unknown.rawValue, SignalDeviceStorageItem.TrustState.fingerprintChanged.rawValue])
             
             Observable
                 .collection(from: badDevices)

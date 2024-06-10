@@ -26,7 +26,7 @@ import CocoaLumberjack
 import MaterialComponents.MDCPalettes
 import AVFoundation
 
-extension SettingsViewController: InfoScreenHeaderButtonDelegate {
+extension SettingsViewController: InfoScreenHeaderDelegate {
     func shouldUpdateAvatar() -> UIImage? {
         AccountManager.shared.find(for: jid)?.action({ (user, stream) in
 //            user.PEPAvatars.refreshAvatar(jid: self.jid)

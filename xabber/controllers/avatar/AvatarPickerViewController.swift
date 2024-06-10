@@ -98,14 +98,6 @@ class AvatarPickerViewController: BaseViewController {
         }
     }
     
-    private let topDimmedView: UIView = {
-        let view = UIView()
-        
-        view.backgroundColor = UIColor.black.withAlphaComponent(0.0)
-        
-        return view
-    }()
-    
     private let contentView: UIView = {
         let view = UIView()
         
@@ -119,15 +111,6 @@ class AvatarPickerViewController: BaseViewController {
         view.layer.maskedCorners = [.layerMaxXMinYCorner, .layerMinXMinYCorner] 
         
         return view
-    }()
-    
-    private let dragToDismissButton: UIButton = {
-        let button = UIButton()
-        
-        button.backgroundColor = UIColor.black.withAlphaComponent(0.23)
-        button.layer.cornerRadius = 3
-        
-        return button
     }()
     
     private let stack: UIStackView = {
@@ -298,24 +281,9 @@ class AvatarPickerViewController: BaseViewController {
     }
     
     public func setupSubviews() {
-        if UIDevice.current.userInterfaceIdiom == .pad {
-            contentView.frame = CGRect(
-                x: (self.view.frame.width - 414) / 2,
-                y: self.view.frame.height / 2 + 16,
-                width: 414,
-                height: (self.view.frame.height / 2) - 16)
-            dragToDismissButton.frame = CGRect(x: 414 / 2 - 32, y: 8, width: 64, height: 6)
-        } else {
-            contentView.frame = CGRect(
-                x: 0,
-                y: self.view.frame.height / 4 + 16,
-                width: self.view.frame.width,
-                height: (self.view.frame.height / 4) * 3 - 16)
-            dragToDismissButton.frame = CGRect(x: self.view.frame.width / 2 - 32, y: 8, width: 64, height: 6)
-        }
+        contentView.frame = view.bounds
         
         view.addSubview(contentView)
-        contentView.addSubview(dragToDismissButton)
         contentView.addSubview(stack)
         stack.fillSuperviewWithOffset(top: 32, bottom: 24, left: 16, right: 16)
         stack.addArrangedSubview(titleLabel)
@@ -350,7 +318,6 @@ class AvatarPickerViewController: BaseViewController {
             }
             offsetX = padding / 2
             offsetY += buttonSize.height + padding
-            print("offsetX", offsetX, "offsetY", offsetY)
         }
         colorPickerButtons.forEach {
             $0.addTarget(self, action: #selector(onColorButtonSelected), for: .touchUpInside)
@@ -365,22 +332,6 @@ class AvatarPickerViewController: BaseViewController {
     }
     
     public func configure() {
-        topDimmedView.frame = CGRect(
-            x: 0,
-            y: -view.frame.height,
-            width: view.frame.width,
-            height: view.frame.height
-        )
-        view.addSubview(topDimmedView)
-        view.backgroundColor = UIColor.black.withAlphaComponent(0.23)
-        let dismissGestureRecognizer = PanDirectionGestureRecognizer(direction: .vertical, target: self, action: #selector(self.onDismissGestureRecognizerDidChange))
-        dismissGestureRecognizer.delaysTouchesBegan = true
-        dismissGestureRecognizer.maximumNumberOfTouches = 1
-        
-        contentView.addGestureRecognizer(dismissGestureRecognizer)
-        let dismissGesture = UITapGestureRecognizer(target: self, action: #selector(dismissOnTap))
-        dismissGesture.delaysTouchesBegan = true
-        self.view.addGestureRecognizer(dismissGesture)
         if let emoji = lastSettedEmoji {
             avatarView.label.text = emoji
             makeButtonEnabled(false)
@@ -410,13 +361,9 @@ class AvatarPickerViewController: BaseViewController {
         
     }
     
-    public func onAppear() {
-        willShow()
-    }
     
     override func viewDidLoad() {
         super.viewDidLoad()
-        setupSubviews()
         configure()
         localizeResources()
         
@@ -436,9 +383,9 @@ class AvatarPickerViewController: BaseViewController {
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        setupSubviews()
         activateConstraints()
         addObservers()
-        onAppear()
     }
     
     override func viewDidAppear(_ animated: Bool) {
@@ -457,21 +404,8 @@ class AvatarPickerViewController: BaseViewController {
     override func didReceiveMemoryWarning() {
         super.didReceiveMemoryWarning()
     }
-    
-    private final func willShow() {
-        topDimmedView.backgroundColor = UIColor.black.withAlphaComponent(0.0)
-        view.backgroundColor = UIColor.black.withAlphaComponent(0.0)
-        UIView.animate(withDuration: 0.5) {
-            self.topDimmedView.backgroundColor = UIColor.black.withAlphaComponent(0.23)
-            self.view.backgroundColor = UIColor.black.withAlphaComponent(0.23)
-        }
-    }
-    
+        
     private final func dismiss() {
-        UIView.animate(withDuration: 0.1) {
-            self.topDimmedView.backgroundColor = UIColor.black.withAlphaComponent(0.0)
-            self.view.backgroundColor = UIColor.black.withAlphaComponent(0.0)
-        }
         FeedbackManager.shared.tap()
         self.dismiss(animated: true, completion: nil)
     }
@@ -493,43 +427,6 @@ class AvatarPickerViewController: BaseViewController {
     }
     
     @objc
-    private final func onDismissGestureRecognizerDidChange(_ sender: UIPanGestureRecognizer) {
-        let y = sender.translation(in: self.contentView).y
-        if sender.state == .ended {
-            if y > 200 {
-                dismiss()
-            }
-            UIView.animate(withDuration: 0.33, delay: 0.0, options: [.curveEaseOut]) {
-                let rect = self.contentView.frame
-                self.contentView.frame = CGRect(
-                    x: 0,
-                    y: self.view.frame.height / 4 + 16,
-                    width: rect.width,
-                    height: rect.height
-                )
-            } completion: { result in
-                
-            }
-
-        }
-        if sender.state != .changed { return }
-        let rect = self.contentView.frame
-        if y > 0 {
-            self.contentView.frame = CGRect(
-                x: 0,
-                y: self.view.frame.height / 4 + 16 + y,
-                width: rect.width,
-                height: rect.height
-            )
-        }
-    }
-    
-    @objc
-    private final func dismissOnTap(_ sender: AnyObject) {
-        
-    }
-    
-    @objc
     private final func onColorButtonSelected(_ sender: ColorPickerRoundedButton) {
         self.colorPickerButtons.forEach { $0.markAsSelected(selected: false) }
         sender.markAsSelected(selected: true)
@@ -546,11 +443,6 @@ class AvatarPickerViewController: BaseViewController {
         let vc = EmojiPickerViewController()
         vc.delegate = self
         showModal(vc, from: self)
-        
-//        vc.modalTransitionStyle = .coverVertical
-//        vc.modalPresentationStyle = .overFullScreen
-////        vc.delegate = self
-//        self.present(vc, animated: true, completion: nil)
     }
 }
 
@@ -559,6 +451,5 @@ extension AvatarPickerViewController: EmojiPickerViewControllerDelegate {
         avatarView.label.text = emoji
         avatarView.layoutIfNeeded()
         makeButtonEnabled(true)
-//        lastSettedEmoji = emoji
     }
 }

@@ -29,35 +29,41 @@ extension AccountEditViewController: UITableViewDataSource {
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let item = datasource[indexPath.section].childs[indexPath.row]
         switch item.kind {
-        case .profile:
-            guard let cell = tableView.dequeueReusableCell(withIdentifier: ProfileCell.cellName, for: indexPath) as? ProfileCell else {
-                fatalError()
-            }
-            cell.callback = onAvatarButtonDidPress
-            cell.usernameCallback = onProfileChanged
-            cell.configure(self.avatarImage,
-                           for: jid,
-                           editable: false,
-                           given: item.givenName,
-                           middle: item.middleName,
-                           family: item.family,
-                           fullname: item.fullname)
-            cell.givenNameField.delegate = self
-            cell.familyNameField.delegate = self
-            cell.setMask()
-            return cell
-        case .vcard:
-            guard let cell = tableView.dequeueReusableCell(withIdentifier: VcardEditedItem.cellName, for: indexPath) as? VcardEditedItem else {
-                fatalError()
-            }
-            if item.key == "ci_nickname" {
-                cell.configure(item.key, for: nickname.isNotEmpty ? nickname : item.title, value: item.value)
-            } else {
-                cell.configure(item.key, for: item.title, value: item.value)
-            }
-            cell.field.delegate = self
-            cell.callback = textWasEdited
-            return cell
+            case .profile:
+                guard let cell = tableView.dequeueReusableCell(withIdentifier: ProfileCell.cellName, for: indexPath) as? ProfileCell else {
+                    fatalError()
+                }
+                cell.callback = onAvatarButtonDidPress
+                cell.usernameCallback = onProfileChanged
+                do {
+                    
+                } catch {
+                    
+                }
+                cell.configure(avatarUrl: self.avatarUrl,
+                               nickname: self.nickname,
+                               jid: jid,
+                               editable: false,
+                               given: item.givenName,
+                               middle: item.middleName,
+                               family: item.family,
+                               fullname: item.fullname)
+                cell.givenNameField.delegate = self
+                cell.familyNameField.delegate = self
+                cell.setMask()
+                return cell
+            case .vcard:
+                guard let cell = tableView.dequeueReusableCell(withIdentifier: VcardEditedItem.cellName, for: indexPath) as? VcardEditedItem else {
+                    fatalError()
+                }
+                if item.key == "ci_nickname" {
+                    cell.configure(item.key, for: nickname.isNotEmpty ? nickname : item.title, value: item.value)
+                } else {
+                    cell.configure(item.key, for: item.title, value: item.value)
+                }
+                cell.field.delegate = self
+                cell.callback = textWasEdited
+                return cell
         }
     }
     

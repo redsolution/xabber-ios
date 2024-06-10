@@ -96,7 +96,7 @@ class InfoScreenHeaderView: UIView {
         return label
     }()
     
-    open var delegate: InfoScreenHeaderButtonDelegate? = nil
+    open var delegate: InfoScreenHeaderDelegate? = nil
     
     
     internal func activateConstraints() {
@@ -141,6 +141,8 @@ class InfoScreenHeaderView: UIView {
         
         imageButton.imageView?.addSubview(darkenedView)
         imageButton.imageView?.addSubview(imageActivityIndicator)
+        
+        imageButton.addTarget(self, action: #selector(onAvatarButtonTouchUpInside), for: .touchUpInside)
     }
     
     internal func updateSubviews() {
@@ -179,5 +181,10 @@ class InfoScreenHeaderView: UIView {
     
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+    
+    @objc
+    private func onAvatarButtonTouchUpInside(_ sender: UIButton) {
+        self.delegate?.onImageButtonPressed()
     }
 }

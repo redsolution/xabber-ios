@@ -79,9 +79,6 @@ extension AccountEditViewController {
             button.layer.masksToBounds = true
             button.imageView?.contentMode = .scaleAspectFill
             button.contentMode = .scaleAspectFill
-//            button.setImage(#imageLiteral(resourceName: "camera").withRenderingMode(.alwaysTemplate), for: .normal)
-//            button.tintColor = UIColor.white.withAlphaComponent(0.87)
-//            button.imageEdgeInsets = UIEdgeInsets(top: 20, bottom: 20, left: 20, right: 20)
             return button
         }()
         
@@ -174,25 +171,7 @@ extension AccountEditViewController {
         var firstName: String = ""
         var middleName: String = ""
         var familyName: String = ""
-        
-        private func configureAvatarView(from avatarImage: UIImage?) {
-            let view = UIView(frame: CGRect(origin: .zero, size: avatarButton.frame.size.x3))
-            let image = UIImageView(frame: view.bounds)
-            image.backgroundColor = AccountColorManager.shared.palette(for: jid).tint400
-            view.addSubview(image)
-            image.image = avatarImage
-//            let blur = UIBlurEffect(style: UIBlurEffect.Style.regular)
-//
-//            let blurView = UIVisualEffectView(effect: blur)
-//            blurView.frame = view.bounds
-//            image.addSubview(blurView)
-        
-//            self.avatarButton.setImage(UIImage(view: view), for: .normal)
-            self.avatarButton.setImage(avatarImage, for: .normal)
-            self.avatarButton.backgroundColor = AccountColorManager.shared.palette(for: jid).tint400
-            self.avatarButton.contentMode = .scaleAspectFill
-        }
-        
+                
         func setMask() {
             if AccountMasksManager.shared.load() != "square" {
                 avatarButton.mask = UIImageView(image: #imageLiteral(resourceName: AccountMasksManager.shared.mask128pt))
@@ -227,7 +206,22 @@ extension AccountEditViewController {
             
         }
         
-        func configure(_ image: UIImage?, for jid: String, editable: Bool, given: String, middle: String, family: String, fullname: String) {
+        var currentUrl: String? = ""
+        
+        func configure(avatarUrl:String?, nickname: String, jid: String, editable: Bool, given: String, middle: String, family: String, fullname: String) {
+            
+            
+            
+            if currentUrl != avatarUrl {
+                DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: jid, size: 128) { image in
+                    if let image = image {
+                        self.avatarButton.setImage(image, for: .normal)
+                        self.currentUrl = avatarUrl
+                    } else {
+                        self.avatarButton.setImage(UIImageView.getDefaultAvatar(for: nickname, owner: jid, size: 128), for: .normal)
+                    }
+                }
+            }
             self.jid = jid
             givenNameField.text = given
             middleNameField.text = middle
@@ -243,11 +237,7 @@ extension AccountEditViewController {
                 return nil
             }).joined(separator: " ")
             
-            configureAvatarView(from: image)
-            DispatchQueue.main.async {
-                self.usernameCallback?("ci_nickname_temp", fn)
-            }
-            
+            self.usernameCallback?("ci_nickname_temp", fn)
         }
         
         func showDarkenedView() {

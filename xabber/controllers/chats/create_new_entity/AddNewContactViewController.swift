@@ -220,10 +220,10 @@ class AddNewContactViewController: UIViewController {
                 self.changeElementsState(enabled: true)
                 if vcardJid == self.contactJid.value {
                     if result {
+                        user.presences.subscribe(stream, jid: jid)
+                        user.presences.subscribed(stream, jid: jid)
                         user.roster.setContact(stream, jid: jid, shouldAddSystemMessage: true) { resultJid, error, result in
                             if result {
-                                user.presences.subscribe(stream, jid: jid)
-                                user.presences.subscribed(stream, jid: jid)
                                 user.lastChats.initChat(jid: jid, conversationType: conversationType)
                                 self.closeAndDisplayContact(jid: jid, owner: owner)
                             } else {

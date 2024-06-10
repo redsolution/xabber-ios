@@ -27,7 +27,6 @@ import RxCocoa
 import Kingfisher
 import MaterialComponents.MDCPalettes
 import CocoaLumberjack
-import TOInsetGroupedTableView
 
 class AccountEditViewController: BaseViewController {
     
@@ -69,7 +68,7 @@ class AccountEditViewController: BaseViewController {
     
     internal var vcard: vCardStorageItem = vCardStorageItem()
     
-    internal var avatarImage: UIImage? = nil
+    internal var avatarUrl: String? = nil
     
     internal var doneButtonActive: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     
@@ -80,11 +79,7 @@ class AccountEditViewController: BaseViewController {
     }
     
     internal var automaticallyAddedBottomInset: CGFloat {
-        if #available(iOS 11.0, *) {
-            return tableView.adjustedContentInset.bottom - tableView.contentInset.bottom
-        } else {
-            return 0
-        }
+        return tableView.adjustedContentInset.bottom - tableView.contentInset.bottom
     }
     
     internal var additionalBottomInset: CGFloat = 8 {
@@ -95,16 +90,11 @@ class AccountEditViewController: BaseViewController {
     }
     
     internal var initialBottomInset: CGFloat {
-        if #available(iOS 11, *) {
-            return 0
-        } else {
-            return 8
-        }
-    }  
+        return 0
+    }
     
     internal let tableView: UITableView = {
-//        let view = UITableView(frame: .zero, style: .grouped)
-        let view = InsetGroupedTableView(frame: .zero)
+        let view = UITableView(frame: .zero, style: .grouped)
         
         view.register(VcardEditedItem.self, forCellReuseIdentifier: VcardEditedItem.cellName)
         view.register(ProfileCell.self, forCellReuseIdentifier: ProfileCell.cellName)
@@ -125,16 +115,7 @@ class AccountEditViewController: BaseViewController {
         do {
             let realm = try WRealm.safe()
             self.vcard = realm.object(ofType: vCardStorageItem.self, forPrimaryKey: jid) ?? vCardStorageItem()
-            DefaultAvatarManager.shared.getAvatar(url: nil, jid: jid, owner: jid, size: 128) { image in
-                if let image = image {
-                    self.avatarImage = image
-                } else {
-                    self.avatarImage = UIImageView.getDefaultAvatar(for: self.jid, owner: self.jid, size: 128)
-                }
-            }
-//            ImageCache.default.retrieveImage(forKey: self.jid, options: nil, callbackQueue: .mainAsync) { (results) in
-//                self.avatarImage = try! results.get().image
-//            }
+            
         } catch {
             DDLogDebug(["cant load vcard item", jid, #function].joined(separator: ". "))
         }
@@ -176,7 +157,31 @@ class AccountEditViewController: BaseViewController {
     internal func subscribe() {
         addObservers()
         bag = DisposeBag()
-        
+        do {
+            let realm = try WRealm.safe()
+            let accounts = realm.objects(AccountStorageItem.self).filter("jid == %@", self.jid)
+            if let item = accounts.first {
+                self.avatarUrl = item.avatarUrl
+            }
+            Observable
+                .collection(from: accounts)
+                .debounce(.milliseconds(200), scheduler: MainScheduler.asyncInstance)
+                .subscribe { results in
+                    if let item = results.first {
+                        self.avatarUrl = item.avatarUrl
+                        self.tableView.reloadRows(at: [IndexPath(row: 0, section: 0)], with: .none)
+                    }
+                } onError: { _ in
+                    
+                } onCompleted: {
+                    
+                } onDisposed: {
+                    
+                }.disposed(by: bag)
+
+        } catch {
+            
+        }
         doneButton.rx.tap.bind {
             self.onSave()
         }.disposed(by: bag)

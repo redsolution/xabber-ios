@@ -263,6 +263,9 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
             if let frameValue = userInfo[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue {
                 let frame = frameValue.cgRectValue
                 let keyboardVisibleHeight = frame.size.height
+                if keyboardVisibleHeight == 0 {
+                    return
+                }
                 switch (userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber, userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber) {
                 case let (.some(duration), .some(curve)):
                     let options = UIView.AnimationOptions(rawValue: curve.uintValue)

@@ -168,37 +168,44 @@ class XMPPNotificationsManager: AbstractXMPPManager {
         guard isAvailable(), let node = self.node, node.isNotEmpty, XMPPJID(string: node)?.bare != nil else { return }
         do {
             let realm = try WRealm.safe()
-            let lastId = realm.object(ofType: XMPPNotificationsManagerStorageItem.self, forPrimaryKey: XMPPNotificationsManagerStorageItem.genPrimary(owner: self.owner))?.lastItemId
-//            XMPPUIActionManager.shared.performRequest(
-//                owner: self.owner) { stream, session in
-//                    session.mam?.requestArchive(
-//                        stream,
-//                        jid: node,
-//                        isContinues: true,
-//                        conversationType: .notifications,
-//                        before: lastId
-//                    )
-//                } fail: {
-                    AccountManager
-                        .shared
-                        .find(for: self.owner)?
-                        .action({ user, stream in
-                            user.mam.requestArchive(
-                                stream,
-                                jid: node,
-                                isContinues: true,
-                                conversationType: .notifications,
-                                flipPage: false,
-                                before: lastId
-                            )
-                        })
-//                }
-
-            
+            let lastId = realm.object(
+                ofType: XMPPNotificationsManagerStorageItem.self,
+                forPrimaryKey: XMPPNotificationsManagerStorageItem
+                    .genPrimary(owner: self.owner)
+            )?.lastItemId
+            AccountManager
+                .shared
+                .find(for: self.owner)?
+                .action({ user, stream in
+                    user.mam.requestArchive(
+                        stream,
+                        jid: node,
+                        isContinues: true,
+                        conversationType: .notifications,
+                        flipPage: false,
+                        before: lastId
+                    )
+                })
         } catch {
             fatalError()
         }
         
     }
     
+    static func remove(for owner: String, commitTransaction: Bool) {
+        do {
+            let realm = try WRealm.safe()
+            let collection = realm.objects(XMPPNotificationsManagerStorageItem.self)
+                .filter("owner == %@", owner)
+            if commitTransaction {
+                try realm.write {
+                    realm.delete(collection)
+                }
+            } else {
+                realm.delete(collection)
+            }
+        } catch {
+            DDLogDebug("PresenceManager: \(#function). \(error.localizedDescription)")
+        }
+    }
 }

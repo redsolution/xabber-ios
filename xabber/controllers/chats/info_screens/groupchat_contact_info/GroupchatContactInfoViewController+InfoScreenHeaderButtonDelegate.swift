@@ -27,7 +27,7 @@ import LetterAvatarKit
 import MaterialComponents.MDCPalettes
 import AVFoundation
 
-extension GroupchatContactInfoViewController: InfoScreenHeaderButtonDelegate {
+extension GroupchatContactInfoViewController: InfoScreenHeaderDelegate {
     
     func shouldUpdateAvatar() -> UIImage? {
 //        AccountManager.shared.find(for: owner)?.action({ (user, stream) in

@@ -26,46 +26,31 @@ import CocoaLumberjack
 import MaterialComponents.MDCPalettes
 import AVFoundation
 
-extension AccountInfoViewController: InfoScreenHeaderButtonDelegate {
+extension AccountInfoViewController: InfoScreenHeaderDelegate {
+    func onTitleButtonPressed() {
+        onChangeNickname()
+    }
+    
     
     func shouldUpdateAvatar() -> UIImage? {
-        AccountManager.shared.find(for: jid)?.action({ (user, stream) in
-//            user.PEPAvatars.refreshAvatar(jid: self.jid)
-        })
-        let conf = LetterAvatarBuilderConfiguration()
-        conf.username = self.nickname.uppercased()
-        conf.size = DefaultAvatarManager.defaultSize
-        conf.backgroundColors = [AccountColorManager.shared.palette(for: jid).tint600]
-        conf.useSingleLetter = true
-        guard let avatar = UIImage.makeLetterAvatar(withConfiguration: conf) else {
-            DDLogDebug("error during generate default avatar for \(self.nickname)")
-            return nil
-        }
-        return avatar
-    }
-    
-    func onFirstButtonPressed() {
-        print(#function)
-    }
-    
-    func onSecondButtonPressed() {
-        print(#function)
-    }
-    
-    func onThirdButtonPressed() {
-        print(#function)
-    }
-    
-    func onFourthButtonPressed() {
-        print(#function)
+//        AccountManager.shared.find(for: jid)?.action({ (user, stream) in
+////            user.PEPAvatars.refreshAvatar(jid: self.jid)
+//        })
+//        let conf = LetterAvatarBuilderConfiguration()
+//        conf.username = self.nickname.uppercased()
+//        conf.size = DefaultAvatarManager.defaultSize
+//        conf.backgroundColors = [AccountColorManager.shared.palette(for: jid).tint600]
+//        conf.useSingleLetter = true
+//        guard let avatar = UIImage.makeLetterAvatar(withConfiguration: conf) else {
+//            DDLogDebug("error during generate default avatar for \(self.nickname)")
+//            return nil
+//        }
+//        return avatar
+        return nil
     }
     
     func onImageButtonPressed() {
         onChangeAvatar()
-    }
-    
-    func onTitleButtonPressed() {
-        print(#function)
     }
     
     @objc
@@ -82,6 +67,10 @@ extension AccountInfoViewController: InfoScreenHeaderButtonDelegate {
         } catch {
             DDLogDebug("GroupchatInfoViewController: \(#function). \(error.localizedDescription)")
         }
+    }
+    
+    func onChangeNickname() {
+        
     }
     
     func onChangeAvatar() {
