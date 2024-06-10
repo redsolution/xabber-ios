@@ -9,6 +9,7 @@
 import Foundation
 import UIKit
 import TOInsetGroupedTableView
+import XMPPFramework
 
 class VerificationConfirmationViewController: SimpleBaseViewController {
     var sid: String = ""
@@ -26,7 +27,6 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
     let agreeButton: UIButton = {
         let button = UIButton()
         button.setTitle("Accept", for: .normal)
-//        button.tintColor = .systemBlue
         button.setTitleColor(.systemBlue, for: .normal)
         button.backgroundColor = .white
         
@@ -36,7 +36,6 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
     let revokeButton: UIButton = {
         let button = UIButton()
         button.setTitle("Revoke", for: .normal)
-//        button.tintColor = .systemRed
         button.setTitleColor(.systemRed, for: .normal)
         button.backgroundColor = .white
         
@@ -59,19 +58,25 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
         tableView.fillSuperview()
         tableView.dataSource = self
         tableView.delegate = self
-//        view.backgroundColor = .systemGroupedBackground
-//        
-//        view.addSubview(stack)
-////        stack.fillSuperview()
-//        
-//        stack.addArrangedSubview(agreeButton)
-//        stack.addArrangedSubview(revokeButton)
-//        
-//        NSLayoutConstraint.activate([
-//            stack.topAnchor.constraint(equalTo: view.topAnchor, constant: 50),
-//            stack.heightAnchor.constraint(equalToConstant: 50),
-//            stack.centerXAnchor.constraint(equalTo: view.centerXAnchor)
-//        ])
+        
+        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
+            DDLogDebug("VerificationConfirmationViewController: \(#function).")
+            return
+        }
+        
+        NotificationCenter.default.addObserver(self, selector: #selector(requestAcceptedByAnotherDevice(_:)), name: NSNotification.Name(rawValue: "VerificationConfirmationViewController"), object: akeManager)
+    }
+    
+    @objc
+    func requestAcceptedByAnotherDevice(_ notification: Notification) {
+        if let userInfo = notification.userInfo {
+            let sid = userInfo["sid"]
+            if self.sid == sid as! String {
+                DispatchQueue.main.async {
+                    self.dismiss(animated: true)
+                }
+            }
+        }
     }
 }
 

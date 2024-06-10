@@ -62,7 +62,8 @@ class ManualVerificationDeviceViewController: SimpleBaseViewController {
             guard let device = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.jid, deviceId: Int(self.deviceId)!)),
                   let localStore = AccountManager.shared.find(for: owner)?.omemo.localStore,
                   let myDevice = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: localStore.localDeviceId())) else {
-                fatalError()
+                DDLogDebug("ManualVerificationDeviceViewController: \(#function).")
+                return
             }
             datasource = [
                 Datasource(kind: .fingerprint, deviceId: String(device.deviceId), deviceLabel: device.name, fingerprint: device.fingerprint, title: self.jid),
@@ -70,7 +71,8 @@ class ManualVerificationDeviceViewController: SimpleBaseViewController {
                 Datasource(kind: .button, title: "Match")
             ]
         } catch {
-            fatalError()
+            DDLogDebug("ManualVerificationDeviceViewController: \(#function). \(error.localizedDescription)")
+            return
         }
     }
 }
@@ -141,7 +143,8 @@ extension ManualVerificationDeviceViewController: UITableViewDelegate {
             guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
                   let trustSharingManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager,
                   let localDeviceId = AccountManager.shared.find(for: self.owner)?.omemo.localStore.localDeviceId() else {
-                fatalError()
+                DDLogDebug("ManualVerificationDeviceViewController: \(#function).")
+                return
             }
             akeManager.writeTrustedDevice(jid: self.jid, deviceId: Int(self.deviceId)!)
             do {
