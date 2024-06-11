@@ -18,8 +18,6 @@ class VerificationSessionTableViewCell: UITableViewCell {
     var jid = ""
     var sid = ""
     
-    let titleLabel = UILabel()
-    
     let stack: UIStackView = {
         let stack = UIStackView()
         stack.axis = .horizontal
@@ -38,11 +36,22 @@ class VerificationSessionTableViewCell: UITableViewCell {
         return stack
     }()
     
+    let titleLabel: UILabel = {
+        let label = UILabel()
+        label.numberOfLines = 0
+        label.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        
+        return label
+    }()
+    
     let subtitleLabel: UILabel = {
         let label = UILabel()
         label.textColor = MDCPalette.grey.tint800
         label.font = UIFont.systemFont(ofSize: 14)
         label.numberOfLines = 0
+        label.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         
         return label
     }()
@@ -52,6 +61,7 @@ class VerificationSessionTableViewCell: UITableViewCell {
         button.translatesAutoresizingMaskIntoConstraints = false
         button.setImage(UIImage(systemName: "xmark"), for: .normal)
         button.tintColor = .lightGray
+        button.setContentHuggingPriority(.defaultHigh, for: .horizontal)
         
         return button
     }()
@@ -61,6 +71,7 @@ class VerificationSessionTableViewCell: UITableViewCell {
         let image = UIImage(systemName: "lock.circle.fill")?.upscale(dimension: 40).withTintColor(.systemBlue)
         imageView.image = image
         imageView.translatesAutoresizingMaskIntoConstraints = false
+        imageView.setContentHuggingPriority(.defaultHigh, for: .horizontal)
         
         return imageView
     }()
@@ -88,8 +99,6 @@ class VerificationSessionTableViewCell: UITableViewCell {
         stack.addArrangedSubview(customImageView)
         stack.addArrangedSubview(labelsStack)
         stack.addArrangedSubview(closeButton)
-        
-        stack.distribution = .equalCentering
         
         closeButton.addTarget(self, action: #selector(onCloseButtonPressed), for: .touchUpInside)
     }

@@ -118,7 +118,24 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
             cancelButton.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
             cancelButton.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -70),
         ])
-
+        
+        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
+            DDLogDebug("AuthenticationCodeInputViewController: \(#function).")
+            return
+        }
+        NotificationCenter.default.addObserver(self, selector: #selector(verificationEnded(_:)), name: NSNotification.Name(rawValue: "AuthenticationCodeInputViewController"), object: akeManager)
+    }
+    
+    @objc
+    func verificationEnded(_ notification: Notification) {
+        if let userInfo = notification.userInfo {
+            let sid = userInfo["sid"]
+            if self.sid == sid as! String {
+                DispatchQueue.main.async {
+                    self.dismiss(animated: true)
+                }
+            }
+        }
     }
     
     override func addObservers() {
@@ -154,6 +171,7 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
             }
         } catch {
             DDLogDebug("AuthenticationCodeInputViewController: \(#function). \(error.localizedDescription)")
+            return
         }
         
         AccountManager.shared.find(for: self.owner)?.akeManager.sendErrorMessage(fullJID: XMPPJID(string: self.jid)!, sid: self.sid, reason: "Сontact canceled verification session")

@@ -627,6 +627,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             do {
                 NotificationCenter.default.post(name: NSNotification.Name(rawValue: "VerificationConfirmationViewController"), object: self, userInfo: ["sid": sid])
                 NotificationCenter.default.post(name: NSNotification.Name(rawValue: "ShowCodeViewController"), object: self, userInfo: ["sid": sid])
+                NotificationCenter.default.post(name: NSNotification.Name(rawValue: "AuthenticationCodeInputViewController"), object: self, userInfo: ["sid": sid])
                 
                 let realm = try WRealm.safe()
                 guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) else {
