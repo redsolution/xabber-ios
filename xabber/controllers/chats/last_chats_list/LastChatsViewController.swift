@@ -1251,6 +1251,7 @@ class LastChatsViewController: BaseViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         searchController.isActive = false
+        self.navigationItem.backButtonDisplayMode = .minimal
         self.navigationController?.navigationBar.prefersLargeTitles = true
         self.navigationController?.navigationItem.largeTitleDisplayMode = .always
 //        navigationController?.setNavigationBarHidden(false, animated: true)
