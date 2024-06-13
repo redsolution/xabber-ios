@@ -503,7 +503,7 @@ class SettingsViewController: BaseViewController {
                             if buttonKey != nil {
                                 verificationDatasource.childs.append(Datasource(section: .session, title: buttonTitle, values: [buttonKey!], verificationSid: item.sid))
                                 if buttonKey == "accept_verification" {
-                                    verificationDatasource.childs.append(Datasource(section: .session, title: "Reject", values: ["reject-verification"], verificationSid: item.sid))
+                                    verificationDatasource.childs.append(Datasource(section: .session, title: "Reject", values: ["reject_verification"], verificationSid: item.sid))
                                 }
                             }
                             self.datasource[section] = verificationDatasource
@@ -522,7 +522,7 @@ class SettingsViewController: BaseViewController {
                             if buttonKey != nil {
                                 verificationDatasource.childs.append(Datasource(section: .session, title: buttonTitle, values: [buttonKey!], verificationSid: item.sid))
                                 if buttonKey == "accept_verification" {
-                                    verificationDatasource.childs.append(Datasource(section: .session, title: "Reject", values: ["reject-verification"], verificationSid: item.sid))
+                                    verificationDatasource.childs.append(Datasource(section: .session, title: "Reject", values: ["reject_verification"], verificationSid: item.sid))
                                 }
                             }
                             self.datasource.insert(verificationDatasource, at: self.datasource.firstIndex(where: { $0.section == .accountSettings })!)
@@ -630,7 +630,7 @@ class SettingsViewController: BaseViewController {
                     if buttonKey != nil {
                         verificationDatasource.childs.append(Datasource(section: .session, title: buttonTitle, values: [buttonKey!], verificationSid: sessionInstance.sid))
                         if buttonKey == "accept_verification" {
-                            verificationDatasource.childs.append(Datasource(section: .session, title: "Reject", values: ["reject-verification"], verificationSid: sessionInstance.sid))
+                            verificationDatasource.childs.append(Datasource(section: .session, title: "Reject", values: ["reject_verification"], verificationSid: sessionInstance.sid))
                         }
                     }
                     datasource.append(verificationDatasource)

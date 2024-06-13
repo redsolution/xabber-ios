@@ -63,7 +63,7 @@ extension SettingsViewController: UITableViewDataSource {
                 let cell = UITableViewCell()
                 var contentConfig = cell.defaultContentConfiguration()
                 contentConfig.text = item.title
-                if item.values.first == "reject-verification" {
+                if item.values.first == "reject_verification" {
                     contentConfig.textProperties.color = .systemRed
                     
                 } else {

@@ -93,7 +93,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
     func getMessageChildsForVerififcationRequest(sid: String, deviceId: String? = nil) -> DDXMLElement {
         let authenticationKeyExchange = DDXMLElement(name: "authenticated-key-exchange", xmlns: getPrimaryNamespace())
         authenticationKeyExchange.addAttribute(withName: "sid", stringValue: sid)
-        authenticationKeyExchange.addAttribute(withName: "timestamp", stringValue: String(Date().timeIntervalSince1970))
+        authenticationKeyExchange.addAttribute(withName: "timestamp", stringValue: String(Int(Date().timeIntervalSince1970.rounded())))
         
         guard let localStore = AccountManager.shared.find(for: owner)?.omemo.localStore else {
             fatalError()
@@ -114,7 +114,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
     func getMessageChildsForAcceptVerificationRequest(sid: String, encryptedByteSequence: String, iv: String) -> DDXMLElement {
         let authenticatedKeyExchange = DDXMLElement(name: "authenticated-key-exchange", xmlns: getPrimaryNamespace())
         authenticatedKeyExchange.addAttribute(withName: "sid", stringValue: sid)
-        authenticatedKeyExchange.addAttribute(withName: "timestamp", stringValue: String(Date().timeIntervalSince1970))
+        authenticatedKeyExchange.addAttribute(withName: "timestamp", stringValue: String(Int(Date().timeIntervalSince1970.rounded())))
         
         guard let localStore = AccountManager.shared.find(for: owner)?.omemo.localStore else {
             fatalError()
@@ -137,7 +137,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
     func getMessageChildsToSendHashAndSaltToOpponent(sid: String, encryptedHash: String, ivHash: String, encryptedSalt: String, ivSalt: String) -> DDXMLElement {
         let authenticatedKeyExchange = DDXMLElement(name: "authenticated-key-exchange", xmlns: getPrimaryNamespace())
         authenticatedKeyExchange.addAttribute(withName: "sid", stringValue: sid)
-        authenticatedKeyExchange.addAttribute(withName: "timestamp", stringValue: String(Date().timeIntervalSince1970))
+        authenticatedKeyExchange.addAttribute(withName: "timestamp", stringValue: String(Int(Date().timeIntervalSince1970.rounded())))
         
         let hash = DDXMLElement(name: "hash")
         hash.addAttribute(withName: "algo", stringValue: "sha-256")
@@ -157,7 +157,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
     func getMessageChildsForErrorMessage(sid: String, reason: String) -> DDXMLElement {
         let authenticatedKeyExchange = DDXMLElement(name: "authenticated-key-exchange", xmlns: getPrimaryNamespace())
         authenticatedKeyExchange.addAttribute(withName: "sid", stringValue: sid)
-        authenticatedKeyExchange.addAttribute(withName: "timestamp", stringValue: String(Date().timeIntervalSince1970))
+        authenticatedKeyExchange.addAttribute(withName: "timestamp", stringValue: String(Int(Date().timeIntervalSince1970.rounded())))
         
         let verificationFailed = DDXMLElement(name: "verification-failed")
         verificationFailed.addAttribute(withName: "reason", stringValue: reason)
@@ -297,6 +297,16 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                     return true
                 }
                 
+                let currentMinutes = Date().timeIntervalSince1970 / 60
+                let requestDate = TimeInterval(timestamp)
+                if requestDate != nil {
+                    let requestDateMinutes = requestDate! / 60
+                    // if more then 5 minutes have passed after request - its not available anymore
+                    if currentMinutes - requestDateMinutes > 5 {
+                        return true
+                    }
+                }
+                
                 let instance = VerificationSessionStorageItem()
                 instance.owner = self.owner
                 instance.myDeviceId = deviceIdRecipient
@@ -317,7 +327,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             }
             title = "Verification request received"
             
-            if jid.bare == self.owner && toDeviceId == nil {
+            if jid.bare == self.owner {
                 guard let presenter = (UIApplication.shared.delegate as? AppDelegate)?.splitController else {
                     return true
                 }
@@ -399,7 +409,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 
                 try realm.write {
                     instance.state = .hashSentToInitiator
-                    instance.timestamp = String(Date().timeIntervalSince1970)
+                    instance.timestamp = String(Int(Date().timeIntervalSince1970.rounded()))
                     notificationInstance.verificationState = .hashSentToInitiator
                 }
             } catch {
@@ -446,7 +456,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             let encryptedHashResult = self.encrypt(jid: jid.bare, sid: sid, deviceId: deviceId, data: hash)
             let authenticatedKeyExchangeChild = DDXMLElement(name: "authenticated-key-exchange", xmlns: getPrimaryNamespace())
             authenticatedKeyExchangeChild.addAttribute(withName: "sid", stringValue: sid)
-            authenticatedKeyExchangeChild.addAttribute(withName: "timestamp", stringValue: String(Date().timeIntervalSince1970))
+            authenticatedKeyExchangeChild.addAttribute(withName: "timestamp", stringValue: String(Int(Date().timeIntervalSince1970.rounded())))
             let hashChild = DDXMLElement(name: "hash")
             hashChild.addAttribute(withName: "algo", stringValue: "sha-256")
             hashChild.addChild(DDXMLElement(name: "ciphertext", stringValue: encryptedHashResult.encrypted.toBase64()))
@@ -497,7 +507,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 
                 try realm.write {
                     instance.state = .hashSentToInitiator
-                    instance.timestamp = String(Date().timeIntervalSince1970)
+                    instance.timestamp = String(Int(Date().timeIntervalSince1970.rounded()))
                     notificationInstance.verificationState = .hashSentToInitiator
                 }
                 
@@ -698,7 +708,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             instance.sid = sid
             instance.state = .sentRequest
             instance.primary = VerificationSessionStorageItem.genPrimary(owner: instance.owner, sid: instance.sid)
-            instance.timestamp = String(Date().timeIntervalSince1970)
+            instance.timestamp = String(Int(Date().timeIntervalSince1970.rounded()))
             try realm.write {
                 realm.add(instance)
             }
@@ -744,7 +754,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 instance.code = code
                 instance.state = .acceptedRequest
                 instance.byteSequence = byteSequence.toBase64()
-                instance.timestamp = String(Date().timeIntervalSince1970)
+                instance.timestamp = String(Int(Date().timeIntervalSince1970.rounded()))
             }
         } catch {
             DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
@@ -838,7 +848,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             code = instance.code
             try realm.write {
                 instance.state = .hashSentToOpponent
-                instance.timestamp = String(Date().timeIntervalSince1970)
+                instance.timestamp = String(Int(Date().timeIntervalSince1970.rounded()))
             }
             
             guard let deviceInstance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: instance.myDeviceId)) else {
@@ -881,7 +891,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
     func sendSuccessfulVerificationMessage(toJid: XMPPJID, sid: String) {
         let authenticatedKeyExchange = DDXMLElement(name: "authenticated-key-exchange", xmlns: getPrimaryNamespace())
         authenticatedKeyExchange.addAttribute(withName: "sid", stringValue: sid)
-        authenticatedKeyExchange.addAttribute(withName: "timestamp", stringValue: String(Date().timeIntervalSince1970))
+        authenticatedKeyExchange.addAttribute(withName: "timestamp", stringValue: String(Int(Date().timeIntervalSince1970.rounded())))
         
         let verificationSuccessful = DDXMLElement(name: "verification-successful")
         
@@ -980,7 +990,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             
             try realm.write {
                 instance?.state = .hashSentToInitiator
-                instance?.timestamp = String(Date().timeIntervalSince1970)
+                instance?.timestamp = String(Int(Date().timeIntervalSince1970.rounded()))
             }
             
             let deviceInstance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: instance!.myDeviceId))
@@ -1067,7 +1077,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             return
         }
         
-        let timestamp = Date().timeIntervalSince1970.rounded()
+        let timestamp = Int(Date().timeIntervalSince1970.rounded())
         let authenticatedKeyExchange = DDXMLElement(name: "authenticated-key-exchange", xmlns: getPrimaryNamespace())
         authenticatedKeyExchange.addAttribute(withName: "sid", stringValue: sid)
         authenticatedKeyExchange.addAttribute(withName: "timestamp", stringValue: String(timestamp))
