@@ -247,6 +247,9 @@ class ApplicationStateManager: NSObject {
             }
         }
         self.runAutoDeleteTask()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            AuthenticatedKeyExchangeManager.prepare()
+        }
     }
     
     var autoDeleteTaskTimer: Timer? = nil
