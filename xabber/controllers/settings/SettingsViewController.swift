@@ -624,16 +624,33 @@ class SettingsViewController: BaseViewController {
                 }
                 
                 if let sessionInstance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.owner).first {
-                    let (text, secondaryText, buttonTitle, buttonKey) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: sessionInstance.state)
-                    let verificationDatasource = Datasource(section: .session, title: "Active verifiaction sessions", childs: [Datasource(section: .session, title: text, subtitle: secondaryText, verificationSid: sessionInstance.sid)])
-                    
-                    if buttonKey != nil {
-                        verificationDatasource.childs.append(Datasource(section: .session, title: buttonTitle, values: [buttonKey!], verificationSid: sessionInstance.sid))
-                        if buttonKey == "accept_verification" {
-                            verificationDatasource.childs.append(Datasource(section: .session, title: "Reject", values: ["reject_verification"], verificationSid: sessionInstance.sid))
+                    var isSessionDeleted = false
+                    if sessionInstance.state == .sentRequest {
+                        let currentMinutes = Date().timeIntervalSince1970 / 60
+                        let requestDate = TimeInterval(sessionInstance.timestamp)
+                        if requestDate != nil {
+                            let requestDateMinutes = requestDate! / 60
+                            // if more then 5 minutes have passed after request - its not available anymore
+                            if currentMinutes - requestDateMinutes > 5 {
+                                try realm.write {
+                                    realm.delete(sessionInstance)
+                                }
+                                isSessionDeleted = true
+                            }
                         }
                     }
-                    datasource.append(verificationDatasource)
+                    if !isSessionDeleted {
+                        let (text, secondaryText, buttonTitle, buttonKey) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: sessionInstance.state)
+                        let verificationDatasource = Datasource(section: .session, title: "Active verifiaction sessions", childs: [Datasource(section: .session, title: text, subtitle: secondaryText, verificationSid: sessionInstance.sid)])
+                        
+                        if buttonKey != nil {
+                            verificationDatasource.childs.append(Datasource(section: .session, title: buttonTitle, values: [buttonKey!], verificationSid: sessionInstance.sid))
+                            if buttonKey == "accept_verification" {
+                                verificationDatasource.childs.append(Datasource(section: .session, title: "Reject", values: ["reject_verification"], verificationSid: sessionInstance.sid))
+                            }
+                        }
+                        datasource.append(verificationDatasource)
+                    }
                 }
             } catch {
                 DDLogDebug("SettingsViewController:\(#function). \(error.localizedDescription)")

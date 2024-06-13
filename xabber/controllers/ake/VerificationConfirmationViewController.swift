@@ -13,6 +13,17 @@ import XMPPFramework
 
 class VerificationConfirmationViewController: SimpleBaseViewController {
     var sid: String = ""
+    var deviceId: String = ""
+    
+    var headerHeightMax: CGFloat = 236
+    
+    internal let headerView: InfoScreenHeaderView = {
+        let view = InfoScreenHeaderView(frame: .zero)
+        view.titleButton.titleLabel?.font = UIFont.systemFont(ofSize: 20)
+        view.additionalTopOffset = 56
+        
+        return view
+    }()
     
     let stack: UIStackView = {
         let stack = UIStackView()
@@ -48,14 +59,16 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
         return view
     }()
     
-    func configure(owner: String, sid: String) {
+    func configure(owner: String, sid: String, deviceId: String) {
         self.owner = owner
         self.sid = sid
+        self.deviceId = deviceId
         
-        self.title = "Verify device"
+        headerView.backgroundColor = .systemGroupedBackground
+        view.addSubview(headerView)
         
         view.addSubview(tableView)
-        tableView.fillSuperview()
+        tableView.fillSuperviewWithOffset(top: headerHeightMax, bottom: 0, left: 0, right: 0)
         tableView.dataSource = self
         tableView.delegate = self
         
@@ -64,7 +77,69 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
             return
         }
         
+        var client = ""
+        var ip = ""
+        var publicName = ""
+        var date = ""
+        
+        do {
+            let realm = try WRealm.safe()
+            guard let sessionInstance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: self.sid)) else {
+                return
+            }
+            
+            self.deviceId = String(sessionInstance.opponentDeviceId)
+            
+            guard let deviceInstance = realm.objects(DeviceStorageItem.self).filter("owner == %@ AND omemoDeviceId == %@", self.owner, Int(self.deviceId)!).first else {
+                return
+            }
+            client = deviceInstance.client
+            ip = deviceInstance.ip
+            
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "MMM d, yyyy"
+            let dateRaw = deviceInstance.authDate
+            date = dateFormatter.string(from: dateRaw)
+            
+            guard let omemoInstance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: Int(self.deviceId)!)) else {
+                return
+            }
+            publicName = omemoInstance.name ?? deviceInstance.device + " (\(deviceInstance.omemoDeviceId))"
+        } catch {
+            DDLogDebug("ShowCodeViewController: \(#function). \(error.localizedDescription)")
+        }
+        
+        self.headerView.imageButton.imageEdgeInsets = UIEdgeInsets(top: 20, bottom: 20, left: 20, right: 20)
+        self.headerView.imageButton.backgroundColor = .white
+        
+        self.headerView.configure(
+            avatarUrl: nil,
+            owner: self.owner,
+            jid: self.jid,
+            titleColor: .black,
+            title: publicName,
+            subtitle: ip + " • " + date,
+            thirdLine: nil
+        )
+        
+        if client == "XabberIOS" {
+            self.headerView.imageButton.setImage(UIImage(systemName: "iphone")?.withTintColor(.systemBlue), for: .normal)
+        } else if client == "Xabber for Web" {
+            self.headerView.imageButton.setImage(UIImage(systemName: "desktopcomputer")?.withTintColor(.systemBlue), for: .normal)
+        } else {
+            self.headerView.imageButton.setImage(UIImage(systemName: "questionmark")?.withTintColor(.systemBlue), for: .normal)
+        }
+        
         NotificationCenter.default.addObserver(self, selector: #selector(requestAcceptedByAnotherDevice(_:)), name: NSNotification.Name(rawValue: "VerificationConfirmationViewController"), object: akeManager)
+    }
+    
+    override func onAppear() {
+        super.onAppear()
+        headerView.frame = CGRect(
+            width: view.frame.width,
+            height: headerHeightMax
+        )
+        self.headerView.updateSubviews()
     }
     
     @objc
@@ -119,11 +194,8 @@ extension VerificationConfirmationViewController: UITableViewDelegate {
             vc.code = code
             vc.sid = self.sid
             vc.isVerificationWithOwnDevice = true
-            self.dismiss(animated: true) {
-                (UIApplication.shared.delegate as? AppDelegate)?.splitController?.present(vc, animated: true)
-            }
             
-            return
+            self.navigationController?.pushViewController(vc, animated: true)
         } else {
             AccountManager.shared.find(for: self.owner)?.akeManager.rejectRequestToVerify(jid: self.owner, sid: self.sid)
             self.dismiss(animated: true)

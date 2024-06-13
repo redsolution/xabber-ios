@@ -47,8 +47,8 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
     }
     
     private final func generateCode() -> String {
-        return String.randomString(length: 6, includeNumber: true)
-//        return String(Int.random(in: 100000...999999))
+//        return String.randomString(length: 6, includeNumber: true)
+        return String(Int.random(in: 100000...999999))
     }
     
     internal final func calculateSharedKey(jid: String, deviceId: Int) -> [UInt8] {
@@ -266,7 +266,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             do {
                 let realm = try WRealm.safe()
                 if realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) != nil {
-                    return false
+                    return true
                 }
                 guard let verificationStart = authenticatedKeyExchange.element(forName: "verification-start"),
                       let opponentDeviceIdRaw = verificationStart.attributeStringValue(forName: "device-id"),
@@ -321,24 +321,24 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                     realm.add(instance)
                     notificationInstance.verificationState = .receivedRequest
                 }
+                
+                if jid.bare == self.owner {
+                    guard let presenter = (UIApplication.shared.delegate as? AppDelegate)?.splitController else {
+                        return true
+                    }
+                    
+                    let vc = VerificationConfirmationViewController()
+                    
+                    DispatchQueue.main.async {
+                        vc.configure(owner: self.owner, sid: sid, deviceId: opponentDeviceIdRaw)
+                        showModal(vc, from: presenter)
+                    }
+                }
             } catch {
                 DDLogDebug("AuthenticatedKeyExchange \(#function). \(error.localizedDescription)")
                 return true
             }
             title = "Verification request received"
-            
-            if jid.bare == self.owner {
-                guard let presenter = (UIApplication.shared.delegate as? AppDelegate)?.splitController else {
-                    return true
-                }
-                
-                let vc = VerificationConfirmationViewController()
-                
-                DispatchQueue.main.async {
-                    vc.configure(owner: self.owner, sid: sid)
-                    showModal(vc, from: presenter)
-                }
-            }
         } else if authenticatedKeyExchange.element(forName: "verification-accepted") != nil {
             let byteSequence = self.generateByteSequence()
             
@@ -1159,6 +1159,28 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             }
         } catch {
             DDLogDebug("PresenceManager: \(#function). \(error.localizedDescription)")
+        }
+    }
+    
+    static func prepare() {
+        do {
+            let realm = try WRealm.safe()
+            let jids = AccountManager.shared.users.compactMap { return $0.jid }
+            for owner in jids {
+                guard let ownVerifications = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@ AND state_ == %@", owner, owner, VerificationSessionStorageItem.VerififcationState.receivedRequest.rawValue).first else {
+                    return
+                }
+                let vc = VerificationConfirmationViewController()
+                vc.configure(owner: owner, sid: ownVerifications.sid, deviceId: String(ownVerifications.opponentDeviceId))
+                
+                guard let presenter = (UIApplication.shared.delegate as? AppDelegate)?.splitController else {
+                    return
+                }
+                showModal(vc, from: presenter)
+            }
+            
+        } catch {
+            DDLogDebug("AuthenticatedKeyExchange: \(#function). \(error.localizedDescription)")
         }
     }
 }
