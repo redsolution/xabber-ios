@@ -75,7 +75,6 @@ class DeviceDetailViewController: SimpleBaseViewController {
         view.register(StatusInfoCell.self, forCellReuseIdentifier: StatusInfoCell.cellName)
         view.register(ResourceInfoCell.self, forCellReuseIdentifier: ResourceInfoCell.cellName)
         
-        view.isScrollEnabled = false
         
         return view
     }()

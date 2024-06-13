@@ -521,7 +521,7 @@ class LastChatsViewController: BaseViewController {
                     self.unreadedJids.append(contentsOf: unreadedJidsNew)
                     self.unreadedJids = Array(Set(self.unreadedJids))
                     predicate = NSPredicate(
-                        format: "isArchived == %@ AND (unread > %@ IN %@ OR jid IN %@) AND owner IN %@",
+                        format: "isArchived == %@ AND (unread > %@ OR jid IN %@) AND owner IN %@",
                         argumentArray: [false,
                                         0,
                                         unreadedJids,
