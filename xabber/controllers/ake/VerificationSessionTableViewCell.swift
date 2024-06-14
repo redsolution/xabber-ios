@@ -57,11 +57,12 @@ class VerificationSessionTableViewCell: UITableViewCell {
     }()
     
     let closeButton: UIButton = {
-        let button = UIButton()
-        button.translatesAutoresizingMaskIntoConstraints = false
+        let button = UIButton(frame: CGRect(square: 44))
         button.setImage(UIImage(systemName: "xmark"), for: .normal)
+        button.imageEdgeInsets = UIEdgeInsets(top: 11, right: 11)
         button.tintColor = .lightGray
-        button.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        button.contentHorizontalAlignment = .right
+        button.contentVerticalAlignment = .top
         
         return button
     }()
@@ -101,6 +102,8 @@ class VerificationSessionTableViewCell: UITableViewCell {
         stack.addArrangedSubview(closeButton)
         
         closeButton.addTarget(self, action: #selector(onCloseButtonPressed), for: .touchUpInside)
+        
+        activateConstraints()
     }
     
     @objc
@@ -135,6 +138,9 @@ class VerificationSessionTableViewCell: UITableViewCell {
     func activateConstraints() {
         NSLayoutConstraint.activate([
             customImageView.widthAnchor.constraint(equalToConstant: 40),
+            closeButton.widthAnchor.constraint(equalToConstant: 44),
+            closeButton.heightAnchor.constraint(equalToConstant: 44),
+            closeButton.rightAnchor.constraint(equalTo: self.contentView.rightAnchor),
         ])
     }
 }
