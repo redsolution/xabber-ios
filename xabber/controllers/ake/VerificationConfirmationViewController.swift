@@ -37,16 +37,18 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
     
     let agreeButton: UIButton = {
         let button = UIButton()
-        button.setTitle("Accept", for: .normal)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.setTitle("Proceed to Verification", for: .normal)
         button.setTitleColor(.systemBlue, for: .normal)
         button.backgroundColor = .white
         
         return button
     }()
     
-    let revokeButton: UIButton = {
+    let rejectButton: UIButton = {
         let button = UIButton()
-        button.setTitle("Revoke", for: .normal)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.setTitle("Cancel verification", for: .normal)
         button.setTitleColor(.systemRed, for: .normal)
         button.backgroundColor = .white
         
@@ -67,10 +69,11 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
         headerView.backgroundColor = .systemGroupedBackground
         view.addSubview(headerView)
         
-        view.addSubview(tableView)
-        tableView.fillSuperviewWithOffset(top: headerHeightMax, bottom: 0, left: 0, right: 0)
-        tableView.dataSource = self
-        tableView.delegate = self
+        view.addSubview(agreeButton)
+        view.addSubview(rejectButton)
+        
+        agreeButton.addTarget(self, action: #selector(onAgreeButtonTapped), for: .touchUpInside)
+        rejectButton.addTarget(self, action: #selector(onRejectButtonTapped), for: .touchUpInside)
         
         guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
             DDLogDebug("VerificationConfirmationViewController: \(#function).")
@@ -84,11 +87,6 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
         
         do {
             let realm = try WRealm.safe()
-            guard let sessionInstance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: self.sid)) else {
-                return
-            }
-            
-            self.deviceId = String(sessionInstance.opponentDeviceId)
             
             guard let deviceInstance = realm.objects(DeviceStorageItem.self).filter("owner == %@ AND omemoDeviceId == %@", self.owner, Int(self.deviceId)!).first else {
                 return
@@ -101,10 +99,7 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
             let dateRaw = deviceInstance.authDate
             date = dateFormatter.string(from: dateRaw)
             
-            guard let omemoInstance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: Int(self.deviceId)!)) else {
-                return
-            }
-            publicName = omemoInstance.name ?? deviceInstance.device + " (\(deviceInstance.omemoDeviceId))"
+            publicName = deviceInstance.device
         } catch {
             DDLogDebug("ShowCodeViewController: \(#function). \(error.localizedDescription)")
         }
@@ -123,14 +118,21 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
         )
         
         if client == "XabberIOS" {
-            self.headerView.imageButton.setImage(UIImage(systemName: "iphone")?.withTintColor(.systemBlue), for: .normal)
+            self.headerView.imageButton.setImage(UIImage(systemName: "iphone")?.withTintColor(.systemBlue).withRenderingMode(.alwaysTemplate), for: .normal)
         } else if client == "Xabber for Web" {
-            self.headerView.imageButton.setImage(UIImage(systemName: "desktopcomputer")?.withTintColor(.systemBlue), for: .normal)
+            self.headerView.imageButton.setImage(UIImage(systemName: "desktopcomputer")?.withTintColor(.systemBlue).withRenderingMode(.alwaysTemplate), for: .normal)
         } else {
-            self.headerView.imageButton.setImage(UIImage(systemName: "questionmark")?.withTintColor(.systemBlue), for: .normal)
+            self.headerView.imageButton.setImage(UIImage(systemName: "questionmark")?.withTintColor(.systemBlue).withRenderingMode(.alwaysTemplate), for: .normal)
         }
         
-        NotificationCenter.default.addObserver(self, selector: #selector(requestAcceptedByAnotherDevice(_:)), name: NSNotification.Name(rawValue: "VerificationConfirmationViewController"), object: akeManager)
+        NSLayoutConstraint.activate ([
+            agreeButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            agreeButton.topAnchor.constraint(equalTo: headerView.bottomAnchor, constant: 10),
+            rejectButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            rejectButton.topAnchor.constraint(equalTo: agreeButton.bottomAnchor, constant: 10)
+        ])
+        
+        NotificationCenter.default.addObserver(self, selector: #selector(requestAcceptedByAnotherDevice(_:)), name: NSNotification.Name(rawValue: "rejected_VerificationConfirmationViewController"), object: akeManager)
     }
     
     override func onAppear() {
@@ -153,54 +155,26 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
             }
         }
     }
-}
-
-extension VerificationConfirmationViewController: UITableViewDataSource {
-    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = UITableViewCell()
-        var contentConfig = cell.defaultContentConfiguration()
-        if indexPath.row == 0 {
-            contentConfig.text = "Accept"
-            contentConfig.textProperties.color = .systemBlue
-        } else {
-            contentConfig.text = "Revoke"
-            contentConfig.textProperties.color = .systemRed
-        }
-        
-        cell.contentConfiguration = contentConfig
-        return cell
-    }
     
-    func numberOfSections(in tableView: UITableView) -> Int {
-        return 1
-    }
-    
-    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return 2
-    }
-}
-
-extension VerificationConfirmationViewController: UITableViewDelegate {
-    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        tableView.deselectRow(at: indexPath, animated: true)
-        if indexPath.row == 0 {
-            guard let code = AccountManager.shared.find(for: self.owner)?.akeManager.acceptVerificationRequest(jid: self.owner, sid: self.sid) else {
-                return
-            }
-            
-            let vc = ShowCodeViewController()
-            vc.jid = self.owner
-            vc.owner = self.owner
-            vc.code = code
-            vc.sid = self.sid
-            vc.isVerificationWithOwnDevice = true
-            
-            self.navigationController?.pushViewController(vc, animated: true)
-        } else {
-            AccountManager.shared.find(for: self.owner)?.akeManager.rejectRequestToVerify(jid: self.owner, sid: self.sid)
-            self.dismiss(animated: true)
-            
+    @objc
+    func onAgreeButtonTapped() {
+        guard let code = AccountManager.shared.find(for: self.owner)?.akeManager.acceptVerificationRequest(jid: self.owner, sid: self.sid) else {
             return
         }
+        
+        let vc = ShowCodeViewController()
+        vc.jid = self.owner
+        vc.owner = self.owner
+        vc.code = code
+        vc.sid = self.sid
+        vc.isVerificationWithOwnDevice = true
+        
+        self.navigationController?.setViewControllers([vc], animated: true)
+    }
+    
+    @objc
+    func onRejectButtonTapped() {
+        AccountManager.shared.find(for: self.owner)?.akeManager.rejectRequestToVerify(jid: self.owner, sid: self.sid)
+        self.dismiss(animated: true)
     }
 }

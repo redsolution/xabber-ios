@@ -255,8 +255,27 @@ class DevicesListViewController: BaseViewController {
         editButton = UIBarButtonItem(barButtonSystemItem: .edit, target: self, action: #selector(self.onEdit))
         doneEditButton = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(self.onDoneEditing))
         navigationItem.setRightBarButton(editButton, animated: true)
+        
+        guard let akeManager = AccountManager.shared.find(for: self.jid)?.akeManager else {
+            return
+        }
+        
+        NotificationCenter.default.addObserver(self, selector: #selector(showVerificationConfirmationViewController(_:)), name: NSNotification.Name(rawValue: "received_VerificationConfirmationViewController"), object: akeManager)
     }
     
+    @objc
+    func showVerificationConfirmationViewController(_ notification: Notification) {
+        if let userInfo = notification.userInfo {
+            let sid = userInfo["sid"] as! String
+            let deviceId = userInfo["device-id"] as! String
+            let vc = VerificationConfirmationViewController()
+            DispatchQueue.main.async {
+                vc.configure(owner: self.jid, sid: sid, deviceId: deviceId)
+                showModal(vc, from: self)
+            }
+        }
+        
+    }
     
     let refreshControl = UIRefreshControl()
     
