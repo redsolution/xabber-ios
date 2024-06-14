@@ -808,7 +808,6 @@ class SettingsViewController: BaseViewController {
     internal func configure() {
         self.navigationItem.backButtonTitle = "Settings".localizeString(id: "settings", arguments: [])
         view.addSubview(tableView)
-//        tableView.fillSuperview()
         
         do {
             let realm = try WRealm.safe()
@@ -843,6 +842,25 @@ class SettingsViewController: BaseViewController {
                                                selector: #selector(reloadDatasource),
                                                name: .newMaskSelected,
                                                object: nil)
+        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
+            return
+        }
+        
+        NotificationCenter.default.addObserver(self, selector: #selector(showVerificationConfirmationViewController(_:)), name: NSNotification.Name(rawValue: "received_VerificationConfirmationViewController"), object: akeManager)
+    }
+    
+    @objc
+    func showVerificationConfirmationViewController(_ notification: Notification) {
+        if let userInfo = notification.userInfo {
+            let sid = userInfo["sid"] as! String
+            let deviceId = userInfo["device-id"] as! String
+            let vc = VerificationConfirmationViewController()
+            DispatchQueue.main.async {
+                vc.configure(owner: self.jid, sid: sid, deviceId: deviceId)
+                showModal(vc, from: self)
+            }
+        }
+        
     }
     
     func headerViewConfig() {

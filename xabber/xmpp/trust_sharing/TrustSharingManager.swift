@@ -347,12 +347,12 @@ class TrustSharingManager: AbstractXMPPManager {
             for jid in jids {
                 let trustedItems = DDXMLElement(name: "trusted-items")
                 trustedItems.addAttribute(withName: "owner", stringValue: jid)
-                trustedItems.addAttribute(withName: "timestamp", stringValue: String(Date().timeIntervalSince1970.rounded()))
+                trustedItems.addAttribute(withName: "timestamp", stringValue: String(Int(Date().timeIntervalSince1970.rounded())))
                 for instance in instances {
                     if instance.jid == jid {
                         let trustedKey = String(instance.deviceId) + "::" + instance.fingerprint
                         let trust = DDXMLElement(name: "trust", stringValue: trustedKey.toBase64())
-                        trust.addAttribute(withName: "timestamp", stringValue: String(instance.trustDate.timeIntervalSince1970.rounded()))
+                        trust.addAttribute(withName: "timestamp", stringValue: String(Int(instance.trustDate.timeIntervalSince1970.rounded())))
                         trustedItems.addChild(trust)
                     }
                 }
@@ -455,11 +455,11 @@ class TrustSharingManager: AbstractXMPPManager {
             let predicate = NSPredicate(format: "owner == %@ AND jid == %@ AND state_ == %@", argumentArray: [self.owner, self.owner, "trusted"])
             let instances = realm.objects(SignalDeviceStorageItem.self).filter(predicate)
             let trustedItems = DDXMLElement(name: "trusted-items")
-            trustedItems.addAttribute(withName: "timestamp", stringValue: String(Date().timeIntervalSince1970.rounded()))
+            trustedItems.addAttribute(withName: "timestamp", stringValue: String(Int(Date().timeIntervalSince1970.rounded())))
             for instance in instances {
                 let trustedKey = String(instance.deviceId) + "::" + instance.fingerprint.replacingOccurrences(of: " ", with: "").lowercased()
                 let trust = DDXMLElement(name: "trust", stringValue: trustedKey.toBase64())
-                trust.addAttribute(withName: "timestamp", stringValue: String(instance.trustDate.timeIntervalSince1970.rounded()))
+                trust.addAttribute(withName: "timestamp", stringValue: String(Int(instance.trustDate.timeIntervalSince1970.rounded())))
                 trustedItems.addChild(trust)
             }
             share.addChild(trustedItems)

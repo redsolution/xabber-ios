@@ -333,6 +333,8 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                         vc.configure(owner: self.owner, sid: sid, deviceId: opponentDeviceIdRaw)
                         showModal(vc, from: presenter)
                     }
+                    
+                    NotificationCenter.default.post(name: NSNotification.Name(rawValue: "received_VerificationConfirmationViewController"), object: self, userInfo: ["sid": sid, "device-id": String(opponentDeviceID)])
                 }
             } catch {
                 DDLogDebug("AuthenticatedKeyExchange \(#function). \(error.localizedDescription)")
@@ -348,7 +350,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                     return true
                 }
                 if instance.state != .sentRequest {
-                    NotificationCenter.default.post(name: NSNotification.Name(rawValue: "VerificationConfirmationViewController"), object: self, userInfo: ["sid": sid])
+                    NotificationCenter.default.post(name: NSNotification.Name(rawValue: "rejected_VerificationConfirmationViewController"), object: self, userInfo: ["sid": sid])
                     
                     try realm.write {
                         realm.delete(instance)
@@ -635,7 +637,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             title = "Verification rejected"
         } else if authenticatedKeyExchange.element(forName: "verification-failed") != nil {
             do {
-                NotificationCenter.default.post(name: NSNotification.Name(rawValue: "VerificationConfirmationViewController"), object: self, userInfo: ["sid": sid])
+                NotificationCenter.default.post(name: NSNotification.Name(rawValue: "rejected_VerificationConfirmationViewController"), object: self, userInfo: ["sid": sid])
                 NotificationCenter.default.post(name: NSNotification.Name(rawValue: "ShowCodeViewController"), object: self, userInfo: ["sid": sid])
                 NotificationCenter.default.post(name: NSNotification.Name(rawValue: "AuthenticationCodeInputViewController"), object: self, userInfo: ["sid": sid])
                 
