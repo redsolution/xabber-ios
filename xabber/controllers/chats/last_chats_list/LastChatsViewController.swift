@@ -1274,16 +1274,6 @@ class LastChatsViewController: BaseViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         updateTitle(filter.value)
-//        if let appDelegate = (UIApplication.shared.delegate as? AppDelegate) {
-//            appDelegate.appTabBarTitlesInit()
-//        }
-//        self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
-//        self.navigationController?.navigationBar.shadowImage = nil
-//        self.navigationController?.navigationBar.superview?.bringSubviewToFront(self.navigationController!.navigationBar)
-//        self.navigationController?.navigationBar.layoutIfNeeded()
-//        if #available(iOS 14.0, *) {
-//            navigationItem.backButtonDisplayMode = .minimal
-//        }
         self.navigationItem.backButtonTitle = "Chats"
         if let selected = tableView.indexPathForSelectedRow {
             tableView.deselectRow(at: selected, animated: true)
@@ -1297,10 +1287,6 @@ class LastChatsViewController: BaseViewController {
             }
         }
         isFirstLayout = true
-//        self.splitViewController?.navigationItem.setLeftBarButtonItems([], animated: true)
-//        self.splitViewController?.navigationItem.setHidesBackButton(true, animated: true)
-//        self.navigationItem.setLeftBarButtonItems([], animated: true)
-//        self.navigationItem.setHidesBackButton(true, animated: true)
     }
     
     override func viewWillDisappear(_ animated: Bool) {
