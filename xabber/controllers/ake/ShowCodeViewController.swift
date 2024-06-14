@@ -179,17 +179,25 @@ class ShowCodeViewController: SimpleBaseViewController {
                     let sessionInstance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.jid, sid: self.sid))
                     self.deviceId = String(sessionInstance!.opponentDeviceId)
                     
-                    let deviceInstance = realm.objects(DeviceStorageItem.self).filter("owner == %@ AND omemoDeviceId == %@", self.jid, Int(self.deviceId)!).first
-                    client = deviceInstance!.client
-                    ip = deviceInstance!.ip
+                    guard let deviceInstance = realm.objects(DeviceStorageItem.self).filter("owner == %@ AND omemoDeviceId == %@", self.jid, Int(self.deviceId)!).first else {
+                        return
+                    }
+                    client = deviceInstance.client
+                    ip = deviceInstance.ip
                     
                     let dateFormatter = DateFormatter()
                     dateFormatter.dateFormat = "MMM d, yyyy"
-                    let dateRaw = deviceInstance!.authDate
+                    let dateRaw = deviceInstance.authDate
                     date = dateFormatter.string(from: dateRaw)
                     
-                    let omemoInstance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: Int(self.deviceId)!))
-                    publicName = omemoInstance!.name ?? deviceInstance!.device + " (\(deviceInstance!.omemoDeviceId))"
+                    if isVerificationWithOwnDevice {
+                        publicName = deviceInstance.device
+                    } else {
+                        guard let omemoInstance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: Int(self.deviceId)!)) else {
+                            return
+                        }
+                        publicName = omemoInstance.name ?? deviceInstance.device + " (\(deviceInstance.omemoDeviceId))"
+                    }
                 } catch {
                     DDLogDebug("ShowCodeViewController: \(#function). \(error.localizedDescription)")
                 }

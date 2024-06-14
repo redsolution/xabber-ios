@@ -76,10 +76,20 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
         return textField
     }()
     
+    let submitButton: UIButton = {
+        let button = UIButton()
+        button.setTitle("Submit code", for: .normal)
+        button.setTitleColor(.systemBlue, for: .normal)
+        
+        button.translatesAutoresizingMaskIntoConstraints = false
+        
+        return button
+    }()
+    
     let cancelButton: UIButton = {
         let button = UIButton()
         button.setTitle("Cancel verification", for: .normal)
-        button.setTitleColor(.systemBlue, for: .normal)
+        button.setTitleColor(.systemRed, for: .normal)
         
         button.translatesAutoresizingMaskIntoConstraints = false
         
@@ -94,6 +104,7 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
         scrollView.addSubview(containerView)
         containerView.addSubview(stackLabels)
         containerView.addSubview(cancelButton)
+        containerView.addSubview(submitButton)
         
         headerView.backgroundColor = .systemGroupedBackground
         
@@ -105,6 +116,7 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
         
         stackLabels.setCustomSpacing(40, after: descriptionLabel)
         
+        submitButton.addTarget(self, action: #selector(onVerifyButtonPressed), for: .touchUpInside)
         cancelButton.addTarget(self, action: #selector(onCancelButtonPressed), for: .touchUpInside)
         
         self.view.backgroundColor = .systemBackground
@@ -117,6 +129,8 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
             descriptionLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
             cancelButton.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
             cancelButton.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -70),
+            submitButton.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
+            submitButton.bottomAnchor.constraint(equalTo: cancelButton.topAnchor, constant: -15),
         ])
         
         guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
@@ -178,6 +192,54 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
         self.dismiss(animated: true)
     }
     
+    @objc
+    func onVerifyButtonPressed() {
+        var deviceId: String = ""
+        var saltCiphertext: String = ""
+        var saltIv: String = ""
+        
+        do {
+            let realm = try WRealm.safe()
+            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: self.sid))
+            deviceId = String(instance!.opponentDeviceId)
+            saltCiphertext = instance!.opponentByteSequenceEncrypted
+            saltIv = instance!.opponentByteSequenceIv
+            if let text = code.text {
+                try realm.write {
+                    instance?.code = code.text!
+                }
+            } else {
+                return
+            }
+        
+            guard let salt = AccountManager
+                .shared
+                .find(for: self.owner)?
+                .akeManager
+                .decrypt(
+                    jid: XMPPJID(string: self.jid)?.bare ?? "",
+                    sid: self.sid,
+                    deviceId: Int(deviceId) ?? -1,
+                    ciphertext: try saltCiphertext.base64decoded(),
+                    iv: try saltIv.base64decoded()
+                ) else {
+                return
+            }
+            
+            try realm.write {
+                instance?.opponentByteSequence = salt.toBase64()
+                instance?.opponentDeviceId = Int(deviceId)!
+            }
+            
+            AccountManager.shared.find(for: self.owner)?.akeManager.sendHashToOpponent(jid: XMPPJID(string: self.jid)!, sid: self.sid)
+            self.dismiss(animated: true)
+            return
+            
+        } catch {
+            DDLogDebug("AuthenticationCodeInputViewController \(#function). \(error.localizedDescription)")
+        }
+    }
+    
     override func loadDatasource() {
         super.loadDatasource()
         do {
@@ -200,12 +262,20 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
                 let dateRaw = Date(timeIntervalSince1970: TimeInterval(floatLiteral: Double(sessionInstance.timestamp)!))
                 date = dateFormatter.string(from: dateRaw)
                 
-                let deviceInstance = realm.objects(DeviceStorageItem.self).filter("owner == %@ AND omemoDeviceId == %@", self.jid, Int(self.deviceId)!).first
-                client = deviceInstance!.client
-                ip = deviceInstance!.ip
+                guard let deviceInstance = realm.objects(DeviceStorageItem.self).filter("owner == %@ AND omemoDeviceId == %@", self.jid, Int(self.deviceId)!).first else {
+                    return
+                }
+                client = deviceInstance.client
+                ip = deviceInstance.ip
                 
-                let omemoInstance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: Int(self.deviceId)!))
-                publicName = omemoInstance!.name ?? deviceInstance!.device + " (\(deviceInstance!.omemoDeviceId))"
+                if isVerificationWithUsersDevice {
+                    publicName = deviceInstance.device
+                } else {
+                    guard let omemoInstance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: Int(self.deviceId)!)) else {
+                        return
+                    }
+                    publicName = omemoInstance.name ?? deviceInstance.device + " (\(deviceInstance.omemoDeviceId))"
+                }
                 
                 self.headerView.imageButton.imageEdgeInsets = UIEdgeInsets(top: 20, bottom: 20, left: 20, right: 20)
                 self.headerView.imageButton.backgroundColor = .white
