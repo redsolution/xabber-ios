@@ -49,16 +49,18 @@ class GroupchatInfoViewController: SimpleBaseViewController {
             case info
             case contact
             case button
+            case danger
         }
         
         var kind: Kind
         var title: String
         var subtitle: String?
         var key: String?
+        var icon: String?
         
         var childs: [Datasource]
         
-        init(_ kind: Kind, title: String, subtitle: String? = nil, key: String? = nil, childs: [Datasource] = []) {
+        init(_ kind: Kind, title: String, subtitle: String? = nil, icon: String? = nil, key: String? = nil, childs: [Datasource] = []) {
             self.kind = kind
             self.title = title
             if subtitle?.isEmpty ?? true {
@@ -68,6 +70,7 @@ class GroupchatInfoViewController: SimpleBaseViewController {
             }
             self.key = key
             self.childs = childs
+            self.icon = icon
         }
         
         func hash(into hasher: inout Hasher) {
@@ -254,6 +257,17 @@ class GroupchatInfoViewController: SimpleBaseViewController {
                         self.canChangeStatus = item.canChangeSettings
                         self.canInvite = item.canInvite
 
+                        if self.canInvite {
+                            newDatasource.append(Datasource(.text, title: " ", childs: [
+                                Datasource(.button, title: "Invite".localizeString(id: "groupchat_bar_invite", arguments: []), icon: "person.badge.plus", key: "invite"),
+                                Datasource(.danger, title: "Leave".localizeString(id: "groupchat_bar_leave", arguments: []), icon: "figure.run", key: "leave")
+                            ]))
+                        } else {
+                            newDatasource.append(Datasource(.text, title: " ", childs: [
+                                Datasource(.danger, title: "Leave".localizeString(id: "groupchat_bar_leave", arguments: []), key: "leave")
+                            ]))
+                        }
+                        
                         newDatasource.append(Datasource(.text, title: "About".localizeString(id: "about", arguments: []), childs: [
                             Datasource(.info, title: item.descr.isNotEmpty ? item.descr : "No description".localizeString(id: "no_description", arguments: []), key: "gc_descr"),
                             Datasource(.text, title: "Set status".localizeString(id: "status_editor", arguments: []), key: "gc_set_status")

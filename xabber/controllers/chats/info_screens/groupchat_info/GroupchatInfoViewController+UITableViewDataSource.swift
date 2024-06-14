@@ -72,6 +72,7 @@ extension GroupchatInfoViewController: UITableViewDataSource {
             }
             
             cell.configure(
+                avatarUrl: contact.avatarURI,
                 jid: self.jid,
                 owner: self.owner,
                 userId: contact.userId,
@@ -101,7 +102,7 @@ extension GroupchatInfoViewController: UITableViewDataSource {
                 }
                 return cell
             case .contact:
-                fatalError()
+                return UITableViewCell()
             case .text:
                 if item.key == "gc_set_status" {
                     guard let cell = tableView.dequeueReusableCell(withIdentifier: StatusInfoCell.cellName, for: indexPath) as? StatusInfoCell else {
@@ -148,7 +149,7 @@ extension GroupchatInfoViewController: UITableViewDataSource {
                     }
                     return cell!
                 }
-            case .button:
+            case .button, .danger:
                 if item.key == "gc_circles" {
                     guard let cell = tableView.dequeueReusableCell(withIdentifier: EditCirclesCell.cellName, for: indexPath) as? EditCirclesCell else {
                         fatalError()
@@ -174,10 +175,15 @@ extension GroupchatInfoViewController: UITableViewDataSource {
                         cell.textLabel?.text = "Disable notifications".localizeString(id: "groupchats_disable_notifications", arguments: [])
                     }
                 }
-                if item.key == "delete_chat_button" {
+                if item.kind == .danger {
                     cell.textLabel?.textColor = .systemRed
+                    cell.imageView?.tintColor = .systemRed
                 } else {
-                    cell.textLabel?.textColor = .systemBlue
+                    cell.textLabel?.textColor = .tintColor
+                    cell.imageView?.tintColor = .tintColor
+                }
+                if let icon = item.icon {
+                    cell.imageView?.image = UIImage(systemName: icon)
                 }
                 return cell
             }

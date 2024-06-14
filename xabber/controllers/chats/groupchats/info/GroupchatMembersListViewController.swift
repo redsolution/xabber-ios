@@ -40,7 +40,7 @@ class GroupchatMembersListViewController: SimpleBaseViewController {
         let subtitle: String
         let status: ResourceStatus
         let entity: RosterItemEntity
-        let avatarKey: String
+        let avatarUrl: String
         let role: GroupchatUserStorageItem.Role
         
         typealias DiffId = String
@@ -56,7 +56,7 @@ class GroupchatMembersListViewController: SimpleBaseViewController {
         }
         
         
-        init(userId: String, title: String, badge: String, isMe: Bool, subtitle: String, status: ResourceStatus, entity: RosterItemEntity, avatarKey: String, role: GroupchatUserStorageItem.Role) {
+        init(userId: String, title: String, badge: String, isMe: Bool, subtitle: String, status: ResourceStatus, entity: RosterItemEntity, avatarUrl: String, role: GroupchatUserStorageItem.Role) {
             self.userId = userId
             self.title = title
             self.badge = badge
@@ -64,7 +64,7 @@ class GroupchatMembersListViewController: SimpleBaseViewController {
             self.subtitle = subtitle
             self.status = status
             self.entity = entity
-            self.avatarKey = avatarKey
+            self.avatarUrl = avatarUrl
             self.role = role
             
         }
@@ -81,7 +81,7 @@ class GroupchatMembersListViewController: SimpleBaseViewController {
             a.subtitle == b.subtitle &&
             a.status == b.status &&
             a.entity == b.entity &&
-            a.avatarKey == b.avatarKey &&
+            a.avatarUrl == b.avatarUrl &&
             a.role == b.role
         }
     }
@@ -188,7 +188,7 @@ class GroupchatMembersListViewController: SimpleBaseViewController {
                     subtitle: item.isOnline ? "Online".localizeString(id: "account_state_connected", arguments: []): item.dateString ?? "Offline".localizeString(id: "unavailable", arguments: []),
                     status: item.isOnline ? .online : .offline,
                     entity: .contact,
-                    avatarKey: [item.userId, self.jid].prp(),
+                    avatarUrl: item.avatarURI,
                     role: item.role
                 )
             }
@@ -302,6 +302,7 @@ extension GroupchatMembersListViewController: UITableViewDataSource {
         let item = datasource[indexPath.row]
         
         cell.configure(
+            avatarUrl: item.avatarUrl,
             jid: self.jid,
             owner: self.owner,
             userId: item.userId,

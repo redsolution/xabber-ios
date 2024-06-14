@@ -152,19 +152,17 @@ class CommonMemberTableCell: UITableViewCell {
 //            self.avatarView.image = nil
 //            self.s
     }
+    var currentUrl: String? = ""
     
-    open func configure(jid: String, owner: String, userId: String?, title: String, badge: String, isMe: Bool, subtitle: String, status: ResourceStatus, entity: RosterItemEntity, role: GroupchatUserStorageItem.Role) {
+    open func configure(avatarUrl: String?, jid: String, owner: String, userId: String?, title: String, badge: String, isMe: Bool, subtitle: String, status: ResourceStatus, entity: RosterItemEntity, role: GroupchatUserStorageItem.Role) {
         titleLabel.text = title
-        if let userId = userId {
-            DefaultAvatarManager.shared.getGroupAvatar(user: userId, jid: jid, owner: owner, size: 48) { image in
-                self.avatarView.image = image
-            }
-        } else {
-            DefaultAvatarManager.shared.getAvatar(url: nil, jid: jid, owner: owner, size: 48) { image in
+        if currentUrl != avatarUrl {
+            DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 128) { image in
                 if let image = image {
                     self.avatarView.image = image
+                    self.currentUrl = avatarUrl
                 } else {
-                    self.avatarView.image = UIImageView.getDefaultAvatar(for: jid, owner: owner, size: 48)
+                    self.avatarView.image = UIImageView.getDefaultAvatar(for: title, owner: owner, size: 128)
                 }
             }
         }

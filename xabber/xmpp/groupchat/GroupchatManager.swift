@@ -1543,7 +1543,9 @@ class GroupchatManager: AbstractXMPPManager {
             instance.restrictions = card.elements(forName: "restriction").compactMap { return $0.attributesAsDictionary()}
             
             instance.isTemporary = !trustedSource
-            
+            if let avatarUrl = card.element(forName: "metadata", xmlns: "urn:xmpp:avatar:metadata")?.element(forName: "info")?.attributeStringValue(forName: "url") {
+                instance.avatarURI = avatarUrl
+            }
             if let subscribtion = card.element(forName: "subscription")?.stringValue {
                 switch subscribtion {
                 case "none": instance.isKicked = true
