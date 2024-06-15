@@ -35,6 +35,21 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
         
     }()
     
+    let titleLabel: UILabel = {
+        let label = UILabel()
+        label.font = label.font.bold()
+        label.text = "Incoming Device Verification Request"
+        label.numberOfLines = 0
+        
+        return label
+    }()
+    
+    let firstLineLabel: UILabel = {
+        let label = UILabel()
+        
+        return label
+    }()
+    
     let agreeButton: UIButton = {
         let button = UIButton()
         button.translatesAutoresizingMaskIntoConstraints = false
