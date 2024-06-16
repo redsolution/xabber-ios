@@ -626,12 +626,10 @@ class SettingsViewController: BaseViewController {
                 if let sessionInstance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.owner).first {
                     var isSessionDeleted = false
                     if sessionInstance.state == .sentRequest {
-                        let currentMinutes = Date().timeIntervalSince1970 / 60
-                        let requestDate = TimeInterval(sessionInstance.timestamp)
-                        if requestDate != nil {
-                            let requestDateMinutes = requestDate! / 60
-                            // if more then 5 minutes have passed after request - its not available anymore
-                            if currentMinutes - requestDateMinutes > 5 {
+                        // if more then ttl have passed after request, its not available anymore
+                        if let timestamp = TimeInterval(sessionInstance.timestamp),
+                           let ttl = TimeInterval(sessionInstance.ttl) {
+                            if timestamp + ttl <= Date().timeIntervalSince1970 {
                                 try realm.write {
                                     realm.delete(sessionInstance)
                                 }

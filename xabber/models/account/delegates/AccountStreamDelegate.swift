@@ -307,15 +307,15 @@ extension Account: XMPPStreamDelegate {
                     } else if self.groupchats.readInvite(in: bareMessage, date: getDelayedDate(message) ?? Date(), isRead: nil) {
                         return
                     }
-                    if self.xTokens.receive(sender, withMessage: bareMessage) {
+                    if self.akeManager.didReceivedVerificationMessage(message: bareMessage) {
+                        return
+                    } else if self.xTokens.receive(sender, withMessage: bareMessage) {
                         
                     }
                 }
                 if self.chatMarkers.read(withMessage: message) {
                     return
                 } else if self.omemo.didReceiveOmemoMessage(message) {
-                    return
-                } else if self.akeManager.didReceivedVerificationMessage(message: message) {
                     return
                 } else if self.trustSharingManager.didReceivedTrustedSharingMessage(message: message) {
                     return
@@ -334,10 +334,6 @@ extension Account: XMPPStreamDelegate {
                     return
                 } else if self.omemo.didReceiveOmemoMessage(message) {
                     return
-                } else if self.akeManager.didReceivedVerificationMessage(message: message) {
-                    return
-                } else if self.trustSharingManager.didReceivedTrustedSharingMessage(message: message) {
-                    return
                 } else {
                     self.messages.receiveCarbon(message)
                 }
@@ -355,10 +351,6 @@ extension Account: XMPPStreamDelegate {
                     }
                 }
                 if self.omemo.didReceiveOmemoMessage(message) {
-                    return
-                } else if self.akeManager.didReceivedVerificationMessage(message: message) {
-                    return
-                } else if self.trustSharingManager.didReceivedTrustedSharingMessage(message: message) {
                     return
                 } else if self.chatMarkers.read(withMessage: message) {
                     return
