@@ -25,14 +25,14 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
         return view
     }()
     
-    let stack: UIStackView = {
+    let stackLabels: UIStackView = {
         let stack = UIStackView()
-        stack.axis = .vertical
         stack.alignment = .center
+        stack.axis = .vertical
+        stack.spacing = 12
         stack.translatesAutoresizingMaskIntoConstraints = false
         
         return stack
-        
     }()
     
     let titleLabel: UILabel = {
@@ -44,14 +44,32 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
         return label
     }()
     
-    let firstLineLabel: UILabel = {
+    let descriptionLabel: UILabel = {
         let label = UILabel()
+        label.text = "A verification request has been sent from another device to establish secure and encrypted communication."
+        label.numberOfLines = 0
+        
+        return label
+    }()
+    
+    let stepsLabel: UILabel = {
+        let label = UILabel()
+        label.numberOfLines = 0
+        label.textColor = .systemGray
+        
+        let attributedString = NSMutableAttributedString(string: "1.\tConfirm that this device is yours and that you recognize the initiating session.\n\n2.\tProceed to reveal the verification code necessary to complete the encryption key exchange.")
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.headIndent = 28
+        attributedString.addAttributes([NSAttributedString.Key.paragraphStyle: paragraphStyle], range: NSRange(location: 0, length: attributedString.length))
+        label.attributedText = attributedString
         
         return label
     }()
     
     let agreeButton: UIButton = {
         let button = UIButton()
+        button.configuration = UIButton.Configuration.plain()
+        button.configuration!.contentInsets = NSDirectionalEdgeInsets(top: 15, leading: 20, bottom: 15, trailing: 20)
         button.translatesAutoresizingMaskIntoConstraints = false
         button.setTitle("Proceed to Verification", for: .normal)
         button.setTitleColor(.systemBlue, for: .normal)
@@ -62,6 +80,8 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
     
     let rejectButton: UIButton = {
         let button = UIButton()
+        button.configuration = UIButton.Configuration.plain()
+        button.configuration!.contentInsets = NSDirectionalEdgeInsets(top: 15, leading: 20, bottom: 15, trailing: 20)
         button.translatesAutoresizingMaskIntoConstraints = false
         button.setTitle("Cancel verification", for: .normal)
         button.setTitleColor(.systemRed, for: .normal)
@@ -84,8 +104,13 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
         headerView.backgroundColor = .systemGroupedBackground
         view.addSubview(headerView)
         
+        view.addSubview(stackLabels)
         view.addSubview(agreeButton)
         view.addSubview(rejectButton)
+        
+        stackLabels.addArrangedSubview(titleLabel)
+        stackLabels.addArrangedSubview(descriptionLabel)
+        stackLabels.addArrangedSubview(stepsLabel)
         
         agreeButton.addTarget(self, action: #selector(onAgreeButtonTapped), for: .touchUpInside)
         rejectButton.addTarget(self, action: #selector(onRejectButtonTapped), for: .touchUpInside)
@@ -121,6 +146,7 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
         
         self.headerView.imageButton.imageEdgeInsets = UIEdgeInsets(top: 20, bottom: 20, left: 20, right: 20)
         self.headerView.imageButton.backgroundColor = .white
+        self.headerView.imageButton.imageView?.contentMode = .scaleAspectFit
         
         self.headerView.configure(
             avatarUrl: nil,
@@ -133,18 +159,24 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
         )
         
         if client == "XabberIOS" {
-            self.headerView.imageButton.setImage(UIImage(systemName: "iphone")?.withTintColor(.systemBlue).withRenderingMode(.alwaysTemplate), for: .normal)
+            self.headerView.imageButton.setImage(UIImage(systemName: "iphone")?.withTintColor(.systemBlue), for: .normal)
         } else if client == "Xabber for Web" {
-            self.headerView.imageButton.setImage(UIImage(systemName: "desktopcomputer")?.withTintColor(.systemBlue).withRenderingMode(.alwaysTemplate), for: .normal)
+            self.headerView.imageButton.setImage(UIImage(systemName: "desktopcomputer")?.withTintColor(.systemBlue), for: .normal)
         } else {
-            self.headerView.imageButton.setImage(UIImage(systemName: "questionmark")?.withTintColor(.systemBlue).withRenderingMode(.alwaysTemplate), for: .normal)
+            self.headerView.imageButton.setImage(UIImage(systemName: "questionmark")?.withTintColor(.systemBlue), for: .normal)
         }
         
         NSLayoutConstraint.activate ([
+            stackLabels.topAnchor.constraint(equalTo: headerView.bottomAnchor, constant: 16),
+            stackLabels.leftAnchor.constraint(equalTo: view.leftAnchor, constant: 33),
+            stackLabels.rightAnchor.constraint(equalTo: view.rightAnchor, constant: -33),
+            titleLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
+            descriptionLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
+            stepsLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
             agreeButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            agreeButton.topAnchor.constraint(equalTo: headerView.bottomAnchor, constant: 10),
+            agreeButton.bottomAnchor.constraint(equalTo: rejectButton.topAnchor, constant: -8),
             rejectButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            rejectButton.topAnchor.constraint(equalTo: agreeButton.bottomAnchor, constant: 10)
+            rejectButton.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -48)
         ])
         
         NotificationCenter.default.addObserver(self, selector: #selector(requestAcceptedByAnotherDevice(_:)), name: NSNotification.Name(rawValue: "rejected_VerificationConfirmationViewController"), object: akeManager)

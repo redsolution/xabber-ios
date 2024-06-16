@@ -29,9 +29,8 @@ class ShowCodeViewController: SimpleBaseViewController {
     
     let codeLabel: UILabel = {
         let label = UILabel()
-        
         label.translatesAutoresizingMaskIntoConstraints = false
-        label.font = UIFont.monospacedSystemFont(ofSize: 48, weight: .regular)
+        label.font = UIFont.monospacedSystemFont(ofSize: 48, weight: .regular).bold()
         
         return label
     }()
@@ -40,24 +39,33 @@ class ShowCodeViewController: SimpleBaseViewController {
         let stack = UIStackView()
         stack.alignment = .center
         stack.axis = .vertical
-        stack.spacing = 15
+        stack.spacing = 12
         stack.translatesAutoresizingMaskIntoConstraints = false
         
         return stack
     }()
     
-    let subTitleLabel: UILabel = {
+    let titleLabel: UILabel = {
         let label = UILabel()
-        label.font = UIFont.systemFont(ofSize: 17)
+        label.font = label.font.bold()
+        label.textAlignment = .left
         label.numberOfLines = 0
         label.lineBreakMode = .byWordWrapping
+        label.text = "Device Verification"
         
         return label
     }()
     
     let descriptionLabel: UILabel = {
         let label = UILabel()
-        label.font = UIFont.systemFont(ofSize: 17)
+        label.numberOfLines = 0
+        label.lineBreakMode = .byWordWrapping
+        
+        return label
+    }()
+    
+    let stepsLabel: UILabel = {
+        let label = UILabel()
         label.numberOfLines = 0
         label.textColor = .systemGray
         
@@ -82,43 +90,39 @@ class ShowCodeViewController: SimpleBaseViewController {
         headerView.backgroundColor = .systemGroupedBackground
         
         view.addSubview(headerView)
-        stackLabels.addArrangedSubview(subTitleLabel)
+        stackLabels.addArrangedSubview(titleLabel)
         stackLabels.addArrangedSubview(descriptionLabel)
+        stackLabels.addArrangedSubview(stepsLabel)
         stackLabels.addArrangedSubview(codeLabel)
         
-        stackLabels.setCustomSpacing(40, after: descriptionLabel)
+        stackLabels.setCustomSpacing(40, after: stepsLabel)
         
         cancelButton.addTarget(self, action: #selector(onCancelButtonPressed), for: .touchUpInside)
         
+        var attributedString = NSMutableAttributedString()
         if isVerificationWithOwnDevice {
-            subTitleLabel.text = "You are about to establish a secure connection with this account"
+            descriptionLabel.text = "You are receiving a device verification request to ensure secure and encrypted communication."
+            attributedString = NSMutableAttributedString(string: "1.\tConfirm that this device is yours and that you recognize the initiating session.\n\n2.\tBelow is the verification code. Enter this code on the primary device to complete the encryption key exchange:")
         } else {
-            subTitleLabel.text = "You are about to establish a secure connection with your other device"
+            descriptionLabel.text = "You are about to establish a secure connection with this contact."
+            attributedString = NSMutableAttributedString(string: "1.\tCarefully verify the address and identity of this contact.\n\n2.\tUse a secure method (preferably in person) to ask the contact to verify identity by entering the following code:")
         }
         
-        let attributedString = NSMutableAttributedString(string: "1.\tCarefully verify the ")
-        let infixAttributedString = NSAttributedString(string: "address", attributes: [NSAttributedString.Key.foregroundColor: UIColor.systemBlue])
-        attributedString.append(infixAttributedString)
-        attributedString.append(NSAttributedString(string: " and identity of this contact.\n\n2.\tUse a secure method (preferably in person) to ask the contact to verify identity by entering the following code:"))
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.headIndent = 28
         attributedString.addAttributes([NSAttributedString.Key.paragraphStyle: paragraphStyle], range: NSRange(location: 0, length: attributedString.length))
-        descriptionLabel.attributedText = attributedString
+        stepsLabel.attributedText = attributedString
         
-        if #available(iOS 13.0, *) {
-            self.view.backgroundColor = .systemBackground
-        } else {
-            self.view.backgroundColor = .white
-        }
-        
+        self.view.backgroundColor = .systemBackground
         codeLabel.text = self.code
                 
         NSLayoutConstraint.activate([
             stackLabels.topAnchor.constraint(equalTo: headerView.bottomAnchor, constant: 16),
             stackLabels.leftAnchor.constraint(equalTo: view.leftAnchor, constant: 33),
             stackLabels.rightAnchor.constraint(equalTo: view.rightAnchor, constant: -33),
-            subTitleLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
+            titleLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
             descriptionLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
+            stepsLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
             cancelButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             cancelButton.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -70)
         ])
@@ -204,6 +208,7 @@ class ShowCodeViewController: SimpleBaseViewController {
                 
                 self.headerView.imageButton.imageEdgeInsets = UIEdgeInsets(top: 20, bottom: 20, left: 20, right: 20)
                 self.headerView.imageButton.backgroundColor = .white
+                self.headerView.imageButton.imageView?.contentMode = .scaleAspectFit
                 
                 self.headerView.configure(
                     avatarUrl: nil,
@@ -223,14 +228,6 @@ class ShowCodeViewController: SimpleBaseViewController {
                 } else {
                     self.headerView.imageButton.setImage(UIImage(systemName: "questionmark")?.withTintColor(.systemBlue), for: .normal)
                 }
-                
-                subTitleLabel.text = "You are receiving a device verification request to ensure secure and encrypted communication."
-                
-                let attributedString = NSMutableAttributedString(string: "1.\tConfirm that this device is yours and that you recognize the initiating session.\n\n2.\tBelow is the verification code. Display this code to the primary device to complete the encryption key exchange:")
-                let paragraphStyle = NSMutableParagraphStyle()
-                paragraphStyle.headIndent = 28
-                attributedString.addAttributes([NSAttributedString.Key.paragraphStyle: paragraphStyle], range: NSRange(location: 0, length: attributedString.length))
-                descriptionLabel.attributedText = attributedString
                 
                 return
             }
@@ -257,14 +254,6 @@ class ShowCodeViewController: SimpleBaseViewController {
                     thirdLine: nil
                 )
             }
-            
-            subTitleLabel.text = "You are about to establish a secure connection with this contact."
-            
-            let attributedString = NSMutableAttributedString(string: "1.\tCarefully verify the address and identity of this contact.\n\n2.\tUse a secure method (preferably in person) to ask the contact to verify identity by entering the following code:")
-            let paragraphStyle = NSMutableParagraphStyle()
-            paragraphStyle.headIndent = 28
-            attributedString.addAttributes([NSAttributedString.Key.paragraphStyle: paragraphStyle], range: NSRange(location: 0, length: attributedString.length))
-            descriptionLabel.attributedText = attributedString
         } catch {
             DDLogDebug("ShowCodeViewController: \(#function). \(error.localizedDescription)")
         }

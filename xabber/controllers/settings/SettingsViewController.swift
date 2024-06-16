@@ -845,6 +845,7 @@ class SettingsViewController: BaseViewController {
         }
         
         NotificationCenter.default.addObserver(self, selector: #selector(showVerificationConfirmationViewController(_:)), name: NSNotification.Name(rawValue: "received_VerificationConfirmationViewController"), object: akeManager)
+        NotificationCenter.default.addObserver(self, selector: #selector(showAuthenticationCodeInputViewController(_:)), name: NSNotification.Name(rawValue: "show_AuthenticationCodeInputViewController"), object: akeManager)
     }
     
     @objc
@@ -859,6 +860,23 @@ class SettingsViewController: BaseViewController {
             }
         }
         
+    }
+    
+    @objc
+    func showAuthenticationCodeInputViewController(_ notification: Notification) {
+        if let userInfo = notification.userInfo {
+            let sid = userInfo["sid"] as! String
+            let deviceId = userInfo["device-id"] as! String
+            let vc = AuthenticationCodeInputViewController()
+            DispatchQueue.main.async {
+                vc.owner = self.owner
+                vc.jid = self.owner
+                vc.sid = sid
+                vc.isVerificationWithUsersDevice = true
+                
+                self.navigationController?.present(vc, animated: true)
+            }
+        }
     }
     
     func headerViewConfig() {

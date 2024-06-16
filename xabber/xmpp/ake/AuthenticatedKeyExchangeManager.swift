@@ -88,8 +88,6 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                         bodyNotification = "Verification request received"
                         if instance.jid == self.owner {
                             if instance.state == .receivedRequest {
-                                
-                                
                                 guard let presenter = (UIApplication.shared.delegate as? AppDelegate)?.splitController else {
                                     return
                                 }
@@ -107,6 +105,25 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                         break
                     case .receivedRequestAccept:
                         bodyNotification = "Verification request accepted"
+                        if instance.jid == self.owner {
+                            if instance.state == .receivedRequestAccept {
+                                guard let presenter = (UIApplication.shared.delegate as? AppDelegate)?.splitController else {
+                                    return
+                                }
+                                
+                                let vc = AuthenticationCodeInputViewController()
+                                vc.owner = self.owner
+                                vc.jid = instance.jid
+                                vc.sid = instance.sid
+                                vc.isVerificationWithUsersDevice = true
+                                
+                                DispatchQueue.main.async {
+                                    showModal(vc, from: presenter)
+                                }
+                                
+                                NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_AuthenticationCodeInputViewController"), object: self, userInfo: ["sid": sid, "device-id": String(instance.myDeviceId)])
+                            }
+                        }
                     case .failed:
                         bodyNotification = "Verification failed"
                     case .trusted:
@@ -474,7 +491,6 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         }
         
         let uniqueMessageId = getUniqueMessageId(message, owner: self.owner)
-        
         let byteSequence = self.generateByteSequence()
         
         do {
@@ -519,11 +535,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
     func onHashFromInitiatorReceived(message: XMPPMessage) {
         guard let notify = message.element(forName: "notify", xmlns: XMPPNotificationsManager.xmlns) ?? message.element(forName: "notification", xmlns: XMPPNotificationsManager.xmlns),
               let messageContainer = notify.element(forName: "forwarded")?.element(forName: "message"),
-              let jid = XMPPMessage(from: messageContainer).from,
               let authenticatedKeyExchange = messageContainer.element(forName: "authenticated-key-exchange", xmlns: getPrimaryNamespace()),
-              let sid = authenticatedKeyExchange.attributeStringValue(forName: "sid"),
-              let timestamp = authenticatedKeyExchange.attributeStringValue(forName: "timestamp"),
-              let localStore = AccountManager.shared.find(for: owner)?.omemo.localStore,
               let jid = XMPPMessage(from: messageContainer).from,
               let sid = authenticatedKeyExchange.attributeStringValue(forName: "sid"),
               let hashEncrypted = authenticatedKeyExchange.element(forName: "hash"),
@@ -778,6 +790,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         }
         if self.owner == jid.bare {
             trustSharingManager.sendNotificationWithContactsDevices(opponentFullJid: jid.bareJID, deviceId: deviceIdRecipient)
+            trustSharingManager.getUserTrustedDevices(jid: jid.bareJID, deviceId: String(deviceId))
             trustSharingManager.publicOwnTrustedDevices(publisherDeviceId: String(deviceIdRecipient))
         } else {
             trustSharingManager.sendNotificationWithContactsDevices(opponentFullJid: XMPPJID(string: self.owner)!, deviceId: deviceIdRecipient)
@@ -810,14 +823,20 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 return
             }
             
-            if instance.jid != jid.bare || instance.state != .sentRequest {
+            if instance.jid != jid.bare || instance.state != .sentRequest && instance.state != .receivedRequest {
                 return
             }
-            
-            try realm.write {
-                instance.state = .rejected
-                instance.timestamp = timestamp
-                notificationInstance.verificationState = .rejected
+            if instance.state == .receivedRequest {
+                try realm.write {
+                    realm.delete(instance)
+                    realm.delete(notificationInstance)
+                }
+            } else {
+                try realm.write {
+                    instance.state = .rejected
+                    instance.timestamp = timestamp
+                    notificationInstance.verificationState = .rejected
+                }
             }
         } catch {
             DDLogDebug("AuthenticatedKeyExchange: \(#function). \(error.localizedDescription)")

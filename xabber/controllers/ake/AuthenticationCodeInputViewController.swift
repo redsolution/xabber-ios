@@ -43,24 +43,33 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
         let stack = UIStackView()
         stack.alignment = .center
         stack.axis = .vertical
-        stack.spacing = 15
+        stack.spacing = 12
         stack.translatesAutoresizingMaskIntoConstraints = false
         
         return stack
     }()
     
-    let subtitleLabel: UILabel = {
+    let titleLabel: UILabel = {
         let label = UILabel()
-        label.font = UIFont.systemFont(ofSize: 17)
+        label.font = label.font.bold()
+        label.textAlignment = .left
         label.numberOfLines = 0
         label.lineBreakMode = .byWordWrapping
+        label.text = "Device Verification"
         
         return label
     }()
     
     let descriptionLabel: UILabel = {
         let label = UILabel()
-        label.font = UIFont.systemFont(ofSize: 17)
+        label.numberOfLines = 0
+        label.lineBreakMode = .byWordWrapping
+        
+        return label
+    }()
+    
+    let stepsLabel: UILabel = {
+        let label = UILabel()
         label.numberOfLines = 0
         label.textColor = .systemGray
         
@@ -70,7 +79,7 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
     let code: UITextField = {
         let textField = UITextField()
         textField.typingAttributes = [NSAttributedString.Key.kern: 5]
-        textField.font = UIFont.monospacedSystemFont(ofSize: 48, weight: .regular)
+        textField.font = UIFont.monospacedSystemFont(ofSize: 48, weight: .regular).bold()
         textField.textAlignment = .center
         
         return textField
@@ -78,9 +87,10 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
     
     let submitButton: UIButton = {
         let button = UIButton()
+        button.configuration = UIButton.Configuration.filled()
+        button.configuration!.contentInsets = NSDirectionalEdgeInsets(top: 15, leading: 20, bottom: 15, trailing: 20)
         button.setTitle("Submit code", for: .normal)
-        button.setTitleColor(.systemBlue, for: .normal)
-        
+        button.tintColor = .systemBlue
         button.translatesAutoresizingMaskIntoConstraints = false
         
         return button
@@ -88,9 +98,10 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
     
     let cancelButton: UIButton = {
         let button = UIButton()
+        button.configuration = UIButton.Configuration.plain()
+        button.configuration!.contentInsets = NSDirectionalEdgeInsets(top: 15, leading: 20, bottom: 15, trailing: 20)
         button.setTitle("Cancel verification", for: .normal)
         button.setTitleColor(.systemRed, for: .normal)
-        
         button.translatesAutoresizingMaskIntoConstraints = false
         
         return button
@@ -110,27 +121,48 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
         
         containerView.addSubview(headerView)
         
-        stackLabels.addArrangedSubview(subtitleLabel)
+        
+        stackLabels.addArrangedSubview(titleLabel)
         stackLabels.addArrangedSubview(descriptionLabel)
+        stackLabels.addArrangedSubview(stepsLabel)
         stackLabels.addArrangedSubview(code)
         
-        stackLabels.setCustomSpacing(40, after: descriptionLabel)
+        stackLabels.setCustomSpacing(40, after: stepsLabel)
         
         submitButton.addTarget(self, action: #selector(onVerifyButtonPressed), for: .touchUpInside)
         cancelButton.addTarget(self, action: #selector(onCancelButtonPressed), for: .touchUpInside)
         
         self.view.backgroundColor = .systemBackground
         
+        if isVerificationWithUsersDevice {
+            descriptionLabel.text = "You are verifying this device to ensure secure and encrypted communication."
+            
+            let attributedString = NSMutableAttributedString(string: "1.\tEnsure the other device is displaying the verification code.\n\n2.\tEnter the verification code displayed on the other device to complete the encryption key exchange:")
+            let paragraphStyle = NSMutableParagraphStyle()
+            paragraphStyle.headIndent = 28
+            attributedString.addAttributes([NSAttributedString.Key.paragraphStyle: paragraphStyle], range: NSRange(location: 0, length: attributedString.length))
+            stepsLabel.attributedText = attributedString
+        } else {
+            descriptionLabel.text = "You are establishing a secure connection with this contact."
+            
+            let attributedString = NSMutableAttributedString(string: "1.\tCarefully verify the address and identity of this contact.\n\n2.\tEnter the verification code provided by your contact to confirm the secure connection:")
+            let paragraphStyle = NSMutableParagraphStyle()
+            paragraphStyle.headIndent = 28
+            attributedString.addAttributes([NSAttributedString.Key.paragraphStyle: paragraphStyle], range: NSRange(location: 0, length: attributedString.length))
+            stepsLabel.attributedText = attributedString
+        }
+        
         NSLayoutConstraint.activate([
             stackLabels.topAnchor.constraint(equalTo: headerView.bottomAnchor, constant: 16),
             stackLabels.leftAnchor.constraint(equalTo: containerView.leftAnchor, constant: 33),
             stackLabels.rightAnchor.constraint(equalTo: view.rightAnchor, constant: -33),
-            subtitleLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
+            titleLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
             descriptionLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
+            stepsLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
             cancelButton.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
             cancelButton.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -70),
             submitButton.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
-            submitButton.bottomAnchor.constraint(equalTo: cancelButton.topAnchor, constant: -15),
+            submitButton.bottomAnchor.constraint(equalTo: cancelButton.topAnchor, constant: -16),
         ])
         
         guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
@@ -206,7 +238,7 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
             saltIv = instance!.opponentByteSequenceIv
             if let text = code.text {
                 try realm.write {
-                    instance?.code = code.text!
+                    instance?.code = text
                 }
             } else {
                 return
@@ -279,6 +311,7 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
                 
                 self.headerView.imageButton.imageEdgeInsets = UIEdgeInsets(top: 20, bottom: 20, left: 20, right: 20)
                 self.headerView.imageButton.backgroundColor = .white
+                self.headerView.imageButton.imageView?.contentMode = .scaleAspectFit
                 
                 self.headerView.configure(
                     avatarUrl: nil,
@@ -299,17 +332,8 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
                     self.headerView.imageButton.setImage(UIImage(systemName: "questionmark")?.withTintColor(.systemBlue), for: .normal)
                 }
                 
-                subtitleLabel.text = "You are verifying this device to ensure secure and encrypted communication."
-                
-                let attributedString = NSMutableAttributedString(string: "1.\tEnsure the other device is displaying the verification code.\n\n2.\tEnter the verification code displayed on the other device to complete the encryption key exchange:")
-                let paragraphStyle = NSMutableParagraphStyle()
-                paragraphStyle.headIndent = 28
-                attributedString.addAttributes([NSAttributedString.Key.paragraphStyle: paragraphStyle], range: NSRange(location: 0, length: attributedString.length))
-                descriptionLabel.attributedText = attributedString
-                
                 return
             }
-            
             let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: self.jid, owner: self.owner))
             if let instance = instance {
                 self.headerView.configure(
@@ -332,14 +356,6 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
                     thirdLine: nil
                 )
             }
-            
-            subtitleLabel.text = "You are establishing a secure connection with this contact."
-            
-            let attributedString = NSMutableAttributedString(string: "1.\tCarefully verify the address and identity of this contact.\n\n2.\tEnter the verification code provided by your contact to confirm the secure connection:")
-            let paragraphStyle = NSMutableParagraphStyle()
-            paragraphStyle.headIndent = 28
-            attributedString.addAttributes([NSAttributedString.Key.paragraphStyle: paragraphStyle], range: NSRange(location: 0, length: attributedString.length))
-            descriptionLabel.attributedText = attributedString
         } catch {
             DDLogDebug("AuthenticationCodeInputViewController: \(#function). \(error.localizedDescription)")
         }
