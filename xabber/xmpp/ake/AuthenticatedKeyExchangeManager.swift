@@ -553,7 +553,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 return
             }
             
-            if instance.jid != jid.bare || instance.state != .acceptedRequest {
+            if instance.jid != jid.bare {
                 return
             }
             
@@ -561,6 +561,14 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             
             guard let notificationInstance = realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: NotificationStorageItem.genPrimary(owner: self.owner, jid: jid.bare, uniqueId: uniqueMessageId)) else {
                 DDLogDebug("AuthenticatedKeyExchange: \(#function).")
+                return
+            }
+            
+            if instance.state == .receivedRequest {
+                try realm.write {
+                    realm.delete(instance)
+                    realm.delete(notificationInstance)
+                }
                 return
             }
             
@@ -838,6 +846,8 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                     notificationInstance.verificationState = .rejected
                 }
             }
+            
+            NotificationCenter.default.post(name: NSNotification.Name(rawValue: "rejected_VerificationConfirmationViewController"), object: self, userInfo: ["sid": sid])
         } catch {
             DDLogDebug("AuthenticatedKeyExchange: \(#function). \(error.localizedDescription)")
             return
