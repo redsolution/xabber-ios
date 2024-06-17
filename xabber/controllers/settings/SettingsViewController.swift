@@ -853,9 +853,25 @@ class SettingsViewController: BaseViewController {
         if let userInfo = notification.userInfo {
             let sid = userInfo["sid"] as! String
             let deviceId = userInfo["device-id"] as! String
+            
+            var isVerificationWithOwnDevice = false
+            
+            do {
+                let realm = try WRealm.safe()
+                guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) else {
+                    return
+                }
+                if instance.jid == self.owner {
+                    isVerificationWithOwnDevice = true
+                }
+            } catch {
+                DDLogDebug("SettingsViewController: \(#function). \(error.localizedDescription)")
+                return
+            }
+            
             let vc = VerificationConfirmationViewController()
             DispatchQueue.main.async {
-                vc.configure(owner: self.jid, sid: sid, deviceId: deviceId)
+                vc.configure(owner: self.jid, sid: sid, deviceId: deviceId, isVerificationWithOwnDevice: isVerificationWithOwnDevice)
                 showModal(vc, from: self)
             }
         }
