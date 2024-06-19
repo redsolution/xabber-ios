@@ -136,7 +136,8 @@ extension ContactInfoViewController: UITableViewDataSource {
             }
         case .session:
             let cell = VerificationSessionTableViewCell()
-            cell.configure(owner: self.owner, jid: self.jid, sid: item.verificationSid!, title: item.title, subtitle: item.subtitle)
+            cell.configure(title: item.title, subtitle: item.subtitle)
+            cell.closeButton.addTarget(self, action: #selector(onCloseVerificationButtonPressed), for: .touchUpInside)
             
             return cell
         }

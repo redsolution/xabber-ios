@@ -895,6 +895,37 @@ class SettingsViewController: BaseViewController {
         }
     }
     
+    @objc
+    func onCloseVerificationButtonPressed() {
+        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
+              let jid = XMPPJID(string: self.owner),
+              let sid = datasource.first(where: { $0.section == .session })?.childs.first?.verificationSid else {
+            DDLogDebug("SettingsViewController: \(#function).")
+            return
+        }
+        
+        do {
+            let realm = try WRealm.safe()
+            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid))
+            
+            if instance?.state == VerificationSessionStorageItem.VerififcationState.receivedRequest {
+                akeManager.rejectRequestToVerify(jid: self.owner, sid: sid)
+                
+                return
+            } else if instance?.state != VerificationSessionStorageItem.VerififcationState.failed && instance?.state != VerificationSessionStorageItem.VerififcationState.trusted && instance?.state != VerificationSessionStorageItem.VerififcationState.rejected {
+                akeManager.sendErrorMessage(fullJID: jid, sid: sid, reason: "Сontact canceled verification session")
+            }
+            try realm.write {
+                realm.delete(instance!)
+            }
+            
+            return
+        } catch {
+            DDLogDebug("SettingsViewController: \(#function). \(error.localizedDescription)")
+            return
+        }
+    }
+    
     func headerViewConfig() {
         tableView.fillSuperviewWithOffset(top: 0, bottom: 0, left: 0, right: 0)
         tableView.delegate = self

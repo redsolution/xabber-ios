@@ -590,7 +590,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         }
         
         if !checkHashFromInitiator(jid: jid.bare, sid: sid, deviceId: deviceId, hashEncrypted: hashEncrypted, byteSequenceEncrypted: byteSequenceEncrypted) {
-            NotificationCenter.default.post(name: NSNotification.Name(rawValue: "ShowCodeViewController"), object: self, userInfo: ["sid": sid])
+            NotificationCenter.default.post(name: NSNotification.Name(rawValue: "close_view"), object: self, userInfo: ["sid": sid])
             
             let child = self.getMessageChildsForErrorMessage(sid: sid, reason: "Hashes didn't match")
             
@@ -793,7 +793,9 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         }
         self.writeTrustedDevice(jid: jid.bare, deviceId: deviceId)
         
-        NotificationCenter.default.post(name: NSNotification.Name(rawValue: "ShowCodeViewController"), object: self, userInfo: ["sid": sid])
+        if jid.bare != self.owner {
+            NotificationCenter.default.post(name: NSNotification.Name(rawValue: "ShowCodeViewController"), object: self, userInfo: ["sid": sid])
+        }
         
         guard let trustSharingManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager else {
             DDLogDebug("AuthenticatedKeyExchange: \(#function).")
@@ -872,7 +874,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         
         do {
             NotificationCenter.default.post(name: NSNotification.Name(rawValue: "rejected_VerificationConfirmationViewController"), object: self, userInfo: ["sid": sid])
-            NotificationCenter.default.post(name: NSNotification.Name(rawValue: "ShowCodeViewController"), object: self, userInfo: ["sid": sid])
+            NotificationCenter.default.post(name: NSNotification.Name(rawValue: "verification_failure"), object: self, userInfo: ["sid": sid])
             NotificationCenter.default.post(name: NSNotification.Name(rawValue: "AuthenticationCodeInputViewController"), object: self, userInfo: ["sid": sid])
             
             let realm = try WRealm.safe()

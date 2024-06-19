@@ -713,6 +713,7 @@
 		849142272BB1A41A00FC474C /* AuthenticationCodeInputViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 849142262BB1A41A00FC474C /* AuthenticationCodeInputViewController.swift */; };
 		8496E00B2B98556800EBDE2B /* VerififcationSessionStorageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8496E00A2B98556800EBDE2B /* VerififcationSessionStorageItem.swift */; };
 		849EF50B2C0DF3A4005B0C57 /* VerificationConfirmationViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 849EF50A2C0DF3A4005B0C57 /* VerificationConfirmationViewController.swift */; };
+		84A5F28C2C22BDA300B176E0 /* SuccessfulVerificationViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84A5F28B2C22BDA300B176E0 /* SuccessfulVerificationViewController.swift */; };
 		AF5FCCC52A84BB0000C7DDC0 /* CloudPhotoGallery.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF5FCCC42A84BB0000C7DDC0 /* CloudPhotoGallery.swift */; };
 		AF6ADC052ABABFE40048BEF6 /* FileDeletionConfirmation.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF6ADC042ABABFE40048BEF6 /* FileDeletionConfirmation.swift */; };
 		AF6CDE1D2AB1B5A7004EBB9F /* CloudStorageDeleteViewController+UICollectionViewDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF6CDE1C2AB1B5A7004EBB9F /* CloudStorageDeleteViewController+UICollectionViewDataSource.swift */; };
@@ -1680,6 +1681,7 @@
 		849142262BB1A41A00FC474C /* AuthenticationCodeInputViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthenticationCodeInputViewController.swift; sourceTree = "<group>"; };
 		8496E00A2B98556800EBDE2B /* VerififcationSessionStorageItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerififcationSessionStorageItem.swift; sourceTree = "<group>"; };
 		849EF50A2C0DF3A4005B0C57 /* VerificationConfirmationViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerificationConfirmationViewController.swift; sourceTree = "<group>"; };
+		84A5F28B2C22BDA300B176E0 /* SuccessfulVerificationViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SuccessfulVerificationViewController.swift; sourceTree = "<group>"; };
 		95BBDD332E1BBA6B58CF98AC /* Pods-xabber.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-xabber.release.xcconfig"; path = "Target Support Files/Pods-xabber/Pods-xabber.release.xcconfig"; sourceTree = "<group>"; };
 		A5A1B180AC3ADA69A08E4243 /* Pods-clandestino.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-clandestino.release.xcconfig"; path = "Target Support Files/Pods-clandestino/Pods-clandestino.release.xcconfig"; sourceTree = "<group>"; };
 		AF5FCCC42A84BB0000C7DDC0 /* CloudPhotoGallery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPhotoGallery.swift; sourceTree = "<group>"; };
@@ -4198,6 +4200,7 @@
 				84881BC82BAAF27300BFA0F2 /* ShowCodeViewController.swift */,
 				849142262BB1A41A00FC474C /* AuthenticationCodeInputViewController.swift */,
 				849EF50A2C0DF3A4005B0C57 /* VerificationConfirmationViewController.swift */,
+				84A5F28B2C22BDA300B176E0 /* SuccessfulVerificationViewController.swift */,
 			);
 			path = ake;
 			sourceTree = "<group>";
@@ -5294,6 +5297,7 @@
 				66B680A026D3A4C0003E9358 /* CommonMemberTableCell.swift in Sources */,
 				661BBA34238FD27D00BE4A80 /* GroupchatInviteViewController+UITableViewDataSource.swift in Sources */,
 				1A939B2827E49D7400014E43 /* MasksSelectionViewController.swift in Sources */,
+				84A5F28C2C22BDA300B176E0 /* SuccessfulVerificationViewController.swift in Sources */,
 				66B3700220A443DF0022F71B /* AccountConnectBehaviorExtension.swift in Sources */,
 				66AD011922D7376700823398 /* LastChatsViewController+UITableViewPrefetchingDataSource.swift in Sources */,
 				66F2566424A376F9002FC961 /* XMPPActionManager.swift in Sources */,
