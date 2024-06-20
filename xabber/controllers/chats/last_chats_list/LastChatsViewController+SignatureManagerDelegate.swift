@@ -48,6 +48,4 @@ extension LastChatsViewController: SignatureManagerDelegate {
     func retrieveYubikeyInfo(with error: Error?) {
         
     }
-    
-    
 }

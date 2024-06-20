@@ -657,6 +657,7 @@
 		66EAF7F72407E7EB00207AD3 /* InlineAudioGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66EAF7F62407E7EB00207AD3 /* InlineAudioGridView.swift */; };
 		66EAF7FA2407EB8000207AD3 /* UIEdgeInsets+Init.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66EAF7F92407EB8000207AD3 /* UIEdgeInsets+Init.swift */; };
 		66EB12922BC7F85200524E1B /* NotificationsSubscribtionsListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66EB12912BC7F85200524E1B /* NotificationsSubscribtionsListViewController.swift */; };
+		66EB54962C22FD1E00E50566 /* XabberTabBarViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66EB54952C22FD1E00E50566 /* XabberTabBarViewController.swift */; };
 		66EB6A7A238D659E0024531C /* TextViewPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66EB6A79238D659E0024531C /* TextViewPresenter.swift */; };
 		66EBBE8A2278270600E9D620 /* IceCandidate+Decoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66EBBE892278270600E9D620 /* IceCandidate+Decoder.swift */; };
 		66ECBE38243DC86100BF6922 /* MessageManager+TemporaryReceiver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66ECBE37243DC86100BF6922 /* MessageManager+TemporaryReceiver.swift */; };
@@ -1625,6 +1626,7 @@
 		66EAF7F62407E7EB00207AD3 /* InlineAudioGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InlineAudioGridView.swift; sourceTree = "<group>"; };
 		66EAF7F92407EB8000207AD3 /* UIEdgeInsets+Init.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIEdgeInsets+Init.swift"; sourceTree = "<group>"; };
 		66EB12912BC7F85200524E1B /* NotificationsSubscribtionsListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsSubscribtionsListViewController.swift; sourceTree = "<group>"; };
+		66EB54952C22FD1E00E50566 /* XabberTabBarViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XabberTabBarViewController.swift; sourceTree = "<group>"; };
 		66EB6A79238D659E0024531C /* TextViewPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextViewPresenter.swift; sourceTree = "<group>"; };
 		66EBBE892278270600E9D620 /* IceCandidate+Decoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "IceCandidate+Decoder.swift"; sourceTree = "<group>"; };
 		66ECBE37243DC86100BF6922 /* MessageManager+TemporaryReceiver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MessageManager+TemporaryReceiver.swift"; sourceTree = "<group>"; };
@@ -4053,6 +4055,7 @@
 				66EF49A82BCEAADD00984187 /* EmptyChatViewController.swift */,
 				66EF49AA2BCEAB7B00984187 /* SplitViewControllerDelegateProtocol.swift */,
 				66F8F4F22BD6410C00449848 /* LeftMenuViewController.swift */,
+				66EB54952C22FD1E00E50566 /* XabberTabBarViewController.swift */,
 			);
 			path = split;
 			sourceTree = "<group>";
@@ -5333,6 +5336,7 @@
 				66B063A622D744C900FA8C13 /* AvatarProcessor.swift in Sources */,
 				66E667FF238BD4D9002F8B8A /* GroupchatSettingsViewController+ItemCell.swift in Sources */,
 				666201F822B3DE2A00FB2A44 /* AccountBlockListViewController.swift in Sources */,
+				66EB54962C22FD1E00E50566 /* XabberTabBarViewController.swift in Sources */,
 				66C23EC120CA6C3700F98C2E /* BadgedButton.swift in Sources */,
 				66A09C972938D0E3004ABC35 /* Lipsum.swift in Sources */,
 				6643F32321C2650E00333229 /* AvatarPosition.swift in Sources */,
@@ -5804,7 +5808,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = K62DQNZBXS;
+				DEVELOPMENT_TEAM = 4T7NT6425K;
 				ENABLE_BITCODE = NO;
 				ENABLE_ON_DEMAND_RESOURCES = NO;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -5833,7 +5837,7 @@
 				LLVM_LTO = NO;
 				MARKETING_VERSION = 1.0.0.1;
 				OTHER_SWIFT_FLAGS = "$(inherited) -D COCOAPODS -DDEBUG";
-				PRODUCT_BUNDLE_IDENTIFIER = com.xabber.ios;
+				PRODUCT_BUNDLE_IDENTIFIER = chat.clandestino.dev;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				RUN_CLANG_STATIC_ANALYZER = YES;
@@ -5860,7 +5864,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = K62DQNZBXS;
+				DEVELOPMENT_TEAM = 4T7NT6425K;
 				ENABLE_BITCODE = NO;
 				ENABLE_ON_DEMAND_RESOURCES = NO;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -5889,7 +5893,7 @@
 				LLVM_LTO = YES;
 				MARKETING_VERSION = 1.0.0.1;
 				OTHER_SWIFT_FLAGS = "$(inherited) -D COCOAPODS -DRELEASE";
-				PRODUCT_BUNDLE_IDENTIFIER = com.xabber.ios;
+				PRODUCT_BUNDLE_IDENTIFIER = chat.clandestino.dev;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				RUN_CLANG_STATIC_ANALYZER = YES;
@@ -5917,7 +5921,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.xabber.ios.xabberTests;
+				PRODUCT_BUNDLE_IDENTIFIER = chat.clandestino.dev.xabberTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -5938,7 +5942,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 13.5;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
 				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.xabber.ios.xabberTests;
+				PRODUCT_BUNDLE_IDENTIFIER = chat.clandestino.dev.xabberTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -5959,7 +5963,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = K62DQNZBXS;
+				DEVELOPMENT_TEAM = 4T7NT6425K;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -5972,7 +5976,7 @@
 				MARKETING_VERSION = 1.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.xabber.ios.xabber-push-extension";
+				PRODUCT_BUNDLE_IDENTIFIER = "chat.clandestino.dev.xabber-push-extension";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
@@ -5994,7 +5998,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = K62DQNZBXS;
+				DEVELOPMENT_TEAM = 4T7NT6425K;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -6006,7 +6010,7 @@
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MARKETING_VERSION = 1.0;
 				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.xabber.ios.xabber-push-extension";
+				PRODUCT_BUNDLE_IDENTIFIER = "chat.clandestino.dev.xabber-push-extension";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;

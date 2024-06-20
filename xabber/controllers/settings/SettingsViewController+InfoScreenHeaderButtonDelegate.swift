@@ -76,7 +76,7 @@ extension SettingsViewController: InfoScreenHeaderDelegate {
             vc.username = displayedName
             vc.jid = self.jid
             vc.stringValue = "xmpp:\(self.jid)"
-            showModal(vc, from: self)
+            showModal(vc)
         } catch {
             DDLogDebug("GroupchatInfoViewController: \(#function). \(error.localizedDescription)")
         }
@@ -156,7 +156,7 @@ extension SettingsViewController: InfoScreenHeaderDelegate {
         vc.delegate = self
         vc.palette = nil
         vc.lastSettedEmoji = nil
-        showModal(vc, from: self)
+        showModal(vc)
     }
     
     internal final func onOpenEmojiPicker() {

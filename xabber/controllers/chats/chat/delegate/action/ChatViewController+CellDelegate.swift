@@ -68,7 +68,7 @@ extension ChatViewController: MessageCellDelegate {
             vc.messagePrimary = primary
             vc.jid = self.jid
             vc.owner = self.owner
-            showModal(vc, from: self)
+            showModal(vc)
         } else {
             let errorMessage = "Unable to send file: \(item.messageError ?? "Unexpected error")"//
             let items = [
@@ -622,7 +622,7 @@ extension ChatViewController: MessageCellDelegate {
     internal func showSubforwards(_ items: [MessageForwardsInlineStorageItem.Model]) {
         let vc = SubforwardsViewController()
         vc.configure(owner, jid: jid, items: items)
-        showModal(vc, from: self)
+        showModal(vc)
     }
     
     internal func openFile(_ url: URL?) {
@@ -785,7 +785,7 @@ extension ChatViewController: MessageCellDelegate {
         
         let vc = XabberWebViewController()
         vc.configure(url: url, title: title)
-        showModal(vc, from: self)
+        showModal(vc)
     }
     
     

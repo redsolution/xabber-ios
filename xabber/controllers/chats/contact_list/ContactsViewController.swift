@@ -26,6 +26,7 @@ import RxCocoa
 import RxRealm
 import DeepDiff
 import CocoaLumberjack
+import YubiKit
 import MaterialComponents.MDCPalettes
 
 class ContactsViewController: BaseViewController {
@@ -829,30 +830,103 @@ class ContactsViewController: BaseViewController {
         self.splitViewController?.show(.primary)
     }
     
+    internal let securityButton: UIBarButtonItem = {
+        let button = UIBarButtonItem(image: UIImage(named: "security"), style: UIBarButtonItem.Style.plain, target: nil, action: nil)
+        
+        button.tintColor = .systemGray
+        
+        return button
+    }()
+    
+    @objc
+    func showSettings(_ sender: AnyObject) {
+        let vc = SettingsViewController()
+        vc.jid = AccountManager.shared.users.first?.jid ?? ""
+        vc.owner = AccountManager.shared.users.first?.jid ?? ""
+        showModal(vc)
+    }
+    
+    @objc
+    func onAddButtonTouchUpInside(_ sender: AnyObject) {
+        let vc = CreateNewEntityViewController()
+        showModal(vc)
+    }
+    
+    internal final func showRegisterYubikeyDialog() {
+        if SignatureManager.shared.certificate != nil {
+            let vc = YubikeySetupViewController()
+            vc.isFromOnboarding = false
+            vc.isModal = true
+            vc.owner = AccountManager.shared.users.first?.jid ?? ""
+            self.navigationController?.pushViewController(vc, animated: true)
+        } else {
+            SignatureManager.shared.delegate = self
+            FeedbackManager.shared.tap()
+            if #available(iOS 13.0, *) {
+                if YubiKitDeviceCapabilities.supportsISO7816NFCTags {
+                    YubiKitExternalLocalization.nfcScanAlertMessage = "Register Yubikey for account"
+                    YubiKitManager.shared.startNFCConnection()
+                    YubiKitManager.shared.delegate = SignatureManager.shared
+                    SignatureManager.shared.currentAction = .certificate
+                }
+            }
+        }
+    }
+    
+    @objc
+    internal func onRegisterYubikey() {
+        showRegisterYubikeyDialog()
+    }
+    
     internal func configureBars() {
         self.title = "Contacts"
         self.navigationController?.navigationBar.prefersLargeTitles = true
-        self.bottomBar.splitViewController = self.splitViewController
-        self.view.addSubview(bottomBar)
-        self.view.bringSubviewToFront(bottomBar)
-        var inputHeight: CGFloat = 49
-        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
-            inputHeight += bottomInset
+        if #available(iOS 16.0, *) {
+            self.navigationItem.preferredSearchBarPlacement = .stacked
         }
-        
-        let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
-        self.bottomBar.updateFrame(to: frame)
-        self.splitViewController?.navigationItem.setLeftBarButtonItems([], animated: true)
-        
-        self.bottomBar.leftButton.setImage(UIImage(systemName: self.showOffline ? "person.crop.circle" : "person.crop.circle.badge")?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate), for: .normal)
-        
-        let sidebarButton = UIBarButtonItem(image: UIImage(systemName: "sidebar.left"), style: .plain, target: self, action: #selector(onSidebarButtonTouchUp))
-        
-        if UIDevice.current.userInterfaceIdiom != .pad {
-            self.navigationItem.setHidesBackButton(true, animated: false)
-            self.navigationItem.setLeftBarButton(sidebarButton, animated: true)
+        securityButton.target = self
+        securityButton.action = #selector(onRegisterYubikey)
+        switch CommonConfigManager.shared.interfaceType {
+            case .tabs:
+                let addBarButton = UIBarButtonItem(
+                    image: UIImage(systemName: "plus")?
+                        .upscale(dimension: 24)
+                        .withRenderingMode(.alwaysTemplate),
+                    style: .done,
+                    target: self,
+                    action: #selector(onAddButtonTouchUpInside)
+                )
+                if CommonConfigManager.shared.config.use_yubikey {
+                    self.navigationItem.setRightBarButtonItems([addBarButton, securityButton], animated: true)
+                } else {
+                    self.navigationItem.setRightBarButtonItems([addBarButton], animated: true)
+                }
+                let leftBarButton = UIBarButtonItem(customView: accountNavButton)
+                self.navigationItem.setLeftBarButton(leftBarButton, animated: true)
+                accountNavButton.addTarget(self, action: #selector(showSettings), for: .touchUpInside)
+            case .split:
+                self.bottomBar.splitViewController = self.splitViewController
+                self.view.addSubview(bottomBar)
+                self.view.bringSubviewToFront(bottomBar)
+                var inputHeight: CGFloat = 49
+                if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
+                    inputHeight += bottomInset
+                }
+                
+                let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
+                self.bottomBar.updateFrame(to: frame)
+                self.splitViewController?.navigationItem.setLeftBarButtonItems([], animated: true)
+                
+                self.bottomBar.leftButton.setImage(UIImage(systemName: self.showOffline ? "person.crop.circle" : "person.crop.circle.badge")?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate), for: .normal)
+                
+                let sidebarButton = UIBarButtonItem(image: UIImage(systemName: "sidebar.left"), style: .plain, target: self, action: #selector(onSidebarButtonTouchUp))
+                
+                if UIDevice.current.userInterfaceIdiom != .pad {
+                    self.navigationItem.setHidesBackButton(true, animated: false)
+                    self.navigationItem.setLeftBarButton(sidebarButton, animated: true)
+                }
+                self.bottomBar.leftCallback = onLeftBarButtonTouchUp
         }
-        self.bottomBar.leftCallback = onLeftBarButtonTouchUp
     }
     
     func onLeftBarButtonTouchUp() {
@@ -907,7 +981,7 @@ class ContactsViewController: BaseViewController {
                             subtitle: "Try to add a contact".localizeString(id: "try_to_add_a_contact", arguments: []),
                             buttonTitle: "Add contact".localizeString(id: "application_action_no_contacts", arguments: [])) {
             let vc = CreateNewEntityViewController()
-            showModal(vc, from: self)
+            showModal(vc)
         }
         
         emptyView.isHidden = true
@@ -939,6 +1013,11 @@ class ContactsViewController: BaseViewController {
         updateTitle()
         self.tabBarController?.tabBar.isHidden = false
         self.tabBarController?.tabBar.layoutIfNeeded()
+        if SignatureManager.shared.certificate != nil {
+            self.securityButton.tintColor = .systemGreen
+        } else {
+            self.securityButton.tintColor = .systemRed
+        }
     }
     
     override func viewDidAppear(_ animated: Bool) {

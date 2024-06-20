@@ -41,8 +41,6 @@ extension LastChatsViewController: UITableViewDelegate {
         vc.owner = owner
         vc.jid = jid
         vc.conversationType = self.datasource[index].conversationType
-        self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: vc), sender: self)
-        self.splitViewController?.hide(.primary)
-
+        showStacked(vc, in: self)
     }
 }

@@ -162,11 +162,10 @@ extension NewSecretChatViewController: UITableViewDelegate {
             vc.owner = item.owner
             vc.conversationType = .omemo
             
-            splitVc?.showDetailViewController(UINavigationController(rootViewController: vc), sender: self)
-            splitVc?.hide(.primary)
+            if let presenterVc = self.presentationController {
+                showStacked(vc, in: presenterVc.presentingViewController)
+            }
         }
-        
-        
     }
 }
 

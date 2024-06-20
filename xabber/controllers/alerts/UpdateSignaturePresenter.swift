@@ -26,11 +26,6 @@ struct UpdateSignaturePresenter {
     
     func present() {
         let vc = YubikeyApproveViewController()
-        if var topController = UIApplication.shared.keyWindow?.rootViewController {
-            while let presentedViewController = topController.presentedViewController {
-                topController = presentedViewController
-            }
-            showModal(vc, from: topController)
-        }
+        showModal(vc)
     }
 }

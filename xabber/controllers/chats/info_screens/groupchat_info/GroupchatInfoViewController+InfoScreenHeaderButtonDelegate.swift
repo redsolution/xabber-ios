@@ -79,7 +79,7 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
         vc.owner = self.owner
         vc.isGroupchat = true
         vc.isCircleSelectView = true
-        showModal(vc, from: self)
+        showModal(vc)
     }
     
     internal func openChat() {
@@ -100,7 +100,7 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
         shouldResetNavbar = false
         let vc = GroupchatInviteViewController()
         vc.configure(jid: self.jid, owner: self.owner)
-        showModal(vc, from: self)
+        showModal(vc)
     }
     
     internal func onChangeNotifications() {
@@ -213,7 +213,7 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
         let vc = GroupchatSettingsViewController()
         vc.isStatus = false
         vc.configure(self.owner, jid: self.jid)
-        showModal(vc, from: self)
+        showModal(vc)
 //        self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
 //        self.navigationController?.navigationBar.shadowImage = nil
 //        navigationController?.pushViewController(vc, animated: true)
@@ -251,7 +251,7 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
         vc.isStatus = true
         vc.entity = self.isIncognitoChat ? .incognitoChat : .groupchat
         vc.configure(self.owner, jid: self.jid)
-        showModal(vc, from: self)
+        showModal(vc)
 //        self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
 //        self.navigationController?.navigationBar.shadowImage = nil
 //        navigationController?.pushViewController(vc, animated: true)
@@ -267,7 +267,7 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
             vc.username = displayedName
             vc.jid = self.jid
             vc.stringValue = "xmpp:\(self.jid)"
-            showModal(vc, from: self)
+            showModal(vc)
         } catch {
             DDLogDebug("GroupchatInfoViewController: \(#function). \(error.localizedDescription)")
         }
@@ -497,7 +497,7 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
         vc.delegate = self
         vc.palette = nil
         vc.lastSettedEmoji = nil
-        showModal(vc, from: self)
+        showModal(vc)
     }
     
     internal final func onOpenEmojiPicker() {

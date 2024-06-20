@@ -25,6 +25,7 @@ import RxSwift
 import RxCocoa
 import RxRealm
 import DeepDiff
+import YubiKit
 import CocoaLumberjack
 
 class LastCallsViewController: BaseViewController {
@@ -283,7 +284,7 @@ class LastCallsViewController: BaseViewController {
     
     private final func showAddDialog() {
         let vc = NewCallViewController()
-        showModal(vc, from: self)
+        showModal(vc)
     }
     
     @objc
@@ -295,7 +296,7 @@ class LastCallsViewController: BaseViewController {
     internal func onAccountNavButtonPress(_ sender: UIButton) {
         let vc = SettingsViewController() //AccountInfoViewController()
         vc.jid = self.topAccountJid
-        showModal(vc, from: self)
+        showModal(vc)
     }
     
 //    private final func configureNavbar() {
@@ -322,28 +323,101 @@ class LastCallsViewController: BaseViewController {
         self.splitViewController?.show(.primary)
     }
     
+    internal final func showRegisterYubikeyDialog() {
+        if SignatureManager.shared.certificate != nil {
+            let vc = YubikeySetupViewController()
+            vc.isFromOnboarding = false
+            vc.isModal = true
+            vc.owner = AccountManager.shared.users.first?.jid ?? ""
+            self.navigationController?.pushViewController(vc, animated: true)
+        } else {
+            SignatureManager.shared.delegate = self
+            FeedbackManager.shared.tap()
+            if #available(iOS 13.0, *) {
+                if YubiKitDeviceCapabilities.supportsISO7816NFCTags {
+                    YubiKitExternalLocalization.nfcScanAlertMessage = "Register Yubikey for account"
+                    YubiKitManager.shared.startNFCConnection()
+                    YubiKitManager.shared.delegate = SignatureManager.shared
+                    SignatureManager.shared.currentAction = .certificate
+                }
+            }
+        }
+    }
+    
+    @objc
+    internal func onRegisterYubikey() {
+        showRegisterYubikeyDialog()
+    }
+    
     internal func configureBars() {
         self.title = "Calls"
         self.navigationController?.navigationBar.prefersLargeTitles = true
-        self.bottomBar.splitViewController = self.splitViewController
-        self.view.addSubview(bottomBar)
-        self.view.bringSubviewToFront(bottomBar)
-        var inputHeight: CGFloat = 49
-        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
-            inputHeight += bottomInset
+        if #available(iOS 16.0, *) {
+            self.navigationItem.preferredSearchBarPlacement = .stacked
         }
-        
-        let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
-        bottomBar.updateFrame(to: frame)
-        self.splitViewController?.navigationItem.setLeftBarButtonItems([], animated: true)
-        
-        let sidebarButton = UIBarButtonItem(image: UIImage(systemName: "sidebar.left"), style: .plain, target: self, action: #selector(onSidebarButtonTouchUp))
-        
-        if UIDevice.current.userInterfaceIdiom != .pad {
-            self.navigationItem.setHidesBackButton(true, animated: false)
-            self.navigationItem.setLeftBarButton(sidebarButton, animated: true)
+        securityButton.target = self
+        securityButton.action = #selector(onRegisterYubikey)
+        switch CommonConfigManager.shared.interfaceType {
+            case .tabs:
+                let addBarButton = UIBarButtonItem(
+                    image: UIImage(systemName: "plus")?
+                        .upscale(dimension: 24)
+                        .withRenderingMode(.alwaysTemplate),
+                    style: .done,
+                    target: self,
+                    action: #selector(onAddButtonTouchUpInside)
+                )
+                if CommonConfigManager.shared.config.use_yubikey {
+                    self.navigationItem.setRightBarButtonItems([addBarButton, securityButton], animated: true)
+                } else {
+                    self.navigationItem.setRightBarButtonItems([addBarButton], animated: true)
+                }
+                let leftBarButton = UIBarButtonItem(customView: accountNavButton)
+                self.navigationItem.setLeftBarButton(leftBarButton, animated: true)
+                accountNavButton.addTarget(self, action: #selector(showSettings), for: .touchUpInside)
+            case .split:
+                self.bottomBar.splitViewController = self.splitViewController
+                self.view.addSubview(bottomBar)
+                self.view.bringSubviewToFront(bottomBar)
+                var inputHeight: CGFloat = 49
+                if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
+                    inputHeight += bottomInset
+                }
+                
+                let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
+                bottomBar.updateFrame(to: frame)
+                self.splitViewController?.navigationItem.setLeftBarButtonItems([], animated: true)
+                
+                let sidebarButton = UIBarButtonItem(image: UIImage(systemName: "sidebar.left"), style: .plain, target: self, action: #selector(onSidebarButtonTouchUp))
+                
+                if UIDevice.current.userInterfaceIdiom != .pad {
+                    self.navigationItem.setHidesBackButton(true, animated: false)
+                    self.navigationItem.setLeftBarButton(sidebarButton, animated: true)
+                }
+                self.bottomBar.isHidden = true
         }
-        self.bottomBar.isHidden = true
+    }
+    
+    internal let securityButton: UIBarButtonItem = {
+        let button = UIBarButtonItem(image: UIImage(named: "security"), style: UIBarButtonItem.Style.plain, target: nil, action: nil)
+        
+        button.tintColor = .systemGray
+        
+        return button
+    }()
+    
+    @objc
+    func showSettings(_ sender: AnyObject) {
+        let vc = SettingsViewController()
+        vc.jid = AccountManager.shared.users.first?.jid ?? ""
+        vc.owner = AccountManager.shared.users.first?.jid ?? ""
+        showModal(vc)
+    }
+    
+    @objc
+    func onAddButtonTouchUpInside(_ sender: AnyObject) {
+        let vc = CreateNewEntityViewController()
+        showModal(vc)
     }
     
     override func shouldChangeFrame() {
@@ -423,8 +497,14 @@ class LastCallsViewController: BaseViewController {
         subscribe()
         configureBars()
         NotifyManager.shared.setLastChats(displayed: false)
+        
         self.tabBarController?.tabBar.isHidden = false
         self.tabBarController?.tabBar.layoutIfNeeded()
+        if SignatureManager.shared.certificate != nil {
+            self.securityButton.tintColor = .systemGreen
+        } else {
+            self.securityButton.tintColor = .systemRed
+        }
     }
     
     override func viewDidAppear(_ animated: Bool) {

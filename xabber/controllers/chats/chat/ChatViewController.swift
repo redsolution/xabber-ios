@@ -474,13 +474,7 @@ class ChatViewController: MessagesViewController {
         }
         vc.owner = self.owner
         vc.jid = self.jid
-//        self.title = " "
-//        self.topMenuShowObserver.accept(false)
-//        self.navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
-//        self.navigationController?.navigationBar.shadowImage = UIImage()
-//        self.navigationController?.navigationBar.layoutIfNeeded()
-//        self.navigationController?.pushViewController(vc, animated: true)
-        showModal(vc, from: self)
+        showModal(vc)
     }
         
     @objc

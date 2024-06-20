@@ -91,32 +91,11 @@ extension CreateNewGroupViewController {
                 vc.owner = owner
                 vc.conversationType = .group
                 
-                splitVc?.showDetailViewController(UINavigationController(rootViewController: vc), sender: self)
-                splitVc?.hide(.primary)
+                if let presenterVc = self.presentationController {
+                    showStacked(vc, in: presenterVc.presentingViewController)
+                }
             }
         }
-        
-        
-//        self.navigationController?.dismiss(animated: true, completion: {
-//            self.delegate?.didAddContact(
-//                owner: owner,
-//                jid: jid,
-//                entity: self.createIncognitoGroup ? .incognitoChat : .groupchat,
-//                conversationType: .group
-//            )
-//        })
-        
-//        DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + 0.5) {
-//            do {
-//                let realm = try Realm()
-//                let collection = realm.objects(MessageStorageItem.self).filter("owenr == %@ AND opponent == %@ AMD archivedId == %@", owner, jid, MessageStorageItem.addContactLocalArchivedId)
-//                try realm.write {
-//                    realm.delete(collection)
-//                }
-//            } catch {
-//                DDLogDebug("CreateNewGroupViewController: \(#function). \(error.localizedDescription)")
-//            }
-//        }
     }
     
     internal func onError(conflict: Bool) {

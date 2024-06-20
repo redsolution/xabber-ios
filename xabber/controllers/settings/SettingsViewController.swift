@@ -850,16 +850,15 @@ class SettingsViewController: BaseViewController {
     
     @objc
     func showVerificationConfirmationViewController(_ notification: Notification) {
-        if let userInfo = notification.userInfo {
-            let sid = userInfo["sid"] as! String
-            let deviceId = userInfo["device-id"] as! String
-            let vc = VerificationConfirmationViewController()
-            DispatchQueue.main.async {
+        DispatchQueue.main.async {
+            if let userInfo = notification.userInfo {
+                let sid = userInfo["sid"] as! String
+                let deviceId = userInfo["device-id"] as! String
+                let vc = VerificationConfirmationViewController()
                 vc.configure(owner: self.jid, sid: sid, deviceId: deviceId)
-                showModal(vc, from: self)
+                showModal(vc)
             }
         }
-        
     }
     
     @objc

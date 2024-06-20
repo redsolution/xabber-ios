@@ -107,9 +107,7 @@ extension AccountEditViewController {
                 popoverController.permittedArrowDirections = []
             }
         }
-        present(alert, animated: true) {
-            
-        }
+        present(alert, animated: true)
     }
     
     internal final func openAvatarPicker() {
@@ -117,7 +115,7 @@ extension AccountEditViewController {
         vc.delegate = self
         vc.palette = nil
         vc.lastSettedEmoji = nil
-        showModal(vc, from: self)
+        showModal(vc)
     }
 
     

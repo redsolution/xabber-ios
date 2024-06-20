@@ -271,7 +271,7 @@ class DevicesListViewController: BaseViewController {
             let vc = VerificationConfirmationViewController()
             DispatchQueue.main.async {
                 vc.configure(owner: self.jid, sid: sid, deviceId: deviceId)
-                showModal(vc, from: self)
+                showModal(vc)
             }
         }
         

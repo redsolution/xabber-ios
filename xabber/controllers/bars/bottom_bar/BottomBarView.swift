@@ -128,9 +128,7 @@ class BottomBarView: UIView {
     @objc
     func onRightButtonTouchUp(_ sender: UIButton) {
         let vc = CreateNewEntityViewController()
-        if let splitVc = self.splitViewController {
-            showModal(vc, from: splitVc)
-        }
+        showModal(vc)
     }
     
     open var leftCallback: (() -> Void)? = nil

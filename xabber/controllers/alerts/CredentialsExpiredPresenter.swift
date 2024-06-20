@@ -31,11 +31,6 @@ struct CredentialsExpiredPresenter {
         (UIApplication.shared.delegate as? AppDelegate)?.credentialsExpiredPresenterShowed = true
         let vc = CredentialsExpiredViewController()
         vc.owner = jid
-        if var topController = UIApplication.shared.keyWindow?.rootViewController {
-            while let presentedViewController = topController.presentedViewController {
-                topController = presentedViewController
-            }
-            showModal(vc, from: topController)
-        }
+        showModal(vc)
     }
 }

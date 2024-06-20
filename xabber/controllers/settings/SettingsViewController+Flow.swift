@@ -45,14 +45,14 @@ extension SettingsViewController {
         let vc = AccountColorViewController()
         vc.isModal = true
         vc.configure(for: jid)
-        showModal(vc, from: self)
+        showModal(vc)
     }
 
     @objc
     internal func addAccount() {
         let vc = SignInCreditionalsViewController()
         vc.isModal = true
-        showModal(vc, from: self)
+        showModal(vc)
     }
     
     internal func showAccountInfo(_ jid: String, isEnabled: Bool) {

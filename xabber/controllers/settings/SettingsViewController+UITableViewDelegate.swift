@@ -59,38 +59,25 @@ extension SettingsViewController: UITableViewDelegate {
         }
         
         let menuItem = datasource[indexPath.section].childs[indexPath.row]
-        
-//        let subscribtion = SubscribtionsManager.shared.subscribtionEnd
-//        
-//        if menuItem.premiumOnly {
-//            guard subscribtion != nil else {
-//                self.view.makeToast("Premium account only")
-//                return
-//            }
-//        }
-        
-        
+
         if let key = menuItem.key {
             switch key {
             case .accountSessions:
                 let vc = DevicesListViewController()
                 vc.configure(for: jid)
                 navigationController?.pushViewController(vc, animated: true)
-//                self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: vc), sender: self)
                 return
                 
             case .manageStorage:
                 let vc = CloudStorageViewController()
                 vc.configure(jid: jid)
                 navigationController?.pushViewController(vc, animated: true)
-//                self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: vc), sender: self)
                 return
             
             case .accountEncryption:
                 let vc = AccountEncryptionInfoViewController()
                 vc.owner = self.jid
                 navigationController?.pushViewController(vc, animated: true)
-//                self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: vc), sender: self)
                 return
                 
             case .subscriptions:
@@ -98,7 +85,6 @@ extension SettingsViewController: UITableViewDelegate {
                 vc.owner = self.jid
                 vc.controllerCloseReason = .navigationStack
                 navigationController?.pushViewController(vc, animated: true)
-//                self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: vc), sender: self)
                 return
                 
             case .developer:
@@ -110,7 +96,6 @@ extension SettingsViewController: UITableViewDelegate {
                 vc.hidesBottomBarWhenPushed = true
                 vc.configure(for: datasource)
                 navigationController?.pushViewController(vc, animated: true)
-//                self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: vc), sender: self)
                 return
             
             case .yubikey:
@@ -120,7 +105,6 @@ extension SettingsViewController: UITableViewDelegate {
                     vc.isModal = true
                     vc.owner = AccountManager.shared.users.first?.jid ?? ""
                     self.navigationController?.pushViewController(vc, animated: true)
-//                    self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: vc), sender: self)
                 } else {
                     SignatureManager.shared.delegate = self
                     FeedbackManager.shared.tap()
@@ -137,7 +121,6 @@ extension SettingsViewController: UITableViewDelegate {
                 if !CredentialsManager.shared.isPincodeSetted() {
                     let vc = PasscodeViewController()
                     navigationController?.pushViewController(vc, animated: true)
-//                    self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: vc), sender: self)
                     return
                 } else {
                     ApplicationStateManager.shared.isPincodeShowed = true
@@ -155,12 +138,9 @@ extension SettingsViewController: UITableViewDelegate {
                 tableVC.resources = self.resources
                 tableVC.currentResource = self.currentResource
                 navigationController?.pushViewController(tableVC, animated: true)
-//                self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: tableVC), sender: self)
-                
                 return
             } else {
                 navigationController?.pushViewController(viewController.init(), animated: true)
-//                self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: viewController.init()), sender: self)
             }
             return
         }

@@ -52,7 +52,7 @@ extension ContactInfoViewController: InfoScreenHeaderDelegate {
         vc.jid = self.jid
         vc.owner = self.owner
         vc.isCircleSelectView = true
-        showModal(vc, from: self)
+        showModal(vc)
     }
     
     func onQRCode() {
@@ -64,7 +64,7 @@ extension ContactInfoViewController: InfoScreenHeaderDelegate {
             vc.username = displayedName
             vc.jid = self.jid
             vc.stringValue = "xmpp:\(self.jid)"
-            showModal(vc, from: self)
+            showModal(vc)
         } catch {
             DDLogDebug("GroupchatInfoViewController: \(#function). \(error.localizedDescription)")
         }
@@ -307,7 +307,7 @@ extension ContactInfoViewController: InfoScreenHeaderDelegate {
             vc.username = displayedName
             vc.jid = self.jid
             vc.stringValue = "xmpp:\(self.jid)"
-            showModal(vc, from: self)
+            showModal(vc)
         } catch {
             DDLogDebug("GroupchatInfoViewController: \(#function). \(error.localizedDescription)")
         }
