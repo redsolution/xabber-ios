@@ -246,8 +246,39 @@ class TrustedDevicesViewController: SimpleBaseViewController {
             DDLogDebug("TrustedDevicesViewController: \(#function). \(error.localizedDescription)")
             return
         }
-        
     }
+    
+    @objc
+    func onCloseButtonPressed() {
+        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
+              let jid = XMPPJID(string: self.jid),
+              let sid = datasource.first(where: { $0.first?.kind == .session })?.first?.verificationSid else {
+            DDLogDebug("TrustedDevicesViewController: \(#function).")
+            return
+        }
+        
+        do {
+            let realm = try WRealm.safe()
+            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid))
+            
+            if instance?.state == .receivedRequest {
+                akeManager.rejectRequestToVerify(jid: self.jid, sid: sid)
+                
+                return
+            } else if instance?.state != VerificationSessionStorageItem.VerififcationState.failed && instance?.state != VerificationSessionStorageItem.VerififcationState.trusted && instance?.state != VerificationSessionStorageItem.VerififcationState.rejected {
+                akeManager.sendErrorMessage(fullJID: jid, sid: sid, reason: "Сontact canceled verification session")
+            }
+            try realm.write {
+                realm.delete(instance!)
+            }
+            
+            return
+        } catch {
+            DDLogDebug("TrustedDevicesViewController: \(#function). \(error.localizedDescription)")
+            return
+        }
+    }
+
     
     static func getCellPropertiesForVerificationSession(verificationState: VerificationSessionStorageItem.VerififcationState) -> (String, String?, String?, String?) {
         let text: String
@@ -507,7 +538,8 @@ extension TrustedDevicesViewController: UITableViewDataSource {
             return cell
         case .session:
             let cell = VerificationSessionTableViewCell()
-            cell.configure(owner: self.owner, jid: self.jid, sid: item.verificationSid!, title: item.name, subtitle: item.subtitle)
+            cell.configure(title: item.name, subtitle: item.subtitle)
+            cell.closeButton.addTarget(self, action: #selector(onCloseButtonPressed), for: .touchUpInside)
             
             return cell
         }

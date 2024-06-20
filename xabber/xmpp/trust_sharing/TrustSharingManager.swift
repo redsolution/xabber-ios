@@ -32,18 +32,7 @@ class TrustSharingManager: AbstractXMPPManager {
     }
     
     func didReceivedTrustedSharingMessage(message: XMPPMessage) -> Bool {
-        let bareMessage: XMPPMessage
-        if isArchivedMessage(message) {
-            bareMessage = getArchivedMessageContainer(message)!
-        } else if isCarbonCopy(message) {
-            return false
-        } else if isCarbonForwarded(message) {
-            return false
-        } else {
-            bareMessage = message
-        }
-        
-        guard let notify = bareMessage.element(forName: "notify", xmlns: XMPPNotificationsManager.xmlns) ?? bareMessage.element(forName: "notification", xmlns: XMPPNotificationsManager.xmlns),
+        guard let notify = message.element(forName: "notify", xmlns: XMPPNotificationsManager.xmlns) ?? message.element(forName: "notification", xmlns: XMPPNotificationsManager.xmlns),
               let encryptedMessage = notify.element(forName: "forwarded")?.element(forName: "message"),
               let omemoManager = AccountManager.shared.find(for: self.owner)?.omemo else {
             return false
@@ -309,12 +298,14 @@ class TrustSharingManager: AbstractXMPPManager {
                         }
                     }
                 }
-                continue
             } catch {
                 DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
                 return true
             }
+            
+            NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_success"), object: self, userInfo: ["deviceId": publisherDeviceIdRaw])
         }
+        
         if isPublicationNeeded {
             guard let localStore = AccountManager.shared.find(for: owner)?.omemo.localStore else {
                 DDLogDebug("TrustSharingManager: \(#function).")

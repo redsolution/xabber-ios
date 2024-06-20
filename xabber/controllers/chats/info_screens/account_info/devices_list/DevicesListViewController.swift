@@ -26,6 +26,7 @@ import RxRealm
 import MaterialComponents.MDCPalettes
 import CocoaLumberjack
 import TOInsetGroupedTableView
+import XMPPFramework
 
 class DevicesListViewController: BaseViewController {
     class Datasource {
@@ -268,14 +269,59 @@ class DevicesListViewController: BaseViewController {
         if let userInfo = notification.userInfo {
             let sid = userInfo["sid"] as! String
             let deviceId = userInfo["device-id"] as! String
-            let vc = VerificationConfirmationViewController()
-            DispatchQueue.main.async {
-                vc.configure(owner: self.jid, sid: sid, deviceId: deviceId)
-                showModal(vc)
+            
+            var isVerificationWithOwnDevice = false
+            
+            do {
+                let realm = try WRealm.safe()
+                guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) else {
+                    return
+                }
+                if instance.jid == self.owner {
+                    isVerificationWithOwnDevice = true
+                }
+                DispatchQueue.main.async {
+                    let vc = VerificationConfirmationViewController()
+                    vc.configure(owner: self.jid, sid: sid, deviceId: deviceId, isVerificationWithOwnDevice: isVerificationWithOwnDevice)
+                    showModal(vc)
+                }
+            } catch {
+                DDLogDebug("SettingsViewController: \(#function). \(error.localizedDescription)")
             }
         }
-        
     }
+    
+    @objc
+    func onCloseButtonPressed() {
+        guard let akeManager = AccountManager.shared.find(for: self.jid)?.akeManager,
+              let jid = XMPPJID(string: self.jid),
+              let sid = activeVerificationSession?.sid else {
+            DDLogDebug("DevicesListViewController: \(#function).")
+            return
+        }
+        
+        do {
+            let realm = try WRealm.safe()
+            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.jid, sid: sid))
+            
+            if instance?.state == .receivedRequest {
+                akeManager.rejectRequestToVerify(jid: self.jid, sid: sid)
+                
+                return
+            } else if instance?.state != VerificationSessionStorageItem.VerififcationState.failed && instance?.state != VerificationSessionStorageItem.VerififcationState.trusted && instance?.state != VerificationSessionStorageItem.VerififcationState.rejected {
+                akeManager.sendErrorMessage(fullJID: jid, sid: sid, reason: "Сontact canceled verification session")
+            }
+            try realm.write {
+                realm.delete(instance!)
+            }
+            
+            return
+        } catch {
+            DDLogDebug("DevicesListViewController: \(#function). \(error.localizedDescription)")
+            return
+        }
+    }
+
     
     let refreshControl = UIRefreshControl()
     

@@ -74,7 +74,8 @@ extension SettingsViewController: UITableViewDataSource {
                 return cell
             } else {
                 let cell = VerificationSessionTableViewCell()
-                cell.configure(owner: self.owner, jid: self.owner, sid: item.verificationSid!, title: item.title!, subtitle: item.subtitle)
+                cell.configure(title: item.title!, subtitle: item.subtitle)
+                cell.closeButton.addTarget(self, action: #selector(onCloseVerificationButtonPressed), for: .touchUpInside)
                 
                 return cell
             }

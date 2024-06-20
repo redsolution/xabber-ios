@@ -11,7 +11,6 @@ import UIKit
 import XMPPFramework
 
 class ShowCodeViewController: SimpleBaseViewController {
-    
     open var code: String = ""
     open var deviceId: String = ""
     open var sid: String = ""
@@ -97,8 +96,6 @@ class ShowCodeViewController: SimpleBaseViewController {
         
         stackLabels.setCustomSpacing(40, after: stepsLabel)
         
-        cancelButton.addTarget(self, action: #selector(onCancelButtonPressed), for: .touchUpInside)
-        
         var attributedString = NSMutableAttributedString()
         if isVerificationWithOwnDevice {
             descriptionLabel.text = "You are receiving a device verification request to ensure secure and encrypted communication."
@@ -128,20 +125,44 @@ class ShowCodeViewController: SimpleBaseViewController {
         ])
         
         cancelButton.addTarget(self, action: #selector(onCancelButtonPressed), for: .touchUpInside)
-        
-        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
+    }
+    
+    override func addObservers() {
+        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
+              let trustManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager else {
             DDLogDebug("ShowCodeViewController: \(#function).")
             return
         }
         
-        NotificationCenter.default.addObserver(self, selector: #selector(verificationEnded(_:)), name: NSNotification.Name(rawValue: "ShowCodeViewController"), object: akeManager)
+        NotificationCenter.default.addObserver(self, selector: #selector(verificationSucceded(_:)), name: NSNotification.Name(rawValue: "show_success"), object: trustManager)
+        NotificationCenter.default.addObserver(self, selector: #selector(closeController(_:)), name: NSNotification.Name(rawValue: "close_view"), object: akeManager)
     }
     
     @objc
-    func verificationEnded(_ notification: Notification) {
+    func verificationSucceded(_ notification: Notification) {
         if let userInfo = notification.userInfo {
-            let sid = userInfo["sid"]
-            if self.sid == sid as! String {
+            guard let deviceId = userInfo["deviceId"] as? String else {
+                return
+            }
+            if self.deviceId == deviceId {
+                DispatchQueue.main.async {
+                    let vc = SuccessfulVerificationViewController()
+                    vc.owner = self.owner
+                    vc.deviceId = deviceId
+                    
+                    self.navigationController?.setViewControllers([vc], animated: true)
+                }
+            }
+        }
+    }
+    
+    @objc
+    func closeController(_ notification: Notification) {
+        if let userInfo = notification.userInfo {
+            guard let sid = userInfo["sid"] as? String else {
+                return
+            }
+            if self.sid == sid {
                 DispatchQueue.main.async {
                     self.dismiss(animated: true)
                 }

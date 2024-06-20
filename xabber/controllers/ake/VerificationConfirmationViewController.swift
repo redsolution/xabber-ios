@@ -14,6 +14,7 @@ import XMPPFramework
 class VerificationConfirmationViewController: SimpleBaseViewController {
     var sid: String = ""
     var deviceId: String = ""
+    var isVerificationWithOwnDevice: Bool = false
     
     var headerHeightMax: CGFloat = 236
     
@@ -46,7 +47,6 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
     
     let descriptionLabel: UILabel = {
         let label = UILabel()
-        label.text = "A verification request has been sent from another device to establish secure and encrypted communication."
         label.numberOfLines = 0
         
         return label
@@ -56,12 +56,6 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
         let label = UILabel()
         label.numberOfLines = 0
         label.textColor = .systemGray
-        
-        let attributedString = NSMutableAttributedString(string: "1.\tConfirm that this device is yours and that you recognize the initiating session.\n\n2.\tProceed to reveal the verification code necessary to complete the encryption key exchange.")
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.headIndent = 28
-        attributedString.addAttributes([NSAttributedString.Key.paragraphStyle: paragraphStyle], range: NSRange(location: 0, length: attributedString.length))
-        label.attributedText = attributedString
         
         return label
     }()
@@ -96,10 +90,11 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
         return view
     }()
     
-    func configure(owner: String, sid: String, deviceId: String) {
+    func configure(owner: String, sid: String, deviceId: String, isVerificationWithOwnDevice: Bool) {
         self.owner = owner
         self.sid = sid
         self.deviceId = deviceId
+        self.isVerificationWithOwnDevice = isVerificationWithOwnDevice
         
         headerView.backgroundColor = .systemGroupedBackground
         view.addSubview(headerView)
@@ -120,50 +115,105 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
             return
         }
         
-        var client = ""
-        var ip = ""
-        var publicName = ""
-        var date = ""
-        
-        do {
-            let realm = try WRealm.safe()
+        if isVerificationWithOwnDevice {
+            var client = ""
+            var ip = ""
+            var publicName = ""
+            var date = ""
             
-            guard let deviceInstance = realm.objects(DeviceStorageItem.self).filter("owner == %@ AND omemoDeviceId == %@", self.owner, Int(self.deviceId)!).first else {
+            do {
+                let realm = try WRealm.safe()
+                
+                guard let deviceInstance = realm.objects(DeviceStorageItem.self).filter("owner == %@ AND omemoDeviceId == %@", self.owner, Int(self.deviceId)!).first else {
+                    return
+                }
+                
+                client = deviceInstance.client
+                ip = deviceInstance.ip
+                
+                let dateFormatter = DateFormatter()
+                dateFormatter.dateFormat = "MMM d, yyyy"
+                let dateRaw = deviceInstance.authDate
+                date = dateFormatter.string(from: dateRaw)
+                
+                publicName = deviceInstance.device
+            } catch {
+                DDLogDebug("ShowCodeViewController: \(#function). \(error.localizedDescription)")
+            }
+            
+            self.headerView.imageButton.imageEdgeInsets = UIEdgeInsets(top: 20, bottom: 20, left: 20, right: 20)
+            self.headerView.imageButton.backgroundColor = .white
+            self.headerView.imageButton.imageView?.contentMode = .scaleAspectFit
+        
+        
+            self.descriptionLabel.text = "A verification request has been sent from another device to establish secure and encrypted communication."
+            
+            let attributedString = NSMutableAttributedString(string: "1.\tConfirm that this device is yours and that you recognize the initiating session.\n\n2.\tProceed to reveal the verification code necessary to complete the encryption key exchange.")
+            let paragraphStyle = NSMutableParagraphStyle()
+            paragraphStyle.headIndent = 28
+            attributedString.addAttributes([NSAttributedString.Key.paragraphStyle: paragraphStyle], range: NSRange(location: 0, length: attributedString.length))
+            stepsLabel.attributedText = attributedString
+            
+            self.headerView.configure(
+                avatarUrl: nil,
+                owner: self.owner,
+                jid: self.jid,
+                titleColor: .black,
+                title: publicName,
+                subtitle: ip + " • " + date,
+                thirdLine: nil
+            )
+            
+            if client == "XabberIOS" {
+                self.headerView.imageButton.setImage(UIImage(systemName: "iphone")?.withTintColor(.systemBlue), for: .normal)
+            } else if client == "Xabber for Web" {
+                self.headerView.imageButton.setImage(UIImage(systemName: "desktopcomputer")?.withTintColor(.systemBlue), for: .normal)
+            } else {
+                self.headerView.imageButton.setImage(UIImage(systemName: "questionmark")?.withTintColor(.systemBlue), for: .normal)
+            }
+        } else {
+            self.descriptionLabel.text = "A verification request has been sent from your contact to establish secure and encrypted communication."
+            
+            let attributedString = NSMutableAttributedString(string: "1.\tСonfirm that this contact is who he claims to be and that you recognize the initiating session.\n\n2.\tProceed to reveal the verification code necessary to complete the encryption key exchange.")
+            let paragraphStyle = NSMutableParagraphStyle()
+            paragraphStyle.headIndent = 28
+            attributedString.addAttributes([NSAttributedString.Key.paragraphStyle: paragraphStyle], range: NSRange(location: 0, length: attributedString.length))
+            stepsLabel.attributedText = attributedString
+            
+            do {
+                let realm = try WRealm.safe()
+                guard let verificationInstance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) else {
+                    DDLogDebug("VerificationConfirmationViewController: \(#function).")
+                    return
+                }
+                self.jid = verificationInstance.jid
+                
+                let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: verificationInstance.jid, owner: self.owner))
+                if let instance = instance {
+                    self.headerView.configure(
+                        avatarUrl: instance.avatarUrl,
+                        owner: self.owner,
+                        jid: self.jid,
+                        titleColor: .black,
+                        title: instance.displayName,
+                        subtitle: self.jid,
+                        thirdLine: nil
+                    )
+                } else {
+                    self.headerView.configure(
+                        avatarUrl: nil,
+                        owner: self.owner,
+                        jid: self.jid,
+                        titleColor: .black,
+                        title: self.jid,
+                        subtitle: self.jid,
+                        thirdLine: nil
+                    )
+                }
+            } catch {
+                DDLogDebug("ShowCodeViewController: \(#function). \(error.localizedDescription)")
                 return
             }
-            client = deviceInstance.client
-            ip = deviceInstance.ip
-            
-            let dateFormatter = DateFormatter()
-            dateFormatter.dateFormat = "MMM d, yyyy"
-            let dateRaw = deviceInstance.authDate
-            date = dateFormatter.string(from: dateRaw)
-            
-            publicName = deviceInstance.device
-        } catch {
-            DDLogDebug("ShowCodeViewController: \(#function). \(error.localizedDescription)")
-        }
-        
-        self.headerView.imageButton.imageEdgeInsets = UIEdgeInsets(top: 20, bottom: 20, left: 20, right: 20)
-        self.headerView.imageButton.backgroundColor = .white
-        self.headerView.imageButton.imageView?.contentMode = .scaleAspectFit
-        
-        self.headerView.configure(
-            avatarUrl: nil,
-            owner: self.owner,
-            jid: self.jid,
-            titleColor: .black,
-            title: publicName,
-            subtitle: ip + " • " + date,
-            thirdLine: nil
-        )
-        
-        if client == "XabberIOS" {
-            self.headerView.imageButton.setImage(UIImage(systemName: "iphone")?.withTintColor(.systemBlue), for: .normal)
-        } else if client == "Xabber for Web" {
-            self.headerView.imageButton.setImage(UIImage(systemName: "desktopcomputer")?.withTintColor(.systemBlue), for: .normal)
-        } else {
-            self.headerView.imageButton.setImage(UIImage(systemName: "questionmark")?.withTintColor(.systemBlue), for: .normal)
         }
         
         NSLayoutConstraint.activate ([
@@ -205,23 +255,35 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
     
     @objc
     func onAgreeButtonTapped() {
-        guard let code = AccountManager.shared.find(for: self.owner)?.akeManager.acceptVerificationRequest(jid: self.owner, sid: self.sid) else {
-            return
-        }
-        
         let vc = ShowCodeViewController()
-        vc.jid = self.owner
         vc.owner = self.owner
-        vc.code = code
         vc.sid = self.sid
-        vc.isVerificationWithOwnDevice = true
+        vc.isVerificationWithOwnDevice = self.isVerificationWithOwnDevice
+        
+        if isVerificationWithOwnDevice {
+            guard let code = AccountManager.shared.find(for: self.owner)?.akeManager.acceptVerificationRequest(jid: self.owner, sid: self.sid) else {
+                return
+            }
+            vc.jid = self.owner
+            vc.code = code
+        } else {
+            guard let code = AccountManager.shared.find(for: self.owner)?.akeManager.acceptVerificationRequest(jid: self.jid, sid: self.sid) else {
+                return
+            }
+            vc.jid = self.jid
+            vc.code = code
+        }
         
         self.navigationController?.setViewControllers([vc], animated: true)
     }
     
     @objc
     func onRejectButtonTapped() {
-        AccountManager.shared.find(for: self.owner)?.akeManager.rejectRequestToVerify(jid: self.owner, sid: self.sid)
+        if isVerificationWithOwnDevice {
+            AccountManager.shared.find(for: self.owner)?.akeManager.rejectRequestToVerify(jid: self.owner, sid: self.sid)
+        } else {
+            AccountManager.shared.find(for: self.owner)?.akeManager.rejectRequestToVerify(jid: self.jid, sid: self.sid)
+        }
         self.dismiss(animated: true)
     }
 }
