@@ -625,7 +625,7 @@ class SettingsViewController: BaseViewController {
                 
                 if let sessionInstance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.owner).first {
                     var isSessionDeleted = false
-                    if sessionInstance.state == .sentRequest {
+                    if sessionInstance.state == .sentRequest || sessionInstance.state == .receivedRequest {
                         // if more then ttl have passed after request, its not available anymore
                         if let timestamp = TimeInterval(sessionInstance.timestamp),
                            let ttl = TimeInterval(sessionInstance.ttl) {
@@ -840,12 +840,14 @@ class SettingsViewController: BaseViewController {
                                                selector: #selector(reloadDatasource),
                                                name: .newMaskSelected,
                                                object: nil)
-        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
+        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
+              let trustManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager else {
             return
         }
         
         NotificationCenter.default.addObserver(self, selector: #selector(showVerificationConfirmationViewController(_:)), name: NSNotification.Name(rawValue: "received_VerificationConfirmationViewController"), object: akeManager)
         NotificationCenter.default.addObserver(self, selector: #selector(showAuthenticationCodeInputViewController(_:)), name: NSNotification.Name(rawValue: "show_AuthenticationCodeInputViewController"), object: akeManager)
+        NotificationCenter.default.addObserver(self, selector: #selector(verificationSucceded(_:)), name: NSNotification.Name(rawValue: "show_success"), object: trustManager)
     }
     
     @objc
@@ -891,6 +893,24 @@ class SettingsViewController: BaseViewController {
                 vc.isVerificationWithUsersDevice = true
                 
                 self.navigationController?.present(vc, animated: true)
+            }
+        }
+    }
+    
+    @objc
+    func verificationSucceded(_ notification: Notification) {
+        if let userInfo = notification.userInfo {
+            guard let deviceId = userInfo["deviceId"] as? String,
+                  let jid = userInfo["jid"] as? String else {
+                return
+            }
+            DispatchQueue.main.async {
+                let vc = SuccessfulVerificationViewController()
+                vc.owner = self.owner
+                vc.jid = jid
+                vc.deviceId = deviceId
+                
+                showModal(vc, from: self)
             }
         }
     }

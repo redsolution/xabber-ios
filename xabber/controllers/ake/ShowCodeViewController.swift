@@ -73,6 +73,8 @@ class ShowCodeViewController: SimpleBaseViewController {
     
     let cancelButton: UIButton = {
         let button = UIButton()
+        button.configuration = UIButton.Configuration.plain()
+        button.configuration!.contentInsets = NSDirectionalEdgeInsets(top: 15, leading: 20, bottom: 15, trailing: 20)
         button.setTitle("Cancel verification", for: .normal)
         button.setTitleColor(.systemBlue, for: .normal)
         button.translatesAutoresizingMaskIntoConstraints = false
@@ -141,13 +143,15 @@ class ShowCodeViewController: SimpleBaseViewController {
     @objc
     func verificationSucceded(_ notification: Notification) {
         if let userInfo = notification.userInfo {
-            guard let deviceId = userInfo["deviceId"] as? String else {
+            guard let deviceId = userInfo["deviceId"] as? String,
+                  let jid = userInfo["jid"] as? String else {
                 return
             }
             if self.deviceId == deviceId {
                 DispatchQueue.main.async {
                     let vc = SuccessfulVerificationViewController()
                     vc.owner = self.owner
+                    vc.jid = jid
                     vc.deviceId = deviceId
                     
                     self.navigationController?.setViewControllers([vc], animated: true)
