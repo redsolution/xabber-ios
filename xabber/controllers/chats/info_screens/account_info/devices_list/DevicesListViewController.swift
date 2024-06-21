@@ -91,6 +91,7 @@ class DevicesListViewController: BaseViewController {
     internal var doneEditButton: UIBarButtonItem? = nil
     
     func load() {
+        activeVerificationSession = nil
         do {
             let realm = try WRealm.safe()
             account = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid) ?? AccountStorageItem()
@@ -115,7 +116,23 @@ class DevicesListViewController: BaseViewController {
                 .filter("owner == %@ AND jid == %@", jid, jid)
                 .toArray()
             
-            activeVerificationSession = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.jid, self.jid).first
+            let sessionInstance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.jid, self.jid).first
+            var isSessionDeleted = false
+            if sessionInstance?.state == .sentRequest || sessionInstance?.state == .receivedRequest {
+                // if more then ttl have passed after request, its not available anymore
+                if let timestamp = TimeInterval(sessionInstance!.timestamp),
+                   let ttl = TimeInterval(sessionInstance!.ttl) {
+                    if timestamp + ttl <= Date().timeIntervalSince1970 {
+                        try realm.write {
+                            realm.delete(sessionInstance!)
+                        }
+                        isSessionDeleted = true
+                    }
+                }
+            }
+            if !isSessionDeleted {
+                activeVerificationSession = sessionInstance
+            }
             
             self.brokenOmemoDevices = omemoDevices.filter {
                 device in

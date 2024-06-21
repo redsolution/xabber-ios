@@ -230,7 +230,7 @@ class TrustSharingManager: AbstractXMPPManager {
                 guard let instance = realm.objects(SignalDeviceStorageItem.self).filter(predicateForDevices).first else {
                     continue
                 }
-                if instance.state != SignalDeviceStorageItem.TrustState.trusted {
+                if instance.state != SignalDeviceStorageItem.TrustState.trusted || instance.lastTrustedItemsUpdateTimestamp == timestamp {
                     continue
                 }
                 try realm.write {
@@ -303,7 +303,16 @@ class TrustSharingManager: AbstractXMPPManager {
                 return true
             }
             
-            NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_success"), object: self, userInfo: ["deviceId": publisherDeviceIdRaw])
+            do {
+                let realm = try WRealm.safe()
+                let instance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND opponentDeviceId == %@", self.owner, publisherDeviceId).first
+                if instance != nil && instance?.state == .trusted {
+                    NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_success"), object: self, userInfo: ["jid": jid.bare, "deviceId": publisherDeviceIdRaw])
+
+                }
+            } catch {
+                
+            }
         }
         
         if isPublicationNeeded {

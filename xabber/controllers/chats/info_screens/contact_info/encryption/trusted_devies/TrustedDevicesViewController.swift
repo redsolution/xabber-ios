@@ -167,26 +167,43 @@ class TrustedDevicesViewController: SimpleBaseViewController {
                 self.jid
             ])
             let verificationSession = realm.objects(VerificationSessionStorageItem.self).filter(predicate).first
+            
             datasource = []
             if verificationSession != nil {
-                let text: String
-                let secondaryText: String?
-                let buttonTitle: String?
-                let buttonKey: String?
-                
-                let sid = verificationSession!.sid
-                let fullJid = verificationSession!.fullJID != "" ? verificationSession!.fullJID : verificationSession!.jid
-                
-                (text, secondaryText, buttonTitle, buttonKey) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: verificationSession!.state)
-                
-                datasource = [
-                    [Datasource(.session, name: text, subtitle: secondaryText, verificationSid: sid, verificationJid: fullJid)]
-                ]
-                
-                if buttonKey != nil {
-                    datasource[0].append(Datasource(.button, name: buttonTitle!, key: buttonKey!, verificationSid: sid, verificationJid: fullJid))
-                    if buttonKey == "accept_verification" {
-                        datasource[0].append(Datasource(.button, name: "Reject", key: "reject_verification", verificationSid: sid, verificationJid: fullJid))
+                var isSessionDeleted = false
+                if verificationSession!.state == .sentRequest || verificationSession!.state == .receivedRequest {
+                    // if more then ttl have passed after request, its not available anymore
+                    if let timestamp = TimeInterval(verificationSession!.timestamp),
+                       let ttl = TimeInterval(verificationSession!.ttl) {
+                        if timestamp + ttl <= Date().timeIntervalSince1970 {
+                            try realm.write {
+                                realm.delete(verificationSession!)
+                            }
+                            isSessionDeleted = true
+                        }
+                    }
+                }
+                    
+                if !isSessionDeleted {
+                    let text: String
+                    let secondaryText: String?
+                    let buttonTitle: String?
+                    let buttonKey: String?
+                    
+                    let sid = verificationSession!.sid
+                    let fullJid = verificationSession!.fullJID != "" ? verificationSession!.fullJID : verificationSession!.jid
+                    
+                    (text, secondaryText, buttonTitle, buttonKey) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: verificationSession!.state)
+                    
+                    datasource = [
+                        [Datasource(.session, name: text, subtitle: secondaryText, verificationSid: sid, verificationJid: fullJid)]
+                    ]
+                    
+                    if buttonKey != nil {
+                        datasource[0].append(Datasource(.button, name: buttonTitle!, key: buttonKey!, verificationSid: sid, verificationJid: fullJid))
+                        if buttonKey == "accept_verification" {
+                            datasource[0].append(Datasource(.button, name: "Reject", key: "reject_verification", verificationSid: sid, verificationJid: fullJid))
+                        }
                     }
                 }
             }
