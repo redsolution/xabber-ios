@@ -68,13 +68,39 @@ extension DevicesListViewController: UITableViewDataSource {
                 fatalError()
             }
         case .token:
-            if indexPath.row == 0 {
-                guard let cell = tableView.dequeueReusableCell(withIdentifier: ButtonTableViewCell.cellName, for: indexPath) as? ButtonTableViewCell else {
-                    return UITableViewCell(frame: .zero)
-                }
-                cell.configure(for: "Verify all unknown devices", style: .normal)
+            if indexPath.row == 0 && item.childs[0].kind == .session {
+                item = item.childs[0]
+                let cell = VerificationSessionTableViewCell()
+                cell.configure(title: item.title, subtitle: item.value)
+                cell.closeButton.removeFromSuperview()
+                cell.customImageView.tintColor = .systemOrange
+                cell.customImageView.image = UIImage(systemName: "exclamationmark.triangle.fill")?.upscale(dimension: 40).withTintColor(.systemOrange)
+
+                cell.labelsStack.alignment = .leading
+                cell.labelsStack.spacing = 10
+                cell.labelsStack.addArrangedSubview(cell.verifyButton)
+                cell.verifyButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
+                
                 return cell
             }
+            
+//            if item.childs[indexPath.row].kind == .button {
+//                guard let cell = tableView.dequeueReusableCell(withIdentifier: ButtonTableViewCell.cellName, for: indexPath) as? ButtonTableViewCell else {
+//                    return UITableViewCell()
+//                }
+//                cell.configure(for: item.childs[indexPath.row].title, style: .normal)
+//                cell.tintColor = .systemOrange
+//                
+//                return cell
+//            }
+            
+//            if indexPath.row == 0 {
+//                guard let cell = tableView.dequeueReusableCell(withIdentifier: ButtonTableViewCell.cellName, for: indexPath) as? ButtonTableViewCell else {
+//                    return UITableViewCell(frame: .zero)
+//                }
+//                cell.configure(for: "Verify all unknown devices", style: .normal)
+//                return cell
+//            }
             
             guard let cell = tableView.dequeueReusableCell(withIdentifier: DeviceInfoTableCell.cellName, for: indexPath) as? DeviceInfoTableCell else {
                     return UITableViewCell(frame: .zero)
@@ -86,6 +112,7 @@ extension DevicesListViewController: UITableViewDataSource {
                 trustState = omemoDevice.state
                 isTrustedByCert = omemoDevice.isTrustedByCertificate
             }
+            
             let hasBundle = deviceItem.encryptionEnabled
             cell.configure(
                 client: deviceItem.client,
@@ -100,6 +127,7 @@ extension DevicesListViewController: UITableViewDataSource {
                 hasBundle: hasBundle,
                 isTrustebByCertificate: isTrustedByCert
             )
+            
             return cell
         case .broken:
             guard let cell = tableView.dequeueReusableCell(withIdentifier: DeviceInfoTableCell.cellName, for: indexPath) as? DeviceInfoTableCell else {

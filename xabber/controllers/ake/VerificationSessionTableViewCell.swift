@@ -63,6 +63,18 @@ class VerificationSessionTableViewCell: UITableViewCell {
         return button
     }()
     
+    let verifyButton: UIButton = {
+        let button = UIButton()
+        button.setTitle("Verify", for: .normal)
+        button.setTitleColor(.white, for: .normal)
+        button.configuration = UIButton.Configuration.filled()
+        button.configuration!.baseBackgroundColor = .systemBlue
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        
+        return button
+    }()
+    
     let customImageView: UIImageView = {
         let imageView = UIImageView(frame: CGRect(square: 40))
         let image = UIImage(systemName: "lock.circle.fill")?.upscale(dimension: 40).withTintColor(.systemBlue)
@@ -99,7 +111,6 @@ class VerificationSessionTableViewCell: UITableViewCell {
     
     func activateConstraints() {
         NSLayoutConstraint.activate([
-            customImageView.widthAnchor.constraint(equalToConstant: 40),
             closeButton.widthAnchor.constraint(equalToConstant: 44),
             closeButton.heightAnchor.constraint(equalToConstant: 44),
             closeButton.rightAnchor.constraint(equalTo: self.contentView.rightAnchor),

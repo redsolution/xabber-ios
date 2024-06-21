@@ -34,7 +34,7 @@ extension DevicesListViewController: UITableViewDelegate {
             return 60
         case .token, .broken:
             if indexPath.row == 0 {
-                return 44
+                return tableView.estimatedRowHeight
             }
             return 60
         case .button: return 44
