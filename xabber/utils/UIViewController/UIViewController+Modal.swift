@@ -9,7 +9,7 @@
 import Foundation
 import UIKit
 
-func showModal(_ vc: UIViewController) {
+func showModal(_ vc: UIViewController, replaceParent: Bool = true) {
     let parent: UIViewController?
     if (UIApplication.shared.delegate as? AppDelegate)?.currentPresentedVc != nil {
         parent = (UIApplication.shared.delegate as? AppDelegate)?.currentPresentedVc
@@ -20,7 +20,9 @@ func showModal(_ vc: UIViewController) {
         case .split:
             parent = (UIApplication.shared.delegate as? AppDelegate)?.splitController
         }
-        (UIApplication.shared.delegate as? AppDelegate)?.currentPresentedVc = vc
+        if replaceParent {
+            (UIApplication.shared.delegate as? AppDelegate)?.currentPresentedVc = vc
+        }
     }
     let presenter = (UIApplication.shared.delegate as? AppDelegate)?.splitController
     let nvc = UINavigationController(rootViewController: vc)
@@ -37,7 +39,7 @@ func showModal(_ vc: UIViewController) {
     
     parent?.definesPresentationContext = true
     parent?.present(nvc, animated: true, completion: nil)
-    
+    parent?.presentationController?.delegate = (vc as? BaseViewController)
 }
 
 public func showStacked(_ vc: UIViewController, in presenter: UIViewController) {

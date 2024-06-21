@@ -241,15 +241,14 @@ class ApplicationStateManager: NSObject {
                         if instance!.jid == owner {
                             isVerificationWithOwnDevice = true
                         }
-//                        DispatchQueue.main.async {
-                            let vc = VerificationConfirmationViewController()
-                            vc.owner = owner
-                            vc.sid = sid
-                            vc.deviceId = deviceId
-                            vc.isVerificationWithOwnDevice = isVerificationWithOwnDevice
+                        
+                        let vc = VerificationConfirmationViewController()
+                        vc.owner = owner
+                        vc.sid = sid
+                        vc.deviceId = deviceId
+                        vc.isVerificationWithOwnDevice = isVerificationWithOwnDevice
 
-                            showModal(vc)
-//                        }
+                        showModal(vc, replaceParent: false)
                     }
                 }
             } catch {

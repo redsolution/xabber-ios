@@ -82,19 +82,22 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                         continue
                     }
                     
+                    let jid = instance.jid
+                    let sid = instance.sid
+                    let deviceId = String(instance.opponentDeviceId)
+                    
                     var bodyNotification = ""
                     switch instance.state {
                     case .receivedRequest:
                         bodyNotification = "Verification request received"
                         
-                        let sid = instance.sid
-                        let deviceId = String(instance.opponentDeviceId)
+                        
                         
                         let vc = VerificationConfirmationViewController()
                         vc.owner = self.owner
                         vc.sid = sid
                         vc.deviceId = deviceId
-                        if instance.jid == self.owner {
+                        if jid == self.owner {
                             vc.isVerificationWithOwnDevice = true
                         }
                         
@@ -105,15 +108,18 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                     case .receivedRequestAccept:
                         bodyNotification = "Verification request accepted"
 
-                        if instance.jid == self.owner {
+                        if jid == self.owner {
                             guard let presenter = (UIApplication.shared.delegate as? AppDelegate)?.splitController else {
                                 return
                             }
                             
+                            
+//                            let sid = instance.sid
+                            
                             let vc = AuthenticationCodeInputViewController()
                             vc.owner = self.owner
-                            vc.jid = instance.jid
-                            vc.sid = instance.sid
+                            vc.jid = jid
+                            vc.sid = sid
                             vc.isVerificationWithUsersDevice = true
                             
                             showModal(vc)
@@ -122,8 +128,8 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                             
                             if instance.state == .receivedRequestAccept {
                                 
-                                let jid = instance.jid
-                                let sid = instance.sid
+//                                let jid = instance.jid
+//                                let sid = instance.sid
                                 
                                 
                                 DispatchQueue.main.async {
@@ -147,7 +153,8 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                     default:
                         return
                     }
-                    self.showNotification(title: instance.jid, owner: self.owner, body: bodyNotification, sid: instance.sid, timestamp: timestamp)
+                    
+                    self.showNotification(title: jid, owner: self.owner, body: bodyNotification, sid: sid, timestamp: timestamp)
                 } catch {
                     DDLogDebug("AuthenticatedKeyExchange \(#function). \(error.localizedDescription)")
                 }
