@@ -69,6 +69,7 @@ class BaseViewController: UIViewController {
     
     deinit {
         removeNotificationObserer()
+        
     }
     
     override func viewWillAppear(_ animated: Bool) {
@@ -84,6 +85,9 @@ class BaseViewController: UIViewController {
     }
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+        if self == (UIApplication.shared.delegate as? AppDelegate)?.currentPresentedVc {
+            (UIApplication.shared.delegate as? AppDelegate)?.currentPresentedVc = nil
+        }
 //        self.tabBarController?.tabBar.isHidden = false
 //        self.tabBarController?.tabBar.layoutIfNeeded()
     }
@@ -92,4 +96,5 @@ class BaseViewController: UIViewController {
     func reloadDatasource() {
         
     }
+    
 }

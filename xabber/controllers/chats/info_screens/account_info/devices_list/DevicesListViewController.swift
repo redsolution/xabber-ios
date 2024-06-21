@@ -278,7 +278,7 @@ class DevicesListViewController: BaseViewController {
             return
         }
         
-        NotificationCenter.default.addObserver(self, selector: #selector(showVerificationConfirmationViewController(_:)), name: NSNotification.Name(rawValue: "received_VerificationConfirmationViewController"), object: akeManager)
+//        NotificationCenter.default.addObserver(self, selector: #selector(showVerificationConfirmationViewController(_:)), name: NSNotification.Name(rawValue: "received_VerificationConfirmationViewController"), object: akeManager)
     }
     
     @objc
@@ -299,7 +299,7 @@ class DevicesListViewController: BaseViewController {
                 }
                 DispatchQueue.main.async {
                     let vc = VerificationConfirmationViewController()
-                    vc.configure(owner: self.jid, sid: sid, deviceId: deviceId, isVerificationWithOwnDevice: isVerificationWithOwnDevice)
+//                    vc.configure(owner: self.jid, sid: sid, deviceId: deviceId, isVerificationWithOwnDevice: isVerificationWithOwnDevice)
                     showModal(vc)
                 }
             } catch {

@@ -9,13 +9,18 @@
 import Foundation
 import UIKit
 
-public func showModal(_ vc: UIViewController) {
+func showModal(_ vc: UIViewController) {
     let parent: UIViewController?
-    switch CommonConfigManager.shared.interfaceType {
+    if (UIApplication.shared.delegate as? AppDelegate)?.currentPresentedVc != nil {
+        parent = (UIApplication.shared.delegate as? AppDelegate)?.currentPresentedVc
+    } else {
+        switch CommonConfigManager.shared.interfaceType {
         case .tabs:
             parent = (UIApplication.shared.delegate as? AppDelegate)?.tabController
         case .split:
             parent = (UIApplication.shared.delegate as? AppDelegate)?.splitController
+        }
+        (UIApplication.shared.delegate as? AppDelegate)?.currentPresentedVc = vc
     }
     let presenter = (UIApplication.shared.delegate as? AppDelegate)?.splitController
     let nvc = UINavigationController(rootViewController: vc)
@@ -28,8 +33,11 @@ public func showModal(_ vc: UIViewController) {
             popoverController.permittedArrowDirections = []
         }
     }
+    
+    
     parent?.definesPresentationContext = true
     parent?.present(nvc, animated: true, completion: nil)
+    
 }
 
 public func showStacked(_ vc: UIViewController, in presenter: UIViewController) {

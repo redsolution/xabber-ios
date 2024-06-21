@@ -49,6 +49,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
      
     var splitController: UISplitViewController? = nil
     var tabController: UITabBarController? = nil
+    var currentPresentedVc: UIViewController? = nil
     
     var credentialsExpiredPresenterShowed: Bool = false
     

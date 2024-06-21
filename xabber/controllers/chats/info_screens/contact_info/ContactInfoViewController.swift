@@ -513,10 +513,10 @@ class ContactInfoViewController: BaseViewController {
                                                selector: #selector(reloadDatasource),
                                                name: .newMaskSelected,
                                                object: nil)
-        NotificationCenter.default.addObserver(self,
-                                               selector: #selector(showVerificationConfirmationViewController(_:)),
-                                               name: NSNotification.Name(rawValue: "received_VerificationConfirmationViewController"),
-                                               object: akeManager)
+//        NotificationCenter.default.addObserver(self,
+//                                               selector: #selector(showVerificationConfirmationViewController(_:)),
+//                                               name: NSNotification.Name(rawValue: "received_VerificationConfirmationViewController"),
+//                                               object: akeManager)
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(verificationSucceded(_:)),
                                                name: NSNotification.Name(rawValue: "show_success"),
@@ -596,9 +596,13 @@ class ContactInfoViewController: BaseViewController {
                 return
             }
             
-            let vc = VerificationConfirmationViewController()
             DispatchQueue.main.async {
-                vc.configure(owner: self.owner, sid: sid, deviceId: deviceId, isVerificationWithOwnDevice: isVerificationWithOwnDevice)
+                let vc = VerificationConfirmationViewController()
+                vc.owner = self.owner
+                vc.sid = sid
+                vc.deviceId = deviceId
+                vc.isVerificationWithOwnDevice = isVerificationWithOwnDevice
+
                 showModal(vc)
             }
         }

@@ -22,6 +22,7 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
         let view = InfoScreenHeaderView(frame: .zero)
         view.titleButton.titleLabel?.font = UIFont.systemFont(ofSize: 20)
         view.additionalTopOffset = 56
+        view.backgroundColor = .systemGroupedBackground
         
         return view
     }()
@@ -90,15 +91,8 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
         return view
     }()
     
-    func configure(owner: String, sid: String, deviceId: String, isVerificationWithOwnDevice: Bool) {
-        self.owner = owner
-        self.sid = sid
-        self.deviceId = deviceId
-        self.isVerificationWithOwnDevice = isVerificationWithOwnDevice
-        
-        headerView.backgroundColor = .systemGroupedBackground
+    override func setupSubviews() {
         view.addSubview(headerView)
-        
         view.addSubview(stackLabels)
         view.addSubview(agreeButton)
         view.addSubview(rejectButton)
@@ -110,6 +104,14 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
         agreeButton.addTarget(self, action: #selector(onAgreeButtonTapped), for: .touchUpInside)
         rejectButton.addTarget(self, action: #selector(onRejectButtonTapped), for: .touchUpInside)
         
+        if isVerificationWithOwnDevice {
+            self.headerView.imageButton.imageEdgeInsets = UIEdgeInsets(top: 20, bottom: 20, left: 20, right: 20)
+            self.headerView.imageButton.backgroundColor = .white
+            self.headerView.imageButton.imageView?.contentMode = .scaleAspectFit
+        }
+    }
+    
+    override func loadDatasource() {
         guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
             DDLogDebug("VerificationConfirmationViewController: \(#function).")
             return
@@ -124,27 +126,23 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
             do {
                 let realm = try WRealm.safe()
                 
-                guard let deviceInstance = realm.objects(DeviceStorageItem.self).filter("owner == %@ AND omemoDeviceId == %@", self.owner, Int(self.deviceId)!).first else {
+                let deviceInstance = realm.objects(DeviceStorageItem.self).filter("owner == %@ AND omemoDeviceId == %@", self.owner, Int(self.deviceId)!).first
+                if deviceInstance == nil {
                     return
                 }
                 
-                client = deviceInstance.client
-                ip = deviceInstance.ip
+                client = deviceInstance!.client
+                ip = deviceInstance!.ip
                 
                 let dateFormatter = DateFormatter()
                 dateFormatter.dateFormat = "MMM d, yyyy"
-                let dateRaw = deviceInstance.authDate
+                let dateRaw = deviceInstance!.authDate
                 date = dateFormatter.string(from: dateRaw)
                 
-                publicName = deviceInstance.device
+                publicName = deviceInstance!.device
             } catch {
                 DDLogDebug("ShowCodeViewController: \(#function). \(error.localizedDescription)")
             }
-            
-            self.headerView.imageButton.imageEdgeInsets = UIEdgeInsets(top: 20, bottom: 20, left: 20, right: 20)
-            self.headerView.imageButton.backgroundColor = .white
-            self.headerView.imageButton.imageView?.contentMode = .scaleAspectFit
-        
         
             self.descriptionLabel.text = "A verification request has been sent from another device to establish secure and encrypted communication."
             
@@ -215,7 +213,9 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
                 return
             }
         }
-        
+    }
+    
+    override func activateConstraints() {
         NSLayoutConstraint.activate ([
             stackLabels.topAnchor.constraint(equalTo: headerView.bottomAnchor, constant: 16),
             stackLabels.leftAnchor.constraint(equalTo: view.leftAnchor, constant: 33),
@@ -228,6 +228,10 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
             rejectButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             rejectButton.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -48)
         ])
+    }
+    
+    override func addObservers() {
+        let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager
         
         NotificationCenter.default.addObserver(self, selector: #selector(requestAcceptedByAnotherDevice(_:)), name: NSNotification.Name(rawValue: "rejected_VerificationConfirmationViewController"), object: akeManager)
     }
