@@ -11,9 +11,9 @@ import UIKit
 
 func showModal(_ vc: UIViewController, replaceParent: Bool = true) {
     let parent: UIViewController?
-    if (UIApplication.shared.delegate as? AppDelegate)?.currentPresentedVc != nil {
-        parent = (UIApplication.shared.delegate as? AppDelegate)?.currentPresentedVc
-    } else {
+//    if (UIApplication.shared.delegate as? AppDelegate)?.currentPresentedVc != nil {
+//        parent = (UIApplication.shared.delegate as? AppDelegate)?.currentPresentedVc
+//    } else {
         switch CommonConfigManager.shared.interfaceType {
         case .tabs:
             parent = (UIApplication.shared.delegate as? AppDelegate)?.tabController
@@ -23,8 +23,7 @@ func showModal(_ vc: UIViewController, replaceParent: Bool = true) {
         if replaceParent {
             (UIApplication.shared.delegate as? AppDelegate)?.currentPresentedVc = vc
         }
-    }
-    let presenter = (UIApplication.shared.delegate as? AppDelegate)?.splitController
+//    }
     let nvc = UINavigationController(rootViewController: vc)
     nvc.modalPresentationStyle = .formSheet
     nvc.modalTransitionStyle = .coverVertical
@@ -36,10 +35,12 @@ func showModal(_ vc: UIViewController, replaceParent: Bool = true) {
         }
     }
     
-    
     parent?.definesPresentationContext = true
-    parent?.present(nvc, animated: true, completion: nil)
-    parent?.presentationController?.delegate = (vc as? BaseViewController)
+    if parent?.presentedViewController != nil {
+        parent?.presentedViewController?.present(nvc, animated: true)
+    } else {
+        parent?.present(nvc, animated: true, completion: nil)
+    }
 }
 
 public func showStacked(_ vc: UIViewController, in presenter: UIViewController) {
