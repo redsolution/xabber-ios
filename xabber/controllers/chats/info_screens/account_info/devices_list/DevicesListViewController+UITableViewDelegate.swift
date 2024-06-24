@@ -58,19 +58,19 @@ extension DevicesListViewController: UITableViewDelegate {
             }
         case .token:
             if indexPath.row == 0 {
-                guard let akeManager = AccountManager.shared.find(for: self.jid)?.akeManager else {
-                    fatalError()
-                }
-                akeManager.sendVerificationRequest(jid: self.jid)
-                
-                self.load()
-                self.update()
-                tableView.reloadData()
+//                guard let akeManager = AccountManager.shared.find(for: self.jid)?.akeManager else {
+//                    fatalError()
+//                }
+//                akeManager.sendVerificationRequest(jid: self.jid)
+//                
+//                self.load()
+//                self.update()
+//                tableView.reloadData()
                 
                 return
             }
             
-            let uid = devices[indexPath.row - 1].uid
+            let uid = devices[indexPath.row].uid
             showTokenInfo(uid: uid, canEdit: false)
         case .button:
             let item = datasource[indexPath.section].childs[indexPath.row]

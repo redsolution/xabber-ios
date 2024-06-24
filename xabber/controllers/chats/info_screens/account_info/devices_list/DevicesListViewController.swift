@@ -188,7 +188,7 @@ class DevicesListViewController: BaseViewController {
                                                   value: "You can terminate sessions you don`t need. Official Clandestino clients wipe all user data from the device upon session termination.".localizeString(id: "account_settings_terminate_description", arguments: []),
                                                   editable: false)
             if isVerifiactionRequired && activeVerificationSession == nil {
-                activeDevicesSection.childs.append(Datasource(.session, title: "Non-verified devices connected!", value: "Several devices connected to this account have enabled end-to-end encryption but were not verified. Please, review the list below and perform device verification for every device in question.", editable: false))
+                activeDevicesSection.childs.append(Datasource(.session, title: "NON-verified devices connected", value: "Several devices connected to this account have enabled end-to-end encryption but were not verified.\n\nPlease, review the list below and perform device verification for every device in question.", editable: false))
                 activeDevicesSection.childs.append(Datasource(.button, title: "Verify", editable: false))
             } else if activeVerificationSession != nil {
                 var text: String
@@ -320,10 +320,10 @@ class DevicesListViewController: BaseViewController {
             
             do {
                 let realm = try WRealm.safe()
-                guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) else {
+                guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.jid, sid: sid)) else {
                     return
                 }
-                if instance.jid == self.owner {
+                if instance.jid == self.jid {
                     isVerificationWithOwnDevice = true
                 }
                 DispatchQueue.main.async {
@@ -446,5 +446,17 @@ class DevicesListViewController: BaseViewController {
     internal func onDoneEditing(sender: AnyObject) {
         self.tableView.setEditing(false, animated: true)
         navigationItem.setRightBarButton(editButton, animated: true)
+    }
+    
+    @objc
+    func onVerifyButtonTouch() {
+        guard let akeManager = AccountManager.shared.find(for: self.jid)?.akeManager else {
+            fatalError()
+        }
+        akeManager.sendVerificationRequest(jid: self.jid)
+        
+        self.load()
+        self.update()
+        tableView.reloadData()
     }
 }

@@ -56,7 +56,7 @@ extension DevicesListViewController: UITableViewDataSource {
                     trustState: .trusted,
                     isTrustebByCertificate: isTrustedByCert
                 )
-//                cell.accessoryType = .disclosureIndicator
+                
                 return cell
             case .button:
                 guard let cell = tableView.dequeueReusableCell(withIdentifier: ButtonTableViewCell.cellName, for: indexPath) as? ButtonTableViewCell else {
@@ -72,14 +72,15 @@ extension DevicesListViewController: UITableViewDataSource {
                 item = item.childs[0]
                 let cell = VerificationSessionTableViewCell()
                 cell.configure(title: item.title, subtitle: item.value)
-                cell.closeButton.removeFromSuperview()
-                cell.customImageView.tintColor = .systemOrange
-                cell.customImageView.image = UIImage(systemName: "exclamationmark.triangle.fill")?.upscale(dimension: 40).withTintColor(.systemOrange)
+//                cell.closeButton.removeFromSuperview()
+//                cell.customImageView.tintColor = .systemOrange
+//                cell.customImageView.image = UIImage(systemName: "exclamationmark.triangle.fill")?.upscale(dimension: 40).withTintColor(.systemOrange)
 
-                cell.labelsStack.alignment = .leading
-                cell.labelsStack.spacing = 10
+//                cell.labelsStack.alignment = .leading
+//                cell.labelsStack.spacing = 10
                 cell.labelsStack.addArrangedSubview(cell.verifyButton)
                 cell.verifyButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
+                cell.verifyButton.addTarget(self, action: #selector(onVerifyButtonTouch), for: .touchUpInside)
                 
                 return cell
             }
