@@ -183,8 +183,7 @@ extension NotificationsCategoriesViewController: UITableViewDelegate {
         switch key {
             case "all":
                 let vc = NotificationsListViewController()
-                self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: vc), sender: self)
-                self.splitViewController?.hide(.primary)
+                showStacked(vc, in: self)
             default:
                 break
         }

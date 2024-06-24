@@ -124,7 +124,8 @@ extension DevicesListViewController: UITableViewDataSource {
                 item = item.childs[indexPath.row]
                 
                 let cell = VerificationSessionTableViewCell()
-                cell.configure(owner: self.jid, jid: self.jid, sid: item.verificationSid!, title: item.title, subtitle: item.value)
+                cell.configure(title: item.title, subtitle: item.value)
+                cell.closeButton.addTarget(self, action: #selector(onCloseButtonPressed), for: .touchUpInside)
                 
                 return cell
             }

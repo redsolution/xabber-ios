@@ -147,7 +147,9 @@ class NotificationsListViewController: SimpleBaseViewController {
     
     override func configure() {
         super.configure()
-        self.title = "All"
+        if CommonConfigManager.shared.interfaceType == .split {
+            self.title = "All"
+        }
         self.tableView.dataSource = self
         self.tableView.delegate = self
         self.emptyView.configure {
@@ -519,8 +521,7 @@ extension NotificationsListViewController: UITableViewDelegate {
             case .contact:
                 let vc = NotificationsSubscribtionsListViewController()
                 vc.owner = item.owner
-                self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: vc), sender: self)
-                self.splitViewController?.hide(.primary)
+                showStacked(vc, in: self)
 //                self.navigationController?.pushViewController(vc, animated: true)
             case .device:
                 do {
@@ -530,14 +531,12 @@ extension NotificationsListViewController: UITableViewDelegate {
                         vc.owner = item.owner
                         vc.jid = item.owner
                         vc.uid = item.key
-                        self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: vc), sender: self)
-                        self.splitViewController?.hide(.primary)
+                        showStacked(vc, in: self)
 //                        self.navigationController?.pushViewController(vc, animated: true)
                     } else {
                         let vc = DevicesListViewController()
                         vc.configure(for: item.owner)
-                        self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: vc), sender: self)
-                        self.splitViewController?.hide(.primary)
+                        showStacked(vc, in: self)
 //                        self.navigationController?.pushViewController(vc, animated: true)
                     }
                 } catch {

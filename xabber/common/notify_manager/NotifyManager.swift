@@ -1100,14 +1100,14 @@ class NotifyManager {
                 vc.isVerificationWithUsersDevice = instance?.jid == owner
                 (UIApplication.shared.delegate as? AppDelegate)?.splitController?.present(vc, animated: true)
             case VerificationSessionStorageItem.VerififcationState.failed:
-                AccountManager.shared.find(for: owner)?.akeManager.showFailedRejectedSuccessfulAlert(state: .failed, jid: instance?.jid ?? "", sid: sid)
+//                AccountManager.shared.find(for: owner)?.akeManager.showFailedRejectedSuccessfulAlert(state: .failed, jid: instance?.jid ?? "", sid: sid)
                 if let instance = instance {
                     try realm.write {
                         realm.delete(instance)
                     }
                 }
             case VerificationSessionStorageItem.VerififcationState.rejected:
-                AccountManager.shared.find(for: owner)?.akeManager.showFailedRejectedSuccessfulAlert(state: .rejected, jid: instance?.jid ?? "", sid: sid)
+//                AccountManager.shared.find(for: owner)?.akeManager.showFailedRejectedSuccessfulAlert(state: .rejected, jid: instance?.jid ?? "", sid: sid)
                     if let instance = instance {
                         try realm.write {
                             realm.delete(instance)
@@ -1115,7 +1115,7 @@ class NotifyManager {
                     }
                 break
             case VerificationSessionStorageItem.VerififcationState.trusted:
-                AccountManager.shared.find(for: owner)?.akeManager.showFailedRejectedSuccessfulAlert(state: .trusted, jid: instance?.jid ?? "", sid: sid)
+//                AccountManager.shared.find(for: owner)?.akeManager.showFailedRejectedSuccessfulAlert(state: .trusted, jid: instance?.jid ?? "", sid: sid)
                     if let instance = instance {
                         try realm.write {
                             realm.delete(instance)

@@ -625,7 +625,7 @@ class SettingsViewController: BaseViewController {
                 
                 if let sessionInstance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.owner).first {
                     var isSessionDeleted = false
-                    if sessionInstance.state == .sentRequest {
+                    if sessionInstance.state == .sentRequest || sessionInstance.state == .receivedRequest {
                         // if more then ttl have passed after request, its not available anymore
                         if let timestamp = TimeInterval(sessionInstance.timestamp),
                            let ttl = TimeInterval(sessionInstance.ttl) {
@@ -840,12 +840,14 @@ class SettingsViewController: BaseViewController {
                                                selector: #selector(reloadDatasource),
                                                name: .newMaskSelected,
                                                object: nil)
-        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
+        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
+              let trustManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager else {
             return
         }
         
-        NotificationCenter.default.addObserver(self, selector: #selector(showVerificationConfirmationViewController(_:)), name: NSNotification.Name(rawValue: "received_VerificationConfirmationViewController"), object: akeManager)
+//        NotificationCenter.default.addObserver(self, selector: #selector(showVerificationConfirmationViewController(_:)), name: NSNotification.Name(rawValue: "received_VerificationConfirmationViewController"), object: akeManager)
         NotificationCenter.default.addObserver(self, selector: #selector(showAuthenticationCodeInputViewController(_:)), name: NSNotification.Name(rawValue: "show_AuthenticationCodeInputViewController"), object: akeManager)
+        NotificationCenter.default.addObserver(self, selector: #selector(verificationSucceded(_:)), name: NSNotification.Name(rawValue: "show_success"), object: trustManager)
     }
     
     @objc
@@ -853,13 +855,30 @@ class SettingsViewController: BaseViewController {
         if let userInfo = notification.userInfo {
             let sid = userInfo["sid"] as! String
             let deviceId = userInfo["device-id"] as! String
-            let vc = VerificationConfirmationViewController()
-            DispatchQueue.main.async {
-                vc.configure(owner: self.jid, sid: sid, deviceId: deviceId)
-                showModal(vc, from: self)
+            
+            var isVerificationWithOwnDevice = false
+            
+            do {
+                let realm = try WRealm.safe()
+                guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) else {
+                    return
+                }
+                if instance.jid == self.owner {
+                    isVerificationWithOwnDevice = true
+                }
+                DispatchQueue.main.async {
+                    let vc = VerificationConfirmationViewController()
+                    vc.owner = self.owner
+                    vc.sid = sid
+                    vc.deviceId = deviceId
+                    vc.isVerificationWithOwnDevice = isVerificationWithOwnDevice
+
+                    showModal(vc)
+                }
+            } catch {
+                DDLogDebug("SettingsViewController: \(#function). \(error.localizedDescription)")
             }
         }
-        
     }
     
     @objc
@@ -876,6 +895,55 @@ class SettingsViewController: BaseViewController {
                 
                 self.navigationController?.present(vc, animated: true)
             }
+        }
+    }
+    
+    @objc
+    func verificationSucceded(_ notification: Notification) {
+        if let userInfo = notification.userInfo {
+            guard let deviceId = userInfo["deviceId"] as? String,
+                  let jid = userInfo["jid"] as? String else {
+                return
+            }
+            DispatchQueue.main.async {
+                let vc = SuccessfulVerificationViewController()
+                vc.owner = self.owner
+                vc.jid = jid
+                vc.deviceId = deviceId
+                
+                showModal(vc)
+            }
+        }
+    }
+    
+    @objc
+    func onCloseVerificationButtonPressed() {
+        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
+              let jid = XMPPJID(string: self.owner),
+              let sid = datasource.first(where: { $0.section == .session })?.childs.first?.verificationSid else {
+            DDLogDebug("SettingsViewController: \(#function).")
+            return
+        }
+        
+        do {
+            let realm = try WRealm.safe()
+            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid))
+            
+            if instance?.state == VerificationSessionStorageItem.VerififcationState.receivedRequest {
+                akeManager.rejectRequestToVerify(jid: self.owner, sid: sid)
+                
+                return
+            } else if instance?.state != VerificationSessionStorageItem.VerififcationState.failed && instance?.state != VerificationSessionStorageItem.VerififcationState.trusted && instance?.state != VerificationSessionStorageItem.VerififcationState.rejected {
+                akeManager.sendErrorMessage(fullJID: jid, sid: sid, reason: "Сontact canceled verification session")
+            }
+            try realm.write {
+                realm.delete(instance!)
+            }
+            
+            return
+        } catch {
+            DDLogDebug("SettingsViewController: \(#function). \(error.localizedDescription)")
+            return
         }
     }
     

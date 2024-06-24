@@ -199,8 +199,9 @@ class AddNewContactViewController: UIViewController {
                 vc.owner = owner
                 vc.conversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
                 
-                splitVc?.showDetailViewController(UINavigationController(rootViewController: vc), sender: self)
-                splitVc?.hide(.primary)
+                if let presenterVc = self.presentationController {
+                    showStacked(vc, in: presenterVc.presentingViewController)
+                }
             }
         }
     }

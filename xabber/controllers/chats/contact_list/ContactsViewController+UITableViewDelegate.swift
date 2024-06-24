@@ -71,13 +71,8 @@ extension ContactsViewController: UITableViewDelegate {
                 vc.owner = owner
                 vc.jid = jid
                 vc.conversationType = item.conversationType
-                self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: vc), sender: self)
-                self.splitViewController?.hide(.primary)
-                
+                showStacked(vc, in: self)
             default: break
         }
-//        do {
-//            self.isCellTapped = false
-//        }
     }
 }

@@ -277,7 +277,7 @@ extension GroupchatContactInfoViewController: InfoScreenHeaderDelegate {
         vc.jid = self.jid
         vc.owner = self.owner
         vc.userId = self.userId
-        showModal(vc, from: self)
+        showModal(vc)
     }
     
     internal func onBlock() {
@@ -690,7 +690,7 @@ extension GroupchatContactInfoViewController: InfoScreenHeaderDelegate {
         vc.delegate = self
         vc.palette = nil
         vc.lastSettedEmoji = nil
-        showModal(vc, from: self)
+        showModal(vc)
     }
     
     internal final func onOpenEmojiPicker() {

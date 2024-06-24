@@ -36,7 +36,7 @@ func getAppVersion() -> String {
 }
 
 @UIApplicationMain
- class AppDelegate: UIResponder, UIApplicationDelegate {
+class AppDelegate: UIResponder, UIApplicationDelegate {
 
     var window: UIWindow?
     var pushRegistry: PKPushRegistry!
@@ -48,6 +48,8 @@ func getAppVersion() -> String {
     var blurEffectView: UIVisualEffectView?
      
     var splitController: UISplitViewController? = nil
+    var tabController: UITabBarController? = nil
+    var currentPresentedVc: UIViewController? = nil
     
     var credentialsExpiredPresenterShowed: Bool = false
     
@@ -74,14 +76,7 @@ func getAppVersion() -> String {
     }
     
     
-    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-                
-        NotifyManager.shared.setLastChats(displayed: true)
-        
-        pushRegistry = PKPushRegistry(queue: nil)
-        pushRegistry.delegate = self
-        pushRegistry.desiredPushTypes = [.voIP]
-        
+    func setupRootViewController() {
         if AccountManager.shared.emptyAccountsList() {
             CredentialsManager.shared.clearKeyachain()
             AccountManager.shared.connectingUsers.accept(Set<String>())
@@ -92,40 +87,80 @@ func getAppVersion() -> String {
             navigationController.isNavigationBarHidden = true
             window?.rootViewController = navigationController
         } else {
-            let vc = UISplitViewController(style: .tripleColumn)
-            vc.navigationItem.largeTitleDisplayMode = .always
-            vc.navigationController?.navigationBar.prefersLargeTitles = true
-            vc.restorationIdentifier = "MainSplitViewController"
-            vc.restoresFocusAfterTransition = true
-            let chatsVc = LastChatsViewController()
-            let primaryVc = LeftMenuViewController()
-            let emptyChatVc = EmptyChatViewController()
-            primaryVc.chatsVc = chatsVc
-            chatsVc.splitDelegate = emptyChatVc
-            chatsVc.navigationController?.navigationItem.largeTitleDisplayMode = .always
-            chatsVc.navigationController?.navigationBar.prefersLargeTitles = true
-//            vc.minimumPrimaryColumnWidth = 320
-//            vc.minimumSupplementaryColumnWidth = 320
-            vc.displayModeButtonVisibility = .always
-            vc.preferredDisplayMode = .oneBesideSecondary//.oneBesideSecondary//.allVisible
-            vc.preferredSplitBehavior = .displace//.tile
-            vc.primaryBackgroundStyle = .sidebar
+            switch CommonConfigManager.shared.interfaceType {
+                case .split:
+                    let vc = UISplitViewController(style: .tripleColumn)
+                    vc.navigationItem.largeTitleDisplayMode = .always
+                    vc.navigationController?.navigationBar.prefersLargeTitles = true
+                    vc.restorationIdentifier = "MainSplitViewController"
+                    vc.restoresFocusAfterTransition = true
+                    let chatsVc = LastChatsViewController()
+                    let primaryVc = LeftMenuViewController()
+                    let emptyChatVc = EmptyChatViewController()
+                    primaryVc.chatsVc = chatsVc
+                    chatsVc.splitDelegate = emptyChatVc
+                    chatsVc.navigationController?.navigationItem.largeTitleDisplayMode = .always
+                    chatsVc.navigationController?.navigationBar.prefersLargeTitles = true
+                    vc.displayModeButtonVisibility = .always
+                    vc.preferredDisplayMode = .oneBesideSecondary//.oneBesideSecondary//.allVisible
+                    vc.preferredSplitBehavior = .displace//.tile
+                    vc.primaryBackgroundStyle = .sidebar
+                    
+                    vc.delegate = self
+                    
+                    let chatsNvc = UINavigationController(rootViewController: chatsVc)
+                    chatsNvc.navigationController?.navigationItem.largeTitleDisplayMode = .always
+                    chatsNvc.navigationController?.navigationBar.prefersLargeTitles = true
+                    vc.viewControllers = [
+                        primaryVc,
+                        chatsNvc,
+                        UINavigationController(rootViewController: emptyChatVc)
+                    ]
+                    window?.rootViewController = vc
+                    self.splitController = vc
+                case .tabs:
+                    let vc = XabberTabBarViewController()
+                    vc.restorationIdentifier = "MainSplitViewController"
+                    vc.restoresFocusAfterTransition = true
+                    let chatsVc = LastChatsViewController()
+                    let contactsVc = ContactsViewController()
+                    let archivedVc = LastChatsViewController()
+                    archivedVc.filter.accept(.archived)
+                    let notificationsVc = NotificationsListViewController()
+                    let callsVc = LastCallsViewController()
+                    if CommonConfigManager.shared.config.support_calls {
+                        vc.viewControllers = [
+                            UINavigationController(rootViewController: chatsVc),
+                            UINavigationController(rootViewController: contactsVc),
+                            UINavigationController(rootViewController: notificationsVc),
+                            UINavigationController(rootViewController: archivedVc),
+                            UINavigationController(rootViewController: callsVc),
+                        ]
+                    } else {
+                        vc.viewControllers = [
+                            UINavigationController(rootViewController: chatsVc),
+                            UINavigationController(rootViewController: contactsVc),
+                            UINavigationController(rootViewController: notificationsVc),
+                            UINavigationController(rootViewController: archivedVc),
+                        ]
+                    }
+                    
+                    window?.rootViewController = vc
+                    self.tabController = vc
+            }
             
-            vc.delegate = self
-            
-            let chatsNvc = UINavigationController(rootViewController: chatsVc)
-            
-            chatsNvc.navigationController?.navigationItem.largeTitleDisplayMode = .always
-            chatsNvc.navigationController?.navigationBar.prefersLargeTitles = true
-            
-            vc.viewControllers = [
-                primaryVc,
-                chatsNvc,
-                UINavigationController(rootViewController: emptyChatVc)
-            ]
-            window?.rootViewController = vc
-            self.splitController = vc
         }
+    }
+     
+    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+                
+        NotifyManager.shared.setLastChats(displayed: true)
+        
+        pushRegistry = PKPushRegistry(queue: nil)
+        pushRegistry.delegate = self
+        pushRegistry.desiredPushTypes = [.voIP]
+        
+        setupRootViewController()
         
         AccountManager.shared.load(!self.isPushKit)
         ApplicationStateManager.shared.prepare()
@@ -140,9 +175,6 @@ func getAppVersion() -> String {
             }
         }
         
-        
-        
-        
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(languageChanged),
                                                name: .newLanguageSelected,
@@ -154,11 +186,7 @@ func getAppVersion() -> String {
     
     @objc
     func languageChanged() {
-        DispatchQueue.main.async {
-            let storyboard = UIStoryboard(name: "Main", bundle: nil)
-            self.window?.rootViewController = storyboard.instantiateInitialViewController()
-            self.appTabBarTitlesInit()
-        }
+        
     }
     
     func appTabBarTitlesInit() {

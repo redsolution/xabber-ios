@@ -82,43 +82,63 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                         continue
                     }
                     
+                    let jid = instance.jid
+                    let sid = instance.sid
+                    let deviceId = String(instance.opponentDeviceId)
+                    
                     var bodyNotification = ""
                     switch instance.state {
                     case .receivedRequest:
                         bodyNotification = "Verification request received"
-                        if instance.jid == self.owner {
-                            if instance.state == .receivedRequest {
-                                guard let presenter = (UIApplication.shared.delegate as? AppDelegate)?.splitController else {
-                                    return
-                                }
-                                
-                                let vc = VerificationConfirmationViewController()
-                                
-                                DispatchQueue.main.async {
-                                    vc.configure(owner: self.owner, sid: instance.sid, deviceId: String(instance.opponentDeviceId))
-                                    showModal(vc, from: presenter)
-                                }
-                                
-                                NotificationCenter.default.post(name: NSNotification.Name(rawValue: "received_VerificationConfirmationViewController"), object: self, userInfo: ["sid": instance.sid, "device-id": String(instance.opponentDeviceId)])
-                            }
+                        
+                        
+                        
+                        let vc = VerificationConfirmationViewController()
+                        vc.owner = self.owner
+                        vc.sid = sid
+                        vc.deviceId = deviceId
+                        if jid == self.owner {
+                            vc.isVerificationWithOwnDevice = true
                         }
+                        
+//                        showModal(vc)
+                        
+                        NotificationCenter.default.post(name: NSNotification.Name(rawValue: "received_VerificationConfirmationViewController"), object: self, userInfo: ["sid": sid, "device-id": deviceId])
                         break
                     case .receivedRequestAccept:
                         bodyNotification = "Verification request accepted"
-                        if instance.jid == self.owner {
+
+                        if jid == self.owner {
+                            guard let presenter = (UIApplication.shared.delegate as? AppDelegate)?.splitController else {
+                                return
+                            }
+                            
+                            
+//                            let sid = instance.sid
+                            
+                            let vc = AuthenticationCodeInputViewController()
+                            vc.owner = self.owner
+                            vc.jid = jid
+                            vc.sid = sid
+                            vc.isVerificationWithUsersDevice = true
+                            
+                            showModal(vc)
+                            
+                            NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_AuthenticationCodeInputViewController"), object: self, userInfo: ["sid": sid, "device-id": String(instance.myDeviceId)])
+                            
                             if instance.state == .receivedRequestAccept {
-                                guard let presenter = (UIApplication.shared.delegate as? AppDelegate)?.splitController else {
-                                    return
-                                }
                                 
-                                let vc = AuthenticationCodeInputViewController()
-                                vc.owner = self.owner
-                                vc.jid = instance.jid
-                                vc.sid = instance.sid
-                                vc.isVerificationWithUsersDevice = true
+//                                let jid = instance.jid
+//                                let sid = instance.sid
+                                
                                 
                                 DispatchQueue.main.async {
-                                    showModal(vc, from: presenter)
+                                    let vc = AuthenticationCodeInputViewController()
+                                    vc.owner = self.owner
+                                    vc.jid = jid
+                                    vc.sid = sid
+                                    vc.isVerificationWithUsersDevice = true
+                                    showModal(vc)
                                 }
                                 
                                 NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_AuthenticationCodeInputViewController"), object: self, userInfo: ["sid": sid, "device-id": String(instance.myDeviceId)])
@@ -133,7 +153,8 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                     default:
                         return
                     }
-                    self.showNotification(title: instance.jid, owner: self.owner, body: bodyNotification, sid: instance.sid, timestamp: timestamp)
+                    
+                    self.showNotification(title: jid, owner: self.owner, body: bodyNotification, sid: sid, timestamp: timestamp)
                 } catch {
                     DDLogDebug("AuthenticatedKeyExchange \(#function). \(error.localizedDescription)")
                 }
@@ -199,7 +220,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         return publicKey
     }
     
-    func getMessageChildsForVerififcationRequest(sid: String, deviceId: String? = nil) -> DDXMLElement {
+    func getMessageChildsForVerififcationRequest(sid: String, ttl: Int, deviceId: String? = nil) -> DDXMLElement {
         let authenticationKeyExchange = DDXMLElement(name: "authenticated-key-exchange", xmlns: getPrimaryNamespace())
         authenticationKeyExchange.addAttribute(withName: "sid", stringValue: sid)
         authenticationKeyExchange.addAttribute(withName: "timestamp", stringValue: String(Int(Date().timeIntervalSince1970.rounded())))
@@ -211,7 +232,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         
         let verificationStart = DDXMLElement(name: "verification-start")
         verificationStart.addAttribute(withName: "device-id", stringValue: String(myDeviceId))
-        verificationStart.addAttribute(withName: "ttl", stringValue: "300")
+        verificationStart.addAttribute(withName: "ttl", stringValue: String(ttl))
         if deviceId != nil {
             verificationStart.addAttribute(withName: "to-device-id", stringValue: deviceId!)
         }
@@ -587,7 +608,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         }
         
         if !checkHashFromInitiator(jid: jid.bare, sid: sid, deviceId: deviceId, hashEncrypted: hashEncrypted, byteSequenceEncrypted: byteSequenceEncrypted) {
-            NotificationCenter.default.post(name: NSNotification.Name(rawValue: "ShowCodeViewController"), object: self, userInfo: ["sid": sid])
+            NotificationCenter.default.post(name: NSNotification.Name(rawValue: "close_view"), object: self, userInfo: ["sid": sid])
             
             let child = self.getMessageChildsForErrorMessage(sid: sid, reason: "Hashes didn't match")
             
@@ -790,7 +811,9 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         }
         self.writeTrustedDevice(jid: jid.bare, deviceId: deviceId)
         
-        NotificationCenter.default.post(name: NSNotification.Name(rawValue: "ShowCodeViewController"), object: self, userInfo: ["sid": sid])
+        if jid.bare != self.owner {
+            NotificationCenter.default.post(name: NSNotification.Name(rawValue: "ShowCodeViewController"), object: self, userInfo: ["sid": sid])
+        }
         
         guard let trustSharingManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager else {
             DDLogDebug("AuthenticatedKeyExchange: \(#function).")
@@ -869,7 +892,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         
         do {
             NotificationCenter.default.post(name: NSNotification.Name(rawValue: "rejected_VerificationConfirmationViewController"), object: self, userInfo: ["sid": sid])
-            NotificationCenter.default.post(name: NSNotification.Name(rawValue: "ShowCodeViewController"), object: self, userInfo: ["sid": sid])
+            NotificationCenter.default.post(name: NSNotification.Name(rawValue: "verification_failure"), object: self, userInfo: ["sid": sid])
             NotificationCenter.default.post(name: NSNotification.Name(rawValue: "AuthenticationCodeInputViewController"), object: self, userInfo: ["sid": sid])
             
             let realm = try WRealm.safe()
@@ -918,6 +941,12 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
     
     func sendVerificationRequest(jid: String, deviceId: String? = nil) {
         let sid = UUID().uuidString
+        var ttl: Int
+        if jid != self.owner {
+            ttl = 300
+        } else {
+            ttl = 86400
+        }
         do {
             let realm = try WRealm.safe()
             
@@ -943,6 +972,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             instance.state = .sentRequest
             instance.primary = VerificationSessionStorageItem.genPrimary(owner: instance.owner, sid: instance.sid)
             instance.timestamp = String(Int(Date().timeIntervalSince1970.rounded()))
+            instance.ttl = String(ttl)
             try realm.write {
                 realm.add(instance)
             }
@@ -956,7 +986,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             return
         }
         
-        let childs = self.getMessageChildsForVerififcationRequest(sid: sid, deviceId: deviceId)
+        let childs = self.getMessageChildsForVerififcationRequest(sid: sid, ttl: ttl, deviceId: deviceId)
         let message = XMPPMessage(messageType: .chat, to: XMPPJID(string: jid), elementID: UUID().uuidString, child: childs)
         message.addAttribute(withName: "from", stringValue: fullJid)
         
@@ -1000,7 +1030,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         let child = self.getMessageChildsForAcceptVerificationRequest(sid: sid, encryptedByteSequence: result.encrypted.toBase64(), iv: result.iv.toBase64())
         
         guard let myFullJid = AccountManager.shared.find(for: self.owner)?.xmppStream.myJID?.full,
-        let toJid = XMPPJID(string: fullJID) else {
+              let toJid = XMPPJID(string: fullJID)?.bareJID else {
             return nil
         }
         
@@ -1355,29 +1385,29 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         NotifyManager.shared.showNotify(forType: .verification)
     }
     
-    func showFailedRejectedSuccessfulAlert(state: VerificationSessionStorageItem.VerififcationState, jid: String, sid: String) {
-        DispatchQueue.main.async {
-            var alert = UIAlertController()
-            switch state {
-            case .failed:
-                let action = UIAlertAction(title: "Okay", style: .cancel)
-                alert = UIAlertController(title: "", message: "Verification session with \(jid) failed.\nSID: \(sid)", preferredStyle: UIAlertController.Style.alert)
-                alert.addAction(action)
-            case .rejected:
-                let action = UIAlertAction(title: "Okay", style: .cancel)
-                alert = UIAlertController(title: "", message: "Verification session with \(jid) rejected.\nSID: \(sid)", preferredStyle: UIAlertController.Style.alert)
-                alert.addAction(action)
-            case .trusted:
-                let action = UIAlertAction(title: "Okay", style: .cancel)
-                alert = UIAlertController(title: "", message: "Verification session with \(jid) successful, the device is now trusted.\nSID: \(sid)", preferredStyle: UIAlertController.Style.alert)
-                alert.addAction(action)
-            default:
-                DDLogDebug("AuthenticatedKeyExchangeManager: \(#function).")
-                return
-            }
-            getAppTabBar()?.viewControllers?.first?.present(alert, animated: true)
-        }
-    }
+//    func showFailedRejectedSuccessfulAlert(state: VerificationSessionStorageItem.VerififcationState, jid: String, sid: String) {
+//        DispatchQueue.main.async {
+//            var alert = UIAlertController()
+//            switch state {
+//            case .failed:
+//                let action = UIAlertAction(title: "Okay", style: .cancel)
+//                alert = UIAlertController(title: "", message: "Verification session with \(jid) failed.\nSID: \(sid)", preferredStyle: UIAlertController.Style.alert)
+//                alert.addAction(action)
+//            case .rejected:
+//                let action = UIAlertAction(title: "Okay", style: .cancel)
+//                alert = UIAlertController(title: "", message: "Verification session with \(jid) rejected.\nSID: \(sid)", preferredStyle: UIAlertController.Style.alert)
+//                alert.addAction(action)
+//            case .trusted:
+//                let action = UIAlertAction(title: "Okay", style: .cancel)
+//                alert = UIAlertController(title: "", message: "Verification session with \(jid) successful, the device is now trusted.\nSID: \(sid)", preferredStyle: UIAlertController.Style.alert)
+//                alert.addAction(action)
+//            default:
+//                DDLogDebug("AuthenticatedKeyExchangeManager: \(#function).")
+//                return
+//            }
+//            getAppTabBar()?.viewControllers?.first?.present(alert, animated: true)
+//        }
+//    }
     
     static func remove(for owner: String, commitTransaction: Bool) {
         do {
@@ -1404,13 +1434,18 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 guard let ownVerifications = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@ AND state_ == %@", owner, owner, VerificationSessionStorageItem.VerififcationState.receivedRequest.rawValue).first else {
                     return
                 }
-                let vc = VerificationConfirmationViewController()
-                vc.configure(owner: owner, sid: ownVerifications.sid, deviceId: String(ownVerifications.opponentDeviceId))
                 
-                guard let presenter = (UIApplication.shared.delegate as? AppDelegate)?.splitController else {
-                    return
+                let sid = ownVerifications.sid
+                let deviceId = String(ownVerifications.opponentDeviceId)
+                let vc = VerificationConfirmationViewController()
+                vc.owner = owner
+                vc.sid = sid
+                vc.deviceId = deviceId
+                if ownVerifications.jid == owner {
+                    vc.isVerificationWithOwnDevice = true
                 }
-                showModal(vc, from: presenter)
+
+                showModal(vc)
             }
             
         } catch {

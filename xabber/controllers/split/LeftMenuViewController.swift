@@ -203,10 +203,6 @@ class LeftMenuViewController: UIViewController {
                 Datasource(title: "Archive", icon: "archivebox", key: "archive", subtitle: "\(archivedCount)"),
     //            Datasource(title: "Saved messages", icon: "bookmark", key: "saved"),
             ],
-//            [
-    //            Datasource(title: "About", icon: "lightbulb", key: "about"),
-//                Datasource(title: "Settings", icon: "gear", key: "settings", subtitle: ""),
-//            ]
            ]
         } catch {
             DDLogDebug("LeftMenuViewController: \(#function). \(error.localizedDescription)")
@@ -435,7 +431,7 @@ class LeftMenuViewController: UIViewController {
         let vc = SettingsViewController()
         vc.jid = AccountManager.shared.users.first?.jid ?? ""
         vc.owner = AccountManager.shared.users.first?.jid ?? ""
-        showModal(vc, from: self)
+        showModal(vc)
         self.splitViewController?.show(.supplementary)
         self.splitViewController?.hide(.primary)
     }
@@ -553,13 +549,6 @@ extension LeftMenuViewController: UITableViewDelegate {
                     self.chatsVc = vc
                     self.show(controller: vc)
                 }
-            case "settings":
-                let vc = SettingsViewController()
-                vc.jid = AccountManager.shared.users.first?.jid ?? ""
-                vc.owner = AccountManager.shared.users.first?.jid ?? ""
-                self.splitViewController?.show(.supplementary)
-                self.splitViewController?.hide(.primary)
-                showModal(vc, from: self)
             case "calls":
                 if self.chatsVc?.filter.value == .unread {
                     self.chatsVc?.filter.accept(.chats)

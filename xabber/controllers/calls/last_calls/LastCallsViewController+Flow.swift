@@ -23,6 +23,35 @@ import UIKit
 import RealmSwift
 import CocoaLumberjack
 
+extension LastCallsViewController: SignatureManagerDelegate {
+    func didConnectionStop(with error: Error?) {
+        
+    }
+    
+    func didGenerateDigitalSignature(with error: Error?) {
+        
+    }
+    
+    func retrieveCertificate(with error: Error?) {
+        if let error = error {
+            DispatchQueue.main.async {
+                self.view.makeToast("Internal error")
+            }
+        } else {
+            DispatchQueue.main.async {
+                let vc = YubikeySetupViewController()
+                vc.isFromOnboarding = false
+                vc.owner = AccountManager.shared.users.first?.jid ?? ""
+                self.navigationController?.pushViewController(vc, animated: true)
+            }
+        }
+    }
+    
+    func retrieveYubikeyInfo(with error: Error?) {
+        
+    }
+}
+
 extension LastCallsViewController {
     internal func onCall(jid: String, owner: String) {
         VoIPManager.shared.startCall(owner: owner, jid: jid)

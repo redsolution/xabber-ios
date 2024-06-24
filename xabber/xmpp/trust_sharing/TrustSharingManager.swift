@@ -32,18 +32,7 @@ class TrustSharingManager: AbstractXMPPManager {
     }
     
     func didReceivedTrustedSharingMessage(message: XMPPMessage) -> Bool {
-        let bareMessage: XMPPMessage
-        if isArchivedMessage(message) {
-            bareMessage = getArchivedMessageContainer(message)!
-        } else if isCarbonCopy(message) {
-            return false
-        } else if isCarbonForwarded(message) {
-            return false
-        } else {
-            bareMessage = message
-        }
-        
-        guard let notify = bareMessage.element(forName: "notify", xmlns: XMPPNotificationsManager.xmlns) ?? bareMessage.element(forName: "notification", xmlns: XMPPNotificationsManager.xmlns),
+        guard let notify = message.element(forName: "notify", xmlns: XMPPNotificationsManager.xmlns) ?? message.element(forName: "notification", xmlns: XMPPNotificationsManager.xmlns),
               let encryptedMessage = notify.element(forName: "forwarded")?.element(forName: "message"),
               let omemoManager = AccountManager.shared.find(for: self.owner)?.omemo else {
             return false
@@ -241,7 +230,7 @@ class TrustSharingManager: AbstractXMPPManager {
                 guard let instance = realm.objects(SignalDeviceStorageItem.self).filter(predicateForDevices).first else {
                     continue
                 }
-                if instance.state != SignalDeviceStorageItem.TrustState.trusted {
+                if instance.state != SignalDeviceStorageItem.TrustState.trusted || instance.lastTrustedItemsUpdateTimestamp == timestamp {
                     continue
                 }
                 try realm.write {
@@ -309,12 +298,23 @@ class TrustSharingManager: AbstractXMPPManager {
                         }
                     }
                 }
-                continue
             } catch {
                 DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
                 return true
             }
+            
+            do {
+                let realm = try WRealm.safe()
+                let instance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND opponentDeviceId == %@", self.owner, publisherDeviceId).first
+                if instance != nil && instance?.state == .trusted {
+                    NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_success"), object: self, userInfo: ["jid": jid.bare, "deviceId": publisherDeviceIdRaw])
+
+                }
+            } catch {
+                
+            }
         }
+        
         if isPublicationNeeded {
             guard let localStore = AccountManager.shared.find(for: owner)?.omemo.localStore else {
                 DDLogDebug("TrustSharingManager: \(#function).")

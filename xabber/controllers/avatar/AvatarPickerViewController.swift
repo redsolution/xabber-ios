@@ -442,7 +442,7 @@ class AvatarPickerViewController: BaseViewController {
     private final func onEditAvatarButtonTouchUpInside(_ sender: UIButton) {
         let vc = EmojiPickerViewController()
         vc.delegate = self
-        showModal(vc, from: self)
+        showModal(vc)
     }
 }
 

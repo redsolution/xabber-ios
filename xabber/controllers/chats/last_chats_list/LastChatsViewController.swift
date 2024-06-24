@@ -166,6 +166,8 @@ class LastChatsViewController: BaseViewController {
     internal let accountNavButton: AccountNavButton = {
         let button = AccountNavButton(frame: CGRect(width: 64, height: 40))
         
+//        button.isUserInteractionEnabled = false
+        
         return button
     }()
     
@@ -499,7 +501,7 @@ class LastChatsViewController: BaseViewController {
                     self.unreadedJids = Array(Set(self.unreadedJids))
                     print(unreadedJids)
                     predicate = NSPredicate(
-                        format: "isArchived == %@ AND owner IN %@ AND (conversationType_ == %@ OR jid IN %@) AND (unread > %@ %@ OR jid IN %@)",
+                        format: "isArchived == %@ AND owner IN %@ AND (conversationType_ == %@ OR jid IN %@) AND (unread > %@ OR jid IN %@)",
                         argumentArray: [
                             false,
                             Array(enabledAccounts.value),
@@ -1083,7 +1085,7 @@ class LastChatsViewController: BaseViewController {
                             subtitle: "Try to start a new chat".localizeString(id: "try_to_start_new_chat", arguments: []),
                             buttonTitle: "Start new chat".localizeString(id: "start_new_chat", arguments: [])) {
             let vc = CreateNewEntityViewController()
-            showModal(vc, from: self)
+            showModal(vc)
         }
         
         emptyView.isHidden = true
@@ -1127,28 +1129,64 @@ class LastChatsViewController: BaseViewController {
     internal func configureBars() {
         self.title = "Chats"
         self.navigationController?.navigationBar.prefersLargeTitles = true
-        self.bottomBar.splitViewController = self.splitViewController
-        self.view.addSubview(bottomBar)
-        self.view.bringSubviewToFront(bottomBar)
-        var inputHeight: CGFloat = 49
-        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
-            inputHeight += bottomInset
+        if #available(iOS 16.0, *) {
+            self.navigationItem.preferredSearchBarPlacement = .stacked
+        }
+        securityButton.target = self
+        securityButton.action = #selector(onRegisterYubikey)
+        switch CommonConfigManager.shared.interfaceType {
+            case .tabs:
+                let addBarButton = UIBarButtonItem(
+                    image: UIImage(systemName: "plus")?
+                        .upscale(dimension: 24)
+                        .withRenderingMode(.alwaysTemplate),
+                    style: .done,
+                    target: self,
+                    action: #selector(onAddButtonTouchUpInside)
+                )
+                let filterButton = UIBarButtonItem(
+                    image: UIImage(systemName: "line.3.horizontal.decrease.circle")?
+                        .upscale(dimension: 24)
+                        .withRenderingMode(.alwaysTemplate),
+                    style: .done,
+                    target: self,
+                    action: #selector(onFilterButtonTouchUpInside)
+                )
+                if CommonConfigManager.shared.config.use_yubikey {
+                    self.navigationItem.setRightBarButtonItems([addBarButton, filterButton, securityButton], animated: true)
+                } else {
+                    self.navigationItem.setRightBarButtonItems([addBarButton, filterButton], animated: true)
+                }
+                let leftBarButton = UIBarButtonItem(customView: accountNavButton)
+//                leftBarButton.target = self
+//                leftBarButton.action = #selector(showSettings)
+                self.navigationItem.setLeftBarButton(leftBarButton, animated: true)
+                accountNavButton.addTarget(self, action: #selector(showSettings), for: .touchUpInside)
+            case .split:
+                self.bottomBar.splitViewController = self.splitViewController
+                self.view.addSubview(bottomBar)
+                self.view.bringSubviewToFront(bottomBar)
+                var inputHeight: CGFloat = 49
+                if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
+                    inputHeight += bottomInset
+                }
+                
+                let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
+                bottomBar.updateFrame(to: frame)
+                self.splitViewController?.navigationItem.setLeftBarButtonItems([], animated: true)
+                
+                let sidebarButton = UIBarButtonItem(image: UIImage(systemName: "sidebar.left"), style: .plain, target: self, action: #selector(onSidebarButtonTouchUp))
+                
+                if UIDevice.current.userInterfaceIdiom != .pad {
+                    self.navigationItem.setHidesBackButton(true, animated: false)
+                    self.navigationItem.setLeftBarButton(sidebarButton, animated: true)
+                }
+                bottomBar.leftCallback = self.onLeftBarButtonTapped
+                self.bottomBar.leftButton.setImage(UIImage(systemName: self.filter.value == .unread ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate), for: .normal)
+                self.bottomBar.titleCallback = self.onTitleBarButtonTapped
+                self.bottomBar.isHidden = !shouldShowBottomBar
         }
         
-        let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
-        bottomBar.updateFrame(to: frame)
-        self.splitViewController?.navigationItem.setLeftBarButtonItems([], animated: true)
-        
-        let sidebarButton = UIBarButtonItem(image: UIImage(systemName: "sidebar.left"), style: .plain, target: self, action: #selector(onSidebarButtonTouchUp))
-        
-        if UIDevice.current.userInterfaceIdiom != .pad {
-            self.navigationItem.setHidesBackButton(true, animated: false)
-            self.navigationItem.setLeftBarButton(sidebarButton, animated: true)
-        }
-        bottomBar.leftCallback = self.onLeftBarButtonTapped
-        self.bottomBar.leftButton.setImage(UIImage(systemName: self.filter.value == .unread ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate), for: .normal)
-        self.bottomBar.titleCallback = self.onTitleBarButtonTapped
-        self.bottomBar.isHidden = !shouldShowBottomBar
     }
     
     var normalState: Filter = .chats
@@ -1195,6 +1233,25 @@ class LastChatsViewController: BaseViewController {
                 bottomBar.titleButton.setTitleColor(.label, for: .normal)
         }
         bottomBar.titleButton.setTitle(title, for: .normal)
+    }
+    
+    @objc
+    func showSettings(_ sender: AnyObject) {
+        let vc = SettingsViewController()
+        vc.jid = AccountManager.shared.users.first?.jid ?? ""
+        vc.owner = AccountManager.shared.users.first?.jid ?? ""
+        showModal(vc)
+    }
+    
+    @objc
+    func onAddButtonTouchUpInside(_ sender: AnyObject) {
+        let vc = CreateNewEntityViewController()
+        showModal(vc)
+    }
+    
+    @objc
+    func onFilterButtonTouchUpInside(_ sender: AnyObject) {
+        onLeftBarButtonTapped()
     }
     
     func onLeftBarButtonTapped() {

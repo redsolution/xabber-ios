@@ -167,26 +167,43 @@ class TrustedDevicesViewController: SimpleBaseViewController {
                 self.jid
             ])
             let verificationSession = realm.objects(VerificationSessionStorageItem.self).filter(predicate).first
+            
             datasource = []
             if verificationSession != nil {
-                let text: String
-                let secondaryText: String?
-                let buttonTitle: String?
-                let buttonKey: String?
-                
-                let sid = verificationSession!.sid
-                let fullJid = verificationSession!.fullJID != "" ? verificationSession!.fullJID : verificationSession!.jid
-                
-                (text, secondaryText, buttonTitle, buttonKey) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: verificationSession!.state)
-                
-                datasource = [
-                    [Datasource(.session, name: text, subtitle: secondaryText, verificationSid: sid, verificationJid: fullJid)]
-                ]
-                
-                if buttonKey != nil {
-                    datasource[0].append(Datasource(.button, name: buttonTitle!, key: buttonKey!, verificationSid: sid, verificationJid: fullJid))
-                    if buttonKey == "accept_verification" {
-                        datasource[0].append(Datasource(.button, name: "Reject", key: "reject_verification", verificationSid: sid, verificationJid: fullJid))
+                var isSessionDeleted = false
+                if verificationSession!.state == .sentRequest || verificationSession!.state == .receivedRequest {
+                    // if more then ttl have passed after request, its not available anymore
+                    if let timestamp = TimeInterval(verificationSession!.timestamp),
+                       let ttl = TimeInterval(verificationSession!.ttl) {
+                        if timestamp + ttl <= Date().timeIntervalSince1970 {
+                            try realm.write {
+                                realm.delete(verificationSession!)
+                            }
+                            isSessionDeleted = true
+                        }
+                    }
+                }
+                    
+                if !isSessionDeleted {
+                    let text: String
+                    let secondaryText: String?
+                    let buttonTitle: String?
+                    let buttonKey: String?
+                    
+                    let sid = verificationSession!.sid
+                    let fullJid = verificationSession!.fullJID != "" ? verificationSession!.fullJID : verificationSession!.jid
+                    
+                    (text, secondaryText, buttonTitle, buttonKey) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: verificationSession!.state)
+                    
+                    datasource = [
+                        [Datasource(.session, name: text, subtitle: secondaryText, verificationSid: sid, verificationJid: fullJid)]
+                    ]
+                    
+                    if buttonKey != nil {
+                        datasource[0].append(Datasource(.button, name: buttonTitle!, key: buttonKey!, verificationSid: sid, verificationJid: fullJid))
+                        if buttonKey == "accept_verification" {
+                            datasource[0].append(Datasource(.button, name: "Reject", key: "reject_verification", verificationSid: sid, verificationJid: fullJid))
+                        }
                     }
                 }
             }
@@ -246,8 +263,39 @@ class TrustedDevicesViewController: SimpleBaseViewController {
             DDLogDebug("TrustedDevicesViewController: \(#function). \(error.localizedDescription)")
             return
         }
-        
     }
+    
+    @objc
+    func onCloseButtonPressed() {
+        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
+              let jid = XMPPJID(string: self.jid),
+              let sid = datasource.first(where: { $0.first?.kind == .session })?.first?.verificationSid else {
+            DDLogDebug("TrustedDevicesViewController: \(#function).")
+            return
+        }
+        
+        do {
+            let realm = try WRealm.safe()
+            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid))
+            
+            if instance?.state == .receivedRequest {
+                akeManager.rejectRequestToVerify(jid: self.jid, sid: sid)
+                
+                return
+            } else if instance?.state != VerificationSessionStorageItem.VerififcationState.failed && instance?.state != VerificationSessionStorageItem.VerififcationState.trusted && instance?.state != VerificationSessionStorageItem.VerififcationState.rejected {
+                akeManager.sendErrorMessage(fullJID: jid, sid: sid, reason: "Сontact canceled verification session")
+            }
+            try realm.write {
+                realm.delete(instance!)
+            }
+            
+            return
+        } catch {
+            DDLogDebug("TrustedDevicesViewController: \(#function). \(error.localizedDescription)")
+            return
+        }
+    }
+
     
     static func getCellPropertiesForVerificationSession(verificationState: VerificationSessionStorageItem.VerififcationState) -> (String, String?, String?, String?) {
         let text: String
@@ -507,7 +555,8 @@ extension TrustedDevicesViewController: UITableViewDataSource {
             return cell
         case .session:
             let cell = VerificationSessionTableViewCell()
-            cell.configure(owner: self.owner, jid: self.jid, sid: item.verificationSid!, title: item.name, subtitle: item.subtitle)
+            cell.configure(title: item.name, subtitle: item.subtitle)
+            cell.closeButton.addTarget(self, action: #selector(onCloseButtonPressed), for: .touchUpInside)
             
             return cell
         }

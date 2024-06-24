@@ -311,7 +311,7 @@ class SignUpSelectAvatarViewController: SignUpBaseViewController {
         vc.delegate = self
         vc.palette = avatarPalette
         vc.lastSettedEmoji = avatarEmoji
-        showModal(vc, from: self)
+        showModal(vc)
     }
     
     private final func onEmojiSelected() {

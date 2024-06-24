@@ -620,6 +620,6 @@ extension PhotoGallery {
         let objectsToShare = [image, imageUrls[currentPage]] as [Any]
         let activityVC = UIActivityViewController(activityItems: objectsToShare, applicationActivities: nil)
         activityVC.excludedActivityTypes = []
-        showModal(activityVC, from: self)
+        showModal(activityVC)
     }
 }

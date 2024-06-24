@@ -13,10 +13,6 @@ import XMPPFramework
 
 class VerificationSessionTableViewCell: UITableViewCell {
     static let cellName = "VerificationSessionTableViewCell"
-
-    var owner = ""
-    var jid = ""
-    var sid = ""
     
     let stack: UIStackView = {
         let stack = UIStackView()
@@ -77,10 +73,7 @@ class VerificationSessionTableViewCell: UITableViewCell {
         return imageView
     }()
     
-    func configure(owner: String, jid: String, sid: String, title: String, subtitle: String?) {
-        self.owner = owner
-        self.jid = jid
-        self.sid = sid
+    func configure(title: String, subtitle: String?) {
         
         contentView.addSubview(stack)
         stack.fillSuperviewWithOffset(top: 11, bottom: 11, left: 11, right: 11)
@@ -101,38 +94,7 @@ class VerificationSessionTableViewCell: UITableViewCell {
         stack.addArrangedSubview(labelsStack)
         stack.addArrangedSubview(closeButton)
         
-        closeButton.addTarget(self, action: #selector(onCloseButtonPressed), for: .touchUpInside)
-        
         activateConstraints()
-    }
-    
-    @objc
-    func onCloseButtonPressed() {
-        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
-              let fullJid = XMPPJID(string: self.jid) else {
-            DDLogDebug("VerificationSessionTableViewCell: \(#function).")
-            return
-        }
-        do {
-            let realm = try WRealm.safe()
-            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: self.sid))
-            
-            if instance?.state == .receivedRequest {
-                akeManager.rejectRequestToVerify(jid: self.jid, sid: self.sid)
-                
-                return
-            } else if instance?.state != VerificationSessionStorageItem.VerififcationState.failed && instance?.state != VerificationSessionStorageItem.VerififcationState.trusted && instance?.state != VerificationSessionStorageItem.VerififcationState.rejected {
-                akeManager.sendErrorMessage(fullJID: fullJid, sid: self.sid, reason: "Сontact canceled verification session")
-            }
-            try realm.write {
-                realm.delete(instance!)
-            }
-            
-            return
-        } catch {
-            DDLogDebug("VerificationSessionTableViewCell: \(#function). \(error.localizedDescription)")
-            return
-        }
     }
     
     func activateConstraints() {

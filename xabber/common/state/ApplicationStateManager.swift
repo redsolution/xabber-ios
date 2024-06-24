@@ -108,6 +108,8 @@ class ApplicationStateManager: NSObject {
                 name: ApplicationStateManager.tokenWasExpired,
                 object: nil
             )
+        
+        NotificationCenter.default.addObserver(self, selector: #selector(showVerificationConfirmationViewController(_:)), name: NSNotification.Name(rawValue: "received_VerificationConfirmationViewController"), object: nil)
     }
     
     public final func getApplicationBlockedDate() -> Date? {
@@ -218,6 +220,41 @@ class ApplicationStateManager: NSObject {
 //        } else {
 //            self.expiredTokenAccountsList.append(ExpiredTokenAccountItem(jid: jid))
 //        }
+    }
+    
+    @objc
+    func showVerificationConfirmationViewController(_ notification: Notification) {
+        if let userInfo = notification.userInfo {
+            let sid = userInfo["sid"] as! String
+            let deviceId = userInfo["device-id"] as! String
+            
+            var isVerificationWithOwnDevice = false
+            
+            let jids = AccountManager.shared.users.compactMap { return $0.jid }
+            
+            do {
+                let realm = try WRealm.safe()
+                
+                for owner in jids {
+                    let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: owner, sid: sid))
+                    if instance != nil {
+                        if instance!.jid == owner {
+                            isVerificationWithOwnDevice = true
+                        }
+                        
+                        let vc = VerificationConfirmationViewController()
+                        vc.owner = owner
+                        vc.sid = sid
+                        vc.deviceId = deviceId
+                        vc.isVerificationWithOwnDevice = isVerificationWithOwnDevice
+
+                        showModal(vc, replaceParent: false)
+                    }
+                }
+            } catch {
+                DDLogDebug("ApplicationStateManager: \(#function). \(error.localizedDescription)")
+            }
+        }
     }
     
     public final func prepare() {

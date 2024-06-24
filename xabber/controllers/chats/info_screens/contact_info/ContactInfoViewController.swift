@@ -26,6 +26,7 @@ import RxSwift
 import RxCocoa
 import CocoaLumberjack
 import TOInsetGroupedTableView
+import XMPPFramework
 
 class ContactInfoViewController: BaseViewController {
     
@@ -244,18 +245,34 @@ class ContactInfoViewController: BaseViewController {
                         
                         let verificationInstance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid).first
                         if let verificationInstance = verificationInstance {
-                            let (text, secondaryText, buttonTitle, buttonKey) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: verificationInstance.state)
-                            let verificationDatasource = Datasource(.text, title: "Active verification session", key: "verification-session", childs: [
-                                Datasource(.session, title: text, subtitle: secondaryText, verificationSid: verificationInstance.sid, verificationJid: self.jid)
-                            ])
-                            
-                            if buttonKey != nil {
-                                verificationDatasource.childs.append(Datasource(.button, title: buttonTitle!, key: buttonKey, verificationSid: verificationInstance.sid, verificationJid: self.jid))
-                                if buttonKey == "accept_verification" {
-                                    verificationDatasource.childs.append(Datasource(.button, title: "Reject", key: "reject_verification", verificationSid: verificationInstance.sid, verificationJid: self.jid))
+                            var isSessiondeleted = false
+                            if verificationInstance.state == .sentRequest || verificationInstance.state == .receivedRequest {
+                                // if more then ttl have passed after request, its not available anymore
+                                if let timestamp = TimeInterval(verificationInstance.timestamp),
+                                   let ttl = TimeInterval(verificationInstance.ttl) {
+                                    if timestamp + ttl <= Date().timeIntervalSince1970 {
+                                        try realm.write {
+                                            realm.delete(verificationInstance)
+                                        }
+                                        isSessiondeleted = true
+                                    }
                                 }
                             }
-                            newDatasource.append(verificationDatasource)
+                            
+                            if !isSessiondeleted {
+                                let (text, secondaryText, buttonTitle, buttonKey) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: verificationInstance.state)
+                                let verificationDatasource = Datasource(.text, title: "Active verification session", key: "verification-session", childs: [
+                                    Datasource(.session, title: text, subtitle: secondaryText, verificationSid: verificationInstance.sid, verificationJid: self.jid)
+                                ])
+                                
+                                if buttonKey != nil {
+                                    verificationDatasource.childs.append(Datasource(.button, title: buttonTitle!, key: buttonKey, verificationSid: verificationInstance.sid, verificationJid: self.jid))
+                                    if buttonKey == "accept_verification" {
+                                        verificationDatasource.childs.append(Datasource(.button, title: "Reject", key: "reject_verification", verificationSid: verificationInstance.sid, verificationJid: self.jid))
+                                    }
+                                }
+                                newDatasource.append(verificationDatasource)
+                            }
                         }
                         
                         let collectionJid = realm
@@ -452,14 +469,58 @@ class ContactInfoViewController: BaseViewController {
         showFingerprints()
     }
     
+    @objc
+    func onCloseVerificationButtonPressed() {
+        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
+              let jid = XMPPJID(string: self.jid),
+              let sid = datasource.first(where: { $0.key == "verification-session" })?.childs.first?.verificationSid else {
+            DDLogDebug("ContactInfoViewController: \(#function).")
+            return
+        }
+        do {
+            let realm = try WRealm.safe()
+            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid))
+            
+            if instance?.state == .receivedRequest {
+                akeManager.rejectRequestToVerify(jid: self.jid, sid: sid)
+                
+                return
+            } else if instance?.state != VerificationSessionStorageItem.VerififcationState.failed && instance?.state != VerificationSessionStorageItem.VerififcationState.trusted && instance?.state != VerificationSessionStorageItem.VerififcationState.rejected {
+                akeManager.sendErrorMessage(fullJID: jid, sid: sid, reason: "Сontact canceled verification session")
+            }
+            try realm.write {
+                realm.delete(instance!)
+            }
+            
+            return
+        } catch {
+            DDLogDebug("ContactInfoViewController: \(#function). \(error.localizedDescription)")
+            return
+        }
+    }
+
+    
     override func viewDidLoad() {
         super.viewDidLoad()
         configure()
+        
+        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
+              let trustManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager else {
+            return
+        }
         
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(reloadDatasource),
                                                name: .newMaskSelected,
                                                object: nil)
+//        NotificationCenter.default.addObserver(self,
+//                                               selector: #selector(showVerificationConfirmationViewController(_:)),
+//                                               name: NSNotification.Name(rawValue: "received_VerificationConfirmationViewController"),
+//                                               object: akeManager)
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(verificationSucceded(_:)),
+                                               name: NSNotification.Name(rawValue: "show_success"),
+                                               object: trustManager)
         
         AccountManager.shared.find(for: owner)?.action({ (user, stream) in
             user.vcards.requestItem(stream, jid: self.jid)
@@ -512,5 +573,56 @@ class ContactInfoViewController: BaseViewController {
     
     override func didReceiveMemoryWarning() {
         super.didReceiveMemoryWarning()
+    }
+    
+    @objc
+    func showVerificationConfirmationViewController(_ notification: Notification) {
+        if let userInfo = notification.userInfo {
+            let sid = userInfo["sid"] as! String
+            let deviceId = userInfo["device-id"] as! String
+            
+            var isVerificationWithOwnDevice = false
+            
+            do {
+                let realm = try WRealm.safe()
+                guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) else {
+                    return
+                }
+                if instance.jid == self.owner {
+                    isVerificationWithOwnDevice = true
+                }
+            } catch {
+                DDLogDebug("ContactInfoViewController: \(#function). \(error.localizedDescription)")
+                return
+            }
+            
+            DispatchQueue.main.async {
+                let vc = VerificationConfirmationViewController()
+                vc.owner = self.owner
+                vc.sid = sid
+                vc.deviceId = deviceId
+                vc.isVerificationWithOwnDevice = isVerificationWithOwnDevice
+
+                showModal(vc)
+            }
+        }
+    }
+    
+    @objc
+    func verificationSucceded(_ notification: Notification) {
+        if let userInfo = notification.userInfo {
+            guard let deviceId = userInfo["deviceId"] as? String,
+                  let jid = userInfo["jid"] as? String else {
+                return
+            }
+            DispatchQueue.main.async {
+                let vc = SuccessfulVerificationViewController()
+                vc.owner = self.owner
+                vc.jid = jid
+                vc.deviceId = deviceId
+                
+                showModal(vc)
+            }
+        }
     }
 }

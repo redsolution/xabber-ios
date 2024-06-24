@@ -33,6 +33,7 @@ class BaseViewController: UIViewController {
         self.tabBarController?.tabBar.isHidden = true
         self.tabBarController?.tabBar.layoutIfNeeded()
         
+        
         observer()
 //        getAppTabBar()?.hide()
     }
@@ -69,6 +70,7 @@ class BaseViewController: UIViewController {
     
     deinit {
         removeNotificationObserer()
+        
     }
     
     override func viewWillAppear(_ animated: Bool) {
@@ -78,12 +80,25 @@ class BaseViewController: UIViewController {
 //        getAppTabBar()?.hide()
     }
     
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        
+//        if isBeingDismissed {
+//            if self == (UIApplication.shared.delegate as? AppDelegate)?.currentPresentedVc {
+//                (UIApplication.shared.delegate as? AppDelegate)?.currentPresentedVc = nil
+//            }
+//        }
+    }
+    
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
 //        getAppTabBar()?.hide()
     }
+    
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+                
+        
 //        self.tabBarController?.tabBar.isHidden = false
 //        self.tabBarController?.tabBar.layoutIfNeeded()
     }
@@ -92,4 +107,15 @@ class BaseViewController: UIViewController {
     func reloadDatasource() {
         
     }
+    
 }
+
+extension BaseViewController: UIAdaptivePresentationControllerDelegate {
+    func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+        if self == (UIApplication.shared.delegate as? AppDelegate)?.currentPresentedVc {
+            (UIApplication.shared.delegate as? AppDelegate)?.currentPresentedVc = nil
+        }
+    }
+}
+
+

@@ -32,11 +32,6 @@ struct SubscribtionsPresenter {
         let vc = SubscribtionsListViewController()
         vc.controllerCloseReason = .modal
         vc.owner = AccountManager.shared.users.first?.jid ?? ""
-        if var topController = UIApplication.shared.keyWindow?.rootViewController {
-            while let presentedViewController = topController.presentedViewController {
-                topController = presentedViewController
-            }
-            showModal(vc, from: topController)
-        }
+        showModal(vc)
     }
 }

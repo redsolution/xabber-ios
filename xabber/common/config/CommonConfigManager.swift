@@ -69,6 +69,11 @@ class CommonConfigManager: NSObject {
         var locked_account_color: String
         var locked_background: String
         var skip_vcard_nickname_onboarding_step: Bool
+        var interface_type: String
+    }
+    
+    var interfaceType: InterfaceType {
+        return InterfaceType(rawValue: CommonConfigManager.shared.config.interface_type) ?? .split
     }
     
     var config: CommonConfig
@@ -87,4 +92,8 @@ class CommonConfigManager: NSObject {
        return config
     }
     
+    enum InterfaceType: String {
+        case tabs = "tabs"
+        case split = "split"
+    }
 }
