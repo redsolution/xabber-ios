@@ -551,7 +551,10 @@ extension TrustedDevicesViewController: UITableViewDataSource {
             }
             
             cell.configure(fingerprint: nil, client: "", device: item.name, description: "", ip: String(item.deviceId!), lastAuth: nil, current: false, editable: true, isOnline: false, trustState: item.state, hasBundle: true, isTrustebByCertificate: false, trustedBy: item.trustedBy)
-
+            var config = cell.contentConfiguration as? UIListContentConfiguration
+            config?.image = nil
+            cell.contentConfiguration = config
+            
             return cell
         case .session:
             let cell = VerificationSessionTableViewCell()
