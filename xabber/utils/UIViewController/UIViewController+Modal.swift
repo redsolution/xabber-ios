@@ -14,15 +14,15 @@ func showModal(_ vc: UIViewController, replaceParent: Bool = true) {
 //    if (UIApplication.shared.delegate as? AppDelegate)?.currentPresentedVc != nil {
 //        parent = (UIApplication.shared.delegate as? AppDelegate)?.currentPresentedVc
 //    } else {
-        switch CommonConfigManager.shared.interfaceType {
-        case .tabs:
-            parent = (UIApplication.shared.delegate as? AppDelegate)?.tabController
-        case .split:
-            parent = (UIApplication.shared.delegate as? AppDelegate)?.splitController
-        }
-        if replaceParent {
-            (UIApplication.shared.delegate as? AppDelegate)?.currentPresentedVc = vc
-        }
+    switch CommonConfigManager.shared.interfaceType {
+    case .tabs:
+        parent = (UIApplication.shared.delegate as? AppDelegate)?.tabController
+    case .split:
+        parent = (UIApplication.shared.delegate as? AppDelegate)?.splitController
+    }
+    if replaceParent {
+        (UIApplication.shared.delegate as? AppDelegate)?.currentPresentedVc = vc
+    }
 //    }
     let nvc = UINavigationController(rootViewController: vc)
     nvc.modalPresentationStyle = .formSheet

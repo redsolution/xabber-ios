@@ -52,23 +52,22 @@ class DeviceInfoTableCell: UITableViewCell {
 
         return stack
     }()
-
     
-    var clientLabel: UILabel = {
-        let label = UILabel()
-        label.text = " "
-//        label.font = UIFont.preferredFont(forTextStyle: .headline)
-        label.textColor = MDCPalette.grey.tint900
-        return label
-    }()
-        
-    var descriptionLabel: UILabel = {
-        let label = UILabel()
-        label.text = " "
-        label.font = UIFont.systemFont(ofSize: 13, weight: .regular)
-        label.textColor = MDCPalette.grey.tint700
-        return label
-    }()
+//    var clientLabel: UILabel = {
+//        let label = UILabel()
+//        label.text = " "
+////        label.font = UIFont.preferredFont(forTextStyle: .headline)
+//        label.textColor = MDCPalette.grey.tint900
+//        return label
+//    }()
+//        
+//    var descriptionLabel: UILabel = {
+//        let label = UILabel()
+//        label.text = " "
+//        label.font = UIFont.systemFont(ofSize: 13, weight: .regular)
+//        label.textColor = MDCPalette.grey.tint700
+//        return label
+//    }()
     
     var authDateLabel: UILabel = {
         let label = UILabel()
@@ -81,23 +80,31 @@ class DeviceInfoTableCell: UITableViewCell {
     
     var trustIconView: UIImageView = {
         let view = UIImageView(frame: CGRect(square: 24))
+        view.translatesAutoresizingMaskIntoConstraints = false
         
         return view
     }()
     
     private func activateConstraints() {
         NSLayoutConstraint.activate([
-            descriptionLabel.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 0.9),
+//            descriptionLabel.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 0.9),
+            trustIconView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            trustIconView.rightAnchor.constraint(equalTo: contentView.rightAnchor, constant: -10),
             rightStack.widthAnchor.constraint(equalToConstant: 20),
+            trustIconView.widthAnchor.constraint(equalToConstant: 20),
         ])
     }
     
     func configure(fingerprint: String? = nil, client: String, device: String, description descr: String, ip: String, lastAuth date: Date?, current: Bool, editable: Bool, isOnline: Bool, trustState: SignalDeviceStorageItem.TrustState? = nil, hasBundle: Bool? = nil, isTrustebByCertificate: Bool = false, trustedBy: String? = nil) {
         
+        var cellConfig = self.defaultContentConfiguration()
+        
         if trustedBy == "manual" {
-            descriptionLabel.text = "\(ip) ⦁ trusted by \(trustedBy!)"
+//            descriptionLabel.text = "\(ip) ⦁ trusted by \(trustedBy!)"
+            cellConfig.secondaryText = "\(ip) ⦁ trusted by \(trustedBy!)"
         } else if trustedBy != nil {
-            descriptionLabel.text = "\(ip) ⦁ trusted via \(trustedBy!)"
+//            descriptionLabel.text = "\(ip) ⦁ trusted via \(trustedBy!)"
+            cellConfig.secondaryText = "\(ip) ⦁ trusted via \(trustedBy!)"
         } else if date != nil {
             let today = Date()
             
@@ -124,21 +131,37 @@ class DeviceInfoTableCell: UITableViewCell {
                 dateString = "\(seconds) seconds ago"
             }
             
-            descriptionLabel.text = "\(ip) ⦁ \(dateString)"
+//            descriptionLabel.text = "\(ip) ⦁ \(dateString)"
+            cellConfig.secondaryText = "\(ip) ⦁ \(dateString)"
         } else if trustState == .trusted {
-            descriptionLabel.text = "\(ip) ⦁ trusted by code"
+//            descriptionLabel.text = "\(ip) ⦁ trusted by code"
+            cellConfig.secondaryText = "\(ip) ⦁ trusted by code"
         } else {
-            descriptionLabel.text = "\(ip)"
+//            descriptionLabel.text = "\(ip)"
+            cellConfig.secondaryText = "\(ip)"
+        }
+        
+        if client == "XabberIOS" {
+            cellConfig.image = UIImage(systemName: "iphone")?.withTintColor(.systemBlue).withRenderingMode(.alwaysOriginal)
+        } else if client == "Xabber for Web" {
+            cellConfig.image = UIImage(systemName: "desktopcomputer")?.withTintColor(.systemBlue).withRenderingMode(.alwaysOriginal)
+        } else {
+            cellConfig.image = UIImage(systemName: "questionmark")?.withTintColor(.systemBlue).withRenderingMode(.alwaysOriginal)
         }
         
         if device.isNotEmpty {
-            clientLabel.text = device//[client, device].joined(separator: ", ")
+//            clientLabel.text = device//[client, device].joined(separator: ", ")
+            cellConfig.text = device
         } else {
-            clientLabel.text = client//[client, device].joined(separator: "")
+//            clientLabel.text = client//[client, device].joined(separator: "")
+            cellConfig.text = client
         }
         
-        clientLabel.textColor = MDCPalette.grey.tint900
-        descriptionLabel.textColor = MDCPalette.grey.tint700
+//        clientLabel.textColor = MDCPalette.grey.tint900
+//        descriptionLabel.textColor = MDCPalette.grey.tint700
+        
+        cellConfig.textProperties.color = MDCPalette.grey.tint900
+        cellConfig.secondaryTextProperties.color = MDCPalette.grey.tint700
         
         if let trustState = trustState {
             self.trustIconView.isHidden = false
@@ -166,8 +189,8 @@ class DeviceInfoTableCell: UITableViewCell {
                     self.trustIconView.tintColor = .systemRed
                     self.authDateLabel.text = "Fingerprint changed"
                     self.authDateLabel.textColor = .systemRed
-                    self.descriptionLabel.textColor = .systemRed
-                    self.clientLabel.textColor = .systemRed
+//                    self.descriptionLabel.textColor = .systemRed
+//                    self.clientLabel.textColor = .systemRed
             }
         } else {
             if let hasBundle = hasBundle,
@@ -190,6 +213,9 @@ class DeviceInfoTableCell: UITableViewCell {
             selectionStyle = .none
         }
         
+        self.contentConfiguration = cellConfig
+        contentView.addSubview(trustIconView)
+        
         activateConstraints()
     }
     
@@ -198,21 +224,20 @@ class DeviceInfoTableCell: UITableViewCell {
         contentView.bringSubviewToFront(stack)
         stack.fillSuperviewWithOffset(top: 8, bottom: 8, left: 16, right: 10)
         
-        
-        leftStack.addArrangedSubview(clientLabel)
-        leftStack.addArrangedSubview(descriptionLabel)
+//        leftStack.addArrangedSubview(clientLabel)
+//        leftStack.addArrangedSubview(descriptionLabel)
 //        rightStack.addArrangedSubview(UIStackView())
         rightStack.addArrangedSubview(trustIconView)
         
         stack.addArrangedSubview(leftStack)
         stack.addArrangedSubview(rightStack)
         
-        activateConstraints()
+//        activateConstraints()
     }
     
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
-        self.setup()
+//        self.setup()
     }
     
     required init?(coder aDecoder: NSCoder) {

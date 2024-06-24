@@ -27,7 +27,8 @@ class VerificationSessionTableViewCell: UITableViewCell {
         let stack = UIStackView()
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.axis = .vertical
-        stack.spacing = 4
+        stack.spacing = 10
+        stack.alignment = .leading
         
         return stack
     }()
@@ -63,9 +64,21 @@ class VerificationSessionTableViewCell: UITableViewCell {
         return button
     }()
     
+    let verifyButton: UIButton = {
+        let button = UIButton()
+        button.setTitle("Verify", for: .normal)
+        button.setTitleColor(.white, for: .normal)
+        button.configuration = UIButton.Configuration.filled()
+        button.configuration!.baseBackgroundColor = .systemBlue
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        
+        return button
+    }()
+    
     let customImageView: UIImageView = {
         let imageView = UIImageView(frame: CGRect(square: 40))
-        let image = UIImage(systemName: "lock.circle.fill")?.upscale(dimension: 40).withTintColor(.systemBlue)
+        let image = UIImage(systemName: "exclamationmark.triangle.fill")?.upscale(dimension: 40).withTintColor(.systemOrange)
         imageView.image = image
         imageView.translatesAutoresizingMaskIntoConstraints = false
         imageView.setContentHuggingPriority(.defaultHigh, for: .horizontal)
@@ -74,7 +87,6 @@ class VerificationSessionTableViewCell: UITableViewCell {
     }()
     
     func configure(title: String, subtitle: String?) {
-        
         contentView.addSubview(stack)
         stack.fillSuperviewWithOffset(top: 11, bottom: 11, left: 11, right: 11)
         
@@ -92,17 +104,18 @@ class VerificationSessionTableViewCell: UITableViewCell {
         
         stack.addArrangedSubview(customImageView)
         stack.addArrangedSubview(labelsStack)
-        stack.addArrangedSubview(closeButton)
+//        stack.addArrangedSubview(closeButton)
         
         activateConstraints()
+        
+        accessoryType = .none
     }
     
     func activateConstraints() {
         NSLayoutConstraint.activate([
-            customImageView.widthAnchor.constraint(equalToConstant: 40),
-            closeButton.widthAnchor.constraint(equalToConstant: 44),
-            closeButton.heightAnchor.constraint(equalToConstant: 44),
-            closeButton.rightAnchor.constraint(equalTo: self.contentView.rightAnchor),
+//            closeButton.widthAnchor.constraint(equalToConstant: 44),
+//            closeButton.heightAnchor.constraint(equalToConstant: 44),
+//            closeButton.rightAnchor.constraint(equalTo: self.contentView.rightAnchor),
         ])
     }
 }

@@ -508,8 +508,9 @@ class ChatViewController: MessagesViewController {
     func configurePinMessagePanel() {
 //        pinMessageBar.addSubview(pinMessageView)
         pinMessageView.fillSuperview()
+        
         pinMessageView.frame = CGRect(x: 0, y: 0, width: view.frame.width, height: 64)
-        pinMessageBar.frame = CGRect(x: 0, y: 0, width: view.frame.width, height: 64)
+        pinMessageBar.frame = CGRect(x: 0, y: view.safeAreaInsets.top, width: view.frame.width, height: 64)
         self.pinMessageBar.alpha = 0
 //        view.addSubview(pinMessageBar)
     }
@@ -518,7 +519,7 @@ class ChatViewController: MessagesViewController {
         subscribtionBar.addSubview(subscribtionBarView)
         subscribtionBarView.fillSuperview()
         self.subscribtionBarView.isHidden = true
-        subscribtionBar.frame = CGRect(x: 0, y: 0, width: view.frame.width, height: 64)
+        subscribtionBar.frame = CGRect(x: 0, y: view.safeAreaInsets.top, width: view.frame.width, height: 64)
         view.addSubview(subscribtionBar)
         
         subscribtionBar.isHidden = true
@@ -532,6 +533,10 @@ class ChatViewController: MessagesViewController {
         let barFrame = self.view.inputAccessoryView?.frame
         self.bottomSearchBar.frame = barFrame ?? .zero
     }
+    
+//    override func viewDidLayoutSubviews() {
+//        super.viewDidLayoutSubviews()
+//    }
     
     func configureNavigationBar() {
         self.navigationController?.setNavigationBarHidden(false, animated: false)
@@ -682,10 +687,10 @@ class ChatViewController: MessagesViewController {
     
     var previousFrame: CGRect = .zero
     
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        
-    }
+//    override func viewDidLayoutSubviews() {
+//        super.viewDidLayoutSubviews()
+//        
+//    }
     
     override func shouldChangeFrame() {
         super.shouldChangeFrame()
