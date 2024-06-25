@@ -307,11 +307,18 @@ class TrustSharingManager: AbstractXMPPManager {
                 let realm = try WRealm.safe()
                 let instance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND opponentDeviceId == %@", self.owner, publisherDeviceId).first
                 if instance != nil && instance?.state == .trusted {
-                    NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_success"), object: self, userInfo: ["jid": jid.bare, "deviceId": publisherDeviceIdRaw])
+                    NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_success"),
+                                                    object: self,
+                                                    userInfo: [
+                                                        "owner": self.owner,
+                                                        "jid": jid.bare,
+                                                        "deviceId": publisherDeviceIdRaw
+                                                    ]
+                    )
 
                 }
             } catch {
-                
+                DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
             }
         }
         

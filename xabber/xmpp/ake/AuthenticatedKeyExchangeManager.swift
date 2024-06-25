@@ -942,7 +942,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
     func sendVerificationRequest(jid: String, deviceId: String? = nil) {
         let sid = UUID().uuidString
         var ttl: Int
-        if jid != self.owner {
+        if jid == self.owner {
             ttl = 300
         } else {
             ttl = 86400

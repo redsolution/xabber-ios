@@ -67,6 +67,7 @@ class TrustedDevicesViewController: SimpleBaseViewController {
     }
     
     var datasource: [[Datasource]] = []
+    var activeVerificationSession: VerificationSessionStorageItem? = nil
     
     let tableView: InsetGroupedTableView = {
         let view = InsetGroupedTableView(frame: .zero)
@@ -154,9 +155,12 @@ class TrustedDevicesViewController: SimpleBaseViewController {
     
     override func loadDatasource() {
         super.loadDatasource()
+        
+        datasource = []
+        activeVerificationSession = nil
+        
         do {
             let realm = try Realm()
-            
             guard let myDeviceId = AccountManager.shared.find(for: owner)?.omemo.localStore.localDeviceId() else {
                 DDLogDebug("TrustedDevicesViewController: \(#function).")
                 return
@@ -166,9 +170,8 @@ class TrustedDevicesViewController: SimpleBaseViewController {
                 myDeviceId,
                 self.jid
             ])
-            let verificationSession = realm.objects(VerificationSessionStorageItem.self).filter(predicate).first
             
-            datasource = []
+            let verificationSession = realm.objects(VerificationSessionStorageItem.self).filter(predicate).first
             if verificationSession != nil {
                 var isSessionDeleted = false
                 if verificationSession!.state == .sentRequest || verificationSession!.state == .receivedRequest {
@@ -193,18 +196,19 @@ class TrustedDevicesViewController: SimpleBaseViewController {
                     let sid = verificationSession!.sid
                     let fullJid = verificationSession!.fullJID != "" ? verificationSession!.fullJID : verificationSession!.jid
                     
-                    (text, secondaryText, buttonTitle, buttonKey) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: verificationSession!.state)
+                    (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: verificationSession!.state)
                     
+                    self.activeVerificationSession = verificationSession
                     datasource = [
                         [Datasource(.session, name: text, subtitle: secondaryText, verificationSid: sid, verificationJid: fullJid)]
                     ]
                     
-                    if buttonKey != nil {
-                        datasource[0].append(Datasource(.button, name: buttonTitle!, key: buttonKey!, verificationSid: sid, verificationJid: fullJid))
-                        if buttonKey == "accept_verification" {
-                            datasource[0].append(Datasource(.button, name: "Reject", key: "reject_verification", verificationSid: sid, verificationJid: fullJid))
-                        }
-                    }
+//                    if buttonKey != nil {
+//                        datasource[0].append(Datasource(.button, name: buttonTitle!, key: buttonKey!, verificationSid: sid, verificationJid: fullJid))
+//                        if buttonKey == "accept_verification" {
+//                            datasource[0].append(Datasource(.button, name: "Reject", key: "reject_verification", verificationSid: sid, verificationJid: fullJid))
+//                        }
+//                    }
                 }
             }
             
@@ -297,56 +301,100 @@ class TrustedDevicesViewController: SimpleBaseViewController {
     }
 
     
-    static func getCellPropertiesForVerificationSession(verificationState: VerificationSessionStorageItem.VerififcationState) -> (String, String?, String?, String?) {
+    static func getCellPropertiesForVerificationSession(verificationState: VerificationSessionStorageItem.VerififcationState) -> (String, String?) {
         let text: String
         let secondaryText: String?
-        let buttonTitle: String?
-        let buttonKey: String?
+//        let buttonTitle: String?
+//        let buttonKey: String?
         
         switch verificationState {
         case .sentRequest:
             text = "Outgoing Verification Request"
             secondaryText = "Verification request has been sent to the contact."
-            buttonTitle = nil
-            buttonKey = nil
+//            buttonTitle = nil
+//            buttonKey = nil
         case .receivedRequest:
-            text = "Incoming Verification request"
-            secondaryText = "Contact has requested to establish a trusted encryption session with you. If you accept, you’ll be presented with a security code which you’ll need to pass to your contact via a trusted channel."
-            buttonTitle = "Proceed to Verification"
-            buttonKey = "accept_verification"
+            text = "Incoming Verification Request"
+            secondaryText = "Contact has requested to establish a trusted encryption session with you.\n\nIf you accept, you’ll be presented with a security code which you’ll need to pass to your contact via a trusted channel."
+//            buttonTitle = "Proceed to Verification"
+//            buttonKey = "accept_verification"
         case .acceptedRequest:
             text = "Incoming Verification Request"
             secondaryText = "You have accepted the verification request."
-            buttonTitle = "Show code"
-            buttonKey = "show_verification_code"
+//            buttonTitle = "Show code"
+//            buttonKey = "show_verification_code"
         case .trusted:
             text = "Verification successful"
             secondaryText = "The verification session was completed successfully. Now you trust this contact's devices."
-            buttonTitle = nil
-            buttonKey = nil
+//            buttonTitle = nil
+//            buttonKey = nil
         case .rejected:
             text = "Verification rejected"
             secondaryText = "The verification session rejected."
-            buttonTitle = nil
-            buttonKey = nil
+//            buttonTitle = nil
+//            buttonKey = nil
         case .failed:
             text = "Verification failed"
             secondaryText = "The verification session failed."
-            buttonTitle = nil
-            buttonKey = nil
+//            buttonTitle = nil
+//            buttonKey = nil
         case .receivedRequestAccept:
             text = "Outgoing Verification Request"
             secondaryText = "The contact accepted the verification request."
-            buttonTitle = "Enter the code"
-            buttonKey = "enter_verification_code"
+//            buttonTitle = "Enter the code"
+//            buttonKey = "enter_verification_code"
         default:
             text = "In process..."
             secondaryText = nil
-            buttonTitle = nil
-            buttonKey = nil
+//            buttonTitle = nil
+//            buttonKey = nil
         }
         
-        return (text, secondaryText, buttonTitle, buttonKey)
+        return (text, secondaryText)
+    }
+    
+    @objc
+    func onAcceptButtonPressed() {
+        guard let code = AccountManager.shared.find(for: self.owner)?.akeManager.acceptVerificationRequest(jid: self.jid, sid: activeVerificationSession!.sid) else {
+            return
+        }
+        let vc = ShowCodeViewController()
+        vc.jid = self.jid
+        vc.owner = self.owner
+        vc.code = code
+        vc.sid = activeVerificationSession!.sid
+        vc.isVerificationWithOwnDevice = false
+        
+        self.navigationController?.present(vc, animated: true)
+    }
+    
+    @objc
+    func onShowCodePressed() {
+        do {
+            let realm = try WRealm.safe()
+            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: activeVerificationSession!.sid))
+            let vc = ShowCodeViewController()
+            vc.jid = self.jid
+            vc.owner = self.owner
+            vc.code = instance?.code ?? ""
+            vc.sid = activeVerificationSession!.sid
+            vc.isVerificationWithOwnDevice = false
+            
+            self.navigationController?.present(vc, animated: true)
+        } catch {
+            DDLogDebug("DevicesListViewController: \(#function). \(error.localizedDescription)")
+        }
+    }
+    
+    @objc
+    func onEnterCodePressed() {
+        let vc = AuthenticationCodeInputViewController()
+        vc.jid = self.jid
+        vc.owner = self.owner
+        vc.sid = activeVerificationSession!.sid
+        vc.isVerificationWithUsersDevice = false
+        
+        self.navigationController?.present(vc, animated: true)
     }
     
     override func onAppear() {
@@ -513,22 +561,22 @@ extension TrustedDevicesViewController: UITableViewDataSource {
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let item = datasource[indexPath.section][indexPath.row]
-        if datasource[indexPath.section].first?.kind == .session {
-            // if the button is from the verification session section
-            if item.kind == .button {
-                let cell = UITableViewCell()
-                var cellConfig = cell.defaultContentConfiguration()
-                cellConfig.text = item.name
-                if item.key == "reject_verification" {
-                    cellConfig.textProperties.color = .systemRed
-                } else {
-                    cellConfig.textProperties.color = .systemBlue
-                }
-                cell.contentConfiguration = cellConfig
-                
-                return cell
-            }
-        }
+//        if datasource[indexPath.section].first?.kind == .session {
+//            // if the button is from the verification session section
+//            if item.kind == .button {
+//                let cell = UITableViewCell()
+//                var cellConfig = cell.defaultContentConfiguration()
+//                cellConfig.text = item.name
+//                if item.key == "reject_verification" {
+//                    cellConfig.textProperties.color = .systemRed
+//                } else {
+//                    cellConfig.textProperties.color = .systemBlue
+//                }
+//                cell.contentConfiguration = cellConfig
+//                
+//                return cell
+//            }
+//        }
         
         switch item.kind {
         case .button:
@@ -560,6 +608,29 @@ extension TrustedDevicesViewController: UITableViewDataSource {
             let cell = VerificationSessionTableViewCell()
             cell.configure(title: item.name, subtitle: item.subtitle)
             cell.closeButton.addTarget(self, action: #selector(onCloseButtonPressed), for: .touchUpInside)
+            
+            switch activeVerificationSession?.state {
+            case .receivedRequest:
+                cell.blueButton.setTitle("Proceed to Verification", for: .normal)
+                cell.blueButton.addTarget(self, action: #selector(onAcceptButtonPressed), for: .touchUpInside)
+                cell.labelsStack.addArrangedSubview(cell.blueButton)
+                cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
+                break
+            case .acceptedRequest:
+                cell.blueButton.setTitle("Show the code", for: .normal)
+                cell.blueButton.addTarget(self, action: #selector(onShowCodePressed), for: .touchUpInside)
+                cell.labelsStack.addArrangedSubview(cell.blueButton)
+                cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
+                break
+            case .receivedRequestAccept:
+                cell.blueButton.setTitle("Enter the code", for: .normal)
+                cell.blueButton.addTarget(self, action: #selector(onEnterCodePressed), for: .touchUpInside)
+                cell.labelsStack.addArrangedSubview(cell.blueButton)
+                cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
+                break
+            default:
+                break
+            }
             
             return cell
         }

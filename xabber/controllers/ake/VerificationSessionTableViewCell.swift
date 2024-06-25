@@ -64,7 +64,7 @@ class VerificationSessionTableViewCell: UITableViewCell {
         return button
     }()
     
-    let verifyButton: UIButton = {
+    let blueButton: UIButton = {
         let button = UIButton()
         button.setTitle("Verify", for: .normal)
         button.setTitleColor(.white, for: .normal)
@@ -86,7 +86,7 @@ class VerificationSessionTableViewCell: UITableViewCell {
         return imageView
     }()
     
-    func configure(title: String, subtitle: String?) {
+    internal func configure(title: String, subtitle: String?) {
         contentView.addSubview(stack)
         stack.fillSuperviewWithOffset(top: 11, bottom: 11, left: 11, right: 11)
         
@@ -104,7 +104,7 @@ class VerificationSessionTableViewCell: UITableViewCell {
         
         stack.addArrangedSubview(customImageView)
         stack.addArrangedSubview(labelsStack)
-//        stack.addArrangedSubview(closeButton)
+        stack.addArrangedSubview(closeButton)
         
         activateConstraints()
         
@@ -113,9 +113,9 @@ class VerificationSessionTableViewCell: UITableViewCell {
     
     func activateConstraints() {
         NSLayoutConstraint.activate([
-//            closeButton.widthAnchor.constraint(equalToConstant: 44),
-//            closeButton.heightAnchor.constraint(equalToConstant: 44),
-//            closeButton.rightAnchor.constraint(equalTo: self.contentView.rightAnchor),
+            closeButton.widthAnchor.constraint(equalToConstant: 44),
+            closeButton.heightAnchor.constraint(equalToConstant: 44),
+            closeButton.rightAnchor.constraint(equalTo: self.contentView.rightAnchor),
         ])
     }
 }

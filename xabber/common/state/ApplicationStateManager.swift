@@ -109,7 +109,15 @@ class ApplicationStateManager: NSObject {
                 object: nil
             )
         
-        NotificationCenter.default.addObserver(self, selector: #selector(showVerificationConfirmationViewController(_:)), name: NSNotification.Name(rawValue: "received_VerificationConfirmationViewController"), object: nil)
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(showVerificationConfirmationViewController(_:)),
+                                               name: NSNotification.Name(rawValue: "received_VerificationConfirmationViewController"),
+                                               object: nil)
+        
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(verificationSucceded(_:)),
+                                               name: NSNotification.Name(rawValue: "show_success"),
+                                               object: nil)
     }
     
     public final func getApplicationBlockedDate() -> Date? {
@@ -253,6 +261,37 @@ class ApplicationStateManager: NSObject {
                 }
             } catch {
                 DDLogDebug("ApplicationStateManager: \(#function). \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    @objc
+    func verificationSucceded(_ notification: Notification) {
+        if let userInfo = notification.userInfo {
+            guard let owner = userInfo["owner"] as? String,
+                  let deviceId = userInfo["deviceId"] as? String,
+                  let jid = userInfo["jid"] as? String else {
+                return
+            }
+            
+            do {
+                let realm = try WRealm.safe()
+                let instance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND opponentDeviceId == %@", owner, Int(deviceId) ?? -1).first
+                if instance?.state != .trusted {
+                    return
+                }
+            } catch {
+                DDLogDebug("ApplicationStateManager: \(#function). \(error.localizedDescription)")
+                return
+            }
+            
+            DispatchQueue.main.async {
+                let vc = SuccessfulVerificationViewController()
+                vc.owner = owner
+                vc.jid = jid
+                vc.deviceId = deviceId
+                
+                showModal(vc, replaceParent: false)
             }
         }
     }

@@ -124,6 +124,8 @@ class ContactInfoViewController: BaseViewController {
     
     internal var circles: [String] = []
     
+    var activeVerificationSession: VerificationSessionStorageItem? = nil
+    
     internal let leftDevicesNavBarButton: UIBarButtonItem = {
         let button = UIBarButtonItem()
         
@@ -260,17 +262,17 @@ class ContactInfoViewController: BaseViewController {
                             }
                             
                             if !isSessiondeleted {
-                                let (text, secondaryText, buttonTitle, buttonKey) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: verificationInstance.state)
+                                let (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: verificationInstance.state)
                                 let verificationDatasource = Datasource(.text, title: "Active verification session", key: "verification-session", childs: [
                                     Datasource(.session, title: text, subtitle: secondaryText, verificationSid: verificationInstance.sid, verificationJid: self.jid)
                                 ])
                                 
-                                if buttonKey != nil {
-                                    verificationDatasource.childs.append(Datasource(.button, title: buttonTitle!, key: buttonKey, verificationSid: verificationInstance.sid, verificationJid: self.jid))
-                                    if buttonKey == "accept_verification" {
-                                        verificationDatasource.childs.append(Datasource(.button, title: "Reject", key: "reject_verification", verificationSid: verificationInstance.sid, verificationJid: self.jid))
-                                    }
-                                }
+//                                if buttonKey != nil {
+//                                    verificationDatasource.childs.append(Datasource(.button, title: buttonTitle!, key: buttonKey, verificationSid: verificationInstance.sid, verificationJid: self.jid))
+//                                    if buttonKey == "accept_verification" {
+//                                        verificationDatasource.childs.append(Datasource(.button, title: "Reject", key: "reject_verification", verificationSid: verificationInstance.sid, verificationJid: self.jid))
+//                                    }
+//                                }
                                 newDatasource.append(verificationDatasource)
                             }
                         }
@@ -364,6 +366,8 @@ class ContactInfoViewController: BaseViewController {
                     guard let item = results.first else {
                         let section = self.datasource.firstIndex(where: { $0.key == "verification-session" })
                         if let section = section {
+                            self.activeVerificationSession = nil
+                            
                             self.datasource.remove(at: section)
                             self.tableView.reloadData()
                         }
@@ -374,17 +378,19 @@ class ContactInfoViewController: BaseViewController {
                     do {
                         let section = self.datasource.firstIndex(where: { $0.key == "verification-session" })
                         if let section = section {
-                            let (text, secondaryText, buttonTitle, buttonKey) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: item.state)
+                            let (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: item.state)
                             let verificationDatasource = Datasource(.text, title: "Active verification session", key: "verification-session", childs: [
                                 Datasource(.session, title: text, subtitle: secondaryText, verificationSid: item.sid, verificationJid: self.jid)
                             ])
                             
-                            if buttonKey != nil {
-                                verificationDatasource.childs.append(Datasource(.button, title: buttonTitle!, key: buttonKey, verificationSid: item.sid, verificationJid: self.jid))
-                                if buttonKey == "accept_verification" {
-                                    verificationDatasource.childs.append(Datasource(.button, title: "Reject", key: "reject_verification", verificationSid: item.sid, verificationJid: self.jid))
-                                }
-                            }
+//                            if buttonKey != nil {
+//                                verificationDatasource.childs.append(Datasource(.button, title: buttonTitle!, key: buttonKey, verificationSid: item.sid, verificationJid: self.jid))
+//                                if buttonKey == "accept_verification" {
+//                                    verificationDatasource.childs.append(Datasource(.button, title: "Reject", key: "reject_verification", verificationSid: item.sid, verificationJid: self.jid))
+//                                }
+//                            }
+                            self.activeVerificationSession = item
+                            
                             self.datasource[section] = verificationDatasource
                             self.tableView.reloadData()
                             
@@ -395,19 +401,21 @@ class ContactInfoViewController: BaseViewController {
                         
                         let verificationInstance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid).first
                         if let verificationInstance = verificationInstance {
-                            let (text, secondaryText, buttonTitle, buttonKey) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(
+                            let (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(
                                 verificationState: verificationInstance.state
                             )
                             let verificationDatasource = Datasource(.text, title: "Active verification session", key: "verification-session", childs: [
                                 Datasource(.session, title: text, subtitle: secondaryText, verificationSid: verificationInstance.sid, verificationJid: self.jid)
                             ])
                             
-                            if buttonKey != nil {
-                                verificationDatasource.childs.append(Datasource(.button, title: buttonTitle!, key: buttonKey, verificationSid: verificationInstance.sid, verificationJid: self.jid))
-                                if buttonKey == "accept_verification" {
-                                    verificationDatasource.childs.append(Datasource(.button, title: "Reject", key: "reject_verification", verificationSid: verificationInstance.sid, verificationJid: self.jid))
-                                }
-                            }
+//                            if buttonKey != nil {
+//                                verificationDatasource.childs.append(Datasource(.button, title: buttonTitle!, key: buttonKey, verificationSid: verificationInstance.sid, verificationJid: self.jid))
+//                                if buttonKey == "accept_verification" {
+//                                    verificationDatasource.childs.append(Datasource(.button, title: "Reject", key: "reject_verification", verificationSid: verificationInstance.sid, verificationJid: self.jid))
+//                                }
+//                            }
+                            self.activeVerificationSession = item
+                            
                             self.datasource.insert(verificationDatasource, at: self.datasource.firstIndex(where: { $0.key == "encryption" })!)
                             self.tableView.reloadData()
                             
@@ -517,10 +525,10 @@ class ContactInfoViewController: BaseViewController {
 //                                               selector: #selector(showVerificationConfirmationViewController(_:)),
 //                                               name: NSNotification.Name(rawValue: "received_VerificationConfirmationViewController"),
 //                                               object: akeManager)
-        NotificationCenter.default.addObserver(self,
-                                               selector: #selector(verificationSucceded(_:)),
-                                               name: NSNotification.Name(rawValue: "show_success"),
-                                               object: trustManager)
+//        NotificationCenter.default.addObserver(self,
+//                                               selector: #selector(verificationSucceded(_:)),
+//                                               name: NSNotification.Name(rawValue: "show_success"),
+//                                               object: trustManager)
         
         AccountManager.shared.find(for: owner)?.action({ (user, stream) in
             user.vcards.requestItem(stream, jid: self.jid)
@@ -624,5 +632,49 @@ class ContactInfoViewController: BaseViewController {
                 showModal(vc)
             }
         }
+    }
+    
+    @objc
+    func onAcceptButtonPressed() {
+        guard let code = AccountManager.shared.find(for: self.owner)?.akeManager.acceptVerificationRequest(jid: self.jid, sid: activeVerificationSession!.sid) else {
+            return
+        }
+        let vc = ShowCodeViewController()
+        vc.jid = self.jid
+        vc.owner = self.owner
+        vc.code = code
+        vc.sid = activeVerificationSession!.sid
+        vc.isVerificationWithOwnDevice = false
+        
+        self.navigationController?.present(vc, animated: true)
+    }
+    
+    @objc
+    func onShowCodePressed() {
+        do {
+            let realm = try WRealm.safe()
+            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: activeVerificationSession!.sid))
+            let vc = ShowCodeViewController()
+            vc.jid = self.jid
+            vc.owner = self.owner
+            vc.code = instance?.code ?? ""
+            vc.sid = activeVerificationSession!.sid
+            vc.isVerificationWithOwnDevice = false
+            
+            self.navigationController?.present(vc, animated: true)
+        } catch {
+            DDLogDebug("DevicesListViewController: \(#function). \(error.localizedDescription)")
+        }
+    }
+    
+    @objc
+    func onEnterCodePressed() {
+        let vc = AuthenticationCodeInputViewController()
+        vc.jid = self.jid
+        vc.owner = self.owner
+        vc.sid = activeVerificationSession!.sid
+        vc.isVerificationWithUsersDevice = false
+        
+        self.navigationController?.present(vc, animated: true)
     }
 }
