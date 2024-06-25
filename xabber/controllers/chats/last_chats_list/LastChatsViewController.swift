@@ -1153,9 +1153,9 @@ class LastChatsViewController: BaseViewController {
                     action: #selector(onFilterButtonTouchUpInside)
                 )
                 if CommonConfigManager.shared.config.use_yubikey {
-                    self.navigationItem.setRightBarButtonItems([addBarButton, filterButton, securityButton], animated: true)
+                    self.navigationItem.setRightBarButtonItems([filterButton, addBarButton, securityButton], animated: true)
                 } else {
-                    self.navigationItem.setRightBarButtonItems([addBarButton, filterButton], animated: true)
+                    self.navigationItem.setRightBarButtonItems([filterButton, addBarButton], animated: true)
                 }
                 let leftBarButton = UIBarButtonItem(customView: accountNavButton)
 //                leftBarButton.target = self
