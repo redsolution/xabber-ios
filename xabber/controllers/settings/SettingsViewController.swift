@@ -343,6 +343,7 @@ class SettingsViewController: BaseViewController {
                     SortDescriptor(keyPath: "timestamp", ascending: false)
                 ])
             
+            self.load()
             tableView.reloadData()
             
             let accountsObserver = realm
@@ -791,80 +792,6 @@ class SettingsViewController: BaseViewController {
                                                selector: #selector(reloadDatasource),
                                                name: .newMaskSelected,
                                                object: nil)
-        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
-              let trustManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager else {
-            return
-        }
-        
-//        NotificationCenter.default.addObserver(self, selector: #selector(showVerificationConfirmationViewController(_:)), name: NSNotification.Name(rawValue: "received_VerificationConfirmationViewController"), object: akeManager)
-        NotificationCenter.default.addObserver(self, selector: #selector(showAuthenticationCodeInputViewController(_:)), name: NSNotification.Name(rawValue: "show_AuthenticationCodeInputViewController"), object: akeManager)
-//        NotificationCenter.default.addObserver(self, selector: #selector(verificationSucceded(_:)), name: NSNotification.Name(rawValue: "show_success"), object: trustManager)
-    }
-    
-    @objc
-    func showVerificationConfirmationViewController(_ notification: Notification) {
-        if let userInfo = notification.userInfo {
-            let sid = userInfo["sid"] as! String
-            let deviceId = userInfo["device-id"] as! String
-            
-            var isVerificationWithOwnDevice = false
-            
-            do {
-                let realm = try WRealm.safe()
-                guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) else {
-                    return
-                }
-                if instance.jid == self.owner {
-                    isVerificationWithOwnDevice = true
-                }
-                DispatchQueue.main.async {
-                    let vc = VerificationConfirmationViewController()
-                    vc.owner = self.owner
-                    vc.sid = sid
-                    vc.deviceId = deviceId
-                    vc.isVerificationWithOwnDevice = isVerificationWithOwnDevice
-
-                    showModal(vc)
-                }
-            } catch {
-                DDLogDebug("SettingsViewController: \(#function). \(error.localizedDescription)")
-            }
-        }
-    }
-    
-    @objc
-    func showAuthenticationCodeInputViewController(_ notification: Notification) {
-        if let userInfo = notification.userInfo {
-            let sid = userInfo["sid"] as! String
-            let deviceId = userInfo["device-id"] as! String
-            let vc = AuthenticationCodeInputViewController()
-            DispatchQueue.main.async {
-                vc.owner = self.owner
-                vc.jid = self.owner
-                vc.sid = sid
-                vc.isVerificationWithUsersDevice = true
-                
-                self.navigationController?.present(vc, animated: true)
-            }
-        }
-    }
-    
-    @objc
-    func verificationSucceded(_ notification: Notification) {
-        if let userInfo = notification.userInfo {
-            guard let deviceId = userInfo["deviceId"] as? String,
-                  let jid = userInfo["jid"] as? String else {
-                return
-            }
-            DispatchQueue.main.async {
-                let vc = SuccessfulVerificationViewController()
-                vc.owner = self.owner
-                vc.jid = jid
-                vc.deviceId = deviceId
-                
-                showModal(vc)
-            }
-        }
     }
     
     @objc

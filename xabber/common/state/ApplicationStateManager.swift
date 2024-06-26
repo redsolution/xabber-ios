@@ -113,10 +113,13 @@ class ApplicationStateManager: NSObject {
                                                selector: #selector(showVerificationConfirmationViewController(_:)),
                                                name: NSNotification.Name(rawValue: "received_VerificationConfirmationViewController"),
                                                object: nil)
-        
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(verificationSucceded(_:)),
                                                name: NSNotification.Name(rawValue: "show_success"),
+                                               object: nil)
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(showAuthenticationCodeInputViewController(_:)),
+                                               name: NSNotification.Name(rawValue: "show_AuthenticationCodeInputViewController"),
                                                object: nil)
     }
     
@@ -261,6 +264,24 @@ class ApplicationStateManager: NSObject {
                 }
             } catch {
                 DDLogDebug("ApplicationStateManager: \(#function). \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    @objc
+    func showAuthenticationCodeInputViewController(_ notification: Notification) {
+        if let userInfo = notification.userInfo {
+            let owner = userInfo["owner"] as! String
+            let jid = userInfo["jid"] as! String
+            let sid = userInfo["sid"] as! String
+            let vc = AuthenticationCodeInputViewController()
+            DispatchQueue.main.async {
+                vc.owner = owner
+                vc.jid = jid
+                vc.sid = sid
+                vc.isVerificationWithUsersDevice = owner == jid ? true : false
+                
+                showModal(vc, replaceParent: false)
             }
         }
     }

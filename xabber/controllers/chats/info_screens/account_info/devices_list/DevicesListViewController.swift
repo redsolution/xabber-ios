@@ -188,8 +188,7 @@ class DevicesListViewController: BaseViewController {
                                                   value: "You can terminate sessions you don`t need. Official Clandestino clients wipe all user data from the device upon session termination.".localizeString(id: "account_settings_terminate_description", arguments: []),
                                                   editable: false)
             if isVerifiсationRequired && activeVerificationSession == nil {
-                activeDevicesSection.childs.append(Datasource(.session, title: "NON-verified devices connected", value: "Several devices connected to this account have enabled end-to-end encryption but were not verified.\n\nPlease, review the list below and perform device verification for every device in question.", editable: false))
-                activeDevicesSection.childs.append(Datasource(.button, title: "Verify", editable: false))
+                activeDevicesSection.childs.append(Datasource(.session, title: "Non-Verified Devices Connected", value: "Several devices connected to this account have enabled end-to-end encryption but were not verified.\n\nPlease, review the list below and perform device verification for every device in question.", editable: false))
             } else if activeVerificationSession != nil {
                 var text: String
                 var secondaryText: String?
@@ -197,17 +196,6 @@ class DevicesListViewController: BaseViewController {
                 (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: self.activeVerificationSession!.state)
     
                 activeDevicesSection.childs.append(Datasource(.session, title: text, value: secondaryText, editable: false, verificationSid: activeVerificationSession!.sid, verificationFullJid: activeVerificationSession!.fullJID))
-                
-//                datasource.append(Datasource(.session, title: "", value: "", editable: false, childs: [
-//                        Datasource(.session, title: text, value: secondaryText, editable: false, verificationSid: activeVerificationSession!.sid, verificationFullJid: activeVerificationSession!.fullJID)
-//                    ]))
-    
-//                if buttonKey != nil {
-//                    activeDevicesSection.childs.append(Datasource(.button, title: buttonTitle!, value: buttonKey, editable: false, verificationSid: activeVerificationSession!.sid, verificationFullJid: activeVerificationSession!.fullJID))
-//                    if buttonKey == "accept_verification" {
-//                        activeDevicesSection.childs.append(Datasource(.button, title: "Reject", value: "reject_verification", editable: false, verificationSid: activeVerificationSession!.sid, verificationFullJid: activeVerificationSession!.fullJID))
-//                    }
-//                }
             }
             datasource.append(activeDevicesSection)
         }

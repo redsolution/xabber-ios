@@ -397,6 +397,7 @@ extension DeviceDetailViewController: UITableViewDelegate {
                                     instance.state = .unknown
                                     instance.trustDate = Date(timeIntervalSince1970: -1)
                                     instance.trustedByDeviceId = nil
+                                    instance.lastTrustedItemsUpdateTimestamp = ""
                                 }
                             }
                             

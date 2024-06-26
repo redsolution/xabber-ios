@@ -136,7 +136,7 @@ class ShowCodeViewController: SimpleBaseViewController {
             return
         }
         
-        NotificationCenter.default.addObserver(self, selector: #selector(verificationSucceded(_:)), name: NSNotification.Name(rawValue: "show_success"), object: trustManager)
+        NotificationCenter.default.addObserver(self, selector: #selector(verificationSucceded(_:)), name: NSNotification.Name(rawValue: "show_success"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(closeController(_:)), name: NSNotification.Name(rawValue: "close_view"), object: akeManager)
     }
     

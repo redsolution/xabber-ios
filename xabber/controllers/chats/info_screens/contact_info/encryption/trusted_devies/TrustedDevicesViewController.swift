@@ -47,10 +47,8 @@ class TrustedDevicesViewController: SimpleBaseViewController {
         var key: String?
         var signed: Bool
         var trustedBy: String?
-        var verificationSid: String?
-        var verificationJid: String?
         
-        init(_ kind: Kind, name: String, state: SignalDeviceStorageItem.TrustState? = nil, fingerprint: String? = nil, deviceId: Int? = nil, editable: Bool? = nil, subtitle: String? = nil, key: String = "", signed: Bool = false, trustedBy: String? = nil, verificationSid: String? = nil, verificationJid: String? = nil) {
+        init(_ kind: Kind, name: String, state: SignalDeviceStorageItem.TrustState? = nil, fingerprint: String? = nil, deviceId: Int? = nil, editable: Bool? = nil, subtitle: String? = nil, key: String = "", signed: Bool = false, trustedBy: String? = nil) {
             self.kind = kind
             self.name = name
             self.state = state
@@ -61,8 +59,6 @@ class TrustedDevicesViewController: SimpleBaseViewController {
             self.key = key
             self.signed = signed
             self.trustedBy = trustedBy
-            self.verificationSid = verificationSid
-            self.verificationJid = verificationJid
         }
     }
     
@@ -172,8 +168,22 @@ class TrustedDevicesViewController: SimpleBaseViewController {
             ])
             
             let verificationSession = realm.objects(VerificationSessionStorageItem.self).filter(predicate).first
-            if verificationSession != nil {
+            let devices = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid)
+            
+            var isVerificationNeeded = false
+            for device in devices {
+                if device.state == .unknown {
+                    isVerificationNeeded = true
+                    break
+                }
+            }
+            
+            var devicesDatasource: [Datasource] = []
+            if isVerificationNeeded && verificationSession == nil {
+                devicesDatasource.append(Datasource(.session, name: "Non-Verified Devices Connected", subtitle: "This contact is enabled end-to-end encryption, but its devices is not verified for you.\n\nYou can send the verification request to this contact to verify his devices."))
+            } else if verificationSession != nil {
                 var isSessionDeleted = false
+                
                 if verificationSession!.state == .sentRequest || verificationSession!.state == .receivedRequest {
                     // if more then ttl have passed after request, its not available anymore
                     if let timestamp = TimeInterval(verificationSession!.timestamp),
@@ -190,90 +200,49 @@ class TrustedDevicesViewController: SimpleBaseViewController {
                 if !isSessionDeleted {
                     let text: String
                     let secondaryText: String?
-                    let buttonTitle: String?
-                    let buttonKey: String?
-                    
-                    let sid = verificationSession!.sid
-                    let fullJid = verificationSession!.fullJID != "" ? verificationSession!.fullJID : verificationSession!.jid
                     
                     (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: verificationSession!.state)
                     
                     self.activeVerificationSession = verificationSession
-                    datasource = [
-                        [Datasource(.session, name: text, subtitle: secondaryText, verificationSid: sid, verificationJid: fullJid)]
-                    ]
-                    
-//                    if buttonKey != nil {
-//                        datasource[0].append(Datasource(.button, name: buttonTitle!, key: buttonKey!, verificationSid: sid, verificationJid: fullJid))
-//                        if buttonKey == "accept_verification" {
-//                            datasource[0].append(Datasource(.button, name: "Reject", key: "reject_verification", verificationSid: sid, verificationJid: fullJid))
-//                        }
-//                    }
+                    devicesDatasource.append(Datasource(.session, name: text, subtitle: secondaryText))
                 }
             }
             
-            let devices = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid)
-            if datasource.isEmpty {
-                datasource = [
-                    devices.compactMap {
-                        return Datasource(
-                            .device,
-                            name: $0.name ?? "\($0.deviceId)",
-                            state: $0.state,
-                            fingerprint: $0.fingerprint,
-                            deviceId: $0.deviceId,
-                            editable: true,
-                            signed: $0.isTrustedByCertificate,
-                            trustedBy: $0.trustedByDeviceId
-                        )
-                    }
-                ]
-            } else {
-                datasource.append(
-                    devices.compactMap {
-                        return Datasource(
-                            .device,
-                            name: $0.name ?? "\($0.deviceId)",
-                            state: $0.state,
-                            fingerprint: $0.fingerprint,
-                            deviceId: $0.deviceId,
-                            editable: true,
-                            signed: $0.isTrustedByCertificate,
-                            trustedBy: $0.trustedByDeviceId
-                        )
-                    }
+            for device in devices {
+                devicesDatasource.append(
+                    Datasource(
+                        .device,
+                        name: device.name ?? "\(device.deviceId)",
+                        state: device.state,
+                        fingerprint: device.fingerprint,
+                        deviceId: device.deviceId,
+                        editable: true,
+                        signed: device.isTrustedByCertificate,
+                        trustedBy: device.trustedByDeviceId
+                    )
                 )
             }
+            
+            datasource.append(devicesDatasource)
         } catch {
             DDLogDebug("TrustedDevicesViewController: \(#function). \(error.localizedDescription)")
         }
+    }
+    
+    @objc
+    func onVerifyButtonPressed() {
+        let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager
+        akeManager?.sendVerificationRequest(jid: self.jid)
         
-        do {
-            let realm = try WRealm.safe()
-            let instances = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid)
-            var isVerifyNeeded = false
-            for instance in instances {
-                if instance.state == .unknown {
-                    isVerifyNeeded = true
-                    break
-                }
-            }
-            if isVerifyNeeded {
-                datasource.append([Datasource(.button, name: "Verify", key: "verify")])
-            } else {
-                datasource.append([Datasource(.button, name: "Revoke trust", key: "revoke_trust")])
-            }
-        } catch {
-            DDLogDebug("TrustedDevicesViewController: \(#function). \(error.localizedDescription)")
-            return
-        }
+        self.loadDatasource()
+        tableView.reloadData()
     }
     
     @objc
     func onCloseButtonPressed() {
         guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
               let jid = XMPPJID(string: self.jid),
-              let sid = datasource.first(where: { $0.first?.kind == .session })?.first?.verificationSid else {
+              let sid = activeVerificationSession?.sid else {
             DDLogDebug("TrustedDevicesViewController: \(#function).")
             return
         }
@@ -465,30 +434,31 @@ extension TrustedDevicesViewController: UITableViewDelegate {
                     return
                 }
                 akeManager.sendVerificationRequest(jid: self.jid)
+                self.loadDatasource()
                 tableView.reloadData()
                 
                 return
             case "accept_verification":
-                    guard let code = AccountManager.shared.find(for: self.owner)?.akeManager.acceptVerificationRequest(jid: self.jid, sid: item.verificationSid ?? "") else {
+                guard let code = AccountManager.shared.find(for: self.owner)?.akeManager.acceptVerificationRequest(jid: self.jid, sid: activeVerificationSession?.sid ?? "") else {
                     return
                 }
                 let vc = ShowCodeViewController()
                 vc.jid = self.jid
                 vc.owner = self.owner
                 vc.code = code
-                vc.sid = item.verificationSid ?? ""
+                vc.sid = activeVerificationSession?.sid ?? ""
                 vc.isVerificationWithOwnDevice = false
                 
                 self.navigationController!.present(vc, animated: true)
             case "show_verification_code":
                 do {
                     let realm = try WRealm.safe()
-                    let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: item.verificationSid!))
+                    let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: activeVerificationSession?.sid ?? ""))
                     let vc = ShowCodeViewController()
                     vc.jid = self.jid
                     vc.owner = self.owner
                     vc.code = instance?.code ?? ""
-                    vc.sid = item.verificationSid ?? ""
+                    vc.sid = activeVerificationSession?.sid ?? ""
                     vc.isVerificationWithOwnDevice = false
                     self.navigationController!.present(vc, animated: true)
                 } catch {
@@ -497,7 +467,7 @@ extension TrustedDevicesViewController: UITableViewDelegate {
             case "hide_session":
                 do {
                     let realm = try WRealm.safe()
-                    let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: item.verificationSid!))
+                    let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: activeVerificationSession?.sid ?? ""))
                     try realm.write {
                         realm.delete(instance!)
                     }
@@ -509,12 +479,12 @@ extension TrustedDevicesViewController: UITableViewDelegate {
                 let vc = AuthenticationCodeInputViewController()
                 vc.jid = self.jid
                 vc.owner = self.owner
-                vc.sid = item.verificationSid ?? ""
+                vc.sid = activeVerificationSession?.sid ?? ""
                 vc.isVerificationWithUsersDevice = false
             
                 self.navigationController!.present(vc, animated: true)
             case "reject_verification":
-                AccountManager.shared.find(for: self.owner)?.akeManager.rejectRequestToVerify(jid: self.jid, sid: item.verificationSid!)
+                AccountManager.shared.find(for: self.owner)?.akeManager.rejectRequestToVerify(jid: self.jid, sid: activeVerificationSession?.sid ?? "")
                 tableView.reloadData()
             default:
                 return
@@ -561,22 +531,6 @@ extension TrustedDevicesViewController: UITableViewDataSource {
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let item = datasource[indexPath.section][indexPath.row]
-//        if datasource[indexPath.section].first?.kind == .session {
-//            // if the button is from the verification session section
-//            if item.kind == .button {
-//                let cell = UITableViewCell()
-//                var cellConfig = cell.defaultContentConfiguration()
-//                cellConfig.text = item.name
-//                if item.key == "reject_verification" {
-//                    cellConfig.textProperties.color = .systemRed
-//                } else {
-//                    cellConfig.textProperties.color = .systemBlue
-//                }
-//                cell.contentConfiguration = cellConfig
-//                
-//                return cell
-//            }
-//        }
         
         switch item.kind {
         case .button:
@@ -608,6 +562,16 @@ extension TrustedDevicesViewController: UITableViewDataSource {
             let cell = VerificationSessionTableViewCell()
             cell.configure(title: item.name, subtitle: item.subtitle)
             cell.closeButton.addTarget(self, action: #selector(onCloseButtonPressed), for: .touchUpInside)
+            
+            if activeVerificationSession == nil {
+                cell.closeButton.removeFromSuperview()
+                cell.blueButton.setTitle("Verify", for: .normal)
+                cell.labelsStack.addArrangedSubview(cell.blueButton)
+                cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
+                cell.blueButton.addTarget(self, action: #selector(onVerifyButtonPressed), for: .touchUpInside)
+                
+                return cell
+            }
             
             switch activeVerificationSession?.state {
             case .receivedRequest:
