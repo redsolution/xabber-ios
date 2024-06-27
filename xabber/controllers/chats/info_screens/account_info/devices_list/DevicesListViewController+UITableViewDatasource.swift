@@ -72,36 +72,44 @@ extension DevicesListViewController: UITableViewDataSource {
                 item = item.childs[0]
                 let cell = VerificationSessionTableViewCell()
                 cell.configure(title: item.title, subtitle: item.value)
-//                cell.closeButton.removeFromSuperview()
-//                cell.customImageView.tintColor = .systemOrange
-//                cell.customImageView.image = UIImage(systemName: "exclamationmark.triangle.fill")?.upscale(dimension: 40).withTintColor(.systemOrange)
-
-//                cell.labelsStack.alignment = .leading
-//                cell.labelsStack.spacing = 10
-                cell.labelsStack.addArrangedSubview(cell.verifyButton)
-                cell.verifyButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
-                cell.verifyButton.addTarget(self, action: #selector(onVerifyButtonTouch), for: .touchUpInside)
+                
+                if activeVerificationSession == nil {
+                    cell.closeButton.removeFromSuperview()
+                    cell.blueButton.setTitle("Verify", for: .normal)
+                    cell.labelsStack.addArrangedSubview(cell.blueButton)
+                    cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
+                    cell.blueButton.addTarget(self, action: #selector(onVerifyButtonPressed), for: .touchUpInside)
+                    
+                    return cell
+                }
+                
+                cell.closeButton.addTarget(self, action: #selector(onCloseButtonPressed), for: .touchUpInside)
+                
+                switch activeVerificationSession?.state {
+                case .receivedRequest:
+                    cell.blueButton.setTitle("Proceed to Verification", for: .normal)
+                    cell.blueButton.addTarget(self, action: #selector(onAcceptButtonPressed), for: .touchUpInside)
+                    cell.labelsStack.addArrangedSubview(cell.blueButton)
+                    cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
+                    break
+                case .acceptedRequest:
+                    cell.blueButton.setTitle("Show the code", for: .normal)
+                    cell.blueButton.addTarget(self, action: #selector(onShowCodePressed), for: .touchUpInside)
+                    cell.labelsStack.addArrangedSubview(cell.blueButton)
+                    cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
+                    break
+                case .receivedRequestAccept:
+                    cell.blueButton.setTitle("Enter the code", for: .normal)
+                    cell.blueButton.addTarget(self, action: #selector(onEnterCodePressed), for: .touchUpInside)
+                    cell.labelsStack.addArrangedSubview(cell.blueButton)
+                    cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
+                    break
+                default:
+                    break
+                }
                 
                 return cell
             }
-            
-//            if item.childs[indexPath.row].kind == .button {
-//                guard let cell = tableView.dequeueReusableCell(withIdentifier: ButtonTableViewCell.cellName, for: indexPath) as? ButtonTableViewCell else {
-//                    return UITableViewCell()
-//                }
-//                cell.configure(for: item.childs[indexPath.row].title, style: .normal)
-//                cell.tintColor = .systemOrange
-//                
-//                return cell
-//            }
-            
-//            if indexPath.row == 0 {
-//                guard let cell = tableView.dequeueReusableCell(withIdentifier: ButtonTableViewCell.cellName, for: indexPath) as? ButtonTableViewCell else {
-//                    return UITableViewCell(frame: .zero)
-//                }
-//                cell.configure(for: "Verify all unknown devices", style: .normal)
-//                return cell
-//            }
             
             guard let cell = tableView.dequeueReusableCell(withIdentifier: DeviceInfoTableCell.cellName, for: indexPath) as? DeviceInfoTableCell else {
                     return UITableViewCell(frame: .zero)
@@ -147,29 +155,10 @@ extension DevicesListViewController: UITableViewDataSource {
                 trustState: brokenItem.state,
                 isTrustebByCertificate: brokenItem.isTrustedByCertificate
             )
+            
             return cell
-        case .session:
-            if item.childs.isEmpty || item.childs[indexPath.row].kind == .session {
-                item = item.childs[indexPath.row]
-                
-                let cell = VerificationSessionTableViewCell()
-                cell.configure(title: item.title, subtitle: item.value)
-                cell.closeButton.addTarget(self, action: #selector(onCloseButtonPressed), for: .touchUpInside)
-                
-                return cell
-            }
-            
-            item = item.childs[indexPath.row]
-            
+        default:
             let cell = UITableViewCell()
-            var cellConfig = cell.defaultContentConfiguration()
-            cellConfig.text = item.title
-            if item.value == "reject_verification" {
-                cellConfig.textProperties.color = .systemRed
-            } else {
-                cellConfig.textProperties.color = .systemBlue
-            }
-            cell.contentConfiguration = cellConfig
             
             return cell
         }

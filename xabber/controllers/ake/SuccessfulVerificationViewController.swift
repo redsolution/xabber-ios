@@ -210,6 +210,23 @@ class SuccessfulVerificationViewController: SimpleBaseViewController {
         ])
     }
     
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        
+        do {
+            let realm = try WRealm.safe()
+            let instance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@ AND opponentDeviceId == %@", self.owner, self.jid, Int(self.deviceId) ?? -1).first
+            if instance == nil {
+                return
+            }
+            try realm.write {
+                realm.delete(instance!)
+            }
+        } catch {
+            DDLogDebug("SuccessfulVerificationViewController: \(#function). \(error.localizedDescription)")
+        }
+    }
+    
     override func onAppear() {
         headerView.frame = CGRect(
             width: view.frame.width,
@@ -230,6 +247,11 @@ extension SuccessfulVerificationViewController: UITableViewDataSource {
             return UITableViewCell(frame: .zero)
         }
         cell.configure(client: item.client ?? "", device: item.name, description: "", ip: item.ip ?? "", lastAuth: item.lastAuth, current: false, editable: false, isOnline: false)
+//        if self.owner != self.jid {
+//            var config = cell.contentConfiguration as? UIListContentConfiguration
+//            config?.image = nil
+//            cell.contentConfiguration = config
+//        }
         
         return cell
     }

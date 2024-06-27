@@ -58,27 +58,56 @@ extension SettingsViewController: UITableViewDataSource {
                            enabled: item.enabled)
             return cell
         case .session:
-            let item = datasource[indexPath.section].childs[indexPath.row]
-            if item.values.isNotEmpty {
-                let cell = UITableViewCell()
-                var contentConfig = cell.defaultContentConfiguration()
-                contentConfig.text = item.title
-                if item.values.first == "reject_verification" {
-                    contentConfig.textProperties.color = .systemRed
-                    
-                } else {
-                    contentConfig.textProperties.color = .systemBlue
-                }
-                cell.contentConfiguration = contentConfig
-                
-                return cell
-            } else {
-                let cell = VerificationSessionTableViewCell()
-                cell.configure(title: item.title!, subtitle: item.subtitle)
-                cell.closeButton.addTarget(self, action: #selector(onCloseVerificationButtonPressed), for: .touchUpInside)
-                
-                return cell
+            let item = datasource[indexPath.section].childs.first
+            let cell = VerificationSessionTableViewCell()
+            cell.configure(title: item!.title ?? "", subtitle: item!.subtitle)
+            cell.closeButton.addTarget(self, action: #selector(onCloseVerificationButtonPressed), for: .touchUpInside)
+            
+            switch activeVerificationSession?.state {
+            case .receivedRequest:
+                cell.blueButton.setTitle("Proceed to Verification", for: .normal)
+                cell.blueButton.addTarget(self, action: #selector(onAcceptButtonPressed), for: .touchUpInside)
+                cell.labelsStack.addArrangedSubview(cell.blueButton)
+                cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
+                break
+            case .acceptedRequest:
+                cell.blueButton.setTitle("Show the code", for: .normal)
+                cell.blueButton.addTarget(self, action: #selector(onShowCodePressed), for: .touchUpInside)
+                cell.labelsStack.addArrangedSubview(cell.blueButton)
+                cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
+                break
+            case .receivedRequestAccept:
+                cell.blueButton.setTitle("Enter the code", for: .normal)
+                cell.blueButton.addTarget(self, action: #selector(onEnterCodePressed), for: .touchUpInside)
+                cell.labelsStack.addArrangedSubview(cell.blueButton)
+                cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
+                break
+            default:
+                break
             }
+
+            return cell
+//            let item = datasource[indexPath.section].childs[indexPath.row]
+//            if item.values.isNotEmpty {
+//                let cell = UITableViewCell()
+//                var contentConfig = cell.defaultContentConfiguration()
+//                contentConfig.text = item.title
+//                if item.values.first == "reject_verification" {
+//                    contentConfig.textProperties.color = .systemRed
+//                    
+//                } else {
+//                    contentConfig.textProperties.color = .systemBlue
+//                }
+//                cell.contentConfiguration = contentConfig
+//                
+//                return cell
+//            } else {
+//                let cell = VerificationSessionTableViewCell()
+//                cell.configure(title: item.title!, subtitle: item.subtitle)
+//                cell.closeButton.addTarget(self, action: #selector(onCloseVerificationButtonPressed), for: .touchUpInside)
+//                
+//                return cell
+//            }
         default:
             let item = datasource[indexPath.section].childs[indexPath.row]
             

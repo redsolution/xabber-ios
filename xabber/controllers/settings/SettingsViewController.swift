@@ -296,6 +296,8 @@ class SettingsViewController: BaseViewController {
     internal var doneEditButton: UIBarButtonItem? = nil
     internal var barButtonItemAddAccount: UIBarButtonItem? = nil
     
+    var activeVerificationSession: VerificationSessionStorageItem? = nil
+    
     internal let headerView: InfoScreenHeaderView = {
         let view = InfoScreenHeaderView(frame: .zero)
         
@@ -341,6 +343,7 @@ class SettingsViewController: BaseViewController {
                     SortDescriptor(keyPath: "timestamp", ascending: false)
                 ])
             
+            self.load()
             tableView.reloadData()
             
             let accountsObserver = realm
@@ -484,57 +487,10 @@ class SettingsViewController: BaseViewController {
                     if self.datasource.isEmpty {
                         return
                     }
-                    guard let item = results.first else {
-                        let section = self.datasource.firstIndex(where: { $0.section == .session })
-                        if let section = section {
-                            self.datasource.remove(at: section)
-                            self.tableView.reloadData()
-                        }
-                        
-                        return
-                    }
                     
-                    do {
-                        let section = self.datasource.firstIndex(where: { $0.section == .session })
-                        if let section = section {
-                            let (text, secondaryText, buttonTitle, buttonKey) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: item.state)
-                            let verificationDatasource = Datasource(section: .session, title: "Active verifiaction sessions", childs: [Datasource(section: .session, title: text, subtitle: secondaryText, verificationSid: item.sid)])
-                            
-                            if buttonKey != nil {
-                                verificationDatasource.childs.append(Datasource(section: .session, title: buttonTitle, values: [buttonKey!], verificationSid: item.sid))
-                                if buttonKey == "accept_verification" {
-                                    verificationDatasource.childs.append(Datasource(section: .session, title: "Reject", values: ["reject_verification"], verificationSid: item.sid))
-                                }
-                            }
-                            self.datasource[section] = verificationDatasource
-                            self.tableView.reloadData()
-                            
-                            return
-                        }
-                        
-                        let realm = try WRealm.safe()
-                        
-                        let verificationInstance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.owner).first
-                        if let verificationInstance = verificationInstance {
-                            let (text, secondaryText, buttonTitle, buttonKey) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: verificationInstance.state)
-                            let verificationDatasource = Datasource(section: .session, title: "Active verifiaction sessions", childs: [Datasource(section: .session, title: text, subtitle: secondaryText, verificationSid: item.sid)])
-                            
-                            if buttonKey != nil {
-                                verificationDatasource.childs.append(Datasource(section: .session, title: buttonTitle, values: [buttonKey!], verificationSid: item.sid))
-                                if buttonKey == "accept_verification" {
-                                    verificationDatasource.childs.append(Datasource(section: .session, title: "Reject", values: ["reject_verification"], verificationSid: item.sid))
-                                }
-                            }
-                            self.datasource.insert(verificationDatasource, at: self.datasource.firstIndex(where: { $0.section == .accountSettings })!)
-                            self.tableView.reloadData()
-                            
-                            return
-                        }
-                        
-                    } catch {
-                        DDLogDebug("SettingsViewController: \(#function). \(error.localizedDescription)")
-                        return
-                    }
+                    self.load()
+                    self.tableView.reloadData()
+                    
                 }).disposed(by: bag)
         } catch {
             DDLogDebug("SettingsViewController: \(#function). \(error.localizedDescription)")
@@ -583,6 +539,7 @@ class SettingsViewController: BaseViewController {
     
     internal func load() {
         datasource = []
+        activeVerificationSession = nil
         guard let userDefaults = UserDefaults.init(suiteName: "com.xabber.ios.settings.common")
             else { fatalError() }
         let dict = userDefaults.dictionaryRepresentation()
@@ -638,15 +595,10 @@ class SettingsViewController: BaseViewController {
                         }
                     }
                     if !isSessionDeleted {
-                        let (text, secondaryText, buttonTitle, buttonKey) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: sessionInstance.state)
-                        let verificationDatasource = Datasource(section: .session, title: "Active verifiaction sessions", childs: [Datasource(section: .session, title: text, subtitle: secondaryText, verificationSid: sessionInstance.sid)])
+                        self.activeVerificationSession = sessionInstance
+                        let (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: sessionInstance.state)
+                        let verificationDatasource = Datasource(section: .session, childs: [Datasource(section: .session, title: text, subtitle: secondaryText)])
                         
-                        if buttonKey != nil {
-                            verificationDatasource.childs.append(Datasource(section: .session, title: buttonTitle, values: [buttonKey!], verificationSid: sessionInstance.sid))
-                            if buttonKey == "accept_verification" {
-                                verificationDatasource.childs.append(Datasource(section: .session, title: "Reject", values: ["reject_verification"], verificationSid: sessionInstance.sid))
-                            }
-                        }
                         datasource.append(verificationDatasource)
                     }
                 }
@@ -840,87 +792,57 @@ class SettingsViewController: BaseViewController {
                                                selector: #selector(reloadDatasource),
                                                name: .newMaskSelected,
                                                object: nil)
-        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
-              let trustManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager else {
+    }
+    
+    @objc
+    func onAcceptButtonPressed() {
+        guard let code = AccountManager.shared.find(for: self.jid)?.akeManager.acceptVerificationRequest(jid: self.jid, sid: activeVerificationSession!.sid) else {
             return
         }
+        let vc = ShowCodeViewController()
+        vc.jid = self.jid
+        vc.owner = self.jid
+        vc.code = code
+        vc.sid = activeVerificationSession!.sid
+        vc.isVerificationWithOwnDevice = true
         
-//        NotificationCenter.default.addObserver(self, selector: #selector(showVerificationConfirmationViewController(_:)), name: NSNotification.Name(rawValue: "received_VerificationConfirmationViewController"), object: akeManager)
-        NotificationCenter.default.addObserver(self, selector: #selector(showAuthenticationCodeInputViewController(_:)), name: NSNotification.Name(rawValue: "show_AuthenticationCodeInputViewController"), object: akeManager)
-        NotificationCenter.default.addObserver(self, selector: #selector(verificationSucceded(_:)), name: NSNotification.Name(rawValue: "show_success"), object: trustManager)
+        self.navigationController?.present(vc, animated: true)
     }
     
     @objc
-    func showVerificationConfirmationViewController(_ notification: Notification) {
-        if let userInfo = notification.userInfo {
-            let sid = userInfo["sid"] as! String
-            let deviceId = userInfo["device-id"] as! String
+    func onShowCodePressed() {
+        do {
+            let realm = try WRealm.safe()
+            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.jid, sid: activeVerificationSession!.sid))
+            let vc = ShowCodeViewController()
+            vc.jid = self.jid
+            vc.owner = self.jid
+            vc.code = instance?.code ?? ""
+            vc.sid = activeVerificationSession!.sid
+            vc.isVerificationWithOwnDevice = true
             
-            var isVerificationWithOwnDevice = false
-            
-            do {
-                let realm = try WRealm.safe()
-                guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) else {
-                    return
-                }
-                if instance.jid == self.owner {
-                    isVerificationWithOwnDevice = true
-                }
-                DispatchQueue.main.async {
-                    let vc = VerificationConfirmationViewController()
-                    vc.owner = self.owner
-                    vc.sid = sid
-                    vc.deviceId = deviceId
-                    vc.isVerificationWithOwnDevice = isVerificationWithOwnDevice
-
-                    showModal(vc)
-                }
-            } catch {
-                DDLogDebug("SettingsViewController: \(#function). \(error.localizedDescription)")
-            }
+            self.navigationController?.present(vc, animated: true)
+        } catch {
+            DDLogDebug("DevicesListViewController: \(#function). \(error.localizedDescription)")
         }
     }
     
     @objc
-    func showAuthenticationCodeInputViewController(_ notification: Notification) {
-        if let userInfo = notification.userInfo {
-            let sid = userInfo["sid"] as! String
-            let deviceId = userInfo["device-id"] as! String
-            let vc = AuthenticationCodeInputViewController()
-            DispatchQueue.main.async {
-                vc.owner = self.owner
-                vc.jid = self.owner
-                vc.sid = sid
-                vc.isVerificationWithUsersDevice = true
-                
-                self.navigationController?.present(vc, animated: true)
-            }
-        }
-    }
-    
-    @objc
-    func verificationSucceded(_ notification: Notification) {
-        if let userInfo = notification.userInfo {
-            guard let deviceId = userInfo["deviceId"] as? String,
-                  let jid = userInfo["jid"] as? String else {
-                return
-            }
-            DispatchQueue.main.async {
-                let vc = SuccessfulVerificationViewController()
-                vc.owner = self.owner
-                vc.jid = jid
-                vc.deviceId = deviceId
-                
-                showModal(vc)
-            }
-        }
+    func onEnterCodePressed() {
+        let vc = AuthenticationCodeInputViewController()
+        vc.jid = self.jid
+        vc.owner = self.jid
+        vc.sid = activeVerificationSession!.sid
+        vc.isVerificationWithUsersDevice = true
+        
+        self.navigationController?.present(vc, animated: true)
     }
     
     @objc
     func onCloseVerificationButtonPressed() {
         guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
               let jid = XMPPJID(string: self.owner),
-              let sid = datasource.first(where: { $0.section == .session })?.childs.first?.verificationSid else {
+              let sid = activeVerificationSession?.sid else {
             DDLogDebug("SettingsViewController: \(#function).")
             return
         }

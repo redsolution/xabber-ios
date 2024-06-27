@@ -245,6 +245,22 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
         self.headerView.updateSubviews()
     }
     
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        
+        do {
+            let realm = try WRealm.safe()
+            if let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: self.sid)) {
+                if instance.state == .receivedRequest && self.owner == instance.jid {
+                    let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager
+                    akeManager?.rejectRequestToVerify(jid: self.owner, sid: self.sid)
+                }
+            }
+        } catch {
+            DDLogDebug("ShowCodeViewController: \(#function). \(error.localizedDescription)")
+        }
+    }
+    
     @objc
     func requestAcceptedByAnotherDevice(_ notification: Notification) {
         if let userInfo = notification.userInfo {

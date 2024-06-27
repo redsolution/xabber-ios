@@ -1060,30 +1060,22 @@ class NotifyManager {
         do {
             let realm = try WRealm.safe()
             let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: owner, sid: sid))
+            if instance == nil {
+                return
+            }
             
-            
-            switch instance?.state ?? VerificationSessionStorageItem.VerififcationState.none {
+            switch instance!.state {
             case VerificationSessionStorageItem.VerififcationState.receivedRequest:
-                let agreeAction = UIAlertAction(title: "Accept", style: UIAlertAction.Style.default) { action in
-                guard let code = AccountManager.shared.find(for: owner)?.akeManager.acceptVerificationRequest(jid: instance?.jid ?? "", sid: sid) else {
-                    return
-                }
-                let vc = ShowCodeViewController()
-                vc.jid = instance?.jid ?? ""
-                vc.owner = owner
-                vc.code = code
-                vc.sid = sid
-                vc.isVerificationWithOwnDevice = instance?.jid == owner
-                (UIApplication.shared.delegate as? AppDelegate)?.splitController?.present(vc, animated: true)
-                }
-                let disagreeAction = UIAlertAction(title: "Reject", style: .destructive) { action in
-                    AccountManager.shared.find(for: owner)?.akeManager.rejectRequestToVerify(jid: instance?.jid ?? "", sid: sid)
-                }
-                let alert = UIAlertController(title: "Verification session", message: "Do you want to accept verification request from \(instance?.jid ?? "")?", preferredStyle: UIAlertController.Style.alert)
-                alert.addAction(agreeAction)
-                alert.addAction(disagreeAction)
+                let deviceId = instance!.opponentDeviceId
                 
-                (UIApplication.shared.delegate as? AppDelegate)?.splitController?.present(alert, animated: true)
+                let vc = VerificationConfirmationViewController()
+                vc.owner = owner
+                vc.sid = sid
+                vc.deviceId = String(deviceId)
+                vc.isVerificationWithOwnDevice = owner == instance!.jid ? true : false
+                
+                showModal(vc, replaceParent: false)
+                
             case VerificationSessionStorageItem.VerififcationState.acceptedRequest:
                 let vc = ShowCodeViewController()
                 vc.jid = instance?.jid ?? ""
@@ -1100,14 +1092,12 @@ class NotifyManager {
                 vc.isVerificationWithUsersDevice = instance?.jid == owner
                 (UIApplication.shared.delegate as? AppDelegate)?.splitController?.present(vc, animated: true)
             case VerificationSessionStorageItem.VerififcationState.failed:
-//                AccountManager.shared.find(for: owner)?.akeManager.showFailedRejectedSuccessfulAlert(state: .failed, jid: instance?.jid ?? "", sid: sid)
                 if let instance = instance {
                     try realm.write {
                         realm.delete(instance)
                     }
                 }
             case VerificationSessionStorageItem.VerififcationState.rejected:
-//                AccountManager.shared.find(for: owner)?.akeManager.showFailedRejectedSuccessfulAlert(state: .rejected, jid: instance?.jid ?? "", sid: sid)
                     if let instance = instance {
                         try realm.write {
                             realm.delete(instance)
@@ -1115,7 +1105,6 @@ class NotifyManager {
                     }
                 break
             case VerificationSessionStorageItem.VerififcationState.trusted:
-//                AccountManager.shared.find(for: owner)?.akeManager.showFailedRejectedSuccessfulAlert(state: .trusted, jid: instance?.jid ?? "", sid: sid)
                     if let instance = instance {
                         try realm.write {
                             realm.delete(instance)

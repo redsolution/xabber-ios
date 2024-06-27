@@ -175,10 +175,10 @@ class DevicesListViewController: BaseViewController {
 //            }
 //        }
         
-        var isVerifiactionRequired = false
+        var isVerifiсationRequired = false
         omemoDevices.forEach { device in
             if device.state == .unknown {
-                isVerifiactionRequired = true
+                isVerifiсationRequired = true
             }
         }
         
@@ -187,27 +187,15 @@ class DevicesListViewController: BaseViewController {
                                                   title: "Active devices".localizeString(id: "settings_account__label_active_sessions", arguments: []),
                                                   value: "You can terminate sessions you don`t need. Official Clandestino clients wipe all user data from the device upon session termination.".localizeString(id: "account_settings_terminate_description", arguments: []),
                                                   editable: false)
-            if isVerifiactionRequired && activeVerificationSession == nil {
-                activeDevicesSection.childs.append(Datasource(.session, title: "NON-verified devices connected", value: "Several devices connected to this account have enabled end-to-end encryption but were not verified.\n\nPlease, review the list below and perform device verification for every device in question.", editable: false))
-                activeDevicesSection.childs.append(Datasource(.button, title: "Verify", editable: false))
+            if isVerifiсationRequired && activeVerificationSession == nil {
+                activeDevicesSection.childs.append(Datasource(.session, title: "Non-Verified Devices Connected", value: "Several devices connected to this account have enabled end-to-end encryption but were not verified.\n\nPlease, review the list below and perform device verification for every device in question.", editable: false))
             } else if activeVerificationSession != nil {
                 var text: String
-                var secondaryText, buttonTitle, buttonKey: String?
+                var secondaryText: String?
     
-                (text, secondaryText, buttonTitle, buttonKey) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: self.activeVerificationSession!.state)
+                (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: self.activeVerificationSession!.state)
     
                 activeDevicesSection.childs.append(Datasource(.session, title: text, value: secondaryText, editable: false, verificationSid: activeVerificationSession!.sid, verificationFullJid: activeVerificationSession!.fullJID))
-                
-//                datasource.append(Datasource(.session, title: "", value: "", editable: false, childs: [
-//                        Datasource(.session, title: text, value: secondaryText, editable: false, verificationSid: activeVerificationSession!.sid, verificationFullJid: activeVerificationSession!.fullJID)
-//                    ]))
-    
-//                if buttonKey != nil {
-//                    activeDevicesSection.childs.append(Datasource(.button, title: buttonTitle!, value: buttonKey, editable: false, verificationSid: activeVerificationSession!.sid, verificationFullJid: activeVerificationSession!.fullJID))
-//                    if buttonKey == "accept_verification" {
-//                        activeDevicesSection.childs.append(Datasource(.button, title: "Reject", value: "reject_verification", editable: false, verificationSid: activeVerificationSession!.sid, verificationFullJid: activeVerificationSession!.fullJID))
-//                    }
-//                }
             }
             datasource.append(activeDevicesSection)
         }
@@ -337,38 +325,6 @@ class DevicesListViewController: BaseViewController {
         }
     }
     
-    @objc
-    func onCloseButtonPressed() {
-        guard let akeManager = AccountManager.shared.find(for: self.jid)?.akeManager,
-              let jid = XMPPJID(string: self.jid),
-              let sid = activeVerificationSession?.sid else {
-            DDLogDebug("DevicesListViewController: \(#function).")
-            return
-        }
-        
-        do {
-            let realm = try WRealm.safe()
-            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.jid, sid: sid))
-            
-            if instance?.state == .receivedRequest {
-                akeManager.rejectRequestToVerify(jid: self.jid, sid: sid)
-                
-                return
-            } else if instance?.state != VerificationSessionStorageItem.VerififcationState.failed && instance?.state != VerificationSessionStorageItem.VerififcationState.trusted && instance?.state != VerificationSessionStorageItem.VerififcationState.rejected {
-                akeManager.sendErrorMessage(fullJID: jid, sid: sid, reason: "Сontact canceled verification session")
-            }
-            try realm.write {
-                realm.delete(instance!)
-            }
-            
-            return
-        } catch {
-            DDLogDebug("DevicesListViewController: \(#function). \(error.localizedDescription)")
-            return
-        }
-    }
-
-    
     let refreshControl = UIRefreshControl()
     
     override func viewDidLoad() {
@@ -449,7 +405,7 @@ class DevicesListViewController: BaseViewController {
     }
     
     @objc
-    func onVerifyButtonTouch() {
+    func onVerifyButtonPressed() {
         guard let akeManager = AccountManager.shared.find(for: self.jid)?.akeManager else {
             fatalError()
         }
@@ -458,5 +414,80 @@ class DevicesListViewController: BaseViewController {
         self.load()
         self.update()
         tableView.reloadData()
+    }
+    
+    @objc
+    func onAcceptButtonPressed() {
+        guard let code = AccountManager.shared.find(for: self.jid)?.akeManager.acceptVerificationRequest(jid: self.jid, sid: activeVerificationSession!.sid) else {
+            return
+        }
+        let vc = ShowCodeViewController()
+        vc.jid = self.jid
+        vc.owner = self.jid
+        vc.code = code
+        vc.sid = activeVerificationSession!.sid
+        vc.isVerificationWithOwnDevice = true
+        
+        self.navigationController?.present(vc, animated: true)
+    }
+    
+    @objc
+    func onShowCodePressed() {
+        do {
+            let realm = try WRealm.safe()
+            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.jid, sid: activeVerificationSession!.sid))
+            let vc = ShowCodeViewController()
+            vc.jid = self.jid
+            vc.owner = self.jid
+            vc.code = instance?.code ?? ""
+            vc.sid = activeVerificationSession!.sid
+            vc.isVerificationWithOwnDevice = true
+            
+            self.navigationController?.present(vc, animated: true)
+        } catch {
+            DDLogDebug("DevicesListViewController: \(#function). \(error.localizedDescription)")
+        }
+    }
+    
+    @objc
+    func onEnterCodePressed() {
+        let vc = AuthenticationCodeInputViewController()
+        vc.jid = self.jid
+        vc.owner = self.jid
+        vc.sid = activeVerificationSession!.sid
+        vc.isVerificationWithUsersDevice = true
+        
+        self.navigationController?.present(vc, animated: true)
+    }
+    
+    @objc
+    func onCloseButtonPressed() {
+        guard let akeManager = AccountManager.shared.find(for: self.jid)?.akeManager,
+              let jid = XMPPJID(string: self.jid),
+              let sid = activeVerificationSession?.sid else {
+            DDLogDebug("DevicesListViewController: \(#function).")
+            return
+        }
+        
+        do {
+            let realm = try WRealm.safe()
+            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.jid, sid: sid))
+            
+            if instance?.state == .receivedRequest {
+                akeManager.rejectRequestToVerify(jid: self.jid, sid: sid)
+                
+                return
+            } else if instance?.state != VerificationSessionStorageItem.VerififcationState.failed && instance?.state != VerificationSessionStorageItem.VerififcationState.trusted && instance?.state != VerificationSessionStorageItem.VerififcationState.rejected {
+                akeManager.sendErrorMessage(fullJID: jid, sid: sid, reason: "Сontact canceled verification session")
+            }
+            try realm.write {
+                realm.delete(instance!)
+            }
+            
+            return
+        } catch {
+            DDLogDebug("DevicesListViewController: \(#function). \(error.localizedDescription)")
+            return
+        }
     }
 }

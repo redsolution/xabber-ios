@@ -136,7 +136,7 @@ class ShowCodeViewController: SimpleBaseViewController {
             return
         }
         
-        NotificationCenter.default.addObserver(self, selector: #selector(verificationSucceded(_:)), name: NSNotification.Name(rawValue: "show_success"), object: trustManager)
+        NotificationCenter.default.addObserver(self, selector: #selector(verificationSucceded(_:)), name: NSNotification.Name(rawValue: "show_success"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(closeController(_:)), name: NSNotification.Name(rawValue: "close_view"), object: akeManager)
     }
     
@@ -147,15 +147,13 @@ class ShowCodeViewController: SimpleBaseViewController {
                   let jid = userInfo["jid"] as? String else {
                 return
             }
-            if self.deviceId == deviceId {
-                DispatchQueue.main.async {
-                    let vc = SuccessfulVerificationViewController()
-                    vc.owner = self.owner
-                    vc.jid = jid
-                    vc.deviceId = deviceId
-                    
-                    self.navigationController?.setViewControllers([vc], animated: true)
-                }
+            DispatchQueue.main.async {
+                let vc = SuccessfulVerificationViewController()
+                vc.owner = self.owner
+                vc.jid = jid
+                vc.deviceId = deviceId
+                
+                self.navigationController?.setViewControllers([vc], animated: true)
             }
         }
     }

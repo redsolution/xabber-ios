@@ -66,68 +66,6 @@ extension ContactInfoViewController: UITableViewDelegate {
                 showFingerprints()
             case "start_encrypted_chat":
                 onStartEncryptedChat()
-            case "accept_verification":
-                guard let code = AccountManager.shared.find(for: self.owner)?.akeManager.acceptVerificationRequest(jid: self.jid, sid: item.verificationSid ?? "") else {
-                    return
-                }
-                let vc = ShowCodeViewController()
-                vc.jid = self.jid
-                vc.owner = self.owner
-                vc.code = code
-                    vc.sid = item.verificationSid ?? ""
-                vc.isVerificationWithOwnDevice = false
-                self.navigationController!.present(vc, animated: true)
-                
-                return
-            case "show_verification_code":
-                let code: String
-                do {
-                    let realm = try WRealm.safe()
-                    guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: item.verificationSid!)) else {
-                        fatalError()
-                    }
-                    code = instance.code
-                } catch {
-                    fatalError()
-                }
-                
-                let vc = ShowCodeViewController()
-                vc.jid = self.jid
-                vc.owner = self.owner
-                vc.code = code
-                vc.sid = item.verificationSid ?? ""
-                vc.isVerificationWithOwnDevice = false
-                
-                self.navigationController!.present(vc, animated: true)
-                
-                return
-            case "hide_session":
-                do {
-                    let realm = try WRealm.safe()
-                    let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: item.verificationSid!))
-                    try realm.write {
-                        realm.delete(instance!)
-                    }
-                } catch {
-                    fatalError()
-                }
-                tableView.reloadData()
-                
-                return
-            case "enter_verification_code":
-                let vc = AuthenticationCodeInputViewController()
-                vc.jid = self.jid
-                vc.owner = self.owner
-                vc.sid = item.verificationSid ?? ""
-                vc.isVerificationWithUsersDevice = false
-                
-                self.navigationController!.present(vc, animated: true)
-                
-                return
-            case "reject_verification":
-                AccountManager.shared.find(for: self.owner)?.akeManager.rejectRequestToVerify(jid: self.jid, sid: item.verificationSid!)
-                
-                return
             default: break
             }
         }

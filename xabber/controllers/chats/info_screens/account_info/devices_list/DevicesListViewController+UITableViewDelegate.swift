@@ -58,19 +58,10 @@ extension DevicesListViewController: UITableViewDelegate {
             }
         case .token:
             if indexPath.row == 0 {
-//                guard let akeManager = AccountManager.shared.find(for: self.jid)?.akeManager else {
-//                    fatalError()
-//                }
-//                akeManager.sendVerificationRequest(jid: self.jid)
-//                
-//                self.load()
-//                self.update()
-//                tableView.reloadData()
-                
                 return
             }
             
-            let uid = devices[indexPath.row].uid
+            let uid = devices[indexPath.row - 1].uid
             showTokenInfo(uid: uid, canEdit: false)
         case .button:
             let item = datasource[indexPath.section].childs[indexPath.row]
@@ -108,68 +99,8 @@ extension DevicesListViewController: UITableViewDelegate {
                             
                         }
                 }
-        case .session:
-            let item = datasource[indexPath.section].childs[indexPath.row]
-            if item.kind == .session {
-                return
-            }
-            switch item.value {
-            case "accept_verification":
-                guard let code = AccountManager.shared.find(for: self.jid)?.akeManager.acceptVerificationRequest(jid: self.jid, sid: item.verificationSid ?? "") else {
-                    return
-                }
-                let vc = ShowCodeViewController()
-                vc.jid = self.jid
-                vc.owner = self.jid
-                vc.code = code
-                vc.sid = item.verificationSid ?? ""
-                vc.isVerificationWithOwnDevice = true
-                
-                self.navigationController!.present(vc, animated: true)
-            case "show_verification_code":
-                do {
-                    let realm = try WRealm.safe()
-                    let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.jid, sid: item.verificationSid!))
-                    let vc = ShowCodeViewController()
-                    vc.jid = self.jid
-                    vc.owner = self.jid
-                    vc.code = instance?.code ?? ""
-                    vc.sid = item.verificationSid ?? ""
-                    vc.isVerificationWithOwnDevice = true
-                    
-                    self.navigationController!.present(vc, animated: true)
-                } catch {
-                    DDLogDebug("DevicesListViewController: \(#function). \(error.localizedDescription)")
-                }
-            case "hide_session":
-                do {
-                    let realm = try WRealm.safe()
-                    let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.jid, sid: item.verificationSid!))
-                    try realm.write {
-                        realm.delete(instance!)
-                    }
-                    self.load()
-                    self.update()
-                    tableView.reloadData()
-                } catch {
-                    DDLogDebug("DevicesListViewController: \(#function). \(error.localizedDescription)")
-                }
-            case "enter_verification_code":
-                let vc = AuthenticationCodeInputViewController()
-                vc.jid = self.jid
-                vc.owner = self.jid
-                vc.sid = item.verificationSid ?? ""
-                vc.isVerificationWithUsersDevice = true
-                
-                self.navigationController!.present(vc, animated: true)
-            case "reject_verification":
-                AccountManager.shared.find(for: self.jid)?.akeManager.rejectRequestToVerify(jid: self.jid, sid: item.verificationSid ?? "")
-                self.load()
-                self.update()
-                tableView.reloadData()
-            default:
-                return
-            }
+        default:
+            break
         }
     }
     
