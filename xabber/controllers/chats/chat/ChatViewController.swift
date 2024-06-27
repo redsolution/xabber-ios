@@ -406,6 +406,21 @@ class ChatViewController: MessagesViewController {
         return bar
     }()
     
+    var verifyBarView: VerifyBarView = {
+        let view = VerifyBarView(frame: .zero)
+        
+        return view
+    }()
+    
+    var verifyBar: UITabBar = {
+        let bar = UITabBar()
+        
+        bar.barStyle = .default
+        bar.backgroundImage = nil
+        
+        return bar
+    }()
+    
     let recordingPanel: RecordingPanel = {
         let view = RecordingPanel(frame: .zero)
         
@@ -525,6 +540,16 @@ class ChatViewController: MessagesViewController {
         subscribtionBar.isHidden = true
     }
     
+    func configureVerifyPanel() {
+        verifyBar.addSubview(verifyBarView)
+        verifyBarView.fillSuperview()
+        verifyBarView.isHidden = true
+        verifyBar.frame = CGRect(x: 0, y: view.safeAreaInsets.top, width: view.frame.width, height: 64)
+        view.addSubview(verifyBar)
+        
+        verifyBar.isHidden = true
+    }
+    
     func configureSearchBar() {
         navigationItem.setRightBarButton(UIBarButtonItem(customView: searchBar), animated: true)
         searchBar.sizeToFit()
@@ -554,6 +579,7 @@ class ChatViewController: MessagesViewController {
         self.navigationItem.titleView = titleButton
         
         self.titleButton.frame = CGRect(width: self.view.frame.width - 64, height: 40)
+//        self.showVerifyBar(animated: true, state: .enterCode)
 //        self.xabberInputBar.becomeFirstResponder()
     }
     
@@ -667,6 +693,7 @@ class ChatViewController: MessagesViewController {
         
         userBarButton.configure(owner: owner, jid: jid)
         configureSubscribtionPanel()
+        configureVerifyPanel()
         configurePinMessagePanel()
         configureRecordingPanel()
         configureSelectionPanel()
@@ -950,7 +977,6 @@ class ChatViewController: MessagesViewController {
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        
         self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
         self.navigationController?.navigationBar.shadowImage = nil
         self.navigationController?.navigationBar.superview?.bringSubviewToFront(self.navigationController!.navigationBar)

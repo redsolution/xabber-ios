@@ -349,6 +349,7 @@
 		6678DFFF249782BD00B3640B /* GroupchatContactInfoViewController+vCardCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6678DFFE249782BD00B3640B /* GroupchatContactInfoViewController+vCardCell.swift */; };
 		6678F08C268F1D7900A716AA /* QRCodeScannerViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6678F08B268F1D7900A716AA /* QRCodeScannerViewController.swift */; };
 		6679826E24E5769F003C3815 /* InitialMessageSizeCalculator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6679826D24E5769F003C3815 /* InitialMessageSizeCalculator.swift */; };
+		66799DA22C2D6FD600B1984B /* ChatViewController+VerifyPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66799DA12C2D6FD600B1984B /* ChatViewController+VerifyPanel.swift */; };
 		667AEDB524A9C8E5000F339E /* SynchronizedArray.swift in Sources */ = {isa = PBXBuildFile; fileRef = 667AEDB424A9C8E5000F339E /* SynchronizedArray.swift */; };
 		667AEDB724A9E6F6000F339E /* LastChatsViewController+ArchivedCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 667AEDB624A9E6F6000F339E /* LastChatsViewController+ArchivedCell.swift */; };
 		667BC23B226749F600113EB3 /* SoundManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 667BC23A226749F600113EB3 /* SoundManager.swift */; };
@@ -1322,6 +1323,7 @@
 		6678DFFE249782BD00B3640B /* GroupchatContactInfoViewController+vCardCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GroupchatContactInfoViewController+vCardCell.swift"; sourceTree = "<group>"; };
 		6678F08B268F1D7900A716AA /* QRCodeScannerViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRCodeScannerViewController.swift; sourceTree = "<group>"; };
 		6679826D24E5769F003C3815 /* InitialMessageSizeCalculator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InitialMessageSizeCalculator.swift; sourceTree = "<group>"; };
+		66799DA12C2D6FD600B1984B /* ChatViewController+VerifyPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewController+VerifyPanel.swift"; sourceTree = "<group>"; };
 		667AEDB424A9C8E5000F339E /* SynchronizedArray.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynchronizedArray.swift; sourceTree = "<group>"; };
 		667AEDB624A9E6F6000F339E /* LastChatsViewController+ArchivedCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LastChatsViewController+ArchivedCell.swift"; sourceTree = "<group>"; };
 		667BC23A226749F600113EB3 /* SoundManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundManager.swift; sourceTree = "<group>"; };
@@ -2861,6 +2863,7 @@
 				6648841B26EA068F00323013 /* ChatViewController+SearchBar.swift */,
 				663ACA88283FA8E2005553BE /* ChatViewController+DigitalSignature.swift */,
 				66D1E7ED28683380006C58A7 /* ChatViewController+TrustedDevies.swift */,
+				66799DA12C2D6FD600B1984B /* ChatViewController+VerifyPanel.swift */,
 			);
 			path = extension;
 			sourceTree = "<group>";
@@ -5199,6 +5202,7 @@
 				1A939B2A27E49EC100014E43 /* MasksSelectionViewController+TableViewDelegate.swift in Sources */,
 				66A51ACD23ADFB90005369C3 /* PanDirectionGestureRecognizer.swift in Sources */,
 				66036F6D23D7202300F6B2D2 /* ChatViewController+RecordingPanel.swift in Sources */,
+				66799DA22C2D6FD600B1984B /* ChatViewController+VerifyPanel.swift in Sources */,
 				66AD82A523869A030070C740 /* CreateNewGroupEditViewController.swift in Sources */,
 				665451B722A93A750077635D /* AccountEditViewController+Flow.swift in Sources */,
 				66FD4F802085F50C00557252 /* AppDelegatePushKitExtension.swift in Sources */,

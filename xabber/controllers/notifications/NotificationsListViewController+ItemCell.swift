@@ -10,6 +10,121 @@ import Foundation
 import UIKit
 import MaterialComponents.MDCPalettes
 
+/*
+ import UIKit
+ import MaterialComponents.MDCPalettes
+
+ class VerificationSessionTableViewCell: UITableViewCell {
+     static let cellName = "VerificationSessionTableViewCell"
+     
+     let stack: UIStackView = {
+         let stack = UIStackView()
+         stack.axis = .horizontal
+         stack.alignment = .firstBaseline
+         stack.spacing = 10
+         
+         return stack
+     }()
+     
+     let labelsStack: UIStackView = {
+         let stack = UIStackView()
+         stack.translatesAutoresizingMaskIntoConstraints = false
+         stack.axis = .vertical
+         stack.spacing = 10
+         stack.alignment = .leading
+         
+         return stack
+     }()
+     
+     let titleLabel: UILabel = {
+         let label = UILabel()
+         label.numberOfLines = 0
+         label.setContentHuggingPriority(.defaultLow, for: .horizontal)
+         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+         
+         return label
+     }()
+     
+     let subtitleLabel: UILabel = {
+         let label = UILabel()
+         label.textColor = MDCPalette.grey.tint800
+         label.font = UIFont.systemFont(ofSize: 14)
+         label.numberOfLines = 0
+         label.setContentHuggingPriority(.defaultLow, for: .horizontal)
+         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+         
+         return label
+     }()
+     
+     let closeButton: UIButton = {
+         let button = UIButton(frame: CGRect(square: 44))
+         button.setImage(UIImage(systemName: "xmark"), for: .normal)
+         button.imageEdgeInsets = UIEdgeInsets(top: 11, right: 11)
+         button.tintColor = .lightGray
+         button.contentHorizontalAlignment = .right
+         button.contentVerticalAlignment = .top
+         
+         return button
+     }()
+     
+     let verifyButton: UIButton = {
+         let button = UIButton()
+         button.setTitle("Verify", for: .normal)
+         button.setTitleColor(.white, for: .normal)
+         button.configuration = UIButton.Configuration.filled()
+         button.configuration!.baseBackgroundColor = .systemBlue
+         button.translatesAutoresizingMaskIntoConstraints = false
+         button.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+         
+         return button
+     }()
+     
+     let customImageView: UIImageView = {
+         let imageView = UIImageView(frame: CGRect(square: 40))
+         let image = UIImage(systemName: "exclamationmark.triangle.fill")?.upscale(dimension: 40).withTintColor(.systemOrange)
+         imageView.image = image
+         imageView.translatesAutoresizingMaskIntoConstraints = false
+         imageView.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+         
+         return imageView
+     }()
+     
+     func configure(title: String, subtitle: String?) {
+         contentView.addSubview(stack)
+         stack.fillSuperviewWithOffset(top: 11, bottom: 11, left: 11, right: 11)
+         
+         titleLabel.text = title
+         
+         if subtitle != nil {
+             let paragraphStyle = NSMutableParagraphStyle()
+             paragraphStyle.lineSpacing = 3
+             let attributedText = NSMutableAttributedString(string: subtitle!, attributes: [NSAttributedString.Key.paragraphStyle: paragraphStyle])
+             subtitleLabel.attributedText = attributedText
+         }
+         
+         labelsStack.addArrangedSubview(titleLabel)
+         labelsStack.addArrangedSubview(subtitleLabel)
+         
+         stack.addArrangedSubview(customImageView)
+         stack.addArrangedSubview(labelsStack)
+ //        stack.addArrangedSubview(closeButton)
+         
+         activateConstraints()
+         
+         accessoryType = .none
+     }
+     
+     func activateConstraints() {
+         NSLayoutConstraint.activate([
+ //            closeButton.widthAnchor.constraint(equalToConstant: 44),
+ //            closeButton.heightAnchor.constraint(equalToConstant: 44),
+ //            closeButton.rightAnchor.constraint(equalTo: self.contentView.rightAnchor),
+         ])
+     }
+ }
+
+ */
+
 extension NotificationsListViewController {
     class DeviceItemCell: UITableViewCell {
         static let cellName = "DeviceItemCell"
@@ -31,8 +146,6 @@ extension NotificationsListViewController {
             stack.axis = .vertical
             stack.distribution = .fill
             stack.spacing = 0
-            stack.isLayoutMarginsRelativeArrangement = true
-            stack.layoutMargins = UIEdgeInsets(top: 6, bottom: 6, left: 72, right: 4)
             
             return stack
         }()
@@ -52,17 +165,15 @@ extension NotificationsListViewController {
             let stack = UIStackView()
             
             stack.axis = .horizontal
-            stack.alignment = .top
+            stack.alignment = .center
             stack.spacing = 8
             stack.distribution = .fill
-            stack.isLayoutMarginsRelativeArrangement = true
-            stack.layoutMargins = UIEdgeInsets(top: 0, bottom: 0, left: 0, right: 8)
 
             return stack
         }()
         
         let avatarContainer: UIView = {
-            let view = UIView(frame: CGRect(square: 60))
+            let view = UIView(frame: CGRect(square: 64))
             
             view.backgroundColor = .clear
             
@@ -70,11 +181,11 @@ extension NotificationsListViewController {
         }()
         
         let userImageView: UIView = {
-            let view = UIView(frame: CGRect(square: 60))
+            let view = UIView(frame: CGRect(square: 64))
             
             view.backgroundColor = .clear//MDCPalette.grey.tint200
-            if let image = UIImage(named: AccountMasksManager.shared.mask56pt), AccountMasksManager.shared.load() != "square" {
-                view.mask = UIImageView(image: image.upscale(dimension: 60))
+            if let image = UIImage(named: AccountMasksManager.shared.mask56pt)?.upscale(dimension: 64), AccountMasksManager.shared.load() != "square" {
+                view.mask = UIImageView(image: image.upscale(dimension: 64))
             } else {
                 view.mask = nil
             }
@@ -83,8 +194,8 @@ extension NotificationsListViewController {
         }()
         
         let avatarView: UIImageView = {
-            let view = UIImageView(frame: CGRect(square: 56))
-            if let image = UIImage(named: AccountMasksManager.shared.mask56pt), AccountMasksManager.shared.load() != "square" {
+            let view = UIImageView(frame: CGRect(square: 64))
+            if let image = UIImage(named: AccountMasksManager.shared.mask56pt)?.upscale(dimension: 64), AccountMasksManager.shared.load() != "square" {
                 view.mask = UIImageView(image: image)
             } else {
                 view.mask = nil
@@ -140,7 +251,7 @@ extension NotificationsListViewController {
         
         
         let badgeIndicator: UIImageView = {
-            let view = UIImageView(frame: CGRect(x: 40, y: 40, width: 18, height: 18))
+            let view = UIImageView(frame: CGRect(x: 47, y: 47, width: 16, height: 16))
             
             view.layer.cornerRadius = 9
             view.layer.masksToBounds = true
@@ -167,35 +278,69 @@ extension NotificationsListViewController {
             return button
         }()
         
-        
-        public func configure(_ jid: String, owner: String, username: String, title: String, message: String, date: Date) {
-
-//            DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 56) { image in
-//                if let image = image {
-//                    self.avatarView.image = image
-//                } else {
-//                    self.avatarView.image = UIImageView.getDefaultAvatar(for: username, owner: owner, size: 56)
-//                }
-//            }
-            self.avatarView.image = UIImageView.getDefaultAvatar(for: username, owner: owner, size: 56)
-            self.badgeIndicator.backgroundColor = .systemBackground
-            self.badgeIndicator.tintColor = .systemOrange
+        let positiveButton: UIButton = {
+            let button = UIButton()
             
-            self.titleLabel.text = title
-//            self.messageLabel.text = message
-            let mutableAttributedString = NSMutableAttributedString()
-            let newLoginString = NSAttributedString(string: "New login.", attributes: [NSAttributedString.Key.font : UIFont.systemFont(ofSize: 20, weight: .medium),NSAttributedString.Key.foregroundColor: UIColor.black.cgColor ])
-            let modifiedMessage = message.replacingOccurrences(of: "New login.", with: "")
-            let otherString = NSAttributedString(string: modifiedMessage, attributes: [NSAttributedString.Key.font : UIFont.systemFont(ofSize: 16, weight: .regular),NSAttributedString.Key.foregroundColor: MDCPalette.grey.tint600.cgColor ])
-            mutableAttributedString.append(newLoginString)
-            mutableAttributedString.append(otherString)
-            self.messageLabel.attributedText = mutableAttributedString
+            button.setTitleColor(.white, for: .normal)
+            button.configuration = UIButton.Configuration.filled()
+            button.configuration!.baseBackgroundColor = .systemBlue
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+            button.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+            
+            return button
+        }()
+        
+        let negativeButton: UIButton = {
+            let button = UIButton()
+            
+            button.setTitleColor(.white, for: .normal)
+            var configuration = UIButton.Configuration.bordered()
+            configuration.baseBackgroundColor = .systemRed
+            button.configuration = configuration
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+            button.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+            
+            return button
+        }()
+        
+        var currentUrl: String? = nil
+        public func configure(_ jid: String, owner: String, avatarUrl: String?, customImage: UIImage? = nil, username: String, title: String?, message: String, date: Date?, positiveButtonTitle: String?, negativeButtonTitle: String?) {
+
+            if currentUrl != avatarUrl {
+                currentUrl = avatarUrl
+                DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 56) { image in
+                    if let image = image {
+                        self.avatarView.image = image
+                    } else {
+                        self.avatarView.image = UIImageView.getDefaultAvatar(for: username, owner: owner, size: 56)
+                    }
+                }
+            }
+            
+            
+            
             let dateFormatter = DateFormatter()
             
             dateFormatter.dateFormat = "d MMM yyyy HH:mm"
-
-            dateLabel.text = dateFormatter.string(from: date)
-            
+            dateLabel.isHidden = date == nil
+            if let date = date {
+                dateLabel.text = dateFormatter.string(from: date)
+            }
+            titleLabel.isHidden = title == nil
+            if let title = title {
+                titleLabel.text = title
+            }
+            messageLabel.text = message
+            negativeButton.isHidden = negativeButtonTitle == nil
+            if let negativeButtonTitle = negativeButtonTitle {
+                negativeButton.setTitle(negativeButtonTitle, for: .normal)
+            }
+            positiveButton.isHidden = positiveButtonTitle == nil
+            if let positiveButtonTitle = positiveButtonTitle {
+                positiveButton.setTitle(positiveButtonTitle, for: .normal)
+            }
         }
         
         func setMask() {
@@ -220,27 +365,31 @@ extension NotificationsListViewController {
     //        self.layer.rasterizationScale = UIScreen.main.scale
             
             contentView.addSubview(infoStack)
-            infoStack.fillSuperviewWithOffset(top: 4, bottom: 4, left: 2, right: 0)
+            infoStack.fillSuperviewWithOffset(top: 8, bottom: 8, left: 96, right: 18)
             
             backgroundColor = .systemBackground
             
 //            accountIndicator.frame = CGRect(x: 0.5, y: 1, width: 2, height: 74)
             badgeIndicator.addSubview(badgeIcon)
-            avatarContainer.frame = CGRect(x: 8, y: 8, width: 60, height: 60)
+            avatarContainer.frame = CGRect(x: 16, y: 10, width: 64, height: 64)
             avatarContainer.addSubview(userImageView)
-            avatarView.frame = CGRect(x: 2, y: 2, width: 56, height: 56)
+            avatarView.frame = CGRect(x: 0, y: 0, width: 64, height: 64)
             addSubview(avatarContainer)
             userImageView.addSubview(avatarView)
             avatarContainer.addSubview(badgeIndicator)
             avatarContainer.bringSubviewToFront(badgeIndicator)
             
-//            infoStack.addArrangedSubview(topStack)
-            infoStack.addArrangedSubview(bottomStack)
+            infoStack.addArrangedSubview(topStack)
 //            infoStack.addArrangedSubview(itsNotMeButton)
             
-//            topStack.addArrangedSubview(titleLabel)
+            topStack.addArrangedSubview(titleLabel)
+            topStack.addArrangedSubview(dateLabel)
             infoStack.addArrangedSubview(messageLabel)
-            infoStack.addArrangedSubview(dateLabel)
+            infoStack.addArrangedSubview(bottomStack)
+            bottomStack.addArrangedSubview(positiveButton)
+            bottomStack.addArrangedSubview(negativeButton)
+            bottomStack.addArrangedSubview(UIStackView())
+//            infoStack.addArrangedSubview(dateLabel)
             infoStack.setCustomSpacing(8, after: messageLabel)
             
             

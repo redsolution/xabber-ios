@@ -164,6 +164,66 @@ class NotificationsListViewController: SimpleBaseViewController {
     
     var emptyScreenShowObserver: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     
+    /*Datasource(title: "All", icon: "bell.fill", key: "all", subtitle: "\(0)"),
+     Datasource(title: "Security", icon: "exclamationmark.shield.fill", key: "security", subtitle: "\(0)"),
+     Datasource(title: "Subscribtion requests", icon: "person.crop.circle.fill.badge.plus", key: "subscribtion", subtitle: "\(0)"),
+     Datasource(title: "Information", icon: "info.circle.fill", key: "info", subtitle: "\(0)")*/
+    
+    enum Filter {
+        case all
+        case security
+        case information
+    }
+    
+    var filter: BehaviorRelay<Filter> = BehaviorRelay(value: .all)
+    var filterMenu: UIMenu = UIMenu()
+    func configureBars() {
+        switch CommonConfigManager.shared.interfaceType {
+            case .tabs:
+                let button = UIBarButtonItem(image: UIImage(systemName: "ellipsis.circle"), style: .done, target: self, action: nil)
+                
+                filterMenu = UIMenu(options: [.singleSelection], children: [
+                    UIAction(
+                        title: "All",
+                        image: UIImage(systemName: "bell.fill"),
+                        identifier: .none,
+                        discoverabilityTitle: "Displays all notifications",
+                        attributes: [],
+                        state: .mixed, //filter.value == .all ? .on : .off,
+                        handler: { action in
+                            self.filter.accept(.all)
+                        }),
+                    UIAction(
+                        title: "Security",
+                        image: UIImage(systemName: "exclamationmark.shield.fill"),
+                        identifier: .none,
+                        discoverabilityTitle: nil,
+                        attributes: [],
+                        state: filter.value == .security ? .on : .off,
+                        handler: { action in
+                            self.filter.accept(.security)
+                        }),
+                    UIAction(
+                        title: "Information",
+                        image: UIImage(systemName: "info.circle.fill"),
+                        identifier: .none,
+                        discoverabilityTitle: nil,
+                        attributes: [],
+                        state: filter.value == .information ? .on : .off,
+                        handler: { action in
+                            self.filter.accept(.information)
+                        }),
+                ])
+                
+//                filterMenu
+                
+                button.menu = filterMenu
+                self.navigationItem.setRightBarButton(button, animated: true)
+            case .split:
+                break
+        }
+    }
+    
     func getAndMapDatasource() {
         do {
             let realm = try WRealm.safe()
@@ -291,6 +351,7 @@ class NotificationsListViewController: SimpleBaseViewController {
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        self.configureBars()
         self.tabBarController?.tabBar.isHidden = false
         self.tabBarController?.tabBar.layoutIfNeeded()
     }
@@ -387,9 +448,22 @@ extension NotificationsListViewController: UITableViewDataSource {
                     fatalError()
                 }
                 
-                cell.configure("", owner: self.owner, username: XMPPJID(string: self.owner)?.domain ?? self.owner, title: item.title, message: item.message, date: item.date)
+                cell.configure(
+                    item.jid ?? item.owner,
+                    owner: item.owner,
+                    avatarUrl: nil,
+                    customImage: nil,
+                    username: item.jid ?? item.owner,
+                    title: "New login",
+                    message: item.message,
+                    date: nil,
+                    positiveButtonTitle: "Verify",
+                    negativeButtonTitle: "Revoke"
+                )
+                
+//                cell.configure("", owner: self.owner, username: XMPPJID(string: self.owner)?.domain ?? self.owner, title: item.title, message: item.message, date: item.date)
 //                cell.accessoryType = .disclosureIndicator
-                cell.accessoryType = .disclosureIndicator
+                cell.accessoryType = .none//.disclosureIndicator
                 
                 
                 let view = UIView()

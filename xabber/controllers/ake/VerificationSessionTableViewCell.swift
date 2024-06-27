@@ -9,7 +9,6 @@
 import Foundation
 import UIKit
 import MaterialComponents.MDCPalettes
-import XMPPFramework
 
 class VerificationSessionTableViewCell: UITableViewCell {
     static let cellName = "VerificationSessionTableViewCell"
