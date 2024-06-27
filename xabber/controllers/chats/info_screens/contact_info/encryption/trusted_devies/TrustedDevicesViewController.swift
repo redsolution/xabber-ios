@@ -180,7 +180,7 @@ class TrustedDevicesViewController: SimpleBaseViewController {
             
             var devicesDatasource: [Datasource] = []
             if isVerificationNeeded && verificationSession == nil {
-                devicesDatasource.append(Datasource(.session, name: "Non-Verified Devices Connected", subtitle: "This contact is enabled end-to-end encryption, but its devices is not verified for you.\n\nYou can send the verification request to this contact to verify his devices."))
+                devicesDatasource.append(Datasource(.session, name: "Secure Your Conversation", subtitle: "Your contact has devices that need to be verified to ensure encrypted and secure communication. Perform an identity verification procedure by exchanging a verification code through a secure channel. Enter the received code to confirm that each device is trusted and secure.\n\nPress 'Verify' to begin the verification process and ensure the integrity of your conversation."))
             } else if verificationSession != nil {
                 var isSessionDeleted = false
                 
@@ -273,50 +273,32 @@ class TrustedDevicesViewController: SimpleBaseViewController {
     static func getCellPropertiesForVerificationSession(verificationState: VerificationSessionStorageItem.VerififcationState) -> (String, String?) {
         let text: String
         let secondaryText: String?
-//        let buttonTitle: String?
-//        let buttonKey: String?
         
         switch verificationState {
         case .sentRequest:
-            text = "Outgoing Verification Request"
-            secondaryText = "Verification request has been sent to the contact."
-//            buttonTitle = nil
-//            buttonKey = nil
+            text = "Verification In Progress"
+            secondaryText = "A verification request has been sent to your contact's devices. Wait for your contact to provide the verification code, then you will need to enter it to complete the identity verification."
         case .receivedRequest:
-            text = "Incoming Verification Request"
-            secondaryText = "Contact has requested to establish a trusted encryption session with you.\n\nIf you accept, you’ll be presented with a security code which you’ll need to pass to your contact via a trusted channel."
-//            buttonTitle = "Proceed to Verification"
-//            buttonKey = "accept_verification"
+            text = "Identity Verification Request Received"
+            secondaryText = "You have received an identity verification request from a contact. This step is crucial to establish a trusted connection between your devices, ensuring secure and encrypted communications.\n\nPress the button below to display a verification code. Once generated, securely communicate this code to your contact to finalize the identity verification."
         case .acceptedRequest:
             text = "Incoming Verification Request"
             secondaryText = "You have accepted the verification request."
-//            buttonTitle = "Show code"
-//            buttonKey = "show_verification_code"
         case .trusted:
             text = "Verification successful"
             secondaryText = "The verification session was completed successfully. Now you trust this contact's devices."
-//            buttonTitle = nil
-//            buttonKey = nil
         case .rejected:
             text = "Verification rejected"
             secondaryText = "The verification session rejected."
-//            buttonTitle = nil
-//            buttonKey = nil
         case .failed:
             text = "Verification failed"
             secondaryText = "The verification session failed."
-//            buttonTitle = nil
-//            buttonKey = nil
         case .receivedRequestAccept:
             text = "Outgoing Verification Request"
             secondaryText = "The contact accepted the verification request."
-//            buttonTitle = "Enter the code"
-//            buttonKey = "enter_verification_code"
         default:
             text = "In process..."
             secondaryText = nil
-//            buttonTitle = nil
-//            buttonKey = nil
         }
         
         return (text, secondaryText)
@@ -334,7 +316,7 @@ class TrustedDevicesViewController: SimpleBaseViewController {
         vc.sid = activeVerificationSession!.sid
         vc.isVerificationWithOwnDevice = false
         
-        self.navigationController?.present(vc, animated: true)
+        showModal(vc, replaceParent: false)
     }
     
     @objc
@@ -349,7 +331,7 @@ class TrustedDevicesViewController: SimpleBaseViewController {
             vc.sid = activeVerificationSession!.sid
             vc.isVerificationWithOwnDevice = false
             
-            self.navigationController?.present(vc, animated: true)
+            showModal(vc, replaceParent: false)
         } catch {
             DDLogDebug("DevicesListViewController: \(#function). \(error.localizedDescription)")
         }
@@ -363,7 +345,7 @@ class TrustedDevicesViewController: SimpleBaseViewController {
         vc.sid = activeVerificationSession!.sid
         vc.isVerificationWithUsersDevice = false
         
-        self.navigationController?.present(vc, animated: true)
+        showModal(vc, replaceParent: false)
     }
     
     override func onAppear() {
@@ -427,65 +409,8 @@ extension TrustedDevicesViewController: UITableViewDelegate {
                     return
                 }
                 tableView.reloadData()
-                return
-            case "verify":
-                guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
-                    DDLogDebug("TrustedDevicesViewController: \(#function).")
-                    return
-                }
-                akeManager.sendVerificationRequest(jid: self.jid)
-                self.loadDatasource()
-                tableView.reloadData()
                 
                 return
-            case "accept_verification":
-                guard let code = AccountManager.shared.find(for: self.owner)?.akeManager.acceptVerificationRequest(jid: self.jid, sid: activeVerificationSession?.sid ?? "") else {
-                    return
-                }
-                let vc = ShowCodeViewController()
-                vc.jid = self.jid
-                vc.owner = self.owner
-                vc.code = code
-                vc.sid = activeVerificationSession?.sid ?? ""
-                vc.isVerificationWithOwnDevice = false
-                
-                self.navigationController!.present(vc, animated: true)
-            case "show_verification_code":
-                do {
-                    let realm = try WRealm.safe()
-                    let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: activeVerificationSession?.sid ?? ""))
-                    let vc = ShowCodeViewController()
-                    vc.jid = self.jid
-                    vc.owner = self.owner
-                    vc.code = instance?.code ?? ""
-                    vc.sid = activeVerificationSession?.sid ?? ""
-                    vc.isVerificationWithOwnDevice = false
-                    self.navigationController!.present(vc, animated: true)
-                } catch {
-                    DDLogDebug("TrustedDevicesViewController: \(#function). \(error.localizedDescription)")
-                }
-            case "hide_session":
-                do {
-                    let realm = try WRealm.safe()
-                    let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: activeVerificationSession?.sid ?? ""))
-                    try realm.write {
-                        realm.delete(instance!)
-                    }
-                    tableView.reloadData()
-                } catch {
-                    DDLogDebug("TrustedDevicesViewController: \(#function). \(error.localizedDescription)")
-                }
-            case "enter_verification_code":
-                let vc = AuthenticationCodeInputViewController()
-                vc.jid = self.jid
-                vc.owner = self.owner
-                vc.sid = activeVerificationSession?.sid ?? ""
-                vc.isVerificationWithUsersDevice = false
-            
-                self.navigationController!.present(vc, animated: true)
-            case "reject_verification":
-                AccountManager.shared.find(for: self.owner)?.akeManager.rejectRequestToVerify(jid: self.jid, sid: activeVerificationSession?.sid ?? "")
-                tableView.reloadData()
             default:
                 return
             }
@@ -553,9 +478,9 @@ extension TrustedDevicesViewController: UITableViewDataSource {
             }
             
             cell.configure(fingerprint: nil, client: "", device: item.name, description: "", ip: String(item.deviceId!), lastAuth: nil, current: false, editable: true, isOnline: false, trustState: item.state, hasBundle: true, isTrustebByCertificate: false, trustedBy: item.trustedBy)
-            var config = cell.contentConfiguration as? UIListContentConfiguration
-            config?.image = nil
-            cell.contentConfiguration = config
+//            var config = cell.contentConfiguration as? UIListContentConfiguration
+//            config?.image = nil
+//            cell.contentConfiguration = config
             
             return cell
         case .session:

@@ -89,27 +89,37 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                     var bodyNotification = ""
                     switch instance.state {
                     case .receivedRequest:
-                        bodyNotification = "Verification request received"
-                        
-                        NotificationCenter.default.post(name: NSNotification.Name(rawValue: "received_VerificationConfirmationViewController"), object: self, userInfo: ["sid": sid, "device-id": deviceId])
-                        break
+                        if jid == self.owner {
+                            NotificationCenter.default.post(name: NSNotification.Name(rawValue: "received_VerificationConfirmationViewController"), object: self, userInfo: ["sid": sid, "device-id": deviceId])
+                        } else {
+                            bodyNotification = "Verification request received"
+                            self.showNotification(title: jid, owner: self.owner, body: bodyNotification, sid: sid, timestamp: timestamp)
+                        }
                     case .receivedRequestAccept:
                         bodyNotification = "Verification request accepted"
 
                         if jid == self.owner {
                             NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_AuthenticationCodeInputViewController"), object: self, userInfo: ["owner": self.owner, "jid": jid, "sid": sid])
+                        } else {
+                            self.showNotification(title: jid, owner: self.owner, body: bodyNotification, sid: sid, timestamp: timestamp)
                         }
                     case .failed:
                         bodyNotification = "Verification failed"
-                    case .trusted:
-                        bodyNotification = "Verification completed successfully"
+                        self.showNotification(title: jid, owner: self.owner, body: bodyNotification, sid: sid, timestamp: timestamp)
+                        NotificationCenter.default.post(name: NSNotification.Name(rawValue: "rejected_VerificationConfirmationViewController"), object: self, userInfo: ["sid": sid])
+                        NotificationCenter.default.post(name: NSNotification.Name(rawValue: "close_view"), object: self, userInfo: ["sid": sid])
+                        NotificationCenter.default.post(name: NSNotification.Name(rawValue: "AuthenticationCodeInputViewController"), object: self, userInfo: ["sid": sid])
+//                    case .trusted:
+//                        bodyNotification = "Verification completed successfully"
+//                        self.showNotification(title: jid, owner: self.owner, body: bodyNotification, sid: sid, timestamp: timestamp)
                     case .rejected:
                         bodyNotification = "Verification rejected"
+                        self.showNotification(title: jid, owner: self.owner, body: bodyNotification, sid: sid, timestamp: timestamp)
                     default:
                         return
                     }
                     
-                    self.showNotification(title: jid, owner: self.owner, body: bodyNotification, sid: sid, timestamp: timestamp)
+//                    self.showNotification(title: jid, owner: self.owner, body: bodyNotification, sid: sid, timestamp: timestamp)
                 } catch {
                     DDLogDebug("AuthenticatedKeyExchange \(#function). \(error.localizedDescription)")
                 }
@@ -844,10 +854,6 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         let uniqueMessageId = getUniqueMessageId(message, owner: self.owner)
         
         do {
-            NotificationCenter.default.post(name: NSNotification.Name(rawValue: "rejected_VerificationConfirmationViewController"), object: self, userInfo: ["sid": sid])
-            NotificationCenter.default.post(name: NSNotification.Name(rawValue: "verification_failure"), object: self, userInfo: ["sid": sid])
-            NotificationCenter.default.post(name: NSNotification.Name(rawValue: "AuthenticationCodeInputViewController"), object: self, userInfo: ["sid": sid])
-            
             let realm = try WRealm.safe()
             guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) else {
                 return

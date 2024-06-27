@@ -247,11 +247,11 @@ extension SuccessfulVerificationViewController: UITableViewDataSource {
             return UITableViewCell(frame: .zero)
         }
         cell.configure(client: item.client ?? "", device: item.name, description: "", ip: item.ip ?? "", lastAuth: item.lastAuth, current: false, editable: false, isOnline: false)
-        if self.owner != self.jid {
-            var config = cell.contentConfiguration as? UIListContentConfiguration
-            config?.image = nil
-            cell.contentConfiguration = config
-        }
+//        if self.owner != self.jid {
+//            var config = cell.contentConfiguration as? UIListContentConfiguration
+//            config?.image = nil
+//            cell.contentConfiguration = config
+//        }
         
         return cell
     }
