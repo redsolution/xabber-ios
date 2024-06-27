@@ -89,6 +89,10 @@ extension GroupchatInfoViewController: UITableViewDelegate {
                     exportHistory()
                 case "gc_search":
                     openSearch()
+                case "invite":
+                    onInvite()
+                case "leave":
+                    onLeave()
                 default: break
                 }
             }
