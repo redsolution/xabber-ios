@@ -247,28 +247,12 @@ class ContactInfoViewController: BaseViewController {
                         
                         let verificationInstance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid).first
                         if let verificationInstance = verificationInstance {
-                            var isSessiondeleted = false
-                            if verificationInstance.state == .sentRequest || verificationInstance.state == .receivedRequest {
-                                // if more then ttl have passed after request, its not available anymore
-                                if let timestamp = TimeInterval(verificationInstance.timestamp),
-                                   let ttl = TimeInterval(verificationInstance.ttl) {
-                                    if timestamp + ttl <= Date().timeIntervalSince1970 {
-                                        try realm.write {
-                                            realm.delete(verificationInstance)
-                                        }
-                                        isSessiondeleted = true
-                                    }
-                                }
-                            }
+                            let (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: verificationInstance.state)
+                            let verificationDatasource = Datasource(.text, title: "", key: "verification-session", childs: [
+                                Datasource(.session, title: text, subtitle: secondaryText, verificationSid: verificationInstance.sid, verificationJid: self.jid)
+                            ])
                             
-                            if !isSessiondeleted {
-                                let (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: verificationInstance.state)
-                                let verificationDatasource = Datasource(.text, title: "", key: "verification-session", childs: [
-                                    Datasource(.session, title: text, subtitle: secondaryText, verificationSid: verificationInstance.sid, verificationJid: self.jid)
-                                ])
-                                
-                                newDatasource.append(verificationDatasource)
-                            }
+                            newDatasource.append(verificationDatasource)
                         }
                         
                         let collectionJid = realm

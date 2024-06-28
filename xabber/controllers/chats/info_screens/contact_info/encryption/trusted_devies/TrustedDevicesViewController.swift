@@ -182,30 +182,13 @@ class TrustedDevicesViewController: SimpleBaseViewController {
             if isVerificationNeeded && verificationSession == nil {
                 devicesDatasource.append(Datasource(.session, name: "Secure Your Conversation", subtitle: "Your contact has devices that need to be verified to ensure encrypted and secure communication. Perform an identity verification procedure by exchanging a verification code through a secure channel. Enter the received code to confirm that each device is trusted and secure.\n\nPress 'Verify' to begin the verification process and ensure the integrity of your conversation."))
             } else if verificationSession != nil {
-                var isSessionDeleted = false
+                let text: String
+                let secondaryText: String?
                 
-                if verificationSession!.state == .sentRequest || verificationSession!.state == .receivedRequest {
-                    // if more then ttl have passed after request, its not available anymore
-                    if let timestamp = TimeInterval(verificationSession!.timestamp),
-                       let ttl = TimeInterval(verificationSession!.ttl) {
-                        if timestamp + ttl <= Date().timeIntervalSince1970 {
-                            try realm.write {
-                                realm.delete(verificationSession!)
-                            }
-                            isSessionDeleted = true
-                        }
-                    }
-                }
-                    
-                if !isSessionDeleted {
-                    let text: String
-                    let secondaryText: String?
-                    
-                    (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: verificationSession!.state)
-                    
-                    self.activeVerificationSession = verificationSession
-                    devicesDatasource.append(Datasource(.session, name: text, subtitle: secondaryText))
-                }
+                (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: verificationSession!.state)
+                
+                self.activeVerificationSession = verificationSession
+                devicesDatasource.append(Datasource(.session, name: text, subtitle: secondaryText))
             }
             
             for device in devices {
@@ -478,9 +461,6 @@ extension TrustedDevicesViewController: UITableViewDataSource {
             }
             
             cell.configure(fingerprint: nil, client: "", device: item.name, description: "", ip: String(item.deviceId!), lastAuth: nil, current: false, editable: true, isOnline: false, trustState: item.state, hasBundle: true, isTrustebByCertificate: false, trustedBy: item.trustedBy)
-//            var config = cell.contentConfiguration as? UIListContentConfiguration
-//            config?.image = nil
-//            cell.contentConfiguration = config
             
             return cell
         case .session:

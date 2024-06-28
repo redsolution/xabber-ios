@@ -21,6 +21,7 @@ extension ChatViewController {
     class VerifyBarView: UIView {
         
         enum State {
+            case nonVerified
             case requested
             case requesting
             case enterCode
@@ -110,12 +111,17 @@ extension ChatViewController {
         open func configure(for state: State) -> CGFloat {
             self.state = state
             switch state {
+                case .nonVerified:
+                    self.button.setTitle("Verify", for: .normal)
+                    return 40
+                
                 case .requested:
                     self.button.setTitle("Requested", for: .normal)
+                    self.button.isEnabled = false
                     return 40
                     
                 case .requesting:
-                    self.button.setTitle("Requesting", for: .normal)
+                    self.button.setTitle("Accept", for: .normal)
                     return 40
             
                 case .enterCode:
@@ -205,6 +211,18 @@ extension ChatViewController {
     }
     
     func onVerifyBarButtonPressed() {
-        print(verifyBarView.state)
+        switch self.verifyBarView.state {
+        case .nonVerified:
+            let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager
+            akeManager?.sendVerificationRequest(jid: self.jid)
+            self.verifyBarView.state = .requested
+            
+        case .requested:
+            break
+        case .requesting:
+            break
+        case .enterCode:
+            break
+        }
     }
 }

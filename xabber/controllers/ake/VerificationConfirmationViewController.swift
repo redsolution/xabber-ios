@@ -231,9 +231,8 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
     }
     
     override func addObservers() {
-        let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager
-        
-        NotificationCenter.default.addObserver(self, selector: #selector(requestAcceptedByAnotherDevice(_:)), name: NSNotification.Name(rawValue: "rejected_VerificationConfirmationViewController"), object: akeManager)
+        NotificationCenter.default.addObserver(self, selector: #selector(closeView(_:)), name: NSNotification.Name(rawValue: "rejected_VerificationConfirmationViewController"), object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(closeView(_:)), name: NSNotification.Name(rawValue: "close_view"), object: nil)
     }
     
     override func onAppear() {
@@ -262,7 +261,7 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
     }
     
     @objc
-    func requestAcceptedByAnotherDevice(_ notification: Notification) {
+    func closeView(_ notification: Notification) {
         if let userInfo = notification.userInfo {
             let sid = userInfo["sid"]
             if self.sid == sid as! String {

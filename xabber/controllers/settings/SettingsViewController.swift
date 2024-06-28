@@ -581,26 +581,11 @@ class SettingsViewController: BaseViewController {
                 }
                 
                 if let sessionInstance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.owner).first {
-                    var isSessionDeleted = false
-                    if sessionInstance.state == .sentRequest || sessionInstance.state == .receivedRequest {
-                        // if more then ttl have passed after request, its not available anymore
-                        if let timestamp = TimeInterval(sessionInstance.timestamp),
-                           let ttl = TimeInterval(sessionInstance.ttl) {
-                            if timestamp + ttl <= Date().timeIntervalSince1970 {
-                                try realm.write {
-                                    realm.delete(sessionInstance)
-                                }
-                                isSessionDeleted = true
-                            }
-                        }
-                    }
-                    if !isSessionDeleted {
-                        self.activeVerificationSession = sessionInstance
-                        let (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: sessionInstance.state)
-                        let verificationDatasource = Datasource(section: .session, childs: [Datasource(section: .session, title: text, subtitle: secondaryText)])
-                        
-                        datasource.append(verificationDatasource)
-                    }
+                    self.activeVerificationSession = sessionInstance
+                    let (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: sessionInstance.state)
+                    let verificationDatasource = Datasource(section: .session, childs: [Datasource(section: .session, title: text, subtitle: secondaryText)])
+                    
+                    datasource.append(verificationDatasource)
                 }
             } catch {
                 DDLogDebug("SettingsViewController:\(#function). \(error.localizedDescription)")

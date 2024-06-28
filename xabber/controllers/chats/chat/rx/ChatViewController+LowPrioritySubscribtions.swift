@@ -520,7 +520,43 @@ extension ChatViewController {
             
         }.disposed(by: self.bag)
 
-        
+        do {
+            let realm = try WRealm.safe()
+            let verificationSessions = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid)
+            Observable
+                .collection(from: verificationSessions)
+                .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
+                .subscribe { results in
+                    if results.isEmpty {
+                        let contactDevices = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@ AND state_ == %@", self.owner, self.jid, SignalDeviceStorageItem.TrustState.unknown.rawValue)
+                        if !contactDevices.isEmpty {
+                            self.showVerifyBar(animated: true, state: .nonVerified)
+                            return
+                        }
+                    }
+                    
+                    let item = results.first
+                    switch item?.state {
+                    case .sentRequest:
+                        self.showVerifyBar(animated: true, state: .requested)
+                    case .receivedRequestAccept:
+                        self.showVerifyBar(animated: true, state: .enterCode)
+                    case .receivedRequest:
+                        self.showVerifyBar(animated: true, state: .requesting)
+                    default:
+                        return
+                    }
+                } onError: { _ in
+                    
+                } onCompleted: {
+                    
+                } onDisposed: {
+                    
+                }.disposed(by: self.bag)
+
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        }
     }
     
 }
