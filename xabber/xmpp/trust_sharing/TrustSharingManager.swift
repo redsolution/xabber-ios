@@ -16,6 +16,8 @@ import CryptoSwift
 class TrustSharingManager: AbstractXMPPManager {
     let node = "urn:xmpp:trustsharing:0:items"
     
+    static let receivedTrustedDevicesAfterVerification = NSNotification.Name("com.xabber.ios.ake.receivedTrustedDevicesAfterVerification")
+    
     override func namespaces() -> [String] {
         return [
             "urn:xmpp:trustsharing:0",
@@ -50,7 +52,7 @@ class TrustSharingManager: AbstractXMPPManager {
         
         guard let content = messageContainer.element(forName: "content"),
               let jid = messageContainer.element(forName: "from")?.attributeStringValue(forName: "jid"),
-              let share = content.element(forName: "message")?.element(forName: "share", xmlns: getPrimaryNamespace()),
+              let share = content.element(forName: "share", xmlns: getPrimaryNamespace()),
               let signature = try! share.element(forName: "signature")?.stringValue?.base64decoded(),
               let identity = share.element(forName: "identity"),
               let deviceIdRaw = identity.attributeStringValue(forName: "id"),
@@ -428,10 +430,7 @@ class TrustSharingManager: AbstractXMPPManager {
         signatureXML.addAttribute(withName: "xmlns", stringValue: self.getPrimaryNamespace())
         share.addChild(signatureXML)
         
-        let message = XMPPMessage(messageType: .chat, to: opponentFullJid, elementID: UUID().uuidString, child: share)
-        message.addAttribute(withName: "from", stringValue: myFullJid)
-        
-        guard let omemoEnvelope = omemoManager.prepareStanzaContent(message: "", date: Date(), jid: opponentFullJid.bare, additionalContent: [message], ignoreTimeSignature: true) else {
+        guard let omemoEnvelope = omemoManager.prepareStanzaContent(message: "", date: Date(), jid: opponentFullJid.bare, additionalContent: [share], ignoreTimeSignature: true) else {
             DDLogDebug("TrustSharingManager: \(#function).")
             return
         }
