@@ -25,7 +25,9 @@ class SignalDeviceStorageItem: Object {
     enum TrustState: String {
         case unknown = "unknown"
         case ignore = "ignore"
-        case trusted = "trusted"
+        case trusted = "trust"
+        case distrusted = "distrust"
+        case revoked = "revoked"
         case fingerprintChanged = "fingerprintChanged"
     }
 

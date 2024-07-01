@@ -418,7 +418,7 @@ class SettingsViewController: BaseViewController {
                     if results.toArray().filter({ $0.state == .unknown }).isNotEmpty {
                         self.omemoDeviceActionsRequired = true
                     }
-                    if results.toArray().filter({ $0.state == .fingerprintChanged }).isNotEmpty {
+                    if results.toArray().filter({ $0.state == .fingerprintChanged || $0.state == .revoked }).isNotEmpty {
                         self.omemoDeviceWarning = true
                     }
                 } onError: { _ in

@@ -8,7 +8,6 @@
 
 import Foundation
 import UIKit
-import TOInsetGroupedTableView
 import XMPPFramework
 
 class VerificationConfirmationViewController: SimpleBaseViewController {
@@ -83,12 +82,6 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
         button.backgroundColor = .white
         
         return button
-    }()
-    
-    let tableView: UITableView = {
-        let view = InsetGroupedTableView(frame: .zero)
-        
-        return view
     }()
     
     override func setupSubviews() {
@@ -294,6 +287,7 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
         }
         
         self.navigationController?.setViewControllers([vc], animated: true)
+        self.navigationController?.isNavigationBarHidden = true
     }
     
     @objc

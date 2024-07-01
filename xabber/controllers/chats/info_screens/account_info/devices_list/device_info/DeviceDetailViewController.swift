@@ -135,7 +135,9 @@ class DeviceDetailViewController: SimpleBaseViewController {
                             )
                     case .fingerprintChanged:
                         trustElement = Datasource(title: "Fingerprint changed", value: "Fingerprint changed", key: "omemo_state_fingerprint_changed")
-                    case .unknown:
+                    case .revoked:
+                        trustElement = Datasource(title: "Revoked", value: "Revoked", key: "omemo_state_revoked")
+                    case .unknown, .distrusted:
                         trustElement = Datasource(title: "Action required", value: "Undefined", key: "omemo_state_undefined")
                     }
                     encryptionDatasource = [
@@ -577,7 +579,7 @@ extension DeviceDetailViewController: UITableViewDataSource {
             cell.imageView?.tintColor = .systemGreen
             
             return cell
-        case "omemo_state_fingerprint_changed":
+        case "omemo_state_fingerprint_changed", "omemo_state_revoked":
             let cell = UITableViewCell(style: .value1, reuseIdentifier: "SimpleCell")
             cell.textLabel?.text = item.title
             cell.textLabel?.textColor = .systemRed

@@ -79,9 +79,11 @@ class TrustSharingManager: AbstractXMPPManager {
         }
         
         var stringToVerifySignature = ""
-        let trustedItemsList = share.elements(forName: "trusted-items").sorted(by: { $0.attributeStringValue(forName: "timestamp") ?? "" > $1.attributeStringValue(forName: "timestamp") ?? "" })
+        var trustedItemsList = share.elements(forName: "items").sorted(by: { $0.attributeStringValue(forName: "timestamp") ?? "" > $1.attributeStringValue(forName: "timestamp") ?? "" })
+        
+        // TODO: remove later
         if trustedItemsList.isEmpty {
-            return true
+            trustedItemsList = share.elements(forName: "trusted-items").sorted(by: { $0.attributeStringValue(forName: "timestamp") ?? "" > $1.attributeStringValue(forName: "timestamp") ?? "" })
         }
         
         for item in trustedItemsList {
@@ -154,17 +156,20 @@ class TrustSharingManager: AbstractXMPPManager {
     }
     
     func didReceivedTrustedSharingEvent(message: XMPPMessage) -> Bool {
-        guard let jid = message.from,
-              let event = message.element(forName: "event"),
-              let items = event.element(forName: "items"),
-              items.attributeStringValue(forName: "node") == self.node,
-              let item = items.element(forName: "item"),
-              let publisherDeviceIdRaw = item.attributeStringValue(forName: "id"),
-              let publisherDeviceId = Int(publisherDeviceIdRaw),
-              let share = item.element(forName: "share"),
-              let timestamp = share.element(forName: "trusted-items")?.attributeStringValue(forName: "timestamp") else {
+        let jid = message.from
+        let event = message.element(forName: "event")
+        let items = event?.element(forName: "items") ?? event?.element(forName: "trusted-items")
+        if items?.attributeStringValue(forName: "node") != self.node {
             return false
         }
+        let item = items?.element(forName: "item")
+        let publisherDeviceIdRaw = item?.attributeStringValue(forName: "id")
+        if publisherDeviceIdRaw == nil {
+            return true
+        }
+        let publisherDeviceId = Int(publisherDeviceIdRaw!)
+        let share = item?.element(forName: "share")
+        let timestamp = share?.element(forName: "items")?.attributeStringValue(forName: "timestamp")
         
         guard let deviceId = AccountManager.shared.find(for: self.owner)?.omemo.localStore.localDeviceId() else {
             DDLogDebug("TrustSharingManager: \(#function).")
@@ -174,7 +179,7 @@ class TrustSharingManager: AbstractXMPPManager {
             return true
         }
         
-        let predicateForSessions = NSPredicate(format: "owner == %@ AND jid == %@ AND deviceId == %@", argumentArray: [self.owner, jid.bare, publisherDeviceId])
+        let predicateForSessions = NSPredicate(format: "owner == %@ AND jid == %@ AND deviceId == %@", argumentArray: [self.owner, jid?.bare ?? "", publisherDeviceId ?? -1])
         do {
             let realm = try WRealm.safe()
             guard let instance = realm.objects(SignalDeviceStorageItem.self).filter(predicateForSessions).first else {
@@ -208,7 +213,7 @@ class TrustSharingManager: AbstractXMPPManager {
     override func read(withIQ iq: XMPPIQ) -> Bool {
         guard let jid = iq.from,
               let pubsub = iq.element(forName: "pubsub", xmlns: "http://jabber.org/protocol/pubsub"),
-              let items = pubsub.element(forName: "items") else {
+              let items = pubsub.element(forName: "items") ?? pubsub.element(forName: "trusted-items") else {
             return false
         }
         let itemList = items.elements(forName: "item")
@@ -220,7 +225,7 @@ class TrustSharingManager: AbstractXMPPManager {
             guard let publisherDeviceIdRaw = item.attributeStringValue(forName: "id"),
                   let publisherDeviceId = Int(publisherDeviceIdRaw),
                   let share = item.element(forName: "share"),
-                  let timestamp = share.element(forName: "trusted-items")?.attributeStringValue(forName: "timestamp"),
+                  let timestamp = share.element(forName: "items")?.attributeStringValue(forName: "timestamp") ?? share.element(forName: "trusted-items")?.attributeStringValue(forName: "timestamp"),
                   let signature = try! share.element(forName: "signature")?.stringValue?.base64decoded(),
                   let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
                 return false
@@ -244,7 +249,11 @@ class TrustSharingManager: AbstractXMPPManager {
             }
             
             var stringToVerifySignature = ""
-            let trustedItemsList = share.elements(forName: "trusted-items").sorted(by: { $0.attributeStringValue(forName: "timestamp") ?? "" > $1.attributeStringValue(forName: "timestamp") ?? "" })
+            var trustedItemsList = share.elements(forName: "items").sorted(by: { $0.attributeStringValue(forName: "timestamp") ?? "" > $1.attributeStringValue(forName: "timestamp") ?? "" })
+            
+            if trustedItemsList.isEmpty {
+                trustedItemsList = share.elements(forName: "trusted-items").sorted(by: { $0.attributeStringValue(forName: "timestamp") ?? "" > $1.attributeStringValue(forName: "timestamp") ?? "" })
+            }
             
             for item in trustedItemsList {
                 guard let timestamp = item.attribute(forName: "timestamp")?.stringValue else {
@@ -354,7 +363,7 @@ class TrustSharingManager: AbstractXMPPManager {
                 }
             }
             for jid in jids {
-                let trustedItems = DDXMLElement(name: "trusted-items")
+                let trustedItems = DDXMLElement(name: "items")
                 trustedItems.addAttribute(withName: "owner", stringValue: jid)
                 trustedItems.addAttribute(withName: "timestamp", stringValue: String(Int(Date().timeIntervalSince1970.rounded())))
                 for instance in instances {
@@ -400,7 +409,7 @@ class TrustSharingManager: AbstractXMPPManager {
         share.addChild(identityXML)
         
         var stringToHash = ""
-        let trustedItemsList = share.elements(forName: "trusted-items").sorted(by: { $0.attributeStringValue(forName: "timestamp") ?? "" > $1.attributeStringValue(forName: "timestamp") ?? "" })
+        var trustedItemsList = share.elements(forName: "items").sorted(by: { $0.attributeStringValue(forName: "timestamp") ?? "" > $1.attributeStringValue(forName: "timestamp") ?? "" })
         
         for item in trustedItemsList {
             guard let timestamp = item.attribute(forName: "timestamp")?.stringValue else {
@@ -458,9 +467,9 @@ class TrustSharingManager: AbstractXMPPManager {
         
         do {
             let realm = try WRealm.safe()
-            let predicate = NSPredicate(format: "owner == %@ AND jid == %@ AND state_ == %@", argumentArray: [self.owner, self.owner, "trusted"])
+            let predicate = NSPredicate(format: "owner == %@ AND jid == %@ AND state_ == %@", argumentArray: [self.owner, self.owner, SignalDeviceStorageItem.TrustState.trusted.rawValue])
             let instances = realm.objects(SignalDeviceStorageItem.self).filter(predicate)
-            let trustedItems = DDXMLElement(name: "trusted-items")
+            let trustedItems = DDXMLElement(name: "items")
             trustedItems.addAttribute(withName: "timestamp", stringValue: String(Int(Date().timeIntervalSince1970.rounded())))
             for instance in instances {
                 let trustedKey = String(instance.deviceId) + "::" + instance.fingerprint.replacingOccurrences(of: " ", with: "").lowercased()
@@ -498,7 +507,7 @@ class TrustSharingManager: AbstractXMPPManager {
         share.addChild(identityXML)
         
         var stringToHash = ""
-        let trustedItemsList = share.elements(forName: "trusted-items").sorted(by: { $0.attributeStringValue(forName: "timestamp") ?? "" > $1.attributeStringValue(forName: "timestamp") ?? "" })
+        let trustedItemsList = share.elements(forName: "items").sorted(by: { $0.attributeStringValue(forName: "timestamp") ?? "" > $1.attributeStringValue(forName: "timestamp") ?? "" })
         
         for item in trustedItemsList {
             guard let timestamp = item.attribute(forName: "timestamp")?.stringValue else {

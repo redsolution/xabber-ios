@@ -37,7 +37,9 @@ class ContactDeviceDetailViewController: DeviceDetailViewController {
                         )
                 case .fingerprintChanged:
                     trustElement = Datasource(title: "Fingerprint changed", value: "Fingerprint changed", key: "omemo_state_fingerprint_changed")
-                case .unknown:
+                case .revoked:
+                    trustElement = Datasource(title: "Revoked", value: "Revoked", key: "omemo_state_revoked")
+                case .unknown, .distrusted:
                     trustElement = Datasource(title: "Manual verification", value: "Undefined", key: "manual_verification")
                 }
                 encryptionDatasource = [

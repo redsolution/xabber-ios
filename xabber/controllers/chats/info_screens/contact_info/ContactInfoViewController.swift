@@ -246,10 +246,10 @@ class ContactInfoViewController: BaseViewController {
                         let realm = try WRealm.safe()
                         
                         let verificationInstance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid).first
-                        if let verificationInstance = verificationInstance {
-                            let (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: verificationInstance.state)
+                        if verificationInstance != nil && verificationInstance?.state != .trusted {
+                            let (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: verificationInstance!.state)
                             let verificationDatasource = Datasource(.text, title: "", key: "verification-session", childs: [
-                                Datasource(.session, title: text, subtitle: secondaryText, verificationSid: verificationInstance.sid, verificationJid: self.jid)
+                                Datasource(.session, title: text, subtitle: secondaryText, verificationSid: verificationInstance!.sid, verificationJid: self.jid)
                             ])
                             
                             newDatasource.append(verificationDatasource)
@@ -263,7 +263,7 @@ class ContactInfoViewController: BaseViewController {
                         var indicator: UIImage? = nil
                         var color: UIColor? = nil
                         
-                        if collectionJid.toArray().filter({ $0.state == .fingerprintChanged }).count > 0 {
+                        if collectionJid.toArray().filter({ $0.state == .fingerprintChanged || $0.state == .revoked }).count > 0 {
                             color = .systemRed
                             indicator = UIImage(systemName: "exclamationmark.triangle.fill")
                         } else if collectionJid.toArray().filter({ $0.state != .trusted }).count > 0 {
@@ -355,14 +355,14 @@ class ContactInfoViewController: BaseViewController {
                     
                     do {
                         let section = self.datasource.firstIndex(where: { $0.key == "verification-session" })
-                        if let section = section {
+                        if section != nil && item.state != .trusted {
                             let (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: item.state)
                             let verificationDatasource = Datasource(.text, title: "", key: "verification-session", childs: [
                                 Datasource(.session, title: text, subtitle: secondaryText, verificationSid: item.sid, verificationJid: self.jid)
                             ])
                             
                             self.activeVerificationSession = item
-                            self.datasource[section] = verificationDatasource
+                            self.datasource[section!] = verificationDatasource
                             self.tableView.reloadData()
                             
                             return
@@ -371,12 +371,12 @@ class ContactInfoViewController: BaseViewController {
                         let realm = try WRealm.safe()
                         
                         let verificationInstance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid).first
-                        if let verificationInstance = verificationInstance {
+                        if verificationInstance != nil && verificationInstance?.state != .trusted {
                             let (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(
-                                verificationState: verificationInstance.state
+                                verificationState: verificationInstance!.state
                             )
                             let verificationDatasource = Datasource(.text, title: "", key: "verification-session", childs: [
-                                Datasource(.session, title: text, subtitle: secondaryText, verificationSid: verificationInstance.sid, verificationJid: self.jid)
+                                Datasource(.session, title: text, subtitle: secondaryText, verificationSid: verificationInstance!.sid, verificationJid: self.jid)
                             ])
                             
                             self.activeVerificationSession = item

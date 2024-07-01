@@ -106,12 +106,18 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                             self.showNotification(title: jid, owner: self.owner, body: bodyNotification, sid: sid, timestamp: timestamp)
                         }
                     case .failed:
+                        try realm.write {
+                            realm.delete(instance)
+                        }
                         bodyNotification = "Verification failed"
                         self.showNotification(title: jid, owner: self.owner, body: bodyNotification, sid: sid, timestamp: timestamp)
                         NotificationCenter.default.post(name: NSNotification.Name(rawValue: "rejected_VerificationConfirmationViewController"), object: self, userInfo: ["sid": sid])
                         NotificationCenter.default.post(name: NSNotification.Name(rawValue: "close_view"), object: self, userInfo: ["sid": sid])
                         NotificationCenter.default.post(name: NSNotification.Name(rawValue: "AuthenticationCodeInputViewController"), object: self, userInfo: ["sid": sid])
                     case .rejected:
+                        try realm.write {
+                            realm.delete(instance)
+                        }
                         bodyNotification = "Verification rejected"
                         self.showNotification(title: jid, owner: self.owner, body: bodyNotification, sid: sid, timestamp: timestamp)
                     default:

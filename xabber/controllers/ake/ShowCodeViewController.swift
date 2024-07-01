@@ -26,6 +26,12 @@ class ShowCodeViewController: SimpleBaseViewController {
         return view
     }()
     
+    let scrollView: UIScrollView = {
+        let view = UIScrollView()
+        
+        return view
+    }()
+    
     let codeLabel: UILabel = {
         let label = UILabel()
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -85,12 +91,16 @@ class ShowCodeViewController: SimpleBaseViewController {
     override func configure() {
         super.configure()
         
-        view.addSubview(stackLabels)
-        view.addSubview(cancelButton)
+        view.addSubview(scrollView)
+        scrollView.fillSuperview()
+        
+        scrollView.addSubview(stackLabels)
+        scrollView.addSubview(cancelButton)
         
         headerView.backgroundColor = .systemGroupedBackground
         
-        view.addSubview(headerView)
+        scrollView.addSubview(headerView)
+        
         stackLabels.addArrangedSubview(titleLabel)
         stackLabels.addArrangedSubview(descriptionLabel)
         stackLabels.addArrangedSubview(stepsLabel)
@@ -123,21 +133,15 @@ class ShowCodeViewController: SimpleBaseViewController {
             descriptionLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
             stepsLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
             cancelButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            cancelButton.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -70)
+            cancelButton.topAnchor.constraint(equalTo: codeLabel.bottomAnchor, constant: 40)
         ])
         
         cancelButton.addTarget(self, action: #selector(onCancelButtonPressed), for: .touchUpInside)
     }
     
     override func addObservers() {
-        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
-              let trustManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager else {
-            DDLogDebug("ShowCodeViewController: \(#function).")
-            return
-        }
-        
         NotificationCenter.default.addObserver(self, selector: #selector(verificationSucceded(_:)), name: NSNotification.Name(rawValue: "show_success"), object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(closeController(_:)), name: NSNotification.Name(rawValue: "close_view"), object: akeManager)
+        NotificationCenter.default.addObserver(self, selector: #selector(closeController(_:)), name: NSNotification.Name(rawValue: "close_view"), object: nil)
     }
     
     @objc
@@ -165,9 +169,7 @@ class ShowCodeViewController: SimpleBaseViewController {
                 return
             }
             if self.sid == sid {
-                DispatchQueue.main.async {
-                    self.dismiss(animated: true)
-                }
+                self.dismiss(animated: true)
             }
         }
     }
@@ -280,6 +282,12 @@ class ShowCodeViewController: SimpleBaseViewController {
         } catch {
             DDLogDebug("ShowCodeViewController: \(#function). \(error.localizedDescription)")
         }
+    }
+    
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        
+        self.navigationController?.isNavigationBarHidden = true
     }
     
     override func onAppear() {

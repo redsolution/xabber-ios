@@ -180,7 +180,7 @@ extension DevicesListViewController: UITableViewDataSource {
             return nil
         }
         if datasource[section].kind == .session {
-            return "Active verification session"
+            return nil
         }
         return datasource[section].title
     }

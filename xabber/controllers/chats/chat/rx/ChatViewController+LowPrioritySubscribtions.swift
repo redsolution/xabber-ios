@@ -528,7 +528,7 @@ extension ChatViewController {
                 .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
                 .subscribe { results in
                     if results.isEmpty {
-                        let contactDevices = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@ AND state_ == %@", self.owner, self.jid, SignalDeviceStorageItem.TrustState.unknown.rawValue)
+                        let contactDevices = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@ AND state_ IN %@", self.owner, self.jid, [SignalDeviceStorageItem.TrustState.unknown.rawValue, SignalDeviceStorageItem.TrustState.distrusted.rawValue])
                         if !contactDevices.isEmpty {
                             self.showVerifyBar(animated: true, state: .nonVerified)
                             return

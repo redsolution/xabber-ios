@@ -114,20 +114,20 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
         
         scrollView.addSubview(containerView)
         containerView.addSubview(stackLabels)
-        containerView.addSubview(cancelButton)
-        containerView.addSubview(submitButton)
         
         headerView.backgroundColor = .systemGroupedBackground
         
         containerView.addSubview(headerView)
         
-        
         stackLabels.addArrangedSubview(titleLabel)
         stackLabels.addArrangedSubview(descriptionLabel)
         stackLabels.addArrangedSubview(stepsLabel)
         stackLabels.addArrangedSubview(code)
+        stackLabels.addArrangedSubview(submitButton)
+        stackLabels.addArrangedSubview(cancelButton)
         
         stackLabels.setCustomSpacing(40, after: stepsLabel)
+        stackLabels.setCustomSpacing(40, after: code)
         
         submitButton.addTarget(self, action: #selector(onVerifyButtonPressed), for: .touchUpInside)
         cancelButton.addTarget(self, action: #selector(onCancelButtonPressed), for: .touchUpInside)
@@ -159,17 +159,9 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
             titleLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
             descriptionLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
             stepsLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
-            cancelButton.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
-            cancelButton.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -70),
-            submitButton.centerXAnchor.constraint(equalTo: containerView.centerXAnchor),
-            submitButton.bottomAnchor.constraint(equalTo: cancelButton.topAnchor, constant: -16),
         ])
         
-        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
-            DDLogDebug("AuthenticationCodeInputViewController: \(#function).")
-            return
-        }
-        NotificationCenter.default.addObserver(self, selector: #selector(verificationEnded(_:)), name: NSNotification.Name(rawValue: "AuthenticationCodeInputViewController"), object: akeManager)
+        NotificationCenter.default.addObserver(self, selector: #selector(verificationEnded(_:)), name: NSNotification.Name(rawValue: "AuthenticationCodeInputViewController"), object: nil)
     }
     
     @objc
@@ -202,6 +194,7 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        self.navigationController?.isNavigationBarHidden = true
         code.becomeFirstResponder()
         code.returnKeyType = .continue
         code.delegate = self
