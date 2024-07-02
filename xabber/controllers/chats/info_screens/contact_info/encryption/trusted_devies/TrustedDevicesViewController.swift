@@ -214,8 +214,12 @@ class TrustedDevicesViewController: SimpleBaseViewController {
     
     @objc
     func onVerifyButtonPressed() {
-        let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager
-        akeManager?.sendVerificationRequest(jid: self.jid)
+        AccountManager.shared.find(for: self.owner)?.action { user, stream in
+            user.akeManager.sendVerificationRequest(jid: self.jid)
+        }
+        
+//        let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager
+//        akeManager?.sendVerificationRequest(jid: self.jid)
         
         self.loadDatasource()
         tableView.reloadData()

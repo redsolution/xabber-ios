@@ -921,6 +921,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         } else {
             ttl = 86400
         }
+        
         do {
             let realm = try WRealm.safe()
             
@@ -951,19 +952,6 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 realm.add(instance)
             }
             
-            DispatchQueue.main.asyncAfter(deadline: .now() + DispatchTimeInterval.seconds(ttl)) {
-                if instance.state == .sentRequest {
-                    self.sendErrorMessage(fullJID: XMPPJID(string: instance.jid)!, sid: instance.sid, reason: "Verification session cancelled.")
-                    do {
-                        try realm.write {
-                            realm.delete(instance)
-                        }
-                    } catch {
-                        DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
-                    }
-                }
-            }
-            
         } catch {
             DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
             return
@@ -985,6 +973,34 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
             stream.send(iq)
         })
+    }
+    
+    @objc
+    static func checkVerificationSessionsTTL() {
+        let users = AccountManager.shared.users.compactMap { user in
+            return user.jid
+        }
+        
+        do {
+            let realm = try WRealm.safe()
+            let instances = realm.objects(VerificationSessionStorageItem.self).filter("owner IN %@ AND state_ IN %@", users, [VerificationSessionStorageItem.VerififcationState.sentRequest.rawValue, VerificationSessionStorageItem.VerififcationState.receivedRequest.rawValue])
+            
+            instances.forEach { item in
+                if TimeInterval(item.ttl) ?? 0 <= Date().timeIntervalSince1970 - (TimeInterval(item.timestamp) ?? 0) {
+                    do {
+                        let realm = try WRealm.safe()
+                        
+                        try realm.write {
+                            realm.delete(item)
+                        }
+                    } catch {
+                        DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
+                    }
+                }
+            }
+        } catch {
+            DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
+        }
     }
     
     func acceptVerificationRequest(jid: String, sid: String) -> String? {
@@ -1393,6 +1409,15 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
     }
     
     static func prepare() {
+        let timer = Timer.scheduledTimer(
+            timeInterval: 1,
+            target: self,
+            selector: #selector(self.checkVerificationSessionsTTL),
+            userInfo: nil,
+            repeats: true
+        )
+        RunLoop.current.add(timer, forMode: .default)
+        
         do {
             let realm = try WRealm.safe()
             let jids = AccountManager.shared.users.compactMap { return $0.jid }
@@ -1436,11 +1461,12 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 guard let ownVerification = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@ AND state_ == %@", owner, owner, VerificationSessionStorageItem.VerififcationState.receivedRequest.rawValue).first else {
                     return
                 }
-                
+                let jid = ownVerification.jid
                 let sid = ownVerification.sid
                 let deviceId = String(ownVerification.opponentDeviceId)
                 let vc = VerificationConfirmationViewController()
                 vc.owner = owner
+                vc.jid = jid
                 vc.sid = sid
                 vc.deviceId = deviceId
                 if ownVerification.jid == owner {
