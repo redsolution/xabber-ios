@@ -494,6 +494,7 @@
 		66AEE5BF2338BC220085979B /* MessageManager+CommonSender.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66AEE5BE2338BC220085979B /* MessageManager+CommonSender.swift */; };
 		66AEFB7120847D0600888648 /* Errors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66AEFB7020847D0600888648 /* Errors.swift */; };
 		66AEFB73208485FF00888648 /* StringExtensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66AEFB72208485FF00888648 /* StringExtensions.swift */; };
+		66AFEFD12C32B379005D3A65 /* ChatViewController+AdditionalNavbarPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66AFEFD02C32B379005D3A65 /* ChatViewController+AdditionalNavbarPanel.swift */; };
 		66B063A622D744C900FA8C13 /* AvatarProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B063A522D744C900FA8C13 /* AvatarProcessor.swift */; };
 		66B10A2B247CF03300B0796D /* ChatViewController+SubscribtionBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B10A2A247CF03300B0796D /* ChatViewController+SubscribtionBar.swift */; };
 		66B10A2D247D1CF200B0796D /* RosterManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B10A2C247D1CF200B0796D /* RosterManager.swift */; };
@@ -1469,6 +1470,7 @@
 		66AEE5BE2338BC220085979B /* MessageManager+CommonSender.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MessageManager+CommonSender.swift"; sourceTree = "<group>"; };
 		66AEFB7020847D0600888648 /* Errors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Errors.swift; sourceTree = "<group>"; };
 		66AEFB72208485FF00888648 /* StringExtensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StringExtensions.swift; sourceTree = "<group>"; };
+		66AFEFD02C32B379005D3A65 /* ChatViewController+AdditionalNavbarPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewController+AdditionalNavbarPanel.swift"; sourceTree = "<group>"; };
 		66B063A522D744C900FA8C13 /* AvatarProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarProcessor.swift; sourceTree = "<group>"; };
 		66B10A2A247CF03300B0796D /* ChatViewController+SubscribtionBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewController+SubscribtionBar.swift"; sourceTree = "<group>"; };
 		66B10A2C247D1CF200B0796D /* RosterManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RosterManager.swift; sourceTree = "<group>"; };
@@ -2864,6 +2866,7 @@
 				663ACA88283FA8E2005553BE /* ChatViewController+DigitalSignature.swift */,
 				66D1E7ED28683380006C58A7 /* ChatViewController+TrustedDevies.swift */,
 				66799DA12C2D6FD600B1984B /* ChatViewController+VerifyPanel.swift */,
+				66AFEFD02C32B379005D3A65 /* ChatViewController+AdditionalNavbarPanel.swift */,
 			);
 			path = extension;
 			sourceTree = "<group>";
@@ -5342,6 +5345,7 @@
 				66F2566624A379FF002FC961 /* XMPPActionManager+XMPPStreamDelegate.swift in Sources */,
 				16345A67514437CA9DA437F7 /* LastChats.swift in Sources */,
 				66B063A622D744C900FA8C13 /* AvatarProcessor.swift in Sources */,
+				66AFEFD12C32B379005D3A65 /* ChatViewController+AdditionalNavbarPanel.swift in Sources */,
 				66E667FF238BD4D9002F8B8A /* GroupchatSettingsViewController+ItemCell.swift in Sources */,
 				666201F822B3DE2A00FB2A44 /* AccountBlockListViewController.swift in Sources */,
 				66EB54962C22FD1E00E50566 /* XabberTabBarViewController.swift in Sources */,

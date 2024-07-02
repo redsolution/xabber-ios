@@ -130,18 +130,18 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                     let callsVc = LastCallsViewController()
                     if CommonConfigManager.shared.config.support_calls {
                         vc.viewControllers = [
-                            UINavigationController(rootViewController: chatsVc),
-                            UINavigationController(rootViewController: contactsVc),
-                            UINavigationController(rootViewController: notificationsVc),
-                            UINavigationController(rootViewController: archivedVc),
-                            UINavigationController(rootViewController: callsVc),
+                            NavBarController(rootViewController: chatsVc),
+                            NavBarController(rootViewController: contactsVc),
+                            NavBarController(rootViewController: notificationsVc),
+                            NavBarController(rootViewController: archivedVc),
+                            NavBarController(rootViewController: callsVc),
                         ]
                     } else {
                         vc.viewControllers = [
-                            UINavigationController(rootViewController: chatsVc),
-                            UINavigationController(rootViewController: contactsVc),
-                            UINavigationController(rootViewController: notificationsVc),
-                            UINavigationController(rootViewController: archivedVc),
+                            NavBarController(rootViewController: chatsVc),
+                            NavBarController(rootViewController: contactsVc),
+                            NavBarController(rootViewController: notificationsVc),
+                            NavBarController(rootViewController: archivedVc),
                         ]
                     }
                     

@@ -26,7 +26,16 @@ import CocoaLumberjack
 extension ChatViewController {
     @objc
     internal func onTitleButtonTouchUp(_ sender: UIButton) {
-        self.showInfo()
+        
+        if topPanelShowed {
+            (self.navigationController as? NavBarController)?.hideAdditionalPanel(animated: true)
+            topPanelShowed = false
+        } else {
+            (self.navigationController as? NavBarController)?.showAdditionalPanel(animated: true)
+            topPanelShowed = true
+        }
+        
+//        self.showInfo()
 //        self.topMenuShowObserver.accept(!topMenuShowObserver.value)
     }
     
