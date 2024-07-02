@@ -252,9 +252,11 @@ class ApplicationStateManager: NSObject {
                         if instance!.jid == owner {
                             isVerificationWithOwnDevice = true
                         }
+                        let jid = instance!.jid
                         
                         let vc = VerificationConfirmationViewController()
                         vc.owner = owner
+                        vc.jid = jid
                         vc.sid = sid
                         vc.deviceId = deviceId
                         vc.isVerificationWithOwnDevice = isVerificationWithOwnDevice

@@ -1436,11 +1436,12 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 guard let ownVerification = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@ AND state_ == %@", owner, owner, VerificationSessionStorageItem.VerififcationState.receivedRequest.rawValue).first else {
                     return
                 }
-                
+                let jid = ownVerification.jid
                 let sid = ownVerification.sid
                 let deviceId = String(ownVerification.opponentDeviceId)
                 let vc = VerificationConfirmationViewController()
                 vc.owner = owner
+                vc.jid = jid
                 vc.sid = sid
                 vc.deviceId = deviceId
                 if ownVerification.jid == owner {

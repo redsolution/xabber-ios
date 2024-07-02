@@ -17,6 +17,13 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
     
     var headerHeightMax: CGFloat = 236
     
+    let scrollView: UIScrollView = {
+        let view = UIScrollView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        
+        return view
+    }()
+    
     internal let headerView: InfoScreenHeaderView = {
         let view = InfoScreenHeaderView(frame: .zero)
         view.titleButton.titleLabel?.font = UIFont.systemFont(ofSize: 20)
@@ -60,35 +67,46 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
         return label
     }()
     
+    let codeLabel: UILabel = {
+        let label = UILabel()
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.font = UIFont.monospacedSystemFont(ofSize: 48, weight: .regular).bold()
+        
+        return label
+    }()
+    
     let agreeButton: UIButton = {
-        let button = UIButton()
-        button.configuration = UIButton.Configuration.plain()
-        button.configuration!.contentInsets = NSDirectionalEdgeInsets(top: 15, leading: 20, bottom: 15, trailing: 20)
+        let button = UIButton(type: .system)
+//        button.configuration = UIButton.Configuration.plain()
+//        button.configuration!.contentInsets = NSDirectionalEdgeInsets(top: 15, leading: 20, bottom: 15, trailing: 20)
         button.translatesAutoresizingMaskIntoConstraints = false
         button.setTitle("Proceed to Verification", for: .normal)
-        button.setTitleColor(.systemBlue, for: .normal)
-        button.backgroundColor = .white
+//        button.setTitleColor(.systemBlue, for: .normal)
+//        button.backgroundColor = .white
         
         return button
     }()
     
     let rejectButton: UIButton = {
-        let button = UIButton()
-        button.configuration = UIButton.Configuration.plain()
-        button.configuration!.contentInsets = NSDirectionalEdgeInsets(top: 15, leading: 20, bottom: 15, trailing: 20)
+        let button = UIButton(type: .system)
+//        button.configuration = UIButton.Configuration.plain()
+//        button.configuration!.contentInsets = NSDirectionalEdgeInsets(top: 15, leading: 20, bottom: 15, trailing: 20)
         button.translatesAutoresizingMaskIntoConstraints = false
         button.setTitle("Cancel verification", for: .normal)
         button.setTitleColor(.systemRed, for: .normal)
-        button.backgroundColor = .white
+//        button.backgroundColor = .white
         
         return button
     }()
     
     override func setupSubviews() {
-        view.addSubview(headerView)
-        view.addSubview(stackLabels)
-        view.addSubview(agreeButton)
-        view.addSubview(rejectButton)
+        view.addSubview(scrollView)
+        scrollView.fillSuperview()
+        
+        scrollView.addSubview(headerView)
+        scrollView.addSubview(stackLabels)
+        scrollView.addSubview(agreeButton)
+        scrollView.addSubview(rejectButton)
         
         stackLabels.addArrangedSubview(titleLabel)
         stackLabels.addArrangedSubview(descriptionLabel)
@@ -177,7 +195,7 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
                     DDLogDebug("VerificationConfirmationViewController: \(#function).")
                     return
                 }
-                self.jid = verificationInstance.jid
+//                self.jid = verificationInstance.jid
                 
                 let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: verificationInstance.jid, owner: self.owner))
                 if let instance = instance {
@@ -217,9 +235,9 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
             descriptionLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
             stepsLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
             agreeButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            agreeButton.bottomAnchor.constraint(equalTo: rejectButton.topAnchor, constant: -8),
+            agreeButton.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             rejectButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            rejectButton.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -48)
+            rejectButton.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: -40),
         ])
     }
     
@@ -235,6 +253,7 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
             height: headerHeightMax
         )
         self.headerView.updateSubviews()
+        self.navigationController?.isNavigationBarHidden = true
     }
     
     override func viewDidDisappear(_ animated: Bool) {
@@ -267,27 +286,58 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
     
     @objc
     func onAgreeButtonTapped() {
-        let vc = ShowCodeViewController()
-        vc.owner = self.owner
-        vc.sid = self.sid
-        vc.isVerificationWithOwnDevice = self.isVerificationWithOwnDevice
+//        let vc = ShowCodeViewController()
+//        vc.owner = self.owner
+//        vc.sid = self.sid
+//        vc.isVerificationWithOwnDevice = self.isVerificationWithOwnDevice
         
+        agreeButton.removeFromSuperview()
+        stackLabels.addArrangedSubview(codeLabel)
+        
+        stackLabels.setCustomSpacing(40, after: stepsLabel)
+        
+        var attributedString = NSMutableAttributedString()
         if isVerificationWithOwnDevice {
-            guard let code = AccountManager.shared.find(for: self.owner)?.akeManager.acceptVerificationRequest(jid: self.owner, sid: self.sid) else {
-                return
-            }
-            vc.jid = self.owner
-            vc.code = code
+            descriptionLabel.text = "You are receiving a device verification request to ensure secure and encrypted communication."
+            attributedString = NSMutableAttributedString(string: "1.\tConfirm that this device is yours and that you recognize the initiating session.\n\n2.\tBelow is the verification code. Enter this code on the primary device to complete the encryption key exchange:")
         } else {
-            guard let code = AccountManager.shared.find(for: self.owner)?.akeManager.acceptVerificationRequest(jid: self.jid, sid: self.sid) else {
-                return
-            }
-            vc.jid = self.jid
-            vc.code = code
+            descriptionLabel.text = "You are about to establish a secure connection with this contact."
+            attributedString = NSMutableAttributedString(string: "1.\tCarefully verify the address and identity of this contact.\n\n2.\tUse a secure method (preferably in person) to ask the contact to verify identity by entering the following code:")
         }
         
-        self.navigationController?.setViewControllers([vc], animated: true)
-        self.navigationController?.isNavigationBarHidden = true
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.headIndent = 28
+        attributedString.addAttributes([NSAttributedString.Key.paragraphStyle: paragraphStyle], range: NSRange(location: 0, length: attributedString.length))
+        stepsLabel.attributedText = attributedString
+        
+        self.view.backgroundColor = .systemBackground
+        
+        var code: String? = nil
+        AccountManager.shared.find(for: self.owner)?.action { user, stream in
+            code = user.akeManager.acceptVerificationRequest(jid: self.jid, sid: self.sid)
+        }
+//        if isVerificationWithOwnDevice {
+//            
+//            
+////            guard let code = AccountManager.shared.find(for: self.owner)?.akeManager.acceptVerificationRequest(jid: self.owner, sid: self.sid) else {
+////                return
+////            }
+//            
+////            vc.jid = self.owner
+//        } else {
+//            guard let code = AccountManager.shared.find(for: self.owner)?.akeManager.acceptVerificationRequest(jid: self.jid, sid: self.sid) else {
+//                return
+//            }
+//            vc.jid = self.jid
+//            vc.code = code
+//        }
+        
+        if code == nil {
+            return
+        }
+        codeLabel.text = code
+//        self.navigationController?.setViewControllers([vc], animated: true)
+//        self.navigationController?.isNavigationBarHidden = true
     }
     
     @objc

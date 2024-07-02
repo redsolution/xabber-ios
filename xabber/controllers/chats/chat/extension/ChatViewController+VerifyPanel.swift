@@ -213,9 +213,12 @@ extension ChatViewController {
     func onVerifyBarButtonPressed() {
         switch self.verifyBarView.state {
         case .nonVerified:
-            let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager
-            akeManager?.sendVerificationRequest(jid: self.jid)
+            AccountManager.shared.find(for: self.owner)?.action { user, stream in
+                user.akeManager.sendVerificationRequest(jid: self.jid)
+            }
+            
             self.verifyBarView.state = .requested
+            break
             
         case .requested:
             break

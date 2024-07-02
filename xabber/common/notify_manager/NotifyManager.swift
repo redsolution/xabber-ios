@@ -1067,9 +1067,11 @@ class NotifyManager {
             switch instance!.state {
             case VerificationSessionStorageItem.VerififcationState.receivedRequest:
                 let deviceId = instance!.opponentDeviceId
+                let jid = instance!.jid
                 
                 let vc = VerificationConfirmationViewController()
                 vc.owner = owner
+                vc.jid = jid
                 vc.sid = sid
                 vc.deviceId = String(deviceId)
                 vc.isVerificationWithOwnDevice = owner == instance!.jid ? true : false

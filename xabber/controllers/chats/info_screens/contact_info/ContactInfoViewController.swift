@@ -541,12 +541,14 @@ class ContactInfoViewController: BaseViewController {
             let deviceId = userInfo["device-id"] as! String
             
             var isVerificationWithOwnDevice = false
+            var jid = ""
             
             do {
                 let realm = try WRealm.safe()
                 guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) else {
                     return
                 }
+                jid = instance.jid
                 if instance.jid == self.owner {
                     isVerificationWithOwnDevice = true
                 }
@@ -558,6 +560,7 @@ class ContactInfoViewController: BaseViewController {
             DispatchQueue.main.async {
                 let vc = VerificationConfirmationViewController()
                 vc.owner = self.owner
+                vc.jid = jid
                 vc.sid = sid
                 vc.deviceId = deviceId
                 vc.isVerificationWithOwnDevice = isVerificationWithOwnDevice
