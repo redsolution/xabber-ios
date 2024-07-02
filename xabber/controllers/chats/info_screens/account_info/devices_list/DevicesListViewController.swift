@@ -358,10 +358,14 @@ class DevicesListViewController: BaseViewController {
     
     @objc
     func onVerifyButtonPressed() {
-        guard let akeManager = AccountManager.shared.find(for: self.jid)?.akeManager else {
-            fatalError()
+        AccountManager.shared.find(for: self.owner)?.action { user, stream in
+            user.akeManager.sendVerificationRequest(jid: self.jid)
         }
-        akeManager.sendVerificationRequest(jid: self.jid)
+        
+//        guard let akeManager = AccountManager.shared.find(for: self.jid)?.akeManager else {
+//            fatalError()
+//        }
+//        akeManager.sendVerificationRequest(jid: self.jid)
         
         self.load()
         self.update()

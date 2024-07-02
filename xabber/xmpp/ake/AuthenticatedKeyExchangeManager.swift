@@ -920,7 +920,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             ttl = 300
         } else {
             ttl = 86400
-//            ttl = 10
+//            ttl = 3
         }
         do {
             let realm = try WRealm.safe()
@@ -952,15 +952,16 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 realm.add(instance)
             }
             
-            let timer = Timer.scheduledTimer(
-                timeInterval: TimeInterval(ttl),
-                target: self,
-                selector: #selector(timerAction),
-                userInfo: sid,
-                repeats: false
-            )
-            RunLoop.main.add(timer, forMode: .default)
+//            let timer = Timer.scheduledTimer(
+//                timeInterval: TimeInterval(ttl),
+//                target: self,
+//                selector: #selector(timerAction),
+//                userInfo: sid,
+//                repeats: false
+//            )
+//            RunLoop.main.add(timer, forMode: .default)
             
+//            let instanceToDispatch = instance
 //            DispatchQueue.main.asyncAfter(deadline: .now() + DispatchTimeInterval.seconds(ttl)) {
 //                if instanceToDispatch.state == .sentRequest {
 //                    self.sendErrorMessage(fullJID: XMPPJID(string: instanceToDispatch.jid)!, sid: instanceToDispatch.sid, reason: "Verification session cancelled.")
@@ -998,29 +999,31 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
     }
     
     @objc
-    func timerAction(_ timer: Timer) {
-        let sid = timer.userInfo as? String
+    static func checkVerificationSessionsTTL() {
+        let users = AccountManager.shared.users.compactMap { user in
+            return user.jid
+        }
+        
         do {
             let realm = try WRealm.safe()
-            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid ?? ""))
+            let instances = realm.objects(VerificationSessionStorageItem.self).filter("owner IN %@ AND state_ IN %@", users, [VerificationSessionStorageItem.VerififcationState.sentRequest.rawValue, VerificationSessionStorageItem.VerififcationState.receivedRequest.rawValue])
             
-            if instance == nil {
-                return
-            }
-            
-            if instance!.state == .sentRequest {
-                AccountManager.shared.find(for: self.owner)?.action { user, stream in
-                    user.akeManager.sendErrorMessage(fullJID: XMPPJID(string: instance!.jid)!, sid: instance!.sid, reason: "Verification session cancelled.")
-                }
-//                self.sendErrorMessage(fullJID: XMPPJID(string: instance!.jid)!, sid: instance!.sid, reason: "Verification session cancelled.")
-                try realm.write {
-                    realm.delete(instance!)
+            instances.forEach { item in
+                if TimeInterval(item.ttl) ?? 0 <= Date().timeIntervalSince1970 - (TimeInterval(item.timestamp) ?? 0) {
+                    do {
+                        let realm = try WRealm.safe()
+                        
+                        try realm.write {
+                            realm.delete(item)
+                        }
+                    } catch {
+                        
+                    }
                 }
             }
         } catch {
             
         }
-        
     }
     
     func acceptVerificationRequest(jid: String, sid: String) -> String? {
@@ -1429,6 +1432,15 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
     }
     
     static func prepare() {
+        let timer = Timer.scheduledTimer(
+            timeInterval: 1,
+            target: self,
+            selector: #selector(self.checkVerificationSessionsTTL),
+            userInfo: nil,
+            repeats: true
+        )
+        RunLoop.current.add(timer, forMode: .default)
+        
         do {
             let realm = try WRealm.safe()
             let jids = AccountManager.shared.users.compactMap { return $0.jid }

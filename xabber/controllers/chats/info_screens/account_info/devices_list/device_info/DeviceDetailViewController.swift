@@ -467,10 +467,13 @@ extension DeviceDetailViewController: UITableViewDelegate {
                             self.goBack()
                         }
                     case "verify":
-                        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
-                            fatalError()
+                        AccountManager.shared.find(for: self.owner)?.action { user, stream in
+                            user.akeManager.sendVerificationRequest(jid: self.jid, deviceId: String(self.omemoDeviceID))
                         }
-                        akeManager.sendVerificationRequest(jid: self.jid, deviceId: String(self.omemoDeviceID))
+//                        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
+//                            fatalError()
+//                        }
+//                        akeManager.sendVerificationRequest(jid: self.jid, deviceId: String(self.omemoDeviceID))
                         DispatchQueue.main.async {
                             self.goBack()
                         }
