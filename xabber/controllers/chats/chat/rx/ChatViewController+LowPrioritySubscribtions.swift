@@ -530,21 +530,23 @@ extension ChatViewController {
                     if results.isEmpty {
                         let contactDevices = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@ AND state_ IN %@", self.owner, self.jid, [SignalDeviceStorageItem.TrustState.unknown.rawValue, SignalDeviceStorageItem.TrustState.distrusted.rawValue])
                         if !contactDevices.isEmpty {
-                            self.showVerifyBar(animated: true, state: .nonVerified)
+                            self.topPanelState.accept(.shouldRequestVerification)
                             return
                         }
                     }
                     
                     let item = results.first
-                    switch item?.state {
-                    case .sentRequest:
-                        self.showVerifyBar(animated: true, state: .requested)
-                    case .receivedRequestAccept:
-                        self.showVerifyBar(animated: true, state: .enterCode)
-                    case .receivedRequest:
-                        self.showVerifyBar(animated: true, state: .requesting)
-                    default:
-                        return
+                    if ![.addContact, .allowSubscribtion, .requestSubscribtion].contains(self.topPanelState.value) {
+                        switch item?.state {
+                            case .sentRequest:
+                                self.topPanelState.accept(.requestedVerification)
+                            case .receivedRequestAccept:
+                                self.topPanelState.accept(.enterCodeVerification)
+                            case .receivedRequest:
+                                self.topPanelState.accept(.requestingVerification)
+                            default:
+                                break
+                        }
                     }
                 } onError: { _ in
                     

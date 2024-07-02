@@ -92,9 +92,9 @@ class GroupChatMessagesByUserViewController: ChatViewController {
         self.title = "User messages".localizeString(id: "groupchats_user_messages", arguments: [])
     }
     
-    override func configurePinMessagePanel() {
-        
-    }
+//    override func configurePinMessagePanel() {
+//        
+//    }
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)

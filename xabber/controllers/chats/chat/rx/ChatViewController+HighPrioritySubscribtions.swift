@@ -45,7 +45,6 @@ extension ChatViewController {
                 DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
             }
         }
-  
         let realm = try WRealm.safe()
         
         Observable
@@ -84,6 +83,46 @@ extension ChatViewController {
                 self.reloadDataset(withSearchText: value)
             })
             .disposed(by: bag)
+        
+        self.topPanelState
+            .asObservable()
+            .debounce(.nanoseconds(5), scheduler: MainScheduler.asyncInstance)
+            .subscribe { state in
+                switch state {
+                    case .none:
+                        (self.navigationController as? NavBarController)?.clearAdditionalPanel()
+                    case .pinnedMessage:
+                        self.applyPinMessagePanel()
+                    case .addContact:
+                        self.applyAddContactPanel()
+                    case .requestSubscribtion:
+                        self.applyRequestSubscribtionPanel()
+                    case .allowSubscribtion:
+                        self.applyAllowSubscribtion()
+                    case .requestedVerification:
+                        self.applyRequestedVerificationPanel()
+                    case .enterCodeVerification:
+                        self.applyEnterCodePanel()
+                    case .requestingVerification:
+                        self.applyRequestingVerificationPanel()
+                    case .shouldRequestVerification:
+                        self.applyShouldRequestVerificationPanel()
+                }
+                switch state {
+                    case .none:
+                        (self.navigationController as? NavBarController)?.hideAdditionalPanel(animated: true)
+                    default:
+                        (self.navigationController as? NavBarController)?.showAdditionalPanel(animated: true)
+                }
+            } onError: { _ in
+                
+            } onCompleted: {
+                
+            } onDisposed: {
+                
+            }
+            .disposed(by: bag)
+
         
         if [.group, .channel].contains(self.conversationType) {
             try groupSubscribtions()
@@ -192,50 +231,60 @@ extension ChatViewController {
             .collection(from: realm
                 .objects(RosterStorageItem.self)
                 .filter("owner == %@ AND jid == %@", owner, jid))
-            .debounce(.milliseconds(50), scheduler: MainScheduler.asyncInstance)
+            .debounce(.milliseconds(5), scheduler: MainScheduler.asyncInstance)
             .subscribe(onNext: { (results) in
                 if self.groupchat { return }
                 if (XMPPJID(string: self.jid)?.isServer ?? false) {
+                    self.contactStatus = "Server"
+                    self.updateStatusText()
                     return
                 }
                 if let item = results.first {
                     switch item.subscribtion {
-                    case .none:
-                        switch item.ask {
-                        case .in, .both:
-                            self.showSubscribtionBar(animated: true, state: .subscribe)
+                        case .none:
+                            switch item.ask {
+                                case .in, .both:
+                                    self.topPanelState.accept(.addContact)
+                                default:
+                                    if [.addContact, .requestSubscribtion].contains(self.topPanelState.value) {
+                                        self.topPanelState.accept(.none)
+                                    }
+                            }
+                        case .to:
+                            switch item.ask {
+                                case .in:
+                                    self.topPanelState.accept(.addContact)
+                                default:
+                                    if [.addContact, .requestSubscribtion].contains(self.topPanelState.value) {
+                                        self.topPanelState.accept(.none)
+                                    }
+                            }
+                        case .undefined:
+                            switch item.ask {
+                                case .in:
+                                    self.topPanelState.accept(.requestSubscribtion)
+                                default:
+                                    if [.addContact, .requestSubscribtion].contains(self.topPanelState.value) {
+                                        self.topPanelState.accept(.none)
+                                    }
+                            }
                         default:
-                            self.hideSubscribtionBar(animated: true)
-                        }
-                    case .to:
-                        switch item.ask {
-                        case .in:
-                            self.showSubscribtionBar(animated: true, state: .subscribe)
-                        default:
-                            self.hideSubscribtionBar(animated: true)
-                        }
-                    case .undefined:
-                        switch item.ask {
-                        case .in:
-                            self.showSubscribtionBar(animated: true, state: .notInRoster)
-                        default:
-                            self.hideSubscribtionBar(animated: true)
-                        }
-                    default:
-                        self.hideSubscribtionBar(animated: false)
+                            if [.addContact, .requestSubscribtion].contains(self.topPanelState.value) {
+                                self.topPanelState.accept(.none)
+                            }
                     }
                     self.shouldShowNormalStatus = false
                     switch item.subscribtion {
                     case .from:
                         switch item.ask {
-                        case .none:
-                            self.contactStatus = "Receives your presence updates"
-                                .localizeString(id: "chat_receives_presence_updates", arguments: [])
-                        case .out:
-                            self.contactStatus = "Subscription request pending..."
-                                .localizeString(id: "chat_subscription_request_pending", arguments: [])
-                        default:
-                            break
+                            case .none:
+                                self.contactStatus = "Receives your presence updates"
+                                    .localizeString(id: "chat_receives_presence_updates", arguments: [])
+                            case .out:
+                                self.contactStatus = "Subscription request pending..."
+                                    .localizeString(id: "chat_subscription_request_pending", arguments: [])
+                            default:
+                                break
                         }
                     case .none:
                         switch item.ask {
@@ -259,7 +308,7 @@ extension ChatViewController {
                 } else {
                     self.contactStatus = "Not in your contacts"
                         .localizeString(id: "contact_state_not_in_contact_list", arguments: [])
-                    self.showSubscribtionBar(animated: true, state: .notInRoster)
+//                    self.showSubscribtionBar(animated: true, state: .notInRoster)
                 }
                 self.updateStatusText()
             }).disposed(by: bag)
@@ -285,7 +334,7 @@ extension ChatViewController {
     }
     
     private final func groupSubscribtions() throws {
-        subscribePinMessageBar()
+//        subscribePinMessageBar()
         let realm = try WRealm.safe()
         
         Observable

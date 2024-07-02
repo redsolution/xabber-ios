@@ -32,6 +32,18 @@ import AVFoundation
 
 class ChatViewController: MessagesViewController {
     
+    enum TopPanelState: String {
+        case none = "none"
+        case pinnedMessage = "pinned"
+        case addContact = "add_contact"
+        case requestSubscribtion = "request_subscribtion"
+        case allowSubscribtion = "allow_subscribtion"
+        case requestedVerification = "requested_verification"
+        case enterCodeVerification = "enter_code_verification"
+        case requestingVerification = "requesting_verification"
+        case shouldRequestVerification = "should_request_verification"
+    }
+    
     enum InputBarState {
         case short
         case normal
@@ -274,6 +286,10 @@ class ChatViewController: MessagesViewController {
     
     var selectedAfterburnId: Int = 0
     
+    //// panel
+    var topPanelShowed: Bool = false
+    var topPanelState: BehaviorRelay<TopPanelState> = BehaviorRelay(value: .none)
+    
     internal let skeletonMessages: [NSAttributedString] = {
         return (0..<30).compactMap {
             _ in
@@ -357,21 +373,21 @@ class ChatViewController: MessagesViewController {
 //        return bar
 //    }()
     
-    var pinMessageView: PinMessageView = {
-        let view = PinMessageView(frame: .zero)
-        
-        
-        return view
-    }()
-    
-    var pinMessageBar: UITabBar = {
-        let bar = UITabBar()
-        
-        bar.barStyle = .default
-        bar.backgroundImage = nil
-        
-        return bar
-    }()
+//    var pinMessageView: PinMessageView = {
+//        let view = PinMessageView(frame: .zero)
+//        
+//        
+//        return view
+//    }()
+//    
+//    var pinMessageBar: UITabBar = {
+//        let bar = UITabBar()
+//        
+//        bar.barStyle = .default
+//        bar.backgroundImage = nil
+//        
+//        return bar
+//    }()
     
 //    var topMenuPanelBar: UITabBar = {
 //        let bar = UITabBar()
@@ -391,35 +407,35 @@ class ChatViewController: MessagesViewController {
         return bar
     }()
     
-    var subscribtionBarView: SubscribtionBarView = {
-        let view = SubscribtionBarView(frame: .zero)
-        
-        return view
-    }()
-    
-    var subscribtionBar: UITabBar = {
-        let bar = UITabBar()
-        
-        bar.barStyle = .default
-        bar.backgroundImage = nil
-        
-        return bar
-    }()
-    
-    var verifyBarView: VerifyBarView = {
-        let view = VerifyBarView(frame: .zero)
-        
-        return view
-    }()
-    
-    var verifyBar: UITabBar = {
-        let bar = UITabBar()
-        
-        bar.barStyle = .default
-        bar.backgroundImage = nil
-        
-        return bar
-    }()
+//    var subscribtionBarView: SubscribtionBarView = {
+//        let view = SubscribtionBarView(frame: .zero)
+//        
+//        return view
+//    }()
+//    
+//    var subscribtionBar: UITabBar = {
+//        let bar = UITabBar()
+//        
+//        bar.barStyle = .default
+//        bar.backgroundImage = nil
+//        
+//        return bar
+//    }()
+//    
+//    var verifyBarView: VerifyBarView = {
+//        let view = VerifyBarView(frame: .zero)
+//        
+//        return view
+//    }()
+//    
+//    var verifyBar: UITabBar = {
+//        let bar = UITabBar()
+//        
+//        bar.barStyle = .default
+//        bar.backgroundImage = nil
+//        
+//        return bar
+//    }()
     
     let recordingPanel: RecordingPanel = {
         let view = RecordingPanel(frame: .zero)
@@ -518,36 +534,6 @@ class ChatViewController: MessagesViewController {
         recordingPanel.onPlayCallback = onRecordingPanelWillPlay
         recordingPanel.onPauseCallback = onRecordingPanelWillPause
         recordingPanel.onEndPlayingCallback = onRecordingPanelWillEnd
-    }
-    
-    func configurePinMessagePanel() {
-//        pinMessageBar.addSubview(pinMessageView)
-        pinMessageView.fillSuperview()
-        
-        pinMessageView.frame = CGRect(x: 0, y: 0, width: view.frame.width, height: 64)
-        pinMessageBar.frame = CGRect(x: 0, y: view.safeAreaInsets.top, width: view.frame.width, height: 64)
-        self.pinMessageBar.alpha = 0
-//        view.addSubview(pinMessageBar)
-    }
-    
-    func configureSubscribtionPanel() {
-        subscribtionBar.addSubview(subscribtionBarView)
-        subscribtionBarView.fillSuperview()
-        self.subscribtionBarView.isHidden = true
-        subscribtionBar.frame = CGRect(x: 0, y: view.safeAreaInsets.top, width: view.frame.width, height: 64)
-        view.addSubview(subscribtionBar)
-        
-        subscribtionBar.isHidden = true
-    }
-    
-    func configureVerifyPanel() {
-        verifyBar.addSubview(verifyBarView)
-        verifyBarView.fillSuperview()
-        verifyBarView.isHidden = true
-        verifyBar.frame = CGRect(x: 0, y: view.safeAreaInsets.top, width: view.frame.width, height: 64)
-        view.addSubview(verifyBar)
-        
-        verifyBar.isHidden = true
     }
     
     func configureSearchBar() {
@@ -692,23 +678,11 @@ class ChatViewController: MessagesViewController {
         self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 100, right: 0)
         
         userBarButton.configure(owner: owner, jid: jid)
-        configureSubscribtionPanel()
-        configureVerifyPanel()
-        configurePinMessagePanel()
-        configureRecordingPanel()
         configureSelectionPanel()
         configureMessagesPanel()
         configureCertificateUpdateTimer()
         
-        if self.conversationType == .omemo {
-            AccountManager.shared.find(for: self.owner)?.omemo.prepareSecretChat(wit: self.jid, success: {
-                
-            }, fail: {
-                DispatchQueue.main.async {
-                    self.showToast(error: "Can`t find any OMEMO device".localizeString(id: "message_manager_error_no_omemo", arguments: []))
-                }
-            })
-        }
+        
         previousFrame = self.view.bounds
     }
     
@@ -921,7 +895,7 @@ class ChatViewController: MessagesViewController {
             self.xabberInputView.timerButton.isHidden = true
             self.xabberInputView.timerButton.isEnabled = false
         }
-        
+//        self.navigationController?.toolbar.delegate = self
     }
     
     override func reloadDatasource() {
@@ -930,6 +904,16 @@ class ChatViewController: MessagesViewController {
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        (self.navigationController as? NavBarController)?.cancelButton.addTarget(self, action: #selector(additionalNavBarPanelCancelButtonTouchUpInside), for: .touchUpInside)
+        if self.conversationType == .omemo {
+            AccountManager.shared.find(for: self.owner)?.omemo.prepareSecretChat(wit: self.jid, success: {
+                
+            }, fail: {
+                DispatchQueue.main.async {
+                    self.showToast(error: "Can`t find any OMEMO device".localizeString(id: "message_manager_error_no_omemo", arguments: []))
+                }
+            })
+        }
 //        self.navigationController?.navigationBar.prefersLargeTitles = false
         if [.omemo, .omemo1, .axolotl].contains(conversationType) {
             self.startWatchingSignatureTimer()
@@ -973,6 +957,9 @@ class ChatViewController: MessagesViewController {
         })
         self.xabberInputView.isSendButtonEnabled = false
         self.xabberInputView.updateSendButtonState()
+        
+//        showVerifyBar(animated: true, state: .enterCode)
+//        (self.navigationController as? NavBarController)?.showAdditionalPanel()
     }
     
     override func viewDidAppear(_ animated: Bool) {
@@ -981,6 +968,7 @@ class ChatViewController: MessagesViewController {
         self.navigationController?.navigationBar.shadowImage = nil
         self.navigationController?.navigationBar.superview?.bringSubviewToFront(self.navigationController!.navigationBar)
         self.navigationController?.navigationBar.layoutIfNeeded()
+        
         
         self.canLoadPage = true
 
@@ -1033,6 +1021,7 @@ class ChatViewController: MessagesViewController {
 //        self.deleteRecord()
         omemoDeviceListTimer?.invalidate()
         omemoDeviceListTimer = nil
+//        (self.navigationController as? NavBarController)?.hideAdditionalPanel()
 
         AccountManager.shared.find(for: owner)?.mam.allowHistoryFixTask = false
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
@@ -1142,3 +1131,4 @@ extension ChatViewController: TappedPhotoInMediaGalleryDelegate {
     }
     
 }
+
