@@ -358,7 +358,7 @@ class DevicesListViewController: BaseViewController {
     
     @objc
     func onVerifyButtonPressed() {
-        AccountManager.shared.find(for: self.owner)?.action { user, stream in
+        AccountManager.shared.find(for: self.jid)?.action { user, stream in
             user.akeManager.sendVerificationRequest(jid: self.jid)
         }
         

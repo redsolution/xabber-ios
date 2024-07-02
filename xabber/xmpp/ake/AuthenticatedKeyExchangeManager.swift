@@ -920,8 +920,8 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             ttl = 300
         } else {
             ttl = 86400
-//            ttl = 3
         }
+        
         do {
             let realm = try WRealm.safe()
             
@@ -951,29 +951,6 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             try realm.write {
                 realm.add(instance)
             }
-            
-//            let timer = Timer.scheduledTimer(
-//                timeInterval: TimeInterval(ttl),
-//                target: self,
-//                selector: #selector(timerAction),
-//                userInfo: sid,
-//                repeats: false
-//            )
-//            RunLoop.main.add(timer, forMode: .default)
-            
-//            let instanceToDispatch = instance
-//            DispatchQueue.main.asyncAfter(deadline: .now() + DispatchTimeInterval.seconds(ttl)) {
-//                if instanceToDispatch.state == .sentRequest {
-//                    self.sendErrorMessage(fullJID: XMPPJID(string: instanceToDispatch.jid)!, sid: instanceToDispatch.sid, reason: "Verification session cancelled.")
-//                    do {
-//                        try realm.write {
-//                            realm.delete(instanceToDispatch)
-//                        }
-//                    } catch {
-//                        DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
-//                    }
-//                }
-//            }
             
         } catch {
             DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
@@ -1017,12 +994,12 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                             realm.delete(item)
                         }
                     } catch {
-                        
+                        DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
                     }
                 }
             }
         } catch {
-            
+            DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
         }
     }
     
