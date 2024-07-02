@@ -349,7 +349,6 @@
 		6678DFFF249782BD00B3640B /* GroupchatContactInfoViewController+vCardCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6678DFFE249782BD00B3640B /* GroupchatContactInfoViewController+vCardCell.swift */; };
 		6678F08C268F1D7900A716AA /* QRCodeScannerViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6678F08B268F1D7900A716AA /* QRCodeScannerViewController.swift */; };
 		6679826E24E5769F003C3815 /* InitialMessageSizeCalculator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6679826D24E5769F003C3815 /* InitialMessageSizeCalculator.swift */; };
-		66799DA22C2D6FD600B1984B /* ChatViewController+VerifyPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66799DA12C2D6FD600B1984B /* ChatViewController+VerifyPanel.swift */; };
 		667AEDB524A9C8E5000F339E /* SynchronizedArray.swift in Sources */ = {isa = PBXBuildFile; fileRef = 667AEDB424A9C8E5000F339E /* SynchronizedArray.swift */; };
 		667AEDB724A9E6F6000F339E /* LastChatsViewController+ArchivedCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 667AEDB624A9E6F6000F339E /* LastChatsViewController+ArchivedCell.swift */; };
 		667BC23B226749F600113EB3 /* SoundManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 667BC23A226749F600113EB3 /* SoundManager.swift */; };
@@ -669,6 +668,7 @@
 		66EF49A92BCEAADD00984187 /* EmptyChatViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66EF49A82BCEAADD00984187 /* EmptyChatViewController.swift */; };
 		66EF49AB2BCEAB7B00984187 /* SplitViewControllerDelegateProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66EF49AA2BCEAB7B00984187 /* SplitViewControllerDelegateProtocol.swift */; };
 		66EFC5B92923C98700398D77 /* SubscribtionsListViewControllerTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66EFC5B82923C98700398D77 /* SubscribtionsListViewControllerTest.swift */; };
+		66F034022C33D9ED00E4D40A /* ChatViewController+VerifyFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F034012C33D9ED00E4D40A /* ChatViewController+VerifyFlow.swift */; };
 		66F0AADC2BC00E8600079DA6 /* TrustSharingManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F0AADB2BC00E8600079DA6 /* TrustSharingManager.swift */; };
 		66F0C440215D0B940010A16E /* ForwardItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F0C43F215D0B940010A16E /* ForwardItem.swift */; };
 		66F1F8092715903C00F67C08 /* CredentialsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F1F8082715903C00F67C08 /* CredentialsManager.swift */; };
@@ -1324,7 +1324,6 @@
 		6678DFFE249782BD00B3640B /* GroupchatContactInfoViewController+vCardCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GroupchatContactInfoViewController+vCardCell.swift"; sourceTree = "<group>"; };
 		6678F08B268F1D7900A716AA /* QRCodeScannerViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRCodeScannerViewController.swift; sourceTree = "<group>"; };
 		6679826D24E5769F003C3815 /* InitialMessageSizeCalculator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InitialMessageSizeCalculator.swift; sourceTree = "<group>"; };
-		66799DA12C2D6FD600B1984B /* ChatViewController+VerifyPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewController+VerifyPanel.swift"; sourceTree = "<group>"; };
 		667AEDB424A9C8E5000F339E /* SynchronizedArray.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynchronizedArray.swift; sourceTree = "<group>"; };
 		667AEDB624A9E6F6000F339E /* LastChatsViewController+ArchivedCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LastChatsViewController+ArchivedCell.swift"; sourceTree = "<group>"; };
 		667BC23A226749F600113EB3 /* SoundManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundManager.swift; sourceTree = "<group>"; };
@@ -1641,6 +1640,7 @@
 		66EF49A82BCEAADD00984187 /* EmptyChatViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmptyChatViewController.swift; sourceTree = "<group>"; };
 		66EF49AA2BCEAB7B00984187 /* SplitViewControllerDelegateProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitViewControllerDelegateProtocol.swift; sourceTree = "<group>"; };
 		66EFC5B82923C98700398D77 /* SubscribtionsListViewControllerTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscribtionsListViewControllerTest.swift; sourceTree = "<group>"; };
+		66F034012C33D9ED00E4D40A /* ChatViewController+VerifyFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewController+VerifyFlow.swift"; sourceTree = "<group>"; };
 		66F0AADB2BC00E8600079DA6 /* TrustSharingManager.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = TrustSharingManager.swift; sourceTree = "<group>"; };
 		66F0C43F215D0B940010A16E /* ForwardItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForwardItem.swift; sourceTree = "<group>"; };
 		66F1F8082715903C00F67C08 /* CredentialsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialsManager.swift; sourceTree = "<group>"; };
@@ -2865,8 +2865,8 @@
 				6648841B26EA068F00323013 /* ChatViewController+SearchBar.swift */,
 				663ACA88283FA8E2005553BE /* ChatViewController+DigitalSignature.swift */,
 				66D1E7ED28683380006C58A7 /* ChatViewController+TrustedDevies.swift */,
-				66799DA12C2D6FD600B1984B /* ChatViewController+VerifyPanel.swift */,
 				66AFEFD02C32B379005D3A65 /* ChatViewController+AdditionalNavbarPanel.swift */,
+				66F034012C33D9ED00E4D40A /* ChatViewController+VerifyFlow.swift */,
 			);
 			path = extension;
 			sourceTree = "<group>";
@@ -5205,7 +5205,6 @@
 				1A939B2A27E49EC100014E43 /* MasksSelectionViewController+TableViewDelegate.swift in Sources */,
 				66A51ACD23ADFB90005369C3 /* PanDirectionGestureRecognizer.swift in Sources */,
 				66036F6D23D7202300F6B2D2 /* ChatViewController+RecordingPanel.swift in Sources */,
-				66799DA22C2D6FD600B1984B /* ChatViewController+VerifyPanel.swift in Sources */,
 				66AD82A523869A030070C740 /* CreateNewGroupEditViewController.swift in Sources */,
 				665451B722A93A750077635D /* AccountEditViewController+Flow.swift in Sources */,
 				66FD4F802085F50C00557252 /* AppDelegatePushKitExtension.swift in Sources */,
@@ -5244,6 +5243,7 @@
 				660A460222C4D7040047347D /* AccountSelectViewController.swift in Sources */,
 				66C0E436223FAA2700F014C6 /* AttentionManger.swift in Sources */,
 				1A9F6167278D7F3A000D92C7 /* XabberUploadManager.swift in Sources */,
+				66F034022C33D9ED00E4D40A /* ChatViewController+VerifyFlow.swift in Sources */,
 				66E452C32A70390A00E7DF03 /* DeliveryReceiptsManager.swift in Sources */,
 				660AE35D2385715A00E7FC00 /* CreateNewGroupViewController+ItemCell.swift in Sources */,
 				669E185B2089EBE100D59D38 /* UIImageExtension.swift in Sources */,

@@ -70,13 +70,15 @@ extension ChatViewController {
         (self.navigationController as? NavBarController)?.configureAdditionalPanel({ barVc, stack in
             barVc.indicatorIcon.setImage(UIImage(systemName: "entry.lever.keypad.trianglebadge.exclamationmark.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
             barVc.indicatorIcon.tintColor = .systemOrange
-            let enterButton = UIButton()
+            let button = UIButton()
             var configuration = UIButton.Configuration.plain()
             configuration.title = "Enter verification code"
             configuration.baseForegroundColor = .tintColor
-            enterButton.configuration = configuration
+            button.configuration = configuration
             
-            stack.addArrangedSubview(enterButton)
+            stack.addArrangedSubview(button)
+            
+            button.addTarget(self, action: #selector(onEnterCodeVerification), for: .touchUpInside)
         })
     }
     
@@ -84,13 +86,15 @@ extension ChatViewController {
         (self.navigationController as? NavBarController)?.configureAdditionalPanel({ barVc, stack in
             barVc.indicatorIcon.setImage(UIImage(systemName: "exclamationmark.triangle.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
             barVc.indicatorIcon.tintColor = .systemOrange
-            let acceptButton = UIButton()
+            let button = UIButton()
             var configuration = UIButton.Configuration.plain()
-            configuration.title = "Incoming verification request"
+            configuration.title = "Outgoing verification request"
             configuration.baseForegroundColor = .tintColor
-            acceptButton.configuration = configuration
+            button.configuration = configuration
             
-            stack.addArrangedSubview(acceptButton)
+            stack.addArrangedSubview(button)
+            
+            button.addTarget(self, action: #selector(onRequestedVerification), for: .touchUpInside)
         })
     }
     
@@ -98,13 +102,15 @@ extension ChatViewController {
         (self.navigationController as? NavBarController)?.configureAdditionalPanel({ barVc, stack in
             barVc.indicatorIcon.setImage(UIImage(systemName: "exclamationmark.triangle.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
             barVc.indicatorIcon.tintColor = .systemOrange
-            let acceptButton = UIButton()
+            let button = UIButton()
             var configuration = UIButton.Configuration.plain()
             configuration.title = "Accept verification request"
             configuration.baseForegroundColor = .tintColor
-            acceptButton.configuration = configuration
+            button.configuration = configuration
             
-            stack.addArrangedSubview(acceptButton)
+            stack.addArrangedSubview(button)
+            
+            button.addTarget(self, action: #selector(onRequestingVerification), for: .touchUpInside)
         })
     }
     
@@ -112,13 +118,15 @@ extension ChatViewController {
         (self.navigationController as? NavBarController)?.configureAdditionalPanel({ barVc, stack in
             barVc.indicatorIcon.setImage(UIImage(systemName: "exclamationmark.triangle.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
             barVc.indicatorIcon.tintColor = .systemOrange
-            let acceptButton = UIButton()
+            let button = UIButton()
             var configuration = UIButton.Configuration.plain()
             configuration.title = "Verify contact"
             configuration.baseForegroundColor = .tintColor
-            acceptButton.configuration = configuration
+            button.configuration = configuration
             
-            stack.addArrangedSubview(acceptButton)
+            stack.addArrangedSubview(button)
+            
+            button.addTarget(self, action: #selector(onShouldRequestVerification), for: .touchUpInside)
         })
     }
     
