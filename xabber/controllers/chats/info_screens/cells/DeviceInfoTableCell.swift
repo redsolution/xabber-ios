@@ -100,10 +100,8 @@ class DeviceInfoTableCell: UITableViewCell {
         var cellConfig = self.defaultContentConfiguration()
         
         if trustedBy == "manual" {
-//            descriptionLabel.text = "\(ip) ⦁ trusted by \(trustedBy!)"
             cellConfig.secondaryText = "\(ip) ⦁ trusted by \(trustedBy!)"
         } else if trustedBy != nil {
-//            descriptionLabel.text = "\(ip) ⦁ trusted via \(trustedBy!)"
             cellConfig.secondaryText = "\(ip) ⦁ trusted via \(trustedBy!)"
         } else if date != nil {
             let today = Date()
@@ -131,13 +129,10 @@ class DeviceInfoTableCell: UITableViewCell {
                 dateString = "\(seconds) seconds ago"
             }
             
-//            descriptionLabel.text = "\(ip) ⦁ \(dateString)"
             cellConfig.secondaryText = "\(ip) ⦁ \(dateString)"
         } else if trustState == .trusted {
-//            descriptionLabel.text = "\(ip) ⦁ trusted by code"
             cellConfig.secondaryText = "\(ip) ⦁ trusted by code"
         } else {
-//            descriptionLabel.text = "\(ip)"
             cellConfig.secondaryText = "\(ip)"
         }
         
@@ -150,15 +145,10 @@ class DeviceInfoTableCell: UITableViewCell {
         }
         
         if device.isNotEmpty {
-//            clientLabel.text = device//[client, device].joined(separator: ", ")
             cellConfig.text = device
         } else {
-//            clientLabel.text = client//[client, device].joined(separator: "")
             cellConfig.text = client
         }
-        
-//        clientLabel.textColor = MDCPalette.grey.tint900
-//        descriptionLabel.textColor = MDCPalette.grey.tint700
         
         cellConfig.textProperties.color = MDCPalette.grey.tint900
         cellConfig.secondaryTextProperties.color = MDCPalette.grey.tint700
@@ -167,7 +157,7 @@ class DeviceInfoTableCell: UITableViewCell {
             self.trustIconView.isHidden = false
             
             switch trustState {
-                case .unknown:
+                case .unknown, .distrusted:
                     self.trustIconView.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withRenderingMode(.alwaysTemplate)
                     self.trustIconView.tintColor = .systemOrange
                     self.authDateLabel.text = "Action required"
@@ -184,13 +174,11 @@ class DeviceInfoTableCell: UITableViewCell {
                     self.authDateLabel.text = isTrustebByCertificate ? " Signed" : " Trusted"
                     self.authDateLabel.textColor = .systemGreen
                     self.trustIconView.tintColor = .systemGreen
-                case .fingerprintChanged:
+                case .fingerprintChanged, .revoked:
                     self.trustIconView.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withRenderingMode(.alwaysTemplate)
                     self.trustIconView.tintColor = .systemRed
                     self.authDateLabel.text = "Fingerprint changed"
                     self.authDateLabel.textColor = .systemRed
-//                    self.descriptionLabel.textColor = .systemRed
-//                    self.clientLabel.textColor = .systemRed
             }
         } else {
             if let hasBundle = hasBundle,
@@ -224,15 +212,10 @@ class DeviceInfoTableCell: UITableViewCell {
         contentView.bringSubviewToFront(stack)
         stack.fillSuperviewWithOffset(top: 8, bottom: 8, left: 16, right: 10)
         
-//        leftStack.addArrangedSubview(clientLabel)
-//        leftStack.addArrangedSubview(descriptionLabel)
-//        rightStack.addArrangedSubview(UIStackView())
         rightStack.addArrangedSubview(trustIconView)
         
         stack.addArrangedSubview(leftStack)
         stack.addArrangedSubview(rightStack)
-        
-//        activateConstraints()
     }
     
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {

@@ -84,7 +84,7 @@ class NewSecretChatViewController: SimpleBaseViewController {
                     return nil
                 }
                 let hasSecretChat = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: $0.jid, owner: $0.owner, conversationType: .omemo)) != nil
-                let hasBrokenDevices = devices.filter({$0.state == .fingerprintChanged}).isNotEmpty
+                let hasBrokenDevices = devices.filter({$0.state == .fingerprintChanged || $0.state == .revoked}).isNotEmpty
                 let hasUntrustedDevices = devices.filter({$0.state != .trusted}).isNotEmpty
                 
                 let username = $0.displayName

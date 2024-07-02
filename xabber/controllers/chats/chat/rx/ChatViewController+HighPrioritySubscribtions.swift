@@ -103,6 +103,10 @@ extension ChatViewController {
                         self.applyRequestedVerificationPanel()
                     case .enterCodeVerification:
                         self.applyEnterCodePanel()
+                    case .requestingVerification:
+                        self.applyRequestingVerificationPanel()
+                    case .shouldRequestVerification:
+                        self.applyShouldRequestVerificationPanel()
                 }
                 switch state {
                     case .none:

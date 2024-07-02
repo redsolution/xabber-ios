@@ -669,7 +669,7 @@ class LastChatsViewController: BaseViewController {
                             color = .secondaryLabel
                             indicatorAttach.image = UIImage(systemName: "lock.fill")?.withTintColor(.secondaryLabel)
                             attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
-                        } else if collectionJid.toArray().filter({ $0.state == .fingerprintChanged }).count > 0 {
+                        } else if collectionJid.toArray().filter({ $0.state == .fingerprintChanged || $0.state == .revoked }).count > 0 {
                             color = .systemRed
                             indicatorAttach.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withTintColor(.systemRed)
                             attributedTitle.append(NSAttributedString(attachment: indicatorAttach))

@@ -117,22 +117,7 @@ class DevicesListViewController: BaseViewController {
                 .toArray()
             
             let sessionInstance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.jid, self.jid).first
-            var isSessionDeleted = false
-            if sessionInstance?.state == .sentRequest || sessionInstance?.state == .receivedRequest {
-                // if more then ttl have passed after request, its not available anymore
-                if let timestamp = TimeInterval(sessionInstance!.timestamp),
-                   let ttl = TimeInterval(sessionInstance!.ttl) {
-                    if timestamp + ttl <= Date().timeIntervalSince1970 {
-                        try realm.write {
-                            realm.delete(sessionInstance!)
-                        }
-                        isSessionDeleted = true
-                    }
-                }
-            }
-            if !isSessionDeleted {
-                activeVerificationSession = sessionInstance
-            }
+            activeVerificationSession = sessionInstance
             
             self.brokenOmemoDevices = omemoDevices.filter {
                 device in
@@ -290,39 +275,6 @@ class DevicesListViewController: BaseViewController {
         editButton = UIBarButtonItem(barButtonSystemItem: .edit, target: self, action: #selector(self.onEdit))
         doneEditButton = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(self.onDoneEditing))
         navigationItem.setRightBarButton(editButton, animated: true)
-        
-        guard let akeManager = AccountManager.shared.find(for: self.jid)?.akeManager else {
-            return
-        }
-        
-//        NotificationCenter.default.addObserver(self, selector: #selector(showVerificationConfirmationViewController(_:)), name: NSNotification.Name(rawValue: "received_VerificationConfirmationViewController"), object: akeManager)
-    }
-    
-    @objc
-    func showVerificationConfirmationViewController(_ notification: Notification) {
-        if let userInfo = notification.userInfo {
-            let sid = userInfo["sid"] as! String
-            let deviceId = userInfo["device-id"] as! String
-            
-            var isVerificationWithOwnDevice = false
-            
-            do {
-                let realm = try WRealm.safe()
-                guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.jid, sid: sid)) else {
-                    return
-                }
-                if instance.jid == self.jid {
-                    isVerificationWithOwnDevice = true
-                }
-                DispatchQueue.main.async {
-                    let vc = VerificationConfirmationViewController()
-//                    vc.configure(owner: self.jid, sid: sid, deviceId: deviceId, isVerificationWithOwnDevice: isVerificationWithOwnDevice)
-                    showModal(vc)
-                }
-            } catch {
-                DDLogDebug("SettingsViewController: \(#function). \(error.localizedDescription)")
-            }
-        }
     }
     
     let refreshControl = UIRefreshControl()

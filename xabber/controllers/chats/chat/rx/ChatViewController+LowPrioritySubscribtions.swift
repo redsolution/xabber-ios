@@ -520,7 +520,45 @@ extension ChatViewController {
             
         }.disposed(by: self.bag)
 
-        
+        do {
+            let realm = try WRealm.safe()
+            let verificationSessions = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid)
+            Observable
+                .collection(from: verificationSessions)
+                .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
+                .subscribe { results in
+                    if results.isEmpty {
+                        let contactDevices = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@ AND state_ IN %@", self.owner, self.jid, [SignalDeviceStorageItem.TrustState.unknown.rawValue, SignalDeviceStorageItem.TrustState.distrusted.rawValue])
+                        if !contactDevices.isEmpty {
+                            self.topPanelState.accept(.shouldRequestVerification)
+                            return
+                        }
+                    }
+                    
+                    let item = results.first
+                    if ![.addContact, .allowSubscribtion, .requestSubscribtion].contains(self.topPanelState.value) {
+                        switch item?.state {
+                            case .sentRequest:
+                                self.topPanelState.accept(.requestedVerification)
+                            case .receivedRequestAccept:
+                                self.topPanelState.accept(.enterCodeVerification)
+                            case .receivedRequest:
+                                self.topPanelState.accept(.requestingVerification)
+                            default:
+                                break
+                        }
+                    }
+                } onError: { _ in
+                    
+                } onCompleted: {
+                    
+                } onDisposed: {
+                    
+                }.disposed(by: self.bag)
+
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        }
     }
     
 }

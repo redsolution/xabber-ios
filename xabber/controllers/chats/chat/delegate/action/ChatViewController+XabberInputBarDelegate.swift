@@ -407,7 +407,7 @@ extension ChatViewController: XabberInputBarDelegate {
                 let realm = try WRealm.safe()
                 let collection = realm
                     .objects(SignalDeviceStorageItem.self)
-                    .filter("owner == %@ AND jid == %@ AND (state_ == %@ OR state_ == %@)", self.owner, self.jid, SignalDeviceStorageItem.TrustState.unknown.rawValue, SignalDeviceStorageItem.TrustState.ignore.rawValue)
+                    .filter("owner == %@ AND jid == %@ AND (state_ == %@ OR state_ == %@ OR state_ == %@)", self.owner, self.jid, SignalDeviceStorageItem.TrustState.unknown.rawValue, SignalDeviceStorageItem.TrustState.ignore.rawValue, SignalDeviceStorageItem.TrustState.distrusted.rawValue)
                 if collection.isEmpty {
                     sendMessage(text)
                 } else {

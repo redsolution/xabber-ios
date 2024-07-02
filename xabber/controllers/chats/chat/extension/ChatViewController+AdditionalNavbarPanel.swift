@@ -94,8 +94,36 @@ extension ChatViewController {
         })
     }
     
+    internal func applyRequestingVerificationPanel() {
+        (self.navigationController as? NavBarController)?.configureAdditionalPanel({ barVc, stack in
+            barVc.indicatorIcon.setImage(UIImage(systemName: "exclamationmark.triangle.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
+            barVc.indicatorIcon.tintColor = .systemOrange
+            let acceptButton = UIButton()
+            var configuration = UIButton.Configuration.plain()
+            configuration.title = "Accept verification request"
+            configuration.baseForegroundColor = .tintColor
+            acceptButton.configuration = configuration
+            
+            stack.addArrangedSubview(acceptButton)
+        })
+    }
+    
+    internal func applyShouldRequestVerificationPanel(){
+        (self.navigationController as? NavBarController)?.configureAdditionalPanel({ barVc, stack in
+            barVc.indicatorIcon.setImage(UIImage(systemName: "exclamationmark.triangle.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
+            barVc.indicatorIcon.tintColor = .systemOrange
+            let acceptButton = UIButton()
+            var configuration = UIButton.Configuration.plain()
+            configuration.title = "Verify contact"
+            configuration.baseForegroundColor = .tintColor
+            acceptButton.configuration = configuration
+            
+            stack.addArrangedSubview(acceptButton)
+        })
+    }
+    
     @objc
-    final func additionalNavBArPanelCancelButtonTouchUpInside(_ sender: UIButton) {
+    final func additionalNavBarPanelCancelButtonTouchUpInside(_ sender: UIButton) {
         switch topPanelState.value {
             case .none:
                 break
@@ -110,6 +138,10 @@ extension ChatViewController {
             case .requestedVerification:
                 break
             case .enterCodeVerification:
+                break
+            case .requestingVerification:
+                break
+            case .shouldRequestVerification:
                 break
         }
         (self.navigationController as? NavBarController)?.hideAdditionalPanel(animated: true)

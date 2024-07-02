@@ -40,6 +40,8 @@ class ChatViewController: MessagesViewController {
         case allowSubscribtion = "allow_subscribtion"
         case requestedVerification = "requested_verification"
         case enterCodeVerification = "enter_code_verification"
+        case requestingVerification = "requesting_verification"
+        case shouldRequestVerification = "should_request_verification"
     }
     
     enum InputBarState {
@@ -902,7 +904,7 @@ class ChatViewController: MessagesViewController {
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        (self.navigationController as? NavBarController)?.cancelButton.addTarget(self, action: #selector(additionalNavBArPanelCancelButtonTouchUpInside), for: .touchUpInside)
+        (self.navigationController as? NavBarController)?.cancelButton.addTarget(self, action: #selector(additionalNavBarPanelCancelButtonTouchUpInside), for: .touchUpInside)
         if self.conversationType == .omemo {
             AccountManager.shared.find(for: self.owner)?.omemo.prepareSecretChat(wit: self.jid, success: {
                 

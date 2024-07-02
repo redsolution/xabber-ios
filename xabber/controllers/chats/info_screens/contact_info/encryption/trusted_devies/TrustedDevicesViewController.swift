@@ -172,7 +172,7 @@ class TrustedDevicesViewController: SimpleBaseViewController {
             
             var isVerificationNeeded = false
             for device in devices {
-                if device.state == .unknown {
+                if device.state == .unknown || device.state == .distrusted {
                     isVerificationNeeded = true
                     break
                 }
@@ -181,31 +181,14 @@ class TrustedDevicesViewController: SimpleBaseViewController {
             var devicesDatasource: [Datasource] = []
             if isVerificationNeeded && verificationSession == nil {
                 devicesDatasource.append(Datasource(.session, name: "Secure Your Conversation", subtitle: "Your contact has devices that need to be verified to ensure encrypted and secure communication. Perform an identity verification procedure by exchanging a verification code through a secure channel. Enter the received code to confirm that each device is trusted and secure.\n\nPress 'Verify' to begin the verification process and ensure the integrity of your conversation."))
-            } else if verificationSession != nil {
-                var isSessionDeleted = false
+            } else if verificationSession != nil && verificationSession?.state != .trusted {
+                let text: String
+                let secondaryText: String?
                 
-                if verificationSession!.state == .sentRequest || verificationSession!.state == .receivedRequest {
-                    // if more then ttl have passed after request, its not available anymore
-                    if let timestamp = TimeInterval(verificationSession!.timestamp),
-                       let ttl = TimeInterval(verificationSession!.ttl) {
-                        if timestamp + ttl <= Date().timeIntervalSince1970 {
-                            try realm.write {
-                                realm.delete(verificationSession!)
-                            }
-                            isSessionDeleted = true
-                        }
-                    }
-                }
-                    
-                if !isSessionDeleted {
-                    let text: String
-                    let secondaryText: String?
-                    
-                    (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: verificationSession!.state)
-                    
-                    self.activeVerificationSession = verificationSession
-                    devicesDatasource.append(Datasource(.session, name: text, subtitle: secondaryText))
-                }
+                (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: verificationSession!.state)
+                
+                self.activeVerificationSession = verificationSession
+                devicesDatasource.append(Datasource(.session, name: text, subtitle: secondaryText))
             }
             
             for device in devices {
@@ -280,7 +263,7 @@ class TrustedDevicesViewController: SimpleBaseViewController {
             secondaryText = "A verification request has been sent to your contact's devices. Wait for your contact to provide the verification code, then you will need to enter it to complete the identity verification."
         case .receivedRequest:
             text = "Identity Verification Request Received"
-            secondaryText = "You have received an identity verification request from a contact. This step is crucial to establish a trusted connection between your devices, ensuring secure and encrypted communications.\n\nPress the button below to display a verification code. Once generated, securely communicate this code to your contact to finalize the identity verification."
+            secondaryText = "You have received an identity verification request from this contact. This step is crucial to establish a trusted connection between your devices, ensuring secure and encrypted communications.\n\nPress the button below to display a verification code. Once generated, securely communicate this code to this contact to finalize the identity verification."
         case .acceptedRequest:
             text = "Incoming Verification Request"
             secondaryText = "You have accepted the verification request."
@@ -388,11 +371,11 @@ extension TrustedDevicesViewController: UITableViewDelegate {
                     let realm = try Realm()
                     let instances = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid)
                     for instance in instances {
-                        if instance.state == .unknown {
+                        if instance.state == .distrusted {
                             continue
                         }
                         try realm.write {
-                            instance.state = .unknown
+                            instance.state = .distrusted
                             instance.trustDate = Date(timeIntervalSince1970: -1)
                             instance.trustedByDeviceId = nil
                         }
@@ -447,8 +430,6 @@ extension TrustedDevicesViewController: UITableViewDataSource {
         switch datasource[section].first?.kind {
         case .device:
             return "Contact`s devices"
-        case .session:
-            return "Active verification session"
         default:
             return nil
         }
@@ -478,9 +459,6 @@ extension TrustedDevicesViewController: UITableViewDataSource {
             }
             
             cell.configure(fingerprint: nil, client: "", device: item.name, description: "", ip: String(item.deviceId!), lastAuth: nil, current: false, editable: true, isOnline: false, trustState: item.state, hasBundle: true, isTrustebByCertificate: false, trustedBy: item.trustedBy)
-//            var config = cell.contentConfiguration as? UIListContentConfiguration
-//            config?.image = nil
-//            cell.contentConfiguration = config
             
             return cell
         case .session:
