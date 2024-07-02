@@ -920,6 +920,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             ttl = 300
         } else {
             ttl = 86400
+//            ttl = 10
         }
         do {
             let realm = try WRealm.safe()
@@ -951,18 +952,27 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 realm.add(instance)
             }
             
-            DispatchQueue.main.asyncAfter(deadline: .now() + DispatchTimeInterval.seconds(ttl)) {
-                if instance.state == .sentRequest {
-                    self.sendErrorMessage(fullJID: XMPPJID(string: instance.jid)!, sid: instance.sid, reason: "Verification session cancelled.")
-                    do {
-                        try realm.write {
-                            realm.delete(instance)
-                        }
-                    } catch {
-                        DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
-                    }
-                }
-            }
+            let timer = Timer.scheduledTimer(
+                timeInterval: TimeInterval(ttl),
+                target: self,
+                selector: #selector(timerAction),
+                userInfo: sid,
+                repeats: false
+            )
+            RunLoop.main.add(timer, forMode: .default)
+            
+//            DispatchQueue.main.asyncAfter(deadline: .now() + DispatchTimeInterval.seconds(ttl)) {
+//                if instanceToDispatch.state == .sentRequest {
+//                    self.sendErrorMessage(fullJID: XMPPJID(string: instanceToDispatch.jid)!, sid: instanceToDispatch.sid, reason: "Verification session cancelled.")
+//                    do {
+//                        try realm.write {
+//                            realm.delete(instanceToDispatch)
+//                        }
+//                    } catch {
+//                        DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
+//                    }
+//                }
+//            }
             
         } catch {
             DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
@@ -985,6 +995,32 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
             stream.send(iq)
         })
+    }
+    
+    @objc
+    func timerAction(_ timer: Timer) {
+        let sid = timer.userInfo as? String
+        do {
+            let realm = try WRealm.safe()
+            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid ?? ""))
+            
+            if instance == nil {
+                return
+            }
+            
+            if instance!.state == .sentRequest {
+                AccountManager.shared.find(for: self.owner)?.action { user, stream in
+                    user.akeManager.sendErrorMessage(fullJID: XMPPJID(string: instance!.jid)!, sid: instance!.sid, reason: "Verification session cancelled.")
+                }
+//                self.sendErrorMessage(fullJID: XMPPJID(string: instance!.jid)!, sid: instance!.sid, reason: "Verification session cancelled.")
+                try realm.write {
+                    realm.delete(instance!)
+                }
+            }
+        } catch {
+            
+        }
+        
     }
     
     func acceptVerificationRequest(jid: String, sid: String) -> String? {
