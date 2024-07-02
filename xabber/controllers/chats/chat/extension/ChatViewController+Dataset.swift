@@ -46,7 +46,7 @@ extension ChatViewController {
     
     
     private final func mapDataset(count: Int) -> [Datasource] {
-        if !self.isSkeletonHided {
+        if self.showSkeletonObserver.value {
             return skeletonMessages.enumerated().compactMap {
                 (offset, item) in
                 let date = Date(timeIntervalSince1970: Date().timeIntervalSince1970 - Double(((self.skeletonMessages.count - offset) * 1000)))
@@ -305,7 +305,7 @@ extension ChatViewController {
                 }
             }
             
-            if shouldScrollToLastMessage && self.isSkeletonHided {
+             if shouldScrollToLastMessage && !self.showSkeletonObserver.value {
                 self.scrollToLastUnreadMessage(select: true)
             }
         }, completion: {
@@ -379,7 +379,6 @@ extension ChatViewController {
             .collection(from: self.messagesObserver!)
             .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
             .subscribe { (result) in
-                if !self.isSkeletonHided { return }
                 if self.showSkeletonObserver.value { return }
                 if let currentFirstMessagePrimary = self.datasource.first?.primary {
                     if result.first?.primary != currentFirstMessagePrimary {

@@ -669,6 +669,7 @@
 		66EF49AB2BCEAB7B00984187 /* SplitViewControllerDelegateProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66EF49AA2BCEAB7B00984187 /* SplitViewControllerDelegateProtocol.swift */; };
 		66EFC5B92923C98700398D77 /* SubscribtionsListViewControllerTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66EFC5B82923C98700398D77 /* SubscribtionsListViewControllerTest.swift */; };
 		66F034022C33D9ED00E4D40A /* ChatViewController+VerifyFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F034012C33D9ED00E4D40A /* ChatViewController+VerifyFlow.swift */; };
+		66F034042C340EB600E4D40A /* ChatViewController+ContactSubscribtionsFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F034032C340EB600E4D40A /* ChatViewController+ContactSubscribtionsFlow.swift */; };
 		66F0AADC2BC00E8600079DA6 /* TrustSharingManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F0AADB2BC00E8600079DA6 /* TrustSharingManager.swift */; };
 		66F0C440215D0B940010A16E /* ForwardItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F0C43F215D0B940010A16E /* ForwardItem.swift */; };
 		66F1F8092715903C00F67C08 /* CredentialsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F1F8082715903C00F67C08 /* CredentialsManager.swift */; };
@@ -1641,6 +1642,7 @@
 		66EF49AA2BCEAB7B00984187 /* SplitViewControllerDelegateProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitViewControllerDelegateProtocol.swift; sourceTree = "<group>"; };
 		66EFC5B82923C98700398D77 /* SubscribtionsListViewControllerTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscribtionsListViewControllerTest.swift; sourceTree = "<group>"; };
 		66F034012C33D9ED00E4D40A /* ChatViewController+VerifyFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewController+VerifyFlow.swift"; sourceTree = "<group>"; };
+		66F034032C340EB600E4D40A /* ChatViewController+ContactSubscribtionsFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewController+ContactSubscribtionsFlow.swift"; sourceTree = "<group>"; };
 		66F0AADB2BC00E8600079DA6 /* TrustSharingManager.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = TrustSharingManager.swift; sourceTree = "<group>"; };
 		66F0C43F215D0B940010A16E /* ForwardItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForwardItem.swift; sourceTree = "<group>"; };
 		66F1F8082715903C00F67C08 /* CredentialsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialsManager.swift; sourceTree = "<group>"; };
@@ -2867,6 +2869,7 @@
 				66D1E7ED28683380006C58A7 /* ChatViewController+TrustedDevies.swift */,
 				66AFEFD02C32B379005D3A65 /* ChatViewController+AdditionalNavbarPanel.swift */,
 				66F034012C33D9ED00E4D40A /* ChatViewController+VerifyFlow.swift */,
+				66F034032C340EB600E4D40A /* ChatViewController+ContactSubscribtionsFlow.swift */,
 			);
 			path = extension;
 			sourceTree = "<group>";
@@ -5041,6 +5044,7 @@
 				666E1F612204589000172F55 /* ChatViewController+PrefetchDatasource.swift in Sources */,
 				66660E622354A5CA0094C706 /* MessageDeleteManager.swift in Sources */,
 				6696B440223905D200F646B9 /* CallScreenPresenter.swift in Sources */,
+				66F034042C340EB600E4D40A /* ChatViewController+ContactSubscribtionsFlow.swift in Sources */,
 				4D683D1C285DDFDA00FFCB25 /* AccountInfoViewController.swift in Sources */,
 				4D683D24285DE04200FFCB25 /* AccountInfoViewController+QuotaCellDelegate.swift in Sources */,
 				663926A0247E3E5000FE6335 /* ContactsViewController+UITableViewDataSource.swift in Sources */,

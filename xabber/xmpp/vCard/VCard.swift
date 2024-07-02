@@ -101,6 +101,21 @@ class vCardStorageItem: Object {
         }
     }
     
+    var unsafeGeneratedNickname: String? {
+        get {
+            if nickname.isNotEmpty { return nickname }
+            let combinedNickname = [given, family]
+                .compactMap { (item) -> String? in
+                    return item.isNotEmpty ? item : nil
+                }
+                .joined(separator: " ")
+                .trimmingCharacters(in: .whitespaces)
+            if combinedNickname.isNotEmpty { return combinedNickname }
+            if fn.isNotEmpty { return fn }
+            return nil
+        }
+    }
+    
     func getXMLData() -> DDXMLElement {
         let vCard = DDXMLElement.element(withName: "vCard") as! DDXMLElement
         vCard.setXmlns("vcard-temp")

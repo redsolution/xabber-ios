@@ -271,7 +271,6 @@ class NotifyManager {
                                         if self.canShowNotify {
                                             self.showNotify(forType: .newMessage)
                                         }
-                                        getAppTabBar()?.setUnreadsValue(results)
                                         self.unreadMessagesCount = results
                                     }
                                 })
@@ -311,7 +310,6 @@ class NotifyManager {
                                                                 ($0.rosterItem?.isThereSubscriptionRequest() == true ? 1 : 0) }
                                             .reduce(0, +)
                                         DispatchQueue.main.async {
-                                            getAppTabBar()?.setUnreadsValue(unread)
                                             self.unreadMessagesCount = unread
                                         }
                                     } catch {
@@ -1001,28 +999,36 @@ class NotifyManager {
         }
         
         if let conversationTypeRaw = userInfo["conversation_type"] as? String {
-            conversationType = ClientSynchronizationManager.ConversationType(rawValue: conversationTypeRaw) ?? .omemo
+            conversationType = ClientSynchronizationManager.ConversationType(rawValue: conversationTypeRaw) ?? ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
         }
         
         if UIApplication.shared.applicationState == .active {
-            getAppTabBar()?.displayChat(
-                owner: owner,
-                jid: jid,
-                entity: entity,
-                conversationType: conversationType
-            )
+//            DispatchQueue.main.async {
+//                let vc = ChatViewController()
+//                vc.jid = jid
+//                vc.owner = owner
+//                vc.conversationType = conversationType
+//                
+//                if let presenterVc = self.presentationController {
+//                    showStacked(vc, in: presenterVc.presentingViewController)
+//                }
+//            }
             completionHandler?()
         } else {
             if atStart {
                 self.openViewControllerPayload = ["owner": owner, "jid": jid, "action": "initialChat"]
             } else {
                 self.openViewControllerPayload = ["owner": owner, "jid": jid, "action": "foregroundChat"]
-                getAppTabBar()?.displayChat(
-                    owner: owner,
-                    jid: jid,
-                    entity: entity,
-                    conversationType: conversationType
-                )
+//                DispatchQueue.main.async {
+//                    let vc = ChatViewController()
+//                    vc.jid = jid
+//                    vc.owner = owner
+//                    vc.conversationType = conversationType
+//                    
+//                    if let presenterVc = self.presentationController {
+//                        showStacked(vc, in: presenterVc.presentingViewController)
+//                    }
+//                }
                 completionHandler?()
             }
             do {

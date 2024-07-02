@@ -189,18 +189,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         
     }
     
-    func appTabBarTitlesInit() {
-        
-        let titleIDs: [String] = ["toolbar__menu_item__chats", "category_title_contacts", "contact_bar_notifications", "category_settings"]
-        let titles: [String] = ["Chats", "Contacts", "Notifications","Settings"]
-        
-        guard let items = getAppTabBar()?.tabBar.items, items.count == 4 else { return }
-        
-        for (index, item) in items.enumerated() {
-            item.title = titles[index].localizeString(id: titleIDs[index], arguments: [])
-        }
-    }
-    
     func applicationWillResignActive(_ application: UIApplication) {
         DDLogError("resign")
         addBlurredScreen()
@@ -428,7 +416,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                 print("Invalid URL or album path missing")
                 return false
         }
-        getAppTabBar()?.displayAddContactVC(jid: jid, nickname: nil)
+//        getAppTabBar()?.displayAddContactVC(jid: jid, nickname: nil)
         return true
     }
     

@@ -892,9 +892,6 @@ class CallScreenViewController: BaseViewController {
         backgroundView.owner = owner
         loadLabels()
         loadAvatar()
-        if shouldHideAppTabBar {
-            getAppTabBar()?.hide()
-        }
     }
     
     override func viewDidAppear(_ animated: Bool) {
@@ -903,9 +900,6 @@ class CallScreenViewController: BaseViewController {
     
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        if shouldHideAppTabBar {
-            getAppTabBar()?.show()
-        }
     }
     
     override func viewDidDisappear(_ animated: Bool) {

@@ -27,11 +27,15 @@ extension ChatViewController {
             addConfiguration.baseForegroundColor = .tintColor
             addButton.configuration = addConfiguration
             
+            addButton.addTarget(self, action: #selector(self.onAddContact), for: .touchUpInside)
+            
             let blockButton = UIButton()
             var blockConfiguration = UIButton.Configuration.plain()
             blockConfiguration.title = "Block".localizeString(id: "contact_bar_block", arguments: [])
             blockConfiguration.baseForegroundColor = .systemRed
             blockButton.configuration = blockConfiguration
+            
+            blockButton.addTarget(self, action: #selector(self.onBlockContact), for: .touchUpInside)
             
             stack.addArrangedSubview(addButton)
             stack.addArrangedSubview(blockButton)
@@ -42,13 +46,15 @@ extension ChatViewController {
         (self.navigationController as? NavBarController)?.configureAdditionalPanel({ barVc, stack in
             barVc.indicatorIcon.setImage(UIImage(systemName: "person.wave.2.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
             barVc.indicatorIcon.tintColor = .tintColor
-            let requestButton = UIButton()
+            let button = UIButton()
             var configuration = UIButton.Configuration.plain()
             configuration.title = "Request subscription".localizeString(id: "request_subscription", arguments: [])
             configuration.baseForegroundColor = .tintColor
-            requestButton.configuration = configuration
+            button.configuration = configuration
             
-            stack.addArrangedSubview(requestButton)
+            button.addTarget(self, action: #selector(onRequestSubscribtion), for: .touchUpInside)
+            
+            stack.addArrangedSubview(button)
         })
     }
     
@@ -56,13 +62,15 @@ extension ChatViewController {
         (self.navigationController as? NavBarController)?.configureAdditionalPanel({ barVc, stack in
             barVc.indicatorIcon.setImage(UIImage(systemName: "person.wave.2.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
             barVc.indicatorIcon.tintColor = .tintColor
-            let acceptButton = UIButton()
+            let button = UIButton()
             var configuration = UIButton.Configuration.plain()
             configuration.title = "Incoming subscription request".localizeString(id: "incoming_subscription_request", arguments: [])
             configuration.baseForegroundColor = .tintColor
-            acceptButton.configuration = configuration
+            button.configuration = configuration
             
-            stack.addArrangedSubview(acceptButton)
+            button.addTarget(self, action: #selector(onAllowSubscribtion), for: .touchUpInside)
+            
+            stack.addArrangedSubview(button)
         })
     }
     

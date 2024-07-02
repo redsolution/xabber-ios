@@ -450,7 +450,7 @@ class AccountInfoViewController: BaseViewController {
 //            navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
 //            navigationController?.navigationBar.shadowImage = nil
 //        }
-        getAppTabBar()?.updateColor()
+//        getAppTabBar()?.updateColor()
     }
     
     override func didReceiveMemoryWarning() {

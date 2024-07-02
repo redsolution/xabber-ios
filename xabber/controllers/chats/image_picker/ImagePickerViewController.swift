@@ -395,7 +395,6 @@ class ImagePickerViewController: UIViewController {
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        getAppTabBar()?.hide()
         let additionalInset: CGFloat
         if #available(iOS 11.0, *) {
             additionalInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom ?? 0

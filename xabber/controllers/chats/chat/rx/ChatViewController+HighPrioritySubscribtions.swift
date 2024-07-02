@@ -86,7 +86,7 @@ extension ChatViewController {
         
         self.topPanelState
             .asObservable()
-            .debounce(.nanoseconds(5), scheduler: MainScheduler.asyncInstance)
+            .debounce(.nanoseconds(1), scheduler: MainScheduler.asyncInstance)
             .subscribe { state in
                 switch state {
                     case .none:
@@ -110,9 +110,9 @@ extension ChatViewController {
                 }
                 switch state {
                     case .none:
-                        (self.navigationController as? NavBarController)?.hideAdditionalPanel(animated: true)
+                        (self.navigationController as? NavBarController)?.hideAdditionalPanel(animated: false)
                     default:
-                        (self.navigationController as? NavBarController)?.showAdditionalPanel(animated: true)
+                        (self.navigationController as? NavBarController)?.showAdditionalPanel(animated: false)
                 }
             } onError: { _ in
                 
@@ -160,69 +160,21 @@ extension ChatViewController {
         let lastChatsObservedCollection = realm
             .objects(LastChatsStorageItem.self)
             .filter("jid == %@ AND owner == %@ AND conversationType_ == %@", self.jid, self.owner, self.conversationType.rawValue)
-        
+        if let chat = lastChatsObservedCollection.first {
+            self.xabberInputView.textField.text = chat.draftMessage
+            self.xabberInputView.textViewDidChange()
+            self.updateContentByLastChatInstance(chat)
+        }
         Observable
             .collection(from: lastChatsObservedCollection)
             .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
+            .skip(1)
             .subscribe(onNext: { (results) in
                 guard let item = results.first else {
                     self.showSkeletonObserver.accept(false)
                     return
                 }
-                self.lastReadMessageId = item.lastReadId
-                if self.showSkeletonObserver.value != (!item.isSynced) {
-                    self.showSkeletonObserver.accept(!item.isSynced)
-                    if item.isSynced {
-                        self.updateQueue
-                            .asyncAfter(deadline: .now() + 3) {
-                            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                                user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
-                            })
-                        }
-                    }
-//                    if !self.showSkeletonObserver.value {
-//                        self.canUpdateDataset = true
-//                        self.runDatasetUpdateTask(shouldScrollToLastMessage: true)
-//                    }
-                }
-                self.toolsButton.setUnreadBadge(item.unread)
-                let id = self.opponentSender.id
-                if !(item.rosterItem?.isInvalidated ?? false) {
-                    self.opponentSender = Sender(
-                        id: id,
-                        displayName: item.rosterItem?.displayName ?? item.jid
-                    )
-                }
-                self.contactUsename = self.opponentSender.displayName
-                self.titleLabel.attributedText = self.updateTitle()
-                self.statusTextObserver.accept(AccountManager
-                    .shared
-                    .connectingUsers
-                    .value
-                    .contains(self.owner) ? "Waiting for network..."
-                            .localizeString(id: "waiting_for_network", arguments: []) : self.contactStatus ?? " ")
-                
-                switch ChatMarkersManager.BurnMessagesTimerValues(rawValue: Int(item.afterburnInterval)) {
-                    case .off, .none:
-                        self.xabberInputView.timerButton.setImage(UIImage(systemName: "stopwatch"), for: .normal)
-                    case .s5:
-                        self.xabberInputView.timerButton.setImage(UIImage(systemName: "5.circle"), for: .normal)
-                    case .s10:
-                        self.xabberInputView.timerButton.setImage(UIImage(systemName: "10.circle"), for: .normal)
-                    case .s15:
-                        self.xabberInputView.timerButton.setImage(UIImage(systemName: "15.circle"), for: .normal)
-                    case .s30:
-                        self.xabberInputView.timerButton.setImage(UIImage(systemName: "30.circle"), for: .normal)
-                    case .m1:
-                        self.xabberInputView.timerButton.setImage(UIImage(systemName: "1.square"), for: .normal)
-                    case .m5:
-                        self.xabberInputView.timerButton.setImage(UIImage(systemName: "5.square"), for: .normal)
-                    case .m10:
-                        self.xabberInputView.timerButton.setImage(UIImage(systemName: "10.square"), for: .normal)
-                    case .m15:
-                        self.xabberInputView.timerButton.setImage(UIImage(systemName: "15.square"), for: .normal)
-                    
-                }
+                self.updateContentByLastChatInstance(item)
                     
             })
             .disposed(by: bag)
@@ -331,6 +283,61 @@ extension ChatViewController {
             }
             .disposed(by: self.bag)
 
+    }
+    
+    private final func updateContentByLastChatInstance(_ item: LastChatsStorageItem) {
+        self.lastReadMessageId = item.lastReadId
+        if self.showSkeletonObserver.value != (!item.isSynced) {
+            self.showSkeletonObserver.accept(!item.isSynced)
+            if item.isSynced {
+                if item.unread > 0 {
+                    self.updateQueue
+                        .asyncAfter(deadline: .now() + 3) {
+                            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                                user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
+                            })
+                        }
+                }
+            }
+        }
+        self.toolsButton.setUnreadBadge(item.unread)
+        let id = self.opponentSender.id
+        if !(item.rosterItem?.isInvalidated ?? false) {
+            self.opponentSender = Sender(
+                id: id,
+                displayName: item.rosterItem?.displayName ?? item.jid
+            )
+        }
+        self.contactUsename = self.opponentSender.displayName
+        self.titleLabel.attributedText = self.updateTitle()
+        self.statusTextObserver.accept(AccountManager
+            .shared
+            .connectingUsers
+            .value
+            .contains(self.owner) ? "Waiting for network..."
+                    .localizeString(id: "waiting_for_network", arguments: []) : self.contactStatus ?? " ")
+        
+        switch ChatMarkersManager.BurnMessagesTimerValues(rawValue: Int(item.afterburnInterval)) {
+            case .off, .none:
+                self.xabberInputView.timerButton.setImage(UIImage(systemName: "stopwatch"), for: .normal)
+            case .s5:
+                self.xabberInputView.timerButton.setImage(UIImage(systemName: "5.circle"), for: .normal)
+            case .s10:
+                self.xabberInputView.timerButton.setImage(UIImage(systemName: "10.circle"), for: .normal)
+            case .s15:
+                self.xabberInputView.timerButton.setImage(UIImage(systemName: "15.circle"), for: .normal)
+            case .s30:
+                self.xabberInputView.timerButton.setImage(UIImage(systemName: "30.circle"), for: .normal)
+            case .m1:
+                self.xabberInputView.timerButton.setImage(UIImage(systemName: "1.square"), for: .normal)
+            case .m5:
+                self.xabberInputView.timerButton.setImage(UIImage(systemName: "5.square"), for: .normal)
+            case .m10:
+                self.xabberInputView.timerButton.setImage(UIImage(systemName: "10.square"), for: .normal)
+            case .m15:
+                self.xabberInputView.timerButton.setImage(UIImage(systemName: "15.square"), for: .normal)
+            
+        }
     }
     
     private final func groupSubscribtions() throws {

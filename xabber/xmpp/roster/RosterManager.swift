@@ -80,24 +80,31 @@ class RosterManager: AbstractXMPPManager {
         queryIds.insert(elementId)
     }
     
-    open func setContact(_ xmppStream: XMPPStream, jid: String, nickname: String? = nil, groups: [String] = [], shouldAddSystemMessage: Bool = false, callback: ((String?, String?, Bool) -> Void)? = nil) {
-        let elementId = xmppStream.generateUUID
-        let query = DDXMLElement(name: "query", xmlns: getPrimaryNamespace())
-        let item = DDXMLElement(name: "item")
-        item.addAttribute(withName: "jid", stringValue: jid)
-        if let nickname = nickname {
-            item.addAttribute(withName: "name", stringValue: nickname)
-        }
-        groups
-            .filter{ $0.isNotEmpty }
-            .compactMap { return DDXMLElement(name: "group", stringValue: $0) }
-            .forEach { item.addChild($0) }
-        query.addChild(item)
-        xmppStream.send(XMPPIQ(iqType: .set, elementID: elementId, child: query))
-        queryIds.insert(elementId)
-        queueItems.insert(QueueItem(.add, elementId: elementId, value: jid, callback: callback))
+    open func setContact(_ xmppStream: XMPPStream, jid: String, getNickFromVCard: Bool = false, nickname preferredNickname: String? = nil, groups: [String] = [], shouldAddSystemMessage: Bool = false, callback: ((String?, String?, Bool) -> Void)? = nil) {
         do {
             let realm = try  WRealm.safe()
+            let elementId = xmppStream.generateUUID
+            let query = DDXMLElement(name: "query", xmlns: getPrimaryNamespace())
+            let item = DDXMLElement(name: "item")
+            item.addAttribute(withName: "jid", stringValue: jid)
+            var nickname = preferredNickname
+            if getNickFromVCard {
+                if let vcard = realm.object(ofType: vCardStorageItem.self, forPrimaryKey: jid) {
+                    nickname = vcard.unsafeGeneratedNickname
+                }
+            }
+            if let nickname = nickname {
+                item.addAttribute(withName: "name", stringValue: nickname)
+            }
+            groups
+                .filter{ $0.isNotEmpty }
+                .compactMap { return DDXMLElement(name: "group", stringValue: $0) }
+                .forEach { item.addChild($0) }
+            query.addChild(item)
+            xmppStream.send(XMPPIQ(iqType: .set, elementID: elementId, child: query))
+            queryIds.insert(elementId)
+            queueItems.insert(QueueItem(.add, elementId: elementId, value: jid, callback: callback))
+        
             
             if let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner)) {
                 try realm.write {

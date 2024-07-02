@@ -1442,14 +1442,7 @@ class GroupchatManager: AbstractXMPPManager {
         if let item = queueItems.first(where: { $0.elementId == elementId }) {
             if item.value == "peer-to-peer" {
                 if let jid = iq.element(forName: "x", xmlns: getPrimaryNamespace())?.element(forName: "jid")?.stringValue {
-                    DispatchQueue.main.async {
-                        getAppTabBar()?.displayChat(
-                            owner: self.owner,
-                            jid: jid,
-                            entity: .privateChat,
-                            conversationType: .group
-                        )
-                    }
+
                 }
             }
             switch item.action {
