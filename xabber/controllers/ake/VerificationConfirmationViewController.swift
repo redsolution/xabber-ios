@@ -9,6 +9,7 @@
 import Foundation
 import UIKit
 import XMPPFramework
+import RxSwift
 
 class VerificationConfirmationViewController: SimpleBaseViewController {
     var sid: String = ""
@@ -20,6 +21,12 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
     let scrollView: UIScrollView = {
         let view = UIScrollView()
         view.translatesAutoresizingMaskIntoConstraints = false
+        
+        return view
+    }()
+    
+    let containerView: UIView = {
+        let view = UIView()
         
         return view
     }()
@@ -87,7 +94,7 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
         return button
     }()
     
-    let rejectButton: UIButton = {
+    let cancelButton: UIButton = {
         let button = UIButton(type: .system)
 //        button.configuration = UIButton.Configuration.plain()
 //        button.configuration!.contentInsets = NSDirectionalEdgeInsets(top: 15, leading: 20, bottom: 15, trailing: 20)
@@ -99,21 +106,77 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
         return button
     }()
     
+    override func subscribe() {
+        super.subscribe()
+        
+        do {
+            let realm = try WRealm.safe()
+            let collection = realm.objects(VerificationSessionStorageItem.self).filter("owner = %@ AND sid = %@", self.owner, self.sid)
+            
+            Observable.collection(from: collection).subscribe(onNext: { results in
+                if results.isEmpty {
+                    return
+                }
+                
+                let item = results.first
+                switch item?.state {
+                case .acceptedRequest:
+                    self.agreeButton.removeFromSuperview()
+                    
+                    var attributedString = NSMutableAttributedString()
+                    if self.isVerificationWithOwnDevice {
+                        self.descriptionLabel.text = "You are receiving a device verification request to ensure secure and encrypted communication."
+                        attributedString = NSMutableAttributedString(string: "1.\tConfirm that this device is yours and that you recognize the initiating session.\n\n2.\tBelow is the verification code. Enter this code on the primary device to complete the encryption key exchange:")
+                    } else {
+                        self.descriptionLabel.text = "You are about to establish a secure connection with this contact."
+                        attributedString = NSMutableAttributedString(string: "1.\tCarefully verify the address and identity of this contact.\n\n2.\tUse a secure method (preferably in person) to ask the contact to verify identity by entering the following code:")
+                    }
+                    
+                    let paragraphStyle = NSMutableParagraphStyle()
+                    paragraphStyle.headIndent = 28
+                    attributedString.addAttributes([NSAttributedString.Key.paragraphStyle: paragraphStyle], range: NSRange(location: 0, length: attributedString.length))
+                    self.stepsLabel.attributedText = attributedString
+                    
+                    self.view.backgroundColor = .systemBackground
+                    
+                    if item?.code == "" {
+                        return
+                    }
+                    self.codeLabel.text = item?.code
+                    self.stackLabels.addArrangedSubview(self.codeLabel)
+                    self.stackLabels.setCustomSpacing(40, after: self.stepsLabel)
+                    
+                    self.cancelButton.addTarget(self, action: #selector(self.onCancelButtonPressed), for: .touchUpInside)
+                    break
+                    
+                default:
+                    break
+                }
+                
+            }).disposed(by: self.bag)
+
+        } catch {
+            
+        }
+    }
+    
     override func setupSubviews() {
         view.addSubview(scrollView)
         scrollView.fillSuperview()
         
-        scrollView.addSubview(headerView)
-        scrollView.addSubview(stackLabels)
-        scrollView.addSubview(agreeButton)
-        scrollView.addSubview(rejectButton)
+        scrollView.addSubview(containerView)
+        
+        containerView.addSubview(headerView)
+        containerView.addSubview(stackLabels)
+        containerView.addSubview(agreeButton)
+        containerView.addSubview(cancelButton)
         
         stackLabels.addArrangedSubview(titleLabel)
         stackLabels.addArrangedSubview(descriptionLabel)
         stackLabels.addArrangedSubview(stepsLabel)
         
         agreeButton.addTarget(self, action: #selector(onAgreeButtonTapped), for: .touchUpInside)
-        rejectButton.addTarget(self, action: #selector(onRejectButtonTapped), for: .touchUpInside)
+        cancelButton.addTarget(self, action: #selector(onRejectButtonTapped), for: .touchUpInside)
         
         if isVerificationWithOwnDevice {
             self.headerView.imageButton.imageEdgeInsets = UIEdgeInsets(top: 20, bottom: 20, left: 20, right: 20)
@@ -123,12 +186,7 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
     }
     
     override func loadDatasource() {
-        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
-            DDLogDebug("VerificationConfirmationViewController: \(#function).")
-            return
-        }
-        
-        if isVerificationWithOwnDevice {
+        if self.owner == self.jid {
             var client = ""
             var ip = ""
             var publicName = ""
@@ -195,7 +253,6 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
                     DDLogDebug("VerificationConfirmationViewController: \(#function).")
                     return
                 }
-//                self.jid = verificationInstance.jid
                 
                 let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: verificationInstance.jid, owner: self.owner))
                 if let instance = instance {
@@ -235,9 +292,9 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
             descriptionLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
             stepsLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
             agreeButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            agreeButton.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            rejectButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            rejectButton.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: -40),
+            agreeButton.bottomAnchor.constraint(equalTo: cancelButton.topAnchor, constant: -8),
+            cancelButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            cancelButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -40),
         ])
     }
     
@@ -248,6 +305,9 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
     
     override func onAppear() {
         super.onAppear()
+        
+        containerView.frame = self.view.bounds
+        
         headerView.frame = CGRect(
             width: view.frame.width,
             height: headerHeightMax
@@ -286,67 +346,37 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
     
     @objc
     func onAgreeButtonTapped() {
-//        let vc = ShowCodeViewController()
-//        vc.owner = self.owner
-//        vc.sid = self.sid
-//        vc.isVerificationWithOwnDevice = self.isVerificationWithOwnDevice
-        
-        agreeButton.removeFromSuperview()
-        stackLabels.addArrangedSubview(codeLabel)
-        
-        stackLabels.setCustomSpacing(40, after: stepsLabel)
-        
-        var attributedString = NSMutableAttributedString()
-        if isVerificationWithOwnDevice {
-            descriptionLabel.text = "You are receiving a device verification request to ensure secure and encrypted communication."
-            attributedString = NSMutableAttributedString(string: "1.\tConfirm that this device is yours and that you recognize the initiating session.\n\n2.\tBelow is the verification code. Enter this code on the primary device to complete the encryption key exchange:")
-        } else {
-            descriptionLabel.text = "You are about to establish a secure connection with this contact."
-            attributedString = NSMutableAttributedString(string: "1.\tCarefully verify the address and identity of this contact.\n\n2.\tUse a secure method (preferably in person) to ask the contact to verify identity by entering the following code:")
-        }
-        
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.headIndent = 28
-        attributedString.addAttributes([NSAttributedString.Key.paragraphStyle: paragraphStyle], range: NSRange(location: 0, length: attributedString.length))
-        stepsLabel.attributedText = attributedString
-        
-        self.view.backgroundColor = .systemBackground
-        
-        var code: String? = nil
         AccountManager.shared.find(for: self.owner)?.action { user, stream in
-            code = user.akeManager.acceptVerificationRequest(jid: self.jid, sid: self.sid)
+            _ = user.akeManager.acceptVerificationRequest(jid: self.jid, sid: self.sid)
         }
-//        if isVerificationWithOwnDevice {
-//            
-//            
-////            guard let code = AccountManager.shared.find(for: self.owner)?.akeManager.acceptVerificationRequest(jid: self.owner, sid: self.sid) else {
-////                return
-////            }
-//            
-////            vc.jid = self.owner
-//        } else {
-//            guard let code = AccountManager.shared.find(for: self.owner)?.akeManager.acceptVerificationRequest(jid: self.jid, sid: self.sid) else {
-//                return
-//            }
-//            vc.jid = self.jid
-//            vc.code = code
-//        }
-        
-        if code == nil {
-            return
-        }
-        codeLabel.text = code
-//        self.navigationController?.setViewControllers([vc], animated: true)
-//        self.navigationController?.isNavigationBarHidden = true
     }
     
     @objc
     func onRejectButtonTapped() {
-        if isVerificationWithOwnDevice {
-            AccountManager.shared.find(for: self.owner)?.akeManager.rejectRequestToVerify(jid: self.owner, sid: self.sid)
-        } else {
-            AccountManager.shared.find(for: self.owner)?.akeManager.rejectRequestToVerify(jid: self.jid, sid: self.sid)
+        AccountManager.shared.find(for: self.owner)?.action { user, stream in
+            user.akeManager.rejectRequestToVerify(jid: self.jid, sid: self.sid)
         }
+        
+        self.dismiss(animated: true)
+    }
+    
+    @objc
+    func onCancelButtonPressed() {
+        do {
+            let realm = try WRealm.safe()
+            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: self.sid))
+            try realm.write {
+                realm.delete(instance!)
+            }
+        } catch {
+            DDLogDebug("ShowCodeViewController: \(#function). \(error.localizedDescription)")
+        }
+        
+        AccountManager.shared.find(for: self.owner)?.action { user, stream in
+            user.akeManager.sendErrorMessage(fullJID: XMPPJID(string: self.jid)!, sid: self.sid, reason: "Сontact canceled verification session")
+        }
+        
+//        AccountManager.shared.find(for: self.owner)?.akeManager.sendErrorMessage(fullJID: XMPPJID(string: self.jid)!, sid: self.sid, reason: "Сontact canceled verification session")
         self.dismiss(animated: true)
     }
 }
