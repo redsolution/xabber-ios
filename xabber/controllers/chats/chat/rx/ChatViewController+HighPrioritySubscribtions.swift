@@ -135,6 +135,7 @@ extension ChatViewController {
                                                  SortDescriptor(keyPath: "priority", ascending: false)]))
                 .observe(on: MainScheduler.asyncInstance)
                 .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
+//                .skip(1)
                 .subscribe(onNext: { (results) in
                     let nickname = self.opponentSender.displayName
                     let offlineStatus = "last seen recently".localizeString(id: "last_seen_recently", arguments: [])
@@ -196,7 +197,7 @@ extension ChatViewController {
                         case .none:
                             switch item.ask {
                                 case .in, .both:
-                                    self.topPanelState.accept(.addContact)
+                                    self.topPanelState.accept(.allowSubscribtion)
                                 default:
                                     if [.addContact, .requestSubscribtion].contains(self.topPanelState.value) {
                                         self.topPanelState.accept(.none)

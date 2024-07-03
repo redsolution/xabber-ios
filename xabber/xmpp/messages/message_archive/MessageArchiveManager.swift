@@ -136,7 +136,7 @@ class MessageArchiveManager: AbstractXMPPManager {
               let set = fin.element(forName: "set", xmlns: "http://jabber.org/protocol/rsm") else {
             return false
         }
-        DispatchQueue.global().async {
+//        DispatchQueue.global().async {
             if let item = self.callbacksQueue.first(where: { $0.elementId == elementId }) {
                 if item.task.isContinues {
                     let nextPage = set.element(forName: "last")?.stringValue
@@ -152,7 +152,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                                         instance.messagesCount = count
                                         instance.isSynced = true
                                     }
-                                    return
+                                    return true
                                 }
                                 if fin.attributeBoolValue(forName: "complete") {
                                     try self.makeInitialMessageVisible(jid: item.jid, conversationType: item.task.conversationType)
@@ -160,8 +160,9 @@ class MessageArchiveManager: AbstractXMPPManager {
                                     try realm.write {
                                         instance.messagesCount = count
                                         instance.isSynced = true
+                                        instance.lastLoadedMessageHistoryId = nextPage
                                     }
-                                    return
+                                    return true
                                 }
                                 
                             }
@@ -173,6 +174,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                         self.continueLoadHistory(stream, task: item.task, nextPage: nextPage)
                     }
                 } else {
+                    let nextPage = set.element(forName: "last")?.stringValue
                     item.callback?()
                     if let count = set.element(forName: "count")?.stringValueAsNSInteger() {
                         do {
@@ -181,21 +183,22 @@ class MessageArchiveManager: AbstractXMPPManager {
                                 try realm.write {
                                     instance.messagesCount = count
                                     instance.isSynced = true
+                                    instance.lastLoadedMessageHistoryId = nextPage
                                 }
                             }
                             if count == 0 {
                                 try self.makeInitialMessageVisible(jid: item.jid, conversationType: item.task.conversationType)
                                 self.callbacksQueue.remove(item)
-                                return
+                                return true
                             }
                             if fin.attributeBoolValue(forName: "complete") {
                                 try self.makeInitialMessageVisible(jid: item.jid, conversationType: item.task.conversationType)
                                 self.callbacksQueue.remove(item)
-                                return
+                                return true
                             }
-                            if try self.checkShouldLoadFullHistory(for: item.jid, conversationType: item.task.conversationType) {
-                                try self.startLoadHistory(stream, jid: item.jid, conversationType: item.task.conversationType)
-                            }
+//                            if try self.checkShouldLoadFullHistory(for: item.jid, conversationType: item.task.conversationType) {
+//                                try self.startLoadHistory(stream, jid: item.jid, conversationType: item.task.conversationType)
+//                            }
                         } catch {
                             DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
                         }
@@ -203,7 +206,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                 }
                 self.callbacksQueue.remove(item)
             }
-        }
+//        }
         return true
     }
     
@@ -321,10 +324,33 @@ class MessageArchiveManager: AbstractXMPPManager {
                         DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
                     }
                 }
-            } else {
-                if try self.checkShouldLoadFullHistory(for: jid, conversationType: conversationType) {
-                    try self.startLoadHistory(stream, jid: jid, conversationType: conversationType)
-                }
+            }
+//            else {
+//                if try self.checkShouldLoadFullHistory(for: jid, conversationType: conversationType) {
+//                    try self.startLoadHistory(stream, jid: jid, conversationType: conversationType)
+//                }
+//            }
+        } catch {
+            DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
+        }
+    }
+    
+    internal func getNextHistory(_ stream: XMPPStream, for jid: String, conversationType: ClientSynchronizationManager.ConversationType, callback: (() -> Void)? = nil) {
+        do {
+            let realm = try WRealm.safe()
+            if let chat = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: conversationType)) {
+                let lastLoadedId = chat.lastLoadedMessageHistoryId
+                self.requestArchive(
+                    stream,
+                    jid: jid,
+                    isContinues: false,
+                    conversationType: conversationType,
+                    flipPage: true,
+                    before: lastLoadedId,
+                    start: nil,
+                    nextPage: nil,
+                    max: 200,
+                    callback: callback)
             }
         } catch {
             DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")

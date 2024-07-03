@@ -33,7 +33,7 @@ extension ChatViewController {
         let attributedTitle: NSMutableAttributedString = NSMutableAttributedString()
         let indicatorAttach = NSTextAttachment()
         
-        var color: UIColor = self.accountPallete.tint500
+        var color: UIColor = .label//self.accountPallete.tint500
         
         if [.omemo, .omemo1, .axolotl].contains(self.conversationType) {
             do {

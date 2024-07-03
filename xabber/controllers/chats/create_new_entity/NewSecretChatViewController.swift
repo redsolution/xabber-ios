@@ -40,9 +40,7 @@ class NewSecretChatViewController: SimpleBaseViewController {
     }
     
     internal var datasource: [Datasource] = []
-    
-    public var delegate: AddContactDelegate? = nil
-    
+        
     private let tableView: UITableView = {
         let view = UITableView(frame: .zero, style: .insetGrouped)
         
