@@ -689,13 +689,13 @@ class ModernXabberInputView: UIView {
     }
     
     @objc
-    final func textViewDidChange() {
+    final func textViewDidChange(force: Bool = false) {
         let trimmedText = textField.text.trimmingCharacters(in: .whitespacesAndNewlines)
         
         self.textField.placeholderLabel.isHidden = !self.textField.text.isEmpty
         self.message = trimmedText
         
-        if requiredInputTextViewHeight != textField.bounds.height {
+        if force || (requiredInputTextViewHeight != textField.bounds.height) {
             invalidateIntrinsicContentSize()
         }
 

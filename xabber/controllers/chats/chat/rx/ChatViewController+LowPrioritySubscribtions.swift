@@ -485,29 +485,29 @@ extension ChatViewController {
                 if self.shouldRequestChatInfo {
                     self.willEnterForeground()
                     self.shouldRequestChatInfo = false
-                    do {
-                        let realm = try WRealm.safe()
-                        let badMessageCollection = realm
-                            .objects(MessageStorageItem.self)
-                            .filter(
-                                "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND messageType != %@ AND (state_ == %@ OR state_ == %@)",
-                                self.owner,
-                                self.jid,
-                                self.conversationType.rawValue,
-                                MessageStorageItem.MessageDisplayType.system.rawValue,
-                                MessageStorageItem.MessageSendingState.sending.rawValue,
-                                MessageStorageItem.MessageSendingState.error.rawValue
-                            )
-                        if self.showSkeletonObserver.value {
-                            self.xabberInputView.isSendButtonEnabled = false
-                        } else {
-                            self.xabberInputView.isSendButtonEnabled = badMessageCollection.isEmpty
-                        }
-                    } catch {
-                        
+                }
+                do {
+                    let realm = try WRealm.safe()
+                    let badMessageCollection = realm
+                        .objects(MessageStorageItem.self)
+                        .filter(
+                            "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND messageType != %@ AND (state_ == %@ OR state_ == %@)",
+                            self.owner,
+                            self.jid,
+                            self.conversationType.rawValue,
+                            MessageStorageItem.MessageDisplayType.system.rawValue,
+                            MessageStorageItem.MessageSendingState.sending.rawValue,
+                            MessageStorageItem.MessageSendingState.error.rawValue
+                        )
+                    if self.showSkeletonObserver.value {
+                        self.xabberInputView.isSendButtonEnabled = false
+                    } else {
+                        print(badMessageCollection.toArray())
+                        self.xabberInputView.isSendButtonEnabled = badMessageCollection.isEmpty
                     }
-//                    self.xabberInputView.isSendButtonEnabled = true
                     self.xabberInputView.updateSendButtonState()
+                } catch {
+                    DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
                 }
             }
         } onError: { _ in

@@ -163,7 +163,8 @@ extension ChatViewController {
             .filter("jid == %@ AND owner == %@ AND conversationType_ == %@", self.jid, self.owner, self.conversationType.rawValue)
         if let chat = lastChatsObservedCollection.first {
             self.xabberInputView.textField.text = chat.draftMessage
-            self.xabberInputView.textViewDidChange()
+            self.xabberInputView.textViewDidChange(force: true)
+            
             self.updateContentByLastChatInstance(chat)
         }
         Observable

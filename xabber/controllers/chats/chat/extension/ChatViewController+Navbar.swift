@@ -27,6 +27,8 @@ extension ChatViewController {
     @objc
     internal func onTitleButtonTouchUp(_ sender: UIButton) {
         self.showInfo()
+//        self.topPanelState.accept(.shouldRequestVerification)
+        
     }
     
     internal final func updateTitle() -> NSAttributedString {

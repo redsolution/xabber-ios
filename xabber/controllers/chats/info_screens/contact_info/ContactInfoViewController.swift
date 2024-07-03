@@ -47,10 +47,11 @@ class ContactInfoViewController: BaseViewController {
         var color: UIColor?
         var verificationSid: String?
         var verificationJid: String?
+        var icon: String?
         
         var childs: [Datasource]
         
-        init(_ kind: Kind, title: String, subtitle: String? = nil, image: UIImage? = nil, color: UIColor? = nil,  key: String? = nil, childs: [Datasource] = [], verificationSid: String? = nil, verificationJid: String? = nil) {
+        init(_ kind: Kind, icon: String? = nil, title: String, subtitle: String? = nil, image: UIImage? = nil, color: UIColor? = nil,  key: String? = nil, childs: [Datasource] = [], verificationSid: String? = nil, verificationJid: String? = nil) {
             self.kind = kind
             self.title = title
             if subtitle?.isEmpty ?? true {
@@ -64,6 +65,7 @@ class ContactInfoViewController: BaseViewController {
             self.color = color
             self.verificationSid = verificationSid
             self.verificationJid = verificationJid
+            self.icon = icon
         }
     }
         
@@ -137,7 +139,9 @@ class ContactInfoViewController: BaseViewController {
         bag = DisposeBag()
         do {
             let realm = try WRealm.safe()
-                        
+            
+            
+            
             circles = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner))?.groups.toArray() ?? []
             circles = Array(Set(circles)).sorted()
             
@@ -181,7 +185,7 @@ class ContactInfoViewController: BaseViewController {
                     .objects(RosterStorageItem.self)
                     .filter("owner == %@ AND jid == %@", owner, jid))
                 .skip(1)
-                .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
+                .debounce(.milliseconds(50), scheduler: MainScheduler.asyncInstance)
                 .subscribe(onNext: { (results) in
                     if let item = results.first {
                         self.nickname = item.displayName
@@ -224,24 +228,6 @@ class ContactInfoViewController: BaseViewController {
                 .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
                 .subscribe(onNext: { (results) in
                     var newDatasource: [Datasource] = []
-                    
-                    if let item = results.first {
-                        var vcardSection: [Datasource] = []
-                        
-                        if item.given.isNotEmpty {
-                            vcardSection.append(Datasource(.vcard, title: "First name".localizeString(id: "vcard_given_name", arguments: []), subtitle: item.given))
-                        }
-                        if item.family.isNotEmpty {
-                            vcardSection.append(Datasource(.vcard, title: "Surname".localizeString(id: "vcard_family_name", arguments: []), subtitle: item.family))
-                        }
-                        if item.birthdayString.isNotEmpty {
-                            vcardSection.append(Datasource(.vcard, title: "Birthday".localizeString(id: "vcard_birth_date", arguments: []), subtitle: item.birthdayString))
-                        }
-                        
-                        if vcardSection.isNotEmpty {
-                            newDatasource.append(Datasource(.vcard, title: "About".localizeString(id: "about", arguments: []), subtitle: "View full vCard", key: "about_section", childs: vcardSection))
-                        }
-                    }
                     do {
                         let realm = try WRealm.safe()
                         
@@ -281,13 +267,38 @@ class ContactInfoViewController: BaseViewController {
                         }
                         self.leftDevicesNavBarButton.image = indicator
                         self.leftDevicesNavBarButton.tintColor = color
-                        newDatasource.append(Datasource(.text, title: "Encryption", key: "encryption", childs: [
-                            Datasource(.button, title: "Identity verification".localizeString(id: "contact_fingerprints", arguments: []), subtitle: "\(collectionJid.count)", image: indicator, color: color, key: "fingerprints"),
-                            Datasource(.button, title: "Encrypted chat", subtitle: "", image: indicator, color: color, key: "start_encrypted_chat")
-                        ]))
                     } catch {
                         DDLogDebug("ContactInfoViewController: \(#function). \(error.localizedDescription)")
                     }
+                    newDatasource.append(contentsOf: [
+                        Datasource(.text, title: "", childs: [
+                            Datasource(.button, icon: "person.badge.plus", title: "Open regular chat".localizeString(id: "omemo__chat_settings__button_open_regular_chat", arguments: []), key: "chat"),
+                            Datasource(.button, icon: "figure.run", title: "Open encrypted chat".localizeString(id: "omemo__chat_settings__button_open_encrypted_chat", arguments: []), key: "encrypted"),
+                            Datasource(.button, icon: "figure.run", title: "Call".localizeString(id: "contact_bar_call", arguments: []), key: "call"),
+                            Datasource(.button, icon: "figure.run", title: "Block".localizeString(id: "contact_bar_block", arguments: []), key: "block")
+                        ]),
+                        Datasource(.text, title: "", childs: [
+                            Datasource(.button, title: "Circles".localizeString(id: "contact_circle", arguments: []), key: "circles"),
+                        ]),
+                    ])
+                    if let item = results.first {
+                        var vcardSection: [Datasource] = []
+                        
+                        if item.given.isNotEmpty {
+                            vcardSection.append(Datasource(.vcard, title: "First name".localizeString(id: "vcard_given_name", arguments: []), subtitle: item.given))
+                        }
+                        if item.family.isNotEmpty {
+                            vcardSection.append(Datasource(.vcard, title: "Surname".localizeString(id: "vcard_family_name", arguments: []), subtitle: item.family))
+                        }
+                        if item.birthdayString.isNotEmpty {
+                            vcardSection.append(Datasource(.vcard, title: "Birthday".localizeString(id: "vcard_birth_date", arguments: []), subtitle: item.birthdayString))
+                        }
+                        
+                        if vcardSection.isNotEmpty {
+                            newDatasource.append(Datasource(.vcard, title: "About".localizeString(id: "about", arguments: []), subtitle: "View full vCard", key: "about_section", childs: vcardSection))
+                        }
+                    }
+                    
                     self.datasource = newDatasource
                     self.tableView.reloadData()
                 })
@@ -380,14 +391,14 @@ class ContactInfoViewController: BaseViewController {
                             ])
                             
                             self.activeVerificationSession = item
-                            self.datasource.insert(verificationDatasource, at: self.datasource.firstIndex(where: { $0.key == "encryption" })!)
+                            self.datasource.insert(verificationDatasource, at: 0)
                             self.tableView.reloadData()
                             
                             return
                         }
                         
                     } catch {
-                        fatalError()
+                        DDLogDebug("ContactInfoViewController: \(#function). \(error.localizedDescription)")
                     }
                 }).disposed(by: bag)
         } catch {
@@ -507,15 +518,11 @@ class ContactInfoViewController: BaseViewController {
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-//        navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
-//        navigationController?.navigationBar.shadowImage = UIImage()
     }
     
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        if #available(iOS 14.0, *) {
-            navigationItem.backButtonDisplayMode = .minimal
-        }
+        navigationItem.backButtonDisplayMode = .minimal
         if let title = self.headerView.titleButton.titleLabel?.text {
             self.navigationItem.backButtonTitle = "\(title)'s Info"
         } else {

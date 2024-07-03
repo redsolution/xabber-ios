@@ -34,7 +34,7 @@ UICollectionViewDelegateFlowLayout, UICollectionViewDataSource {
             if width <= 414 {
                 return width - 32
             } else {
-                return 420
+                return 480
             }
         }
     }

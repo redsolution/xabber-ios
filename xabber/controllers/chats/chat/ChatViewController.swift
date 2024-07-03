@@ -927,6 +927,14 @@ class ChatViewController: MessagesViewController {
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        self.shouldChangeFrame()
+        self.xabberInputView.update(screenHeight: self.view.bounds.height, keyboardHeight: 0)
+        var inputHeight: CGFloat = 49
+        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
+            inputHeight += bottomInset
+        }
+        self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 100, right: 0)
+        
         try? self.subscribe()
         self.lowPrioritySubscribtions()
         self.addObservers()
@@ -951,8 +959,8 @@ class ChatViewController: MessagesViewController {
         }
         
         self.initializeDataset()
-        self.xabberInputView.isSendButtonEnabled = false
-        self.xabberInputView.updateSendButtonState()
+//        self.xabberInputView.isSendButtonEnabled = false
+//        self.xabberInputView.updateSendButtonState()
     }
     
     override func viewDidAppear(_ animated: Bool) {
@@ -986,12 +994,6 @@ class ChatViewController: MessagesViewController {
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
-        self.xabberInputView.update(screenHeight: self.view.bounds.height, keyboardHeight: 0)
-        var inputHeight: CGFloat = 49
-        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
-            inputHeight += bottomInset
-        }
-        self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 100, right: 0)
         
     }
     
