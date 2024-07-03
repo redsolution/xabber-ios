@@ -335,7 +335,7 @@ extension ChatViewController {
                     .collection(from: badMessageCollection)
                     .debounce(.milliseconds(5), scheduler: MainScheduler.asyncInstance)
                     .subscribe(onNext: { results in
-                        if self.isSkeletonHided {
+                        if !self.showSkeletonObserver.value {
                             if AccountManager.shared.connectingUsers.value.contains(self.owner) {
                                 self.xabberInputView.isSendButtonEnabled = false
                             } else {
@@ -416,11 +416,9 @@ extension ChatViewController {
         }
         self.showSkeletonObserver
             .asObservable()
-            .debounce(.milliseconds(5), scheduler: MainScheduler.asyncInstance)
-//            .skip(1)
+//            .debounce(.milliseconds(5), scheduler: MainScheduler.asyncInstance)
+            .skip(1)
             .subscribe { value in
-
-                self.isSkeletonHided = !value
                 self.canUpdateDataset = true
                 self.runDatasetUpdateTask(shouldScrollToLastMessage: true)
                 if AccountManager.shared.connectingUsers.value.contains(self.owner) {
@@ -520,44 +518,48 @@ extension ChatViewController {
             
         }.disposed(by: self.bag)
 
-        do {
-            let realm = try WRealm.safe()
-            let verificationSessions = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid)
-            Observable
-                .collection(from: verificationSessions)
-                .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
-                .subscribe { results in
-                    if results.isEmpty {
-                        let contactDevices = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@ AND state_ IN %@", self.owner, self.jid, [SignalDeviceStorageItem.TrustState.unknown.rawValue, SignalDeviceStorageItem.TrustState.distrusted.rawValue])
-                        if !contactDevices.isEmpty {
-                            self.topPanelState.accept(.shouldRequestVerification)
-                            return
+        if [.omemo, .omemo1, .axolotl].contains(self.conversationType) {
+            do {
+                let realm = try WRealm.safe()
+                let verificationSessions = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid)
+                Observable
+                    .collection(from: verificationSessions)
+                    .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
+                    .subscribe { results in
+                        if results.isEmpty {
+                            let contactDevices = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@ AND state_ IN %@", self.owner, self.jid, [SignalDeviceStorageItem.TrustState.unknown.rawValue, SignalDeviceStorageItem.TrustState.distrusted.rawValue])
+                            if !contactDevices.isEmpty {
+                                if ![.addContact, .allowSubscribtion, .requestSubscribtion].contains(self.topPanelState.value) {
+                                    self.topPanelState.accept(.shouldRequestVerification)
+                                }
+                                return
+                            }
                         }
-                    }
-                    
-                    let item = results.first
-                    if ![.addContact, .allowSubscribtion, .requestSubscribtion].contains(self.topPanelState.value) {
-                        switch item?.state {
-                            case .sentRequest:
-                                self.topPanelState.accept(.requestedVerification)
-                            case .receivedRequestAccept:
-                                self.topPanelState.accept(.enterCodeVerification)
-                            case .receivedRequest:
-                                self.topPanelState.accept(.requestingVerification)
-                            default:
-                                break
+                        
+                        let item = results.first
+                        if ![.addContact, .allowSubscribtion, .requestSubscribtion].contains(self.topPanelState.value) {
+                            switch item?.state {
+                                case .sentRequest:
+                                    self.topPanelState.accept(.requestedVerification)
+                                case .receivedRequestAccept:
+                                    self.topPanelState.accept(.enterCodeVerification)
+                                case .receivedRequest:
+                                    self.topPanelState.accept(.requestingVerification)
+                                default:
+                                    break
+                            }
                         }
-                    }
-                } onError: { _ in
-                    
-                } onCompleted: {
-                    
-                } onDisposed: {
-                    
-                }.disposed(by: self.bag)
+                    } onError: { _ in
+                        
+                    } onCompleted: {
+                        
+                    } onDisposed: {
+                        
+                    }.disposed(by: self.bag)
 
-        } catch {
-            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            } catch {
+                DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            }
         }
     }
     

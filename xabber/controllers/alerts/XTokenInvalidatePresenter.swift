@@ -23,19 +23,20 @@ import UIKit
 
 struct XTokenInvalidatePresenter {
     
-    func present(in view: UIViewController, jid: String, title: String, message: String, animated: Bool, completion: (()->Void)?) {
+    func present(jid: String, title: String, message: String, animated: Bool, completion: (()->Void)?) {
         let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Ok".localizeString(id: "ok", arguments: []), style: .cancel, handler: nil))
+        let bounds = UIScreen.main.bounds
         if UIDevice.current.userInterfaceIdiom == .pad {
             if let popoverController = alert.popoverPresentationController {
-                popoverController.sourceView = view.view
-                popoverController.sourceRect = CGRect(x: view.view.bounds.midX,
-                                                      y: view.view.bounds.midY,
+                popoverController.sourceView = (UIApplication.shared.delegate as? AppDelegate)?.window?.rootViewController?.view
+                popoverController.sourceRect = CGRect(x: bounds.midX,
+                                                      y: bounds.midY,
                                                       width: 0,
                                                       height: 0)
                 popoverController.permittedArrowDirections = []
             }
         }
-        view.present(alert, animated:  animated, completion: completion)
+        (UIApplication.shared.delegate as? AppDelegate)?.window?.rootViewController?.present(alert, animated: true, completion: completion)
     }
 }

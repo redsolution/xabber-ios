@@ -179,9 +179,8 @@ class ApplicationStateManager: NSObject {
     }
 
     private final func tokenWasInvalidated(for jid: String) {
-        func show(_ jid: String, in viewController: UIViewController) {
+        func show() {
             XTokenInvalidatePresenter().present(
-                in: viewController,
                 jid: jid,
                 title: "Access revoked".localizeString(id: "account_access_revoke", arguments: []),
                 message: "Access to account \(jid) was revoked. Locally stored data deleted.".localizeString(id: "account_access_to_account_was_revoked", arguments: [jid]),
@@ -190,30 +189,12 @@ class ApplicationStateManager: NSObject {
             )
         }
         AccountManager.shared.deleteAccount(by: jid)
-        if AccountManager.shared.emptyAccountsList() {
-            DispatchQueue.main.async {
-                let vc = OnboardingViewController()
-                
-                let navigationController = UINavigationController(rootViewController: vc)
-                
-                navigationController.isNavigationBarHidden = true
-                (UIApplication.shared.delegate as! AppDelegate).window?.rootViewController = navigationController
-                show(jid, in: vc)
-            }
-            
-            DispatchQueue.main.async {
-                if let vc = getAppTabBar() {
-                    show(jid, in: vc)
-                }
-            }
-        } else {
-            DispatchQueue.main.async {
-                (getAppTabBar()?
-                    .viewControllers?[XabberTabBar.settingsVCIndex] as? UINavigationController)?
-                    .popToRootViewController(animated: false)
-                if let vc = getAppTabBar() {
-                    show(jid, in: vc)
-                }
+        DispatchQueue.main.async {
+            if AccountManager.shared.emptyAccountsList() {
+                (UIApplication.shared.delegate as? AppDelegate)?.setupRootViewController()
+                show()
+            } else {
+                show()
             }
         }
     }

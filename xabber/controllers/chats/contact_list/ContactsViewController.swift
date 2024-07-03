@@ -734,7 +734,6 @@ class ContactsViewController: BaseViewController {
                     self.enabledAccounts.accept(results)
                     self.updateSectionHeaders(for: results)
                     UIView.animate(withDuration: 0.1) {
-                        getAppTabBar()?.updateColor()
                         self.customTitleLabel.textColor = AccountColorManager.shared.topColor()
                         self.addButton.tintColor = AccountColorManager.shared.topColor()
                     }

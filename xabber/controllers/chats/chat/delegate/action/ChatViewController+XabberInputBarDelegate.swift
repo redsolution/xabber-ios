@@ -398,9 +398,6 @@ extension ChatViewController: XabberInputBarDelegate {
         if showSkeletonObserver.value {
             return
         }
-        if !self.isSkeletonHided {
-            return
-        }
         
         if [.omemo, .axolotl, .omemo1].contains(self.conversationType) {
             do {

@@ -33,7 +33,6 @@ struct DeleteContactPresenter {
         alert.addAction(UIAlertAction(title: "Cancel".localizeString(id: "cancel", arguments: []), style: .cancel, handler: nil))
         alert.addAction(UIAlertAction(title: "Delete".localizeString(id: "contact_delete", arguments: []), style: .destructive, handler: { (_) in
             view.navigationController?.setNavigationBarHidden(false, animated: true)
-            getAppTabBar()?.show()
             view.navigationController?.popToRootViewController(animated: true)
             AccountManager.shared.users.first(where: {$0.jid == self.owner})?.action({ (user, stream) in
                 user.roster.removeContact(stream, jid: self.jid) { (jid, error, success) in
@@ -60,7 +59,6 @@ struct DeleteContactPresenter {
         }))
         alert.addAction(UIAlertAction(title: "Delete and block".localizeString(id: "contact_block_and_delete", arguments: []), style: .destructive, handler: { (_) in
             view.navigationController?.setNavigationBarHidden(false, animated: true)
-            getAppTabBar()?.show()
             view.navigationController?.popToRootViewController(animated: true)
             AccountManager.shared.users.first(where: {$0.jid == self.owner})?.action({ (user, stream) in
                 user.roster.removeContact(stream, jid: self.jid) { (jid, error, success) in

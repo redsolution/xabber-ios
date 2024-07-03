@@ -181,7 +181,6 @@ class LastCallsViewController: BaseViewController {
                         self.topAccountJid = item.jid
                         self.accountNavButton.update(jid: self.topAccountJid, status: item.resource?.status ?? .offline)
                         UIView.animate(withDuration: 0.1) {
-                            getAppTabBar()?.updateColor()
                             self.customTitleLabel.textColor = AccountColorManager.shared.topColor()
                             self.addButton.tintColor = AccountColorManager.shared.topColor()
                         }

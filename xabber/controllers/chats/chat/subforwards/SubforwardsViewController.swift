@@ -118,7 +118,6 @@ class SubforwardsViewController: MessagesViewController {
         self.owner = owner
         self.jid = jid
         self.subforwards = subforwards
-        getAppTabBar()?.hide()
         messagesCollectionView.messagesDataSource = self
         messagesCollectionView.messageCellDelegate = self
         messagesCollectionView.messagesDisplayDelegate = self

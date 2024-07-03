@@ -143,14 +143,15 @@ class DeliveryAddressViewController: UITableViewController {
             )
 //            user.presences.subscribe(stream, jid: CommonConfigManager.shared.config.support_jid)
 //            user.presences.subscribed(stream, jid: CommonConfigManager.shared.config.support_jid, storePreaproved: true)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                self.navigationController?.popToRootViewController(animated: false)
-                getAppTabBar()?.displayChat(
-                    owner: self.jid,
-                    jid: CommonConfigManager.shared.config.support_jid,
-                    entity: .contact,
-                    conversationType: .regular
-                )
+            self.dismiss(animated: true) {
+                let vc = ChatViewController()
+                vc.jid = CommonConfigManager.shared.config.support_jid
+                vc.owner = self.jid
+                vc.conversationType = .regular
+                
+                if let presenterVc = self.presentationController {
+                    showStacked(vc, in: presenterVc.presentingViewController)
+                }
             }
         })
         

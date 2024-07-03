@@ -63,39 +63,39 @@ extension ContactsViewController {
     }
     
     internal func onManageAccount(jid: String) {
-        let presenter = ActionSheetPresenter()
-        let items: [ActionSheetPresenter.Item] = [
-            ActionSheetPresenter.Item(destructive: false, title: "Set status".localizeString(id: "status_editor", arguments: []), value: "status"),
-            ActionSheetPresenter.Item(destructive: false, title: "Account settings".localizeString(id: "account_editor", arguments: []), value: "settings"),
-            ActionSheetPresenter.Item(destructive: false, title: "Add contact".localizeString(id: "application_action_no_contacts", arguments: []), value: "add-contact")
-        ]
-        presenter.present(
-            in: self,
-            title: nil,
-            message: nil,
-            cancel: "Cancel".localizeString(id: "cancel", arguments: []),
-            values: items,
-            animated: true
-            ){ (result) in
-                switch result {
-                case "status":
-                    let vc = AccountNewStatusViewController()
-                    vc.isModal = false
-                    vc.configure(for: jid)
-                    self.navigationController?.pushViewController(vc, animated: true)
-                case "settings":
-                    let vc = SettingsViewController()
-                    vc.jid = jid
-                    self.navigationController?.pushViewController(vc, animated: true)
-                case "add-contact":
-                    let vc = AddContactViewController()
-                    vc.isModal = false
-                    vc.owner = jid
-                    vc.delegate = self
-                    self.navigationController?.pushViewController(vc, animated: true)
-                default: break
-                }
-            }
+//        let presenter = ActionSheetPresenter()
+//        let items: [ActionSheetPresenter.Item] = [
+//            ActionSheetPresenter.Item(destructive: false, title: "Set status".localizeString(id: "status_editor", arguments: []), value: "status"),
+//            ActionSheetPresenter.Item(destructive: false, title: "Account settings".localizeString(id: "account_editor", arguments: []), value: "settings"),
+//            ActionSheetPresenter.Item(destructive: false, title: "Add contact".localizeString(id: "application_action_no_contacts", arguments: []), value: "add-contact")
+//        ]
+//        presenter.present(
+//            in: self,
+//            title: nil,
+//            message: nil,
+//            cancel: "Cancel".localizeString(id: "cancel", arguments: []),
+//            values: items,
+//            animated: true
+//            ){ (result) in
+//                switch result {
+//                case "status":
+//                    let vc = AccountNewStatusViewController()
+//                    vc.isModal = false
+//                    vc.configure(for: jid)
+//                    self.navigationController?.pushViewController(vc, animated: true)
+//                case "settings":
+//                    let vc = SettingsViewController()
+//                    vc.jid = jid
+//                    self.navigationController?.pushViewController(vc, animated: true)
+//                case "add-contact":
+//                    let vc = AddContactViewController()
+//                    vc.isModal = false
+//                    vc.owner = jid
+//                    vc.delegate = self
+//                    self.navigationController?.pushViewController(vc, animated: true)
+//                default: break
+//                }
+//            }
     }
     
     internal func onAccountCollapse(jid: String) {

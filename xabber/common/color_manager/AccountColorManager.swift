@@ -201,9 +201,6 @@ class AccountColorManager: NSObject {
         } catch {
             DDLogDebug("cant update color for \(jid). \(#function)")
         }
-        DispatchQueue.main.async {
-            getAppTabBar()?.tabBar.tintColor = self.topColor()
-        }
     }
     
     public func randomPalette() -> MDCPalette {

@@ -454,6 +454,17 @@ class VCardManager: AbstractXMPPManager {
         xmppStream.send(iq)
     }
     
+    public final func requestIfMissed(_ stream: XMPPStream, jid: String) {
+        do {
+            let realm = try WRealm.safe()
+            if realm.object(ofType: vCardStorageItem.self, forPrimaryKey: jid) == nil {
+                self.requestItem(stream, jid: jid)
+            }
+        } catch {
+            DDLogDebug("VCardManager: \(#function). \(error.localizedDescription)")
+        }
+    }
+    
     func update(_ xmppStream: XMPPStream) {
         
         do {

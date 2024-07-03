@@ -193,7 +193,6 @@ class AddNewContactViewController: UIViewController {
     func closeAndDisplayContact(jid: String, owner: String) {
         DispatchQueue.main.async {
             self.dismiss(animated: true) {
-                let splitVc = (UIApplication.shared.delegate as? AppDelegate)?.splitController
                 let vc = ChatViewController()
                 vc.jid = jid
                 vc.owner = owner

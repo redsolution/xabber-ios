@@ -289,8 +289,6 @@ class LastChatsViewController: BaseViewController {
                 tableView.scrollToRow(at: IndexPath(row: 0, section: 0), at: .top, animated: false)
             case .archived:
                 predicate = NSPredicate(format: "isArchived == %@ AND owner IN %@", argumentArray: [true, Array(enabledAccounts.value)])
-
-                getAppTabBar()?.hide()
             }
             chatsObserver = realm
                 .objects(LastChatsStorageItem.self)
@@ -1026,7 +1024,6 @@ class LastChatsViewController: BaseViewController {
                         self.topAccountJid = item.jid
                         self.accountNavButton.update(jid: self.topAccountJid, status: item.resource?.status ?? .offline)
                         self.unreadAllMessagesButton.isEnabled = AccountManager.shared.connectingUsers.value.isEmpty
-                        getAppTabBar()?.updateColor()
                         self.unreadAllMessagesButton.backgroundColor = AccountManager.shared.connectingUsers.value.isNotEmpty ? MDCPalette.grey.tint500 : AccountColorManager.shared.topPalette().tint500
                     }
                 }).disposed(by: bag)
