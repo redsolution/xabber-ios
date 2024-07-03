@@ -590,35 +590,28 @@ class ContactInfoViewController: BaseViewController {
     
     @objc
     func onAcceptButtonPressed() {
-        guard let code = AccountManager.shared.find(for: self.owner)?.akeManager.acceptVerificationRequest(jid: self.jid, sid: activeVerificationSession!.sid) else {
-            return
+        AccountManager.shared.find(for: self.owner)?.action { user, stream in
+            DispatchQueue.main.async {
+                _ = user.akeManager.acceptVerificationRequest(jid: self.jid, sid: self.activeVerificationSession!.sid)
+                
+                NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_VerificationCodeViewController"),
+                                                object: self,
+                                                userInfo: [
+                                                    "owner": self.owner,
+                                                    "sid": self.activeVerificationSession!.sid
+                                                ])
+            }
         }
-        let vc = ShowCodeViewController()
-        vc.jid = self.jid
-        vc.owner = self.owner
-        vc.code = code
-        vc.sid = activeVerificationSession!.sid
-        vc.isVerificationWithOwnDevice = false
-        
-        showModal(vc, replaceParent: false)
     }
     
     @objc
     func onShowCodePressed() {
-        do {
-            let realm = try WRealm.safe()
-            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: activeVerificationSession!.sid))
-            let vc = ShowCodeViewController()
-            vc.jid = self.jid
-            vc.owner = self.owner
-            vc.code = instance?.code ?? ""
-            vc.sid = activeVerificationSession!.sid
-            vc.isVerificationWithOwnDevice = false
-            
-            showModal(vc, replaceParent: false)
-        } catch {
-            DDLogDebug("DevicesListViewController: \(#function). \(error.localizedDescription)")
-        }
+        NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_VerificationCodeViewController"),
+                                        object: self,
+                                        userInfo: [
+                                            "owner": self.owner,
+                                            "sid": activeVerificationSession!.sid
+                                        ])
     }
     
     @objc

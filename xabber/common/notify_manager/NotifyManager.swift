@@ -1084,14 +1084,6 @@ class NotifyManager {
                 
                 showModal(vc, replaceParent: false)
                 
-            case VerificationSessionStorageItem.VerififcationState.acceptedRequest:
-                let vc = ShowCodeViewController()
-                vc.jid = instance?.jid ?? ""
-                vc.owner = owner
-                vc.code = instance?.code ?? ""
-                vc.sid = sid
-                vc.isVerificationWithOwnDevice = instance?.jid == owner
-                    (UIApplication.shared.delegate as? AppDelegate)?.splitController?.present(vc, animated: true)
             case VerificationSessionStorageItem.VerififcationState.receivedRequestAccept:
                 let vc = AuthenticationCodeInputViewController()
                 vc.jid = instance?.jid ?? ""

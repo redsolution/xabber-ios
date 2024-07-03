@@ -68,7 +68,7 @@ extension DevicesListViewController: UITableViewDataSource {
                 fatalError()
             }
         case .token:
-            if indexPath.row == 0 && item.childs[0].kind == .session {
+            if indexPath.row == 0 && item.childs.first?.kind == .session {
                 item = item.childs[0]
                 let cell = VerificationSessionTableViewCell()
                 cell.configure(title: item.title, subtitle: item.value)
@@ -114,24 +114,31 @@ extension DevicesListViewController: UITableViewDataSource {
             guard let cell = tableView.dequeueReusableCell(withIdentifier: DeviceInfoTableCell.cellName, for: indexPath) as? DeviceInfoTableCell else {
                     return UITableViewCell(frame: .zero)
             }
-            let deviceItem = devices[indexPath.row - 1]
+            
+            var deviceItem: DeviceStorageItem? = nil
+            if isVerificationRequired || activeVerificationSession != nil {
+                deviceItem = devices[indexPath.row - 1]
+            } else {
+                deviceItem = devices[indexPath.row]
+            }
+            
             var trustState: SignalDeviceStorageItem.TrustState? = nil
             var isTrustedByCert: Bool = false
-            if let omemoDevice = omemoDevices.first(where: { $0.deviceId == deviceItem.omemoDeviceId }) {
+            if let omemoDevice = omemoDevices.first(where: { $0.deviceId == deviceItem!.omemoDeviceId }) {
                 trustState = omemoDevice.state
                 isTrustedByCert = omemoDevice.isTrustedByCertificate
             }
             
-            let hasBundle = deviceItem.encryptionEnabled
+            let hasBundle = deviceItem!.encryptionEnabled
             cell.configure(
-                client: deviceItem.client,
-                device: deviceItem.device,
-                description: deviceItem.descr,
-                ip: deviceItem.ip,
-                lastAuth: deviceItem.authDate,
+                client: deviceItem!.client,
+                device: deviceItem!.device,
+                description: deviceItem!.descr,
+                ip: deviceItem!.ip,
+                lastAuth: deviceItem!.authDate,
                 current: false,
                 editable: true,
-                isOnline: deviceItem.resource != nil,
+                isOnline: deviceItem!.resource != nil,
                 trustState: hasBundle ? trustState : nil,
                 hasBundle: hasBundle,
                 isTrustebByCertificate: isTrustedByCert
@@ -169,7 +176,12 @@ extension DevicesListViewController: UITableViewDataSource {
         let item = datasource[section]
         switch item.kind {
         case .current, .button: return item.childs.count
-        case .token: return devices.count + 1
+        case .token: 
+            if isVerificationRequired || activeVerificationSession != nil {
+                return devices.count + 1
+            }
+            
+            return devices.count
         case .broken: return brokenOmemoDevices.count
         case .session: return item.childs.count
         }

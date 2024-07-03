@@ -57,11 +57,16 @@ extension DevicesListViewController: UITableViewDelegate {
                 break
             }
         case .token:
-            if indexPath.row == 0 {
+            if indexPath.row == 0 && (isVerificationRequired || self.activeVerificationSession != nil) {
                 return
             }
             
-            let uid = devices[indexPath.row - 1].uid
+            var uid = ""
+            if isVerificationRequired || self.activeVerificationSession != nil {
+                uid = devices[indexPath.row - 1].uid
+            } else {
+                uid = devices[indexPath.row].uid
+            }
             showTokenInfo(uid: uid, canEdit: false)
         case .button:
             let item = datasource[indexPath.section].childs[indexPath.row]

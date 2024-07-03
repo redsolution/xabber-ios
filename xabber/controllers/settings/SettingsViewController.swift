@@ -784,32 +784,23 @@ class SettingsViewController: BaseViewController {
         guard let code = AccountManager.shared.find(for: self.jid)?.akeManager.acceptVerificationRequest(jid: self.jid, sid: activeVerificationSession!.sid) else {
             return
         }
-        let vc = ShowCodeViewController()
-        vc.jid = self.jid
-        vc.owner = self.jid
-        vc.code = code
-        vc.sid = activeVerificationSession!.sid
-        vc.isVerificationWithOwnDevice = true
         
-        self.navigationController?.present(vc, animated: true)
+        NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_VerificationCodeViewController"),
+                                        object: self,
+                                        userInfo: [
+                                            "owner": self.owner,
+                                            "sid": activeVerificationSession!.sid
+                                        ])
     }
     
     @objc
     func onShowCodePressed() {
-        do {
-            let realm = try WRealm.safe()
-            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.jid, sid: activeVerificationSession!.sid))
-            let vc = ShowCodeViewController()
-            vc.jid = self.jid
-            vc.owner = self.jid
-            vc.code = instance?.code ?? ""
-            vc.sid = activeVerificationSession!.sid
-            vc.isVerificationWithOwnDevice = true
-            
-            self.navigationController?.present(vc, animated: true)
-        } catch {
-            DDLogDebug("DevicesListViewController: \(#function). \(error.localizedDescription)")
-        }
+        NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_VerificationCodeViewController"),
+                                        object: self,
+                                        userInfo: [
+                                            "owner": self.owner,
+                                            "sid": activeVerificationSession!.sid
+                                        ])
     }
     
     @objc

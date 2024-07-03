@@ -76,6 +76,7 @@ class DevicesListViewController: BaseViewController {
     internal var brokenOmemoDevices: Array<SignalDeviceStorageItem> = []
     internal var omemoBundles: [SignalIdentityStorageItem] = []
     internal var activeVerificationSession: VerificationSessionStorageItem? = nil
+    var isVerificationRequired: Bool = false
     
     internal let tableView: UITableView = {
 //        let view = UITableView(frame: .zero, style: .grouped)
@@ -160,10 +161,9 @@ class DevicesListViewController: BaseViewController {
 //            }
 //        }
         
-        var isVerifiсationRequired = false
         omemoDevices.forEach { device in
             if device.state == .unknown {
-                isVerifiсationRequired = true
+                self.isVerificationRequired = true
             }
         }
         
@@ -172,7 +172,7 @@ class DevicesListViewController: BaseViewController {
                                                   title: "Active devices".localizeString(id: "settings_account__label_active_sessions", arguments: []),
                                                   value: "You can terminate sessions you don`t need. Official Clandestino clients wipe all user data from the device upon session termination.".localizeString(id: "account_settings_terminate_description", arguments: []),
                                                   editable: false)
-            if isVerifiсationRequired && activeVerificationSession == nil {
+            if self.isVerificationRequired && activeVerificationSession == nil {
                 activeDevicesSection.childs.append(Datasource(.session, title: "Non-Verified Devices Connected", value: "Several devices connected to this account have enabled end-to-end encryption but were not verified.\n\nPlease, review the list below and perform device verification for every device in question.", editable: false))
             } else if activeVerificationSession != nil {
                 var text: String
