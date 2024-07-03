@@ -157,19 +157,39 @@ class TrustSharingManager: AbstractXMPPManager {
     
     func didReceivedTrustedSharingEvent(message: XMPPMessage) -> Bool {
         let jid = message.from
-        let event = message.element(forName: "event")
-        let items = event?.element(forName: "items") ?? event?.element(forName: "trusted-items")
-        if items?.attributeStringValue(forName: "node") != self.node {
+        if jid == nil {
             return false
         }
-        let item = items?.element(forName: "item")
-        let publisherDeviceIdRaw = item?.attributeStringValue(forName: "id")
+        
+        let event = message.element(forName: "event")
+        let pubsubItems = event?.element(forName: "items") ?? event?.element(forName: "trusted-items")
+        if pubsubItems?.attributeStringValue(forName: "node") != self.node {
+            return false
+        }
+        let pubsubItem = pubsubItems?.element(forName: "item")
+        let publisherDeviceIdRaw = pubsubItem?.attributeStringValue(forName: "id")
         if publisherDeviceIdRaw == nil {
             return true
         }
-        let publisherDeviceId = Int(publisherDeviceIdRaw!)
-        let share = item?.element(forName: "share")
-        let timestamp = share?.element(forName: "items")?.attributeStringValue(forName: "timestamp")
+        let publisherDeviceId = Int(publisherDeviceIdRaw!) ?? -1
+        let share = pubsubItem?.element(forName: "share")
+        
+        var trustedItemsList = share?.element(forName: "items") ?? share?.element(forName: "trusted-items")
+        if trustedItemsList == nil {
+            return true
+        }
+        
+        let timestamp = trustedItemsList?.attributeStringValue(forName: "timestamp")
+        var signature: [UInt8] = []
+        do {
+            signature = try share?.element(forName: "signature")?.stringValue?.base64decoded() ?? []
+            if signature.isEmpty {
+                return true
+            }
+        } catch {
+            DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
+            return true
+        }
         
         guard let deviceId = AccountManager.shared.find(for: self.owner)?.omemo.localStore.localDeviceId() else {
             DDLogDebug("TrustSharingManager: \(#function).")
@@ -179,35 +199,76 @@ class TrustSharingManager: AbstractXMPPManager {
             return true
         }
         
-        let predicateForSessions = NSPredicate(format: "owner == %@ AND jid == %@ AND deviceId == %@", argumentArray: [self.owner, jid?.bare ?? "", publisherDeviceId ?? -1])
+        var isPublicationNeeded = false
+        let predicateForSessions = NSPredicate(format: "owner == %@ AND jid == %@ AND deviceId == %@", argumentArray: [self.owner, jid?.bare ?? "", publisherDeviceId])
+        
         do {
             let realm = try WRealm.safe()
             guard let instance = realm.objects(SignalDeviceStorageItem.self).filter(predicateForSessions).first else {
                 return true
             }
             if instance.state != SignalDeviceStorageItem.TrustState.trusted {
+                self.getUserTrustedDevices(jid: jid!.bareJID)
+                
                 return true
             }
             
             if instance.lastTrustedItemsUpdateTimestamp == timestamp {
                 return true
+            } else {
+                try realm.write {
+                    instance.lastTrustedItemsUpdateTimestamp = timestamp ?? ""
+                }
             }
+            
+            if !self.checkItemSignature(jid: jid!.bare, deviceId: publisherDeviceId, signature: Data(signature), itemsList: [trustedItemsList!]) {
+                return true
+            }
+            
+            isPublicationNeeded = self.handleTrustItems(jid: jid!.bare, publisherDeviceId: publisherDeviceId, itemsList: [trustedItemsList!])
+            
+            do {
+                let realm = try WRealm.safe()
+                let instance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND opponentDeviceId == %@", self.owner, publisherDeviceId).first
+                if instance != nil && instance?.state == .trusted {
+                    NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_success"),
+                                                    object: self,
+                                                    userInfo: [
+                                                        "owner": self.owner,
+                                                        "jid": jid!.bare,
+                                                        "deviceId": publisherDeviceIdRaw!
+                                                    ]
+                    )
+
+                }
+            } catch {
+                DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
+            }
+            
         } catch {
             DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
             return true
         }
         
-        let itemsToGet = DDXMLElement(name: "items")
-        itemsToGet.addAttribute(withName: "node", stringValue: self.node)
-        let pubsub = DDXMLElement(name: "pubsub", xmlns: "http://jabber.org/protocol/pubsub")
-        pubsub.addChild(itemsToGet)
-        let iq = XMPPIQ(iqType: .get, to: jid, child: pubsub)
-        
-        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-            stream.send(iq)
-        })
+        if isPublicationNeeded {
+            guard let localStore = AccountManager.shared.find(for: owner)?.omemo.localStore else {
+                DDLogDebug("TrustSharingManager: \(#function).")
+                return true
+            }
+            self.publicOwnTrustedDevices(publisherDeviceId: String(localStore.localDeviceId()))
+        }
         
         return true
+        
+//        let itemsToGet = DDXMLElement(name: "items")
+//        itemsToGet.addAttribute(withName: "node", stringValue: self.node)
+//        let pubsub = DDXMLElement(name: "pubsub", xmlns: "http://jabber.org/protocol/pubsub")
+//        pubsub.addChild(itemsToGet)
+//        let iq = XMPPIQ(iqType: .get, to: jid, child: pubsub)
+//        
+//        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+//            stream.send(iq)
+//        })
     }
     
     override func read(withIQ iq: XMPPIQ) -> Bool {
@@ -231,6 +292,14 @@ class TrustSharingManager: AbstractXMPPManager {
                 return false
             }
             
+            var trustedItemsList = share.element(forName: "items") ?? share.element(forName: "trusted-items")
+            if trustedItemsList == nil {
+                return true
+            }
+//            if trustedItemsList.isEmpty {
+//                trustedItemsList = share.elements(forName: "trusted-items").sorted(by: { $0.attributeStringValue(forName: "timestamp") ?? "" > $1.attributeStringValue(forName: "timestamp") ?? "" })
+//            }
+            
             let predicateForDevices = NSPredicate(format: "owner == %@ AND jid == %@ AND deviceId == %@", argumentArray: [self.owner, jid.bare, publisherDeviceId])
             do {
                 let realm = try WRealm.safe()
@@ -248,71 +317,77 @@ class TrustSharingManager: AbstractXMPPManager {
                 return true
             }
             
-            var stringToVerifySignature = ""
-            var trustedItemsList = share.elements(forName: "items").sorted(by: { $0.attributeStringValue(forName: "timestamp") ?? "" > $1.attributeStringValue(forName: "timestamp") ?? "" })
+//            var stringToVerifySignature = ""
+//            var trustedItemsList = share.elements(forName: "items").sorted(by: { $0.attributeStringValue(forName: "timestamp") ?? "" > $1.attributeStringValue(forName: "timestamp") ?? "" })
+//            
+//            if trustedItemsList.isEmpty {
+//                trustedItemsList = share.elements(forName: "trusted-items").sorted(by: { $0.attributeStringValue(forName: "timestamp") ?? "" > $1.attributeStringValue(forName: "timestamp") ?? "" })
+//            }
+//            
+//            for item in trustedItemsList {
+//                guard let timestamp = item.attribute(forName: "timestamp")?.stringValue else {
+//                    DDLogDebug("TrustSharingManager: \(#function).")
+//                    return true
+//                }
+//                stringToVerifySignature += timestamp
+//                let trustsList = item.elements(forName: "trust").sorted(by: { $0.attributeStringValue(forName: "timestamp") ?? "" > $1.attributeStringValue(forName: "timestamp") ?? "" })
+//                for trust in trustsList {
+//                    guard let timestamp = trust.attributeStringValue(forName: "timestamp"),
+//                          let trustKey = trust.stringValue else {
+//                        DDLogDebug("TrustSharingManager: \(#function).")
+//                        return true
+//                    }
+//                    stringToVerifySignature += "<" + timestamp + "/" + trustKey
+//                }
+//            }
+//            
+//            let userPublicKey = akeManager.getUsersPublicKey(jid: jid.bare, deviceId: publisherDeviceId)
+//            if !Ed25519.verifySignature(Data(signature), publicKey: Data(userPublicKey), data: Data(stringToVerifySignature.bytes)) {
+//                continue
+//            }
             
-            if trustedItemsList.isEmpty {
-                trustedItemsList = share.elements(forName: "trusted-items").sorted(by: { $0.attributeStringValue(forName: "timestamp") ?? "" > $1.attributeStringValue(forName: "timestamp") ?? "" })
-            }
-            
-            for item in trustedItemsList {
-                guard let timestamp = item.attribute(forName: "timestamp")?.stringValue else {
-                    DDLogDebug("TrustSharingManager: \(#function).")
-                    return true
-                }
-                stringToVerifySignature += timestamp
-                let trustsList = item.elements(forName: "trust").sorted(by: { $0.attributeStringValue(forName: "timestamp") ?? "" > $1.attributeStringValue(forName: "timestamp") ?? "" })
-                for trust in trustsList {
-                    guard let timestamp = trust.attributeStringValue(forName: "timestamp"),
-                          let trustKey = trust.stringValue else {
-                        DDLogDebug("TrustSharingManager: \(#function).")
-                        return true
-                    }
-                    stringToVerifySignature += "<" + timestamp + "/" + trustKey
-                }
-            }
-            
-            let userPublicKey = akeManager.getUsersPublicKey(jid: jid.bare, deviceId: publisherDeviceId)
-            if !Ed25519.verifySignature(Data(signature), publicKey: Data(userPublicKey), data: Data(stringToVerifySignature.bytes)) {
+            if !self.checkItemSignature(jid: jid.bare, deviceId: publisherDeviceId, signature: Data(signature), itemsList: [trustedItemsList!]) {
                 continue
             }
             
-            do {
-                let realm = try WRealm.safe()
-                for item in trustedItemsList {
-                    let trustsList = item.elements(forName: "trust")
-                    for trust in trustsList {
-                        guard let trustKey = try String(bytes: (trust.stringValue?.base64decoded())!, encoding: .utf8),
-                              let deviceId = Int(trustKey.components(separatedBy: "::")[0]) else {
-                            DDLogDebug("TrustSharingManager: \(#function).")
-                            return true
-                        }
-                        let predicateForDevices = NSPredicate(format: "owner == %@ AND jid == %@ AND deviceId == %@", argumentArray: [self.owner, jid.bare, deviceId])
-                        do {
-                            guard let instance = realm.objects(SignalDeviceStorageItem.self).filter(predicateForDevices).first else {
-                                continue
-                            }
-                            if instance.state != SignalDeviceStorageItem.TrustState.trusted {
-                                akeManager.writeTrustedDevice(jid: jid.bare, deviceId: deviceId)
-                                try realm.write {
-                                    instance.trustedByDeviceId = publisherDeviceIdRaw
-                                }
-                                
-                                // if the device has trusted its device then it should publish a new list of trusted devices of the device
-                                if self.owner == jid.bare {
-                                    isPublicationNeeded = true
-                                }
-                            }
-                        } catch {
-                            DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
-                            return true
-                        }
-                    }
-                }
-            } catch {
-                DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
-                return true
-            }
+            isPublicationNeeded = self.handleTrustItems(jid: jid.bare, publisherDeviceId: publisherDeviceId, itemsList: [trustedItemsList!])
+            
+//            do {
+//                let realm = try WRealm.safe()
+//                for item in trustedItemsList {
+//                    let trustsList = item.elements(forName: "trust")
+//                    for trust in trustsList {
+//                        guard let trustKey = try String(bytes: (trust.stringValue?.base64decoded())!, encoding: .utf8),
+//                              let deviceId = Int(trustKey.components(separatedBy: "::")[0]) else {
+//                            DDLogDebug("TrustSharingManager: \(#function).")
+//                            return true
+//                        }
+//                        let predicateForDevices = NSPredicate(format: "owner == %@ AND jid == %@ AND deviceId == %@", argumentArray: [self.owner, jid.bare, deviceId])
+//                        do {
+//                            guard let instance = realm.objects(SignalDeviceStorageItem.self).filter(predicateForDevices).first else {
+//                                continue
+//                            }
+//                            if instance.state != SignalDeviceStorageItem.TrustState.trusted {
+//                                akeManager.writeTrustedDevice(jid: jid.bare, deviceId: deviceId)
+//                                try realm.write {
+//                                    instance.trustedByDeviceId = publisherDeviceIdRaw
+//                                }
+//                                
+//                                // if the device has trusted its device then it should publish a new list of trusted devices of the device
+//                                if self.owner == jid.bare {
+//                                    isPublicationNeeded = true
+//                                }
+//                            }
+//                        } catch {
+//                            DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
+//                            return true
+//                        }
+//                    }
+//                }
+//            } catch {
+//                DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
+//                return true
+//            }
             
             do {
                 let realm = try WRealm.safe()
@@ -341,6 +416,95 @@ class TrustSharingManager: AbstractXMPPManager {
             self.publicOwnTrustedDevices(publisherDeviceId: String(localStore.localDeviceId()))
         }
         return true
+    }
+    
+    func checkItemSignature(jid: String, deviceId: Int, signature: Data, itemsList: [DDXMLElement]) -> Bool {
+        var stringToVerifySignature = ""
+        
+        for item in itemsList {
+            guard let timestamp = item.attribute(forName: "timestamp")?.stringValue else {
+                DDLogDebug("TrustSharingManager: \(#function).")
+                return false
+            }
+            stringToVerifySignature += timestamp
+            let trustsList = item.elements(forName: "trust").sorted(by: { $0.attributeStringValue(forName: "timestamp") ?? "" > $1.attributeStringValue(forName: "timestamp") ?? "" })
+            for trust in trustsList {
+                guard let timestamp = trust.attributeStringValue(forName: "timestamp"),
+                      let trustKey = trust.stringValue else {
+                    DDLogDebug("TrustSharingManager: \(#function).")
+                    return true
+                }
+                stringToVerifySignature += "<" + timestamp + "/" + trustKey
+            }
+        }
+        
+        var pubKey: [UInt8] = []
+        do {
+            let realm = try WRealm.safe()
+            let storedBundle = realm.object(ofType: SignalIdentityStorageItem.self, forPrimaryKey: SignalIdentityStorageItem.genRpimary(owner: self.owner, jid: jid, deviceId: deviceId))
+            pubKey = try storedBundle!.identityKey!.base64decoded()
+            if pubKey.count == 33 {
+                pubKey = Array(pubKey.dropFirst())
+            }
+        } catch {
+            DDLogDebug("AuthenticatedKeyExchange \(#function). \(error.localizedDescription)")
+        }
+        
+        if !Ed25519.verifySignature(signature, publicKey: Data(pubKey), data: Data(stringToVerifySignature.bytes)) {
+            return false
+        }
+        
+        return true
+    }
+    
+    func handleTrustItems(jid: String? = nil, publisherDeviceId: Int, itemsList: [DDXMLElement]) -> Bool {
+        do {
+            let realm = try WRealm.safe()
+            for item in itemsList {
+                let jid = jid ?? item.attributeStringValue(forName: "owner")
+                if jid == nil {
+                    return false
+                }
+                let trustsList = item.elements(forName: "trust")
+                for trust in trustsList {
+                    let trustKey = try String(bytes: (trust.stringValue?.base64decoded())!, encoding: .utf8)
+                    if trustKey?.components(separatedBy: "::") == nil {
+                        return false
+                    }
+                    let deviceId = Int((trustKey?.components(separatedBy: "::")[0])!)
+                    if deviceId == nil {
+                        return false
+                    }
+                    
+                    let predicateForDevices = NSPredicate(format: "owner == %@ AND jid == %@ AND deviceId == %@", argumentArray: [self.owner, jid!, deviceId!])
+                    do {
+                        guard let instance = realm.objects(SignalDeviceStorageItem.self).filter(predicateForDevices).first else {
+                            continue
+                        }
+                        if instance.state != SignalDeviceStorageItem.TrustState.trusted {
+                            AccountManager.shared.find(for: self.owner)?.action { user, stream in
+                                user.akeManager.writeTrustedDevice(jid: jid!, deviceId: deviceId!)
+                            }
+                            
+                            try realm.write {
+                                instance.trustedByDeviceId = String(publisherDeviceId)
+                            }
+                            
+                            // if the device has trusted its device then it should publish a new list of trusted devices of the device
+                            if self.owner == jid {
+                                return true
+                            }
+                        }
+                    } catch {
+                        DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
+                    }
+                }
+            }
+        } catch {
+            DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
+        }
+        
+        return false
     }
     
     func sendNotificationWithContactsDevices(opponentFullJid: XMPPJID, deviceId: Int) {

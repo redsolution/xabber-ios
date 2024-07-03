@@ -121,6 +121,10 @@ class ApplicationStateManager: NSObject {
                                                selector: #selector(showAuthenticationCodeInputViewController(_:)),
                                                name: NSNotification.Name(rawValue: "show_AuthenticationCodeInputViewController"),
                                                object: nil)
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(showVerificationCodeViewController(_:)),
+                                               name: NSNotification.Name(rawValue: "show_VerificationCodeViewController"),
+                                               object: nil)
     }
     
     public final func getApplicationBlockedDate() -> Date? {
@@ -245,6 +249,39 @@ class ApplicationStateManager: NSObject {
                         showModal(vc, replaceParent: false)
                     }
                 }
+            } catch {
+                DDLogDebug("ApplicationStateManager: \(#function). \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    @objc
+    func showVerificationCodeViewController(_ notification: Notification) {
+        if let userInfo = notification.userInfo {
+            let owner = userInfo["owner"] as? String
+            let sid = userInfo["sid"] as? String
+            
+            do {
+                let realm = try WRealm.safe()
+                let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: owner ?? "", sid: sid ?? ""))
+                if instance == nil || instance?.state != VerificationSessionStorageItem.VerififcationState.acceptedRequest {
+                    return
+                }
+                
+                let jid = instance!.jid
+                let deviceId = instance!.opponentDeviceId
+                let code = instance!.code
+                
+                let vc = VerificationConfirmationViewController()
+                vc.owner = owner ?? ""
+                vc.state = .acceptedRequest
+                vc.jid = jid
+                vc.sid = sid ?? ""
+                vc.deviceId = String(deviceId)
+                vc.code = code
+                
+                showModal(vc, replaceParent: false)
+                
             } catch {
                 DDLogDebug("ApplicationStateManager: \(#function). \(error.localizedDescription)")
             }

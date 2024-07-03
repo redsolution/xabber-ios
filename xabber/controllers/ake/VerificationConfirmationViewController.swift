@@ -120,12 +120,8 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
                     self.state = .acceptedRequest
                     self.code = item!.code
                     
-//                    self.scrollView.removeFromSuperview()
-//                    self.containerView.removeFromSuperview()
-//                    self.stackLabels.removeAllArrangedSubviews()
                     self.agreeButton.removeFromSuperview()
                     self.cancelButton.removeFromSuperview()
-                    
                     
                     self.setupSubviews()
                     self.loadDatasource()
@@ -164,7 +160,7 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
             }).disposed(by: self.bag)
 
         } catch {
-            
+            DDLogDebug("ShowCodeViewController: \(#function). \(error.localizedDescription)")
         }
     }
     
@@ -182,7 +178,7 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
         stackLabels.addArrangedSubview(descriptionLabel)
         stackLabels.addArrangedSubview(stepsLabel)
         
-        if isVerificationWithOwnDevice {
+        if self.owner == self.jid {
             self.headerView.imageButton.imageEdgeInsets = UIEdgeInsets(top: 20, bottom: 20, left: 20, right: 20)
             self.headerView.imageButton.backgroundColor = .white
             self.headerView.imageButton.imageView?.contentMode = .scaleAspectFit
@@ -193,14 +189,11 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
             agreeButton.addTarget(self, action: #selector(onAgreeButtonTapped), for: .touchUpInside)
             cancelButton.addTarget(self, action: #selector(onRejectButtonTapped), for: .touchUpInside)
             
-            return
         } else if state == .acceptedRequest {
             self.stackLabels.addArrangedSubview(self.codeLabel)
             self.stackLabels.setCustomSpacing(40, after: self.stepsLabel)
-            
             self.cancelButton.addTarget(self, action: #selector(self.onCancelButtonPressed), for: .touchUpInside)
             
-            return
         }
         
         
@@ -339,8 +332,6 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
             titleLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
             descriptionLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
             stepsLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
-//            agreeButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-//            agreeButton.bottomAnchor.constraint(equalTo: cancelButton.topAnchor, constant: -8),
             cancelButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             cancelButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -40),
         ])
@@ -429,7 +420,6 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
             user.akeManager.sendErrorMessage(fullJID: XMPPJID(string: self.jid)!, sid: self.sid, reason: "Сontact canceled verification session")
         }
         
-//        AccountManager.shared.find(for: self.owner)?.akeManager.sendErrorMessage(fullJID: XMPPJID(string: self.jid)!, sid: self.sid, reason: "Сontact canceled verification session")
         self.dismiss(animated: true)
     }
 }

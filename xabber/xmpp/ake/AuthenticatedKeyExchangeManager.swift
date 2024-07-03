@@ -501,7 +501,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             // if the accept verification message is from other device of user, that already accepted the request from contact
             let saltEncrypted = authenticatedKeyExchange.element(forName: "salt")?.element(forName: "ciphertext")?.stringValue
             let saltIv = authenticatedKeyExchange.element(forName: "salt")?.element(forName: "iv")?.stringValue
-            if (saltEncrypted == nil || saltIv == nil) && instance.state != .sentRequest {
+            if (saltEncrypted == nil || saltIv == nil) || instance.state != .sentRequest {
                 NotificationCenter.default.post(name: NSNotification.Name(rawValue: "rejected_VerificationConfirmationViewController"), object: self, userInfo: ["sid": sid])
                 try realm.write {
                     realm.delete(instance)
@@ -1422,41 +1422,41 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             let realm = try WRealm.safe()
             let jids = AccountManager.shared.users.compactMap { return $0.jid }
             for owner in jids {
-                let sessions = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND (state_ == %@ OR state_ == %@)", owner, VerificationSessionStorageItem.VerififcationState.sentRequest.rawValue, VerificationSessionStorageItem.VerififcationState.receivedRequest.rawValue)
-                sessions.forEach { session in
-                    let secondsPassed = Date().timeIntervalSince1970 - (TimeInterval(session.timestamp) ?? 0)
-                    if secondsPassed >= TimeInterval(session.ttl) ?? 0 {
-                        if session.state == .sentRequest {
-                            AuthenticatedKeyExchangeManager(withOwner: owner).sendErrorMessage(fullJID: XMPPJID(string: session.jid)!, sid: session.sid, reason: "Verification session cancelled.")
-                        } else {
-                            NotificationCenter.default.post(name: NSNotification.Name(rawValue: "close_view"), object: self, userInfo: ["sid": session.sid])
-                        }
-                        
-                        do {
-                            try realm.write {
-                                realm.delete(session)
-                            }
-                        } catch {
-                            DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
-                        }
-                    } else {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + ((TimeInterval(session.ttl) ?? 0) - secondsPassed)) {
-                            if session.state == .sentRequest {
-                                AuthenticatedKeyExchangeManager(withOwner: owner).sendErrorMessage(fullJID: XMPPJID(string: session.jid)!, sid: session.sid, reason: "Verification session cancelled.")
-                            } else {
-                                NotificationCenter.default.post(name: NSNotification.Name(rawValue: "close_view"), object: self, userInfo: ["sid": session.sid])
-                            }
-                            do {
-                                try realm.write {
-                                    realm.delete(session)
-                                }
-                                
-                            } catch {
-                                DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
-                            }
-                        }
-                    }
-                }
+//                let sessions = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND (state_ == %@ OR state_ == %@)", owner, VerificationSessionStorageItem.VerififcationState.sentRequest.rawValue, VerificationSessionStorageItem.VerififcationState.receivedRequest.rawValue)
+//                sessions.forEach { session in
+//                    let secondsPassed = Date().timeIntervalSince1970 - (TimeInterval(session.timestamp) ?? 0)
+//                    if secondsPassed >= TimeInterval(session.ttl) ?? 0 {
+//                        if session.state == .sentRequest {
+//                            AuthenticatedKeyExchangeManager(withOwner: owner).sendErrorMessage(fullJID: XMPPJID(string: session.jid)!, sid: session.sid, reason: "Verification session cancelled.")
+//                        } else {
+//                            NotificationCenter.default.post(name: NSNotification.Name(rawValue: "close_view"), object: self, userInfo: ["sid": session.sid])
+//                        }
+//                        
+//                        do {
+//                            try realm.write {
+//                                realm.delete(session)
+//                            }
+//                        } catch {
+//                            DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
+//                        }
+//                    } else {
+//                        DispatchQueue.main.asyncAfter(deadline: .now() + ((TimeInterval(session.ttl) ?? 0) - secondsPassed)) {
+//                            if session.state == .sentRequest {
+//                                AuthenticatedKeyExchangeManager(withOwner: owner).sendErrorMessage(fullJID: XMPPJID(string: session.jid)!, sid: session.sid, reason: "Verification session cancelled.")
+//                            } else {
+//                                NotificationCenter.default.post(name: NSNotification.Name(rawValue: "close_view"), object: self, userInfo: ["sid": session.sid])
+//                            }
+//                            do {
+//                                try realm.write {
+//                                    realm.delete(session)
+//                                }
+//                                
+//                            } catch {
+//                                DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
+//                            }
+//                        }
+//                    }
+//                }
                 
                 guard let ownVerification = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@ AND state_ == %@", owner, owner, VerificationSessionStorageItem.VerififcationState.receivedRequest.rawValue).first else {
                     return
