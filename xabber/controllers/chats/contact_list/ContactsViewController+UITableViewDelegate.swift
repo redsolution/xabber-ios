@@ -62,15 +62,13 @@ extension ContactsViewController: UITableViewDelegate {
                 self.canUpdateDataset = true
                 self.runDatasetUpdateTask()
             case .contact:
-                
-    //            tableView.deselectRow(at: indexPath, animated: true)
                 guard let jid = item.jid else { return }
-                
                 let owner = item.owner
                 let vc = ChatViewController()
                 vc.owner = owner
                 vc.jid = jid
                 vc.conversationType = item.conversationType
+                vc.entity = item.entity ?? .contact
                 showStacked(vc, in: self)
             default: break
         }

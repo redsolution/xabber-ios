@@ -24,80 +24,92 @@ import UIKit
 extension SearchResultsViewController: UITableViewDataSource {
     
     func numberOfSections(in tableView: UITableView) -> Int {
-        if isMessagesHidden || isContactsHidden {
-            return sections.count - 1
-        }
-        if isMessagesHidden && isContactsHidden {
-            return 0
-        }
-        return sections.count
+        return self.sections.count
     }
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let section = isContactsHidden ? indexPath.section + 1 : indexPath.section
-        switch sections[section].kind {
-        case .contacts:
-            guard let cell = tableView
-                .dequeueReusableCell(withIdentifier: ContactCell.cellName,
-                                     for: indexPath) as? ContactCell,
-                let item = filteredContacts?[indexPath.row]
+        switch sections[indexPath.section].kind {
+            case .contacts:
+                let item = self.contactsDatasource[indexPath.row]
+                guard let cell = tableView
+                    .dequeueReusableCell(withIdentifier: ContactsViewController.ContactCell.cellName,
+                                         for: indexPath) as? ContactsViewController.ContactCell
                 else {
-                fatalError("cant dequeue reusable cell for identifier \(ContactCell.cellName)")
-            }
-            cell.configure(
-                jid: item.jid,
-                owner: item.owner,
-                username: item.displayName,
-                isGroupchat: false,
-                status: item.getPrimaryResource()?.status ?? .offline,
-                indicator: AccountManager.shared.activeUsers.value.count > 1 ? AccountColorManager.shared.primaryColor(for: item.owner) : .clear
-            )
-            cell.setMask()
-            return cell
-        case .messages:
-            guard let cell = tableView
-                .dequeueReusableCell(withIdentifier: MessageCell.cellName,
-                                     for: indexPath) as? MessageCell,
-                let item = filteredMessages?[indexPath.row]
-                else {
-                    fatalError("cant dequeue reusable cell for identifier \(MessageCell.cellName)")
-            }
-            let body = item.outgoing ? item.body : ["You:".localizeString(id: "you", arguments: []),item.body].joined(separator: "\n")
-            cell.configure(
-                jid: item.opponent,
-                owner: item.owner,
-                username: messagesMetadata[[item.opponent, item.owner, "username"].prp()] as? String ?? "None",
-                message: body,
-                status: .offline,
-                isGroupchat: messagesMetadata[[item.opponent, item.owner, "groupchat"].prp()] as? Bool ?? false,
-                isIncome: item.outgoing,
-                date: item.date,
-                accountColor: AccountManager.shared.activeUsers.value.count > 1 ? AccountColorManager.shared.primaryColor(for: item.owner) : .clear
-            )
-            cell.setMask()
-            
-            return cell
+                    fatalError()
+                }
+                cell.configure(
+                    title: item.title ?? "",
+                    subtitle: item.subtitle ?? "",
+                    status: item.status ?? .offline,
+                    entity: item.entity ?? .contact,
+                    jid: item.jid,
+                    owner: item.owner,
+                    showAvatar: true,
+                    avatarUrl: item.avatarUrl
+                )
+                cell.setMask()
+
+                let view = UIView()
+                view.backgroundColor = AccountColorManager.shared.palette(for: item.owner).tint50
+                cell.selectedBackgroundView = view
+
+                return cell
+            case .messages:
+                let item = self.chatsDatasource[indexPath.row]
+                guard let cell = tableView.dequeueReusableCell(withIdentifier: ChatListTableViewCell.cellName, for: indexPath) as? ChatListTableViewCell else {
+                    fatalError()
+                }
+
+                cell.configure(
+                    item.jid,
+                    owner: item.owner,
+                    username: item.username,
+                    attributedUsername: item.attributedUsername,
+                    message: item.message,
+                    date: item.date,
+                    deliveryState: item.state,
+                    isMute: item.isMute,
+                    isSynced: item.isSynced,
+                    isGroupchat: [.groupchat, .incognitoChat].contains(item.entity),
+                    status: item.status,
+                    entity: item.entity,
+                    conversationType: item.conversationType,
+                    unread: item.unread,
+                    unreadString: item.unreadString,
+                    indicator: item.color,
+                    isDraft: item.isDraft,
+                    isAttachment: item.hasAttachment,
+                    groupchatNickname: item.userNickname,
+                    isSystem: item.isSystemMessage,
+                    isPinned: item.isPinned,
+                    subRequest: item.subRequest,
+                    avatarUrl: item.avatarUrl,
+                    hasErrorInChat: item.hasErrorInChat
+                )
+                cell.setMask()
+
+                let view = UIView()
+                view.backgroundColor = AccountColorManager.shared.palette(for: item.owner).tint50
+                cell.selectedBackgroundView = view
+
+                return cell
         }
     }
     
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        let sectionMod = isContactsHidden ? section + 1 : section
-        switch sections[sectionMod].kind {
+        switch sections[section].kind {
         case .contacts:
-            return filteredContacts?.count ?? 0
+            return contactsDatasource.count
         case .messages:
-            return filteredMessages?.count ?? 0
+            return chatsDatasource.count
         }
     }
     
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        let sectionMod = isContactsHidden ? section + 1 : section
-        return sections[sectionMod].header
+        return sections[section].header
     }
     
     func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
-        let sectionMod = isContactsHidden ? section + 1 : section
-        return sections[sectionMod].footer
+        return sections[section].footer
     }
-        
 }

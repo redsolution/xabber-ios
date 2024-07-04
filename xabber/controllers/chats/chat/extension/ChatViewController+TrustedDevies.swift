@@ -152,6 +152,6 @@ extension ChatViewController: TrustedDevicesBlockingPanelDelegate {
         let vc = TrustedDevicesViewController()
         vc.jid = self.jid
         vc.owner = self.owner
-        self.navigationController?.pushViewController(vc, animated: true)
+        showModal(vc)
     }
 }

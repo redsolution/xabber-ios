@@ -33,11 +33,10 @@ extension LastChatsViewController {
 //        searchController.searchBar.tintColor = .blue
 //        searchController.searchBar.barStyle = .default
         navigationItem.searchController = searchController
-        searchController.searchBar.sizeToFit()
-        (searchController.searchResultsUpdater as? SearchResultsViewController)?.delegate = self
-        if #available(iOS 13.0, *) {
-            searchController.automaticallyShowsSearchResultsController = true
-        }
+//        searchController.searchBar.sizeToFit()
+        (searchController.searchResultsUpdater as? SearchResultsViewController)?.presenter = self
+        searchController.automaticallyShowsSearchResultsController = true
+        
         searchController.delegate = self
         searchController.searchBar.delegate = self
         definesPresentationContext = true

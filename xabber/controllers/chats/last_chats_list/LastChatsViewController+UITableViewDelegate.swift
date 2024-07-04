@@ -33,14 +33,12 @@ extension LastChatsViewController: UITableViewDelegate {
         if self.showSkeleton.value {
             return
         }
-        let index = indexPath.row
-
-        let jid = self.datasource[index].jid
-        let owner = self.datasource[index].owner
+        let item = self.datasource[indexPath.row]
         let vc = ChatViewController()
-        vc.owner = owner
-        vc.jid = jid
-        vc.conversationType = self.datasource[index].conversationType
+        vc.owner = item.owner
+        vc.jid = item.jid
+        vc.conversationType = item.conversationType
+        vc.entity = item.entity ?? .contact
         showStacked(vc, in: self)
     }
 }

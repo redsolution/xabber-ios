@@ -513,7 +513,8 @@ class ChatListTableViewCell: UITableViewCell {
         contentView.addSubview(infoStack)
         infoStack.fillSuperviewWithOffset(top: 0, bottom: 4, left: 2, right: 0)
         
-        backgroundColor = .clear//.systemBackground
+//        backgroundColor = .clear//.systemBackground
+        
         
         accountIndicator.frame = CGRect(x: 0.5, y: 1, width: 2, height: 74)
         userImageView.frame = CGRect(x: 16, y: 10, width: 64, height: 64)

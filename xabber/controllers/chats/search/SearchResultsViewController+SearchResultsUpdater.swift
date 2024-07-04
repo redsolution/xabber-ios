@@ -23,7 +23,7 @@ import UIKit
 
 extension SearchResultsViewController: UISearchResultsUpdating {
     func updateSearchResults(for searchController: UISearchController) {
-        updateSearchResults(with: searchController.searchBar.text ?? "")
+        self.searchObserver.accept(searchController.searchBar.text)
     }
 }
 

@@ -292,7 +292,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         self.requestArchive(stream, jid: jid, isContinues: false, conversationType: conversationType, max: 1)
     }
     
-    public final func syncChat(_ stream: XMPPStream, jid: String, conversationType: ClientSynchronizationManager.ConversationType) {
+    public final func syncChat(_ stream: XMPPStream, jid: String, conversationType: ClientSynchronizationManager.ConversationType, retry: Bool = false) {
         do {
             let realm = try WRealm.safe()
             var archiveStart: Date? = nil
@@ -305,8 +305,10 @@ class MessageArchiveManager: AbstractXMPPManager {
                                            forPrimaryKey: LastChatsStorageItem.genPrimary(
                                             jid: jid,
                                             owner: owner,
-                                            conversationType: conversationType)),
-               !instance.isSynced {
+                                            conversationType: conversationType)) {
+                if instance.isSynced {
+                    return
+                }
                 self.requestArchive(stream, jid: jid, isContinues: false, conversationType: conversationType, start: archiveStart) {
                     do {
                         let realm = try WRealm.safe()
@@ -323,6 +325,50 @@ class MessageArchiveManager: AbstractXMPPManager {
                     } catch {
                         DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
                     }
+                }
+            } else {
+                try realm.write {
+                    let instance = LastChatsStorageItem()
+                    instance.owner = owner
+                    instance.jid = jid
+                    instance.conversationType = conversationType
+                    instance.messageDate = Date()
+                    instance.setPrimary(withOwner: owner)
+                    instance.messagesCount = 0
+                    instance.isSynced = false
+                    if let rosterItem = realm
+                        .object(ofType: RosterStorageItem.self,
+                                forPrimaryKey: [jid, owner].prp()) {
+                        instance.rosterItem = rosterItem
+                        rosterItem.associatedLastChat = instance
+                    } else {
+                        let rosterItem = RosterStorageItem()
+                        rosterItem.owner = owner
+                        rosterItem.jid = jid
+                        rosterItem.primary = RosterStorageItem.genPrimary(jid: jid, owner: owner)
+                        rosterItem.groups.append(RosterUtils.ungroupped)
+                        rosterItem.associatedLastChat = instance
+                        realm.add(rosterItem)
+                        instance.rosterItem = rosterItem
+                    }
+                    instance.rosterItem = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: [jid, owner].prp())
+                    realm.add(instance, update: .modified)
+                    let initialMessage = MessageStorageItem()
+                    initialMessage.configureInitialMessage(
+                        self.owner,
+                        opponent: jid,
+                        conversationType: conversationType,
+                        text: "",
+                        date: Date(),
+                        isRead: instance.displayedId == "0"
+                    )
+                    if realm.object(ofType: MessageStorageItem.self, forPrimaryKey: initialMessage.primary) == nil {
+                        initialMessage.isDeleted = true
+                        _ = initialMessage.save(commitTransaction: false)
+                    }
+                }
+                if !retry {
+                    self.syncChat(stream, jid: jid, conversationType: conversationType, retry: true)
                 }
             }
 //            else {

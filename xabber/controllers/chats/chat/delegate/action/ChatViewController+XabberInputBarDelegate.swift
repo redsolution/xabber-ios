@@ -56,7 +56,7 @@ extension ChatViewController: XabberInputBarDelegate {
         let vc = TrustedDevicesViewController()
         vc.jid = self.jid
         vc.owner = self.owner
-        self.navigationController?.pushViewController(vc, animated: true)
+        showModal(vc)
     }
     
     func onUpdateSignature() {
@@ -73,7 +73,7 @@ extension ChatViewController: XabberInputBarDelegate {
     func onCheckDevices() {
         let vc = DevicesListViewController()
         vc.configure(for: self.owner)
-        navigationController?.pushViewController(vc, animated: true)
+        showModal(vc)
     }
     
     func onHeightChanged(to height: CGFloat, bar barHeight: CGFloat) {
@@ -435,7 +435,7 @@ extension ChatViewController: XabberInputBarDelegate {
                                     let vc = TrustedDevicesViewController()
                                     vc.jid = self.jid
                                     vc.owner = self.owner
-                                    self.navigationController?.pushViewController(vc, animated: true)
+                                    showModal(vc)
                                 case "send":
                                     sendMessage(text)
                                 default:

@@ -48,12 +48,14 @@ class ContactInfoViewController: BaseViewController {
         var verificationSid: String?
         var verificationJid: String?
         var icon: String?
+        var isDanger: Bool = false
         
         var childs: [Datasource]
         
-        init(_ kind: Kind, icon: String? = nil, title: String, subtitle: String? = nil, image: UIImage? = nil, color: UIColor? = nil,  key: String? = nil, childs: [Datasource] = [], verificationSid: String? = nil, verificationJid: String? = nil) {
+        init(_ kind: Kind, icon: String? = nil, title: String, subtitle: String? = nil, isDanger: Bool = false, image: UIImage? = nil, color: UIColor? = nil,  key: String? = nil, childs: [Datasource] = [], verificationSid: String? = nil, verificationJid: String? = nil) {
             self.kind = kind
             self.title = title
+            self.isDanger = isDanger
             if subtitle?.isEmpty ?? true {
                 self.subtitle = nil
             } else {

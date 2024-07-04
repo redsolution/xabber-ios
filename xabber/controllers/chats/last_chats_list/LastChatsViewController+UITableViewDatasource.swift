@@ -28,63 +28,49 @@ extension LastChatsViewController: UITableViewDataSource {
             guard let cell = tableView.dequeueReusableCell(withIdentifier: SkeletonCell.cellName, for: indexPath) as? SkeletonCell else {
                 fatalError()
             }
-//            cell.animate()
-            
             return cell
         }
-//        if showArchivedSection.value && indexPath.row == 0 {
-//            guard let cell = tableView.dequeueReusableCell(withIdentifier: ArchivedCell.cellName, for: indexPath) as? ArchivedCell else {
-//                fatalError()
-//            }
-//            
-//            cell.configure(title: "Archived chats".localizeString(id: "archived_chats_title", arguments: []),
-//                           text: self.archivedSectionSubtitleText,
-//                           count: self.unreadArchivedChatsCount)
-//            
-//            return cell
-//        } else {
-            let index = indexPath.row
-//            let index = showArchivedSection.value ? indexPath.row - 1 : indexPath.row
-            let item = datasource[index]
-            guard let cell = tableView.dequeueReusableCell(withIdentifier: ChatListTableViewCell.cellName,
-                                                           for: indexPath) as? ChatListTableViewCell else {
-                fatalError()
-            }
-            
-            cell.configure(
-                item.jid,
-                owner: item.owner,
-                username: item.username,
-                attributedUsername: item.attributedUsername,
-                message: item.message,
-                date: item.date,
-                deliveryState: item.state,
-                isMute: item.isMute,
-                isSynced: item.isSynced,
-                isGroupchat: [.groupchat, .incognitoChat].contains(item.entity),
-                status: item.status,
-                entity: item.entity,
-                conversationType: item.conversationType,
-                unread: item.unread,
-                unreadString: item.unreadString,
-                indicator: item.color,
-                isDraft: item.isDraft,
-                isAttachment: item.hasAttachment,
-                groupchatNickname: item.userNickname,
-                isSystem: item.isSystemMessage,
-                isPinned: item.isPinned,
-                subRequest: item.subRequest,
-                avatarUrl: item.avatarUrl,
-                hasErrorInChat: item.hasErrorInChat
-            )
-            cell.setMask()
-            
-            let view = UIView()
-            view.backgroundColor = AccountColorManager.shared.palette(for: item.owner).tint50
-            cell.selectedBackgroundView = view
+
+        let index = indexPath.row
+        let item = datasource[index]
+        guard let cell = tableView.dequeueReusableCell(withIdentifier: ChatListTableViewCell.cellName,
+                                                       for: indexPath) as? ChatListTableViewCell else {
+            fatalError()
+        }
         
-            return cell
-//        }
+        cell.configure(
+            item.jid,
+            owner: item.owner,
+            username: item.username,
+            attributedUsername: item.attributedUsername,
+            message: item.message,
+            date: item.date,
+            deliveryState: item.state,
+            isMute: item.isMute,
+            isSynced: item.isSynced,
+            isGroupchat: [.groupchat, .incognitoChat].contains(item.entity),
+            status: item.status,
+            entity: item.entity,
+            conversationType: item.conversationType,
+            unread: item.unread,
+            unreadString: item.unreadString,
+            indicator: item.color,
+            isDraft: item.isDraft,
+            isAttachment: item.hasAttachment,
+            groupchatNickname: item.userNickname,
+            isSystem: item.isSystemMessage,
+            isPinned: item.isPinned,
+            subRequest: item.subRequest,
+            avatarUrl: item.avatarUrl,
+            hasErrorInChat: item.hasErrorInChat
+        )
+        cell.setMask()
+        
+        let view = UIView()
+        view.backgroundColor = AccountColorManager.shared.palette(for: item.owner).tint50
+        cell.selectedBackgroundView = view
+    
+        return cell
         
     }
     

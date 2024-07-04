@@ -55,11 +55,7 @@ extension ContactsViewController {
             
             vc.owner = item.owner
             vc.jid = item.jid!
-            self.title = " "
-            self.navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
-            self.navigationController?.navigationBar.shadowImage = UIImage()
-            self.navigationController?.navigationBar.layoutIfNeeded()
-            self.navigationController?.pushViewController(vc, animated: true)
+            showModal(vc)
             
             handler(true)
         }

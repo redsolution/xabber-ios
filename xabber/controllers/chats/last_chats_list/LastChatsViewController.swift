@@ -567,18 +567,13 @@ class LastChatsViewController: BaseViewController {
             return collection.compactMap {
                 item in
                 
-                var blankMessageText: String = "No messages".localizeString(id: "no_messages", arguments: [])
+                var blankMessageText: String = "Start messaging here".localizeString(id: "chat_message_start_messaging", arguments: [])
                 if item.messagesCount != 0 {
                     blankMessageText = (item.retractVersion == "0" && item.retractVersion != "") ? "No messages".localizeString(id: "no_messages", arguments: []) : "No messages".localizeString(id: "no_messages", arguments: [])
 
                 }
                 
                 let subscriptionRequest: Bool = false
-//                if let rosterItem = item.rosterItem {
-//                    subscriptionRequest = rosterItem.isThereSubscriptionRequest()
-//                } else {
-//                    subscriptionRequest = false
-//                }
                 
                 let primaryResource = item.rosterItem?.getPrimaryResource()
                 
@@ -587,13 +582,13 @@ class LastChatsViewController: BaseViewController {
                 if let lastMessage = item.lastMessage {
                     message = lastMessage.displayedBody(entity: primaryResource?.entity ?? .contact)
                     if message.isEmpty {
-                        message = subscriptionRequest ? "Incoming chat request" : blankMessageText
+                        message = blankMessageText
                     }
                     if lastMessage.isDeleted {
                         message = blankMessageText
                     }
                 } else {
-                    message = subscriptionRequest ? "Incoming chat request" : blankMessageText
+                    message = blankMessageText
                 }
                 
                 var isDraft: Bool = false
@@ -648,6 +643,9 @@ class LastChatsViewController: BaseViewController {
                 var isSystemMessage: Bool = [.system, .initial].contains(item.lastMessage?.displayAs ?? .text)
                 if item.isFreshNotEmptyEncryptedChat {
                     message = "Write your encrypted messages here"
+                    isSystemMessage = true
+                }
+                if item.lastMessage == nil && item.messagesCount == 0 {
                     isSystemMessage = true
                 }
                 

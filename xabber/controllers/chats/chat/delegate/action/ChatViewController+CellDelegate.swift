@@ -95,7 +95,7 @@ extension ChatViewController: MessageCellDelegate {
                         case "quota":
                             let vc = CloudStorageViewController()
                             vc.configure(jid: self.owner)
-                            self.navigationController?.pushViewController(vc, animated: true)
+                            showModal(vc)
                         default:
                             break
                     }
@@ -171,11 +171,7 @@ extension ChatViewController: MessageCellDelegate {
             vc.jid = self.jid
             vc.userId = userId
             vc.shouldResetNavbar = true
-            self.title = " "
-            self.navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
-            self.navigationController?.navigationBar.shadowImage = UIImage()
-            self.navigationController?.navigationBar.layoutIfNeeded()
-            self.navigationController?.pushViewController(vc, animated: true)
+            showModal(vc)
         }
         return
     }

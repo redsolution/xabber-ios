@@ -116,6 +116,9 @@ extension ContactInfoViewController: UITableViewDataSource {
                 
                 contentConfig.text = item.title
                 contentConfig.secondaryText = item.subtitle
+                if let icon = item.icon {
+                    contentConfig.image = UIImage(systemName: icon)
+                }
                 if item.key == "block_chat_button" {
                     if self.isBlocked {
                         contentConfig.text = "Unblock".localizeString(id: "contact_bar_unblock", arguments: [])
@@ -129,7 +132,7 @@ extension ContactInfoViewController: UITableViewDataSource {
                         contentConfig.text = "Disable notifications".localizeString(id: "groupchats_disable_notifications", arguments: [])
                     }
                 }
-                contentConfig.textProperties.color = .systemBlue
+                contentConfig.textProperties.color = .tintColor
                 cell.contentConfiguration = contentConfig
                 
                 return cell

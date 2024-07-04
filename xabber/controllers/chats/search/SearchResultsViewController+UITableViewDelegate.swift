@@ -23,21 +23,37 @@ import UIKit
 
 extension SearchResultsViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        switch sections[indexPath.section].kind {
-        case .contacts: return 64
-        case .messages: return 72
-        }
+        return 84
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        let section = isContactsHidden ? indexPath.section + 1 : indexPath.section
-        switch sections[section].kind {
-        case .contacts:
-            guard let item = filteredContacts?[indexPath.row] else { return }
-            delegate?.openChat(owner: item.owner, jid: item.jid, conversationType: ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular)
-        case .messages:
-            guard let item = filteredMessages?[indexPath.row] else { return }
-            delegate?.openChat(owner: item.owner, jid: item.opponent, conversationType: item.conversationType)
+//        let section = isContactsHidden ? indexPath.section + 1 : indexPath.section
+//        switch sections[section].kind {
+//        case .contacts:
+//            guard let item = filteredContacts?[indexPath.row] else { return }
+//            delegate?.openChat(owner: item.owner, jid: item.jid, conversationType: ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular)
+//        case .messages:
+//            guard let item = filteredMessages?[indexPath.row] else { return }
+//            delegate?.openChat(owner: item.owner, jid: item.opponent, conversationType: item.conversationType)
+//        }
+        
+        switch sections[indexPath.section].kind {
+            case .messages:
+                let item = self.chatsDatasource[indexPath.row]
+                let vc = ChatViewController()
+                vc.owner = item.owner
+                vc.jid = item.jid
+                vc.conversationType = item.conversationType
+                vc.entity = item.entity ?? .contact
+                showStacked(vc, in: self.presenter ?? self)
+            case .contacts:
+                let item = self.contactsDatasource[indexPath.row]
+                let vc = ChatViewController()
+                vc.owner = item.owner
+                vc.jid = item.jid
+                vc.conversationType = item.conversationType
+                vc.entity = item.entity ?? .contact
+                showStacked(vc, in: self.presenter ?? self)
         }
     }
 }
