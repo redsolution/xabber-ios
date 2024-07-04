@@ -24,6 +24,12 @@ import UIKit
 class EditCirclesCell: UITableViewCell {
     public static let cellName: String = "EditCirclesCell"
     
+    let iconView: UIImageView = {
+        let view = UIImageView()
+        view.tintColor = .tintColor
+        return view
+    }()
+    
     let stack: UIStackView = {
         let stack = UIStackView()
         
@@ -58,8 +64,11 @@ class EditCirclesCell: UITableViewCell {
         return label
     }()
     
-    public final func configure(title: String, circles: [String]) {
+    public final func configure(icon: String?, title: String, circles: [String]) {
         titleLabel.text = title
+        if let icon = icon {
+            iconView.image = UIImage(systemName: icon)
+        }
         if circles.isEmpty {
             subtitleLabel.text = "No circles".localizeString(id: "contact_circles_empty", arguments: [])
             subtitleLabel.font = subtitleLabel.font.italic()
@@ -75,8 +84,13 @@ class EditCirclesCell: UITableViewCell {
     
     public final func setupSubviews() {
         selectionStyle = .none
+        iconView.frame = CGRect(
+            origin: CGPoint(x: 18, y: 8),
+            size: CGSize(square: 24)
+        )
+        contentView.addSubview(iconView)
         contentView.addSubview(stack)
-        stack.fillSuperviewWithOffset(top: 10, bottom: 10, left: 16, right: 16)
+        stack.fillSuperviewWithOffset(top: 10, bottom: 10, left: 56, right: 16)
         stack.addArrangedSubview(titleLabel)
         stack.addArrangedSubview(subtitleLabel)
         accessoryType = .disclosureIndicator

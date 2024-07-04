@@ -52,7 +52,7 @@ class ContactInfoViewController: BaseViewController {
         
         var childs: [Datasource]
         
-        init(_ kind: Kind, icon: String? = nil, title: String, subtitle: String? = nil, isDanger: Bool = false, image: UIImage? = nil, color: UIColor? = nil,  key: String? = nil, childs: [Datasource] = [], verificationSid: String? = nil, verificationJid: String? = nil) {
+        init(_ kind: Kind, isDanger: Bool = false, icon: String? = nil, title: String, subtitle: String? = nil, image: UIImage? = nil, color: UIColor? = nil,  key: String? = nil, childs: [Datasource] = [], verificationSid: String? = nil, verificationJid: String? = nil) {
             self.kind = kind
             self.title = title
             self.isDanger = isDanger
@@ -274,13 +274,13 @@ class ContactInfoViewController: BaseViewController {
                     }
                     newDatasource.append(contentsOf: [
                         Datasource(.text, title: "", childs: [
-                            Datasource(.button, icon: "person.badge.plus", title: "Open regular chat".localizeString(id: "omemo__chat_settings__button_open_regular_chat", arguments: []), key: "chat"),
-                            Datasource(.button, icon: "figure.run", title: "Open encrypted chat".localizeString(id: "omemo__chat_settings__button_open_encrypted_chat", arguments: []), key: "encrypted"),
-                            Datasource(.button, icon: "figure.run", title: "Call".localizeString(id: "contact_bar_call", arguments: []), key: "call"),
-                            Datasource(.button, icon: "figure.run", title: "Block".localizeString(id: "contact_bar_block", arguments: []), key: "block")
+                            Datasource(.button, icon: "message", title: "Open regular chat".localizeString(id: "omemo__chat_settings__button_open_regular_chat", arguments: []), key: "chat"),
+                            Datasource(.button, icon: "lock.shield.fill", title: "Open encrypted chat".localizeString(id: "omemo__chat_settings__button_open_encrypted_chat", arguments: []), key: "encrypted"),
+                            Datasource(.button, icon: "phone", title: "Call".localizeString(id: "contact_bar_call", arguments: []), key: "call"),
+                            Datasource(.button, isDanger: true, icon: "circle.slash", title: "Block".localizeString(id: "contact_bar_block", arguments: []), key: "block")
                         ]),
                         Datasource(.text, title: "", childs: [
-                            Datasource(.button, title: "Circles".localizeString(id: "contact_circle", arguments: []), key: "circles"),
+                            Datasource(.button, icon: "circle.hexagonpath", title: "Circles".localizeString(id: "contact_circle", arguments: []), key: "circles"),
                         ]),
                     ])
                     if let item = results.first {

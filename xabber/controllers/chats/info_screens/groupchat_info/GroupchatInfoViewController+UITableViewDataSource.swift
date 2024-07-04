@@ -155,7 +155,7 @@ extension GroupchatInfoViewController: UITableViewDataSource {
                         fatalError()
                     }
                     
-                    cell.configure(title: "Circles".localizeString(id: "contact_circle", arguments: []), circles: self.circles)
+                    cell.configure(icon: "circle.hexagonpath", title: "Circles".localizeString(id: "contact_circle", arguments: []), circles: self.circles)
                     
                     return cell
                 }
