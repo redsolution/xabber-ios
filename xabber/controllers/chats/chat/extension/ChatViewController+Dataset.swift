@@ -94,93 +94,98 @@ extension ChatViewController {
             let isDownloaded = !item.references.filter { $0.isDownloaded }.isEmpty
             let kind: MessageKind
             switch item.displayAs {
-            case .initial:
-                
-                var descriptionText: String = ""
-//                var descriptionText: NSAttributedString = NSAttributedString()
-                let aboutAttrs: [NSAttributedString.Key: Any] = [
-                    .font: UIFont.systemFont(ofSize: 15, weight: .regular)
-                ]
-               
-                switch self.conversationType {
-                case .regular:
-                    descriptionText = "Messages in this chat are not encrypted. Servers often store transient messages in an archive. This allows easy device synchronization and server-side history search, but adds privacy risks."
-                case .group:
-                    switch self.entity {
-                    case .incognitoChat:
-                        descriptionText = "Identities of users in this group are kept hidden from each other, only group admins can access your real XMPP ID. Be vigilant, do not disclose yourself by being careless."
-                    case .privateChat:
-                        descriptionText = "Private chat with incognito user. Messages are routed through group server and your identites are kept secret from each other. Be vigilant, do not disclose yourself by being careless."
-                    default:
+                case .initial:
+                    
+                    var descriptionText: String = ""
+    //                var descriptionText: NSAttributedString = NSAttributedString()
+                    let aboutAttrs: [NSAttributedString.Key: Any] = [
+                        .font: UIFont.systemFont(ofSize: 15, weight: .regular)
+                    ]
+                   
+                    switch self.conversationType {
+                    case .regular:
+                        descriptionText = "Messages in this chat are not encrypted. Servers often store transient messages in an archive. This allows easy device synchronization and server-side history search, but adds privacy risks."
+                    case .group:
+                        switch self.entity {
+                        case .incognitoChat:
+                            descriptionText = "Identities of users in this group are kept hidden from each other, only group admins can access your real XMPP ID. Be vigilant, do not disclose yourself by being careless."
+                        case .privateChat:
+                            descriptionText = "Private chat with incognito user. Messages are routed through group server and your identites are kept secret from each other. Be vigilant, do not disclose yourself by being careless."
+                        default:
+                            descriptionText = "Identities of users in this group are public, so any member can contact you using your real XMPP ID."
+                        }
+                    case .channel:
                         descriptionText = "Identities of users in this group are public, so any member can contact you using your real XMPP ID."
+                    case .omemo, .omemo1, .axolotl:
+                        descriptionText = "Messages in this chat are encrypted with end-to-end encryption. You must always confirm the identity of your contact by verifying encryption keys fingerprints."
+                        case .notifications:
+                            descriptionText = "fdg"
                     }
-                case .channel:
-                    descriptionText = "Identities of users in this group are public, so any member can contact you using your real XMPP ID."
-                case .omemo, .omemo1, .axolotl:
-                    descriptionText = "Messages in this chat are encrypted with end-to-end encryption. You must always confirm the identity of your contact by verifying encryption keys fingerprints."
-                    case .notifications:
-                        descriptionText = "fdg"
-                }
-                let modifiedDesccription = NSMutableAttributedString(
-                    attributedString: NSAttributedString(string: descriptionText,
-                                                         attributes: aboutAttrs)
-                )
-                let allRange = NSRange(location: 0, length:  modifiedDesccription.string.count)
-                let style = NSMutableParagraphStyle()
-                style.lineSpacing = 4
-                style.alignment = .center
-                modifiedDesccription.addAttribute(NSAttributedString.Key.paragraphStyle, value: style, range: allRange)
-                kind = .initial(modifiedDesccription)
-//                kind = .initial(NSAttributedString(string: descriptionText))
-            case .quote:
-                kind = .quote(
-                    item.createQuoteBody([NSAttributedString.Key.font: UIFont.preferredFont(forTextStyle: .body)]),
-                    ContactChatMetadataManager
-                        .shared
-                        .get(item.groupchatAuthorNickname ?? "",
-                             for: self.owner,
-                             badge: item.groupchatAuthorBadge ?? "",
-                             role: item.groupchatMetadata?["role"] as? String ?? "member")
-                        .getAttributedNickname([.font: UIFont.preferredFont(forTextStyle: .caption1)])
-                )
-            case .text:
-                kind = .attributedText(
-                    item.createRefBody([NSAttributedString.Key.font: UIFont.systemFont(ofSize: 16, weight: .regular)],
-                                       searchedText: self.searchTextObserver.value,
-                                       searchedTextColor: AccountColorManager.shared.palette(for: self.owner).tint200.withAlphaComponent(0.5)),
-                    false,
-                    ContactChatMetadataManager
-                        .shared
-                        .get(item.groupchatAuthorNickname ?? "",
-                             for: self.owner,
-                             badge: item.groupchatAuthorBadge ?? "",
-                             role: item.groupchatMetadata?["role"] as? String ?? "member")
-                        .getAttributedNickname([.font: UIFont.preferredFont(forTextStyle: .caption1)])
-                )
-            case .files:
-                kind = .files(Array(references.filter { [.media, .voice].contains($0.kind) }))
-            case .images:
-                kind = .photos(Array(references.filter({ $0.kind == .media })))
-            case .voice:
-                kind = .audio(Array(references))
-            case .call:
-                kind = .call(Array(references))
-            case .system:
-                kind = .system(
-                    NSAttributedString(
-                        string: item.body,
-                        attributes: [
-                            .font: UIFont.preferredFont(forTextStyle: .caption1).italic(),
-                            .foregroundColor: UIColor.white,
-                        ]
+                    let modifiedDesccription = NSMutableAttributedString(
+                        attributedString: NSAttributedString(string: descriptionText,
+                                                             attributes: aboutAttrs)
                     )
-                )
-            case .sticker:
-                if let reference = references.filter({ $0.kind == .media }).first {
-                    kind = .sticker(reference)
-                } else {
+                    let allRange = NSRange(location: 0, length:  modifiedDesccription.string.count)
+                    let style = NSMutableParagraphStyle()
+                    style.lineSpacing = 1.5
+                    style.alignment = .center
+                    modifiedDesccription.addAttribute(NSAttributedString.Key.paragraphStyle, value: style, range: allRange)
+                    kind = .initial(modifiedDesccription)
+    //                kind = .initial(NSAttributedString(string: descriptionText))
+                case .quote:
+                    kind = .quote(
+                        item.createQuoteBody([NSAttributedString.Key.font: UIFont.preferredFont(forTextStyle: .body)]),
+                        ContactChatMetadataManager
+                            .shared
+                            .get(item.groupchatAuthorNickname ?? "",
+                                 for: self.owner,
+                                 badge: item.groupchatAuthorBadge ?? "",
+                                 role: item.groupchatMetadata?["role"] as? String ?? "member")
+                            .getAttributedNickname([.font: UIFont.preferredFont(forTextStyle: .caption1)])
+                    )
+                case .text:
+                    kind = .attributedText(
+                        item.createRefBody(
+                            [
+                                NSAttributedString.Key.foregroundColor: UIColor.label,
+                                NSAttributedString.Key.font: UIFont.systemFont(ofSize: 16, weight: .regular),
+                            ],
+                            searchedText: self.searchTextObserver.value,
+                            searchedTextColor: AccountColorManager.shared.palette(for: self.owner).tint200.withAlphaComponent(0.5)
+                        ),
+                        false,
+                        ContactChatMetadataManager
+                            .shared
+                            .get(item.groupchatAuthorNickname ?? "",
+                                 for: self.owner,
+                                 badge: item.groupchatAuthorBadge ?? "",
+                                 role: item.groupchatMetadata?["role"] as? String ?? "member")
+                            .getAttributedNickname([.font: UIFont.preferredFont(forTextStyle: .caption1)])
+                    )
+                case .files:
+                    kind = .files(Array(references.filter { [.media, .voice].contains($0.kind) }))
+                case .images:
                     kind = .photos(Array(references.filter({ $0.kind == .media })))
-                }
+                case .voice:
+                    kind = .audio(Array(references))
+                case .call:
+                    kind = .call(Array(references))
+                case .system:
+                    kind = .system(
+                        NSAttributedString(
+                            string: item.body,
+                            attributes: [
+                                .font: UIFont.preferredFont(forTextStyle: .caption1).italic(),
+                                .foregroundColor: UIColor.white,
+                            ]
+                        )
+                    )
+                case .sticker:
+                    if let reference = references.filter({ $0.kind == .media }).first {
+                        kind = .sticker(reference)
+                    } else {
+                        kind = .photos(Array(references.filter({ $0.kind == .media })))
+                    }
             }
             let withAuthor: Bool
             if dataset.count > 1 && (offset + 1) < dataset.count {

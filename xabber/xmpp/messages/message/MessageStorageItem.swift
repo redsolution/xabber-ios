@@ -1209,7 +1209,9 @@ class MessageStorageItem: Object {
         string.addAttributes(attrs, range: NSRange(location: 0, length: string.length))
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byWordWrapping
-        paragraph.lineSpacing = 2
+//        paragraph.minimumLineHeight = 1.5
+//        paragraph.maximumLineHeight = 1.5
+        paragraph.lineSpacing = 1.5
         paragraph.allowsDefaultTighteningForTruncation = true
         for reference in references {
             if reference.end <= reference.begin { continue }

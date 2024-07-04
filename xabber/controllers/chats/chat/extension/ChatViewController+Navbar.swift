@@ -27,13 +27,15 @@ extension ChatViewController {
     @objc
     internal func onTitleButtonTouchUp(_ sender: UIButton) {
         self.showInfo()
+//        self.topPanelState.accept(.shouldRequestVerification)
+        
     }
     
     internal final func updateTitle() -> NSAttributedString {
         let attributedTitle: NSMutableAttributedString = NSMutableAttributedString()
         let indicatorAttach = NSTextAttachment()
         
-        var color: UIColor = self.accountPallete.tint500
+        var color: UIColor = .label//self.accountPallete.tint500
         
         if [.omemo, .omemo1, .axolotl].contains(self.conversationType) {
             do {

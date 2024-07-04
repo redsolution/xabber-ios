@@ -29,6 +29,7 @@ import DeepDiff
 import MaterialComponents.MDCPalettes
 import CocoaLumberjack
 import AVFoundation
+import XMPPFramework.XMPPJID
 
 class ChatViewController: MessagesViewController {
     
@@ -159,12 +160,9 @@ class ChatViewController: MessagesViewController {
     public static let datasourceInitialPageSize: Int = 40
     public final var canUpdateDataset: Bool = true
     
-    //internal var isDatasourceLoaded: Bool = false
     internal let gapLength: Int = 200
     internal var currentGap: Int = 0
-//
-//    public var jid: String = ""
-//    public var owner: String = ""
+    
     internal var groupchat: Bool {
         get {
             return self.conversationType == .group
@@ -181,7 +179,6 @@ class ChatViewController: MessagesViewController {
     
 
     internal var messagesObserver: Results<MessageStorageItem>? = nil
-//    internal var messagesDataset: Results<MessageStorageItem>? = nil
     
     internal var datasource: [Datasource] = []
     
@@ -357,40 +354,6 @@ class ChatViewController: MessagesViewController {
         return label
     }()
     
-//    var navbarBackgroundBar: UITabBar = {
-//        let bar = UITabBar()
-//
-//        bar.barStyle = .default
-//        bar.backgroundImage = nil
-//
-//        return bar
-//    }()
-    
-//    var pinMessageView: PinMessageView = {
-//        let view = PinMessageView(frame: .zero)
-//        
-//        
-//        return view
-//    }()
-//    
-//    var pinMessageBar: UITabBar = {
-//        let bar = UITabBar()
-//        
-//        bar.barStyle = .default
-//        bar.backgroundImage = nil
-//        
-//        return bar
-//    }()
-    
-//    var topMenuPanelBar: UITabBar = {
-//        let bar = UITabBar()
-//
-//        bar.barStyle = .default
-//        bar.backgroundImage = nil
-//
-//        return bar
-//    }()
-    
     var bottomSearchBar: SearchBar = {
         let bar = SearchBar()
         
@@ -399,36 +362,6 @@ class ChatViewController: MessagesViewController {
         
         return bar
     }()
-    
-//    var subscribtionBarView: SubscribtionBarView = {
-//        let view = SubscribtionBarView(frame: .zero)
-//        
-//        return view
-//    }()
-//    
-//    var subscribtionBar: UITabBar = {
-//        let bar = UITabBar()
-//        
-//        bar.barStyle = .default
-//        bar.backgroundImage = nil
-//        
-//        return bar
-//    }()
-//    
-//    var verifyBarView: VerifyBarView = {
-//        let view = VerifyBarView(frame: .zero)
-//        
-//        return view
-//    }()
-//    
-//    var verifyBar: UITabBar = {
-//        let bar = UITabBar()
-//        
-//        bar.barStyle = .default
-//        bar.backgroundImage = nil
-//        
-//        return bar
-//    }()
     
     let recordingPanel: RecordingPanel = {
         let view = RecordingPanel(frame: .zero)
@@ -503,7 +436,6 @@ class ChatViewController: MessagesViewController {
         
     @objc
     func clearAttachments() {
-        print("Call empty", #function)
         self.forwardedIds.accept(Set<String>())
         self.attachedMessagesIds.accept([])
         self.editMessageId.accept(nil)
@@ -538,19 +470,131 @@ class ChatViewController: MessagesViewController {
         self.bottomSearchBar.frame = barFrame ?? .zero
     }
     
-//    override func viewDidLayoutSubviews() {
-//        super.viewDidLayoutSubviews()
-//    }
+    func initStatus() {
+        if (XMPPJID(string: self.jid)?.isServer ?? false) {
+            self.contactStatus = "Server"
+            self.statusLabel.text = self.contactStatus
+            return
+        }
+        do {
+            let realm = try WRealm.safe()
+            
+            if let item = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
+                    switch item.subscribtion {
+                        case .none:
+                            switch item.ask {
+                                case .in, .both:
+                                    self.topPanelState.accept(.allowSubscribtion)
+                                default:
+                                    if [.addContact, .requestSubscribtion].contains(self.topPanelState.value) {
+                                        self.topPanelState.accept(.none)
+                                    }
+                            }
+                        case .to:
+                            switch item.ask {
+                                case .in:
+                                    self.topPanelState.accept(.addContact)
+                                default:
+                                    if [.addContact, .requestSubscribtion].contains(self.topPanelState.value) {
+                                        self.topPanelState.accept(.none)
+                                    }
+                            }
+                        case .undefined:
+                            switch item.ask {
+                                case .in:
+                                    self.topPanelState.accept(.requestSubscribtion)
+                                default:
+                                    if [.addContact, .requestSubscribtion].contains(self.topPanelState.value) {
+                                        self.topPanelState.accept(.none)
+                                    }
+                            }
+                        default:
+                            if [.addContact, .requestSubscribtion].contains(self.topPanelState.value) {
+                                self.topPanelState.accept(.none)
+                            }
+                    }
+                    self.shouldShowNormalStatus = false
+                    switch item.subscribtion {
+                    case .from:
+                        switch item.ask {
+                            case .none:
+                                self.contactStatus = "Receives your presence updates"
+                                    .localizeString(id: "chat_receives_presence_updates", arguments: [])
+                            case .out:
+                                self.contactStatus = "Subscription request pending..."
+                                    .localizeString(id: "chat_subscription_request_pending", arguments: [])
+                            default:
+                                break
+                        }
+                    case .none:
+                        switch item.ask {
+                        case .out, .both:
+                            self.contactStatus = "Subscription request pending..."
+                                .localizeString(id: "chat_subscription_request_pending", arguments: [])
+                        case .in:
+                            self.contactStatus = "In your contacts"
+                                .localizeString(id: "contact_state_in_contact_list", arguments: [])
+                        case .none:
+                            self.contactStatus = "In your contacts"
+                                .localizeString(id: "contact_state_in_contact_list", arguments: [])
+                        }
+                    case .undefined:
+                        self.contactStatus = "Not in your contacts"
+                            .localizeString(id: "contact_state_not_in_contact_list", arguments: [])
+                    default:
+                        self.shouldShowNormalStatus = true
+                        break
+                    }
+                
+            } else {
+                self.contactStatus = "Not in your contacts"
+                    .localizeString(id: "contact_state_not_in_contact_list", arguments: [])
+//                    self.showSubscribtionBar(animated: true, state: .notInRoster)
+                self.topPanelState.accept(.addContact)
+                self.updateStatusText()
+                return
+            }
+            
+            let results = realm
+                            .objects(ResourceStorageItem.self)
+                            .filter("owner == %@ AND jid == %@", self.owner, self.jid)
+                            .sorted(by: [SortDescriptor(keyPath: "timestamp", ascending: false),
+                                         SortDescriptor(keyPath: "priority", ascending: false)])
+            let nickname = self.opponentSender.displayName
+            let offlineStatus = "last seen recently".localizeString(id: "last_seen_recently", arguments: [])
+            let status = (results.first?.statusMessage.isEmpty ?? true) ? RosterUtils.shared.convertStatus(results.first?.status ?? .offline, customOfflineStatus: offlineStatus) : results.first?.statusMessage ?? RosterUtils.shared.convertStatus(results.first?.status ?? .offline, customOfflineStatus: offlineStatus)
+            self.contactUsename = nickname
+            self.titleLabel.attributedText = self.updateTitle()
+            let statusStr = AccountManager.shared.connectingUsers.value.contains(self.owner) ? "Waiting for network...".localizeString(id: "waiting_for_network", arguments: []) : status
+            if self.statusLabel.text == " " {
+                self.statusLabel.text = statusStr
+            }
+            if self.shouldShowNormalStatus {
+                self.statusTextObserver.accept(statusStr)
+                self.contactStatus = status
+                self.statusLabel.layoutIfNeeded()
+            }
+            self.titleLabel.sizeToFit()
+            self.titleLabel.layoutIfNeeded()
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        }
+
+    }
     
     func configureNavigationBar() {
-        self.navigationController?.setNavigationBarHidden(false, animated: false)
+        self.titleStack.addArrangedSubview(titleLabel)
+        self.titleStack.addArrangedSubview(statusLabel)
+        self.titleButton.addSubview(titleStack)
+        self.titleStack.fillSuperview()
+        self.titleButton.bringSubviewToFront(titleStack)
         
         self.navigationItem.setLeftBarButton(nil, animated: true)
         let gesture = UITapGestureRecognizer(target: self, action: #selector(self.showInfo))
         self.userBarButton.addGestureRecognizer(gesture)
         self.navigationItem.setRightBarButton(UIBarButtonItem(customView: self.userBarButton), animated: true)
-        self.navigationItem.setHidesBackButton(false, animated: false)
-        self.title = " "
+        self.navigationItem.backButtonDisplayMode = .minimal
+        self.title = ""
         
         self.titleStack.isUserInteractionEnabled = false
         
@@ -558,8 +602,8 @@ class ChatViewController: MessagesViewController {
         self.navigationItem.titleView = titleButton
         
         self.titleButton.frame = CGRect(width: self.view.frame.width - 64, height: 40)
-//        self.showVerifyBar(animated: true, state: .enterCode)
-//        self.xabberInputBar.becomeFirstResponder()
+        self.titleLabel.attributedText = self.updateTitle()
+        self.initStatus()
     }
     
     override var disablesAutomaticKeyboardDismissal: Bool {
@@ -591,21 +635,19 @@ class ChatViewController: MessagesViewController {
         self.messagesCollectionView.messagesLayoutDelegate = self
         
         self.messagesCollectionView.transform = CGAffineTransform(scaleX: 1, y: -1)
-        self.titleStack.addArrangedSubview(titleLabel)
-        self.titleStack.addArrangedSubview(statusLabel)
-        self.titleButton.addSubview(titleStack)
-        self.titleStack.fillSuperview()
-        self.titleButton.bringSubviewToFront(titleStack)
+        
         
         self.messagesCollectionView.scrollsToTop = false
         self.scrollsToBottomOnKeybordBeginsEditing = false
         self.maintainPositionOnKeyboardFrameChanged = true
         
         messagesCollectionView.accountPalette = accountPallete
-        if conversationType == .omemo {
-            titleLabel.textColor = MDCPalette.green.tint700
+        
+        if self.inSearchMode.value {
+            self.configureSearchBar()
         } else {
-            titleLabel.textColor = accountPallete.tint700
+            self.searchTextObserver.accept(nil)
+            self.configureNavigationBar()
         }
         
         backgroundView.frame = self.view.bounds
@@ -674,25 +716,18 @@ class ChatViewController: MessagesViewController {
         configureSelectionPanel()
         configureMessagesPanel()
         configureCertificateUpdateTimer()
-        
-        
         previousFrame = self.view.bounds
     }
     
     var previousFrame: CGRect = .zero
-    
-//    override func viewDidLayoutSubviews() {
-//        super.viewDidLayoutSubviews()
-//        
-//    }
     
     override func shouldChangeFrame() {
         super.shouldChangeFrame()
         if previousFrame == self.view.bounds {
             return
         }
+        self.topPanelState.accept(self.topPanelState.value)
         previousFrame = self.view.bounds
-        print("WILL LAYOUT")
         backgroundView.frame = self.view.bounds
         backgroundImage.frame = self.view.bounds
         
@@ -713,7 +748,7 @@ class ChatViewController: MessagesViewController {
         
         let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
         self.xabberInputView.setupFrames(frame)
-//        self.xabberInputView.update(screenHeight: self.view.bounds.height, keyboardHeight: self.xabberInputView.keyboardHeight)
+        
         (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
             .cache.invalidate()
     }
@@ -892,6 +927,14 @@ class ChatViewController: MessagesViewController {
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        self.shouldChangeFrame()
+        self.xabberInputView.update(screenHeight: self.view.bounds.height, keyboardHeight: 0)
+        var inputHeight: CGFloat = 49
+        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
+            inputHeight += bottomInset
+        }
+        self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 100, right: 0)
+        
         try? self.subscribe()
         self.lowPrioritySubscribtions()
         self.addObservers()
@@ -916,8 +959,8 @@ class ChatViewController: MessagesViewController {
         }
         
         self.initializeDataset()
-        self.xabberInputView.isSendButtonEnabled = false
-        self.xabberInputView.updateSendButtonState()
+//        self.xabberInputView.isSendButtonEnabled = false
+//        self.xabberInputView.updateSendButtonState()
     }
     
     override func viewDidAppear(_ animated: Bool) {
@@ -925,14 +968,12 @@ class ChatViewController: MessagesViewController {
         
         self.canLoadPage = true
 
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 1) {
-            XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { stream, session in
-                session.mam?.syncChat(stream, jid: self.jid, conversationType: self.conversationType)
-            }) {
-                AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                    user.mam.syncChat(stream, jid: self.jid, conversationType: self.conversationType)
-                })
-            }
+        XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { stream, session in
+            session.mam?.syncChat(stream, jid: self.jid, conversationType: self.conversationType)
+        }) {
+            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                user.mam.syncChat(stream, jid: self.jid, conversationType: self.conversationType)
+            })
         }
         
         do {
@@ -953,12 +994,6 @@ class ChatViewController: MessagesViewController {
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
-        self.xabberInputView.update(screenHeight: self.view.bounds.height, keyboardHeight: 0)
-        var inputHeight: CGFloat = 49
-        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
-            inputHeight += bottomInset
-        }
-        self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 100, right: 0)
         
     }
     

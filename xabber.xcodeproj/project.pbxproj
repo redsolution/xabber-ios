@@ -87,21 +87,6 @@
 		6608562D2071F80A003E0122 /* RealmMigrations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6608562C2071F80A003E0122 /* RealmMigrations.swift */; };
 		660951A72833B10700FDEAAF /* ApplicationStateManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660951A62833B10700FDEAAF /* ApplicationStateManager.swift */; };
 		660951A92833C18800FDEAAF /* PincodePresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660951A82833C18800FDEAAF /* PincodePresenter.swift */; };
-		660A45ED22C4A1FD0047347D /* AddContactViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660A45EC22C4A1FD0047347D /* AddContactViewController.swift */; };
-		660A45EF22C4BB8D0047347D /* AddContactViewController+UITableViewDatasource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660A45EE22C4BB8D0047347D /* AddContactViewController+UITableViewDatasource.swift */; };
-		660A45F122C4BB9C0047347D /* AddContactViewController+UITableViewDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660A45F022C4BB9C0047347D /* AddContactViewController+UITableViewDelegate.swift */; };
-		660A45F322C4BC410047347D /* AddContactViewController+AccountCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660A45F222C4BC410047347D /* AddContactViewController+AccountCell.swift */; };
-		660A45F522C4BC5C0047347D /* AddContactViewController+EditCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660A45F422C4BC5C0047347D /* AddContactViewController+EditCell.swift */; };
-		660A45F722C4BC6E0047347D /* AddContactViewController+GroupsCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660A45F622C4BC6E0047347D /* AddContactViewController+GroupsCell.swift */; };
-		660A45F922C4BC7B0047347D /* AddContactViewController+Flow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660A45F822C4BC7B0047347D /* AddContactViewController+Flow.swift */; };
-		660A45FB22C4C0100047347D /* AddContactViewController+UITextFieldDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660A45FA22C4C0100047347D /* AddContactViewController+UITextFieldDelegate.swift */; };
-		660A45FE22C4D60B0047347D /* AddContactViewController+AccountSelectDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660A45FD22C4D60B0047347D /* AddContactViewController+AccountSelectDelegate.swift */; };
-		660A460022C4D6200047347D /* AccountSelectDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660A45FF22C4D6200047347D /* AccountSelectDelegate.swift */; };
-		660A460222C4D7040047347D /* AccountSelectViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660A460122C4D7040047347D /* AccountSelectViewController.swift */; };
-		660A460422C4D7510047347D /* AccountSelectViewController+AccountCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660A460322C4D7510047347D /* AccountSelectViewController+AccountCell.swift */; };
-		660A460622C4D7A00047347D /* AccountSelectViewController+UITableViewDatasource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660A460522C4D7A00047347D /* AccountSelectViewController+UITableViewDatasource.swift */; };
-		660A460822C4D7B40047347D /* AccountSelectViewController+UITableViewDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660A460722C4D7B40047347D /* AccountSelectViewController+UITableViewDelegate.swift */; };
-		660A460A22C4E5170047347D /* AddContactViewController+Keyboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660A460922C4E5170047347D /* AddContactViewController+Keyboard.swift */; };
 		660A7B302292A98200D36D2C /* CallScreenFingerprintViewPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660A7B2F2292A98200D36D2C /* CallScreenFingerprintViewPopover.swift */; };
 		660AE357238564CF00E7FC00 /* CreateNewGroupViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660AE356238564CF00E7FC00 /* CreateNewGroupViewController.swift */; };
 		660AE35923856D7D00E7FC00 /* CreateNewGroupViewController+UITableViewDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660AE35823856D7D00E7FC00 /* CreateNewGroupViewController+UITableViewDataSource.swift */; };
@@ -543,7 +528,6 @@
 		66BC5C8725CD23E200CEC418 /* NewCallSearchViewController+UISearchResultsUpdating.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66BC5C8625CD23E200CEC418 /* NewCallSearchViewController+UISearchResultsUpdating.swift */; };
 		66BCD5522110850C00D7D5A3 /* XMPPMessageInlineExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66BCD5512110850C00D7D5A3 /* XMPPMessageInlineExtension.swift */; };
 		66BEDA8B247FD3900059F65F /* PreaprovedSubscribtionStorageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66BEDA8A247FD3900059F65F /* PreaprovedSubscribtionStorageItem.swift */; };
-		66BEDA8D247FDFFA0059F65F /* AddContactViewController+AddContactProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66BEDA8C247FDFFA0059F65F /* AddContactViewController+AddContactProtocol.swift */; };
 		66BEDA8F247FE0ED0059F65F /* LastChatsViewController+AddContactDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66BEDA8E247FE0ED0059F65F /* LastChatsViewController+AddContactDelegate.swift */; };
 		66BF400F273AAA9700CC43CE /* XMPPDeviceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66BF400E273AAA9700CC43CE /* XMPPDeviceManager.swift */; };
 		66C01C7F2348B6B1001C167C /* ShareDialogSearchController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C01C7E2348B6B1001C167C /* ShareDialogSearchController.swift */; };
@@ -1060,21 +1044,6 @@
 		6608562C2071F80A003E0122 /* RealmMigrations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealmMigrations.swift; sourceTree = "<group>"; };
 		660951A62833B10700FDEAAF /* ApplicationStateManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationStateManager.swift; sourceTree = "<group>"; };
 		660951A82833C18800FDEAAF /* PincodePresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PincodePresenter.swift; sourceTree = "<group>"; };
-		660A45EC22C4A1FD0047347D /* AddContactViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddContactViewController.swift; sourceTree = "<group>"; };
-		660A45EE22C4BB8D0047347D /* AddContactViewController+UITableViewDatasource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AddContactViewController+UITableViewDatasource.swift"; sourceTree = "<group>"; };
-		660A45F022C4BB9C0047347D /* AddContactViewController+UITableViewDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AddContactViewController+UITableViewDelegate.swift"; sourceTree = "<group>"; };
-		660A45F222C4BC410047347D /* AddContactViewController+AccountCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AddContactViewController+AccountCell.swift"; sourceTree = "<group>"; };
-		660A45F422C4BC5C0047347D /* AddContactViewController+EditCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AddContactViewController+EditCell.swift"; sourceTree = "<group>"; };
-		660A45F622C4BC6E0047347D /* AddContactViewController+GroupsCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AddContactViewController+GroupsCell.swift"; sourceTree = "<group>"; };
-		660A45F822C4BC7B0047347D /* AddContactViewController+Flow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AddContactViewController+Flow.swift"; sourceTree = "<group>"; };
-		660A45FA22C4C0100047347D /* AddContactViewController+UITextFieldDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AddContactViewController+UITextFieldDelegate.swift"; sourceTree = "<group>"; };
-		660A45FD22C4D60B0047347D /* AddContactViewController+AccountSelectDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AddContactViewController+AccountSelectDelegate.swift"; sourceTree = "<group>"; };
-		660A45FF22C4D6200047347D /* AccountSelectDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSelectDelegate.swift; sourceTree = "<group>"; };
-		660A460122C4D7040047347D /* AccountSelectViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSelectViewController.swift; sourceTree = "<group>"; };
-		660A460322C4D7510047347D /* AccountSelectViewController+AccountCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AccountSelectViewController+AccountCell.swift"; sourceTree = "<group>"; };
-		660A460522C4D7A00047347D /* AccountSelectViewController+UITableViewDatasource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AccountSelectViewController+UITableViewDatasource.swift"; sourceTree = "<group>"; };
-		660A460722C4D7B40047347D /* AccountSelectViewController+UITableViewDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AccountSelectViewController+UITableViewDelegate.swift"; sourceTree = "<group>"; };
-		660A460922C4E5170047347D /* AddContactViewController+Keyboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AddContactViewController+Keyboard.swift"; sourceTree = "<group>"; };
 		660A7B2F2292A98200D36D2C /* CallScreenFingerprintViewPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallScreenFingerprintViewPopover.swift; sourceTree = "<group>"; };
 		660AE356238564CF00E7FC00 /* CreateNewGroupViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateNewGroupViewController.swift; sourceTree = "<group>"; };
 		660AE35823856D7D00E7FC00 /* CreateNewGroupViewController+UITableViewDataSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CreateNewGroupViewController+UITableViewDataSource.swift"; sourceTree = "<group>"; };
@@ -1521,7 +1490,6 @@
 		66BCD5512110850C00D7D5A3 /* XMPPMessageInlineExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XMPPMessageInlineExtension.swift; sourceTree = "<group>"; };
 		66BD70A8237704AF00F76525 /* xabber.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = xabber.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		66BEDA8A247FD3900059F65F /* PreaprovedSubscribtionStorageItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreaprovedSubscribtionStorageItem.swift; sourceTree = "<group>"; };
-		66BEDA8C247FDFFA0059F65F /* AddContactViewController+AddContactProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AddContactViewController+AddContactProtocol.swift"; sourceTree = "<group>"; };
 		66BEDA8E247FE0ED0059F65F /* LastChatsViewController+AddContactDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LastChatsViewController+AddContactDelegate.swift"; sourceTree = "<group>"; };
 		66BF400E273AAA9700CC43CE /* XMPPDeviceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XMPPDeviceManager.swift; sourceTree = "<group>"; };
 		66C01C7E2348B6B1001C167C /* ShareDialogSearchController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareDialogSearchController.swift; sourceTree = "<group>"; };
@@ -1966,37 +1934,6 @@
 			path = state;
 			sourceTree = "<group>";
 		};
-		660A45EB22C4A1B50047347D /* add_contact */ = {
-			isa = PBXGroup;
-			children = (
-				660A45FC22C4D5E80047347D /* select_account */,
-				660A45EC22C4A1FD0047347D /* AddContactViewController.swift */,
-				66BEDA8C247FDFFA0059F65F /* AddContactViewController+AddContactProtocol.swift */,
-				660A460922C4E5170047347D /* AddContactViewController+Keyboard.swift */,
-				660A45EE22C4BB8D0047347D /* AddContactViewController+UITableViewDatasource.swift */,
-				660A45F022C4BB9C0047347D /* AddContactViewController+UITableViewDelegate.swift */,
-				660A45F222C4BC410047347D /* AddContactViewController+AccountCell.swift */,
-				660A45F422C4BC5C0047347D /* AddContactViewController+EditCell.swift */,
-				660A45F622C4BC6E0047347D /* AddContactViewController+GroupsCell.swift */,
-				660A45FA22C4C0100047347D /* AddContactViewController+UITextFieldDelegate.swift */,
-				660A45F822C4BC7B0047347D /* AddContactViewController+Flow.swift */,
-				660A45FD22C4D60B0047347D /* AddContactViewController+AccountSelectDelegate.swift */,
-			);
-			path = add_contact;
-			sourceTree = "<group>";
-		};
-		660A45FC22C4D5E80047347D /* select_account */ = {
-			isa = PBXGroup;
-			children = (
-				660A45FF22C4D6200047347D /* AccountSelectDelegate.swift */,
-				660A460122C4D7040047347D /* AccountSelectViewController.swift */,
-				660A460522C4D7A00047347D /* AccountSelectViewController+UITableViewDatasource.swift */,
-				660A460722C4D7B40047347D /* AccountSelectViewController+UITableViewDelegate.swift */,
-				660A460322C4D7510047347D /* AccountSelectViewController+AccountCell.swift */,
-			);
-			path = select_account;
-			sourceTree = "<group>";
-		};
 		660AE355238564AF00E7FC00 /* new_group */ = {
 			isa = PBXGroup;
 			children = (
@@ -2235,12 +2172,11 @@
 		662058462383CBB7000B0E11 /* create_new_entity */ = {
 			isa = PBXGroup;
 			children = (
-				66CDBEDA279EBE0600B2CC6F /* new_secret_chat */,
-				660A45EB22C4A1B50047347D /* add_contact */,
 				660AE355238564AF00E7FC00 /* new_group */,
 				66E0C36A2C060B7D00FEFE13 /* CreateNewEntityViewController.swift */,
 				66DF86632C0749E4009C9770 /* AddNewContactViewController.swift */,
 				662CECD82C1078CE00290AD9 /* NewContactSelectAccountViewController.swift */,
+				66CDBEDB279EBE2900B2CC6F /* NewSecretChatViewController.swift */,
 			);
 			path = create_new_entity;
 			sourceTree = "<group>";
@@ -3756,14 +3692,6 @@
 			name = Packages;
 			sourceTree = "<group>";
 		};
-		66CDBEDA279EBE0600B2CC6F /* new_secret_chat */ = {
-			isa = PBXGroup;
-			children = (
-				66CDBEDB279EBE2900B2CC6F /* NewSecretChatViewController.swift */,
-			);
-			path = new_secret_chat;
-			sourceTree = "<group>";
-		};
 		66D016B92574D7ED007857EE /* VoIPManager */ = {
 			isa = PBXGroup;
 			children = (
@@ -4820,8 +4748,6 @@
 				66D48869221EA4C80011CDB2 /* PulseLayer.swift in Sources */,
 				66BA99C32420D46600D20CE2 /* PushMessageTemporaryStorageItem.swift in Sources */,
 				1A9ED078279FFCFB00F3543D /* InfoScreenFooterView+UICollectionViewDataSource.swift in Sources */,
-				66BEDA8D247FDFFA0059F65F /* AddContactViewController+AddContactProtocol.swift in Sources */,
-				660A45F522C4BC5C0047347D /* AddContactViewController+EditCell.swift in Sources */,
 				6643F30221C2650E00333229 /* LocationMessageSizeCalculator.swift in Sources */,
 				4DC31469291A20D4004B6C9D /* DeliveryAddressViewController.swift in Sources */,
 				66E319102BA8550300F149B1 /* NotificationsListViewController.swift in Sources */,
@@ -4855,7 +4781,6 @@
 				66E6A148248FAE78006F6968 /* GroupchatInfoViewController+UITableViewDelegate.swift in Sources */,
 				6689B4B824AB1C2200A993BD /* LastChatsViewController+AccountNavButton.swift in Sources */,
 				660F5604239A79BE00252608 /* GroupchatInviteListViewController+ContactCell.swift in Sources */,
-				660A45F322C4BC410047347D /* AddContactViewController+AccountCell.swift in Sources */,
 				667CB28F2852156600E12157 /* ContactsViewController+UITableViewAction.swift in Sources */,
 				66E66805238BD5C7002F8B8A /* GroupchatSettingsViewController+Flow.swift in Sources */,
 				669DC92A23A216D40072891B /* GroupchatEditContactViewController+UITableViewDataSource.swift in Sources */,
@@ -4886,7 +4811,6 @@
 				6697CF6F206D081D006CA2DF /* ChatStates.swift in Sources */,
 				662EAB972549766C00807083 /* ChatViewController+XabberInputBarDelegate.swift in Sources */,
 				66992538240689F900AD9953 /* InlineMessageView.swift in Sources */,
-				660A45ED22C4A1FD0047347D /* AddContactViewController.swift in Sources */,
 				6646D33423488FB600B64FEB /* ShareDialogController+UITableViewDataSource.swift in Sources */,
 				6646D33A234893DA00B64FEB /* ShareDialogController+UISearchResultsUpdating.swift in Sources */,
 				669F7273209C247600E757DB /* UIImageWithFadeExtension.swift in Sources */,
@@ -4896,7 +4820,6 @@
 				6683765822A5342700E520CF /* SettingManager.swift in Sources */,
 				660F55FC239A750800252608 /* GroupchatInviteListViewController.swift in Sources */,
 				6608562D2071F80A003E0122 /* RealmMigrations.swift in Sources */,
-				660A460A22C4E5170047347D /* AddContactViewController+Keyboard.swift in Sources */,
 				66999CBC27DA1D370046CED3 /* ButtonTableViewCell.swift.swift in Sources */,
 				66E667FB238BCBD0002F8B8A /* GroupchatSettingsViewController+UITableViewDelegate.swift in Sources */,
 				66CD4D512ACD937900F53799 /* SubscribtionsListViewController.swift in Sources */,
@@ -4929,7 +4852,6 @@
 				66FB564C208DE5D500BE2BA4 /* CellWithBadge.swift in Sources */,
 				666B06D92832541900B2F991 /* UpdateSignaturePresenter.swift in Sources */,
 				66DED55522AA60BF008E5710 /* AccountColorViewController+UITableViewDelegate.swift in Sources */,
-				660A460822C4D7B40047347D /* AccountSelectViewController+UITableViewDelegate.swift in Sources */,
 				66A8350126C14E6000DCB1E0 /* BaseTableCell.swift in Sources */,
 				66B32D4123C63B3A00FA102C /* XTokenInvalidatePresenter.swift in Sources */,
 				66EFC5B92923C98700398D77 /* SubscribtionsListViewControllerTest.swift in Sources */,
@@ -5065,7 +4987,6 @@
 				66AEE5BF2338BC220085979B /* MessageManager+CommonSender.swift in Sources */,
 				6681B292256EA9C7005B28FB /* PresenceManager+TemporaryReceiver.swift in Sources */,
 				66DE588624BEE0BF001FAFAB /* XMPPUIActionManager+Delegate.swift in Sources */,
-				660A460622C4D7A00047347D /* AccountSelectViewController+UITableViewDatasource.swift in Sources */,
 				66B7991B22E04B27001589A5 /* LastChatsViewController+Search.swift in Sources */,
 				66C15C8A28A66E8A00789CD5 /* SettingsViewController+SignatureManagerDelegate.swift in Sources */,
 				1A1FDE9327B6809D008B240F /* ContactInfoViewControllerExtensions.swift in Sources */,
@@ -5159,7 +5080,6 @@
 				66F8F4F32BD6410C00449848 /* LeftMenuViewController.swift in Sources */,
 				665D33CB22D887C00034F74E /* LastCallsViewController.swift in Sources */,
 				6643F32B21C2650E00333229 /* NSConstraintLayoutSet.swift in Sources */,
-				660A45FB22C4C0100047347D /* AddContactViewController+UITextFieldDelegate.swift in Sources */,
 				66B92482248F875300F7E12E /* StatusInfoCell.swift in Sources */,
 				6646D33823488FD600B64FEB /* ShareDialogController+ItemCell.swift in Sources */,
 				6642B4F021B682F3008DD81B /* MIMETypes.swift in Sources */,
@@ -5192,7 +5112,6 @@
 				665451B922A9404E0077635D /* AccountEditViewController+Keyboard.swift in Sources */,
 				66A57586248A52BE0073216B /* ResourceInfoCell.swift in Sources */,
 				6689207D21C0E2AE00A62CF7 /* SetExtension.swift in Sources */,
-				660A460022C4D6200047347D /* AccountSelectDelegate.swift in Sources */,
 				660AE35923856D7D00E7FC00 /* CreateNewGroupViewController+UITableViewDataSource.swift in Sources */,
 				6696B6CD2215770600D6D437 /* OpusAudioRecorder.swift in Sources */,
 				66D15B1729FAAE8100203A1D /* ToastPresenter.swift in Sources */,
@@ -5204,7 +5123,6 @@
 				6678DFFB2497813400B3640B /* GroupchatContactInfoViewController+UITableViewDelegate.swift in Sources */,
 				6644E27C213D0FBA001726DD /* NavBarController.swift in Sources */,
 				66E6A14C248FAEB9006F6968 /* GroupchatInfoViewController+InfoScreenHeaderButtonDelegate.swift in Sources */,
-				660A45FE22C4D60B0047347D /* AddContactViewController+AccountSelectDelegate.swift in Sources */,
 				4D9C8FD928534E45003E35BE /* SettingsViewController+InfoScreenHeaderButtonDelegate.swift in Sources */,
 				1A939B2A27E49EC100014E43 /* MasksSelectionViewController+TableViewDelegate.swift in Sources */,
 				66A51ACD23ADFB90005369C3 /* PanDirectionGestureRecognizer.swift in Sources */,
@@ -5244,14 +5162,12 @@
 				66C5807E246BD45C006D3A71 /* SettingsViewController.swift in Sources */,
 				6643F30F21C2650E00333229 /* UIEdgeInsets+Extensions.swift in Sources */,
 				669DC92523A2153C0072891B /* GroupchatEditContactViewController.swift in Sources */,
-				660A460222C4D7040047347D /* AccountSelectViewController.swift in Sources */,
 				66C0E436223FAA2700F014C6 /* AttentionManger.swift in Sources */,
 				1A9F6167278D7F3A000D92C7 /* XabberUploadManager.swift in Sources */,
 				66F034022C33D9ED00E4D40A /* ChatViewController+VerifyFlow.swift in Sources */,
 				66E452C32A70390A00E7DF03 /* DeliveryReceiptsManager.swift in Sources */,
 				660AE35D2385715A00E7FC00 /* CreateNewGroupViewController+ItemCell.swift in Sources */,
 				669E185B2089EBE100D59D38 /* UIImageExtension.swift in Sources */,
-				660A45F722C4BC6E0047347D /* AddContactViewController+GroupsCell.swift in Sources */,
 				4DDD5CA8292DEC18003AD478 /* MusicBox.swift in Sources */,
 				665002AB23E951410009F351 /* ChatViewController+SelectionPanel.swift in Sources */,
 				6695786427A1317A00A6C4AB /* OmemoManager.swift in Sources */,
@@ -5265,7 +5181,6 @@
 				66B41958222FDEAA00E15D1D /* ClientDisco.swift in Sources */,
 				666201FA22B3E1D800FB2A44 /* AccountBlockListViewController+UITableViewDelegate.swift in Sources */,
 				66E125782487E3B2005D096B /* ContactsViewController+AddContactDelegate.swift in Sources */,
-				660A45F922C4BC7B0047347D /* AddContactViewController+Flow.swift in Sources */,
 				4DB325A1290FB186005364DD /* ProductCell.swift in Sources */,
 				66B6E9682419208300602626 /* SubforwardsViewController+DataSource.swift in Sources */,
 				4D683D1E285DDFF000FFCB25 /* AccountInfoViewController+UITableViewDelegate.swift in Sources */,
@@ -5283,9 +5198,7 @@
 				66AA29BC24C0687C007CD532 /* Data+TempSaveExtension.swift in Sources */,
 				66DED55722AA60CE008E5710 /* AccountColorViewController+UITableViewDatasource.swift in Sources */,
 				66A995EE28473E2E00F241C5 /* MessageSigningInfoViewController.swift in Sources */,
-				660A45EF22C4BB8D0047347D /* AddContactViewController+UITableViewDatasource.swift in Sources */,
 				66731BC221ECCDEE00B082FD /* ResourceStorageItem.swift in Sources */,
-				660A460422C4D7510047347D /* AccountSelectViewController+AccountCell.swift in Sources */,
 				66B7992222E0818F001589A5 /* SearchResultsViewController+UITableViewDelegate.swift in Sources */,
 				663926A6247E3F6F00FE6335 /* ContactsViewController+ContactCell.swift in Sources */,
 				666813EA2689987000DE6C7B /* EmptyStateView.swift in Sources */,
@@ -5379,7 +5292,6 @@
 				6635F03C233353FD00F8D7F3 /* MessageForwardMetadata.swift in Sources */,
 				66B17663233DDD7E00C95B12 /* HTTPUploadsManager.swift in Sources */,
 				6627A73224BD93B200FB0304 /* InviteSearchViewController+UITableViewDataSource.swift in Sources */,
-				660A45F122C4BB9C0047347D /* AddContactViewController+UITableViewDelegate.swift in Sources */,
 				666E1F4A2204203D00172F55 /* ChatViewController+CellDelegate.swift in Sources */,
 				664E3D7823978BB000E2CBCF /* PickerViewPresenter.swift in Sources */,
 				668409E326035C15001BB80B /* ChatViewController+Dataset.swift in Sources */,

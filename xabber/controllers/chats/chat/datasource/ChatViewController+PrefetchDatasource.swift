@@ -47,12 +47,29 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
                   .min() else {
             return
         }
+        print(messagesObserver?.count ?? 0, datasource.count)
         if (section == datasource.count - 1) && ((messagesObserver?.count ?? 0) > datasource.count){
             messagesCount += ChatViewController.datasourcePageSize
             DispatchQueue.main.async {
                 self.runDatasetUpdateTask()
             }
             self.shouldChangeOffsetOnUpdate = false
+        } else if (section == datasource.count - 1) && ((messagesObserver?.count ?? 0) == datasource.count) {
+            XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { stream, session in
+                session.mam?.getNextHistory(stream, for: self.jid, conversationType: self.conversationType) {
+                    DispatchQueue.main.async {
+                        self.runDatasetUpdateTask()
+                    }
+                }
+            }) {
+                AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                    user.mam.getNextHistory(stream, for: self.jid, conversationType: self.conversationType) {
+                        DispatchQueue.main.async {
+                            self.runDatasetUpdateTask()
+                        }
+                    }
+                })
+            }
         } else {
             self.shouldChangeOffsetOnUpdate = sectionMin > 0
         }

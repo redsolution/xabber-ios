@@ -40,9 +40,7 @@ class CreateNewGroupViewController: BaseViewController {
     }
     
     open var createIncognitoGroup: Bool = false
-    
-    open var delegate: AddContactDelegate? = nil
-    
+        
     internal var sectionHeaders: [String?] = []
     
     internal var sectionFooter: [String?] = []

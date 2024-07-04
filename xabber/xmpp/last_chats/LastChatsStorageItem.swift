@@ -60,6 +60,7 @@ class LastChatsStorageItem: Object {
     @objc dynamic var lastReadId: String? = nil
     @objc dynamic var displayedId: String? = nil
     @objc dynamic var deliveredId: String? = nil
+    @objc dynamic var lastLoadedMessageHistoryId: String? = nil
     @objc dynamic var unread: Int = 0
 //    @objc dynamic var isMuted: Bool = false
     @objc dynamic var isBlocked: Bool = false // TODO: make deprecated
