@@ -162,7 +162,7 @@ class TrustSharingManager: AbstractXMPPManager {
         }
         
         let event = message.element(forName: "event")
-        let pubsubItems = event?.element(forName: "items") ?? event?.element(forName: "trusted-items")
+        let pubsubItems = event?.element(forName: "items")
         if pubsubItems?.attributeStringValue(forName: "node") != self.node {
             return false
         }
@@ -458,6 +458,8 @@ class TrustSharingManager: AbstractXMPPManager {
     }
     
     func handleTrustItems(jid: String? = nil, publisherDeviceId: Int, itemsList: [DDXMLElement]) -> Bool {
+        var isShouldPublish = false
+        
         do {
             let realm = try WRealm.safe()
             for item in itemsList {
@@ -492,7 +494,7 @@ class TrustSharingManager: AbstractXMPPManager {
                             
                             // if the device has trusted its device then it should publish a new list of trusted devices of the device
                             if self.owner == jid {
-                                return true
+                                isShouldPublish = true
                             }
                         }
                     } catch {
@@ -504,7 +506,7 @@ class TrustSharingManager: AbstractXMPPManager {
             DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
         }
         
-        return false
+        return isShouldPublish
     }
     
     func sendNotificationWithContactsDevices(opponentFullJid: XMPPJID, deviceId: Int) {

@@ -338,19 +338,37 @@ class ApplicationStateManager: NSObject {
                 if instance?.state != .trusted {
                     return
                 }
+                
+                let sid = instance!.sid
+                
+                let vc = VerificationConfirmationViewController()
+                vc.owner = owner
+                vc.state = .trusted
+                vc.jid = jid
+                vc.sid = sid
+                vc.deviceId = deviceId
+                
+                DispatchQueue.main.async {
+                    showModal(vc, replaceParent: false)
+                }
+                
             } catch {
                 DDLogDebug("ApplicationStateManager: \(#function). \(error.localizedDescription)")
                 return
             }
             
-            DispatchQueue.main.async {
-                let vc = SuccessfulVerificationViewController()
-                vc.owner = owner
-                vc.jid = jid
-                vc.deviceId = deviceId
-                
-                showModal(vc, replaceParent: false)
-            }
+            
+            
+            
+            
+//            DispatchQueue.main.async {
+//                let vc = SuccessfulVerificationViewController()
+//                vc.owner = owner
+//                vc.jid = jid
+//                vc.deviceId = deviceId
+//                
+//                showModal(vc, replaceParent: false)
+//            }
         }
     }
     
