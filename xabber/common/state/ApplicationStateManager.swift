@@ -221,34 +221,28 @@ class ApplicationStateManager: NSObject {
     @objc
     func showVerificationConfirmationViewController(_ notification: Notification) {
         if let userInfo = notification.userInfo {
-            let sid = userInfo["sid"] as! String
-            let deviceId = userInfo["device-id"] as! String
-            
-            var isVerificationWithOwnDevice = false
-            
-            let jids = AccountManager.shared.users.compactMap { return $0.jid }
+            let owner = userInfo["owner"] as? String
+            let sid = userInfo["sid"] as? String
             
             do {
                 let realm = try WRealm.safe()
                 
-                for owner in jids {
-                    let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: owner, sid: sid))
-                    if instance != nil {
-                        if instance!.jid == owner {
-                            isVerificationWithOwnDevice = true
-                        }
-                        let jid = instance!.jid
-                        
-                        let vc = VerificationConfirmationViewController()
-                        vc.owner = owner
-                        vc.jid = jid
-                        vc.sid = sid
-                        vc.deviceId = deviceId
-                        vc.isVerificationWithOwnDevice = isVerificationWithOwnDevice
-
-                        showModal(vc, replaceParent: false)
+                let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: owner ?? "", sid: sid ?? ""))
+                    if instance == nil {
+                        return
                     }
-                }
+                
+                let jid = instance!.jid
+                let deviceId = instance!.opponentDeviceId
+                
+                let vc = VerificationConfirmationViewController()
+                vc.owner = owner ?? ""
+                vc.jid = jid
+                vc.sid = sid ?? ""
+                vc.deviceId = String(deviceId)
+
+                showModal(vc, replaceParent: false)
+                
             } catch {
                 DDLogDebug("ApplicationStateManager: \(#function). \(error.localizedDescription)")
             }
@@ -291,16 +285,41 @@ class ApplicationStateManager: NSObject {
     @objc
     func showAuthenticationCodeInputViewController(_ notification: Notification) {
         if let userInfo = notification.userInfo {
-            let owner = userInfo["owner"] as! String
-            let jid = userInfo["jid"] as! String
-            let sid = userInfo["sid"] as! String
-            let vc = AuthenticationCodeInputViewController()
-            vc.owner = owner
-            vc.jid = jid
-            vc.sid = sid
-            vc.isVerificationWithUsersDevice = owner == jid ? true : false
+            let owner = userInfo["owner"] as? String
+            let sid = userInfo["sid"] as? String
             
-            showModal(vc, replaceParent: false)
+            do {
+                let realm = try WRealm.safe()
+                let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: owner ?? "", sid: sid ?? ""))
+                if instance == nil || instance?.state != VerificationSessionStorageItem.VerififcationState.receivedRequestAccept {
+                    return
+                }
+                
+                let jid = instance!.jid
+                let deviceId = instance!.opponentDeviceId
+                let code = instance!.code
+                
+                let vc = VerificationConfirmationViewController()
+                vc.owner = owner ?? ""
+                vc.state = .receivedRequestAccept
+                vc.jid = jid
+                vc.sid = sid ?? ""
+                vc.deviceId = String(deviceId)
+                vc.code = code
+                
+                showModal(vc, replaceParent: false)
+                
+            } catch {
+                DDLogDebug("ApplicationStateManager: \(#function). \(error.localizedDescription)")
+            }
+            
+//            let vc = AuthenticationCodeInputViewController()
+//            vc.owner = owner
+//            vc.jid = jid
+//            vc.sid = sid
+//            vc.isVerificationWithUsersDevice = owner == jid ? true : false
+//            
+//            showModal(vc, replaceParent: false)
         }
     }
     
@@ -319,19 +338,37 @@ class ApplicationStateManager: NSObject {
                 if instance?.state != .trusted {
                     return
                 }
+                
+                let sid = instance!.sid
+                
+                let vc = VerificationConfirmationViewController()
+                vc.owner = owner
+                vc.state = .trusted
+                vc.jid = jid
+                vc.sid = sid
+                vc.deviceId = deviceId
+                
+                DispatchQueue.main.async {
+                    showModal(vc, replaceParent: false)
+                }
+                
             } catch {
                 DDLogDebug("ApplicationStateManager: \(#function). \(error.localizedDescription)")
                 return
             }
             
-            DispatchQueue.main.async {
-                let vc = SuccessfulVerificationViewController()
-                vc.owner = owner
-                vc.jid = jid
-                vc.deviceId = deviceId
-                
-                showModal(vc, replaceParent: false)
-            }
+            
+            
+            
+            
+//            DispatchQueue.main.async {
+//                let vc = SuccessfulVerificationViewController()
+//                vc.owner = owner
+//                vc.jid = jid
+//                vc.deviceId = deviceId
+//                
+//                showModal(vc, replaceParent: false)
+//            }
         }
     }
     

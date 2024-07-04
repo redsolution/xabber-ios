@@ -625,12 +625,18 @@ class ContactInfoViewController: BaseViewController {
     
     @objc
     func onEnterCodePressed() {
-        let vc = AuthenticationCodeInputViewController()
-        vc.jid = self.jid
-        vc.owner = self.owner
-        vc.sid = activeVerificationSession!.sid
-        vc.isVerificationWithUsersDevice = false
+        NotificationCenter.default.post(
+            name: NSNotification.Name(rawValue: "show_AuthenticationCodeInputViewController"),
+            object: self,
+            userInfo: ["owner": self.owner, "sid": activeVerificationSession!.sid]
+        )
         
-        showModal(vc, replaceParent: false)
+//        let vc = AuthenticationCodeInputViewController()
+//        vc.jid = self.jid
+//        vc.owner = self.owner
+//        vc.sid = activeVerificationSession!.sid
+//        vc.isVerificationWithUsersDevice = false
+//        
+//        showModal(vc, replaceParent: false)
     }
 }

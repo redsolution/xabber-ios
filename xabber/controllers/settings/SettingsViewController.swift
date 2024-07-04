@@ -781,16 +781,18 @@ class SettingsViewController: BaseViewController {
     
     @objc
     func onAcceptButtonPressed() {
-        guard let code = AccountManager.shared.find(for: self.jid)?.akeManager.acceptVerificationRequest(jid: self.jid, sid: activeVerificationSession!.sid) else {
-            return
+        AccountManager.shared.find(for: self.owner)?.action { user, stream in
+            DispatchQueue.main.async {
+                _ = user.akeManager.acceptVerificationRequest(jid: self.jid, sid: self.activeVerificationSession!.sid)
+                
+                NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_VerificationCodeViewController"),
+                                                object: self,
+                                                userInfo: [
+                                                    "owner": self.owner,
+                                                    "sid": self.activeVerificationSession!.sid
+                                                ])
+            }
         }
-        
-        NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_VerificationCodeViewController"),
-                                        object: self,
-                                        userInfo: [
-                                            "owner": self.owner,
-                                            "sid": activeVerificationSession!.sid
-                                        ])
     }
     
     @objc
@@ -805,13 +807,19 @@ class SettingsViewController: BaseViewController {
     
     @objc
     func onEnterCodePressed() {
-        let vc = AuthenticationCodeInputViewController()
-        vc.jid = self.jid
-        vc.owner = self.jid
-        vc.sid = activeVerificationSession!.sid
-        vc.isVerificationWithUsersDevice = true
+        NotificationCenter.default.post(
+            name: NSNotification.Name(rawValue: "show_AuthenticationCodeInputViewController"),
+            object: self,
+            userInfo: ["owner": self.jid, "sid": activeVerificationSession!.sid]
+        )
         
-        self.navigationController?.present(vc, animated: true)
+//        let vc = AuthenticationCodeInputViewController()
+//        vc.jid = self.jid
+//        vc.owner = self.jid
+//        vc.sid = activeVerificationSession!.sid
+//        vc.isVerificationWithUsersDevice = true
+//        
+//        self.navigationController?.present(vc, animated: true)
     }
     
     @objc
