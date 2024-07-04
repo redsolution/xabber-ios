@@ -85,6 +85,15 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
         return label
     }()
     
+    let codeInputField: UITextField = {
+        let textField = UITextField()
+        textField.typingAttributes = [NSAttributedString.Key.kern: 5]
+        textField.font = UIFont.monospacedSystemFont(ofSize: 48, weight: .regular).bold()
+        textField.textAlignment = .center
+        
+        return textField
+    }()
+    
     let agreeButton: UIButton = {
         let button = UIButton(type: .system)
         button.translatesAutoresizingMaskIntoConstraints = false
@@ -127,30 +136,6 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
                     self.loadDatasource()
                     self.activateConstraints()
                     
-//                    var attributedString = NSMutableAttributedString()
-//                    if self.isVerificationWithOwnDevice {
-//                        self.descriptionLabel.text = "You are receiving a device verification request to ensure secure and encrypted communication."
-//                        attributedString = NSMutableAttributedString(string: "1.\tConfirm that this device is yours and that you recognize the initiating session.\n\n2.\tBelow is the verification code. Enter this code on the primary device to complete the encryption key exchange:")
-//                    } else {
-//                        self.descriptionLabel.text = "You are about to establish a secure connection with this contact."
-//                        attributedString = NSMutableAttributedString(string: "1.\tCarefully verify the address and identity of this contact.\n\n2.\tUse a secure method (preferably in person) to ask the contact to verify identity by entering the following code:")
-//                    }
-//                    
-//                    let paragraphStyle = NSMutableParagraphStyle()
-//                    paragraphStyle.headIndent = 28
-//                    attributedString.addAttributes([NSAttributedString.Key.paragraphStyle: paragraphStyle], range: NSRange(location: 0, length: attributedString.length))
-//                    self.stepsLabel.attributedText = attributedString
-//                    
-//                    self.view.backgroundColor = .systemBackground
-//                    
-//                    if item?.code == "" {
-//                        return
-//                    }
-//                    self.codeLabel.text = item?.code
-//                    self.stackLabels.addArrangedSubview(self.codeLabel)
-//                    self.stackLabels.setCustomSpacing(40, after: self.stepsLabel)
-//                    
-//                    self.cancelButton.addTarget(self, action: #selector(self.onCancelButtonPressed), for: .touchUpInside)
                     break
                     
                 default:
@@ -194,6 +179,17 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
             self.stackLabels.setCustomSpacing(40, after: self.stepsLabel)
             self.cancelButton.addTarget(self, action: #selector(self.onCancelButtonPressed), for: .touchUpInside)
             
+        } else if state == .receivedRequestAccept {
+            agreeButton.configuration = UIButton.Configuration.filled()
+            agreeButton.configuration?.baseBackgroundColor = .systemBlue
+            agreeButton.setTitle("Submit", for: .normal)
+            
+            containerView.addSubview(agreeButton)
+            self.stackLabels.addArrangedSubview(codeInputField)
+            self.stackLabels.setCustomSpacing(40, after: self.stepsLabel)
+            self.agreeButton.addTarget(self, action: #selector(onSubmitButtonPressed), for: .touchUpInside)
+            self.cancelButton.addTarget(self, action: #selector(self.onCancelButtonPressed), for: .touchUpInside)
+            
         }
         
         
@@ -215,6 +211,9 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
             stepsText = self.owner == self.jid ? "1.\tConfirm that this device is yours and that you recognize the initiating session.\n\n2.\tBelow is the verification code. Enter this code on the primary device to complete the encryption key exchange:" : "1.\tCarefully verify the address and identity of this contact.\n\n2.\tUse a secure method (preferably in person) to ask the contact to verify identity by entering the following code:"
             codeLabel.text = self.code
             
+        case .receivedRequestAccept:
+            descriptionText = self.owner == self.jid ? "You are verifying this device to ensure secure and encrypted communication." : "You are establishing a secure connection with this contact."
+            stepsText = self.owner == self.jid ? "1.\tEnsure the other device is displaying the verification code.\n\n2.\tEnter the verification code displayed on the other device to complete the encryption key exchange:" : "1.\tCarefully verify the address and identity of this contact.\n\n2.\tEnter the verification code provided by your contact to confirm the secure connection:"
         default:
             break
         }
@@ -253,14 +252,6 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
             } catch {
                 DDLogDebug("ShowCodeViewController: \(#function). \(error.localizedDescription)")
             }
-        
-//            self.descriptionLabel.text = "A verification request has been sent from another device to establish secure and encrypted communication."
-//            
-//            let attributedString = NSMutableAttributedString(string: "1.\tConfirm that this device is yours and that you recognize the initiating session.\n\n2.\tProceed to reveal the verification code necessary to complete the encryption key exchange.")
-//            let paragraphStyle = NSMutableParagraphStyle()
-//            paragraphStyle.headIndent = 28
-//            attributedString.addAttributes([NSAttributedString.Key.paragraphStyle: paragraphStyle], range: NSRange(location: 0, length: attributedString.length))
-//            stepsLabel.attributedText = attributedString
             
             self.headerView.configure(
                 avatarUrl: nil,
@@ -280,14 +271,6 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
                 self.headerView.imageButton.setImage(UIImage(systemName: "questionmark")?.withTintColor(.systemBlue), for: .normal)
             }
         } else {
-//            self.descriptionLabel.text = "A verification request has been sent from your contact to establish secure and encrypted communication."
-//            
-//            let attributedString = NSMutableAttributedString(string: "1.\tСonfirm that this contact is who he claims to be and that you recognize the initiating session.\n\n2.\tProceed to reveal the verification code necessary to complete the encryption key exchange.")
-//            let paragraphStyle = NSMutableParagraphStyle()
-//            paragraphStyle.headIndent = 28
-//            attributedString.addAttributes([NSAttributedString.Key.paragraphStyle: paragraphStyle], range: NSRange(location: 0, length: attributedString.length))
-//            stepsLabel.attributedText = attributedString
-            
             do {
                 let realm = try WRealm.safe()
                 guard let verificationInstance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) else {
@@ -336,7 +319,7 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
             cancelButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -40),
         ])
         
-        if state == .receivedRequest {
+        if state == .receivedRequest || state == .receivedRequestAccept {
             agreeButton.centerXAnchor.constraint(equalTo: view.centerXAnchor).isActive = true
             agreeButton.bottomAnchor.constraint(equalTo: cancelButton.topAnchor, constant: -8).isActive = true
         }
@@ -345,10 +328,29 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
     override func addObservers() {
         NotificationCenter.default.addObserver(self, selector: #selector(closeView(_:)), name: NSNotification.Name(rawValue: "rejected_VerificationConfirmationViewController"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(closeView(_:)), name: NSNotification.Name(rawValue: "close_view"), object: nil)
+        
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(self.keyboardWillShowNotification(_:)),
+            name: UIWindow.keyboardWillShowNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(self.keyboardWillHideNotification(_:)),
+            name: UIWindow.keyboardWillHideNotification,
+            object: nil
+        )
     }
     
     override func onAppear() {
         super.onAppear()
+        
+        if self.state == .receivedRequestAccept {
+            codeInputField.becomeFirstResponder()
+            codeInputField.returnKeyType = .continue
+            codeInputField.delegate = self
+        }
         
         containerView.frame = self.view.bounds
         
@@ -405,6 +407,63 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
     }
     
     @objc
+    func onSubmitButtonPressed() {
+        submitVerificationCode()
+        
+        self.dismiss(animated: true)
+    }
+    
+    func submitVerificationCode() {
+        var deviceId: String = ""
+        var saltCiphertext: String = ""
+        var saltIv: String = ""
+        
+        do {
+            let realm = try WRealm.safe()
+            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: self.sid))
+            if instance == nil {
+                return
+            }
+            
+            deviceId = String(instance!.opponentDeviceId)
+            saltCiphertext = instance!.opponentByteSequenceEncrypted
+            saltIv = instance!.opponentByteSequenceIv
+            
+            if let text = codeInputField.text {
+                try realm.write {
+                    instance!.code = text
+                }
+            } else {
+                return
+            }
+        } catch {
+            DDLogDebug("ShowCodeViewController: \(#function). \(error.localizedDescription)")
+        }
+            
+        AccountManager.shared.find(for: self.owner)?.action { user, stream in
+            do {
+                let realm = try WRealm.safe()
+                let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: self.sid))
+                let salt = user.akeManager.decrypt(
+                    jid: XMPPJID(string: self.jid)?.bare ?? "",
+                    sid: self.sid,
+                    deviceId: Int(deviceId) ?? -1,
+                    ciphertext: try saltCiphertext.base64decoded(),
+                    iv: try saltIv.base64decoded()
+                )
+                
+                try realm.write {
+                    instance?.opponentByteSequence = salt.toBase64()
+                }
+            } catch {
+                DDLogDebug("ShowCodeViewController: \(#function). \(error.localizedDescription)")
+            }
+            
+            user.akeManager.sendHashToOpponent(jid: XMPPJID(string: self.jid)!, sid: self.sid)
+        }
+    }
+    
+    @objc
     func onCancelButtonPressed() {
         do {
             let realm = try WRealm.safe()
@@ -421,5 +480,68 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
         }
         
         self.dismiss(animated: true)
+    }
+    
+    @objc
+    func keyboardWillShowNotification(_ notification: Notification) {
+        if let userInfo = notification.userInfo {
+            if let frameValue = userInfo[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue {
+                let frame = frameValue.cgRectValue
+                let keyboardVisibleHeight = frame.size.height
+                if keyboardVisibleHeight == 0 {
+                    return
+                }
+                switch (userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber, userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber) {
+                case let (.some(duration), .some(curve)):
+                    let options = UIView.AnimationOptions(rawValue: curve.uintValue)
+                    
+                    let codeBottomLine = self.stackLabels.frame.origin.y + self.stackLabels.frame.height + 40 + codeInputField.frame.height
+                    let keyboardTopLine = self.view.frame.height - keyboardVisibleHeight
+                    
+                    UIView.animate(
+                        withDuration: TimeInterval(duration.doubleValue),
+                        delay: 0,
+                        options: options,
+                        animations: {
+                            self.scrollView.contentOffset.y = codeBottomLine - keyboardTopLine
+                            return
+                        }, completion: { finished in
+                    })
+                default:
+                    break
+                }
+            }
+        }
+    }
+    
+    @objc func keyboardWillHideNotification(_ notification: NSNotification) {
+        if let userInfo = notification.userInfo {
+            
+            switch (userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber, userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber) {
+            case let (.some(duration), .some(curve)):
+                let options = UIView.AnimationOptions(rawValue: curve.uintValue)
+                
+                UIView.animate(
+                    withDuration: TimeInterval(duration.doubleValue),
+                    delay: 0,
+                    options: options,
+                    animations: {
+                        self.scrollView.contentOffset.y = 0
+                        return
+                    }, completion: { finished in
+                })
+            default:
+                break
+            }
+        }
+    }
+}
+
+extension VerificationConfirmationViewController: UITextFieldDelegate {
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        submitVerificationCode()
+        self.dismiss(animated: true)
+        
+        return true
     }
 }

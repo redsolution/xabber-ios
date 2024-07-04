@@ -362,11 +362,6 @@ class DevicesListViewController: BaseViewController {
             user.akeManager.sendVerificationRequest(jid: self.jid)
         }
         
-//        guard let akeManager = AccountManager.shared.find(for: self.jid)?.akeManager else {
-//            fatalError()
-//        }
-//        akeManager.sendVerificationRequest(jid: self.jid)
-        
         self.load()
         self.update()
         tableView.reloadData()
@@ -374,46 +369,46 @@ class DevicesListViewController: BaseViewController {
     
     @objc
     func onAcceptButtonPressed() {
-        guard let code = AccountManager.shared.find(for: self.jid)?.akeManager.acceptVerificationRequest(jid: self.jid, sid: activeVerificationSession!.sid) else {
-            return
+        AccountManager.shared.find(for: self.owner)?.action { user, stream in
+            DispatchQueue.main.async {
+                _ = user.akeManager.acceptVerificationRequest(jid: self.jid, sid: self.activeVerificationSession!.sid)
+                
+                NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_VerificationCodeViewController"),
+                                                object: self,
+                                                userInfo: [
+                                                    "owner": self.jid,
+                                                    "sid": self.activeVerificationSession!.sid
+                                                ])
+            }
         }
-        let vc = ShowCodeViewController()
-        vc.jid = self.jid
-        vc.owner = self.jid
-        vc.code = code
-        vc.sid = activeVerificationSession!.sid
-        vc.isVerificationWithOwnDevice = true
-        
-        self.navigationController?.present(vc, animated: true)
     }
     
     @objc
     func onShowCodePressed() {
-        do {
-            let realm = try WRealm.safe()
-            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.jid, sid: activeVerificationSession!.sid))
-            let vc = ShowCodeViewController()
-            vc.jid = self.jid
-            vc.owner = self.jid
-            vc.code = instance?.code ?? ""
-            vc.sid = activeVerificationSession!.sid
-            vc.isVerificationWithOwnDevice = true
-            
-            self.navigationController?.present(vc, animated: true)
-        } catch {
-            DDLogDebug("DevicesListViewController: \(#function). \(error.localizedDescription)")
-        }
+        NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_VerificationCodeViewController"),
+                                        object: self,
+                                        userInfo: [
+                                            "owner": self.jid,
+                                            "sid": activeVerificationSession!.sid
+                                        ]
+        )
     }
     
     @objc
     func onEnterCodePressed() {
-        let vc = AuthenticationCodeInputViewController()
-        vc.jid = self.jid
-        vc.owner = self.jid
-        vc.sid = activeVerificationSession!.sid
-        vc.isVerificationWithUsersDevice = true
+        NotificationCenter.default.post(
+            name: NSNotification.Name(rawValue: "show_AuthenticationCodeInputViewController"),
+            object: self,
+            userInfo: ["owner": self.jid, "sid": activeVerificationSession!.sid]
+        )
         
-        self.navigationController?.present(vc, animated: true)
+//        let vc = AuthenticationCodeInputViewController()
+//        vc.jid = self.jid
+//        vc.owner = self.jid
+//        vc.sid = activeVerificationSession!.sid
+//        vc.isVerificationWithUsersDevice = true
+//        
+//        self.navigationController?.present(vc, animated: true)
     }
     
     @objc

@@ -101,7 +101,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                         bodyNotification = "Verification request accepted"
 
                         if jid == self.owner {
-                            NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_AuthenticationCodeInputViewController"), object: self, userInfo: ["owner": self.owner, "jid": jid, "sid": sid])
+                            NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_AuthenticationCodeInputViewController"), object: self, userInfo: ["owner": self.owner, "sid": sid])
                         } else {
                             self.showNotification(title: jid, owner: self.owner, body: bodyNotification, sid: sid, timestamp: timestamp)
                         }

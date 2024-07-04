@@ -1072,25 +1072,35 @@ class NotifyManager {
             
             switch instance!.state {
             case VerificationSessionStorageItem.VerififcationState.receivedRequest:
-                let deviceId = instance!.opponentDeviceId
-                let jid = instance!.jid
+                NotificationCenter.default.post(name: NSNotification.Name(rawValue: "received_VerificationConfirmationViewController"),
+                                                object: self,
+                                                userInfo: [
+                                                    "owner": owner,
+                                                    "sid": sid
+                                                ])
                 
-                let vc = VerificationConfirmationViewController()
-                vc.owner = owner
-                vc.jid = jid
-                vc.sid = sid
-                vc.deviceId = String(deviceId)
-                vc.isVerificationWithOwnDevice = owner == instance!.jid ? true : false
-                
-                showModal(vc, replaceParent: false)
+//                let vc = VerificationConfirmationViewController()
+//                vc.owner = owner
+//                vc.jid = jid
+//                vc.sid = sid
+//                vc.deviceId = String(deviceId)
+//                vc.isVerificationWithOwnDevice = owner == instance!.jid ? true : false
+//                
+//                showModal(vc, replaceParent: false)
                 
             case VerificationSessionStorageItem.VerififcationState.receivedRequestAccept:
-                let vc = AuthenticationCodeInputViewController()
-                vc.jid = instance?.jid ?? ""
-                vc.owner = owner
-                vc.sid = sid
-                vc.isVerificationWithUsersDevice = instance?.jid == owner
-                (UIApplication.shared.delegate as? AppDelegate)?.splitController?.present(vc, animated: true)
+                NotificationCenter.default.post(
+                    name: NSNotification.Name(rawValue: "show_AuthenticationCodeInputViewController"),
+                    object: self,
+                    userInfo: ["owner": owner, "sid": sid]
+                )
+                
+//                let vc = AuthenticationCodeInputViewController()
+//                vc.jid = instance?.jid ?? ""
+//                vc.owner = owner
+//                vc.sid = sid
+//                vc.isVerificationWithUsersDevice = instance?.jid == owner
+//                (UIApplication.shared.delegate as? AppDelegate)?.splitController?.present(vc, animated: true)
             case VerificationSessionStorageItem.VerififcationState.failed:
                 if let instance = instance {
                     try realm.write {
