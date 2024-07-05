@@ -539,12 +539,12 @@ extension ChatViewController {
                         let item = results.first
                         if ![.addContact, .allowSubscribtion, .requestSubscribtion].contains(self.topPanelState.value) {
                             switch item?.state {
-                                case .sentRequest:
-                                    self.topPanelState.accept(.requestedVerification)
                                 case .receivedRequestAccept:
                                     self.topPanelState.accept(.enterCodeVerification)
                                 case .receivedRequest:
                                     self.topPanelState.accept(.requestingVerification)
+                                case .acceptedRequest:
+                                    self.topPanelState.accept(.acceptedVerification)
                                 default:
                                     break
                             }
