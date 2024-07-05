@@ -8,6 +8,7 @@
 
 import Foundation
 import UIKit
+import CocoaLumberjack
 
 extension ChatViewController {
     @objc
@@ -17,12 +18,54 @@ extension ChatViewController {
     
     @objc
     internal func onEnterCodeVerification(_ sender: UIButton) {
+        do {
+            let realm = try WRealm.safe()
+            let instance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid).first
+            if instance == nil {
+                return
+            }
+            
+            let sid = instance!.sid
+            let deviceId = String(instance!.opponentDeviceId)
+            
+            let vc = VerificationConfirmationViewController()
+            vc.owner = self.owner
+            vc.jid = self.jid
+            vc.sid = sid
+            vc.state = .receivedRequestAccept
+            vc.deviceId = deviceId
+            
+            showModal(vc)
+            
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        }
         
     }
     
     @objc
     internal func onRequestingVerification(_ sender: UIButton) {
-        
+        do {
+            let realm = try WRealm.safe()
+            let instance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid).first
+            if instance == nil {
+                return
+            }
+            
+            let sid = instance!.sid
+            let deviceId = String(instance!.opponentDeviceId)
+            
+            let vc = VerificationConfirmationViewController()
+            vc.owner = self.owner
+            vc.jid = self.jid
+            vc.sid = sid
+            vc.deviceId = deviceId
+            
+            showModal(vc)
+            
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        }
     }
     
     @objc
@@ -30,7 +73,35 @@ extension ChatViewController {
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
             user.akeManager.sendVerificationRequest(jid: self.jid)
         })
-        self.topPanelState.accept(.requestedVerification)
+        self.topPanelState.accept(.none)
+    }
+    
+    @objc
+    internal func onAcceptedVerification(_ sender: UIButton) {
+        do {
+            let realm = try WRealm.safe()
+            let instance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid).first
+            if instance == nil {
+                return
+            }
+            
+            let sid = instance!.sid
+            let deviceId = String(instance!.opponentDeviceId)
+            let code = instance!.code
+            
+            let vc = VerificationConfirmationViewController()
+            vc.owner = self.owner
+            vc.jid = self.jid
+            vc.sid = sid
+            vc.deviceId = deviceId
+            vc.state = .acceptedRequest
+            vc.code = code
+            
+            showModal(vc)
+            
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        }
     }
     
 }

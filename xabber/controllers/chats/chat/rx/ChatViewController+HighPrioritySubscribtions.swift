@@ -107,6 +107,8 @@ extension ChatViewController {
                         self.applyRequestingVerificationPanel()
                     case .shouldRequestVerification:
                         self.applyShouldRequestVerificationPanel()
+                    case .acceptedVerification:
+                        self.applyAcceptedVerification()
                 }
                 switch state {
                     case .none:

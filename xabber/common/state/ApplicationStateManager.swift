@@ -297,7 +297,6 @@ class ApplicationStateManager: NSObject {
                 
                 let jid = instance!.jid
                 let deviceId = instance!.opponentDeviceId
-                let code = instance!.code
                 
                 let vc = VerificationConfirmationViewController()
                 vc.owner = owner ?? ""
@@ -305,7 +304,6 @@ class ApplicationStateManager: NSObject {
                 vc.jid = jid
                 vc.sid = sid ?? ""
                 vc.deviceId = String(deviceId)
-                vc.code = code
                 
                 showModal(vc, replaceParent: false)
                 

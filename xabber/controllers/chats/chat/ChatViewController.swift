@@ -43,6 +43,7 @@ class ChatViewController: MessagesViewController {
         case enterCodeVerification = "enter_code_verification"
         case requestingVerification = "requesting_verification"
         case shouldRequestVerification = "should_request_verification"
+        case acceptedVerification = "accepted_verification"
     }
     
     enum InputBarState {

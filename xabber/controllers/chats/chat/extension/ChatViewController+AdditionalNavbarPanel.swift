@@ -138,6 +138,22 @@ extension ChatViewController {
         })
     }
     
+    internal func applyAcceptedVerification() {
+        (self.navigationController as? NavBarController)?.configureAdditionalPanel({ barVc, stack in
+//            barVc.indicatorIcon.setImage(UIImage(systemName: "exclamationmark.triangle.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
+//            barVc.indicatorIcon.tintColor = .systemOrange
+            let button = UIButton()
+            var configuration = UIButton.Configuration.plain()
+            configuration.title = "Show verification code"
+            configuration.baseForegroundColor = .tintColor
+            button.configuration = configuration
+            
+            stack.addArrangedSubview(button)
+            
+            button.addTarget(self, action: #selector(onAcceptedVerification), for: .touchUpInside)
+        })
+    }
+    
     @objc
     final func additionalNavBarPanelCancelButtonTouchUpInside(_ sender: UIButton) {
         switch topPanelState.value {
@@ -158,6 +174,8 @@ extension ChatViewController {
             case .requestingVerification:
                 break
             case .shouldRequestVerification:
+                break
+            case .acceptedVerification:
                 break
         }
         (self.navigationController as? NavBarController)?.hideAdditionalPanel(animated: true)
