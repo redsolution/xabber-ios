@@ -386,7 +386,7 @@ extension TrustedDevicesViewController: UITableViewDelegate {
                         DDLogDebug("TrustedDevicesViewController: \(#function).")
                         return
                     }
-                    trustSharingManager.sendNotificationWithContactsDevices(opponentFullJid: XMPPJID(string: self.owner)!, deviceId: localStore.localDeviceId())
+                    trustSharingManager.sendListOfContactsDevices(opponentFullJid: XMPPJID(string: self.owner)!, deviceId: localStore.localDeviceId())
                 } catch {
                     DDLogDebug("TrustedDevicesViewController: \(#function). \(error.localizedDescription)")
                     return

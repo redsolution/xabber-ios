@@ -158,6 +158,7 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
                     self.setupSubviews()
                     self.loadDatasource()
                     self.activateConstraints()
+                    self.onAppear()
                     
                     break
                     
@@ -223,15 +224,19 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
             containerView.addSubview(agreeButton)
             agreeButton.addTarget(self, action: #selector(onAgreeButtonTapped), for: .touchUpInside)
             cancelButton.addTarget(self, action: #selector(onRejectButtonTapped), for: .touchUpInside)
+            self.navigationController?.isNavigationBarHidden = true
             
         } else if state == .acceptedRequest {
             self.stackLabels.addArrangedSubview(self.codeLabel)
             self.stackLabels.setCustomSpacing(40, after: self.stepsLabel)
             self.cancelButton.addTarget(self, action: #selector(self.onCancelButtonPressed), for: .touchUpInside)
             
+            self.navigationController?.isNavigationBarHidden = false
+            self.navigationItem.setRightBarButton(UIBarButtonItem(systemItem: .cancel), animated: true)
+            
         } else if state == .receivedRequestAccept {
             agreeButton.configuration = UIButton.Configuration.filled()
-            agreeButton.configuration?.baseBackgroundColor = .systemBlue
+            agreeButton.tintColor = .systemBlue
             agreeButton.setTitle("Submit", for: .normal)
             
             containerView.addSubview(agreeButton)
@@ -239,6 +244,9 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
             self.stackLabels.setCustomSpacing(40, after: self.stepsLabel)
             self.agreeButton.addTarget(self, action: #selector(onSubmitButtonPressed), for: .touchUpInside)
             self.cancelButton.addTarget(self, action: #selector(self.onCancelButtonPressed), for: .touchUpInside)
+            
+            self.navigationController?.isNavigationBarHidden = false
+            self.navigationItem.setRightBarButton(UIBarButtonItem(systemItem: .cancel), animated: true)
             
         } else if state == .trusted {
             containerView.addSubview(tableView)
@@ -249,6 +257,8 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
             cancelButton.setTitle("Great!", for: .normal)
             cancelButton.setTitleColor(.systemBlue, for: .normal)
             cancelButton.addTarget(self, action: #selector(onCloseButtonPressed), for: .touchUpInside)
+            
+            self.navigationController?.isNavigationBarHidden = true
         }
         
         
@@ -321,11 +331,6 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
                 publicName = deviceInstance!.device
                 
                 if self.state == .trusted {
-//                    let currentDevice = realm.objects(DeviceStorageItem.self).filter("owner == %@ AND omemoDeviceId == %@", self.owner, Int(self.deviceId) ?? -1).first
-//                    if currentDevice == nil {
-//                        return
-//                    }
-                    
                     self.datasource.append(Datasource(name: deviceInstance!.device, ip: deviceInstance!.ip, lastAuth: deviceInstance!.authDate, client: deviceInstance!.client))
                     
                     let instances = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND state_ == %@ AND trustedByDeviceId == %@", self.owner, SignalDeviceStorageItem.TrustState.trusted.rawValue, self.deviceId)
@@ -456,6 +461,9 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
     override func onAppear() {
         super.onAppear()
         
+        self.navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
+        self.navigationController?.navigationBar.shadowImage = UIImage()
+        
         if self.state == .receivedRequestAccept {
             codeInputField.becomeFirstResponder()
             codeInputField.returnKeyType = .continue
@@ -469,7 +477,6 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
             height: headerHeightMax
         )
         self.headerView.updateSubviews()
-        self.navigationController?.isNavigationBarHidden = true
     }
     
     override func viewDidDisappear(_ animated: Bool) {
