@@ -25,11 +25,8 @@ import RxSwift
 import RxRealm
 import CocoaLumberjack
 
-protocol ShareViewControllerDelegate {
-    func open(owner: String, jid: String, forwarded messages: [String])
-}
 
-class ShareDialogController: BaseViewController {
+class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISearchControllerDelegate {
     
     struct Datasource {
         let jid: String
@@ -54,15 +51,13 @@ class ShareDialogController: BaseViewController {
     }
     
     internal var forwardIds: [String] = []
-    
-    internal var bag: DisposeBag = DisposeBag()
-    
+        
     internal var chatsDataset: Results<LastChatsStorageItem>? = nil
     internal var rosterDataset: Results<RosterStorageItem>? = nil
     
     internal var datasource: [Datasource] = []
     
-    open var delegate: ShareViewControllerDelegate? = nil
+    open var delegate: OpenChatDelegate? = nil
     
     internal let tableView: UITableView = {
         let view = UITableView(frame: .zero, style: .plain)
@@ -164,7 +159,7 @@ class ShareDialogController: BaseViewController {
                 date: item.messageDate,
                 deliveryState: item.lastMessage?.outgoing ?? true ? item.lastMessage?.state ?? nil : nil,
                 isMute: item.isMuted,
-                isSynced: true,
+                isSynced: item.isSynced,
                 isGroupchat: item.conversationType == .group,
                 status: primaryResource?.status ?? .offline,
                 entity: primaryResource?.entity ?? .contact,
@@ -177,7 +172,6 @@ class ShareDialogController: BaseViewController {
                 groupchatNickname: nickname,
                 isSystem: [.system, .initial].contains(item.lastMessage?.displayAs ?? .text)
             )
-            
         } ?? []
         
         self.datasource.append(contentsOf: self.rosterDataset?.compactMap({ item in
@@ -189,14 +183,11 @@ class ShareDialogController: BaseViewController {
             let entity = primaryResource?.entity ?? .contact
             var conversationType: ClientSynchronizationManager.ConversationType = .regular
             switch entity {
-            case .contact, .bot, .server, .issue:
-                conversationType = .regular
-            case .groupchat, .privateChat, .incognitoChat:
-                conversationType = .group
-            case .encryptedChat:
-                conversationType = .omemo
+                case .groupchat, .privateChat, .incognitoChat:
+                    conversationType = .group
+                default:
+                    conversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
             }
-            
             
             return Datasource(
                 jid: item.jid,
@@ -222,11 +213,7 @@ class ShareDialogController: BaseViewController {
         }) ?? [])
         self.tableView.reloadData()
     }
-    
-    internal func activateConstraints() {
         
-    }
-    
     internal func configureSearchBar() {
         let searchUpdater = ShareDialogSearchController()
         searchUpdater.configure(owner: owner, forwardIds: forwardIds)
@@ -254,7 +241,8 @@ class ShareDialogController: BaseViewController {
         definesPresentationContext = true
     }
     
-    public final func configure() {
+    override func configure() {
+        super.configure()
         view.addSubview(tableView)
         tableView.fillSuperview()
         tableView.dataSource = self
@@ -274,37 +262,14 @@ class ShareDialogController: BaseViewController {
         self.dismiss(animated: true, completion: nil)
     }
 
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        configure()
-        activateConstraints()
-        
-        NotificationCenter.default.addObserver(self,
-                                               selector: #selector(reloadDatasource),
-                                               name: .newMaskSelected,
-                                               object: nil)
-    }
+
     
     override func reloadDatasource() {
         tableView.reloadData()
     }
     
-    override func viewWillAppear(_ animated: Bool) {
-        super.viewWillAppear(animated)
+    override func onAppear() {
+        super.onAppear()
         updateDatasource()
     }
-    
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
-    }
-    
-    override func viewWillDisappear(_ animated: Bool) {
-        super.viewWillDisappear(animated)
-    }
-    
-    override func viewDidDisappear(_ animated: Bool) {
-        super.viewDidDisappear(animated)
-    }
-    
-    
 }

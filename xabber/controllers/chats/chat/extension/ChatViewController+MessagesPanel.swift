@@ -56,35 +56,3 @@ extension ChatViewController: ChatViewMessagesPanelDelegate {
         
     }
 }
-
-extension ChatViewController: ShareViewControllerDelegate {
-    func open(owner: String, jid: String, forwarded messages: [String]) {
-        if jid == self.jid {
-            self.attachedMessagesIds.accept(messages)
-//            self.xabberInputBar.changeRecordToSend()
-        } else {
-//            self.jid = jid
-//            self.viewDidLoad()
-//            self.viewWillAppear(true)
-//            self.viewDidAppear(true)
-            
-            
-            let vc = ChatViewController()
-            vc.jid = jid
-            vc.owner = owner
-//            vc.xabberInputBar.changeRecordToSend()
-            var vcs = self.navigationController?.viewControllers ?? []
-            if let index = vcs.firstIndex(of: self) {
-                vcs.remove(at: index)
-            }
-            vcs.append(vc)
-//            vc.attachedMessagesIds.accept(messages)
-//            vc.forwardedIds.accept(Set(messages))
-            self.navigationController?.setViewControllers(vcs, animated: true)
-//            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-//                self.attachedMessagesIds.accept(messages)
-                vc.attachedMessagesIds.accept(messages)
-//            }
-        }
-    }
-}

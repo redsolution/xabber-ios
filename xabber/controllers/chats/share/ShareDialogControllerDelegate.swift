@@ -27,27 +27,12 @@ extension ShareDialogController: ShareDialogControllerDelegate {
             self.dismiss(animated: false) {
                 self.delegate?
                     .open(
-                        owner: self.owner,
+                        owner: item.owner,
                         jid: item.jid,
+                        conversationType: item.conversationType,
                         forwarded: self.forwardIds
                     )
             }
-            
-//            let vc = ChatViewController()
-//            vc.jid = item.jid
-//            vc.owner = owner
-//            vc.forwardAuthor = forwardedAuthor
-//            var vcs = self.navigationController?.viewControllers ?? []
-//            if let index = vcs.firstIndex(of: self) {
-//                vcs.remove(at: index)
-//            }
-//            vcs.append(vc)
-//            self.navigationController?.setViewControllers(vcs, animated: true)
-//            vc.attachedMessagesIds.accept(forwardIds)
-//            print(self.presentingViewController?.restorationIdentifier)
-//            self.presentingViewController?.navigationController?.pushViewController(vc, animated: true)
-//            self.dismiss(animated: true, completion: nil)
-//            forwardIds.forEach {vc.forwardedIds.value.insert($0)}
         }
     }
 }
