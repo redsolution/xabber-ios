@@ -64,7 +64,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
     
     func subscribe() {
         bag = DisposeBag()
-        messageBag.asObservable().debounce(.milliseconds(250), scheduler: MainScheduler.asyncInstance).subscribe { results in
+        messageBag.asObservable().debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance).subscribe { results in
             // creating a list of sids for new verification messages for further processing of each new or changed verification session (for displaying notifications and view controllers if necessary)
             let newVerificationMessagesSids = results.compactMap { result in
                 let sid = self.processMessage(message: result)
@@ -425,7 +425,6 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 }
             }
             
-            // TODO: add guard when web adds ttl
             let ttlRaw = verificationStart.attributeStringValue(forName: "ttl")
             if ttlRaw == nil {
                 return
@@ -737,28 +736,16 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         self.sendSuccessfulVerificationMessage(toJid: jid, sid: sid)
         self.writeTrustedDevice(jid: jid.bare, deviceId: deviceId)
         
-//        guard let trustSharingManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager else {
-//            DDLogDebug("AuthenticatedKeyExchange: \(#function).")
-//            return
-//        }
         AccountManager.shared.find(for: self.owner)?.action { user, stream in
             if self.owner == jid.bare {
-                user.trustSharingManager.sendListOfContactsDevices(opponentFullJid: jid.bareJID, deviceId: deviceIdRecipient)
+                user.trustSharingManager.sendListOfContactsDevices()
                 user.trustSharingManager.publicOwnTrustedDevices(publisherDeviceId: String(deviceIdRecipient))
                 user.trustSharingManager.getUserTrustedDevices(jid: jid.bareJID, deviceId: String(deviceId))
             } else {
-                user.trustSharingManager.sendListOfContactsDevices(opponentFullJid: XMPPJID(string: self.owner)!, deviceId: deviceIdRecipient)
+                user.trustSharingManager.sendListOfContactsDevices()
                 user.trustSharingManager.getUserTrustedDevices(jid: jid.bareJID, deviceId: String(deviceId))
             }
         }
-//        if self.owner == jid.bare {
-//            trustSharingManager.sendListOfContactsDevices(opponentFullJid: jid.bareJID, deviceId: deviceIdRecipient)
-//            trustSharingManager.publicOwnTrustedDevices(publisherDeviceId: String(deviceIdRecipient))
-//            trustSharingManager.getUserTrustedDevices(jid: jid.bareJID, deviceId: String(deviceId))
-//        } else {
-//            trustSharingManager.sendListOfContactsDevices(opponentFullJid: XMPPJID(string: self.owner)!, deviceId: deviceIdRecipient)
-//            trustSharingManager.getUserTrustedDevices(jid: jid.bareJID, deviceId: String(deviceId))
-//        }
     }
     
     func onVerificationSuccessReceived(message: XMPPMessage) {
@@ -802,14 +789,15 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         }
         self.writeTrustedDevice(jid: jid.bare, deviceId: deviceId)
         
-        let trustSharingManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager
-        if self.owner == jid.bare {
-            trustSharingManager?.sendListOfContactsDevices(opponentFullJid: jid.bareJID, deviceId: deviceIdRecipient)
-            trustSharingManager?.getUserTrustedDevices(jid: jid.bareJID, deviceId: String(deviceId))
-            trustSharingManager?.publicOwnTrustedDevices(publisherDeviceId: String(deviceIdRecipient))
-        } else {
-            trustSharingManager?.sendListOfContactsDevices(opponentFullJid: XMPPJID(string: self.owner)!, deviceId: deviceIdRecipient)
-            trustSharingManager?.getUserTrustedDevices(jid: jid.bareJID, deviceId: String(deviceId))
+        AccountManager.shared.find(for: self.owner)?.action { user, stream in
+            if self.owner == jid.bare {
+                user.trustSharingManager.sendListOfContactsDevices()
+                user.trustSharingManager.getUserTrustedDevices(jid: jid.bareJID, deviceId: String(deviceId))
+                user.trustSharingManager.publicOwnTrustedDevices(publisherDeviceId: String(deviceIdRecipient))
+            } else {
+                user.trustSharingManager.sendListOfContactsDevices()
+                user.trustSharingManager.getUserTrustedDevices(jid: jid.bareJID, deviceId: String(deviceId))
+            }
         }
     }
     
