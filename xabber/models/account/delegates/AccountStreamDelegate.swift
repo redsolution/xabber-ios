@@ -317,7 +317,7 @@ extension Account: XMPPStreamDelegate {
                     return
                 } else if self.omemo.didReceiveOmemoMessage(message) {
                     return
-                } else if self.trustSharingManager.didReceivedTrustedSharingMessage(message: message) {
+                } else if self.trustSharingManager.didReceivedListOfContactsDevices(message: message) {
                     return
                 } else {
                     self.messages.receiveArchived(message)
@@ -378,7 +378,7 @@ extension Account: XMPPStreamDelegate {
                     return
                 } else if self.akeManager.didReceivedVerificationMessage(message: message) {
                     return
-                } else if self.trustSharingManager.didReceivedTrustedSharingMessage(message: message) {
+                } else if self.trustSharingManager.didReceivedListOfContactsDevices(message: message) {
                     return
                 } else {
                     self.messages.receiveRuntime(message)

@@ -737,18 +737,28 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         self.sendSuccessfulVerificationMessage(toJid: jid, sid: sid)
         self.writeTrustedDevice(jid: jid.bare, deviceId: deviceId)
         
-        guard let trustSharingManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager else {
-            DDLogDebug("AuthenticatedKeyExchange: \(#function).")
-            return
+//        guard let trustSharingManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager else {
+//            DDLogDebug("AuthenticatedKeyExchange: \(#function).")
+//            return
+//        }
+        AccountManager.shared.find(for: self.owner)?.action { user, stream in
+            if self.owner == jid.bare {
+                user.trustSharingManager.sendListOfContactsDevices(opponentFullJid: jid.bareJID, deviceId: deviceIdRecipient)
+                user.trustSharingManager.publicOwnTrustedDevices(publisherDeviceId: String(deviceIdRecipient))
+                user.trustSharingManager.getUserTrustedDevices(jid: jid.bareJID, deviceId: String(deviceId))
+            } else {
+                user.trustSharingManager.sendListOfContactsDevices(opponentFullJid: XMPPJID(string: self.owner)!, deviceId: deviceIdRecipient)
+                user.trustSharingManager.getUserTrustedDevices(jid: jid.bareJID, deviceId: String(deviceId))
+            }
         }
-        if self.owner == jid.bare {
-            trustSharingManager.sendNotificationWithContactsDevices(opponentFullJid: jid.bareJID, deviceId: deviceIdRecipient)
-            trustSharingManager.publicOwnTrustedDevices(publisherDeviceId: String(deviceIdRecipient))
-            trustSharingManager.getUserTrustedDevices(jid: jid.bareJID, deviceId: String(deviceId))
-        } else {
-            trustSharingManager.sendNotificationWithContactsDevices(opponentFullJid: XMPPJID(string: self.owner)!, deviceId: deviceIdRecipient)
-            trustSharingManager.getUserTrustedDevices(jid: jid.bareJID, deviceId: String(deviceId))
-        }
+//        if self.owner == jid.bare {
+//            trustSharingManager.sendListOfContactsDevices(opponentFullJid: jid.bareJID, deviceId: deviceIdRecipient)
+//            trustSharingManager.publicOwnTrustedDevices(publisherDeviceId: String(deviceIdRecipient))
+//            trustSharingManager.getUserTrustedDevices(jid: jid.bareJID, deviceId: String(deviceId))
+//        } else {
+//            trustSharingManager.sendListOfContactsDevices(opponentFullJid: XMPPJID(string: self.owner)!, deviceId: deviceIdRecipient)
+//            trustSharingManager.getUserTrustedDevices(jid: jid.bareJID, deviceId: String(deviceId))
+//        }
     }
     
     func onVerificationSuccessReceived(message: XMPPMessage) {
@@ -794,11 +804,11 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         
         let trustSharingManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager
         if self.owner == jid.bare {
-            trustSharingManager?.sendNotificationWithContactsDevices(opponentFullJid: jid.bareJID, deviceId: deviceIdRecipient)
+            trustSharingManager?.sendListOfContactsDevices(opponentFullJid: jid.bareJID, deviceId: deviceIdRecipient)
             trustSharingManager?.getUserTrustedDevices(jid: jid.bareJID, deviceId: String(deviceId))
             trustSharingManager?.publicOwnTrustedDevices(publisherDeviceId: String(deviceIdRecipient))
         } else {
-            trustSharingManager?.sendNotificationWithContactsDevices(opponentFullJid: XMPPJID(string: self.owner)!, deviceId: deviceIdRecipient)
+            trustSharingManager?.sendListOfContactsDevices(opponentFullJid: XMPPJID(string: self.owner)!, deviceId: deviceIdRecipient)
             trustSharingManager?.getUserTrustedDevices(jid: jid.bareJID, deviceId: String(deviceId))
         }
     }
@@ -819,7 +829,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             DDLogDebug("AuthenticatedKeyExchange: \(#function).")
             return
         }
-        let deviceIdRecipient = localStore!.localDeviceId()
+        
         let uniqueMessageId = getUniqueMessageId(message, owner: self.owner)
         
         do {
@@ -865,7 +875,6 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         let jid = XMPPMessage(from: messageContainer!).from
         let authenticatedKeyExchange = messageContainer!.element(forName: "authenticated-key-exchange", xmlns: getPrimaryNamespace())
         let sid = authenticatedKeyExchange?.attributeStringValue(forName: "sid")
-        let localStore = AccountManager.shared.find(for: owner)?.omemo.localStore
         
         let uniqueMessageId = getUniqueMessageId(message, owner: self.owner)
         
@@ -881,7 +890,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             }
             
             if instance!.state == .receivedRequest {
-                NotificationCenter.default.post(name: NSNotification.Name(rawValue: "close_view"), object: self, userInfo: ["sid": sid])
+                NotificationCenter.default.post(name: NSNotification.Name(rawValue: "close_view"), object: self, userInfo: ["sid": sid ?? ""])
                 try realm.write {
                     realm.delete(instance!)
                 }

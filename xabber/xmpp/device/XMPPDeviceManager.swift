@@ -203,10 +203,24 @@ class XMPPDeviceManager: AbstractXMPPManager {
             let deviceIds: [Int] = collection.compactMap {
                 return $0.omemoDeviceId
             }
+            
+            let instances = realm.objects(SignalDeviceStorageItem.self).filter("deviceId IN %@", deviceIds)
+            instances.forEach { instance in
+                do {
+                    try realm.write {
+                        instance.state = .revoked
+                    }
+                } catch {
+                    DDLogDebug("XTokenManager: \(#function). \(error.localizedDescription)")
+                }
+            }
+            
             try realm.write {
                 realm.delete(collection)
-                realm.delete(realm.objects(SignalDeviceStorageItem.self).filter("deviceId IN %@", deviceIds))
+//                realm.delete(realm.objects(SignalDeviceStorageItem.self).filter("deviceId IN %@", deviceIds))
                 realm.delete(realm.objects(SignalIdentityStorageItem.self).filter("deviceId IN %@", deviceIds))
+                
+                
             }
         } catch {
             DDLogDebug("XTokenManager: \(#function). \(error.localizedDescription)")

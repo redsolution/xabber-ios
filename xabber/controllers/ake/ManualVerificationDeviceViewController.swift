@@ -157,7 +157,7 @@ extension ManualVerificationDeviceViewController: UITableViewDelegate {
                 
             }
             if self.jid != self.owner {
-                trustSharingManager.sendNotificationWithContactsDevices(opponentFullJid: XMPPJID(string: self.owner)!, deviceId: localDeviceId)
+                trustSharingManager.sendListOfContactsDevices(opponentFullJid: XMPPJID(string: self.owner)!, deviceId: localDeviceId)
                 trustSharingManager.getUserTrustedDevices(jid: XMPPJID(string: self.jid)!, deviceId: String(self.deviceId))
             }
         }
