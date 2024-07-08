@@ -99,7 +99,6 @@ class ContactInfoViewController: BaseViewController {
         view.register(EditCirclesCell.self, forCellReuseIdentifier: EditCirclesCell.cellName)
         view.register(SettingsViewController.DeviceCell.self, forCellReuseIdentifier: SettingsViewController.DeviceCell.cellName)
         
-        
         return view
     }()
     
@@ -525,11 +524,6 @@ class ContactInfoViewController: BaseViewController {
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         navigationItem.backButtonDisplayMode = .minimal
-        if let title = self.headerView.titleButton.titleLabel?.text {
-            self.navigationItem.backButtonTitle = "\(title)'s Info"
-        } else {
-            self.navigationItem.backButtonTitle = "Info"
-        }
         unsubscribe()
     }
     
