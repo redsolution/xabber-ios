@@ -69,11 +69,19 @@ extension AppDelegate : UNUserNotificationCenterDelegate {
                     completionHandler([.banner])
                 }
             } else {
-                if notificationInAppSound {
-                    completionHandler([.banner, .sound])
-                } else {
-                    completionHandler([.banner])
-                }
+//                if NotifyManager.shared.isLastChatsDisplayed() {
+//                    if notificationInAppSound {
+//                        completionHandler([])
+//                    } else {
+//                        completionHandler([])
+//                    }
+//                } else {
+                    if notificationInAppSound {
+                        completionHandler([.banner, .sound])
+                    } else {
+                        completionHandler([.banner])
+                    }
+//                }
             }
         default:
             completionHandler([])
