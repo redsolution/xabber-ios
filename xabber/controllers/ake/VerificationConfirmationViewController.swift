@@ -231,8 +231,8 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
             self.stackLabels.setCustomSpacing(40, after: self.stepsLabel)
             self.cancelButton.addTarget(self, action: #selector(self.onCancelButtonPressed), for: .touchUpInside)
             
-            self.navigationController?.isNavigationBarHidden = false
-            self.navigationItem.setRightBarButton(UIBarButtonItem(systemItem: .cancel), animated: true)
+            self.navigationController?.isNavigationBarHidden = true
+//            self.navigationItem.setRightBarButton(UIBarButtonItem(systemItem: .cancel), animated: true)
             
         } else if state == .receivedRequestAccept {
             agreeButton.configuration = UIButton.Configuration.filled()
@@ -245,8 +245,8 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
             self.agreeButton.addTarget(self, action: #selector(onSubmitButtonPressed), for: .touchUpInside)
             self.cancelButton.addTarget(self, action: #selector(self.onCancelButtonPressed), for: .touchUpInside)
             
-            self.navigationController?.isNavigationBarHidden = false
-            self.navigationItem.setRightBarButton(UIBarButtonItem(systemItem: .cancel), animated: true)
+            self.navigationController?.isNavigationBarHidden = true
+//            self.navigationItem.setRightBarButton(UIBarButtonItem(systemItem: .cancel), animated: true)
             
         } else if state == .trusted {
             containerView.addSubview(tableView)

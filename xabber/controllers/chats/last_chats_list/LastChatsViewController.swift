@@ -567,11 +567,14 @@ class LastChatsViewController: BaseViewController {
             return collection.compactMap {
                 item in
                 
-                var blankMessageText: String = "Start messaging here".localizeString(id: "chat_message_start_messaging", arguments: [])
-                if item.messagesCount != 0 {
-                    blankMessageText = (item.retractVersion == "0" && item.retractVersion != "") ? "No messages".localizeString(id: "no_messages", arguments: []) : "No messages".localizeString(id: "no_messages", arguments: [])
-
+                if (XMPPJID(string: item.jid)?.isServer ?? false) {
+                    return nil
                 }
+                var blankMessageText: String = "Start messaging here".localizeString(id: "chat_message_start_messaging", arguments: [])
+//                if item.messagesCount != 0 {
+//                    blankMessageText = (item.retractVersion == "0" && item.retractVersion != "") ? "No messages".localizeString(id: "no_messages", arguments: []) : "No messages".localizeString(id: "no_messages", arguments: [])
+//
+//                }
                 
                 let subscriptionRequest: Bool = false
                 

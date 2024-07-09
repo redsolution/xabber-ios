@@ -333,11 +333,11 @@ extension NotificationsListViewController {
                 titleLabel.text = title
             }
             messageLabel.text = message
-            negativeButton.isHidden = negativeButtonTitle == nil
+            negativeButton.isHidden =  true //negativeButtonTitle == nil
             if let negativeButtonTitle = negativeButtonTitle {
                 negativeButton.setTitle(negativeButtonTitle, for: .normal)
             }
-            positiveButton.isHidden = positiveButtonTitle == nil
+            positiveButton.isHidden = true //positiveButtonTitle == nil
             if let positiveButtonTitle = positiveButtonTitle {
                 positiveButton.setTitle(positiveButtonTitle, for: .normal)
             }
