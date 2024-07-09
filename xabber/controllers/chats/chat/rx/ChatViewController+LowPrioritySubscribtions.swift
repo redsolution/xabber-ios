@@ -545,6 +545,8 @@ extension ChatViewController {
                                     self.topPanelState.accept(.requestingVerification)
                                 case .acceptedRequest:
                                     self.topPanelState.accept(.acceptedVerification)
+                                case .trusted:
+                                    self.topPanelState.accept(.none)
                                 default:
                                     break
                             }

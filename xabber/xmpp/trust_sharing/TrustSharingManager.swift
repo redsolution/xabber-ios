@@ -269,7 +269,7 @@ class TrustSharingManager: AbstractXMPPManager {
                 return true
             }
             self.publicOwnTrustedDevices(publisherDeviceId: String(localStore.localDeviceId()))
-        } else {
+        } else if !isPublicationNeeded && self.owner == jid.bare {
             do {
                 let realm = try WRealm.safe()
                 let instance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, jid.bare).first

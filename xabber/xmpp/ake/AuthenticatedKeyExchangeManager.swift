@@ -136,8 +136,6 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         } onDisposed: {
             
         }.disposed(by: bag)
-        
-
     }
     
     func unsubscribe() {

@@ -310,14 +310,6 @@ class ApplicationStateManager: NSObject {
             } catch {
                 DDLogDebug("ApplicationStateManager: \(#function). \(error.localizedDescription)")
             }
-            
-//            let vc = AuthenticationCodeInputViewController()
-//            vc.owner = owner
-//            vc.jid = jid
-//            vc.sid = sid
-//            vc.isVerificationWithUsersDevice = owner == jid ? true : false
-//            
-//            showModal(vc, replaceParent: false)
         }
     }
     
@@ -347,26 +339,24 @@ class ApplicationStateManager: NSObject {
                 vc.deviceId = deviceId
                 
                 DispatchQueue.main.async {
-                    showModal(vc, replaceParent: false)
+                    let parent: UIViewController?
+                    switch CommonConfigManager.shared.interfaceType {
+                    case .tabs:
+                        parent = (UIApplication.shared.delegate as? AppDelegate)?.tabController
+                    case .split:
+                        parent = (UIApplication.shared.delegate as? AppDelegate)?.splitController
+                    }
+                    
+                    // so that a second window of successful verification does not open when it is already open
+                    if (parent?.presentedViewController as? UINavigationController)?.topViewController as? VerificationConfirmationViewController == nil {
+                        showModal(vc, replaceParent: false)
+                    }
                 }
                 
             } catch {
                 DDLogDebug("ApplicationStateManager: \(#function). \(error.localizedDescription)")
                 return
             }
-            
-            
-            
-            
-            
-//            DispatchQueue.main.async {
-//                let vc = SuccessfulVerificationViewController()
-//                vc.owner = owner
-//                vc.jid = jid
-//                vc.deviceId = deviceId
-//                
-//                showModal(vc, replaceParent: false)
-//            }
         }
     }
     
