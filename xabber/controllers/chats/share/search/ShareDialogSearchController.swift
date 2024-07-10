@@ -261,7 +261,8 @@ extension ShareDialogSearchController: UITableViewDataSource {
             isSystem: item.isSystem,
             subRequest: false,
             avatarUrl: nil,
-            hasErrorInChat: false
+            hasErrorInChat: false,
+            verAction: false
         )
         return cell
     }

@@ -50,7 +50,8 @@ extension ShareDialogController: UITableViewDataSource {
             isSystem: item.isSystem,
             subRequest: false,
             avatarUrl: nil,
-            hasErrorInChat: false
+            hasErrorInChat: false,
+            verAction: false
         )
         cell.setMask()
         return cell

@@ -355,7 +355,7 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
             } else if client == "Xabber for Web" {
                 self.headerView.imageButton.setImage(UIImage(systemName: "desktopcomputer")?.withTintColor(.systemBlue), for: .normal)
             } else {
-                self.headerView.imageButton.setImage(UIImage(systemName: "questionmark")?.withTintColor(.systemBlue), for: .normal)
+                self.headerView.imageButton.setImage(UIImage(systemName: "questionmark.app.dashed")?.withTintColor(.systemBlue), for: .normal)
             }
         } else {
             do {
