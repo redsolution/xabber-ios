@@ -93,6 +93,8 @@ class DevicesListViewController: BaseViewController {
     
     func load() {
         activeVerificationSession = nil
+        isVerificationRequired = false
+        
         do {
             let realm = try WRealm.safe()
             account = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid) ?? AccountStorageItem()
@@ -401,14 +403,6 @@ class DevicesListViewController: BaseViewController {
             object: self,
             userInfo: ["owner": self.jid, "sid": activeVerificationSession!.sid]
         )
-        
-//        let vc = AuthenticationCodeInputViewController()
-//        vc.jid = self.jid
-//        vc.owner = self.jid
-//        vc.sid = activeVerificationSession!.sid
-//        vc.isVerificationWithUsersDevice = true
-//        
-//        self.navigationController?.present(vc, animated: true)
     }
     
     @objc

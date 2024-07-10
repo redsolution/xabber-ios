@@ -120,6 +120,8 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
     let agreeButton: UIButton = {
         let button = UIButton(type: .system)
         button.translatesAutoresizingMaskIntoConstraints = false
+        button.configuration = UIButton.Configuration.plain()
+        button.configuration!.contentInsets = NSDirectionalEdgeInsets(top: 15, leading: 20, bottom: 15, trailing: 20)
         button.setTitle("Proceed to Verification", for: .normal)
         
         return button
@@ -128,6 +130,8 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
     let cancelButton: UIButton = {
         let button = UIButton(type: .system)
         button.translatesAutoresizingMaskIntoConstraints = false
+        button.configuration = UIButton.Configuration.plain()
+        button.configuration!.contentInsets = NSDirectionalEdgeInsets(top: 15, leading: 20, bottom: 15, trailing: 20)
         button.setTitle("Cancel verification", for: .normal)
         button.setTitleColor(.systemRed, for: .normal)
         
@@ -214,6 +218,8 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
             stackLabels.addArrangedSubview(stepsLabel)
         }
         
+        self.navigationController?.isNavigationBarHidden = true
+        
         if self.owner == self.jid {
             self.headerView.imageButton.imageEdgeInsets = UIEdgeInsets(top: 20, bottom: 20, left: 20, right: 20)
             self.headerView.imageButton.backgroundColor = .white
@@ -224,16 +230,11 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
             containerView.addSubview(agreeButton)
             agreeButton.addTarget(self, action: #selector(onAgreeButtonTapped), for: .touchUpInside)
             cancelButton.addTarget(self, action: #selector(onRejectButtonTapped), for: .touchUpInside)
-            self.navigationController?.isNavigationBarHidden = true
             
         } else if state == .acceptedRequest {
             self.stackLabels.addArrangedSubview(self.codeLabel)
             self.stackLabels.setCustomSpacing(40, after: self.stepsLabel)
             self.cancelButton.addTarget(self, action: #selector(self.onCancelButtonPressed), for: .touchUpInside)
-            
-            self.navigationController?.isNavigationBarHidden = true
-//            self.navigationItem.setRightBarButton(UIBarButtonItem(systemItem: .cancel), animated: true)
-            
         } else if state == .receivedRequestAccept {
             agreeButton.configuration = UIButton.Configuration.filled()
             agreeButton.tintColor = .systemBlue
@@ -244,10 +245,6 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
             self.stackLabels.setCustomSpacing(40, after: self.stepsLabel)
             self.agreeButton.addTarget(self, action: #selector(onSubmitButtonPressed), for: .touchUpInside)
             self.cancelButton.addTarget(self, action: #selector(self.onCancelButtonPressed), for: .touchUpInside)
-            
-            self.navigationController?.isNavigationBarHidden = true
-//            self.navigationItem.setRightBarButton(UIBarButtonItem(systemItem: .cancel), animated: true)
-            
         } else if state == .trusted {
             containerView.addSubview(tableView)
             
@@ -258,12 +255,7 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
             cancelButton.setTitleColor(.systemBlue, for: .normal)
             cancelButton.addTarget(self, action: #selector(onCloseButtonPressed), for: .touchUpInside)
             
-            self.navigationController?.isNavigationBarHidden = true
         }
-        
-        
-        
-        
     }
     
     override func loadDatasource() {
@@ -433,6 +425,7 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
         if state == .receivedRequest || state == .receivedRequestAccept {
             agreeButton.centerXAnchor.constraint(equalTo: view.centerXAnchor).isActive = true
             agreeButton.bottomAnchor.constraint(equalTo: cancelButton.topAnchor, constant: -8).isActive = true
+            agreeButton.topAnchor.constraint(greaterThanOrEqualTo: stackLabels.bottomAnchor, constant: 40).isActive = true
         }
         
         if state == .trusted {
@@ -460,9 +453,6 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
     
     override func onAppear() {
         super.onAppear()
-        
-        self.navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
-        self.navigationController?.navigationBar.shadowImage = UIImage()
         
         if self.state == .receivedRequestAccept {
             codeInputField.becomeFirstResponder()
@@ -532,9 +522,8 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
     
     @objc
     func onSubmitButtonPressed() {
-        submitVerificationCode()
-        
         self.dismiss(animated: true)
+        submitVerificationCode()
     }
     
     func submitVerificationCode() {
@@ -686,8 +675,8 @@ extension VerificationConfirmationViewController: UITableViewDataSource {
 
 extension VerificationConfirmationViewController: UITextFieldDelegate {
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-        submitVerificationCode()
         self.dismiss(animated: true)
+        submitVerificationCode()
         
         return true
     }

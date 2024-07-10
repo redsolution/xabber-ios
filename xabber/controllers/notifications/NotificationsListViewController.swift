@@ -275,23 +275,23 @@ class NotificationsListViewController: SimpleBaseViewController {
                         }
                         
                         if item.verificationState == .acceptedRequest && instance.state == .receivedRequest && instance.myDeviceId != Int(item.deviceId!)! {
-                            try realm.write {
-                                realm.delete(instance)
-                                realm.delete(item)
-                            }
+//                            try realm.write {
+//                                realm.delete(instance)
+//                                realm.delete(item)
+//                            }
                             return nil
                         } else if item.verificationState == .rejected && instance.state == .receivedRequest {
-                            try realm.write {
-                                realm.delete(instance)
-                                realm.delete(item)
-                            }
+//                            try realm.write {
+//                                realm.delete(instance)
+//                                realm.delete(item)
+//                            }
                             return nil
                         }
                         if item.verificationState != instance.state {
                             return nil
                         }
                     } catch {
-                        fatalError()
+                        DDLogDebug("NotificationsListViewController: \(#function). \(error.localizedDescription)")
                     }
                     return DatasourceChild(
                         owner: item.owner,

@@ -321,14 +321,6 @@ class TrustedDevicesViewController: SimpleBaseViewController {
             object: self,
             userInfo: ["owner": self.owner, "sid": activeVerificationSession!.sid]
         )
-        
-//        let vc = AuthenticationCodeInputViewController()
-//        vc.jid = self.jid
-//        vc.owner = self.owner
-//        vc.sid = activeVerificationSession!.sid
-//        vc.isVerificationWithUsersDevice = false
-//        
-//        showModal(vc, replaceParent: false)
     }
     
     override func onAppear() {
@@ -368,6 +360,7 @@ extension TrustedDevicesViewController: UITableViewDelegate {
                 return
             case "revoke_trust":
                 do {
+                    var untrustedDevicesList: [Int] = []
                     let realm = try Realm()
                     let instances = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid)
                     for instance in instances {
@@ -379,14 +372,14 @@ extension TrustedDevicesViewController: UITableViewDelegate {
                             instance.trustDate = Date(timeIntervalSince1970: -1)
                             instance.trustedByDeviceId = nil
                         }
+                        
+                        untrustedDevicesList.append(instance.deviceId)
                     }
                     
-                    guard let trustSharingManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager,
-                          let localStore = AccountManager.shared.find(for: self.owner)?.omemo.localStore else {
-                        DDLogDebug("TrustedDevicesViewController: \(#function).")
-                        return
-                    }
-                    trustSharingManager.sendListOfContactsDevices(opponentFullJid: XMPPJID(string: self.owner)!, deviceId: localStore.localDeviceId())
+                    AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                        user.trustSharingManager.sendUpdateOfContactsDevices(jid: self.jid, updatedDevicesIds: untrustedDevicesList)
+                    })
+                    
                 } catch {
                     DDLogDebug("TrustedDevicesViewController: \(#function). \(error.localizedDescription)")
                     return
