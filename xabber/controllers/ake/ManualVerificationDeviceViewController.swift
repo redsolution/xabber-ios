@@ -140,25 +140,32 @@ extension ManualVerificationDeviceViewController: UITableViewDelegate {
         tableView.deselectRow(at: indexPath, animated: true)
         let item = datasource[indexPath.section]
         if item.kind == .button {
-            guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
-                  let trustSharingManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager,
-                  let localDeviceId = AccountManager.shared.find(for: self.owner)?.omemo.localStore.localDeviceId() else {
+            guard let localDeviceId = AccountManager.shared.find(for: self.owner)?.omemo.localStore.localDeviceId(),
+                  let deviceIdInt = Int(self.deviceId) else {
                 DDLogDebug("ManualVerificationDeviceViewController: \(#function).")
                 return
             }
-            akeManager.writeTrustedDevice(jid: self.jid, deviceId: Int(self.deviceId)!)
+            
+            AccountManager.shared.find(for: self.owner)?.akeManager.writeTrustedDevice(jid: self.jid, deviceId: deviceIdInt)
+            
             do {
                 let realm = try WRealm.safe()
-                let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.jid, deviceId: Int(self.deviceId)!))
-                try realm.write {
-                    instance?.trustedByDeviceId = "manual"
+                if let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.jid, deviceId: deviceIdInt)) {
+                    try realm.write {
+                        instance.trustedByDeviceId = "manual"
+                    }
                 }
-            } catch {
                 
+            } catch {
+                DDLogDebug("ManualVerificationDeviceViewController: \(#function). \(error.localizedDescription)")
             }
+            
             if self.jid != self.owner {
-                trustSharingManager.sendUpdateOfContactsDevices(jid: self.jid, updatedDevicesIds: [Int(self.deviceId) ?? -1])
-                trustSharingManager.getUserTrustedDevices(jid: XMPPJID(string: self.jid)!, deviceId: String(self.deviceId))
+                AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                    user.trustSharingManager.sendUpdateOfContactsDevices(jid: self.jid, updatedDevicesIds: [deviceIdInt])
+                    user.trustSharingManager.getUserTrustedDevices(jid: XMPPJID(string: self.jid)!, deviceId: String(self.deviceId))
+                })
+                
             }
         }
         goBack()

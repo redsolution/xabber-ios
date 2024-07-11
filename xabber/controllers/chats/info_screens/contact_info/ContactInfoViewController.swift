@@ -456,8 +456,7 @@ class ContactInfoViewController: BaseViewController {
     
     @objc
     func onCloseVerificationButtonPressed() {
-        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
-              let jid = XMPPJID(string: self.jid),
+        guard let jid = XMPPJID(string: self.jid),
               let sid = datasource.first(where: { $0.key == "verification-session" })?.childs.first?.verificationSid else {
             DDLogDebug("ContactInfoViewController: \(#function).")
             return
@@ -467,11 +466,18 @@ class ContactInfoViewController: BaseViewController {
             let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid))
             
             if instance?.state == .receivedRequest {
-                akeManager.rejectRequestToVerify(jid: self.jid, sid: sid)
+                AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                    user.akeManager.rejectRequestToVerify(jid: self.jid, sid: sid)
+                })
+//                akeManager.rejectRequestToVerify(jid: self.jid, sid: sid)
                 
                 return
             } else if instance?.state != VerificationSessionStorageItem.VerififcationState.failed && instance?.state != VerificationSessionStorageItem.VerififcationState.trusted && instance?.state != VerificationSessionStorageItem.VerififcationState.rejected {
-                akeManager.sendErrorMessage(fullJID: jid, sid: sid, reason: "Сontact canceled verification session")
+                AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                    user.akeManager.sendErrorMessage(fullJID: jid, sid: sid, reason: "Сontact canceled verification session")
+                })
+//                akeManager.sendErrorMessage(fullJID: jid, sid: sid, reason: "Сontact canceled verification session")
+                
             }
             try realm.write {
                 realm.delete(instance!)
