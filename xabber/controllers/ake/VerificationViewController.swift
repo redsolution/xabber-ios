@@ -1,5 +1,5 @@
 //
-//  VerificationConfirmationViewController.swift
+//  VerificationViewController.swift
 //  xabber
 //
 //  Created by Admin on 03.06.2024.
@@ -12,7 +12,7 @@ import XMPPFramework
 import RxSwift
 import TOInsetGroupedTableView
 
-class VerificationConfirmationViewController: SimpleBaseViewController {
+class VerificationViewController: SimpleBaseViewController {
     class Datasource {
         let name: String
         let ip: String?
@@ -29,7 +29,7 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
     
     var sid: String = ""
     var deviceId: String = ""
-    var isVerificationWithOwnDevice: Bool = false
+//    var isVerificationWithOwnDevice: Bool = false
     var code: String = ""
     var state: VerificationSessionStorageItem.VerififcationState = .receivedRequest
     var datasource: [Datasource] = []
@@ -198,7 +198,7 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
             }).disposed(by: self.bag)
 
         } catch {
-            DDLogDebug("VerificationConfirmationViewController: \(#function). \(error.localizedDescription)")
+            DDLogDebug("VerificationViewController: \(#function). \(error.localizedDescription)")
         }
     }
     
@@ -247,8 +247,6 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
             self.cancelButton.addTarget(self, action: #selector(self.onCancelButtonPressed), for: .touchUpInside)
         } else if state == .trusted {
             containerView.addSubview(tableView)
-            
-            tableView.fillSuperviewWithOffset(top: headerHeightMax + 130, bottom: 80, left: 0, right: 0)
             tableView.dataSource = self
             
             cancelButton.setTitle("Great!", for: .normal)
@@ -335,7 +333,7 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
                     
                 }
             } catch {
-                DDLogDebug("VerificationConfirmationViewController: \(#function). \(error.localizedDescription)")
+                DDLogDebug("VerificationViewController: \(#function). \(error.localizedDescription)")
             }
             
             self.headerView.configure(
@@ -353,13 +351,13 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
             } else if client == "Xabber for Web" {
                 self.headerView.imageButton.setImage(UIImage(systemName: "desktopcomputer")?.withTintColor(.systemBlue), for: .normal)
             } else {
-                self.headerView.imageButton.setImage(UIImage(systemName: "questionmark")?.withTintColor(.systemBlue), for: .normal)
+                self.headerView.imageButton.setImage(UIImage(systemName: "questionmark.app.dashed")?.withTintColor(.systemBlue), for: .normal)
             }
         } else {
             do {
                 let realm = try WRealm.safe()
                 guard let verificationInstance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) else {
-                    DDLogDebug("VerificationConfirmationViewController: \(#function).")
+                    DDLogDebug("VerificationViewController: \(#function).")
                     return
                 }
                 
@@ -401,7 +399,7 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
                 }
                 
             } catch {
-                DDLogDebug("VerificationConfirmationViewController: \(#function). \(error.localizedDescription)")
+                DDLogDebug("VerificationViewController: \(#function). \(error.localizedDescription)")
                 return
             }
         }
@@ -430,6 +428,9 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
         
         if state == .trusted {
             tableView.topAnchor.constraint(equalTo: stackLabels.bottomAnchor, constant: 20).isActive = true
+            tableView.leftAnchor.constraint(equalTo: containerView.leftAnchor).isActive = true
+            tableView.rightAnchor.constraint(equalTo: containerView.rightAnchor).isActive = true
+            tableView.bottomAnchor.constraint(equalTo: cancelButton.topAnchor, constant: -20).isActive = true
         }
     }
     
@@ -488,7 +489,7 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
                 }
             }
         } catch {
-            DDLogDebug("VerificationConfirmationViewController: \(#function). \(error.localizedDescription)")
+            DDLogDebug("VerificationViewController: \(#function). \(error.localizedDescription)")
         }
     }
     
@@ -550,7 +551,7 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
                 return
             }
         } catch {
-            DDLogDebug("VerificationConfirmationViewController: \(#function). \(error.localizedDescription)")
+            DDLogDebug("VerificationViewController: \(#function). \(error.localizedDescription)")
         }
             
         AccountManager.shared.find(for: self.owner)?.action { user, stream in
@@ -569,7 +570,7 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
                     instance?.opponentByteSequence = salt.toBase64()
                 }
             } catch {
-                DDLogDebug("VerificationConfirmationViewController: \(#function). \(error.localizedDescription)")
+                DDLogDebug("VerificationViewController: \(#function). \(error.localizedDescription)")
             }
             
             user.akeManager.sendHashToOpponent(jid: XMPPJID(string: self.jid)!, sid: self.sid)
@@ -585,7 +586,7 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
                 realm.delete(instance!)
             }
         } catch {
-            DDLogDebug("VerificationConfirmationViewController: \(#function). \(error.localizedDescription)")
+            DDLogDebug("VerificationViewController: \(#function). \(error.localizedDescription)")
         }
         
         AccountManager.shared.find(for: self.owner)?.action { user, stream in
@@ -655,7 +656,7 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
     }
 }
 
-extension VerificationConfirmationViewController: UITableViewDataSource {
+extension VerificationViewController: UITableViewDataSource {
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         return datasource.count
     }
@@ -670,14 +671,16 @@ extension VerificationConfirmationViewController: UITableViewDataSource {
         
         return cell
     }
+    
 }
 
 
-extension VerificationConfirmationViewController: UITextFieldDelegate {
+extension VerificationViewController: UITextFieldDelegate {
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
         self.dismiss(animated: true)
         submitVerificationCode()
         
         return true
     }
+    
 }

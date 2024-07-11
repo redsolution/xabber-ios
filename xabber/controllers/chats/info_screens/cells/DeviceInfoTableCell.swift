@@ -141,15 +141,15 @@ class DeviceInfoTableCell: UITableViewCell {
         }
         
         if client == "XabberIOS" {
-            self.imageView?.image = UIImage(systemName: "iphone")?.withTintColor(.systemBlue).withRenderingMode(.alwaysOriginal)
+            self.imageView?.image = UIImage(systemName: "smartphone")?.withTintColor(.systemBlue).withRenderingMode(.alwaysOriginal)
 //            let image = UIImage(systemName: "iphone")?.withTintColor(.systemBlue).withRenderingMode(.alwaysOriginal)
 //            customImageView.image = image
         } else if client == "Xabber for Web" {
-            self.imageView?.image = UIImage(systemName: "desktopcomputer")?.withTintColor(.systemBlue).withRenderingMode(.alwaysOriginal)
+            self.imageView?.image = UIImage(systemName: "display")?.withTintColor(.systemBlue).withRenderingMode(.alwaysOriginal)
 //            let image = UIImage(systemName: "desktopcomputer")?.withTintColor(.systemBlue).withRenderingMode(.alwaysOriginal)
 //            customImageView.image = image
         } else {
-            self.imageView?.image = UIImage(systemName: "questionmark")?.withTintColor(.systemBlue).withRenderingMode(.alwaysOriginal)
+            self.imageView?.image = UIImage(systemName: "questionmark.app.dashed")?.withTintColor(.systemBlue).withRenderingMode(.alwaysOriginal)
         }
         
         if device.isNotEmpty {

@@ -28,7 +28,7 @@ extension ChatViewController {
             let sid = instance!.sid
             let deviceId = String(instance!.opponentDeviceId)
             
-            let vc = VerificationConfirmationViewController()
+            let vc = VerificationViewController()
             vc.owner = self.owner
             vc.jid = self.jid
             vc.sid = sid
@@ -55,7 +55,7 @@ extension ChatViewController {
             let sid = instance!.sid
             let deviceId = String(instance!.opponentDeviceId)
             
-            let vc = VerificationConfirmationViewController()
+            let vc = VerificationViewController()
             vc.owner = self.owner
             vc.jid = self.jid
             vc.sid = sid
@@ -89,7 +89,7 @@ extension ChatViewController {
             let deviceId = String(instance!.opponentDeviceId)
             let code = instance!.code
             
-            let vc = VerificationConfirmationViewController()
+            let vc = VerificationViewController()
             vc.owner = self.owner
             vc.jid = self.jid
             vc.sid = sid

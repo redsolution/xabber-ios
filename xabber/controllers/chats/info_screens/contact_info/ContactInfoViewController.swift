@@ -234,7 +234,7 @@ class ContactInfoViewController: BaseViewController {
                         
                         let verificationInstance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid).first
                         if verificationInstance != nil && verificationInstance?.state != .trusted {
-                            let (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: verificationInstance!.state)
+                            let (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(withOwnDevice: false, verificationState: verificationInstance!.state)
                             let verificationDatasource = Datasource(.text, title: "", key: "verification-session", childs: [
                                 Datasource(.session, title: text, subtitle: secondaryText, verificationSid: verificationInstance!.sid, verificationJid: self.jid)
                             ])
@@ -368,7 +368,7 @@ class ContactInfoViewController: BaseViewController {
                     do {
                         let section = self.datasource.firstIndex(where: { $0.key == "verification-session" })
                         if section != nil && item.state != .trusted {
-                            let (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: item.state)
+                            let (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(withOwnDevice: false, verificationState: item.state)
                             let verificationDatasource = Datasource(.text, title: "", key: "verification-session", childs: [
                                 Datasource(.session, title: text, subtitle: secondaryText, verificationSid: item.sid, verificationJid: self.jid)
                             ])
@@ -385,7 +385,7 @@ class ContactInfoViewController: BaseViewController {
                         let verificationInstance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid).first
                         if verificationInstance != nil && verificationInstance?.state != .trusted {
                             let (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(
-                                verificationState: verificationInstance!.state
+                                withOwnDevice: false, verificationState: verificationInstance!.state
                             )
                             let verificationDatasource = Datasource(.text, title: "", key: "verification-session", childs: [
                                 Datasource(.session, title: text, subtitle: secondaryText, verificationSid: verificationInstance!.sid, verificationJid: self.jid)
@@ -543,7 +543,6 @@ class ContactInfoViewController: BaseViewController {
             let sid = userInfo["sid"] as! String
             let deviceId = userInfo["device-id"] as! String
             
-            var isVerificationWithOwnDevice = false
             var jid = ""
             
             do {
@@ -552,21 +551,18 @@ class ContactInfoViewController: BaseViewController {
                     return
                 }
                 jid = instance.jid
-                if instance.jid == self.owner {
-                    isVerificationWithOwnDevice = true
-                }
+                
             } catch {
                 DDLogDebug("ContactInfoViewController: \(#function). \(error.localizedDescription)")
                 return
             }
             
             DispatchQueue.main.async {
-                let vc = VerificationConfirmationViewController()
+                let vc = VerificationViewController()
                 vc.owner = self.owner
                 vc.jid = jid
                 vc.sid = sid
                 vc.deviceId = deviceId
-                vc.isVerificationWithOwnDevice = isVerificationWithOwnDevice
 
                 showModal(vc)
             }

@@ -235,7 +235,7 @@ class ApplicationStateManager: NSObject {
                 let jid = instance!.jid
                 let deviceId = instance!.opponentDeviceId
                 
-                let vc = VerificationConfirmationViewController()
+                let vc = VerificationViewController()
                 vc.owner = owner ?? ""
                 vc.jid = jid
                 vc.sid = sid ?? ""
@@ -266,7 +266,7 @@ class ApplicationStateManager: NSObject {
                 let deviceId = instance!.opponentDeviceId
                 let code = instance!.code
                 
-                let vc = VerificationConfirmationViewController()
+                let vc = VerificationViewController()
                 vc.owner = owner ?? ""
                 vc.state = .acceptedRequest
                 vc.jid = jid
@@ -298,7 +298,7 @@ class ApplicationStateManager: NSObject {
                 let jid = instance!.jid
                 let deviceId = instance!.opponentDeviceId
                 
-                let vc = VerificationConfirmationViewController()
+                let vc = VerificationViewController()
                 vc.owner = owner ?? ""
                 vc.state = .receivedRequestAccept
                 vc.jid = jid
@@ -331,7 +331,7 @@ class ApplicationStateManager: NSObject {
                 
                 let sid = instance!.sid
                 
-                let vc = VerificationConfirmationViewController()
+                let vc = VerificationViewController()
                 vc.owner = owner
                 vc.state = .trusted
                 vc.jid = jid
@@ -348,7 +348,7 @@ class ApplicationStateManager: NSObject {
                     }
                     
                     // so that a second window of successful verification does not open when it is already open
-                    if (parent?.presentedViewController as? UINavigationController)?.topViewController as? VerificationConfirmationViewController == nil {
+                    if (parent?.presentedViewController as? UINavigationController)?.topViewController as? VerificationViewController == nil {
                         showModal(vc, replaceParent: false)
                     }
                 }

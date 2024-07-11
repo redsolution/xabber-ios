@@ -292,6 +292,16 @@ class ChatListTableViewCell: UITableViewCell {
         return view
     }()
     
+    let verificationBadgeView: UIButton = {
+        let view = UIButton()
+        
+        view.layer.cornerRadius = 10
+        view.layer.masksToBounds = true
+        view.tintColor = UIColor(red: 0.2196, green: 0.5569, blue: 0.2353, alpha: 1.0)
+        
+        return view
+    }()
+    
     public var badgeString: String = ""
     
     public final func configure(_ jid: String,
@@ -317,7 +327,8 @@ class ChatListTableViewCell: UITableViewCell {
                                 isPinned: Bool = false,
                                 subRequest: Bool,
                                 avatarUrl: String?,
-                                hasErrorInChat: Bool) {
+                                hasErrorInChat: Bool,
+                                verAction: Bool) {
 
         DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 64) { image in
             if let image = image {
@@ -457,6 +468,13 @@ class ChatListTableViewCell: UITableViewCell {
             subBadgeView.isHidden = true
         }
         
+        if verAction {
+            verificationBadgeView.setImage(UIImage(systemName: "lock.circle.fill"), for: .normal)
+            verificationBadgeView.isHidden = false
+        } else {
+            verificationBadgeView.isHidden = true
+        }
+        
         badgeView.backgroundColor = badgeColor
         subBadgeView.backgroundColor = badgeColor
     }
@@ -485,6 +503,7 @@ class ChatListTableViewCell: UITableViewCell {
         encryptedIndicator.isHidden = true
         badgeView.isHidden = true
         subBadgeView.isHidden = true
+        verificationBadgeView.isHidden = true
         avatarView.image = nil
         errorIndicator.isHidden = true
         
@@ -492,6 +511,7 @@ class ChatListTableViewCell: UITableViewCell {
 
         badgeString = ""
         badgeView.setTitle(nil, for: .normal)
+        verificationBadgeView.setImage(nil, for: .normal)
         if bottomStack.layoutMargins.right > 8 {
             bottomStack.layoutMargins = UIEdgeInsets(top: 0, bottom: 0, left: 0, right: 8)
         }
@@ -541,6 +561,7 @@ class ChatListTableViewCell: UITableViewCell {
         
         badgeStack.addArrangedSubview(subBadgeView)
         badgeStack.addArrangedSubview(badgeView)
+        badgeStack.addArrangedSubview(verificationBadgeView)
         badgeStack.addArrangedSubview(pinnedIndicator)
         badgeStack.addArrangedSubview(errorIndicator)
         
@@ -552,6 +573,7 @@ class ChatListTableViewCell: UITableViewCell {
         encryptedIndicator.isHidden = true
         badgeView.isHidden = true
         subBadgeView.isHidden = true
+        verificationBadgeView.isHidden = true
         errorIndicator.isHidden = true
         
 //        self.selectionStyle = .none
@@ -583,6 +605,9 @@ class ChatListTableViewCell: UITableViewCell {
             
             subBadgeView.widthAnchor.constraint(equalToConstant:  20),
             subBadgeView.heightAnchor.constraint(equalToConstant: 20),
+            
+            verificationBadgeView.widthAnchor.constraint(equalToConstant: 20),
+            verificationBadgeView.heightAnchor.constraint(equalToConstant: 20),
             
             errorIndicator.widthAnchor.constraint(equalToConstant: 24),
             errorIndicator.heightAnchor.constraint(equalToConstant: 24),

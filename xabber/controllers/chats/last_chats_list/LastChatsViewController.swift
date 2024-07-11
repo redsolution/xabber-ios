@@ -83,8 +83,7 @@ class LastChatsViewController: BaseViewController {
         let avatarUrl: String?
         let hasErrorInChat: Bool
         let updateTS: Double
-        let verificationSessionSid: String?
-        let verificationState: VerificationSessionStorageItem.VerififcationState?
+        let isVerificationActionRequired: Bool
         
         static func compareContent(_ a: LastChatsViewController.Datasource, _ b: LastChatsViewController.Datasource) -> Bool {
             return a.jid == b.jid
@@ -448,8 +447,7 @@ class LastChatsViewController: BaseViewController {
                     avatarUrl: nil,
                     hasErrorInChat: false,
                     updateTS: 0,
-                    verificationSessionSid: nil,
-                    verificationState: nil
+                    isVerificationActionRequired: false
                 )
             }
         }
@@ -654,6 +652,8 @@ class LastChatsViewController: BaseViewController {
                 
                 let username = item.rosterItem?.displayName ?? item.jid
                 var attributedUsername: NSAttributedString? = nil
+                
+                var isVerificationActionRequired: Bool = false
                                 
                 if [.omemo, .omemo1, .axolotl].contains(item.conversationType) {
                     let attributedTitle: NSMutableAttributedString = NSMutableAttributedString()
@@ -685,6 +685,13 @@ class LastChatsViewController: BaseViewController {
                             indicatorAttach.image = UIImage(systemName: "lock.fill")?.withTintColor(.systemGreen)
                             attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
                         }
+                        
+                        let verificationInstance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", item.owner, item.jid).first
+                        if verificationInstance != nil &&
+                            [.receivedRequest, .receivedRequestAccept].contains((verificationInstance! as VerificationSessionStorageItem).state) {
+                           isVerificationActionRequired = true
+                        }
+                        
                     } catch {
                         DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
                     }
@@ -722,8 +729,7 @@ class LastChatsViewController: BaseViewController {
                     avatarUrl: item.rosterItem?.avatarMinUrl ?? item.rosterItem?.avatarMaxUrl ?? item.rosterItem?.oldschoolAvatarKey,
                     hasErrorInChat: item.hasErrorInChat,
                     updateTS: item.updateTS,
-                    verificationSessionSid: nil,
-                    verificationState: nil
+                    isVerificationActionRequired: isVerificationActionRequired
                 )
             }
         } catch {

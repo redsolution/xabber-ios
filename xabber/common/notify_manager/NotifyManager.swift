@@ -1079,7 +1079,7 @@ class NotifyManager {
                                                     "sid": sid
                                                 ])
                 
-//                let vc = VerificationConfirmationViewController()
+//                let vc = VerificationViewController()
 //                vc.owner = owner
 //                vc.jid = jid
 //                vc.sid = sid
