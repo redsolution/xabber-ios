@@ -582,7 +582,7 @@ class SettingsViewController: BaseViewController {
                 
                 if let sessionInstance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.owner).first {
                     self.activeVerificationSession = sessionInstance
-                    let (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: sessionInstance.state)
+                    let (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(withOwnDevice: true, verificationState: sessionInstance.state)
                     let verificationDatasource = Datasource(section: .session, childs: [Datasource(section: .session, title: text, subtitle: secondaryText)])
                     
                     datasource.append(verificationDatasource)

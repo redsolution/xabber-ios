@@ -185,7 +185,7 @@ class TrustedDevicesViewController: SimpleBaseViewController {
                 let text: String
                 let secondaryText: String?
                 
-                (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: verificationSession!.state)
+                (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(withOwnDevice: false, verificationState: verificationSession!.state)
                 
                 self.activeVerificationSession = verificationSession
                 devicesDatasource.append(Datasource(.session, name: text, subtitle: secondaryText))
@@ -254,17 +254,26 @@ class TrustedDevicesViewController: SimpleBaseViewController {
     }
 
     
-    static func getCellPropertiesForVerificationSession(verificationState: VerificationSessionStorageItem.VerififcationState) -> (String, String?) {
+    static func getCellPropertiesForVerificationSession(withOwnDevice: Bool, verificationState: VerificationSessionStorageItem.VerififcationState) -> (String, String?) {
         let text: String
         let secondaryText: String?
         
         switch verificationState {
         case .sentRequest:
             text = "Verification In Progress"
-            secondaryText = "A verification request has been sent to your contact's devices. Wait for your contact to provide the verification code, then you will need to enter it to complete the identity verification."
+            if withOwnDevice {
+                secondaryText = "A verification request has been sent to your other device. Please check the device and follow the provided instructions to complete the verification process."
+            } else {
+                secondaryText = "A verification request has been sent to your contact's devices. Wait for your contact to provide the verification code, then you will need to enter it to complete the identity verification."
+            }
+            
         case .receivedRequest:
             text = "Identity Verification Request Received"
-            secondaryText = "You have received an identity verification request from this contact. This step is crucial to establish a trusted connection between your devices, ensuring secure and encrypted communications.\n\nPress the button below to display a verification code. Once generated, securely communicate this code to this contact to finalize the identity verification."
+            if withOwnDevice {
+                secondaryText = "Device has requested to establish a trusted encryption session with you. If you accept, you'll be presented with a security code which you'll need to pass to your primary device."
+            } else {
+                secondaryText = "You have received an identity verification request from this contact. This step is crucial to establish a trusted connection between your devices, ensuring secure and encrypted communications.\n\nPress the button below to display a verification code. Once generated, securely communicate this code to this contact to finalize the identity verification."
+            }
         case .acceptedRequest:
             text = "Incoming Verification Request"
             secondaryText = "You have accepted the verification request."

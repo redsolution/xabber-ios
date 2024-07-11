@@ -145,24 +145,6 @@ class DevicesListViewController: BaseViewController {
                                                      editable: false),
                                           Datasource(.button, title: "Terminate all other sessions".localizeString(id: "account_terminate_all_sessions", arguments: []), value: "terminate_all_sessions", editable: false)]))
         
-//        if activeVerificationSession != nil {
-//            var text: String
-//            var secondaryText, buttonTitle, buttonKey: String?
-//            
-//            (text, secondaryText, buttonTitle, buttonKey) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: self.activeVerificationSession!.state)
-//            
-//            datasource.append(Datasource(.session, title: "", value: "", editable: false, childs: [
-//                    Datasource(.session, title: text, value: secondaryText, editable: false, verificationSid: activeVerificationSession!.sid, verificationFullJid: activeVerificationSession!.fullJID)
-//                ]))
-//            
-//            if buttonKey != nil {
-//                datasource[1].childs.append(Datasource(.button, title: buttonTitle!, value: buttonKey, editable: false, verificationSid: activeVerificationSession!.sid, verificationFullJid: activeVerificationSession!.fullJID))
-//                if buttonKey == "accept_verification" {
-//                    datasource[1].childs.append(Datasource(.button, title: "Reject", value: "reject_verification", editable: false, verificationSid: activeVerificationSession!.sid, verificationFullJid: activeVerificationSession!.fullJID))
-//                }
-//            }
-//        }
-        
         omemoDevices.forEach { device in
             if device.state == .unknown {
                 self.isVerificationRequired = true
@@ -180,7 +162,7 @@ class DevicesListViewController: BaseViewController {
                 var text: String
                 var secondaryText: String?
     
-                (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(verificationState: self.activeVerificationSession!.state)
+                (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(withOwnDevice: true, verificationState: self.activeVerificationSession!.state)
     
                 activeDevicesSection.childs.append(Datasource(.session, title: text, value: secondaryText, editable: false, verificationSid: activeVerificationSession!.sid, verificationFullJid: activeVerificationSession!.fullJID))
             }
