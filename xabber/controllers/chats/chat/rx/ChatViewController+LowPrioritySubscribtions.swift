@@ -558,6 +558,33 @@ extension ChatViewController {
                     } onDisposed: {
                         
                     }.disposed(by: self.bag)
+                
+                let contactDevices = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@ AND state_ IN %@", self.owner, self.jid, [SignalDeviceStorageItem.TrustState.distrusted.rawValue, SignalDeviceStorageItem.TrustState.unknown.rawValue])
+                Observable
+                    .collection(from: contactDevices)
+                    .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
+                    .subscribe { results in
+                        if results.isEmpty {
+                            return
+                        }
+                        
+                        let instance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid).first
+                        if instance != nil {
+                            return
+                        }
+                        
+                        if ![.addContact, .allowSubscribtion, .requestSubscribtion, .shouldRequestVerification].contains(self.topPanelState.value) {
+                            self.topPanelState.accept(.shouldRequestVerification)
+                        }
+                        
+                    } onError: { _ in
+                        
+                    } onCompleted: {
+                        
+                    } onDisposed: {
+                        
+                    }.disposed(by: self.bag)
+                
 
             } catch {
                 DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")

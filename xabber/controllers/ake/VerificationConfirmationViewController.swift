@@ -249,8 +249,6 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
             
         } else if state == .trusted {
             containerView.addSubview(tableView)
-            
-            tableView.fillSuperviewWithOffset(top: headerHeightMax + 130, bottom: 80, left: 0, right: 0)
             tableView.dataSource = self
             
             cancelButton.setTitle("Great!", for: .normal)
@@ -432,6 +430,9 @@ class VerificationConfirmationViewController: SimpleBaseViewController {
         
         if state == .trusted {
             tableView.topAnchor.constraint(equalTo: stackLabels.bottomAnchor, constant: 20).isActive = true
+            tableView.leftAnchor.constraint(equalTo: containerView.leftAnchor).isActive = true
+            tableView.rightAnchor.constraint(equalTo: containerView.rightAnchor).isActive = true
+            tableView.bottomAnchor.constraint(equalTo: cancelButton.topAnchor, constant: -20).isActive = true
         }
     }
     
@@ -672,6 +673,7 @@ extension VerificationConfirmationViewController: UITableViewDataSource {
         
         return cell
     }
+    
 }
 
 
@@ -682,4 +684,5 @@ extension VerificationConfirmationViewController: UITextFieldDelegate {
         
         return true
     }
+    
 }
