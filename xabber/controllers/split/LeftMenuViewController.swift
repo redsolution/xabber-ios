@@ -504,11 +504,17 @@ extension LeftMenuViewController: UITableViewDataSource {
         
         let text = datasource[indexPath.section][indexPath.row].subtitle
         
-        cell.detailTextLabel?.text = text == "0" ? "" : text
+        cell.detailTextLabel?.text = text == "0" ? "" : "\(text)"
         
         cell.backgroundColor = .clear
         cell.layer.cornerRadius = 8
         cell.layer.masksToBounds = true
+        
+//        cell.detailTextLabel?.backgroundColor = UIColor(red: 0.2196, green: 0.5569, blue: 0.2353, alpha: 1.0)
+//        cell.detailTextLabel?.layer.cornerRadius = 8
+//        cell.detailTextLabel?.layer.masksToBounds = true
+//        cell.detailTextLabel?.textAlignment = .center
+//        cell.detailTextLabel?.textColor = .white
         
         
         return cell

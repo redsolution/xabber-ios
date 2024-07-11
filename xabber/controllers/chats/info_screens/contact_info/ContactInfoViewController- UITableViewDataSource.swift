@@ -117,7 +117,7 @@ extension ContactInfoViewController: UITableViewDataSource {
                 contentConfig.text = item.title
                 contentConfig.secondaryText = item.subtitle
                 if let icon = item.icon {
-                    contentConfig.image = UIImage(systemName: icon)
+                    contentConfig.image = (UIImage(named: icon) ?? UIImage(systemName: icon))?.withRenderingMode(.alwaysTemplate)
                     contentConfig.imageProperties.tintColor = item.isDanger ? .systemRed : .tintColor
                 }
                 if item.key == "block_chat_button" {

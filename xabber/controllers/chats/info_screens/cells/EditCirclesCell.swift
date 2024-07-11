@@ -67,7 +67,15 @@ class EditCirclesCell: UITableViewCell {
     public final func configure(icon: String?, title: String, circles: [String]) {
         titleLabel.text = title
         if let icon = icon {
-            iconView.image = UIImage(systemName: icon)
+//            let image = #imageLiteral(resourceName: icon).upscale(dimension: 24).withRenderingMode(.alwaysTemplate)
+//            if  {
+//                iconView.image = image
+//            } else 
+            if let image = UIImage(systemName: icon) {
+                iconView.image = image
+            } else if let image = UIImage(named: icon) {
+                iconView.image = image
+            }
         }
         if circles.isEmpty {
             subtitleLabel.text = "No circles".localizeString(id: "contact_circles_empty", arguments: [])

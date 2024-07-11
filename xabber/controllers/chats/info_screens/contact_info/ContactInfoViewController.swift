@@ -103,7 +103,7 @@ class ContactInfoViewController: BaseViewController {
     }()
     
     internal let editButton: UIBarButtonItem = {
-        let button = UIBarButtonItem(image: #imageLiteral(resourceName: "pencil").withRenderingMode(.alwaysTemplate), style: .plain, target: nil, action: nil)
+        let button = UIBarButtonItem(image: (UIImage(named: "xabber.pencil.cap") ?? UIImage(systemName: "pencil"))?.withRenderingMode(.alwaysTemplate), style: .plain, target: nil, action: nil)
         
         return button
     }()
@@ -273,8 +273,8 @@ class ContactInfoViewController: BaseViewController {
                     }
                     newDatasource.append(contentsOf: [
                         Datasource(.text, title: "", childs: [
-                            Datasource(.button, icon: "message", title: "Open regular chat".localizeString(id: "omemo__chat_settings__button_open_regular_chat", arguments: []), key: "chat"),
-                            Datasource(.button, icon: "lock.shield.fill", title: "Open encrypted chat".localizeString(id: "omemo__chat_settings__button_open_encrypted_chat", arguments: []), key: "encrypted"),
+                            Datasource(.button, icon: "xabber.chat", title: "Chat".localizeString(id: "chat", arguments: []), key: "chat"),
+                            Datasource(.button, icon: "xabber.chat.lock", title: "Secure chat".localizeString(id: "chat_type_secure", arguments: []), key: "encrypted"),
                             Datasource(.button, icon: "phone", title: "Call".localizeString(id: "contact_bar_call", arguments: []), key: "call"),
                             Datasource(.button, isDanger: true, icon: "circle.slash", title: "Block".localizeString(id: "contact_bar_block", arguments: []), key: "block")
                         ]),
