@@ -1495,14 +1495,11 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 let jid = ownVerification.jid
                 let sid = ownVerification.sid
                 let deviceId = String(ownVerification.opponentDeviceId)
-                let vc = VerificationConfirmationViewController()
+                let vc = VerificationViewController()
                 vc.owner = owner
                 vc.jid = jid
                 vc.sid = sid
                 vc.deviceId = deviceId
-                if ownVerification.jid == owner {
-                    vc.isVerificationWithOwnDevice = true
-                }
 
                 showModal(vc)
             }

@@ -549,7 +549,6 @@ class ContactInfoViewController: BaseViewController {
             let sid = userInfo["sid"] as! String
             let deviceId = userInfo["device-id"] as! String
             
-            var isVerificationWithOwnDevice = false
             var jid = ""
             
             do {
@@ -558,21 +557,18 @@ class ContactInfoViewController: BaseViewController {
                     return
                 }
                 jid = instance.jid
-                if instance.jid == self.owner {
-                    isVerificationWithOwnDevice = true
-                }
+                
             } catch {
                 DDLogDebug("ContactInfoViewController: \(#function). \(error.localizedDescription)")
                 return
             }
             
             DispatchQueue.main.async {
-                let vc = VerificationConfirmationViewController()
+                let vc = VerificationViewController()
                 vc.owner = self.owner
                 vc.jid = jid
                 vc.sid = sid
                 vc.deviceId = deviceId
-                vc.isVerificationWithOwnDevice = isVerificationWithOwnDevice
 
                 showModal(vc)
             }
