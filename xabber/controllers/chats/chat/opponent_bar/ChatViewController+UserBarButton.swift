@@ -233,6 +233,7 @@ extension ChatViewController {
             subscribe()
             let palette = AccountColorManager.shared.palette(for: owner)
             self.gradientView.alpha = 0
+            self.avatar.backgroundColor = MDCPalette.grey.tint50
         }
 
         override init(frame: CGRect) {
@@ -241,7 +242,8 @@ extension ChatViewController {
         }
 
         required init?(coder aDecoder: NSCoder) {
-            fatalError("init(coder:) has not been implemented")
+            super.init(coder: aDecoder)
+            setupSubviews()
         }
 
         deinit {

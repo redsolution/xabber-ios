@@ -187,7 +187,7 @@ extension ChatViewController {
             .collection(from: realm
                 .objects(RosterStorageItem.self)
                 .filter("owner == %@ AND jid == %@", owner, jid))
-            .debounce(.milliseconds(5), scheduler: MainScheduler.asyncInstance)
+            .debounce(.milliseconds(200), scheduler: MainScheduler.asyncInstance)
             .subscribe(onNext: { (results) in
                 if self.groupchat { return }
                 if (XMPPJID(string: self.jid)?.isServer ?? false) {
@@ -218,10 +218,12 @@ extension ChatViewController {
                         case .undefined:
                             switch item.ask {
                                 case .in:
-                                    self.topPanelState.accept(.requestSubscribtion)
+                                    self.topPanelState.accept(.allowSubscribtion)
                                 default:
                                     if [.addContact, .requestSubscribtion].contains(self.topPanelState.value) {
                                         self.topPanelState.accept(.none)
+                                    } else {
+                                        self.topPanelState.accept(.addContact)
                                     }
                             }
                         default:

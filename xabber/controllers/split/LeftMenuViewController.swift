@@ -168,8 +168,10 @@ class LeftMenuViewController: UIViewController {
     private let tableView: UITableView = {
         let view = UITableView(frame: .zero, style: .insetGrouped)
         
-        view.register(UITableViewCell.self, forCellReuseIdentifier: "tablecell")
+        view.register(MenuItemTableCell.self, forCellReuseIdentifier: MenuItemTableCell.cellName)
+//        view.register(UITableViewCell.self, forCellReuseIdentifier: "tablecell")
         view.separatorStyle = .none
+        view.isScrollEnabled = false
         
         return view
     }()
@@ -185,6 +187,8 @@ class LeftMenuViewController: UIViewController {
         
         return view
     }()
+    
+    var previousSelectedKey: String? = "chat"
     
     private func loadDatasource() {
         do {
@@ -395,6 +399,16 @@ class LeftMenuViewController: UIViewController {
         tableView.delegate = self
         tableView.dataSource = self
         loadDatasource()
+        
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(onTableViewEmptySpaceTap))
+        tapGesture.cancelsTouchesInView = false
+        tableView.addGestureRecognizer(tapGesture)
+        
+    }
+    
+    @objc
+    func onTableViewEmptySpaceTap(_ sender: AnyObject) {
+        self.splitViewController?.hide(.primary)
     }
     
     func setupBottomBar() {
@@ -496,36 +510,95 @@ extension LeftMenuViewController: UITableViewDataSource {
     }
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = UITableViewCell(style: .value1, reuseIdentifier: "tablecell")
+        guard let cell = tableView.dequeueReusableCell(withIdentifier: MenuItemTableCell.cellName, for: indexPath) as? MenuItemTableCell else {
+            fatalError()
+        }
+        let item = datasource[indexPath.section][indexPath.row]
         
-        cell.textLabel?.text = datasource[indexPath.section][indexPath.row].title
-        cell.imageView?.image = UIImage(systemName: datasource[indexPath.section][indexPath.row].icon)
-        cell.selectionStyle = .none
-        
-        let text = datasource[indexPath.section][indexPath.row].subtitle
-        
-        cell.detailTextLabel?.text = text == "0" ? "" : "\(text)"
-        
-        cell.backgroundColor = .clear
-        cell.layer.cornerRadius = 8
-        cell.layer.masksToBounds = true
-        
-//        cell.detailTextLabel?.backgroundColor = UIColor(red: 0.2196, green: 0.5569, blue: 0.2353, alpha: 1.0)
-//        cell.detailTextLabel?.layer.cornerRadius = 8
-//        cell.detailTextLabel?.layer.masksToBounds = true
-//        cell.detailTextLabel?.textAlignment = .center
-//        cell.detailTextLabel?.textColor = .white
-        
-        
+        cell.configure(title: item.title, badge: item.subtitle, icon: item.icon)
+
         return cell
     }
     
     
 }
 
+extension LeftMenuViewController {
+    class MenuItemTableCell: UITableViewCell {
+        static let cellName: String = "MenuItemTableCell"
+        
+        let stack: UIStackView = {
+            let stack = UIStackView()
+            
+            stack.axis = .horizontal
+            stack.distribution = .fill
+            stack.alignment = .center
+            
+            return stack
+        }()
+        
+        let titleLabel: UILabel = {
+            let label = UILabel()
+                        
+            return label
+        }()
+        
+        let badgeView: UIButton = {
+            let view = UIButton()
+            
+//            view.contentEdgeInsets = UIEdgeInsets(square: 4)
+//            view.backgroundColor = UIColor(red: 0.2196, green: 0.5569, blue: 0.2353, alpha: 1.0)
+//            view.setTitleColor(.white, for: .normal)
+            view.titleLabel?.font = UIFont.systemFont(ofSize: 13, weight: .regular)
+            view.layer.masksToBounds = true
+            view.layer.cornerRadius = 10
+            
+            var configuration = UIButton.Configuration.filled()
+            configuration.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 6, bottom: 4, trailing: 6)
+            configuration.baseBackgroundColor = UIColor(red: 0.2196, green: 0.5569, blue: 0.2353, alpha: 1.0)
+            configuration.baseForegroundColor = .white
+            configuration.buttonSize = .small
+            
+            view.configuration = configuration
+            
+            return view
+        }()
+        
+        func configure(title: String, badge: String, icon: String) {
+            self.titleLabel.text = title
+            self.imageView?.image = (UIImage(named: icon) ?? UIImage(systemName: icon))?.withRenderingMode(.alwaysTemplate)
+            self.selectionStyle = .none
+            self.badgeView.setTitle("\(badge)", for: .normal)
+            self.badgeView.isHidden = badge == "0" ? true : false
+        }
+        
+        func setupSubviews() {
+            self.backgroundColor = .clear
+            self.layer.cornerRadius = 8
+            self.layer.masksToBounds = true
+            self.selectionStyle = .none
+            self.contentView.addSubview(stack)
+            self.stack.fillSuperviewWithOffset(top: 0, bottom: 4, left: 56, right: 0)
+            self.stack.addArrangedSubview(self.titleLabel)
+            self.stack.addArrangedSubview(self.badgeView)
+        }
+        
+        override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+            super.init(style: style, reuseIdentifier: reuseIdentifier)
+            self.setupSubviews()
+        }
+        
+        required init?(coder: NSCoder) {
+            super.init(coder: coder)
+            self.setupSubviews()
+        }
+        
+    }
+}
+
 extension LeftMenuViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return tableView.estimatedRowHeight
+        return 44
     }
     
     private func show(controller vc: UIViewController) {
@@ -544,16 +617,27 @@ extension LeftMenuViewController: UITableViewDelegate {
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         let key = self.datasource[indexPath.section][indexPath.row].key
+        if self.previousSelectedKey == key {
+            self.splitViewController?.hide(.primary)
+            return
+        }
+        self.previousSelectedKey = key
         self.onAppear()
         switch key {
             case "chat":
                 if let vc = self.chatsVc {
                     vc.filter.accept(.chats)
                     self.show(controller: vc)
+                    let svc = EmptyChatViewController()
+                    svc.kind = .emptyChat
+                    self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: svc), sender: self)
                 } else {
                     let vc = LastChatsViewController()
                     self.chatsVc = vc
                     self.show(controller: vc)
+                    let svc = EmptyChatViewController()
+                    svc.kind = .emptyChat
+                    self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: svc), sender: self)
                 }
             case "calls":
                 if self.chatsVc?.filter.value == .unread {
@@ -564,10 +648,16 @@ extension LeftMenuViewController: UITableViewDelegate {
                 }
                 if let vc = self.callsVc {
                     self.show(controller: vc)
+                    let svc = EmptyChatViewController()
+                    svc.kind = .emptyCall
+                    self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: svc), sender: self)
                 } else {
                     let vc = LastCallsViewController()
                     self.callsVc = vc
                     self.show(controller: vc)
+                    let svc = EmptyChatViewController()
+                    svc.kind = .emptyCall
+                    self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: svc), sender: self)
                 }
             case "mentions":
                 if self.chatsVc?.filter.value == .unread {
@@ -592,16 +682,16 @@ extension LeftMenuViewController: UITableViewDelegate {
                 }
                 if UIDevice.current.userInterfaceIdiom == .pad {
                     if let vc = self.notificationsCategoriesVc {
-                        let svc = NotificationsListViewController()
                         self.show(controller: vc)
+                        let svc = NotificationsListViewController()
                         self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: svc), sender: self)
                         
                     } else {
                         let vc = NotificationsCategoriesViewController()
                         self.notificationsCategoriesVc = vc
+                        self.show(controller: vc)
                         let svc = NotificationsListViewController()
                         
-                        self.show(controller: vc)
                         self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: svc), sender: self)
                     }
                 } else {
@@ -623,21 +713,33 @@ extension LeftMenuViewController: UITableViewDelegate {
                 }
                 if let vc = self.contactsVc {
                     self.show(controller: vc)
+                    let svc = EmptyChatViewController()
+                    svc.kind = .emptyContact
+                    self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: svc), sender: self)
                 } else {
                     let vc = ContactsViewController()
                     self.contactsVc = vc
                     self.show(controller: vc)
+                    let svc = EmptyChatViewController()
+                    svc.kind = .emptyContact
+                    self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: svc), sender: self)
                  }
             case "archive":
                 if let vc = self.archivedVc {
                     vc.filter.accept(.archived)
                     self.show(controller: vc)
+                    let svc = EmptyChatViewController()
+                    svc.kind = .emptyChat
+                    self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: svc), sender: self)
                 } else {
                     let vc = LastChatsViewController()
                     vc.shouldShowBottomBar = false
                     vc.filter.accept(.archived)
                     self.archivedVc = vc
                     self.show(controller: vc)
+                    let svc = EmptyChatViewController()
+                    svc.kind = .emptyChat
+                    self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: svc), sender: self)
                 }
             case "saved":
                 if self.chatsVc?.filter.value == .unread {

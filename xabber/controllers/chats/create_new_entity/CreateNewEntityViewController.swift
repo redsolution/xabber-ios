@@ -49,10 +49,10 @@ class CreateNewEntityViewController: UIViewController {
         if CommonConfigManager.shared.config.locked_conversation_type == "none" {
             self.datasource = [
                 [
-                    Datasource(title: "Add contact", iconImage: #imageLiteral(resourceName: "contact-add") ,icon: "person.badge.plus", key: "add_contact", subtitle: ""),
-                    Datasource(title: "Create group", iconImage:  #imageLiteral(resourceName: "group-public-add"), icon: "phone", key: "create_group", subtitle: ""),
-                    Datasource(title: "Create incognito group", iconImage:  #imageLiteral(resourceName: "group-incognito-add"), icon: "bell.badge", key: "create_incognito", subtitle: ""),
-                    Datasource(title: "Start secret chat", iconImage:  #imageLiteral(resourceName: "security"), icon: "person.2", key: "start_secret_chat", subtitle: ""),
+                    Datasource(title: "Add contact", iconImage: nil ,icon: "person.fill.badge.plus", key: "add_contact", subtitle: ""),
+                    Datasource(title: "Create group", iconImage: nil, icon: "custom.person.2.fill.badge.plus", key: "create_group", subtitle: ""),
+                    Datasource(title: "Create incognito group", iconImage:  nil, icon: "custom.person.2.badge.plus", key: "create_incognito", subtitle: ""),
+                    Datasource(title: "Start secret chat", iconImage: nil, icon: "custom.lock.bubble.left.badge.plus", key: "start_secret_chat", subtitle: ""),
                 ],
                 [
                     Datasource(title: "Scan QR code", iconImage: nil, icon: "qrcode.viewfinder", key: "qr_code", subtitle: ""),
@@ -61,7 +61,7 @@ class CreateNewEntityViewController: UIViewController {
         } else {
             self.datasource = [
                 [
-                    Datasource(title: "Add contact", iconImage: #imageLiteral(resourceName: "contact-add") ,icon: "person.badge.plus", key: "add_contact", subtitle: ""),
+                    Datasource(title: "Add contact", iconImage: nil ,icon: "person.fill.badge.plus", key: "add_contact", subtitle: ""),
                 ],
                 [
                     Datasource(title: "Scan QR code", iconImage: nil, icon: "qrcode.viewfinder", key: "qr_code", subtitle: ""),
@@ -144,7 +144,7 @@ extension CreateNewEntityViewController: UITableViewDataSource {
             cell.imageView?.image = image.withRenderingMode(.alwaysTemplate)
             cell.tintColor = .tintColor
         } else {
-            cell.imageView?.image = UIImage(systemName: datasource[indexPath.section][indexPath.row].icon)?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate)
+            cell.imageView?.image = (UIImage(named: datasource[indexPath.section][indexPath.row].icon) ?? UIImage(systemName: datasource[indexPath.section][indexPath.row].icon))?.withRenderingMode(.alwaysTemplate)
         }
         cell.selectionStyle = .none
         cell.accessoryType = .disclosureIndicator

@@ -568,13 +568,9 @@ class LastChatsViewController: BaseViewController {
                 if (XMPPJID(string: item.jid)?.isServer ?? false) {
                     return nil
                 }
-                var blankMessageText: String = "Start messaging here".localizeString(id: "chat_message_start_messaging", arguments: [])
-//                if item.messagesCount != 0 {
-//                    blankMessageText = (item.retractVersion == "0" && item.retractVersion != "") ? "No messages".localizeString(id: "no_messages", arguments: []) : "No messages".localizeString(id: "no_messages", arguments: [])
-//
-//                }
+                let blankMessageText: String = "Start messaging here".localizeString(id: "chat_message_start_messaging", arguments: [])
                 
-                let subscriptionRequest: Bool = false
+                let subscriptionRequest: Bool = item.rosterItem?.isThereSubscriptionRequest() ?? false
                 
                 let primaryResource = item.rosterItem?.getPrimaryResource()
                 

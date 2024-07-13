@@ -36,6 +36,7 @@ class InfoScreenHeaderView: UIView {
         button.contentHorizontalAlignment = .fill
         button.imageView?.contentMode = .scaleAspectFill
         button.contentMode = .scaleAspectFill
+        button.backgroundColor = MDCPalette.grey.tint50
         
         return button
     }()

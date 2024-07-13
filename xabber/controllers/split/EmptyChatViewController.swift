@@ -59,6 +59,14 @@ class EmptyChatViewController: UIViewController {
 //            titleLabel.heightAnchor.constraint(lessThanOrEqualToConstant: 64).isActive = true
     }
     
+    enum Kind {
+        case emptyChat
+        case emptyContact
+        case emptyCall
+    }
+    
+    open var kind: Kind = .emptyChat
+    
     open func configure() {
         self.view.backgroundColor = .systemBackground
         self.view.addSubview(stack)
@@ -68,7 +76,15 @@ class EmptyChatViewController: UIViewController {
         stack.addArrangedSubview(UIStackView())
         centerStack.addArrangedSubview(titleLabel)
 //            centerStack.addArrangedSubview(newChatButton)
-        titleLabel.text = "Select chat to start conversation"
+        switch kind {
+            case .emptyChat:
+                titleLabel.text = "Select chat to start conversation"
+            case .emptyContact:
+                titleLabel.text = "Select contact to start conversation"
+            case .emptyCall:
+                titleLabel.text = "Select contact to start call"
+        }
+        
         newChatButton.titleLabel?.numberOfLines = 0
         newChatButton.titleLabel?.textAlignment = .center
         activaateConstraints()

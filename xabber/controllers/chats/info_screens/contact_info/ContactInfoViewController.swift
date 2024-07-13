@@ -109,7 +109,8 @@ class ContactInfoViewController: BaseViewController {
     }()
     
     internal let showQRCodeButton: UIBarButtonItem = {
-        let button = UIBarButtonItem(image: #imageLiteral(resourceName: "qrcode").withRenderingMode(.alwaysTemplate), style: .plain, target: nil, action: nil)
+//        let button = UIBarButtonItem(image: #imageLiteral(resourceName: "qrcode").withRenderingMode(.alwaysTemplate), style: .plain, target: nil, action: nil)
+        let button = UIBarButtonItem(image: UIImage(systemName: "qrcode"), style: .done, target: nil, action: nil)
         
         return button
     }()
