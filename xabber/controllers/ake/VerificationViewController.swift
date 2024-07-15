@@ -13,7 +13,7 @@ import RxSwift
 import TOInsetGroupedTableView
 
 class VerificationViewController: SimpleBaseViewController {
-    class Datasource {
+    class DeviceDatasource {
         let name: String
         let ip: String?
         let lastAuth: Date
@@ -27,9 +27,37 @@ class VerificationViewController: SimpleBaseViewController {
         }
     }
     
+    class Datasource {
+        enum ItemType {
+            case text
+            case device
+            case codeInput
+        }
+        
+        enum Keys: String {
+            case title = "title"
+            case descriptopn = "description"
+            case steps = "steps"
+            case code = "code"
+        }
+        
+        var type: ItemType
+        var text: String? = nil
+        var attributedText: NSMutableAttributedString? = nil
+        var key: Keys? = nil
+        var itemDevice: DeviceDatasource? = nil
+        
+        init(type: ItemType, text: String? = nil, attributedText: NSMutableAttributedString? = nil, key: Keys? = nil, itemDevice: DeviceDatasource? = nil) {
+            self.type = type
+            self.text = text
+            self.attributedText = attributedText
+            self.key = key
+            self.itemDevice = itemDevice
+        }
+    }
+    
     var sid: String = ""
     var deviceId: String = ""
-//    var isVerificationWithOwnDevice: Bool = false
     var code: String = ""
     var state: VerificationSessionStorageItem.VerififcationState = .receivedRequest
     var datasource: [Datasource] = []
@@ -58,46 +86,46 @@ class VerificationViewController: SimpleBaseViewController {
         return view
     }()
     
-    let stackLabels: UIStackView = {
-        let stack = UIStackView()
-        stack.alignment = .center
-        stack.axis = .vertical
-        stack.spacing = 12
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        
-        return stack
-    }()
-    
-    let titleLabel: UILabel = {
-        let label = UILabel()
-        label.font = label.font.bold()
-        label.numberOfLines = 0
-        
-        return label
-    }()
-    
-    let descriptionLabel: UILabel = {
-        let label = UILabel()
-        label.numberOfLines = 0
-        
-        return label
-    }()
-    
-    let stepsLabel: UILabel = {
-        let label = UILabel()
-        label.numberOfLines = 0
-        label.textColor = .systemGray
-        
-        return label
-    }()
-    
-    let codeLabel: UILabel = {
-        let label = UILabel()
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.font = UIFont.monospacedSystemFont(ofSize: 48, weight: .regular).bold()
-        
-        return label
-    }()
+//    let stackLabels: UIStackView = {
+//        let stack = UIStackView()
+//        stack.alignment = .center
+//        stack.distribution = .fill
+//        stack.axis = .vertical
+//        stack.spacing = 12
+//        stack.translatesAutoresizingMaskIntoConstraints = false
+//        
+//        return stack
+//    }()
+//    
+//    let titleLabel: UILabel = {
+//        let label = UILabel()
+//        label.font = label.font.bold()
+//        label.numberOfLines = 1
+//        
+//        return label
+//    }()
+//    
+//    let descriptionLabel: UILabel = {
+//        let label = UILabel()
+//        label.numberOfLines = 0
+//        
+//        return label
+//    }()
+//    
+//    let stepsLabel: UILabel = {
+//        let label = UILabel()
+//        label.numberOfLines = 0
+//        label.textColor = .systemGray
+//        
+//        return label
+//    }()
+//    
+//    let codeLabel: UILabel = {
+//        let label = UILabel()
+//        label.font = UIFont.monospacedSystemFont(ofSize: 48, weight: .regular).bold()
+//        
+//        return label
+//    }()
     
     let codeInputField: UITextField = {
         let textField = UITextField()
@@ -109,30 +137,39 @@ class VerificationViewController: SimpleBaseViewController {
     }()
     
     internal let tableView: UITableView = {
-        let view = InsetGroupedTableView(frame: .zero)
+        let view = UITableView()
         view.register(DeviceInfoTableCell.self, forCellReuseIdentifier: DeviceInfoTableCell.cellName)
+        view.register(UITableViewCell.self, forCellReuseIdentifier: "SimpleTableViewCell")
+        
+        view.separatorStyle = .none
         view.backgroundColor = .white
-        view.translatesAutoresizingMaskIntoConstraints = false
+        
+        return view
+    }()
+    
+    let containerForButtons: UIView = {
+        let view = UIView(frame: .zero)
+        
+        return view
+    }()
+    
+    let buttonsStack: UIStackView = {
+        let view = UIStackView()
+        view.alignment = .center
+        view.axis = .vertical
+        view.spacing = 8
         
         return view
     }()
     
     let agreeButton: UIButton = {
         let button = UIButton(type: .system)
-        button.translatesAutoresizingMaskIntoConstraints = false
-        button.configuration = UIButton.Configuration.plain()
-        button.configuration!.contentInsets = NSDirectionalEdgeInsets(top: 15, leading: 20, bottom: 15, trailing: 20)
-        button.setTitle("Proceed to Verification", for: .normal)
         
         return button
     }()
     
     let cancelButton: UIButton = {
         let button = UIButton(type: .system)
-        button.translatesAutoresizingMaskIntoConstraints = false
-        button.configuration = UIButton.Configuration.plain()
-        button.configuration!.contentInsets = NSDirectionalEdgeInsets(top: 15, leading: 20, bottom: 15, trailing: 20)
-        button.setTitle("Cancel verification", for: .normal)
         button.setTitleColor(.systemRed, for: .normal)
         
         return button
@@ -146,36 +183,32 @@ class VerificationViewController: SimpleBaseViewController {
             let collection = realm.objects(VerificationSessionStorageItem.self).filter("owner = %@ AND sid = %@", self.owner, self.sid)
             
             Observable.collection(from: collection).subscribe(onNext: { results in
-                if results.isEmpty {
+                guard let item = results.first else {
                     return
                 }
                 
-                let item = results.first
-                switch item?.state {
+                switch item.state {
                 case .acceptedRequest:
                     self.state = .acceptedRequest
-                    self.code = item!.code
+                    self.code = item.code
                     
                     self.agreeButton.removeFromSuperview()
                     self.cancelButton.removeTarget(self, action: #selector(self.onRejectButtonTapped), for: .touchUpInside)
                     
                     self.setupSubviews()
                     self.loadDatasource()
-                    self.activateConstraints()
-                    self.onAppear()
+                    self.tableView.reloadData()
                     
                     break
                     
                 case .trusted:
                     self.state = .trusted
-                    self.stepsLabel.removeFromSuperview()
-                    self.codeLabel.removeFromSuperview()
                     
-                    self.cancelButton.removeTarget(self, action: #selector(self.onCancelButtonPressed), for: .touchUpInside)
+                    self.cancelButton.removeFromSuperview()
                     
                     self.setupSubviews()
                     self.loadDatasource()
-                    self.activateConstraints()
+                    self.tableView.reloadData()
                     
                     break
                     
@@ -203,20 +236,65 @@ class VerificationViewController: SimpleBaseViewController {
     }
     
     override func setupSubviews() {
-        view.addSubview(scrollView)
-        scrollView.fillSuperview()
+        view.addSubview(tableView)
         
-        scrollView.addSubview(containerView)
+        let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom ?? 0
+        tableView.fillSuperviewWithOffset(top: 0, bottom: 96 + 16 + bottomInset, left: 0, right: 0)
         
-        containerView.addSubview(headerView)
-        containerView.addSubview(stackLabels)
-        containerView.addSubview(cancelButton)
+        tableView.dataSource = self
+        tableView.delegate = self
+        tableView.tableHeaderView = headerView
         
-        stackLabels.addArrangedSubview(titleLabel)
-        stackLabels.addArrangedSubview(descriptionLabel)
-        if state != .trusted {
-            stackLabels.addArrangedSubview(stepsLabel)
+        view.addSubview(containerForButtons)
+        
+        containerForButtons.addSubview(buttonsStack)
+        buttonsStack.fillSuperview()
+        
+        if state == .receivedRequest {
+            buttonsStack.addArrangedSubview(agreeButton)
+            buttonsStack.addArrangedSubview(cancelButton)
+            agreeButton.setTitle("Proceed to Verification", for: .normal)
+            cancelButton.setTitle("Cancel verification", for: .normal)
+            
+        } else if state == .receivedRequestAccept {
+            buttonsStack.addArrangedSubview(agreeButton)
+            buttonsStack.addArrangedSubview(cancelButton)
+            
+            agreeButton.configuration = UIButton.Configuration.filled()
+            agreeButton.tintColor = .systemBlue
+            
+            agreeButton.setTitle("Submit", for: .normal)
+            cancelButton.setTitle("Cancel verification", for: .normal)
+            
+        } else if state == .trusted {
+            buttonsStack.addArrangedSubview(agreeButton)
+            agreeButton.setTitle("Great", for: .normal)
+            
+        } else {
+            buttonsStack.addArrangedSubview(cancelButton)
+            cancelButton.setTitle("Cancel verification", for: .normal)
+            
         }
+        
+//        tableView.contentSize = CGSize(width: self.view.bounds.width, height: self.view.bounds.height - headerHeightMax - buttonsStack.frame.height)
+        
+//        containerView.addSubview(stackLabels)
+//        containerView.addSubview(cancelButton)
+//        containerView.addSubview(buttonsStack)
+        
+//        buttonsStack.addSubview(agreeButton)
+//        buttonsStack.addSubview(cancelButton)
+        
+//        stackLabels.addArrangedSubview(titleLabel)
+//        stackLabels.addArrangedSubview(descriptionLabel)
+//        var cancelPosition = 2
+//        if state != .trusted {
+//            cancelPosition = 3
+//            stackLabels.addArrangedSubview(stepsLabel)
+//        }
+//        
+//        stackLabels.addArrangedSubview(UIStackView())
+//        stackLabels.addArrangedSubview(cancelButton)
         
         self.navigationController?.isNavigationBarHidden = true
         
@@ -227,33 +305,21 @@ class VerificationViewController: SimpleBaseViewController {
         }
         
         if state == .receivedRequest {
-            containerView.addSubview(agreeButton)
             agreeButton.addTarget(self, action: #selector(onAgreeButtonTapped), for: .touchUpInside)
             cancelButton.addTarget(self, action: #selector(onRejectButtonTapped), for: .touchUpInside)
             
         } else if state == .acceptedRequest {
-            self.stackLabels.addArrangedSubview(self.codeLabel)
-            self.stackLabels.setCustomSpacing(40, after: self.stepsLabel)
             self.cancelButton.addTarget(self, action: #selector(self.onCancelButtonPressed), for: .touchUpInside)
             
         } else if state == .receivedRequestAccept {
             agreeButton.configuration = UIButton.Configuration.filled()
             agreeButton.tintColor = .systemBlue
             agreeButton.setTitle("Submit", for: .normal)
-            
-            containerView.addSubview(agreeButton)
-            self.stackLabels.addArrangedSubview(codeInputField)
-            self.stackLabels.setCustomSpacing(40, after: self.stepsLabel)
             self.agreeButton.addTarget(self, action: #selector(onSubmitButtonPressed), for: .touchUpInside)
             self.cancelButton.addTarget(self, action: #selector(self.onCancelButtonPressed), for: .touchUpInside)
             
         } else if state == .trusted {
-            containerView.addSubview(tableView)
-            tableView.dataSource = self
-            
-            cancelButton.setTitle("Great!", for: .normal)
-            cancelButton.setTitleColor(.systemBlue, for: .normal)
-            cancelButton.addTarget(self, action: #selector(onCloseButtonPressed), for: .touchUpInside)
+            agreeButton.addTarget(self, action: #selector(onCloseButtonPressed), for: .touchUpInside)
             
         }
     }
@@ -261,7 +327,7 @@ class VerificationViewController: SimpleBaseViewController {
     override func loadDatasource() {
         var titleText = ""
         var descriptionText = ""
-        var stepsText = ""
+        var stepsText: String? = nil
         
         datasource = []
         
@@ -275,7 +341,6 @@ class VerificationViewController: SimpleBaseViewController {
             titleText = "Device Verification"
             descriptionText = self.owner == self.jid ? "You are receiving a device verification request to ensure secure and encrypted communication." : "You are about to establish a secure connection with this contact."
             stepsText = self.owner == self.jid ? "1.\tConfirm that this device is yours and that you recognize the initiating session.\n\n2.\tBelow is the verification code. Enter this code on the primary device to complete the encryption key exchange:" : "1.\tCarefully verify the address and identity of this contact.\n\n2.\tUse a secure method (preferably in person) to ask the contact to verify identity by entering the following code:"
-            codeLabel.text = self.code
             
         case .receivedRequestAccept:
             titleText = "Device Verification"
@@ -289,14 +354,39 @@ class VerificationViewController: SimpleBaseViewController {
             break
         }
         
-        titleLabel.text = titleText
-        descriptionLabel.text = descriptionText
+//        titleLabel.text = titleText
+//        descriptionLabel.text = descriptionText
         
-        let attributedString = NSMutableAttributedString(string: stepsText)
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.headIndent = 28
-        attributedString.addAttributes([NSAttributedString.Key.paragraphStyle: paragraphStyle], range: NSRange(location: 0, length: attributedString.length))
-        stepsLabel.attributedText = attributedString
+        datasource.append(Datasource(type: .text, text: titleText, key: .title))
+        datasource.append(Datasource(type: .text, text: descriptionText, key: .descriptopn))
+        
+        if let stepsText = stepsText {
+            let attributedString = NSMutableAttributedString(string: stepsText)
+            let paragraphStyle = NSMutableParagraphStyle()
+            paragraphStyle.headIndent = 28
+            attributedString.addAttributes([NSAttributedString.Key.paragraphStyle: paragraphStyle], range: NSRange(location: 0, length: attributedString.length))
+            
+            datasource.append(Datasource(type: .text, attributedText: attributedString, key: .steps))
+        }
+        
+//        stepsLabel.attributedText = attributedString
+        
+        switch self.state {
+//        case .receivedRequest:
+//            datasource.append(Datasource(type: .button, text: "Proceed to Verification", buttonKey: .agree))
+//            datasource.append(Datasource(type: .button, text: "Cancel verification", buttonKey: .cancel))
+        case .acceptedRequest:
+            datasource.append(Datasource(type: .text, text: self.code, key: .code))
+//            datasource.append(Datasource(type: .button, text: "Cancel verification", buttonKey: .cancel))
+        case .receivedRequestAccept:
+            datasource.append(Datasource(type: .codeInput))
+//            datasource.append(Datasource(type: .button, text: "Submit", buttonKey: .submit))
+//            datasource.append(Datasource(type: .button, text: "Cancel verification", buttonKey: .cancel))
+//        case .trusted:
+//            datasource.append(Datasource(type: .button, text: "Great", buttonKey: .close))
+        default:
+            break
+        }
         
         if self.owner == self.jid {
             var client = ""
@@ -307,32 +397,31 @@ class VerificationViewController: SimpleBaseViewController {
             do {
                 let realm = try WRealm.safe()
                 
-                let deviceInstance = realm.objects(DeviceStorageItem.self).filter("owner == %@ AND omemoDeviceId == %@", self.owner, Int(self.deviceId) ?? -1).first
-                if deviceInstance == nil {
-                    return
-                }
-                
-                client = deviceInstance!.client
-                ip = deviceInstance!.ip
-                
-                let dateFormatter = DateFormatter()
-                dateFormatter.dateFormat = "MMM d, yyyy"
-                let dateRaw = deviceInstance!.authDate
-                date = dateFormatter.string(from: dateRaw)
-                
-                publicName = deviceInstance!.device
-                
-                if self.state == .trusted {
-                    self.datasource.append(Datasource(name: deviceInstance!.device, ip: deviceInstance!.ip, lastAuth: deviceInstance!.authDate, client: deviceInstance!.client))
+                if let deviceInstance = realm.objects(DeviceStorageItem.self).filter("owner == %@ AND omemoDeviceId == %@", self.owner, Int(self.deviceId) ?? -1).first {
+                    client = deviceInstance.client
+                    ip = deviceInstance.ip
                     
-                    let instances = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND state_ == %@ AND trustedByDeviceId == %@", self.owner, SignalDeviceStorageItem.TrustState.trusted.rawValue, self.deviceId)
-                    for instance in instances {
-                        guard let device = realm.objects(DeviceStorageItem.self).filter("owner == %@ AND omemoDeviceId == %@", self.owner, instance.deviceId).first else {
-                            continue
+                    let dateFormatter = DateFormatter()
+                    dateFormatter.dateFormat = "MMM d, yyyy"
+                    let dateRaw = deviceInstance.authDate
+                    date = dateFormatter.string(from: dateRaw)
+                    
+                    publicName = deviceInstance.device
+                    
+                    if self.state == .trusted {
+                        let deviceItem = DeviceDatasource(name: deviceInstance.device, ip: deviceInstance.ip, lastAuth: deviceInstance.authDate, client: deviceInstance.client)
+                        self.datasource.append(Datasource(type: .device, itemDevice: deviceItem))
+                        
+                        let instances = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND state_ == %@ AND trustedByDeviceId == %@", self.owner, SignalDeviceStorageItem.TrustState.trusted.rawValue, self.deviceId)
+                        for instance in instances {
+                            if let device = realm.objects(DeviceStorageItem.self).filter("owner == %@ AND omemoDeviceId == %@", self.owner, instance.deviceId).first {
+                                let trustedDevice = DeviceDatasource(name: device.device, ip: device.ip, lastAuth: device.authDate, client: device.client)
+                                
+                                self.datasource.append(Datasource(type: .device, itemDevice: trustedDevice))
+                            }
                         }
-                        self.datasource.append(Datasource(name: device.device, ip: device.ip, lastAuth: device.authDate, client: device.client))
+                        
                     }
-                    
                 }
             } catch {
                 DDLogDebug("VerificationViewController: \(#function). \(error.localizedDescription)")
@@ -387,16 +476,16 @@ class VerificationViewController: SimpleBaseViewController {
                 }
                 
                 if self.state == .trusted {
-                    let currentDevice = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.jid, deviceId: Int(self.deviceId) ?? -1))
-                    if currentDevice == nil {
-                        return
+                    if let currentDevice = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.jid, deviceId: Int(self.deviceId) ?? -1)) {
+                        let currentDevice = DeviceDatasource(name: currentDevice.name ?? String(currentDevice.deviceId), lastAuth: currentDevice.updateDate)
+                        
+                        self.datasource.append(Datasource(type: .device, itemDevice: currentDevice))
                     }
-                    
-                    self.datasource.append(Datasource(name: currentDevice!.name ?? String(currentDevice!.deviceId), lastAuth: currentDevice!.updateDate))
                     
                     let instances = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND state_ == %@ AND trustedByDeviceId == %@", self.owner, SignalDeviceStorageItem.TrustState.trusted.rawValue, self.deviceId)
                     for instance in instances {
-                        self.datasource.append(Datasource(name: instance.name ?? String(instance.deviceId), lastAuth: instance.updateDate))
+                        let device = DeviceDatasource(name: instance.name ?? String(instance.deviceId), lastAuth: instance.updateDate)
+                        self.datasource.append(Datasource(type: .device, itemDevice: device))
                     }
                 }
                 
@@ -409,31 +498,9 @@ class VerificationViewController: SimpleBaseViewController {
     
     override func activateConstraints() {
         NSLayoutConstraint.activate ([
-            stackLabels.topAnchor.constraint(equalTo: headerView.bottomAnchor, constant: 16),
-            stackLabels.leftAnchor.constraint(equalTo: view.leftAnchor, constant: 33),
-            stackLabels.rightAnchor.constraint(equalTo: view.rightAnchor, constant: -33),
-            titleLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
-            descriptionLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor),
-            cancelButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            cancelButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -40),
+            agreeButton.heightAnchor.constraint(equalToConstant: 44),
+            cancelButton.heightAnchor.constraint(equalToConstant: 44),
         ])
-        
-        if state != .trusted {
-            stepsLabel.leftAnchor.constraint(equalTo: stackLabels.leftAnchor).isActive = true
-        }
-        
-        if state == .receivedRequest || state == .receivedRequestAccept {
-            agreeButton.centerXAnchor.constraint(equalTo: view.centerXAnchor).isActive = true
-            agreeButton.bottomAnchor.constraint(equalTo: cancelButton.topAnchor, constant: -8).isActive = true
-            agreeButton.topAnchor.constraint(greaterThanOrEqualTo: stackLabels.bottomAnchor, constant: 40).isActive = true
-        }
-        
-        if state == .trusted {
-            tableView.topAnchor.constraint(equalTo: stackLabels.bottomAnchor, constant: 20).isActive = true
-            tableView.leftAnchor.constraint(equalTo: containerView.leftAnchor).isActive = true
-            tableView.rightAnchor.constraint(equalTo: containerView.rightAnchor).isActive = true
-            tableView.bottomAnchor.constraint(equalTo: cancelButton.topAnchor, constant: -20).isActive = true
-        }
     }
     
     override func addObservers() {
@@ -457,13 +524,15 @@ class VerificationViewController: SimpleBaseViewController {
     override func onAppear() {
         super.onAppear()
         
+        let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom ?? 0
+        
+        containerForButtons.frame = CGRect(origin: CGPoint(x: 0, y: view.bounds.height - 96 - bottomInset), size: CGSize(width: self.view.bounds.width, height: 96))
+        
         if self.state == .receivedRequestAccept {
             codeInputField.becomeFirstResponder()
             codeInputField.returnKeyType = .continue
             codeInputField.delegate = self
         }
-        
-        containerView.frame = self.view.bounds
         
         headerView.frame = CGRect(
             width: view.frame.width,
@@ -581,18 +650,8 @@ class VerificationViewController: SimpleBaseViewController {
     
     @objc
     func onCancelButtonPressed() {
-        do {
-            let realm = try WRealm.safe()
-            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: self.sid))
-            try realm.write {
-                realm.delete(instance!)
-            }
-        } catch {
-            DDLogDebug("VerificationViewController: \(#function). \(error.localizedDescription)")
-        }
-        
         AccountManager.shared.find(for: self.owner)?.action { user, stream in
-            user.akeManager.sendErrorMessage(fullJID: XMPPJID(string: self.jid)!, sid: self.sid, reason: "Сontact canceled verification session")
+            user.akeManager.cancelVerificationSession(sid: self.sid)
         }
         
         self.dismiss(animated: true)
@@ -614,20 +673,28 @@ class VerificationViewController: SimpleBaseViewController {
                 }
                 switch (userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber, userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber) {
                 case let (.some(duration), .some(curve)):
+                    let r = self.tableView.convert(frame, from: nil)
+                    
+                    var inset: CGFloat? = nil
+                    
+                    if r.intersects(tableView.frame) {
+                        inset = keyboardVisibleHeight - (self.view.frame.height - self.tableView.contentSize.height)
+                    }
+                    
                     let options = UIView.AnimationOptions(rawValue: curve.uintValue)
                     
-                    let codeBottomLine = self.stackLabels.frame.origin.y + self.stackLabels.frame.height + 40 + codeInputField.frame.height
-                    let keyboardTopLine = self.view.frame.height - keyboardVisibleHeight
+                    if let inset = inset {
+                        UIView.animate(
+                            withDuration: TimeInterval(duration.doubleValue),
+                            delay: 0,
+                            options: options,
+                            animations: {
+                                self.tableView.contentOffset.y = inset + 16
+                                return
+                            }, completion: { finished in
+                        })
+                    }
                     
-                    UIView.animate(
-                        withDuration: TimeInterval(duration.doubleValue),
-                        delay: 0,
-                        options: options,
-                        animations: {
-                            self.scrollView.contentOffset.y = codeBottomLine - keyboardTopLine
-                            return
-                        }, completion: { finished in
-                    })
                 default:
                     break
                 }
@@ -647,7 +714,7 @@ class VerificationViewController: SimpleBaseViewController {
                     delay: 0,
                     options: options,
                     animations: {
-                        self.scrollView.contentOffset.y = 0
+                        self.tableView.contentOffset.y = 0
                         return
                     }, completion: { finished in
                 })
@@ -665,15 +732,75 @@ extension VerificationViewController: UITableViewDataSource {
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let item = datasource[indexPath.row]
-        guard let cell = tableView.dequeueReusableCell(withIdentifier: DeviceInfoTableCell.cellName, for: indexPath) as? DeviceInfoTableCell else {
-            return UITableViewCell(frame: .zero)
+        
+        switch item.type {
+        case .text:
+            let cell = tableView.dequeueReusableCell(withIdentifier: "SimpleTableViewCell", for: indexPath)
+            
+            var cellConfig = cell.defaultContentConfiguration()
+            
+            switch item.key {
+            case .title:
+                cellConfig.textProperties.font = cellConfig.textProperties.font.bold()
+                cellConfig.text = item.text
+                
+            case .steps:
+                cellConfig.attributedText = item.attributedText
+                cellConfig.textProperties.color = .systemGray
+                
+            case .code:
+                cellConfig.text = item.text
+                cellConfig.textProperties.alignment = .center
+                cellConfig.textProperties.font = UIFont.monospacedSystemFont(ofSize: 48, weight: .regular).bold()
+                
+            default:
+                cellConfig.text = item.text
+                
+            }
+                
+            cell.contentConfiguration = cellConfig
+            
+            return cell
+            
+        case .device:
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: DeviceInfoTableCell.cellName, for: indexPath) as? DeviceInfoTableCell,
+                  let item = item.itemDevice else {
+                return UITableViewCell(frame: .zero)
+            }
+            
+            cell.configure(client: item.client ?? "", device: item.name, description: "", ip: item.ip ?? "", lastAuth: item.lastAuth, current: false, editable: false, isOnline: false)
+            
+            return cell
+            
+        case .codeInput:
+            let cell = tableView.dequeueReusableCell(withIdentifier: "SimpleTableViewCell", for: indexPath)
+            cell.contentView.addSubview(codeInputField)
+            codeInputField.fillSuperview()
+            
+            return cell
+            
         }
-        
-        cell.configure(client: item.client ?? "", device: item.name, description: "", ip: item.ip ?? "", lastAuth: item.lastAuth, current: false, editable: false, isOnline: false)
-        
-        return cell
+    }
+}
+
+extension VerificationViewController: UITableViewDelegate {
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        return tableView.estimatedRowHeight
     }
     
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: true)
+        
+//        let item = datasource[indexPath.row]
+        
+//        if item.type == .codeInput {
+//            codeInputField.becomeFirstResponder()
+//            codeInputField.returnKeyType = .continue
+//            codeInputField.delegate = self
+//            
+//            return
+//        }
+    }
 }
 
 
@@ -684,5 +811,5 @@ extension VerificationViewController: UITextFieldDelegate {
         
         return true
     }
-    
 }
+

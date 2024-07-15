@@ -313,38 +313,47 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
     }
     
     func processMessage(message: XMPPMessage) -> String? {
-        guard let notify = message.element(forName: "notify", xmlns: XMPPNotificationsManager.xmlns) ?? message.element(forName: "notification", xmlns: XMPPNotificationsManager.xmlns) else {
-            return nil
-        }
-        let uniqueMessageId = getUniqueMessageId(message, owner: self.owner)
-        guard let messageContainer = notify.element(forName: "forwarded")?.element(forName: "message") else {
-            return nil
-        }
-        
-        guard let authenticatedKeyExchange = messageContainer.element(forName: "authenticated-key-exchange", xmlns: getPrimaryNamespace()),
+        guard let notify = message.element(forName: "notify", xmlns: XMPPNotificationsManager.xmlns) ?? message.element(forName: "notification", xmlns: XMPPNotificationsManager.xmlns),
+              let messageContainer = notify.element(forName: "forwarded")?.element(forName: "message"),
+              let authenticatedKeyExchange = messageContainer.element(forName: "authenticated-key-exchange", xmlns: getPrimaryNamespace()),
               let jid = XMPPMessage(from: messageContainer).from,
               let sid = authenticatedKeyExchange.attributeStringValue(forName: "sid") else {
             return nil
         }
+        
+        
+//        guard let messageContainer = notify.element(forName: "forwarded")?.element(forName: "message") else {
+//            return nil
+//        }
+//        
+//        guard let authenticatedKeyExchange = messageContainer.element(forName: "authenticated-key-exchange", xmlns: getPrimaryNamespace()),
+//              let jid = XMPPMessage(from: messageContainer).from,
+//              let sid = authenticatedKeyExchange.attributeStringValue(forName: "sid") else {
+//            return nil
+//        }
         
         let dateString = message.element(forName: "time")?.attributeStringValue(forName: "stamp")
         var date: Date? = nil
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
         date = dateFormatter.date(from: dateString ?? "")
+        
         if date == nil {
-            let dateFormatter = DateFormatter()
+//            let dateFormatter = DateFormatter()
             dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZ"
             date = dateFormatter.date(from: dateString ?? "")
         }
 
-        let toDeviceId = authenticatedKeyExchange.element(forName: "verification-start")?.attributeStringValue(forName: "to-device-id")
-        if toDeviceId != nil {
-            guard let localStore = AccountManager.shared.find(for: owner)?.omemo.localStore else {
+        if let toDeviceId = authenticatedKeyExchange.element(forName: "verification-start")?.attributeStringValue(forName: "to-device-id") {
+//            guard let localStore = AccountManager.shared.find(for: owner)?.omemo.localStore else {
+//                DDLogDebug("AuthenticatedKeyExchange: \(#function).")
+//                return nil
+//            }
+            guard let myDeviceId = AccountManager.shared.find(for: owner)?.omemo.localStore.localDeviceId() else {
                 DDLogDebug("AuthenticatedKeyExchange: \(#function).")
                 return nil
             }
-            let myDeviceId = localStore.localDeviceId()
+            
             if String(myDeviceId) != toDeviceId {
                 return nil
             }
@@ -352,6 +361,8 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         
         do {
             let realm = try WRealm.safe()
+            
+            let uniqueMessageId = getUniqueMessageId(message, owner: self.owner)
             if realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: NotificationStorageItem.genPrimary(owner: self.owner, jid: jid.bare, uniqueId: uniqueMessageId)) != nil {
                 return nil
             }
@@ -364,13 +375,13 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             instance.verificationSid = sid
             instance.associatedJid = jid.bare
             
-            if date != nil {
-                instance.date = date!
+            if let date = date {
+                instance.date = date
             }
             
-            if authenticatedKeyExchange.element(forName: "verification-accepted") != nil {
+            if let verificationAccepted = authenticatedKeyExchange.element(forName: "verification-accepted") {
                 instance.verificationState = .acceptedRequest
-                instance.deviceId = authenticatedKeyExchange.element(forName: "verification-accepted")?.attributeStringValue(forName: "device-id")
+                instance.deviceId = verificationAccepted.attributeStringValue(forName: "device-id")
             } else if authenticatedKeyExchange.element(forName: "verification-rejected") != nil {
                 instance.verificationState = .rejected
             }
@@ -409,7 +420,6 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
               let authenticatedKeyExchange = messageContainer.element(forName: "authenticated-key-exchange", xmlns: getPrimaryNamespace()),
               let sid = authenticatedKeyExchange.attributeStringValue(forName: "sid"),
               let timestamp = authenticatedKeyExchange.attributeStringValue(forName: "timestamp"),
-              let localStore = AccountManager.shared.find(for: owner)?.omemo.localStore,
               let verificationStart = authenticatedKeyExchange.element(forName: "verification-start"),
               let opponentDeviceIdRaw = verificationStart.attributeStringValue(forName: "device-id"),
               let opponentDeviceID = Int(opponentDeviceIdRaw) else {
@@ -417,9 +427,9 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             return
         }
         
-        let uniqueMessageId = getUniqueMessageId(message, owner: self.owner)
         
-        let deviceIdRecipient = localStore.localDeviceId()
+        
+        
         
         do {
             let realm = try WRealm.safe()
@@ -427,8 +437,8 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 return
             }
             
-            let deviceInstance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: jid.bare, deviceId: opponentDeviceID))
-            if deviceInstance?.state == SignalDeviceStorageItem.TrustState.trusted {
+            if let deviceInstance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: jid.bare, deviceId: opponentDeviceID)),
+               deviceInstance.state == SignalDeviceStorageItem.TrustState.trusted {
                 return
             }
             
@@ -454,6 +464,10 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 return
             }
             
+            guard let deviceIdRecipient = AccountManager.shared.find(for: owner)?.omemo.localStore.localDeviceId() else {
+                return
+            }
+            
             let instance = VerificationSessionStorageItem()
             instance.owner = self.owner
             instance.myDeviceId = deviceIdRecipient
@@ -465,6 +479,8 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             instance.primary = VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)
             instance.timestamp = timestamp
             instance.ttl = ttlRaw!
+            
+            let uniqueMessageId = getUniqueMessageId(message, owner: self.owner)
             
             guard let notificationInstance = realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: NotificationStorageItem.genPrimary(owner: self.owner, jid: jid.bare, uniqueId: uniqueMessageId)) else {
                 DDLogDebug("AuthenticatedKeyExchange: \(#function).")
@@ -1456,6 +1472,26 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             AccountManager.shared.find(for: self.owner)?.action({ user, stream in
                 stream.send(iqToMyDevices)
             })
+        }
+    }
+    
+    func cancelVerificationSession(sid: String) {
+        var jid = ""
+        
+        do {
+            let realm = try WRealm.safe()
+            if let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) {
+                jid = instance.jid
+                try realm.write {
+                    realm.delete(instance)
+                }
+            }
+        } catch {
+            DDLogDebug("VerificationViewController: \(#function). \(error.localizedDescription)")
+        }
+        
+        AccountManager.shared.find(for: self.owner)?.action { user, stream in
+            user.akeManager.sendErrorMessage(fullJID: XMPPJID(string: jid)!, sid: sid, reason: "Сontact canceled verification session")
         }
     }
     
