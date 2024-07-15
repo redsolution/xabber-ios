@@ -64,6 +64,7 @@ class TrustSharingManager: AbstractXMPPManager {
             return true
         }
         
+        // a delay of 2 sec is set so that the device has time to change its status to trusted if the list was requested after successful verification
         DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(2)) {
             do {
                 let realm = try WRealm.safe()
@@ -409,10 +410,11 @@ class TrustSharingManager: AbstractXMPPManager {
         var stringToHash = ""
         stringToHash += itemsTimestamp
         
-        guard let localStore = AccountManager.shared.find(for: self.owner)?.omemo.localStore else {
+        let localDeviceId = AccountManager.shared.find(for: self.owner)?.omemo.localStore.localDeviceId()
+        if localDeviceId == nil {
             return
         }
-        let localDeviceId = localStore.localDeviceId()
+        
         var omemoFingerprint = ""
         
         do {
@@ -430,7 +432,7 @@ class TrustSharingManager: AbstractXMPPManager {
                 items.addChild(deviceItem)
             }
             
-            let deviceInstance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: localDeviceId))
+            let deviceInstance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: localDeviceId!))
             if deviceInstance == nil {
                 return
             }
@@ -457,22 +459,20 @@ class TrustSharingManager: AbstractXMPPManager {
             stringToHash += "<" + timestamp + "/" + trustKey
         }
         
-        let keyPair = localStore.getIdentityKeyPair()
-        let privateKey = keyPair.privateKey.bytes
-        
-        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager else {
+        let keyPair = AccountManager.shared.find(for: self.owner)?.omemo.localStore.getIdentityKeyPair()
+        if keyPair == nil {
             return
         }
-        let publicKey = akeManager.getUsersPublicKey(jid: self.owner, deviceId: localDeviceId)
-        let fingerprint = publicKey.toHexString()
+//        let privateKey = keyPair.privateKey.bytes
+        
+//        let publicKey = AccountManager.shared.find(for: self.owner)?.akeManager.getUsersPublicKey(jid: self.owner, deviceId: localDeviceId)
         
         let identityXML = DDXMLElement(name: "identity", stringValue: omemoFingerprint)
-        identityXML.addAttribute(withName: "id", stringValue: String(localDeviceId))
+        identityXML.addAttribute(withName: "id", stringValue: String(localDeviceId!))
         update.addChild(identityXML)
         
-        let ecKeyPair = Curve25519.load(fromPublicKey: keyPair.publicKey, andPrivateKey: keyPair.privateKey)
-        guard let signature = Ed25519.sign(Data(stringToHash.bytes), with: ecKeyPair),
-              let myFullJid = AccountManager.shared.find(for: self.owner)?.xmppStream.myJID?.full else {
+        let ecKeyPair = Curve25519.load(fromPublicKey: keyPair!.publicKey, andPrivateKey: keyPair!.privateKey)
+        guard let signature = Ed25519.sign(Data(stringToHash.bytes), with: ecKeyPair) else {
             DDLogDebug("TrustSharingManager: \(#function).")
             return
         }
@@ -481,26 +481,26 @@ class TrustSharingManager: AbstractXMPPManager {
         signatureXML.addAttribute(withName: "xmlns", stringValue: self.getPrimaryNamespace())
         update.addChild(signatureXML)
         
-        guard let omemoManager = AccountManager.shared.find(for: self.owner)?.omemo else {
-            return
-        }
-        
-        let omemoEnvelope = omemoManager.prepareStanzaContent(message: "", date: Date(), jid: self.owner, additionalContent: [update], ignoreTimeSignature: true)
+        let omemoEnvelope = AccountManager.shared.find(for: self.owner)?.omemo.prepareStanzaContent(message: "", date: Date(), jid: self.owner, additionalContent: [update], ignoreTimeSignature: true)
         if omemoEnvelope == nil {
             return
         }
         
-        var omemoEncrypted = DDXMLElement()
+        var omemoEncrypted: DDXMLElement? = nil
         do {
-            omemoEncrypted = try omemoManager.encryptMessage(message: omemoEnvelope!, to: self.owner)!
+            omemoEncrypted = try AccountManager.shared.find(for: self.owner)?.omemo.encryptMessage(message: omemoEnvelope!, to: self.owner)
             
         } catch {
             DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
             return
         }
         
+        if omemoEncrypted == nil {
+            return
+        }
+        
         let omemoMessage = XMPPMessage(messageType: .chat, to: XMPPJID(string: self.owner), elementID: UUID().uuidString)
-        omemoMessage.addChild(omemoEncrypted.copy() as! DDXMLElement)
+        omemoMessage.addChild(omemoEncrypted!.copy() as! DDXMLElement)
         omemoMessage.addBody("Message was encrypted by OMEMO".localizeString(id: "message_omemo_encryption", arguments: []))
         let encryptionElement = DDXMLElement(name: "encryption", xmlns: "urn:xmpp:eme:0")
         encryptionElement.addAttribute(withName: "namespace", stringValue: "urn:xmpp:omemo:2")
@@ -508,9 +508,8 @@ class TrustSharingManager: AbstractXMPPManager {
         omemoMessage.addOriginId(UUID().uuidString)
         omemoMessage.addAttribute(withName: "from", stringValue: self.owner)
         
-        let iq = akeManager.getNotificationContainer(message: XMPPMessage(from: omemoMessage), notificationTo: XMPPJID(string: self.owner)!)
-        
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+            let iq = user.akeManager.getNotificationContainer(message: XMPPMessage(from: omemoMessage), notificationTo: XMPPJID(string: self.owner)!)
             stream.send(iq)
         })
         
@@ -520,10 +519,14 @@ class TrustSharingManager: AbstractXMPPManager {
         let share = DDXMLElement(name: "share", xmlns: self.getPrimaryNamespace())
         share.addAttribute(withName: "usage", stringValue: "urn:xmpp:omemo:2")
         
-        guard let localStore = AccountManager.shared.find(for: self.owner)?.omemo.localStore else {
+//        guard let localStore = AccountManager.shared.find(for: self.owner)?.omemo.localStore else {
+//            return
+//        }
+        let localDeviceId = AccountManager.shared.find(for: self.owner)?.omemo.localStore.localDeviceId()
+        if localDeviceId == nil {
             return
         }
-        let localDeviceId = localStore.localDeviceId()
+        
         var omemoFingerprint = ""
         
         do {
@@ -556,7 +559,7 @@ class TrustSharingManager: AbstractXMPPManager {
                 share.addChild(items)
             }
             
-            guard let deviceInstance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: localDeviceId)) else {
+            guard let deviceInstance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: localDeviceId!)) else {
                 DDLogDebug("TrustSharingManager: \(#function).")
                 return
             }
@@ -567,25 +570,25 @@ class TrustSharingManager: AbstractXMPPManager {
             return
         }
         
-        guard let localStore = AccountManager.shared.find(for: owner)?.omemo.localStore else {
-            DDLogDebug("TrustSharingManager: \(#function).")
-            return
-        }
+//        guard let localStore = AccountManager.shared.find(for: owner)?.omemo.localStore else {
+//            DDLogDebug("TrustSharingManager: \(#function).")
+//            return
+//        }
         
-        let keyPair = localStore.getIdentityKeyPair()
-        let privateKey = keyPair.privateKey.bytes
+        let keyPair = AccountManager.shared.find(for: owner)?.omemo.localStore.getIdentityKeyPair()
+//        let privateKey = keyPair?.privateKey.bytes
         
-        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
-              let omemoManager = AccountManager.shared.find(for: self.owner)?.omemo else {
-            DDLogDebug("TrustSharingManager: \(#function).")
-            return
-        }
+//        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
+//              let omemoManager = AccountManager.shared.find(for: self.owner)?.omemo else {
+//            DDLogDebug("TrustSharingManager: \(#function).")
+//            return
+//        }
         
-        let publicKey = akeManager.getUsersPublicKey(jid: self.owner, deviceId: localDeviceId)
-        let fingerprint = publicKey.toHexString()
+        let publicKey = AccountManager.shared.find(for: self.owner)?.akeManager.getUsersPublicKey(jid: self.owner, deviceId: localDeviceId!)
+        let fingerprint = publicKey?.toHexString()
         
         let identityXML = DDXMLElement(name: "identity", stringValue: omemoFingerprint)
-        identityXML.addAttribute(withName: "id", stringValue: String(localDeviceId))
+        identityXML.addAttribute(withName: "id", stringValue: String(localDeviceId!))
         share.addChild(identityXML)
         
         var stringToHash = ""
@@ -617,7 +620,7 @@ class TrustSharingManager: AbstractXMPPManager {
             }
         }
         
-        let ecKeyPair = Curve25519.load(fromPublicKey: keyPair.publicKey, andPrivateKey: keyPair.privateKey)
+        let ecKeyPair = Curve25519.load(fromPublicKey: keyPair?.publicKey, andPrivateKey: keyPair?.privateKey)
         guard let signature = Ed25519.sign(Data(stringToHash.bytes), with: ecKeyPair),
               let myFullJid = AccountManager.shared.find(for: self.owner)?.xmppStream.myJID?.full else {
             DDLogDebug("TrustSharingManager: \(#function).")
@@ -628,11 +631,23 @@ class TrustSharingManager: AbstractXMPPManager {
         signatureXML.addAttribute(withName: "xmlns", stringValue: self.getPrimaryNamespace())
         share.addChild(signatureXML)
         
-        guard let omemoEnvelope = omemoManager.prepareStanzaContent(message: "", date: Date(), jid: self.owner, additionalContent: [share], ignoreTimeSignature: true) else {
+        guard let omemoEnvelope = AccountManager.shared.find(for: self.owner)?.omemo.prepareStanzaContent(message: "", date: Date(), jid: self.owner, additionalContent: [share], ignoreTimeSignature: true) else {
             DDLogDebug("TrustSharingManager: \(#function).")
             return
         }
-        let omemoEncrypted = try! omemoManager.encryptMessage(message: omemoEnvelope, to: self.owner)
+        
+        var omemoEncrypted: DDXMLElement? = nil
+        do {
+            omemoEncrypted = try AccountManager.shared.find(for: self.owner)?.omemo.encryptMessage(message: omemoEnvelope, to: self.owner)
+        } catch {
+            DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
+            return
+        }
+        
+        if omemoEncrypted == nil {
+            return
+        }
+        
         let omemoMessage = XMPPMessage(messageType: .chat, to: XMPPJID(string: self.owner), elementID: UUID().uuidString, child: omemoEncrypted)
         omemoMessage.addBody("Message was encrypted by OMEMO".localizeString(id: "message_omemo_encryption", arguments: []))
         let encryptionElement = DDXMLElement(name: "encryption", xmlns: "urn:xmpp:eme:0")
@@ -641,9 +656,10 @@ class TrustSharingManager: AbstractXMPPManager {
         omemoMessage.addOriginId(UUID().uuidString)
         omemoMessage.addAttribute(withName: "from", stringValue: self.owner)
         
-        let iq = akeManager.getNotificationContainer(message: XMPPMessage(from: omemoMessage), notificationTo: XMPPJID(string: self.owner)!)
+//        let iq = akeManager.getNotificationContainer(message: XMPPMessage(from: omemoMessage), notificationTo: XMPPJID(string: self.owner)!)
         
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+            let iq = user.akeManager.getNotificationContainer(message: XMPPMessage(from: omemoMessage), notificationTo: XMPPJID(string: self.owner)!)
             stream.send(iq)
         })
     }

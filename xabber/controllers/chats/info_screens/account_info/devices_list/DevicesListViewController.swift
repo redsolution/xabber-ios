@@ -389,8 +389,7 @@ class DevicesListViewController: BaseViewController {
     
     @objc
     func onCloseButtonPressed() {
-        guard let akeManager = AccountManager.shared.find(for: self.jid)?.akeManager,
-              let jid = XMPPJID(string: self.jid),
+        guard let jid = XMPPJID(string: self.jid),
               let sid = activeVerificationSession?.sid else {
             DDLogDebug("DevicesListViewController: \(#function).")
             return
@@ -401,11 +400,18 @@ class DevicesListViewController: BaseViewController {
             let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.jid, sid: sid))
             
             if instance?.state == .receivedRequest {
-                akeManager.rejectRequestToVerify(jid: self.jid, sid: sid)
+                AccountManager.shared.find(for: self.jid)?.action({ user, stream in
+                    user.akeManager.rejectRequestToVerify(jid: self.jid, sid: sid)
+                })
+//                akeManager.rejectRequestToVerify(jid: self.jid, sid: sid)
                 
                 return
             } else if instance?.state != VerificationSessionStorageItem.VerififcationState.failed && instance?.state != VerificationSessionStorageItem.VerififcationState.trusted && instance?.state != VerificationSessionStorageItem.VerififcationState.rejected {
-                akeManager.sendErrorMessage(fullJID: jid, sid: sid, reason: "Сontact canceled verification session")
+                AccountManager.shared.find(for: self.jid)?.action({ user, stream in
+                    user.akeManager.sendErrorMessage(fullJID: jid, sid: sid, reason: "Сontact canceled verification session")
+                })
+//                akeManager.sendErrorMessage(fullJID: jid, sid: sid, reason: "Сontact canceled verification session")
+                
             }
             try realm.write {
                 realm.delete(instance!)

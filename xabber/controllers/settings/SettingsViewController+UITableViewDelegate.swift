@@ -151,49 +151,6 @@ extension SettingsViewController: UITableViewDelegate {
             return
         case .session:
             return
-//            let item = datasource[indexPath.section].childs[indexPath.row]
-//            switch item.values.first {
-//            case "accept_verification":
-//                guard let code = AccountManager.shared.find(for: self.owner)?.akeManager.acceptVerificationRequest(jid: self.owner, sid: item.verificationSid ?? "") else {
-//                    return
-//                }
-//                let vc = ShowCodeViewController()
-//                vc.jid = self.jid
-//                vc.owner = self.owner
-//                vc.code = code
-//                vc.sid = item.verificationSid ?? ""
-//                vc.isVerificationWithOwnDevice = true
-//                
-//                self.navigationController!.present(vc, animated: true)
-//            case "show_verification_code":
-//                do {
-//                    let realm = try WRealm.safe()
-//                    let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: item.verificationSid ?? ""))
-//                    
-//                    let vc = ShowCodeViewController()
-//                    vc.jid = self.jid
-//                    vc.owner = self.owner
-//                    vc.code = instance?.code ?? ""
-//                    vc.sid = item.verificationSid ?? ""
-//                    vc.isVerificationWithOwnDevice = true
-//                    
-//                    self.navigationController!.present(vc, animated: true)
-//                } catch {
-//                    DDLogDebug("SettingsViewController: \(#function). \(error.localizedDescription)")
-//                }
-//            case "enter_verification_code":
-//                let vc = AuthenticationCodeInputViewController()
-//                vc.jid = self.jid
-//                vc.owner = self.owner
-//                vc.sid = item.verificationSid ?? ""
-//                vc.isVerificationWithUsersDevice = true
-//            
-//                self.navigationController!.present(vc, animated: true)
-//            case "reject_verification":
-//                AccountManager.shared.find(for: self.owner)?.akeManager.rejectRequestToVerify(jid: self.jid, sid: item.verificationSid ?? "")
-//            default:
-//                break
-//            }
         default:
             self.view.makeToast("Feature is non implemented")
         }
