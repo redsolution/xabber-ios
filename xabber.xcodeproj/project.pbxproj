@@ -615,6 +615,7 @@
 		66E125782487E3B2005D096B /* ContactsViewController+AddContactDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66E125772487E3B2005D096B /* ContactsViewController+AddContactDelegate.swift */; };
 		66E319102BA8550300F149B1 /* NotificationsListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66E3190F2BA8550300F149B1 /* NotificationsListViewController.swift */; };
 		66E452C32A70390A00E7DF03 /* DeliveryReceiptsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66E452C22A70390A00E7DF03 /* DeliveryReceiptsManager.swift */; };
+		66E46FF12C46475300394F0D /* UnfairLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66E46FF02C46475300394F0D /* UnfairLock.swift */; };
 		66E5A9832B29DF4D00C097B5 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66E5A9822B29DF4D00C097B5 /* NotificationService.swift */; };
 		66E5A9872B29DF4D00C097B5 /* xabber_push_extension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 66E5A9802B29DF4D00C097B5 /* xabber_push_extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		66E667F9238BCA1A002F8B8A /* GroupchatSettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66E667F8238BCA1A002F8B8A /* GroupchatSettingsViewController.swift */; };
@@ -1571,6 +1572,7 @@
 		66E125772487E3B2005D096B /* ContactsViewController+AddContactDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContactsViewController+AddContactDelegate.swift"; sourceTree = "<group>"; };
 		66E3190F2BA8550300F149B1 /* NotificationsListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsListViewController.swift; sourceTree = "<group>"; };
 		66E452C22A70390A00E7DF03 /* DeliveryReceiptsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeliveryReceiptsManager.swift; sourceTree = "<group>"; };
+		66E46FF02C46475300394F0D /* UnfairLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnfairLock.swift; sourceTree = "<group>"; };
 		66E5A9802B29DF4D00C097B5 /* xabber_push_extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = xabber_push_extension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		66E5A9822B29DF4D00C097B5 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
 		66E5A9842B29DF4D00C097B5 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -2546,6 +2548,7 @@
 		6652EB43203BF91E0088C8FA /* utils */ = {
 			isa = PBXGroup;
 			children = (
+				66E46FEF2C46474100394F0D /* lock */,
 				662908D42ABDB9D40027535E /* nick_generator */,
 				66A09C982938D10C004ABC35 /* lipsum */,
 				66449AA3291CE53A00D1A329 /* uuid */,
@@ -3875,6 +3878,14 @@
 			path = delivery_receipts;
 			sourceTree = "<group>";
 		};
+		66E46FEF2C46474100394F0D /* lock */ = {
+			isa = PBXGroup;
+			children = (
+				66E46FF02C46475300394F0D /* UnfairLock.swift */,
+			);
+			path = lock;
+			sourceTree = "<group>";
+		};
 		66E5A9812B29DF4D00C097B5 /* xabber_push_extension */ = {
 			isa = PBXGroup;
 			children = (
@@ -4893,6 +4904,7 @@
 				66BEDA8F247FE0ED0059F65F /* LastChatsViewController+AddContactDelegate.swift in Sources */,
 				6696B6CE2215770600D6D437 /* OpusAudio.swift in Sources */,
 				66EBBE8A2278270600E9D620 /* IceCandidate+Decoder.swift in Sources */,
+				66E46FF12C46475300394F0D /* UnfairLock.swift in Sources */,
 				4D3DD431285DAC6D00C2E429 /* DevicesListViewController+UITableViewDatasource.swift in Sources */,
 				66A7F9222654F1D000ACBD5F /* SignUpSelectPasswordViewController.swift in Sources */,
 				66411167267B5E8500B089C5 /* SignInServerFeaturesViewController.swift in Sources */,

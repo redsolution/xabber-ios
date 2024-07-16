@@ -615,6 +615,14 @@ extension LeftMenuViewController: UITableViewDelegate {
         
     }
     
+    private func showEmptyDetail(for kind: EmptyChatViewController.Kind) {
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            let svc = EmptyChatViewController()
+            svc.kind = kind
+            self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: svc), sender: self)
+        }
+    }
+    
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         let key = self.datasource[indexPath.section][indexPath.row].key
         if self.previousSelectedKey == key {
@@ -628,16 +636,12 @@ extension LeftMenuViewController: UITableViewDelegate {
                 if let vc = self.chatsVc {
                     vc.filter.accept(.chats)
                     self.show(controller: vc)
-                    let svc = EmptyChatViewController()
-                    svc.kind = .emptyChat
-                    self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: svc), sender: self)
+                    self.showEmptyDetail(for: .emptyChat)
                 } else {
                     let vc = LastChatsViewController()
                     self.chatsVc = vc
                     self.show(controller: vc)
-                    let svc = EmptyChatViewController()
-                    svc.kind = .emptyChat
-                    self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: svc), sender: self)
+                    self.showEmptyDetail(for: .emptyChat)
                 }
             case "calls":
                 if self.chatsVc?.filter.value == .unread {
@@ -648,16 +652,12 @@ extension LeftMenuViewController: UITableViewDelegate {
                 }
                 if let vc = self.callsVc {
                     self.show(controller: vc)
-                    let svc = EmptyChatViewController()
-                    svc.kind = .emptyCall
-                    self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: svc), sender: self)
+                    self.showEmptyDetail(for: .emptyCall)
                 } else {
                     let vc = LastCallsViewController()
                     self.callsVc = vc
                     self.show(controller: vc)
-                    let svc = EmptyChatViewController()
-                    svc.kind = .emptyCall
-                    self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: svc), sender: self)
+                    self.showEmptyDetail(for: .emptyCall)
                 }
             case "mentions":
                 if self.chatsVc?.filter.value == .unread {
@@ -713,33 +713,25 @@ extension LeftMenuViewController: UITableViewDelegate {
                 }
                 if let vc = self.contactsVc {
                     self.show(controller: vc)
-                    let svc = EmptyChatViewController()
-                    svc.kind = .emptyContact
-                    self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: svc), sender: self)
+                    self.showEmptyDetail(for: .emptyContact)
                 } else {
                     let vc = ContactsViewController()
                     self.contactsVc = vc
                     self.show(controller: vc)
-                    let svc = EmptyChatViewController()
-                    svc.kind = .emptyContact
-                    self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: svc), sender: self)
+                    self.showEmptyDetail(for: .emptyContact)
                  }
             case "archive":
                 if let vc = self.archivedVc {
                     vc.filter.accept(.archived)
                     self.show(controller: vc)
-                    let svc = EmptyChatViewController()
-                    svc.kind = .emptyChat
-                    self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: svc), sender: self)
+                    self.showEmptyDetail(for: .emptyChat)
                 } else {
                     let vc = LastChatsViewController()
                     vc.shouldShowBottomBar = false
                     vc.filter.accept(.archived)
                     self.archivedVc = vc
                     self.show(controller: vc)
-                    let svc = EmptyChatViewController()
-                    svc.kind = .emptyChat
-                    self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: svc), sender: self)
+                    self.showEmptyDetail(for: .emptyChat)
                 }
             case "saved":
                 if self.chatsVc?.filter.value == .unread {
