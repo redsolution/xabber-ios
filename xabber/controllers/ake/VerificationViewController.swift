@@ -193,6 +193,7 @@ class VerificationViewController: SimpleBaseViewController {
                     self.code = item.code
                     
                     self.agreeButton.removeFromSuperview()
+                    self.agreeButton.removeTarget(self, action: #selector(self.onAgreeButtonTapped), for: .touchUpInside)
                     self.cancelButton.removeTarget(self, action: #selector(self.onRejectButtonTapped), for: .touchUpInside)
                     
                     self.setupSubviews()
@@ -253,8 +254,12 @@ class VerificationViewController: SimpleBaseViewController {
         if state == .receivedRequest {
             buttonsStack.addArrangedSubview(agreeButton)
             buttonsStack.addArrangedSubview(cancelButton)
+            
             agreeButton.setTitle("Proceed to Verification", for: .normal)
             cancelButton.setTitle("Cancel verification", for: .normal)
+            
+            agreeButton.addTarget(self, action: #selector(onAgreeButtonTapped), for: .touchUpInside)
+            cancelButton.addTarget(self, action: #selector(onRejectButtonTapped), for: .touchUpInside)
             
         } else if state == .receivedRequestAccept {
             buttonsStack.addArrangedSubview(agreeButton)
@@ -266,35 +271,22 @@ class VerificationViewController: SimpleBaseViewController {
             agreeButton.setTitle("Submit", for: .normal)
             cancelButton.setTitle("Cancel verification", for: .normal)
             
+            agreeButton.addTarget(self, action: #selector(onSubmitButtonPressed), for: .touchUpInside)
+            cancelButton.addTarget(self, action: #selector(self.onCancelButtonPressed), for: .touchUpInside)
+            
         } else if state == .trusted {
             buttonsStack.addArrangedSubview(agreeButton)
             agreeButton.setTitle("Great", for: .normal)
+            agreeButton.addTarget(self, action: #selector(onCloseButtonPressed), for: .touchUpInside)
+            
+        } else if state == .acceptedRequest {
+            cancelButton.addTarget(self, action: #selector(self.onCancelButtonPressed), for: .touchUpInside)
             
         } else {
             buttonsStack.addArrangedSubview(cancelButton)
             cancelButton.setTitle("Cancel verification", for: .normal)
             
         }
-        
-//        tableView.contentSize = CGSize(width: self.view.bounds.width, height: self.view.bounds.height - headerHeightMax - buttonsStack.frame.height)
-        
-//        containerView.addSubview(stackLabels)
-//        containerView.addSubview(cancelButton)
-//        containerView.addSubview(buttonsStack)
-        
-//        buttonsStack.addSubview(agreeButton)
-//        buttonsStack.addSubview(cancelButton)
-        
-//        stackLabels.addArrangedSubview(titleLabel)
-//        stackLabels.addArrangedSubview(descriptionLabel)
-//        var cancelPosition = 2
-//        if state != .trusted {
-//            cancelPosition = 3
-//            stackLabels.addArrangedSubview(stepsLabel)
-//        }
-//        
-//        stackLabels.addArrangedSubview(UIStackView())
-//        stackLabels.addArrangedSubview(cancelButton)
         
         self.navigationController?.isNavigationBarHidden = true
         
@@ -304,24 +296,6 @@ class VerificationViewController: SimpleBaseViewController {
             self.headerView.imageButton.imageView?.contentMode = .scaleAspectFit
         }
         
-        if state == .receivedRequest {
-            agreeButton.addTarget(self, action: #selector(onAgreeButtonTapped), for: .touchUpInside)
-            cancelButton.addTarget(self, action: #selector(onRejectButtonTapped), for: .touchUpInside)
-            
-        } else if state == .acceptedRequest {
-            self.cancelButton.addTarget(self, action: #selector(self.onCancelButtonPressed), for: .touchUpInside)
-            
-        } else if state == .receivedRequestAccept {
-            agreeButton.configuration = UIButton.Configuration.filled()
-            agreeButton.tintColor = .systemBlue
-            agreeButton.setTitle("Submit", for: .normal)
-            self.agreeButton.addTarget(self, action: #selector(onSubmitButtonPressed), for: .touchUpInside)
-            self.cancelButton.addTarget(self, action: #selector(self.onCancelButtonPressed), for: .touchUpInside)
-            
-        } else if state == .trusted {
-            agreeButton.addTarget(self, action: #selector(onCloseButtonPressed), for: .touchUpInside)
-            
-        }
     }
     
     override func loadDatasource() {
@@ -354,9 +328,6 @@ class VerificationViewController: SimpleBaseViewController {
             break
         }
         
-//        titleLabel.text = titleText
-//        descriptionLabel.text = descriptionText
-        
         datasource.append(Datasource(type: .text, text: titleText, key: .title))
         datasource.append(Datasource(type: .text, text: descriptionText, key: .descriptopn))
         
@@ -369,21 +340,11 @@ class VerificationViewController: SimpleBaseViewController {
             datasource.append(Datasource(type: .text, attributedText: attributedString, key: .steps))
         }
         
-//        stepsLabel.attributedText = attributedString
-        
         switch self.state {
-//        case .receivedRequest:
-//            datasource.append(Datasource(type: .button, text: "Proceed to Verification", buttonKey: .agree))
-//            datasource.append(Datasource(type: .button, text: "Cancel verification", buttonKey: .cancel))
         case .acceptedRequest:
             datasource.append(Datasource(type: .text, text: self.code, key: .code))
-//            datasource.append(Datasource(type: .button, text: "Cancel verification", buttonKey: .cancel))
         case .receivedRequestAccept:
             datasource.append(Datasource(type: .codeInput))
-//            datasource.append(Datasource(type: .button, text: "Submit", buttonKey: .submit))
-//            datasource.append(Datasource(type: .button, text: "Cancel verification", buttonKey: .cancel))
-//        case .trusted:
-//            datasource.append(Datasource(type: .button, text: "Great", buttonKey: .close))
         default:
             break
         }
@@ -594,8 +555,10 @@ class VerificationViewController: SimpleBaseViewController {
     
     @objc
     func onSubmitButtonPressed() {
-        self.dismiss(animated: true)
-        submitVerificationCode()
+        self.dismiss(animated: true) {
+            self.submitVerificationCode()
+        }
+        
     }
     
     func submitVerificationCode() {
@@ -605,21 +568,19 @@ class VerificationViewController: SimpleBaseViewController {
         
         do {
             let realm = try WRealm.safe()
-            let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: self.sid))
-            if instance == nil {
-                return
-            }
-            
-            deviceId = String(instance!.opponentDeviceId)
-            saltCiphertext = instance!.opponentByteSequenceEncrypted
-            saltIv = instance!.opponentByteSequenceIv
-            
-            if let text = codeInputField.text {
-                try realm.write {
-                    instance!.code = text
+            if let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: self.sid)) {
+                
+                deviceId = String(instance.opponentDeviceId)
+                saltCiphertext = instance.opponentByteSequenceEncrypted
+                saltIv = instance.opponentByteSequenceIv
+                
+                if let text = codeInputField.text {
+                    try realm.write {
+                        instance.code = text
+                    }
+                } else {
+                    return
                 }
-            } else {
-                return
             }
         } catch {
             DDLogDebug("VerificationViewController: \(#function). \(error.localizedDescription)")
@@ -628,17 +589,18 @@ class VerificationViewController: SimpleBaseViewController {
         AccountManager.shared.find(for: self.owner)?.action { user, stream in
             do {
                 let realm = try WRealm.safe()
-                let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: self.sid))
-                let salt = user.akeManager.decrypt(
-                    jid: XMPPJID(string: self.jid)?.bare ?? "",
-                    sid: self.sid,
-                    deviceId: Int(deviceId) ?? -1,
-                    ciphertext: try saltCiphertext.base64decoded(),
-                    iv: try saltIv.base64decoded()
-                )
-                
-                try realm.write {
-                    instance?.opponentByteSequence = salt.toBase64()
+                if let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: self.sid)) {
+                    let salt = user.akeManager.decrypt(
+                        jid: XMPPJID(string: self.jid)?.bare ?? "",
+                        sid: self.sid,
+                        deviceId: Int(deviceId) ?? -1,
+                        ciphertext: try saltCiphertext.base64decoded(),
+                        iv: try saltIv.base64decoded()
+                    )
+                    
+                    try realm.write {
+                        instance.opponentByteSequence = salt.toBase64()
+                    }
                 }
             } catch {
                 DDLogDebug("VerificationViewController: \(#function). \(error.localizedDescription)")
@@ -759,6 +721,7 @@ extension VerificationViewController: UITableViewDataSource {
             }
                 
             cell.contentConfiguration = cellConfig
+            cell.selectionStyle = .none
             
             return cell
             

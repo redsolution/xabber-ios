@@ -167,14 +167,14 @@ class TrustSharingManager: AbstractXMPPManager {
                 let realm = try WRealm.safe()
                 let instance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND opponentDeviceId == %@", self.owner, publisherDeviceId).first
                 if instance != nil && instance?.state == .trusted {
-                    NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_success"),
-                                                    object: self,
-                                                    userInfo: [
-                                                        "owner": self.owner,
-                                                        "jid": jid!.bare,
-                                                        "deviceId": publisherDeviceIdRaw!
-                                                    ]
-                    )
+//                    NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_success"),
+//                                                    object: self,
+//                                                    userInfo: [
+//                                                        "owner": self.owner,
+//                                                        "jid": jid!.bare,
+//                                                        "deviceId": publisherDeviceIdRaw!
+//                                                    ]
+//                    )
 
                 }
             } catch {
@@ -203,10 +203,12 @@ class TrustSharingManager: AbstractXMPPManager {
               let items = pubsub.element(forName: "items") ?? pubsub.element(forName: "trusted-items") else {
             return false
         }
+        
         let itemList = items.elements(forName: "item")
         if itemList.isEmpty {
             return false
         }
+        
         var isPublicationNeeded = false
         for item in itemList {
             guard let publisherDeviceIdRaw = item.attributeStringValue(forName: "id"),
@@ -225,14 +227,13 @@ class TrustSharingManager: AbstractXMPPManager {
             let predicateForDevices = NSPredicate(format: "owner == %@ AND jid == %@ AND deviceId == %@", argumentArray: [self.owner, jid.bare, publisherDeviceId])
             do {
                 let realm = try WRealm.safe()
-                guard let instance = realm.objects(SignalDeviceStorageItem.self).filter(predicateForDevices).first else {
-                    continue
-                }
-                if instance.state != SignalDeviceStorageItem.TrustState.trusted || instance.lastTrustedItemsUpdateTimestamp == timestamp {
-                    continue
-                }
-                try realm.write {
-                    instance.lastTrustedItemsUpdateTimestamp = timestamp
+                if let instance = realm.objects(SignalDeviceStorageItem.self).filter(predicateForDevices).first {
+                    if instance.state != SignalDeviceStorageItem.TrustState.trusted || instance.lastTrustedItemsUpdateTimestamp == timestamp {
+                        continue
+                    }
+                    try realm.write {
+                        instance.lastTrustedItemsUpdateTimestamp = timestamp
+                    }
                 }
             } catch {
                 DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
@@ -249,14 +250,14 @@ class TrustSharingManager: AbstractXMPPManager {
                 let realm = try WRealm.safe()
                 let instance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND opponentDeviceId == %@", self.owner, publisherDeviceId).first
                 if instance != nil && instance?.state == .trusted {
-                    NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_success"),
-                                                    object: self,
-                                                    userInfo: [
-                                                        "owner": self.owner,
-                                                        "jid": jid.bare,
-                                                        "deviceId": publisherDeviceIdRaw
-                                                    ]
-                    )
+//                    NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_success"),
+//                                                    object: self,
+//                                                    userInfo: [
+//                                                        "owner": self.owner,
+//                                                        "jid": jid.bare,
+//                                                        "deviceId": publisherDeviceIdRaw
+//                                                    ]
+//                    )
 
                 }
             } catch {
@@ -311,10 +312,32 @@ class TrustSharingManager: AbstractXMPPManager {
                 stringToVerifySignature += "<" + timestamp + "/" + trustKey
             }
         }
-    
-        let pubKey = AccountManager.shared.find(for: self.owner)?.akeManager.getUsersPublicKey(jid: jid, deviceId: deviceId)
         
-        if !Ed25519.verifySignature(signature, publicKey: Data(pubKey!), data: Data(stringToVerifySignature.bytes)) {
+        var pubKey: [UInt8]? = nil
+        do {
+            let realm = try WRealm.safe()
+            if let storedBundle = realm.object(ofType: SignalIdentityStorageItem.self, forPrimaryKey: SignalIdentityStorageItem.genRpimary(owner: self.owner, jid: jid, deviceId: deviceId)) {
+                pubKey = try storedBundle.identityKey?.base64decoded()
+                
+                if pubKey == nil {
+                    return false
+                }
+                
+                if pubKey!.count == 33 {
+                    pubKey = Array(pubKey!.dropFirst())
+                }
+            } else {
+                return false
+            }
+        } catch {
+            DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
+        }
+        
+        guard let pubKey = pubKey else {
+            return false
+        }
+        
+        if !Ed25519.verifySignature(signature, publicKey: Data(pubKey), data: Data(stringToVerifySignature.bytes)) {
             return false
         }
         
