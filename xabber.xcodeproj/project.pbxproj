@@ -697,11 +697,8 @@
 		844952242BFDC13F003A9A38 /* ManualVerificationDeviceViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 844952232BFDC13E003A9A38 /* ManualVerificationDeviceViewController.swift */; };
 		844952262BFDC4F2003A9A38 /* ContactDeviceDetailViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 844952252BFDC4F2003A9A38 /* ContactDeviceDetailViewController.swift */; };
 		84790B882C007F9400246B0E /* VerificationSessionTableViewCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84790B872C007F9400246B0E /* VerificationSessionTableViewCell.swift */; };
-		84881BC92BAAF27300BFA0F2 /* ShowCodeViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84881BC82BAAF27300BFA0F2 /* ShowCodeViewController.swift */; };
-		849142272BB1A41A00FC474C /* AuthenticationCodeInputViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 849142262BB1A41A00FC474C /* AuthenticationCodeInputViewController.swift */; };
 		8496E00B2B98556800EBDE2B /* VerififcationSessionStorageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8496E00A2B98556800EBDE2B /* VerififcationSessionStorageItem.swift */; };
 		849EF50B2C0DF3A4005B0C57 /* VerificationViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 849EF50A2C0DF3A4005B0C57 /* VerificationViewController.swift */; };
-		84A5F28C2C22BDA300B176E0 /* SuccessfulVerificationViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84A5F28B2C22BDA300B176E0 /* SuccessfulVerificationViewController.swift */; };
 		AF5FCCC52A84BB0000C7DDC0 /* CloudPhotoGallery.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF5FCCC42A84BB0000C7DDC0 /* CloudPhotoGallery.swift */; };
 		AF6ADC052ABABFE40048BEF6 /* FileDeletionConfirmation.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF6ADC042ABABFE40048BEF6 /* FileDeletionConfirmation.swift */; };
 		AF6CDE1D2AB1B5A7004EBB9F /* CloudStorageDeleteViewController+UICollectionViewDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF6CDE1C2AB1B5A7004EBB9F /* CloudStorageDeleteViewController+UICollectionViewDataSource.swift */; };
@@ -1653,11 +1650,8 @@
 		844952232BFDC13E003A9A38 /* ManualVerificationDeviceViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ManualVerificationDeviceViewController.swift; sourceTree = "<group>"; };
 		844952252BFDC4F2003A9A38 /* ContactDeviceDetailViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ContactDeviceDetailViewController.swift; sourceTree = "<group>"; };
 		84790B872C007F9400246B0E /* VerificationSessionTableViewCell.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = VerificationSessionTableViewCell.swift; sourceTree = "<group>"; };
-		84881BC82BAAF27300BFA0F2 /* ShowCodeViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowCodeViewController.swift; sourceTree = "<group>"; };
-		849142262BB1A41A00FC474C /* AuthenticationCodeInputViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthenticationCodeInputViewController.swift; sourceTree = "<group>"; };
 		8496E00A2B98556800EBDE2B /* VerififcationSessionStorageItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerififcationSessionStorageItem.swift; sourceTree = "<group>"; };
 		849EF50A2C0DF3A4005B0C57 /* VerificationViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerificationViewController.swift; sourceTree = "<group>"; };
-		84A5F28B2C22BDA300B176E0 /* SuccessfulVerificationViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SuccessfulVerificationViewController.swift; sourceTree = "<group>"; };
 		95BBDD332E1BBA6B58CF98AC /* Pods-xabber.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-xabber.release.xcconfig"; path = "Target Support Files/Pods-xabber/Pods-xabber.release.xcconfig"; sourceTree = "<group>"; };
 		A5A1B180AC3ADA69A08E4243 /* Pods-clandestino.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-clandestino.release.xcconfig"; path = "Target Support Files/Pods-clandestino/Pods-clandestino.release.xcconfig"; sourceTree = "<group>"; };
 		AF5FCCC42A84BB0000C7DDC0 /* CloudPhotoGallery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPhotoGallery.swift; sourceTree = "<group>"; };
@@ -4137,10 +4131,7 @@
 			children = (
 				84790B872C007F9400246B0E /* VerificationSessionTableViewCell.swift */,
 				844952232BFDC13E003A9A38 /* ManualVerificationDeviceViewController.swift */,
-				84881BC82BAAF27300BFA0F2 /* ShowCodeViewController.swift */,
-				849142262BB1A41A00FC474C /* AuthenticationCodeInputViewController.swift */,
 				849EF50A2C0DF3A4005B0C57 /* VerificationViewController.swift */,
-				84A5F28B2C22BDA300B176E0 /* SuccessfulVerificationViewController.swift */,
 			);
 			path = ake;
 			sourceTree = "<group>";
@@ -4725,7 +4716,6 @@
 				661B48CB2021834A00E3FFF8 /* MessageStorageItem.swift in Sources */,
 				66C3CEDF26145EC70028EBAE /* XMPPBackgroundTask+EndTaskDelegate.swift in Sources */,
 				66C8CA792510AA4500CA7271 /* XMPPBackgroundTask.swift in Sources */,
-				84881BC92BAAF27300BFA0F2 /* ShowCodeViewController.swift in Sources */,
 				666E1F5522042C3200172F55 /* ChatViewController+InputBar.swift in Sources */,
 				6652EB45203BF95B0088C8FA /* ImageToBase64.swift in Sources */,
 				669F53762578B8900036C995 /* VoIPManager+CXProviderDelegate.swift in Sources */,
@@ -5098,7 +5088,6 @@
 				6680AE65257E4F39007FD793 /* EncryptedPushData.swift in Sources */,
 				6697DB64224D047B007E7584 /* APNSManager.swift in Sources */,
 				66FF657921FF13E700BFDC22 /* FutureNotImplementPresenter.swift in Sources */,
-				849142272BB1A41A00FC474C /* AuthenticationCodeInputViewController.swift in Sources */,
 				66CA93622387EFD9006FFE94 /* CreateNewGroupViewController+Flow.swift in Sources */,
 				66B4D0A023A8AC66008B2C64 /* GroupchatDefaultRightsViewController+Delegate.swift in Sources */,
 				66B6E96624191D9600602626 /* SubforwardsViewController.swift in Sources */,
@@ -5224,7 +5213,6 @@
 				66B680A026D3A4C0003E9358 /* CommonMemberTableCell.swift in Sources */,
 				661BBA34238FD27D00BE4A80 /* GroupchatInviteViewController+UITableViewDataSource.swift in Sources */,
 				1A939B2827E49D7400014E43 /* MasksSelectionViewController.swift in Sources */,
-				84A5F28C2C22BDA300B176E0 /* SuccessfulVerificationViewController.swift in Sources */,
 				66B3700220A443DF0022F71B /* AccountConnectBehaviorExtension.swift in Sources */,
 				66AD011922D7376700823398 /* LastChatsViewController+UITableViewPrefetchingDataSource.swift in Sources */,
 				66F2566424A376F9002FC961 /* XMPPActionManager.swift in Sources */,
