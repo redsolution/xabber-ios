@@ -107,7 +107,7 @@ class VerificationSessionTableViewCell: UITableViewCell {
         
         activateConstraints()
         
-        accessoryType = .none
+        self.selectionStyle = .none
     }
     
     func activateConstraints() {

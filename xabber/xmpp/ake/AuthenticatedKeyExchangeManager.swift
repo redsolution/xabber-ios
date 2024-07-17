@@ -17,7 +17,7 @@ import RxCocoa
 import RxSwift
 
 class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
-    static let receivedRequest = NSNotification.Name("com.xabber.ios.ake.receivedRequest")
+    static let receivedRequestNotification = NSNotification.Name("com.xabber.ios.ake.receivedRequest")
     
     enum State{
         case none
@@ -51,15 +51,15 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
     var bag: DisposeBag = DisposeBag()
     private var messageBag: BehaviorRelay<Array<XMPPMessage>> = BehaviorRelay(value: [])
     
-    private final func generateByteSequence() -> [UInt8] {
+    private final func generateByteSequence() throws -> [UInt8] {
         var bytes = [UInt8](repeating: 0, count: 32)
         let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
-        if status == errSecSuccess {
-            return bytes
-        } else {
-            DDLogDebug("AuthenticationKeyExchangeManager: \(#function)")
-            fatalError()
+        
+        guard status == errSecSuccess else {
+            throw AuthenticatedKeyExchangeManagerError.secRandomCopyBytesFailed
         }
+        
+        return bytes
     }
     
     func subscribe() {
@@ -219,15 +219,10 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         return publicKey
     }
     
-    func getMessageChildsForVerififcationRequest(sid: String, ttl: Int, deviceId: String? = nil) -> DDXMLElement {
+    func getMessageChildsForVerififcationRequest(sid: String, ttl: Int, myDeviceId: Int, deviceId: String? = nil) -> DDXMLElement? {
         let authenticationKeyExchange = DDXMLElement(name: "authenticated-key-exchange", xmlns: getPrimaryNamespace())
         authenticationKeyExchange.addAttribute(withName: "sid", stringValue: sid)
         authenticationKeyExchange.addAttribute(withName: "timestamp", stringValue: String(Int(Date().timeIntervalSince1970.rounded())))
-        
-        guard let localStore = AccountManager.shared.find(for: owner)?.omemo.localStore else {
-            fatalError()
-        }
-        let myDeviceId = localStore.localDeviceId()
         
         let verificationStart = DDXMLElement(name: "verification-start")
         verificationStart.addAttribute(withName: "device-id", stringValue: String(myDeviceId))
@@ -241,18 +236,13 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         return authenticationKeyExchange
     }
     
-    func getMessageChildsForAcceptVerificationRequest(sid: String, encryptedByteSequence: String, iv: String) -> DDXMLElement {
+    func getMessageChildsForAcceptVerificationRequest(sid: String, myDeviceId: Int, encryptedByteSequence: String, iv: String) -> DDXMLElement {
         let authenticatedKeyExchange = DDXMLElement(name: "authenticated-key-exchange", xmlns: getPrimaryNamespace())
         authenticatedKeyExchange.addAttribute(withName: "sid", stringValue: sid)
         authenticatedKeyExchange.addAttribute(withName: "timestamp", stringValue: String(Int(Date().timeIntervalSince1970.rounded())))
         
-        guard let localStore = AccountManager.shared.find(for: owner)?.omemo.localStore else {
-            fatalError()
-        }
-        let deviceId = localStore.localDeviceId()
-        
         let verificationAccept = DDXMLElement(name: "verification-accepted")
-        verificationAccept.addAttribute(withName: "device-id", stringValue: String(deviceId))
+        verificationAccept.addAttribute(withName: "device-id", stringValue: String(myDeviceId))
         
         let salt = DDXMLElement(name: "salt")
         salt.addChild(DDXMLElement(name: "ciphertext", stringValue: encryptedByteSequence))
@@ -511,7 +501,17 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         }
         
         let uniqueMessageId = getUniqueMessageId(message, owner: self.owner)
-        let byteSequence = self.generateByteSequence()
+        
+        var byteSequence: [UInt8]? = nil
+        do {
+            byteSequence = try self.generateByteSequence()
+        } catch {
+            DDLogDebug("AuthenticatedKeyExchange \(#function). \(error.localizedDescription)")
+        }
+        
+        guard let byteSequence = byteSequence else {
+            return
+        }
         
         do {
             let realm = try WRealm.safe()
@@ -636,15 +636,33 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             }
             return
         }
-        let hash = self.calculateHashForInitiator(jid: jid.bare, sid: sid)
-        let encryptedHashResult = self.encrypt(jid: jid.bare, sid: sid, deviceId: deviceId, data: hash)
+        
+        guard let hash = self.calculateHashForInitiator(jid: jid.bare, sid: sid) else {
+            return
+        }
+        
+        var hashCiphertext: [UInt8]? = nil
+        var hashIv: [UInt8]? = nil
+        
+        do {
+            (hashCiphertext, hashIv) = try self.encrypt(jid: jid.bare, sid: sid, deviceId: deviceId, data: hash)
+            
+        } catch {
+            DDLogDebug("AuthenticatedKeyExchange \(#function). \(error.localizedDescription)")
+        }
+        
+        guard let hashCiphertext = hashCiphertext,
+              let hashIv = hashIv else {
+            return
+        }
+        
         let authenticatedKeyExchangeChild = DDXMLElement(name: "authenticated-key-exchange", xmlns: getPrimaryNamespace())
         authenticatedKeyExchangeChild.addAttribute(withName: "sid", stringValue: sid)
         authenticatedKeyExchangeChild.addAttribute(withName: "timestamp", stringValue: String(Int(Date().timeIntervalSince1970.rounded())))
         let hashChild = DDXMLElement(name: "hash")
         hashChild.addAttribute(withName: "algo", stringValue: "sha-256")
-        hashChild.addChild(DDXMLElement(name: "ciphertext", stringValue: encryptedHashResult.encrypted.toBase64()))
-        hashChild.addChild(DDXMLElement(name: "iv", stringValue: encryptedHashResult.iv.toBase64()))
+        hashChild.addChild(DDXMLElement(name: "ciphertext", stringValue: hashCiphertext.toBase64()))
+        hashChild.addChild(DDXMLElement(name: "iv", stringValue: hashIv.toBase64()))
         authenticatedKeyExchangeChild.addChild(hashChild)
         
         let message = XMPPMessage(messageType: .chat, to: jid, elementID: UUID().uuidString, child: authenticatedKeyExchangeChild)
@@ -959,14 +977,12 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             ttl = 86400
         }
         
+        guard let myDeviceId = AccountManager.shared.find(for: owner)?.omemo.localStore.localDeviceId() else {
+            return
+        }
+        
         do {
             let realm = try WRealm.safe()
-            
-            guard let localStore = AccountManager.shared.find(for: owner)?.omemo.localStore else {
-                DDLogDebug("AuthenticatedKeyExchangeManager: \(#function).")
-                return
-            }
-            let myDeviceId = localStore.localDeviceId()
             
             let predicate = NSPredicate(format: "owner == %@ AND myDeviceId == %@ AND jid == %@", argumentArray: [self.owner, myDeviceId, jid])
             let oldInstances = realm.objects(VerificationSessionStorageItem.self).filter(predicate)
@@ -1006,7 +1022,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             return
         }
         
-        let childs = self.getMessageChildsForVerififcationRequest(sid: sid, ttl: ttl, deviceId: deviceId)
+        let childs = self.getMessageChildsForVerififcationRequest(sid: sid, ttl: ttl, myDeviceId: myDeviceId, deviceId: deviceId)
         let message = XMPPMessage(messageType: .chat, to: XMPPJID(string: jid), elementID: UUID().uuidString, child: childs)
         message.addAttribute(withName: "from", stringValue: fullJid!)
         
@@ -1050,7 +1066,17 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         
         var deviceId: Int? = nil
         var fullJID: String? = nil
-        let byteSequence = self.generateByteSequence()
+        
+        var byteSequence: [UInt8]? = nil
+        do {
+            byteSequence = try self.generateByteSequence()
+        } catch {
+            DDLogDebug("AuthenticatedKeyExchange \(#function). \(error.localizedDescription)")
+        }
+        
+        guard let byteSequence = byteSequence else {
+            return nil
+        }
         
         do {
             let realm = try WRealm.safe()
@@ -1079,8 +1105,24 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             return nil
         }
         
-        let result = self.encrypt(jid: jid, sid: sid, deviceId: deviceId, data: byteSequence)
-        let child = self.getMessageChildsForAcceptVerificationRequest(sid: sid, encryptedByteSequence: result.encrypted.toBase64(), iv: result.iv.toBase64())
+        var saltCiphertext: [UInt8]? = nil
+        var saltIv: [UInt8]? = nil
+        
+        do {
+            (saltCiphertext, saltIv) = try self.encrypt(jid: jid, sid: sid, deviceId: deviceId, data: byteSequence)
+            
+        } catch {
+            DDLogDebug("AuthenticatedKeyExchange \(#function). \(error.localizedDescription)")
+            return nil
+        }
+        
+        guard let saltCiphertext = saltCiphertext,
+              let saltIv = saltIv,
+              let myDeviceId = AccountManager.shared.find(for: self.owner)?.omemo.localStore.localDeviceId() else {
+            return nil
+        }
+        
+        let child = self.getMessageChildsForAcceptVerificationRequest(sid: sid, myDeviceId: myDeviceId, encryptedByteSequence: saltCiphertext.toBase64(), iv: saltIv.toBase64())
         
         let message = XMPPMessage(messageType: .chat, to: toJid, elementID: UUID().uuidString, child: child)
         message.addAttribute(withName: "from", stringValue: myFullJid)
@@ -1184,13 +1226,27 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         let stringToHash = myTrustedKey.bytes + code.bytes + opponentByteSequence
         let hash = Array(SHA256.hash(data: stringToHash).makeIterator())
         
-        let resultHash = self.encrypt(jid: jid.bare, sid: sid, deviceId: deviceId, data: hash)
-        let resultSalt = self.encrypt(jid: jid.bare, sid: sid, deviceId: deviceId, data: byteSequence)
+        var hashCiphertext: [UInt8]? = nil
+        var hashIv: [UInt8]? = nil
+        var saltCiphertext: [UInt8]? = nil
+        var saltIv: [UInt8]? = nil
         
-        let child = self.getMessageChildsToSendHashAndSaltToOpponent(sid: sid, encryptedHash: resultHash.encrypted.toBase64(), ivHash: resultHash.iv.toBase64(), encryptedSalt: resultSalt.encrypted.toBase64(), ivSalt: resultSalt.iv.toBase64())
-        child.addChild(DDXMLElement(name: "my-trusted-key", stringValue: myTrustedKey))
-        child.addChild(DDXMLElement(name: "code", stringValue: code))
-        child.addChild(DDXMLElement(name: "opponent-byte-sequence", stringValue: opponentByteSequence.toBase64()))
+        do {
+            (hashCiphertext, hashIv) = try self.encrypt(jid: jid.bare, sid: sid, deviceId: deviceId, data: hash)
+            (saltCiphertext, saltIv) = try self.encrypt(jid: jid.bare, sid: sid, deviceId: deviceId, data: byteSequence)
+            
+        } catch {
+            DDLogDebug("AuthenticatedKeyExchange \(#function). \(error.localizedDescription)")
+        }
+        
+        guard let hashCiphertext = hashCiphertext,
+              let hashIv = hashIv,
+              let saltCiphertext = saltCiphertext,
+              let saltIv = saltIv else {
+            return
+        }
+            
+        let child = self.getMessageChildsToSendHashAndSaltToOpponent(sid: sid, encryptedHash: hashCiphertext.toBase64(), ivHash: hashIv.toBase64(), encryptedSalt: saltCiphertext.toBase64(), ivSalt: saltIv.toBase64())
         
         guard let myFullJid = AccountManager.shared.find(for: self.owner)?.xmppStream.myJID?.full else {
             DDLogDebug("AuthenticatedKeyExchange \(#function).")
@@ -1249,10 +1305,61 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         })
     }
     
+    func processSecretCode(code: String, sid: String) {
+        do {
+            let realm = try WRealm.safe()
+            if let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) {
+                try realm.write {
+                    instance.code = code
+                }
+            }
+        } catch {
+            DDLogDebug("AuthenticatedKeyExchange \(#function). \(error.localizedDescription)")
+        }
+            
+        AccountManager.shared.find(for: self.owner)?.action { user, stream in
+            var jid: String? = nil
+            
+            do {
+                let realm = try WRealm.safe()
+                if let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)) {
+                    jid = instance.jid
+                    let deviceId = instance.opponentDeviceId
+                    let saltCiphertext = instance.opponentByteSequenceEncrypted
+                    let saltIv = instance.opponentByteSequenceIv
+                    
+                    guard let jid = jid else {
+                        return
+                    }
+                    
+                    let salt = try user.akeManager.decrypt(
+                        jid: jid,
+                        sid: sid,
+                        deviceId: deviceId,
+                        ciphertext: try saltCiphertext.base64decoded(),
+                        iv: try saltIv.base64decoded()
+                    )
+                    
+                    try realm.write {
+                        instance.opponentByteSequence = salt.toBase64()
+                    }
+                }
+            } catch {
+                DDLogDebug("AuthenticatedKeyExchange \(#function). \(error.localizedDescription)")
+                return
+            }
+            
+            guard let xmppJid = XMPPJID(string: jid ?? "") else {
+                return
+            }
+            
+            user.akeManager.sendHashToOpponent(jid: xmppJid, sid: sid)
+        }
+    }
+    
     func checkHashFromInitiator(jid: String, sid: String, deviceId: Int, hashEncrypted: DDXMLElement, byteSequenceEncrypted: DDXMLElement) -> Bool {
         let hash = self.decryptElementFromXML(jid: jid, sid: sid, deviceId: deviceId, encryptedXML: hashEncrypted)
         guard let opponentByteSequence = self.decryptElementFromXML(jid: jid, sid: sid, deviceId: deviceId, encryptedXML: byteSequenceEncrypted) else {
-            DDLogDebug("AuthenticatedKeyExchange \(#function).")
             return false
         }
         
@@ -1300,7 +1407,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         return true
     }
     
-    func calculateHashForInitiator(jid: String, sid: String) -> [UInt8] {
+    func calculateHashForInitiator(jid: String, sid: String) -> [UInt8]? {
         var code: String? = nil
         var byteSequence: [UInt8]? = nil
         var opponentByteSequence: [UInt8]? = nil
@@ -1333,8 +1440,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
               let opponentByteSequence = opponentByteSequence,
               let omemoFingerprint = omemoFingerprint,
               let localDeviceId = AccountManager.shared.find(for: owner)?.omemo.localStore.localDeviceId() else {
-            DDLogDebug("AuthenticatedKeyExchangeManager: \(#function).")
-            fatalError()
+            return nil
         }
         
         let trustedKey = (String(localDeviceId) + "::" + omemoFingerprint).bytes
@@ -1345,20 +1451,23 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         return hash
     }
     
-    func encrypt(jid: String, sid: String, deviceId: Int, data: Array<UInt8>) -> (encrypted: [UInt8], iv: [UInt8]) {
+    func encrypt(jid: String, sid: String, deviceId: Int, data: Array<UInt8>) throws -> (encrypted: [UInt8], iv: [UInt8]) {
         let sharedKey = calculateSharedKey(jid: jid, deviceId: deviceId)
         let encryptionKey = calculateEncryptionKey(jid: jid, sid: sid, sharedKey: sharedKey)
         var iv = [UInt8](repeating: 0, count: 16)
         let status = SecRandomCopyBytes(kSecRandomDefault, iv.count, &iv)
         guard status == errSecSuccess else {
-            DDLogDebug("AuthenticationKeyExchangeManager: \(#function)")
-            fatalError()
+            throw AuthenticatedKeyExchangeManagerError.secRandomCopyBytesFailed
         }
         
-        let aes = try! AES(key: encryptionKey, blockMode: CBC(iv: iv))
-        let encrypted = try! aes.encrypt(data)
-        
-        return (encrypted: encrypted, iv: iv)
+        do {
+            let aes = try AES(key: encryptionKey, blockMode: CBC(iv: iv))
+            let encrypted = try aes.encrypt(data)
+            
+            return (encrypted: encrypted, iv: iv)
+        } catch {
+            throw error
+        }
     }
     
     func decryptElementFromXML(jid: String, sid: String, deviceId: Int, encryptedXML: DDXMLElement) -> [UInt8]? {
@@ -1372,12 +1481,18 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             DDLogDebug("AuthenticatedKeyExchange \(#function). \(error.localizedDescription)")
             return nil
         }
-        let decryptedValue = decrypt(jid: jid, sid: sid, deviceId: deviceId, ciphertext: ciphertext!, iv: iv!)
         
-        return decryptedValue
+        do {
+            let decryptedValue = try decrypt(jid: jid, sid: sid, deviceId: deviceId, ciphertext: ciphertext!, iv: iv!)
+            
+            return decryptedValue
+        } catch {
+            DDLogDebug("AuthenticatedKeyExchange \(#function). \(error.localizedDescription)")
+            return nil
+        }
     }
     
-    func decrypt(jid: String, sid: String, deviceId: Int, ciphertext: [UInt8], iv: [UInt8]) -> [UInt8] {
+    func decrypt(jid: String, sid: String, deviceId: Int, ciphertext: [UInt8], iv: [UInt8]) throws -> [UInt8] {
         let sharedKey = calculateSharedKey(jid: jid, deviceId: deviceId)
         let encryptionKey = calculateEncryptionKey(jid: jid, sid: sid, sharedKey: sharedKey)
         var decrypted: [UInt8] = []
@@ -1386,8 +1501,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             let aes = try AES(key: encryptionKey, blockMode: CBC(iv: iv))
             decrypted = try aes.decrypt(ciphertext)
         } catch {
-            DDLogDebug("AuthenticatedKeyExchange \(#function). \(error.localizedDescription)")
-            fatalError()
+            throw error
         }
         
         return decrypted
@@ -1540,19 +1654,12 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             let realm = try WRealm.safe()
             let jids = AccountManager.shared.users.compactMap { return $0.jid }
             for owner in jids {
-                guard let ownVerification = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@ AND state_ == %@", owner, owner, VerificationSessionStorageItem.VerififcationState.receivedRequest.rawValue).first else {
-                    return
+                if let ownVerification = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@ AND state_ == %@", owner, owner, VerificationSessionStorageItem.VerififcationState.receivedRequest.rawValue).first {
+                    
+                    let sid = ownVerification.sid
+                    
+                    NotificationCenter.default.post(name: NSNotification.Name(rawValue: "received_VerificationConfirmationViewController"), object: self, userInfo: ["owner": owner, "sid": sid])
                 }
-                let jid = ownVerification.jid
-                let sid = ownVerification.sid
-                let deviceId = String(ownVerification.opponentDeviceId)
-                let vc = VerificationViewController()
-                vc.owner = owner
-                vc.jid = jid
-                vc.sid = sid
-                vc.deviceId = deviceId
-
-                showModal(vc)
             }
             
         } catch {
@@ -1560,3 +1667,8 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         }
     }
 }
+
+enum AuthenticatedKeyExchangeManagerError: Error {
+    case secRandomCopyBytesFailed
+}
+

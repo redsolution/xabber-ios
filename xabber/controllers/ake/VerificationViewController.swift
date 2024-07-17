@@ -86,47 +86,6 @@ class VerificationViewController: SimpleBaseViewController {
         return view
     }()
     
-//    let stackLabels: UIStackView = {
-//        let stack = UIStackView()
-//        stack.alignment = .center
-//        stack.distribution = .fill
-//        stack.axis = .vertical
-//        stack.spacing = 12
-//        stack.translatesAutoresizingMaskIntoConstraints = false
-//        
-//        return stack
-//    }()
-//    
-//    let titleLabel: UILabel = {
-//        let label = UILabel()
-//        label.font = label.font.bold()
-//        label.numberOfLines = 1
-//        
-//        return label
-//    }()
-//    
-//    let descriptionLabel: UILabel = {
-//        let label = UILabel()
-//        label.numberOfLines = 0
-//        
-//        return label
-//    }()
-//    
-//    let stepsLabel: UILabel = {
-//        let label = UILabel()
-//        label.numberOfLines = 0
-//        label.textColor = .systemGray
-//        
-//        return label
-//    }()
-//    
-//    let codeLabel: UILabel = {
-//        let label = UILabel()
-//        label.font = UIFont.monospacedSystemFont(ofSize: 48, weight: .regular).bold()
-//        
-//        return label
-//    }()
-    
     let codeInputField: UITextField = {
         let textField = UITextField()
         textField.typingAttributes = [NSAttributedString.Key.kern: 5]
@@ -561,51 +520,10 @@ class VerificationViewController: SimpleBaseViewController {
     }
     
     func submitVerificationCode() {
-        var deviceId: String = ""
-        var saltCiphertext: String = ""
-        var saltIv: String = ""
-        
-        do {
-            let realm = try WRealm.safe()
-            if let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: self.sid)) {
-                
-                deviceId = String(instance.opponentDeviceId)
-                saltCiphertext = instance.opponentByteSequenceEncrypted
-                saltIv = instance.opponentByteSequenceIv
-                
-                if let text = codeInputField.text {
-                    try realm.write {
-                        instance.code = text
-                    }
-                } else {
-                    return
-                }
-            }
-        } catch {
-            DDLogDebug("VerificationViewController: \(#function). \(error.localizedDescription)")
-        }
-            
-        AccountManager.shared.find(for: self.owner)?.action { user, stream in
-            do {
-                let realm = try WRealm.safe()
-                if let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: self.sid)) {
-                    let salt = user.akeManager.decrypt(
-                        jid: XMPPJID(string: self.jid)?.bare ?? "",
-                        sid: self.sid,
-                        deviceId: Int(deviceId) ?? -1,
-                        ciphertext: try saltCiphertext.base64decoded(),
-                        iv: try saltIv.base64decoded()
-                    )
-                    
-                    try realm.write {
-                        instance.opponentByteSequence = salt.toBase64()
-                    }
-                }
-            } catch {
-                DDLogDebug("VerificationViewController: \(#function). \(error.localizedDescription)")
-            }
-            
-            user.akeManager.sendHashToOpponent(jid: XMPPJID(string: self.jid)!, sid: self.sid)
+        if let text = codeInputField.text {
+            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                user.akeManager.processSecretCode(code: text, sid: self.sid)
+            })
         }
     }
     
@@ -768,8 +686,9 @@ extension VerificationViewController: UITableViewDelegate {
 
 extension VerificationViewController: UITextFieldDelegate {
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-        self.dismiss(animated: true)
-        submitVerificationCode()
+        self.dismiss(animated: true) {
+            self.submitVerificationCode()
+        }
         
         return true
     }

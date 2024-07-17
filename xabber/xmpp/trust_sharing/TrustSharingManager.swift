@@ -92,36 +92,23 @@ class TrustSharingManager: AbstractXMPPManager {
     }
     
     func didReceivedTrustedSharingEvent(message: XMPPMessage) -> Bool {
-        let jid = message.from
-        if jid == nil {
+        guard let jid = message.from,
+              let event = message.element(forName: "event"),
+              let pubsubItems = event.element(forName: "items"),
+              pubsubItems.attributeStringValue(forName: "node") == self.node,
+              let pubsubItem = pubsubItems.element(forName: "item"),
+              let publisherDeviceIdRaw = pubsubItem.attributeStringValue(forName: "id"),
+              let publisherDeviceId = Int(publisherDeviceIdRaw),
+              let share = pubsubItem.element(forName: "share"),
+              let trustedItemsList = share.element(forName: "items") ?? share.element(forName: "trusted-items"),
+              let timestamp = trustedItemsList.attributeStringValue(forName: "timestamp") else {
             return false
         }
         
-        let event = message.element(forName: "event")
-        let pubsubItems = event?.element(forName: "items")
-        if pubsubItems?.attributeStringValue(forName: "node") != self.node {
-            return false
-        }
-        let pubsubItem = pubsubItems?.element(forName: "item")
-        let publisherDeviceIdRaw = pubsubItem?.attributeStringValue(forName: "id")
-        if publisherDeviceIdRaw == nil {
-            return true
-        }
-        let publisherDeviceId = Int(publisherDeviceIdRaw!) ?? -1
-        let share = pubsubItem?.element(forName: "share")
-        
-        let trustedItemsList = share?.element(forName: "items") ?? share?.element(forName: "trusted-items")
-        if trustedItemsList == nil {
-            return true
-        }
-        
-        let timestamp = trustedItemsList?.attributeStringValue(forName: "timestamp")
         var signature: [UInt8] = []
         do {
-            signature = try share?.element(forName: "signature")?.stringValue?.base64decoded() ?? []
-            if signature.isEmpty {
-                return true
-            }
+            signature = try share.element(forName: "signature")?.stringValue?.base64decoded() ?? []
+
         } catch {
             DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
             return true
@@ -136,7 +123,7 @@ class TrustSharingManager: AbstractXMPPManager {
         }
         
         var isPublicationNeeded = false
-        let predicateForSessions = NSPredicate(format: "owner == %@ AND jid == %@ AND deviceId == %@", argumentArray: [self.owner, jid?.bare ?? "", publisherDeviceId])
+        let predicateForSessions = NSPredicate(format: "owner == %@ AND jid == %@ AND deviceId == %@", argumentArray: [self.owner, jid.bare, publisherDeviceId])
         
         do {
             let realm = try WRealm.safe()
@@ -144,7 +131,7 @@ class TrustSharingManager: AbstractXMPPManager {
                 return true
             }
             if instance.state != SignalDeviceStorageItem.TrustState.trusted {
-                self.getUserTrustedDevices(jid: jid!.bareJID)
+                self.getUserTrustedDevices(jid: jid.bareJID)
                 
                 return true
             }
@@ -153,15 +140,15 @@ class TrustSharingManager: AbstractXMPPManager {
                 return true
             } else {
                 try realm.write {
-                    instance.lastTrustedItemsUpdateTimestamp = timestamp ?? ""
+                    instance.lastTrustedItemsUpdateTimestamp = timestamp
                 }
             }
             
-            if !self.checkItemSignature(jid: jid!.bare, deviceId: publisherDeviceId, signature: Data(signature), itemsList: [trustedItemsList!]) {
+            if !self.checkItemSignature(jid: jid.bare, deviceId: publisherDeviceId, signature: Data(signature), itemsList: [trustedItemsList]) {
                 return true
             }
             
-            isPublicationNeeded = self.handleTrustItems(jid: jid!.bare, publisherDeviceId: publisherDeviceId, itemsList: [trustedItemsList!])
+            isPublicationNeeded = self.handleTrustItems(jid: jid.bare, publisherDeviceId: publisherDeviceId, itemsList: [trustedItemsList])
             
             do {
                 let realm = try WRealm.safe()
