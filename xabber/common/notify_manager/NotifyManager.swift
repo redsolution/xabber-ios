@@ -1072,35 +1072,20 @@ class NotifyManager {
             
             switch instance!.state {
             case VerificationSessionStorageItem.VerififcationState.receivedRequest:
-                NotificationCenter.default.post(name: NSNotification.Name(rawValue: "received_VerificationConfirmationViewController"),
+                NotificationCenter.default.post(name: AuthenticatedKeyExchangeManager.showConfirmationViewNotification,
                                                 object: self,
                                                 userInfo: [
                                                     "owner": owner,
                                                     "sid": sid
                                                 ])
                 
-//                let vc = VerificationViewController()
-//                vc.owner = owner
-//                vc.jid = jid
-//                vc.sid = sid
-//                vc.deviceId = String(deviceId)
-//                vc.isVerificationWithOwnDevice = owner == instance!.jid ? true : false
-//                
-//                showModal(vc, replaceParent: false)
-                
             case VerificationSessionStorageItem.VerififcationState.receivedRequestAccept:
                 NotificationCenter.default.post(
-                    name: NSNotification.Name(rawValue: "show_AuthenticationCodeInputViewController"),
+                    name: AuthenticatedKeyExchangeManager.showCodeInputViewNotification,
                     object: self,
                     userInfo: ["owner": owner, "sid": sid]
                 )
                 
-//                let vc = AuthenticationCodeInputViewController()
-//                vc.jid = instance?.jid ?? ""
-//                vc.owner = owner
-//                vc.sid = sid
-//                vc.isVerificationWithUsersDevice = instance?.jid == owner
-//                (UIApplication.shared.delegate as? AppDelegate)?.splitController?.present(vc, animated: true)
             case VerificationSessionStorageItem.VerififcationState.failed:
                 if let instance = instance {
                     try realm.write {

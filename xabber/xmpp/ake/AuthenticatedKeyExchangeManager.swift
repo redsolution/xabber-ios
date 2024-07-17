@@ -17,7 +17,10 @@ import RxCocoa
 import RxSwift
 
 class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
-    static let receivedRequestNotification = NSNotification.Name("com.xabber.ios.ake.receivedRequest")
+    static let showConfirmationViewNotification = NSNotification.Name("com.xabber.ios.ake.showConfirmationViewNotification")
+    static let showSuccessViewNotification = NSNotification.Name("com.xabber.ios.ake.showSuccessViewNotification")
+    static let showCodeInputViewNotification = NSNotification.Name("com.xabber.ios.ake.showCodeInputViewNotification")
+    static let showCodeOutputViewNotification = NSNotification.Name("com.xabber.ios.ake.showCodeOutputViewNotification")
     
     enum State{
         case none
@@ -91,7 +94,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                         switch instance.state {
                         case .receivedRequest:
                             if jid == self.owner {
-                                NotificationCenter.default.post(name: NSNotification.Name(rawValue: "received_VerificationConfirmationViewController"), object: self, userInfo: ["owner": self.owner, "sid": sid])
+                                NotificationCenter.default.post(name: AuthenticatedKeyExchangeManager.showConfirmationViewNotification, object: self, userInfo: ["owner": self.owner, "sid": sid])
                             } else {
                                 bodyNotification = "Verification request received"
                                 self.showNotification(title: jid, owner: self.owner, body: bodyNotification, sid: sid, timestamp: timestamp)
@@ -105,7 +108,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                             bodyNotification = "Verification request accepted"
                             
                             if jid == self.owner {
-                                NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_AuthenticationCodeInputViewController"), object: self, userInfo: ["owner": self.owner, "sid": sid])
+                                NotificationCenter.default.post(name: AuthenticatedKeyExchangeManager.showCodeInputViewNotification, object: self, userInfo: ["owner": self.owner, "sid": sid])
                             } else {
                                 self.showNotification(title: jid, owner: self.owner, body: bodyNotification, sid: sid, timestamp: timestamp)
                                 self.makeSystemMessage(jid: jid, body: "Contact accepted the verification request")
@@ -143,7 +146,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                             
                             let deviceId = instance.opponentDeviceId
                             
-                            NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_success"),
+                            NotificationCenter.default.post(name: AuthenticatedKeyExchangeManager.showSuccessViewNotification,
                                                             object: self,
                                                             userInfo: [
                                                                 "owner": self.owner,
@@ -1658,7 +1661,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                     
                     let sid = ownVerification.sid
                     
-                    NotificationCenter.default.post(name: NSNotification.Name(rawValue: "received_VerificationConfirmationViewController"), object: self, userInfo: ["owner": owner, "sid": sid])
+                    NotificationCenter.default.post(name: AuthenticatedKeyExchangeManager.showConfirmationViewNotification, object: self, userInfo: ["owner": owner, "sid": sid])
                 }
             }
             
