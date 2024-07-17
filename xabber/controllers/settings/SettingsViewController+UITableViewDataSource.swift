@@ -58,9 +58,12 @@ extension SettingsViewController: UITableViewDataSource {
                            enabled: item.enabled)
             return cell
         case .session:
-            let item = datasource[indexPath.section].childs.first
+            guard let item = datasource[indexPath.section].childs.first else {
+                return UITableViewCell()
+            }
+            
             let cell = VerificationSessionTableViewCell()
-            cell.configure(title: item!.title ?? "", subtitle: item!.subtitle)
+            cell.configure(title: item.title ?? "", subtitle: item.subtitle)
             cell.closeButton.addTarget(self, action: #selector(onCloseVerificationButtonPressed), for: .touchUpInside)
             
             switch activeVerificationSession?.state {
@@ -87,27 +90,7 @@ extension SettingsViewController: UITableViewDataSource {
             }
 
             return cell
-//            let item = datasource[indexPath.section].childs[indexPath.row]
-//            if item.values.isNotEmpty {
-//                let cell = UITableViewCell()
-//                var contentConfig = cell.defaultContentConfiguration()
-//                contentConfig.text = item.title
-//                if item.values.first == "reject_verification" {
-//                    contentConfig.textProperties.color = .systemRed
-//                    
-//                } else {
-//                    contentConfig.textProperties.color = .systemBlue
-//                }
-//                cell.contentConfiguration = contentConfig
-//                
-//                return cell
-//            } else {
-//                let cell = VerificationSessionTableViewCell()
-//                cell.configure(title: item.title!, subtitle: item.subtitle)
-//                cell.closeButton.addTarget(self, action: #selector(onCloseVerificationButtonPressed), for: .touchUpInside)
-//                
-//                return cell
-//            }
+            
         default:
             let item = datasource[indexPath.section].childs[indexPath.row]
             
