@@ -84,7 +84,7 @@ class TrustSharingManager: AbstractXMPPManager {
                 return
             }
             
-            _ = self.handleTrustItems(publisherDeviceId: deviceId, itemsList: itemsList)
+            self.handleTrustItems(publisherDeviceId: deviceId, itemsList: itemsList, shouldRequestTrustedDevices: true)
             
         }
         
@@ -131,7 +131,7 @@ class TrustSharingManager: AbstractXMPPManager {
                 return true
             }
             if instance.state != SignalDeviceStorageItem.TrustState.trusted {
-                self.getUserTrustedDevices(jid: jid.bareJID)
+                self.getUserTrustedDevices(jid: jid.bare)
                 
                 return true
             }
@@ -148,25 +148,7 @@ class TrustSharingManager: AbstractXMPPManager {
                 return true
             }
             
-            isPublicationNeeded = self.handleTrustItems(jid: jid.bare, publisherDeviceId: publisherDeviceId, itemsList: [trustedItemsList])
-            
-            do {
-                let realm = try WRealm.safe()
-                let instance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND opponentDeviceId == %@", self.owner, publisherDeviceId).first
-                if instance != nil && instance?.state == .trusted {
-//                    NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_success"),
-//                                                    object: self,
-//                                                    userInfo: [
-//                                                        "owner": self.owner,
-//                                                        "jid": jid!.bare,
-//                                                        "deviceId": publisherDeviceIdRaw!
-//                                                    ]
-//                    )
-
-                }
-            } catch {
-                DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
-            }
+            self.handleTrustItems(jid: jid.bare, publisherDeviceId: publisherDeviceId, itemsList: [trustedItemsList])
             
         } catch {
             DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
@@ -231,25 +213,8 @@ class TrustSharingManager: AbstractXMPPManager {
                 continue
             }
             
-            isPublicationNeeded = self.handleTrustItems(jid: jid.bare, publisherDeviceId: publisherDeviceId, itemsList: [trustedItemsList!])
-            
-            do {
-                let realm = try WRealm.safe()
-                let instance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND opponentDeviceId == %@", self.owner, publisherDeviceId).first
-                if instance != nil && instance?.state == .trusted {
-//                    NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_success"),
-//                                                    object: self,
-//                                                    userInfo: [
-//                                                        "owner": self.owner,
-//                                                        "jid": jid.bare,
-//                                                        "deviceId": publisherDeviceIdRaw
-//                                                    ]
-//                    )
+            self.handleTrustItems(jid: jid.bare, publisherDeviceId: publisherDeviceId, itemsList: [trustedItemsList!])
 
-                }
-            } catch {
-                DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
-            }
         }
         
         if isPublicationNeeded {
@@ -331,13 +296,10 @@ class TrustSharingManager: AbstractXMPPManager {
         return true
     }
     
-    func handleTrustItems(jid: String? = nil, publisherDeviceId: Int, itemsList: [DDXMLElement]) -> Bool {
-        var isShouldPublish = false
-        
+    func handleTrustItems(jid: String? = nil, publisherDeviceId: Int, itemsList: [DDXMLElement], shouldRequestTrustedDevices: Bool = false) {
         for item in itemsList {
-            let jid = jid ?? item.attributeStringValue(forName: "owner")
-            if jid == nil {
-                return false
+            guard let jid = jid ?? item.attributeStringValue(forName: "owner") else {
+                return
             }
             
             let trustItems = item.elements(forName: SignalDeviceStorageItem.TrustState.trusted.rawValue)
@@ -348,53 +310,52 @@ class TrustSharingManager: AbstractXMPPManager {
             
             for itemDevice in devicesList {
                 do {
-                    let trustKey = try String(bytes: (itemDevice.stringValue?.base64decoded())!, encoding: .utf8)
-                    if trustKey?.components(separatedBy: "::") == nil {
-                        return false
-                    }
-                    let deviceId = Int((trustKey?.components(separatedBy: "::")[0])!)
-                    if deviceId == nil {
-                        return false
+                    guard let trustKeyBytes = try itemDevice.stringValue?.base64decoded(),
+                          let trustKey = String(bytes: trustKeyBytes, encoding: .utf8),
+                          let deviceId = Int(trustKey.components(separatedBy: "::")[0]),
+                          let state = SignalDeviceStorageItem.TrustState(rawValue: itemDevice.name ?? "") else {
+                        continue
                     }
                     
                     let realm = try WRealm.safe()
-                    let instance = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@ AND deviceId == %@", self.owner, jid!, deviceId!).first
-                    
-                    let state = SignalDeviceStorageItem.TrustState(rawValue: itemDevice.name ?? "")
-                    if state == nil {
-                        continue
-                    }
-                    
-                    if instance == nil {
-                        if state == SignalDeviceStorageItem.TrustState.revoked {
-                            let instance = SignalDeviceStorageItem()
-                            instance.owner = self.owner
-                            instance.jid = jid!
-                            instance.primary = SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: jid!, deviceId: deviceId!)
-                            instance.deviceId = deviceId!
-                            instance.state = .revoked
-                            instance.freshlyUpdated = true
-                            
+                    if let instance = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@ AND deviceId == %@", self.owner, jid, deviceId).first {
+                        if instance.state != state {
                             try realm.write {
-                                realm.add(instance)
+                                instance.state = state
+                                if state == .trusted {
+                                    instance.trustDate = Date()
+                                    instance.trustedByDeviceId = String(publisherDeviceId)
+                                } else if state == .distrusted {
+                                    instance.trustDate = Date(timeIntervalSince1970: -1)
+                                    instance.trustedByDeviceId = nil
+                                    instance.lastTrustedItemsUpdateTimestamp = ""
+                                }
                             }
+                            
+                            if state == .trusted && shouldRequestTrustedDevices {
+                                self.getUserTrustedDevices(jid: jid, deviceId: String(deviceId))
+                            }
+                            
+                            if self.owner == jid {
+                                guard let myDeviceId = AccountManager.shared.find(for: self.owner)?.omemo.localStore.localDeviceId() else {
+                                    return
+                                }
+                                self.publicOwnTrustedDevices(publisherDeviceId: String(myDeviceId))
+                            }
+                            
                         }
                         
-                        continue
-                    }
-                    
-                    if instance!.state != state {
+                    } else if state == .revoked {
+                        let instance = SignalDeviceStorageItem()
+                        instance.owner = self.owner
+                        instance.jid = jid
+                        instance.primary = SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: jid, deviceId: deviceId)
+                        instance.deviceId = deviceId
+                        instance.state = .revoked
+                        instance.freshlyUpdated = true
+                        
                         try realm.write {
-                            instance!.state = state!
-                            if state == .trusted {
-                                instance?.trustDate = Date()
-                                instance!.trustedByDeviceId = String(publisherDeviceId)
-                            }
-                        }
-                        
-                        // if the device has trusted own device then it should publish a new list of trusted devices
-                        if self.owner == jid {
-                            isShouldPublish = true
+                            realm.add(instance)
                         }
                         
                     }
@@ -404,8 +365,6 @@ class TrustSharingManager: AbstractXMPPManager {
                 }
             }
         }
-        
-        return isShouldPublish
     }
     
     func sendUpdateOfContactsDevices(jid: String, updatedDevicesIds: [Int]) {
@@ -766,7 +725,11 @@ class TrustSharingManager: AbstractXMPPManager {
         })
     }
     
-    func getUserTrustedDevices(jid: XMPPJID, deviceId: String? = nil) {
+    func getUserTrustedDevices(jid: String, deviceId: String? = nil) {
+        guard let jid = XMPPJID(string: jid) else {
+            return
+        }
+        
         let items = DDXMLElement(name: "items")
         items.addAttribute(withName: "node", stringValue: self.node)
         

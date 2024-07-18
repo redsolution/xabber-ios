@@ -207,6 +207,13 @@ class TrustedDevicesViewController: SimpleBaseViewController {
             }
             
             datasource.append(devicesDatasource)
+            
+            for device in devices {
+                if device.state == .trusted {
+                    datasource.append([Datasource(.button, name: "Revoke trust", key: "revoke_trust")])
+                    break
+                }
+            }
         } catch {
             DDLogDebug("TrustedDevicesViewController: \(#function). \(error.localizedDescription)")
         }
@@ -384,6 +391,7 @@ extension TrustedDevicesViewController: UITableViewDelegate {
                             instance.state = .distrusted
                             instance.trustDate = Date(timeIntervalSince1970: -1)
                             instance.trustedByDeviceId = nil
+                            instance.lastTrustedItemsUpdateTimestamp = ""
                         }
                         
                         untrustedDevicesList.append(instance.deviceId)

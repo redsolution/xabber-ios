@@ -582,24 +582,6 @@ class ContactInfoViewController: BaseViewController {
     }
     
     @objc
-    func verificationSucceded(_ notification: Notification) {
-        if let userInfo = notification.userInfo {
-            guard let deviceId = userInfo["deviceId"] as? String,
-                  let jid = userInfo["jid"] as? String else {
-                return
-            }
-            DispatchQueue.main.async {
-                let vc = SuccessfulVerificationViewController()
-                vc.owner = self.owner
-                vc.jid = jid
-                vc.deviceId = deviceId
-                
-                showModal(vc)
-            }
-        }
-    }
-    
-    @objc
     func onAcceptButtonPressed() {
         AccountManager.shared.find(for: self.owner)?.action { user, stream in
             DispatchQueue.main.async {

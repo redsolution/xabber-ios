@@ -786,11 +786,11 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             if self.owner == jid.bare {
                 user.trustSharingManager.sendListOfContactsDevices()
                 user.trustSharingManager.publicOwnTrustedDevices(publisherDeviceId: String(deviceIdRecipient))
-                user.trustSharingManager.getUserTrustedDevices(jid: jid.bareJID, deviceId: String(deviceId))
+                user.trustSharingManager.getUserTrustedDevices(jid: jid.bare, deviceId: String(deviceId))
                 
             } else {
                 user.trustSharingManager.sendListOfContactsDevices()
-                user.trustSharingManager.getUserTrustedDevices(jid: jid.bareJID, deviceId: String(deviceId))
+                user.trustSharingManager.getUserTrustedDevices(jid: jid.bare, deviceId: String(deviceId))
                 
             }
         }
@@ -847,11 +847,11 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         AccountManager.shared.find(for: self.owner)?.action { user, stream in
             if self.owner == jid.bare {
                 user.trustSharingManager.sendListOfContactsDevices()
-                user.trustSharingManager.getUserTrustedDevices(jid: jid.bareJID, deviceId: String(deviceId))
+                user.trustSharingManager.getUserTrustedDevices(jid: jid.bare, deviceId: String(deviceId))
                 user.trustSharingManager.publicOwnTrustedDevices(publisherDeviceId: String(deviceIdRecipient))
             } else {
                 user.trustSharingManager.sendListOfContactsDevices()
-                user.trustSharingManager.getUserTrustedDevices(jid: jid.bareJID, deviceId: String(deviceId))
+                user.trustSharingManager.getUserTrustedDevices(jid: jid.bare, deviceId: String(deviceId))
             }
         }
     }
