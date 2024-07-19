@@ -619,7 +619,11 @@ extension LeftMenuViewController: UITableViewDelegate {
         if UIDevice.current.userInterfaceIdiom == .pad {
             let svc = EmptyChatViewController()
             svc.kind = kind
-            self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: svc), sender: self)
+//            UIView.performWithoutAnimation {
+//                self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: svc), sender: self)
+                self.splitViewController?.setViewController(UINavigationController(rootViewController: svc), for: .secondary)
+//            }
+            
         }
     }
     

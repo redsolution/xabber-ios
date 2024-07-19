@@ -97,6 +97,35 @@ class InfoScreenHeaderView: UIView {
         return label
     }()
     
+    let supportButtonsStack: UIStackView = {
+        let stack = UIStackView()
+        
+        stack.alignment = .center
+        stack.distribution = .equalCentering
+        stack.axis = .horizontal
+        stack.spacing = 8
+        
+        return stack
+    }()
+    
+    let buttonsStack: UIStackView = {
+        let stack = UIStackView()
+        
+        stack.alignment = .center
+        stack.distribution = .equalCentering
+        stack.axis = .vertical
+        
+        return stack
+    }()
+    
+    var showButtons: Bool {
+        didSet {
+            self.buttonsStack.isHidden = !self.showButtons
+        }
+    }
+    
+    internal var buttons: [UIButton] = []
+    
     open var delegate: InfoScreenHeaderDelegate? = nil
     
     
@@ -105,6 +134,7 @@ class InfoScreenHeaderView: UIView {
     }
     
     public final func update() {
+        
     }
     
     var currentUrl: String? = ""
@@ -136,9 +166,12 @@ class InfoScreenHeaderView: UIView {
     internal func setup() {
         backgroundColor = .systemGroupedBackground
         
-        self.addSubview(imageButton)
-        self.addSubview(titleButton)
-        self.addSubview(subtitleLabel)
+        self.addSubview(self.imageButton)
+        self.addSubview(self.titleButton)
+        self.addSubview(self.subtitleLabel)
+        self.addSubview(self.buttonsStack)
+        
+        self.buttonsStack.addArrangedSubview(self.supportButtonsStack)
         
         imageButton.imageView?.addSubview(darkenedView)
         imageButton.imageView?.addSubview(imageActivityIndicator)
@@ -154,6 +187,8 @@ class InfoScreenHeaderView: UIView {
         self.titleButton.center = CGPoint(x: self.frame.width / 2, y: 204 - offset)
         self.subtitleLabel.frame = CGRect(width: self.frame.width, height: 18)
         self.subtitleLabel.center = CGPoint(x: self.frame.width / 2, y: 232 - offset)
+        self.buttonsStack.frame = CGRect(width: self.frame.width, height: 44)
+        self.buttonsStack.center = CGPoint(x: self.frame.width / 2, y: 274 - offset)
     }
     
     internal func setMask() {
@@ -175,9 +210,19 @@ class InfoScreenHeaderView: UIView {
     }
     
     override init(frame: CGRect) {
+        self.showButtons = false
         super.init(frame: frame)
         setup()
         activateConstraints()
+    }
+    
+    public final func configureButtons(_ block: (() -> [UIButton])) {
+        self.buttons = block()
+        NSLayoutConstraint.activate(self.buttons.compactMap { return [
+            $0.widthAnchor.constraint(equalToConstant: 72),
+            $0.heightAnchor.constraint(equalToConstant: 44)
+        ] }.flatMap({ $0 }))
+        self.buttons.forEach { self.supportButtonsStack.addArrangedSubview($0) }
     }
     
     required init?(coder: NSCoder) {

@@ -237,7 +237,7 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
                 return
             }
         
-            guard let salt = AccountManager
+            guard let salt = try AccountManager
                 .shared
                 .find(for: self.owner)?
                 .akeManager
@@ -427,7 +427,7 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
                 return false
             }
         
-            guard let salt = AccountManager
+            guard let salt = try AccountManager
                 .shared
                 .find(for: self.owner)?
                 .akeManager

@@ -52,3 +52,15 @@ public func showStacked(_ vc: UIViewController, in presenter: UIViewController) 
             presenter.splitViewController?.hide(.primary)
     }
 }
+
+public func showDetail(_ vc: UIViewController, currentVc: UIViewController) {
+    switch CommonConfigManager.shared.interfaceType {
+        case .tabs:
+            break
+        case .split:
+            currentVc.dismiss(animated: true) {
+                (UIApplication.shared.delegate as? AppDelegate)?.splitController?.showDetailViewController(NavBarController(rootViewController: vc), sender: currentVc)
+                (UIApplication.shared.delegate as? AppDelegate)?.splitController?.hide(.primary)
+            }
+    }
+}

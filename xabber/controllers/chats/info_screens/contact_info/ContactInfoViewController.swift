@@ -74,11 +74,13 @@ class ContactInfoViewController: BaseViewController {
     
     public var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
     
-    var headerHeightMax: CGFloat = 188
+    var headerHeightMax: CGFloat = 240//188
     
     internal let headerView: InfoScreenHeaderView = {
         let view = InfoScreenHeaderView(frame: .zero)
-                
+        
+        view.showButtons = true
+        
         return view
     }()
     
@@ -273,12 +275,12 @@ class ContactInfoViewController: BaseViewController {
                         DDLogDebug("ContactInfoViewController: \(#function). \(error.localizedDescription)")
                     }
                     newDatasource.append(contentsOf: [
-                        Datasource(.text, title: "", childs: [
-                            Datasource(.button, icon: "xabber.chat", title: "Chat".localizeString(id: "chat", arguments: []), key: "chat"),
-                            Datasource(.button, icon: "xabber.chat.lock", title: "Secure chat".localizeString(id: "chat_type_secure", arguments: []), key: "encrypted"),
-                            Datasource(.button, icon: "phone", title: "Call".localizeString(id: "contact_bar_call", arguments: []), key: "call"),
-                            Datasource(.button, isDanger: true, icon: "circle.slash", title: "Block".localizeString(id: "contact_bar_block", arguments: []), key: "block")
-                        ]),
+//                        Datasource(.text, title: "", childs: [
+//                            Datasource(.button, icon: "bubble", title: "Chat".localizeString(id: "chat", arguments: []), key: "chat"),
+//                            Datasource(.button, icon: "custom.lock.bubble.left", title: "Secure chat".localizeString(id: "chat_type_secure", arguments: []), key: "encrypted"),
+//                            Datasource(.button, icon: "phone", title: "Call".localizeString(id: "contact_bar_call", arguments: []), key: "call"),
+//                            Datasource(.button, isDanger: true, icon: "circle.slash", title: "Block".localizeString(id: "contact_bar_block", arguments: []), key: "block")
+//                        ]),
                         Datasource(.text, title: "", childs: [
                             Datasource(.button, icon: "circle.hexagonpath", title: "Circles".localizeString(id: "contact_circle", arguments: []), key: "circles"),
                         ]),
@@ -447,6 +449,45 @@ class ContactInfoViewController: BaseViewController {
         leftDevicesNavBarButton.target = self
         leftDevicesNavBarButton.action = #selector(onLEftDevicesNavBarButtonTouchUp)
         self.navigationItem.setLeftBarButton(leftDevicesNavBarButton, animated: true)
+        self.headerView.configureButtons {
+            let regularChat = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
+            regularChat.configure(icon: "bubble.fill", title: "Chat")
+            regularChat.addTarget(self, action: #selector(onChatButtonTouchUpInside), for: .touchUpInside)
+            
+            let encryptedChat = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
+            encryptedChat.configure(icon: "custom.lock.bubble.left.fill", title: "Secure")
+            encryptedChat.addTarget(self, action: #selector(onEncryptedButtonTouchUpInside), for: .touchUpInside)
+            
+            let voiceCall = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
+            voiceCall.configure(icon: "phone.fill", title: "Call")
+            voiceCall.addTarget(self, action: #selector(onCallButtonTouchUpInside), for: .touchUpInside)
+            
+            let videoCall = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
+            videoCall.configure(icon: "video.fill", title: "Video")
+            videoCall.addTarget(self, action: #selector(onVideoButtonTouchUpInside), for: .touchUpInside)
+            
+            return [regularChat, encryptedChat, voiceCall, videoCall]
+        }
+    }
+    
+    @objc
+    internal func onChatButtonTouchUpInside(_ sender: InfoHeaderButton) {
+        self.openChat()
+    }
+    
+    @objc
+    internal func onEncryptedButtonTouchUpInside(_ sender: InfoHeaderButton) {
+        self.onStartEncryptedChat()
+    }
+    
+    @objc
+    internal func onCallButtonTouchUpInside(_ sender: InfoHeaderButton) {
+        print(#function)
+    }
+    
+    @objc
+    internal func onVideoButtonTouchUpInside(_ sender: InfoHeaderButton) {
+        print(#function)
     }
     
     @objc

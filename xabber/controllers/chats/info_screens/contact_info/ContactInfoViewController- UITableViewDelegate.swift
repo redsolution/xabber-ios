@@ -50,11 +50,11 @@ extension ContactInfoViewController: UITableViewDelegate {
                     }
                 }
                 self.present(shareVC, animated: true, completion: nil)
-            case "open_chat_button":
+            case "chat":
                 openChat()
             case "notify_chat_button":
                 onChangeNotifications()
-            case "block_chat_button":
+            case "block":
                 onBlock()
             case "delete_chat_button":
                 onDelete()
@@ -64,7 +64,7 @@ extension ContactInfoViewController: UITableViewDelegate {
                 editCircles()
             case "fingerprints":
                 showFingerprints()
-            case "start_encrypted_chat":
+            case "encrypted":
                 onStartEncryptedChat()
             default: break
             }

@@ -194,6 +194,7 @@
 		663ACA89283FA8E2005553BE /* ChatViewController+DigitalSignature.swift in Sources */ = {isa = PBXBuildFile; fileRef = 663ACA88283FA8E2005553BE /* ChatViewController+DigitalSignature.swift */; };
 		663B376A219BF27200FEB27E /* MessageStanzaStorageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 663B3769219BF27200FEB27E /* MessageStanzaStorageItem.swift */; };
 		663E739E22B8B584001C5A1F /* UIDevice+ModelName.swift in Sources */ = {isa = PBXBuildFile; fileRef = 663E739D22B8B584001C5A1F /* UIDevice+ModelName.swift */; };
+		663FCEF02C49408400C9FC9D /* infoScreenButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 663FCEEF2C49408400C9FC9D /* infoScreenButton.swift */; };
 		6640E57026CD3F61000380E3 /* GroupchatMembersListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6640E56F26CD3F61000380E3 /* GroupchatMembersListViewController.swift */; };
 		66411167267B5E8500B089C5 /* SignInServerFeaturesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66411166267B5E8500B089C5 /* SignInServerFeaturesViewController.swift */; };
 		6642B4F021B682F3008DD81B /* MIMETypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6642B4EF21B682F3008DD81B /* MIMETypes.swift */; };
@@ -1153,6 +1154,7 @@
 		663ACA88283FA8E2005553BE /* ChatViewController+DigitalSignature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewController+DigitalSignature.swift"; sourceTree = "<group>"; };
 		663B3769219BF27200FEB27E /* MessageStanzaStorageItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageStanzaStorageItem.swift; sourceTree = "<group>"; };
 		663E739D22B8B584001C5A1F /* UIDevice+ModelName.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIDevice+ModelName.swift"; sourceTree = "<group>"; };
+		663FCEEF2C49408400C9FC9D /* infoScreenButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = infoScreenButton.swift; sourceTree = "<group>"; };
 		6640E56F26CD3F61000380E3 /* GroupchatMembersListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupchatMembersListViewController.swift; sourceTree = "<group>"; };
 		66411166267B5E8500B089C5 /* SignInServerFeaturesViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInServerFeaturesViewController.swift; sourceTree = "<group>"; };
 		6642B4EF21B682F3008DD81B /* MIMETypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIMETypes.swift; sourceTree = "<group>"; };
@@ -4003,6 +4005,7 @@
 				66ED0D4B2488FA700053CBEF /* InfoScreenHeaderView.swift */,
 				662D4A7424892B2A009E2B22 /* InfoScreenHeaderButtonDelegate.swift */,
 				662D4A782489371D009E2B22 /* RoundedAvatarButton.swift */,
+				663FCEEF2C49408400C9FC9D /* infoScreenButton.swift */,
 			);
 			path = views;
 			sourceTree = "<group>";
@@ -5318,6 +5321,7 @@
 				AFC32A912AC406FE007A019D /* CloudStorageShowFilesViewController.swift in Sources */,
 				66C01C7F2348B6B1001C167C /* ShareDialogSearchController.swift in Sources */,
 				666201FC22B3E22800FB2A44 /* AccountBlockListViewController+UITableViewDatasource.swift in Sources */,
+				663FCEF02C49408400C9FC9D /* infoScreenButton.swift in Sources */,
 				AF6ADC052ABABFE40048BEF6 /* FileDeletionConfirmation.swift in Sources */,
 				669DC92C23A216F00072891B /* GroupchatEditContactViewController+TextEditCell.swift in Sources */,
 			);
