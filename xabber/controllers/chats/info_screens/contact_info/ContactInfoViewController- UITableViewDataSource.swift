@@ -126,14 +126,20 @@ extension ContactInfoViewController: UITableViewDataSource {
                     } else {
                         contentConfig.text = "Block".localizeString(id: "contact_bar_block", arguments: [])
                     }
+                    contentConfig.textProperties.color = item.isDanger ? .systemRed : .tintColor
+                    
                 } else if item.key == "notify_chat_button" {
                     if self.isMuted {
                         contentConfig.text = "Enable notifications".localizeString(id: "groupchat_enable_notificaions", arguments: [])
                     } else {
                         contentConfig.text = "Disable notifications".localizeString(id: "groupchats_disable_notifications", arguments: [])
                     }
+                    contentConfig.textProperties.color = item.isDanger ? .systemRed : .tintColor
+                    
+                } else {
+                    cell.accessoryType = .disclosureIndicator
                 }
-                contentConfig.textProperties.color = item.isDanger ? .systemRed : .tintColor
+                
                 cell.contentConfiguration = contentConfig
                 
                 return cell

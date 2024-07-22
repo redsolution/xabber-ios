@@ -699,6 +699,7 @@
 		84790B882C007F9400246B0E /* VerificationSessionTableViewCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84790B872C007F9400246B0E /* VerificationSessionTableViewCell.swift */; };
 		84882D422C492C7D003C94E9 /* XabberActivityViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84882D412C492C7D003C94E9 /* XabberActivityViewController.swift */; };
 		8496E00B2B98556800EBDE2B /* VerififcationSessionStorageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8496E00A2B98556800EBDE2B /* VerififcationSessionStorageItem.swift */; };
+		849C46762C4E828E0050C82E /* ChatFilesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 849C46752C4E828E0050C82E /* ChatFilesViewController.swift */; };
 		849EF50B2C0DF3A4005B0C57 /* VerificationViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 849EF50A2C0DF3A4005B0C57 /* VerificationViewController.swift */; };
 		84B8E73A2C4A3CDB00DCB86E /* XabberActivityViewController+UITableViewDatasource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84B8E7392C4A3CDB00DCB86E /* XabberActivityViewController+UITableViewDatasource.swift */; };
 		84B8E73C2C4A3D1A00DCB86E /* XabberActivityViewController+UITableViewDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84B8E73B2C4A3D1A00DCB86E /* XabberActivityViewController+UITableViewDelegate.swift */; };
@@ -1656,6 +1657,7 @@
 		84790B872C007F9400246B0E /* VerificationSessionTableViewCell.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = VerificationSessionTableViewCell.swift; sourceTree = "<group>"; };
 		84882D412C492C7D003C94E9 /* XabberActivityViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XabberActivityViewController.swift; sourceTree = "<group>"; };
 		8496E00A2B98556800EBDE2B /* VerififcationSessionStorageItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerififcationSessionStorageItem.swift; sourceTree = "<group>"; };
+		849C46752C4E828E0050C82E /* ChatFilesViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatFilesViewController.swift; sourceTree = "<group>"; };
 		849EF50A2C0DF3A4005B0C57 /* VerificationViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerificationViewController.swift; sourceTree = "<group>"; };
 		84B8E7392C4A3CDB00DCB86E /* XabberActivityViewController+UITableViewDatasource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "XabberActivityViewController+UITableViewDatasource.swift"; sourceTree = "<group>"; };
 		84B8E73B2C4A3D1A00DCB86E /* XabberActivityViewController+UITableViewDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "XabberActivityViewController+UITableViewDelegate.swift"; sourceTree = "<group>"; };
@@ -3988,6 +3990,7 @@
 				66ED0D4B2488FA700053CBEF /* InfoScreenHeaderView.swift */,
 				662D4A7424892B2A009E2B22 /* InfoScreenHeaderButtonDelegate.swift */,
 				662D4A782489371D009E2B22 /* RoundedAvatarButton.swift */,
+				849C46752C4E828E0050C82E /* ChatFilesViewController.swift */,
 			);
 			path = views;
 			sourceTree = "<group>";
@@ -5211,6 +5214,7 @@
 				662C08AA247FBA3700818709 /* ContactsViewController+CollapsedCell.swift in Sources */,
 				6645957A265185F400FB5490 /* OnboardingViewController.swift in Sources */,
 				66B7992822E0848E001589A5 /* SearchResultsViewController+ContactCell.swift in Sources */,
+				849C46762C4E828E0050C82E /* ChatFilesViewController.swift in Sources */,
 				66153B4D22E1C59B005D4567 /* GlobalIndexManager.swift in Sources */,
 				6624562C2498AC8F005510AE /* GroupchatContactInfoViewController+InfoCell.swift in Sources */,
 				665D63A42399429E005B4E9E /* GroupchatBlockedViewController.swift in Sources */,

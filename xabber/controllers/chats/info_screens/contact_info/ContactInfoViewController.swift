@@ -301,6 +301,13 @@ class ContactInfoViewController: BaseViewController {
                         }
                     }
                     
+                    newDatasource.append(Datasource(.text, title: "", childs: [
+                        Datasource(.button, icon: "custom.ant.square.fill", title: "Images", key: "images"),
+                        Datasource(.button, icon: "custom.bell.square.fill", title: "Videos", key: "videos"),
+                                   Datasource(.button, icon: "custom.cloud.square.fill", title: "Files", key: "files"),
+                        Datasource(.button, icon: "custom.cylinder.split.1x2.square.fill", title: "Voice", key: "voice")
+                    ]))
+                    
                     self.datasource = newDatasource
                     self.tableView.reloadData()
                 })
@@ -426,16 +433,16 @@ class ContactInfoViewController: BaseViewController {
         tableView.tableHeaderView = headerView
         headerView.delegate = self
         
-        footerView.conversationType = self.conversationType
-        footerView.jid = self.jid
-        footerView.owner = self.owner
-        
-        footerView.frame = CGRect(x: 0, y: 0,
-                                  width: view.frame.width,
-                                  height: view.frame.height)
-        footerView.mediaButtonsDelegate = self
-        footerView.infoVCDelegate = self
-        tableView.tableFooterView = footerView
+//        footerView.conversationType = self.conversationType
+//        footerView.jid = self.jid
+//        footerView.owner = self.owner
+//        
+//        footerView.frame = CGRect(x: 0, y: 0,
+//                                  width: view.frame.width,
+//                                  height: view.frame.height)
+//        footerView.mediaButtonsDelegate = self
+//        footerView.infoVCDelegate = self
+//        tableView.tableFooterView = footerView
         
         editButton.target = self
         editButton.action = #selector(onEditContact)
@@ -515,8 +522,11 @@ class ContactInfoViewController: BaseViewController {
 //        navigationController?.isNavigationBarHidden = true
         navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
         navigationController?.navigationBar.shadowImage = UIImage()
-        footerView.getReferences()
-        tableView.fillSuperviewWithOffset(top: 0, bottom: 0, left: 0, right: 0)
+//        footerView.getReferences()
+        tableView.fillSuperview()
+        
+//        activateConstraints()
+        
         headerView.frame = CGRect(
             width: view.frame.width,
             height: headerHeightMax
