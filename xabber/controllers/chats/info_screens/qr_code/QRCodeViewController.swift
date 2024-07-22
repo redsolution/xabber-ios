@@ -98,8 +98,12 @@ class QRCodeViewController: UIViewController {
             self.view.makeToast("Can`t share QR-code".localizeString(id: "account_cant_share_qr", arguments: []))
             return
         }
+        
+        let activityImage = UIImage(imageLiteralResourceName: "xabber_icon_call_kit").resize(targetSize: CGSize(square: 60))
+        let xabberActivity = XabberActivity(title: "Xabber", image: activityImage)
+        
         let shareVC = UIActivityViewController(activityItems: [image, stringValue],
-                                               applicationActivities: [])
+                                               applicationActivities: [xabberActivity])
         
         if UIDevice.current.userInterfaceIdiom == .pad {
             if let popoverController = shareVC.popoverPresentationController {

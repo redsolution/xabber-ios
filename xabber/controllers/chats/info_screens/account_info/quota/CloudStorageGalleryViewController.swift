@@ -534,8 +534,10 @@ extension CloudStorageGalleryViewController: UICollectionViewDelegateFlowLayout 
             layout.minimumLineSpacing = InfoScreenFooterView.cellSpacing
             layout.minimumInteritemSpacing = InfoScreenFooterView.cellSpacing
             collectionView.collectionViewLayout = layout
-            let width = view.frame.width / InfoScreenFooterView.numberOfCells - InfoScreenFooterView.cellSpacing * (InfoScreenFooterView.numberOfCells + 1) / InfoScreenFooterView.numberOfCells
+            let widthRaw = view.frame.width / InfoScreenFooterView.numberOfCells - InfoScreenFooterView.cellSpacing * (InfoScreenFooterView.numberOfCells + 1) / InfoScreenFooterView.numberOfCells
+            let width = floor(widthRaw * 100) / 100
             return CGSize(square: width)
+            
         default:
             let layout = collectionViewLayout as! UICollectionViewFlowLayout
             layout.minimumLineSpacing = 0
