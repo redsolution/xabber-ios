@@ -25,7 +25,6 @@ class ChatFilesViewController: SimpleBaseViewController {
         let primary: String
         let jid: String
         let owner: String
-//        let kind: Kind
         let messageId: String
         let uri: String
         let thumbnail: String?
@@ -41,11 +40,10 @@ class ChatFilesViewController: SimpleBaseViewController {
         let filename: String
         let referencePrimary: String
         
-        init(primary: String, jid: String, owner: String/*, kind: Kind*/, messageId: String, uri: String, thumbnail: String? = nil, videoPreviewKey: String? = nil, videoOrientation: String? = nil, voiceModel: MessageReferenceStorageItem.Model? = nil, senderName: String, date: String, send_time: String? = nil, sizeInBytes: String? = nil, video_duration: String? = nil, mimeType: String, filename: String, referencePrimary: String) {
+        init(primary: String, jid: String, owner: String, messageId: String, uri: String, thumbnail: String? = nil, videoPreviewKey: String? = nil, videoOrientation: String? = nil, voiceModel: MessageReferenceStorageItem.Model? = nil, senderName: String, date: String, send_time: String? = nil, sizeInBytes: String? = nil, video_duration: String? = nil, mimeType: String, filename: String, referencePrimary: String) {
             self.primary = primary
             self.jid = jid
             self.owner = owner
-//            self.kind = kind
             self.messageId = messageId
             self.uri = uri
             self.thumbnail = thumbnail
@@ -62,54 +60,6 @@ class ChatFilesViewController: SimpleBaseViewController {
             self.referencePrimary = referencePrimary
         }
     }
-    
-//    class Datasource {
-//        enum Kind {
-//            case image
-//            case video
-//            case file
-//            case voice
-//            case undefined
-//        }
-//        
-//        var uri: String?
-//        var thumbnail: String?
-//        var kind: Kind
-//        var videoPreviewKey: String?
-//        var videoDuration: String?
-//        var audioDuration: String?
-//        var meters: String?
-//        var mimeType: String?
-//        var fileName: String?
-//        var voiceModel: MessageReferenceStorageItem.Model?
-//        var dateFormatted: Date?
-//        var date: String?
-//        var time: String?
-//        var size: String?
-//        var senderName: String?
-//        var messageId: String?
-//        var fileId: Int?
-//        
-//        init(uri: String? = nil, thumbnail: String? = nil, kind: Kind, videoPreviewKey: String? = nil, videoDuration: String? = nil, audioDuration: String? = nil, meters: String? = nil, mimeType: String? = nil, fileName: String? = nil, voiceModel: MessageReferenceStorageItem.Model? = nil, dateFormatted: Date? = nil, date: String? = nil, time: String? = nil, size: String? = nil, senderName: String? = nil, messageId: String? = nil, fileId: Int? = nil) {
-//            self.uri = uri
-//            self.thumbnail = thumbnail
-//            self.kind = kind
-//            self.videoPreviewKey = videoPreviewKey
-//            self.videoDuration = videoDuration
-//            self.audioDuration = audioDuration
-//            self.meters = meters
-//            self.mimeType = mimeType
-//            self.fileName = fileName
-//            self.voiceModel = voiceModel
-//            self.dateFormatted = dateFormatted
-//            self.date = date
-//            self.time = time
-//            self.size = size
-//            self.senderName = senderName
-//            self.messageId = messageId
-//            self.fileId = fileId
-//        }
-//    }
     
     enum Kind: String {
         case images = "Images"
@@ -240,8 +190,6 @@ class ChatFilesViewController: SimpleBaseViewController {
     override func onAppear() {
         self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
         self.navigationController?.navigationBar.shadowImage = nil
-//        self.navigationController?.navigationBar.superview?.bringSubviewToFront(self.navigationController!.navigationBar)
-//        self.navigationController?.navigationBar.layoutIfNeeded()
     }
     
 }
