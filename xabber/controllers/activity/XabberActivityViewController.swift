@@ -73,6 +73,7 @@ class XabberActivityViewController: SimpleBaseViewController {
     internal var datasource: [Datasource] = []
     internal var chatsDataset: Results<LastChatsStorageItem>? = nil
     internal var rosterDataset: Results<RosterStorageItem>? = nil
+    internal var activityItems = [Any]()
     
     internal let containerView: UIView = {
         let view = UIView(frame: .zero)
@@ -108,6 +109,7 @@ class XabberActivityViewController: SimpleBaseViewController {
         controller.searchBar.placeholder = "Search contacts and messages".localizeString(id: "search_contacts_and_messages", arguments: [])
         controller.searchBar.isTranslucent = true
         controller.hidesNavigationBarDuringPresentation = true
+        controller.definesPresentationContext = true
         
         return controller
     }()
@@ -137,14 +139,9 @@ class XabberActivityViewController: SimpleBaseViewController {
         
         view.addSubview(containerView)
         containerView.addSubview(button)
+        button.addTarget(self, action: #selector(onButtonPressed), for: .touchUpInside)
         
     }
-    
-//    override func activateConstraints() {
-//        NSLayoutConstraint.activate([
-//            button.heightAnchor.constraint(equalToConstant: 44)
-//        ])
-//    }
     
     override func loadDatasource() {
         datasource = chatsDataset?.map { item in
@@ -257,6 +254,11 @@ class XabberActivityViewController: SimpleBaseViewController {
         containerView.frame = CGRect(x: 0, y: view.bounds.height - 44 - bottomInset, width: self.view.bounds.width, height: 44)
         
         button.fillSuperviewWithOffset(top: 0, bottom: 0, left: 10, right: 10)
+    }
+    
+    @objc
+    func onButtonPressed() {
+        print("sended: \(activityItems)")
     }
 }
 

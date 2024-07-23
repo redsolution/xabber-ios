@@ -304,7 +304,7 @@ class ContactInfoViewController: BaseViewController {
                     newDatasource.append(Datasource(.text, title: "", childs: [
                         Datasource(.button, icon: "custom.ant.square.fill", title: "Images", key: "images"),
                         Datasource(.button, icon: "custom.bell.square.fill", title: "Videos", key: "videos"),
-                                   Datasource(.button, icon: "custom.cloud.square.fill", title: "Files", key: "files"),
+                        Datasource(.button, icon: "custom.cloud.square.fill", title: "Files", key: "files"),
                         Datasource(.button, icon: "custom.cylinder.split.1x2.square.fill", title: "Voice", key: "voice")
                     ]))
                     

@@ -700,6 +700,9 @@
 		84882D422C492C7D003C94E9 /* XabberActivityViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84882D412C492C7D003C94E9 /* XabberActivityViewController.swift */; };
 		8496E00B2B98556800EBDE2B /* VerififcationSessionStorageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8496E00A2B98556800EBDE2B /* VerififcationSessionStorageItem.swift */; };
 		849C46762C4E828E0050C82E /* ChatFilesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 849C46752C4E828E0050C82E /* ChatFilesViewController.swift */; };
+		849D262A2C4F7C29000A19D2 /* ChatFilesViewController+Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 849D26292C4F7C29000A19D2 /* ChatFilesViewController+Extensions.swift */; };
+		849D262C2C4F7FCB000A19D2 /* ChatFilesViewController+CollectionViewDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 849D262B2C4F7FCB000A19D2 /* ChatFilesViewController+CollectionViewDataSource.swift */; };
+		849D262E2C4F8006000A19D2 /* ChatFilesViewController+CollectionViewDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 849D262D2C4F8006000A19D2 /* ChatFilesViewController+CollectionViewDelegate.swift */; };
 		849EF50B2C0DF3A4005B0C57 /* VerificationViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 849EF50A2C0DF3A4005B0C57 /* VerificationViewController.swift */; };
 		84B8E73A2C4A3CDB00DCB86E /* XabberActivityViewController+UITableViewDatasource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84B8E7392C4A3CDB00DCB86E /* XabberActivityViewController+UITableViewDatasource.swift */; };
 		84B8E73C2C4A3D1A00DCB86E /* XabberActivityViewController+UITableViewDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84B8E73B2C4A3D1A00DCB86E /* XabberActivityViewController+UITableViewDelegate.swift */; };
@@ -1658,6 +1661,9 @@
 		84882D412C492C7D003C94E9 /* XabberActivityViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XabberActivityViewController.swift; sourceTree = "<group>"; };
 		8496E00A2B98556800EBDE2B /* VerififcationSessionStorageItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerififcationSessionStorageItem.swift; sourceTree = "<group>"; };
 		849C46752C4E828E0050C82E /* ChatFilesViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatFilesViewController.swift; sourceTree = "<group>"; };
+		849D26292C4F7C29000A19D2 /* ChatFilesViewController+Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatFilesViewController+Extensions.swift"; sourceTree = "<group>"; };
+		849D262B2C4F7FCB000A19D2 /* ChatFilesViewController+CollectionViewDataSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatFilesViewController+CollectionViewDataSource.swift"; sourceTree = "<group>"; };
+		849D262D2C4F8006000A19D2 /* ChatFilesViewController+CollectionViewDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatFilesViewController+CollectionViewDelegate.swift"; sourceTree = "<group>"; };
 		849EF50A2C0DF3A4005B0C57 /* VerificationViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerificationViewController.swift; sourceTree = "<group>"; };
 		84B8E7392C4A3CDB00DCB86E /* XabberActivityViewController+UITableViewDatasource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "XabberActivityViewController+UITableViewDatasource.swift"; sourceTree = "<group>"; };
 		84B8E73B2C4A3D1A00DCB86E /* XabberActivityViewController+UITableViewDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "XabberActivityViewController+UITableViewDelegate.swift"; sourceTree = "<group>"; };
@@ -3991,6 +3997,9 @@
 				662D4A7424892B2A009E2B22 /* InfoScreenHeaderButtonDelegate.swift */,
 				662D4A782489371D009E2B22 /* RoundedAvatarButton.swift */,
 				849C46752C4E828E0050C82E /* ChatFilesViewController.swift */,
+				849D26292C4F7C29000A19D2 /* ChatFilesViewController+Extensions.swift */,
+				849D262B2C4F7FCB000A19D2 /* ChatFilesViewController+CollectionViewDataSource.swift */,
+				849D262D2C4F8006000A19D2 /* ChatFilesViewController+CollectionViewDelegate.swift */,
 			);
 			path = views;
 			sourceTree = "<group>";
@@ -5036,6 +5045,7 @@
 				66A57378220030B100FBAA4C /* AbstractXMPPManager.swift in Sources */,
 				6624562E2498AC9C005510AE /* GroupchatContactInfoViewController+ItemCell.swift in Sources */,
 				66C28E7B2BA87845000AF10B /* XMPPNotificationsManagerStorageItem.swift in Sources */,
+				849D262C2C4F7FCB000A19D2 /* ChatFilesViewController+CollectionViewDataSource.swift in Sources */,
 				667BC4AB291E640400B07957 /* SubscribtionsManager.swift in Sources */,
 				6679826E24E5769F003C3815 /* InitialMessageSizeCalculator.swift in Sources */,
 				AFC32A8F2AC3FAE2007A019D /* CloudStorageGalleryViewController.swift in Sources */,
@@ -5177,6 +5187,7 @@
 				1A9B584127B39489004DD787 /* FilesMediaCollectionCell.swift in Sources */,
 				66ED0D482488CE140053CBEF /* ContactInfoViewController- UITableViewDelegate.swift in Sources */,
 				665451B122A916070077635D /* AccountEditViewController+ProfileCell.swift in Sources */,
+				849D262A2C4F7C29000A19D2 /* ChatFilesViewController+Extensions.swift in Sources */,
 				66F985D7231E37400013A0BD /* MessageReferenceStorageItem.swift in Sources */,
 				6643F30E21C2650E00333229 /* UIColor+Extensions.swift in Sources */,
 				66EB6A7A238D659E0024531C /* TextViewPresenter.swift in Sources */,
@@ -5275,6 +5286,7 @@
 				660F27DF2202DBB600A11AAC /* ResourceInfoViewController+StatusCell.swift in Sources */,
 				66897812282E63D3004FB811 /* YubikeySetupViewController.swift in Sources */,
 				66ED0D462488CDA10053CBEF /* ContactInfoViewController- UITableViewDataSource.swift in Sources */,
+				849D262E2C4F8006000A19D2 /* ChatFilesViewController+CollectionViewDelegate.swift in Sources */,
 				66EAF7F12407A92500207AD3 /* InlineGridImagePlaceholderView.swift in Sources */,
 				669F981D29378CD800FB8864 /* SkeletonMessageCell.swift in Sources */,
 				662120D82265D67200DAE8E7 /* CarbonsManager.swift in Sources */,

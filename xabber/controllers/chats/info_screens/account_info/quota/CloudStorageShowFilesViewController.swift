@@ -74,19 +74,19 @@ class CloudStorageShowFilesViewController: BaseViewController {
     }
 }
 
-//protocol TappedPhotoInCloudGallery {
-//    func tappedPhotoInGallery(primary: String)
-//}
-//
-//extension CloudStorageShowFilesViewController: TappedPhotoInCloudGallery {
-//    func tappedPhotoInGallery(primary: String) {
-//        do {
-//            let realm = try WRealm.safe()
-//            let item = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary)
-//            let chatViewController = ChatViewController()
-//        } catch {
-//            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-//            return
-//        }
-//    }
-//}
+protocol TappedPhotoInCloudGallery {
+    func tappedPhotoInGallery(primary: String)
+}
+
+extension CloudStorageShowFilesViewController: TappedPhotoInCloudGallery {
+    func tappedPhotoInGallery(primary: String) {
+        do {
+            let realm = try WRealm.safe()
+            let item = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary)
+            let chatViewController = ChatViewController()
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            return
+        }
+    }
+}
