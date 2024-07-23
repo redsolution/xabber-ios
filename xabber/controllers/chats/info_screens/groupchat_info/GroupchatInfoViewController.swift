@@ -282,6 +282,19 @@ class GroupchatInfoViewController: SimpleBaseViewController {
                             newDatasource.append(Datasource(.contact, title: "", key: "gc_contacts"))
                         }
                         
+                        let imagesCount = realm.objects(MessageReferenceStorageItem.self).filter("owner == %@ AND jid == %@ AND kind_ == %@ AND mimeType == %@ AND hasError == false", self.owner, self.jid, MessageReferenceStorageItem.Kind.media.rawValue, "image").count
+                        let videosCount = realm.objects(MessageReferenceStorageItem.self).filter("owner == %@ AND jid == %@ AND kind_ == %@ AND mimeType == %@ AND hasError == false", self.owner, self.jid, MessageReferenceStorageItem.Kind.media.rawValue, "video").count
+                        let audiosCount = realm.objects(MessageReferenceStorageItem.self).filter("owner == %@ AND jid == %@ AND kind_ == %@ AND hasError == false", self.owner, self.jid, MessageReferenceStorageItem.Kind.voice.rawValue).count
+                        let mimeTypes: [String] = ["document", "pdf", "table", "presentation", "archive", "audio", "file"]
+                        let filesCount = realm.objects(MessageReferenceStorageItem.self).filter("owner == %@ AND jid == %@ AND mimeType IN %@ AND hasError == false", self.owner, self.jid, mimeTypes, "image").count
+                        
+                        newDatasource.append(Datasource(.text, title: "", key: "chat_files", childs: [
+                            Datasource(.button, title: "Images", subtitle: String(imagesCount), key: "images"),
+                            Datasource(.button, title: "Videos", subtitle: String(videosCount), key: "videos"),
+                            Datasource(.button, title: "Files", subtitle: String(filesCount), key: "files"),
+                            Datasource(.button, title: "Voice", subtitle: String(audiosCount), key: "voice")
+                        ]))
+                        
                         if self.datasource.count != newDatasource.count {
                             fullReload = true
                         } else {
@@ -510,17 +523,17 @@ class GroupchatInfoViewController: SimpleBaseViewController {
         tableView.tableHeaderView = headerView
         headerView.delegate = self
         
-        footerView.conversationType = .group
-        footerView.jid = self.jid
-        footerView.owner = self.owner
-        
-        footerView.frame = CGRect(x: 0, y: 0,
-                                  width: view.frame.width,
-                                  height: view.frame.height)
-        footerView.mediaButtonsDelegate = self
-        footerView.infoVCDelegate = self
-        footerView.getReferences()
-        tableView.tableFooterView = footerView
+//        footerView.conversationType = .group
+//        footerView.jid = self.jid
+//        footerView.owner = self.owner
+//        
+//        footerView.frame = CGRect(x: 0, y: 0,
+//                                  width: view.frame.width,
+//                                  height: view.frame.height)
+//        footerView.mediaButtonsDelegate = self
+//        footerView.infoVCDelegate = self
+//        footerView.getReferences()
+//        tableView.tableFooterView = footerView
         
         infoButton.target = self
         infoButton.action = #selector(groupchatInfo)

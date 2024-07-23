@@ -301,11 +301,17 @@ class ContactInfoViewController: BaseViewController {
                         }
                     }
                     
+                    let imagesCount = realm.objects(MessageReferenceStorageItem.self).filter("owner == %@ AND jid == %@ AND kind_ == %@ AND mimeType == %@ AND hasError == false", self.owner, self.jid, MessageReferenceStorageItem.Kind.media.rawValue, "image").count
+                    let videosCount = realm.objects(MessageReferenceStorageItem.self).filter("owner == %@ AND jid == %@ AND kind_ == %@ AND mimeType == %@ AND hasError == false", self.owner, self.jid, MessageReferenceStorageItem.Kind.media.rawValue, "video").count
+                    let audiosCount = realm.objects(MessageReferenceStorageItem.self).filter("owner == %@ AND jid == %@ AND kind_ == %@ AND hasError == false", self.owner, self.jid, MessageReferenceStorageItem.Kind.voice.rawValue).count
+                    let mimeTypes: [String] = ["document", "pdf", "table", "presentation", "archive", "audio", "file"]
+                    let filesCount = realm.objects(MessageReferenceStorageItem.self).filter("owner == %@ AND jid == %@ AND mimeType IN %@ AND hasError == false", self.owner, self.jid, mimeTypes, "image").count
+                    
                     newDatasource.append(Datasource(.text, title: "", childs: [
-                        Datasource(.button, icon: "custom.ant.square.fill", title: "Images", key: "images"),
-                        Datasource(.button, icon: "custom.bell.square.fill", title: "Videos", key: "videos"),
-                        Datasource(.button, icon: "custom.cloud.square.fill", title: "Files", key: "files"),
-                        Datasource(.button, icon: "custom.cylinder.split.1x2.square.fill", title: "Voice", key: "voice")
+                        Datasource(.button, title: "Images", subtitle: String(imagesCount), key: "images"),
+                        Datasource(.button, title: "Videos", subtitle: String(videosCount), key: "videos"),
+                        Datasource(.button, title: "Files", subtitle: String(filesCount), key: "files"),
+                        Datasource(.button, title: "Voice", subtitle: String(audiosCount), key: "voice")
                     ]))
                     
                     self.datasource = newDatasource

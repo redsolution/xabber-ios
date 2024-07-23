@@ -140,6 +140,13 @@ extension ContactInfoViewController: UITableViewDataSource {
                     cell.accessoryType = .disclosureIndicator
                 }
                 
+                if let subtitle = item.subtitle {
+                    contentConfig.secondaryText = subtitle
+                    contentConfig.secondaryTextProperties.color = .systemGray
+                    contentConfig.secondaryTextProperties.font = contentConfig.textProperties.font
+                    contentConfig.prefersSideBySideTextAndSecondaryText = true
+                }
+                
                 cell.contentConfiguration = contentConfig
                 
                 return cell

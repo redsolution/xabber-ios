@@ -158,10 +158,26 @@ extension GroupchatInfoViewController: UITableViewDataSource {
                     cell.configure(icon: "circle.hexagonpath", title: "Circles".localizeString(id: "contact_circle", arguments: []), circles: self.circles)
                     
                     return cell
+                } else if section.key == "chat_files" {
+                    let cell = UITableViewCell()
+                    
+                    var cellConfig = cell.defaultContentConfiguration()
+                    cellConfig.text = item.title
+                    cellConfig.secondaryText = item.subtitle
+                    cellConfig.secondaryTextProperties.color = .systemGray
+                    cellConfig.secondaryTextProperties.font = cellConfig.textProperties.font
+                    cellConfig.prefersSideBySideTextAndSecondaryText = true
+                    
+                    cell.contentConfiguration = cellConfig
+                    cell.accessoryType = .disclosureIndicator
+                    
+                    return cell
                 }
+                
                 let cell = tableView.dequeueReusableCell(withIdentifier: "ButtonCell", for: indexPath)
                 cell.textLabel?.text = item.title
                 cell.detailTextLabel?.text = item.subtitle
+                
                 if item.key == "block_chat_button" {
                     if self.isBlocked {
                         cell.textLabel?.text = "Unblock".localizeString(id: "contact_bar_unblock", arguments: [])
