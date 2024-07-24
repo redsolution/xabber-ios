@@ -43,11 +43,6 @@ class StatusInfoCell: UITableViewCell {
         let label = UILabel()
         
         label.font = UIFont.preferredFont(forTextStyle: .body)
-        if #available(iOS 13.0, *) {
-            label.textColor = .label
-        } else {
-            label.textColor = .darkText
-        }
         
         return label
     }()
@@ -111,20 +106,10 @@ class StatusInfoCell: UITableViewCell {
             statusIndicator.isHidden = true
             activityIndicator.isHidden = false
             activityIndicator.startAnimating()
-            if #available(iOS 13.0, *) {
-                titleLabel.textColor = .secondaryLabel
-            } else {
-                titleLabel.textColor = .gray
-            }
         } else {
             activityIndicator.stopAnimating()
             statusIndicator.isHidden = false
             activityIndicator.isHidden = true
-            if #available(iOS 13.0, *) {
-                titleLabel.textColor = .label
-            } else {
-                titleLabel.textColor = .darkText
-            }
         }
         
         if status == .offline {

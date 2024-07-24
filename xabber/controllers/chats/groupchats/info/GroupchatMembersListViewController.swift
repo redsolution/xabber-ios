@@ -161,7 +161,8 @@ class GroupchatMembersListViewController: SimpleBaseViewController {
     }
     
     override func onAppear() {
-        super.onAppear()
+        navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
+        navigationController?.navigationBar.shadowImage = nil
     }
     
     private final func mapDataset() -> [Datasource] {
@@ -326,5 +327,15 @@ extension GroupchatMembersListViewController: UITableViewDelegate {
     }
     func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
         return 0
+    }
+    
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        let item = datasource[indexPath.row]
+        let vc = GroupchatContactInfoViewController()
+        vc.owner = self.owner
+        vc.jid = self.jid
+        vc.userId = item.userId
+        
+        navigationController?.pushViewController(vc, animated: true)
     }
 }

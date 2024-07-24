@@ -278,8 +278,10 @@ class GroupchatInfoViewController: SimpleBaseViewController {
                             Datasource(.button, title: "Circles".localizeString(id: "contact_circle", arguments: []), key: "gc_circles"),
                         ]))
                         
-                        if !(self.contacts?.isEmpty ?? true) {
-                            newDatasource.append(Datasource(.contact, title: "", key: "gc_contacts"))
+                        if self.onlineContacts != 0 {
+                            newDatasource.append(Datasource(.text, title: "", key: "section_members", childs: [Datasource(.button, title: "Members", subtitle: "\(self.contacts?.count ?? 0) (\(self.onlineContacts) online)", key: "members")]))
+                        } else {
+                            newDatasource.append(Datasource(.text, title: "", childs: [Datasource(.button, title: "Members", subtitle: "\(self.contacts?.count ?? 0)", key: "members")]))
                         }
                         
                         let imagesCount = realm.objects(MessageReferenceStorageItem.self).filter("owner == %@ AND jid == %@ AND kind_ == %@ AND mimeType == %@ AND hasError == false", self.owner, self.jid, MessageReferenceStorageItem.Kind.media.rawValue, "image").count
@@ -394,89 +396,20 @@ class GroupchatInfoViewController: SimpleBaseViewController {
                 .changeset(from: contacts!)
                 .subscribe(onNext: { (results) in
                     self.onlineContacts = self.contacts?.filter({ $0.isOnline }).count ?? 0
-                    if results.0.isEmpty {
-                        if let index = self.datasource.firstIndex(where: { $0.kind == .contact }) {
-                            self.datasource.remove(at: index)
-                            if #available(iOS 11.0, *) {
-                                self.tableView.performBatchUpdates({
-                                    self.tableView.deleteSections(IndexSet([index]), with: .none)
-                                }, completion: nil)
-                            } else {
-                                self.tableView.beginUpdates()
-                                self.tableView.deleteSections(IndexSet([index]), with: .none)
-                                self.tableView.endUpdates()
-                            }
-                        }
-                    } else {
-                        var shouldInsertSection: Bool = false
-                        if !self.datasource.contains(where: { $0.kind == .contact }) {
-                            self.datasource.append(Datasource(.contact, title: ""))
-                            shouldInsertSection = true
-                        }
-                        let sectionIndex = self.datasource.count - 1
-                        guard let changeset = results.1 else {
-                            UIView.performWithoutAnimation {
-                                self.tableView.reloadData()
-                            }
-                            return
-                        }
-                        UIView.performWithoutAnimation {
-                            if #available(iOS 11.0, *) {
-                                self.tableView.performBatchUpdates{
-                                    if shouldInsertSection {
-                                        self.tableView.insertSections(IndexSet([sectionIndex]), with: .none)
-                                    }
-                                    if changeset.deleted.isNotEmpty {
-                                        self.tableView
-                                            .deleteRows(at: changeset
-                                                .deleted
-                                                .compactMap({ return IndexPath(row: $0, section: sectionIndex) }), with: .none)
-                                    }
-                                    if changeset.inserted.isNotEmpty {
-                                        self.tableView
-                                            .insertRows(at: changeset
-                                                .inserted
-                                                .compactMap({ return IndexPath(row: $0, section: sectionIndex) }), with: .none)
-                                    }
-                                   
-                                } completion: {
-                                    result in
-                                    if !result { return }
-                                    if changeset.updated.isNotEmpty {
-                                        self.tableView
-                                            .reloadRows(at: changeset
-                                                .updated
-                                                .compactMap({ return IndexPath(row: $0, section: sectionIndex) }), with: .none)
-                                    }
-                                }
-                            } else {
-                                self.tableView.beginUpdates()
-                                if shouldInsertSection {
-                                    self.tableView.insertSections(IndexSet([sectionIndex]), with: .none)
-                                }
-                                if changeset.deleted.isNotEmpty {
-                                    self.tableView
-                                        .deleteRows(at: changeset
-                                            .deleted
-                                            .compactMap({ return IndexPath(row: $0, section: sectionIndex) }), with: .none)
-                                }
-                                if changeset.inserted.isNotEmpty {
-                                    self.tableView
-                                        .insertRows(at: changeset
-                                            .inserted
-                                            .compactMap({ return IndexPath(row: $0, section: sectionIndex) }), with: .none)
-                                }
-                                if changeset.updated.isNotEmpty {
-                                    self.tableView
-                                        .reloadRows(at: changeset
-                                            .updated
-                                            .compactMap({ return IndexPath(row: $0, section: sectionIndex) }), with: .none)
-                                }
-                                self.tableView.endUpdates()
-                            }
-                        }
-                    
+                    guard let indexSection = self.datasource.firstIndex(where: { $0.key == "section_members" }) else {
+                        return
                     }
+                    
+                    if self.onlineContacts != 0 {
+                        self.datasource[indexSection].childs.first?.subtitle = "\(self.contacts?.count ?? 0) (\(self.onlineContacts) online)"
+                    } else {
+                        self.datasource[indexSection].childs.first?.subtitle = "\(self.contacts?.count ?? 0)"
+                    }
+                    
+                    self.tableView.performBatchUpdates({
+                        self.tableView.reloadSections([indexSection], with: .automatic)
+                    }, completion: nil)
+                    
                 }).disposed(by: bag)
             
             Observable.collection(from: realm

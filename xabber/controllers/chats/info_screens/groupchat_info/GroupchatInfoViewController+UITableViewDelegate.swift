@@ -94,6 +94,12 @@ extension GroupchatInfoViewController: UITableViewDelegate {
                 case "leave":
                     onLeave()
                     
+                case "members":
+                    let vc = GroupchatMembersListViewController()
+                    vc.owner = self.owner
+                    vc.jid = self.jid
+                    navigationController?.pushViewController(vc, animated: true)
+                    
                 case "images":
                     let vc = ChatFilesViewController()
                     vc.owner = self.owner
@@ -121,7 +127,9 @@ extension GroupchatInfoViewController: UITableViewDelegate {
                     vc.jid = self.jid
                     vc.selectedType = .files
                     navigationController?.pushViewController(vc, animated: true)
+                    
                 default: break
+                    
                 }
             }
         }

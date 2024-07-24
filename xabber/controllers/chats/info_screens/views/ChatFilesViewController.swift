@@ -14,14 +14,6 @@ import CocoaLumberjack
 
 class ChatFilesViewController: SimpleBaseViewController {
     class Datasource {
-        enum Kind {
-            case image
-            case video
-            case file
-            case voice
-            case undefined
-        }
-        
         let primary: String
         let jid: String
         let owner: String
@@ -120,23 +112,21 @@ class ChatFilesViewController: SimpleBaseViewController {
     }
     
     override func loadDatasource() {
+        title = selectedType?.rawValue
+        
         var predicate: NSPredicate? = nil
         
         switch selectedType {
         case .images:
-            title = "Images"
             predicate = NSPredicate(format: "owner == %@ AND jid == %@ AND kind_ == %@ AND mimeType == %@ AND hasError == false", self.owner, self.jid, MessageReferenceStorageItem.Kind.media.rawValue, "image")
             
         case .voice:
-            title = "Voices"
             predicate = NSPredicate(format: "owner == %@ AND jid == %@ AND kind_ == %@ AND hasError == false", self.owner, self.jid, MessageReferenceStorageItem.Kind.voice.rawValue)
             
         case .videos:
-            title = "Videos"
             predicate = NSPredicate(format: "owner == %@ AND jid == %@ AND kind_ == %@ AND mimeType == %@ AND hasError == false", self.owner, self.jid, MessageReferenceStorageItem.Kind.media.rawValue, "video")
             
         default:
-            title = "Files"
             let mimeTypes: [String] = ["document", "pdf", "table", "presentation", "archive", "audio", "file"]
             predicate = NSPredicate(format: "owner == %@ AND jid == %@ AND mimeType IN %@ AND hasError == false", self.owner, self.jid, mimeTypes)
             
