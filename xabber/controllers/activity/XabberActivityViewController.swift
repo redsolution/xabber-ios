@@ -75,6 +75,7 @@ class XabberActivityViewController: SimpleBaseViewController {
     internal var datasource = [Datasource]()
     internal var chatsDataset: Results<LastChatsStorageItem>? = nil
     internal var activityItems = [Any]()
+    internal var activity: UIActivity? = nil
     
     internal let containerView: UIView = {
         let view = UIView(frame: .zero)
@@ -122,6 +123,8 @@ class XabberActivityViewController: SimpleBaseViewController {
     
     override func setupSubviews() {
         title = "Share"
+        
+        view.backgroundColor = .systemBackground
         
         navigationItem.searchController = searchController
         if #available(iOS 16.0, *) {
@@ -248,10 +251,19 @@ class XabberActivityViewController: SimpleBaseViewController {
     }
     
     override func onAppear() {
+        navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
+        navigationController?.navigationBar.shadowImage = nil
+        
         let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom ?? 0
         containerView.frame = CGRect(x: 0, y: view.bounds.height - 44 - bottomInset, width: self.view.bounds.width, height: 44)
         
         button.fillSuperviewWithOffset(top: 0, bottom: 0, left: 10, right: 10)
+    }
+    
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        
+        activity?.activityDidFinish(true)
     }
     
     @objc
@@ -305,6 +317,8 @@ class XabberActivityViewController: SimpleBaseViewController {
             })
             
         }
+        
+        activity?.activityDidFinish(true)
     }
 }
 

@@ -40,7 +40,7 @@ class XabberActivity: UIActivity {
     }()
     
     override var activityViewController: UIViewController? {
-        let nvc = NavBarController(rootViewController: vc)
+        let nvc = UINavigationController(rootViewController: vc)
         nvc.modalPresentationStyle = .formSheet
         nvc.modalTransitionStyle = .coverVertical
         
@@ -77,5 +77,6 @@ class XabberActivity: UIActivity {
     
     override func prepare(withActivityItems activityItems: [Any]) {
         vc.activityItems = activityItems
+        vc.activity = self
     }
 }
