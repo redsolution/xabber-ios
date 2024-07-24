@@ -29,6 +29,7 @@ import CocoaLumberjack
 import TOInsetGroupedTableView
 import SwiftUI
 import CocoaLumberjack
+import MaterialComponents.MDCPalettes
 
 class SettingsViewController: BaseViewController {
     
@@ -182,10 +183,14 @@ class SettingsViewController: BaseViewController {
         var viewController: UIViewController.Type?
         var itemType: ItemType = .plain
         var verificationSid: String?
+        var icon: String?
+        var color: UIColor?
         
         init(section: Section,
              title: String? = nil,
              subtitle: String? = nil,
+             icon: String? = nil,
+             color: UIColor? = nil,
              premiumOnly: Bool = false,
              viewController: UIViewController.Type? = nil,
              itemType: ItemType = .plain,
@@ -208,6 +213,8 @@ class SettingsViewController: BaseViewController {
             self.current = current
             self.toggle = toggle
             self.verificationSid = verificationSid
+            self.icon = icon
+            self.color = color
         }
     }
     
@@ -242,7 +249,7 @@ class SettingsViewController: BaseViewController {
         override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
             super.init(style: style, reuseIdentifier: reuseIdentifier)
             contentView.addSubview(stack)
-            stack.fillSuperviewWithOffset(top: 4, bottom: 4, left: 20, right: 8)
+            stack.fillSuperviewWithOffset(top: 4, bottom: 4, left: 56, right: 8)
             stack.addArrangedSubview(self.titleLabel)
             stack.addArrangedSubview(self.subtitleButton)
             self.subtitleButton.isUserInteractionEnabled = false
@@ -266,6 +273,9 @@ class SettingsViewController: BaseViewController {
         view.register(UITableViewCell.self, forCellReuseIdentifier: "SettingsItem")
         view.register(DeviceCell.self, forCellReuseIdentifier: DeviceCell.cellName)
         view.register(SettingsItemDetailViewController.SelectorCell.self, forCellReuseIdentifier: SettingsItemDetailViewController.SelectorCell.cellName)
+        
+        view.register(UITableViewCell.self, forCellReuseIdentifier: "manageStorage")
+        view.register(UITableViewCell.self, forCellReuseIdentifier: "value1CellReuseID")
         
         return view
     }()
@@ -606,7 +616,7 @@ class SettingsViewController: BaseViewController {
             }
             if CommonConfigManager.shared.config.should_block_application_when_subscribtion_end {
                 datasource.append(Datasource(section: .accountSettings, childs: [
-                    Datasource(section: .accountSettings, title: "Profile, status, password", viewController: SimpleTableViewController.self, childs: [
+                    Datasource(section: .accountSettings, title: "Profile, status, password", icon: "custom.paintpalette.square.fill", color: MDCPalette.lightBlue.tint700, viewController: SimpleTableViewController.self, childs: [
                         Datasource(section: .status, childs: [
                             Datasource(section: .status, title: Datasource.Section.status.description(), key: .accountStatus)
                         ]),
@@ -617,12 +627,12 @@ class SettingsViewController: BaseViewController {
                                        key: .accountDelete)
                         ])
                     ]),
-                    Datasource(section: .accountSettings, title: "Devices", key: .accountSessions),
-                    Datasource(section: .accountSettings, title: "Subscriptions", key: .subscriptions)
+                    Datasource(section: .accountSettings, title: "Devices", icon: "custom.cylinder.split.1x2.square.fill", color: MDCPalette.lightBlue.tint700, key: .accountSessions),
+                    Datasource(section: .accountSettings, title: "Subscriptions", icon: "custom.cylinder.split.1x2.square.fill", color: MDCPalette.lightBlue.tint700, key: .subscriptions)
                 ]))
             } else {
                 datasource.append(Datasource(section: .accountSettings, childs: [
-                    Datasource(section: .accountSettings, title: "Profile, status, password", viewController: SimpleTableViewController.self, childs: [
+                    Datasource(section: .accountSettings, title: "Profile, status, password", icon: "custom.paintpalette.square.fill", color: MDCPalette.lightBlue.tint700, viewController: SimpleTableViewController.self, childs: [
                         Datasource(section: .status, childs: [
                             Datasource(section: .status, title: Datasource.Section.status.description(), key: .accountStatus)
                         ]),
@@ -633,12 +643,12 @@ class SettingsViewController: BaseViewController {
                                        key: .accountDelete)
                         ])
                     ]),
-                    Datasource(section: .accountSettings, title: "Devices", key: .accountSessions)
+                    Datasource(section: .accountSettings, title: "Devices", icon: "custom.cylinder.split.1x2.square.fill", color: MDCPalette.lightBlue.tint700, key: .accountSessions)
                 ]))
             }
             
             if AccountManager.shared.find(for: self.jid)?.cloudStorage.isAvailable() ?? false {
-                let item = Datasource(section: .accountSettings, title: "Cloud storage", key: .manageStorage)
+                let item = Datasource(section: .accountSettings, title: "Cloud storage", icon: "custom.paintpalette.square.fill", color: MDCPalette.lightBlue.tint700, key: .manageStorage)
                 let sectionToInsert = datasource.firstIndex(where: { $0.section == .accountSettings })
                 datasource[sectionToInsert!].childs.insert(item, at: 1)
             }
@@ -674,12 +684,14 @@ class SettingsViewController: BaseViewController {
                 section: .privacy,
                 title: Datasource.Section.privacy.description(),
                 subtitle: nil,
+                icon:"xabber.incognito.square.fill",
+                color: MDCPalette.green.tint700,
                 premiumOnly: false,
                 viewController: PrivacySettingsViewController.self,
                 childs: []
               ),
-                Datasource(section: .interface, title: "Interface", viewController: SimpleTableViewController.self, childs: interfaceChilds),
-                Datasource(section: .settings, title: "Notifications", viewController: SimpleTableViewController.self, childs: [
+            Datasource(section: .interface, title: "Interface", icon: "custom.ant.square.fill", color: MDCPalette.green.tint700, viewController: SimpleTableViewController.self, childs: interfaceChilds),
+                Datasource(section: .settings, title: "Notifications", icon: "custom.bell.square.fill", color: MDCPalette.green.tint700, viewController: SimpleTableViewController.self, childs: [
                         Datasource(section: .chat, title: "Notifications Sound", childs: [
                             Datasource(section: .chat, title: "Incoming massages", itemType: .selector,
                                                            values: MusicBox.shared.fileURLs.lazy.compactMap({$0.absoluteString}).sorted(),
@@ -703,12 +715,12 @@ class SettingsViewController: BaseViewController {
                                        key: .notificationInAppAlertLastChats)
                     ])
                 ]),
-                Datasource(section: .settings, title: "Debug", key: .developer),
-                Datasource(section: .settings, title: "Language", key: .languages)
+            Datasource(section: .settings, title: "Debug", icon:"custom.ant.square.fill", color: MDCPalette.green.tint700, key: .developer),
+                Datasource(section: .settings, title: "Language", icon:"xabber.translate.square.fill", color: MDCPalette.amber.tint500, key: .languages)
             ]))
         if CommonConfigManager.shared.config.use_yubikey {
             datasource.append(Datasource(section: .security, title: Datasource.Section.security.description(), subtitle: Datasource.Section.security.secondaryDescription(), childs: [
-                    Datasource(section: .security, title: "Passcode lock *", premiumOnly: true, viewController: SimpleTableViewController.self, childs: [
+                    Datasource(section: .security, title: "Passcode lock *", icon:"xabber.incognito.square.fill", color: MDCPalette.amber.tint700, premiumOnly: true, viewController: SimpleTableViewController.self, childs: [
                         Datasource(section: .security, subtitle: "If you forget your passcode, you'll need to reinstall the app.\n\nIf you premium subscription expire, passcode will be reset.", childs: [
                             Datasource(section: .security, title: "Turn passcode Off", key: .turnPasscodeOff),
                             Datasource(section: .security, title: "Change Passcode", viewController: PasscodeViewController.self),
@@ -724,7 +736,7 @@ class SettingsViewController: BaseViewController {
                 ]))
         } else {
             datasource.append(Datasource(section: .security, title: Datasource.Section.security.description(), subtitle: Datasource.Section.security.secondaryDescription(), childs: [
-                    Datasource(section: .security, title: "Passcode lock *", premiumOnly: true, viewController: SimpleTableViewController.self, childs: [
+                    Datasource(section: .security, title: "Passcode lock *", icon:"xabber.incognito.square.fill", color: MDCPalette.amber.tint700, premiumOnly: true, viewController: SimpleTableViewController.self, childs: [
                         Datasource(section: .security, subtitle: "If you forget your passcode, you'll need to reinstall the app.\n\nIf you premium subscription expire, passcode will be reset.", childs: [
                             Datasource(section: .security, title: "Turn passcode Off", key: .turnPasscodeOff),
                             Datasource(section: .security, title: "Change Passcode", viewController: PasscodeViewController.self),
@@ -785,7 +797,7 @@ class SettingsViewController: BaseViewController {
             DispatchQueue.main.async {
                 _ = user.akeManager.acceptVerificationRequest(jid: self.jid, sid: self.activeVerificationSession!.sid)
                 
-                NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_VerificationCodeViewController"),
+                NotificationCenter.default.post(name: AuthenticatedKeyExchangeManager.showCodeOutputViewNotification,
                                                 object: self,
                                                 userInfo: [
                                                     "owner": self.owner,
@@ -797,7 +809,7 @@ class SettingsViewController: BaseViewController {
     
     @objc
     func onShowCodePressed() {
-        NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_VerificationCodeViewController"),
+        NotificationCenter.default.post(name: AuthenticatedKeyExchangeManager.showCodeOutputViewNotification,
                                         object: self,
                                         userInfo: [
                                             "owner": self.owner,
@@ -808,7 +820,7 @@ class SettingsViewController: BaseViewController {
     @objc
     func onEnterCodePressed() {
         NotificationCenter.default.post(
-            name: NSNotification.Name(rawValue: "show_AuthenticationCodeInputViewController"),
+            name: AuthenticatedKeyExchangeManager.showCodeInputViewNotification,
             object: self,
             userInfo: ["owner": self.jid, "sid": activeVerificationSession!.sid]
         )

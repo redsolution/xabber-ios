@@ -338,29 +338,6 @@ class LastChatsViewController: BaseViewController {
                     DDLogDebug("LastChatsViewController: \(#function). RX state: disposed")
                 }
                 .disposed(by: datasetBag)
-            
-            let predicateForVerifySessions = NSPredicate(format: "state_ IN %@ AND (owner IN %@ OR jid IN %@)",
-                                        argumentArray: [
-                                            [VerificationSessionStorageItem.VerififcationState.sentRequest.rawValue,
-                                             VerificationSessionStorageItem.VerififcationState.receivedRequest.rawValue,
-                                             VerificationSessionStorageItem.VerififcationState.acceptedRequest.rawValue,
-                                             VerificationSessionStorageItem.VerififcationState.receivedRequestAccept.rawValue],
-                                            Array(enabledAccounts.value),
-                                            Array(enabledAccounts.value)
-                                        ])
-            Observable
-                .collection(from: realm.objects(VerificationSessionStorageItem.self).filter(predicateForVerifySessions))
-                .debounce(.milliseconds(400), scheduler: MainScheduler.asyncInstance)
-                .subscribe { (results) in
-                    self.runDatasetUpdateTask()
-                } onError: { (error) in
-                    DDLogDebug("LastChatsViewController: \(#function). RX error: \(error.localizedDescription)")
-                } onCompleted: {
-                    DDLogDebug("LastChatsViewController: \(#function). RX state: completed")
-                } onDisposed: {
-                    DDLogDebug("LastChatsViewController: \(#function). RX state: disposed")
-                }
-                .disposed(by: datasetBag)
 
             canUpdateDataset = true
             runDatasetUpdateTask()

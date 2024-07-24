@@ -38,7 +38,7 @@ class ContactListTableViewCell: BaseTableCell {
     
     private let avatarView: UIImageView = {
         let view = UIImageView(frame: CGRect(square: 64))
-        if let image = UIImage(named: "white_mask_48pt")?.upscale(dimension: 64) {
+        if let image = UIImage(named: AccountMasksManager.shared.mask56pt)?.upscale(dimension: 64), AccountMasksManager.shared.load() != "square" {
             view.mask = UIImageView(image: image)
         } else {
             view.mask = nil

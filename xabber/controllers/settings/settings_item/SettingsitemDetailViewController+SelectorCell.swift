@@ -34,6 +34,12 @@ extension SettingsItemDetailViewController {
         
         static let cellName = "SelectorCell"
         
+        internal let icon: UIImageView = {
+            let view = UIImageView()
+            
+            return view
+        }()
+        
         internal let stack: UIStackView = {
             let stack = UIStackView()
             
@@ -62,15 +68,18 @@ extension SettingsItemDetailViewController {
         }()
         
         internal func activateConstraints() {
+            NSLayoutConstraint.activate([
+                icon.widthAnchor.constraint(equalToConstant: 24)
+            ])
             //            stack.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 1).isActive = true
         }
         
-        open func configure(key: String, for title: String, value: String, isFirstLevelVuew: Bool = false) {
+        open func configure(key: String, for title: String, value: String, icon image: String, color: UIColor, isFirstLevelVuew: Bool = false) {
             self.key = key
-            contentView.addSubview(stack)
-            stack.fillSuperview()
-            stack.addArrangedSubview(titleLabel)
-            stack.addArrangedSubview(valueLabel)
+            
+            imageView?.image = UIImage(named: image)?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate)
+            imageView?.tintColor = color
+            
             titleLabel.text = "  "
             textLabel?.text = title
             valueLabel.text = value.capitalized
@@ -84,7 +93,20 @@ extension SettingsItemDetailViewController {
                 accessoryType = .disclosureIndicator
                 selectionStyle = .none
             }
+        }
+        
+        override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+            super.init(style: style, reuseIdentifier: reuseIdentifier)
+            contentView.addSubview(stack)
+            stack.fillSuperview()
+            stack.addArrangedSubview(icon)
+            stack.addArrangedSubview(titleLabel)
+            stack.addArrangedSubview(valueLabel)
             activateConstraints()
+        }
+        
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
         }
         
         override func awakeFromNib() {

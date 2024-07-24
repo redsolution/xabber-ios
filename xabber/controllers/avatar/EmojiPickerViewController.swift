@@ -21,6 +21,7 @@
 import Foundation
 import UIKit
 import MaterialComponents.MDCPalettes
+import CocoaLumberjack
 
 class EmojiPicketCollectionViewCell: UICollectionViewCell {
     static let cellName: String = "EmojiPickerCell"
@@ -116,16 +117,7 @@ class EmojiPickerViewController: UIViewController {
     private var controls: [UIButton] = []
     
     public func activateConstraints() {
-//        NSLayoutConstraint.activate([
-//            collectionView.topAnchor.constraint(equalTo: view.bottomAnchor, constant: 16),
-//            collectionView.leftAnchor.constraint(equalTo: view.leftAnchor, constant: 24),
-//            collectionView.rightAnchor.constraint(equalTo: view.rightAnchor, constant: 24),
-//            stack.topAnchor.constraint(equalTo: collectionView.bottomAnchor, constant: 16),
-//            stack.heightAnchor.constraint(equalToConstant: 64),
-//            stack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: 8),
-//            stack.leftAnchor.constraint(equalTo: view.leftAnchor, constant: 24),
-//            stack.rightAnchor.constraint(equalTo: view.rightAnchor, constant: 24),
-//        ])
+        
     }
     
     public func setupSubviews() {
@@ -139,7 +131,6 @@ class EmojiPickerViewController: UIViewController {
             origin: CGPoint(x: 24, y: self.view.frame.height - 64),
             size: CGSize(width: self.view.frame.width - 44, height: 44)
         )
-//        stack.fillSuperviewWithOffset(top: (self.view.frame.height / 4) * 3 - 16 - 68, bottom: 24, left: 24, right: 24)
     }
     
     public func configure() {
@@ -151,11 +142,8 @@ class EmojiPickerViewController: UIViewController {
         flowLayout.scrollDirection = .vertical
         flowLayout.itemSize = CGSize(square: 64)
         
-//        collectionView.allowsSelection = true
-        
         collectionView.isUserInteractionEnabled = true
         collectionView.setCollectionViewLayout(flowLayout, animated: true)
-//        collectionView.allowsSelection = true
         loadDatasource()
     }
     
@@ -169,33 +157,35 @@ class EmojiPickerViewController: UIViewController {
                         (offset, category) in
                         guard let categoryName = category["type"] as? String,
                               let emojis = (category["emojis"] as? NSArray)?
-                                  .compactMap({ return ($0 as? NSArray)?.firstObject as? String }) else {
+                            .compactMap({ return ($0 as? NSArray)?.firstObject as? String }),
+                              let categoryFirstEmoji = emojis.first else {
                             return nil
                         }
-                        if let image = UIImage(named: categoryName, in: Bundle.main, compatibleWith: nil) {
-                            let button = UIButton(frame: CGRect(square: 44))
-                            button.setImage(image.upscale(dimension: 24).withRenderingMode(.alwaysTemplate), for: .normal)
+                        let button = UIButton(frame: CGRect(square: 44))
+                        button.setImage(categoryFirstEmoji.image(imageSize: CGSize(square: 24)), for: .normal)
 //                            button.backgroundColor = MDCPalette.grey.tint50
-                            button.tintColor = offset == 0 ? .tintColor : .secondaryLabel
-                            button.tag = offset
-                            button.addTarget(self, action: #selector(self.onCategorySelectorTouchUpInside), for: .touchUpInside)
-                            controls.append(button)
-                        }
+                        button.tintColor = offset == 0 ? .tintColor : .secondaryLabel
+                        button.tag = offset
+                        button.addTarget(
+                            self,
+                            action: #selector(self.onCategorySelectorTouchUpInside),
+                            for: .touchUpInside
+                        )
+                        controls.append(button)
+                        
                         return Datasource(name: categoryName, emojis: emojis)
                     }
                 }
-                var constreints: [NSLayoutConstraint] = []
-                controls.forEach {
-                    stack.addArrangedSubview($0)
-                    constreints.append(contentsOf: [
+                
+                controls.forEach { stack.addArrangedSubview($0) }
+                NSLayoutConstraint.activate( 
+                    controls.compactMap { [
                         $0.widthAnchor.constraint(greaterThanOrEqualToConstant: 32),
                         $0.heightAnchor.constraint(equalToConstant: 44)
-                    ])
-                }
-                NSLayoutConstraint.activate(constreints)
+                    ] }.flatMap { $0 }
+                )
             } catch {
-                print(error.localizedDescription)
-                fatalError()
+                DDLogDebug("EmojiPickerViewController: \(#function). \(error.localizedDescription)")
             }
         }
     }

@@ -309,6 +309,8 @@ extension Account: XMPPStreamDelegate {
                     }
                     if self.akeManager.didReceivedVerificationMessage(message: bareMessage) {
                         return
+                    } else if self.trustSharingManager.didReceivedListOfContactsDevices(message: bareMessage) {
+                        return
                     } else if self.xTokens.receive(sender, withMessage: bareMessage) {
                         
                     }
@@ -316,8 +318,6 @@ extension Account: XMPPStreamDelegate {
                 if self.chatMarkers.read(withMessage: message) {
                     return
                 } else if self.omemo.didReceiveOmemoMessage(message) {
-                    return
-                } else if self.trustSharingManager.didReceivedListOfContactsDevices(message: message) {
                     return
                 } else {
                     self.messages.receiveArchived(message)

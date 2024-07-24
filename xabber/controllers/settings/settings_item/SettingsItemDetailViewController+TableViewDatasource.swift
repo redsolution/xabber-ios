@@ -20,6 +20,7 @@
 
 import Foundation
 import UIKit
+import MaterialComponents.MDCPalettes
 
 extension SettingsItemDetailViewController: UITableViewDataSource {
     func numberOfSections(in tableView: UITableView) -> Int {
@@ -50,7 +51,7 @@ extension SettingsItemDetailViewController: UITableViewDataSource {
                 }
                 return false
             })?["percent"] as? String) ?? "0"
-            cell.configure(key: title, for: title, value: "\(percentage)%", isFirstLevelVuew: true)
+            cell.configure(key: title, for: title, value: "\(percentage)%", icon: "xabber.globe.connected.square.fill", color: MDCPalette.green.tint500, isFirstLevelVuew: true)
             return cell
         }
         
@@ -69,7 +70,7 @@ extension SettingsItemDetailViewController: UITableViewDataSource {
             guard let cell = tableView.dequeueReusableCell(withIdentifier: SelectorCell.cellName, for: indexPath) as? SelectorCell else {
                 return UITableViewCell(frame: .zero)
             }
-            cell.configure(key: item.key, for: item.label, value: item.value as! String)
+            cell.configure(key: item.key, for: item.label, value: item.value as! String, icon: "xabber.globe.connected.square.fill", color: MDCPalette.green.tint500)
             return cell
         case .group:
             break

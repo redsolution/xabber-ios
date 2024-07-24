@@ -20,6 +20,7 @@
 
 import Foundation
 import UIKit
+import MaterialComponents.MDCPalettes
 
 extension SettingsViewController: UITableViewDataSource {
     
@@ -100,7 +101,7 @@ extension SettingsViewController: UITableViewDataSource {
                     let cell = tableView.dequeueReusableCell(withIdentifier: SettingsItemDetailViewController.SelectorCell.cellName, for: indexPath) as! SettingsItemDetailViewController.SelectorCell
                     cell.configure(key: item.key?.rawValue ?? "",
                                    for: item.title ?? "",
-                                   value: TranslationsManager.shared.currentLang ?? "Default")
+                                   value: TranslationsManager.shared.currentLang ?? "Default", icon: item.icon ?? "", color: item.color ?? .systemRed)
                     return cell
                 
                     case .accountSessions:
@@ -136,19 +137,29 @@ extension SettingsViewController: UITableViewDataSource {
                         }
 
                         cell.accessoryType = .disclosureIndicator
+                        if let icon = item.icon,
+                           let color = item.color {
+                            cell.imageView?.image = UIImage(named: icon)?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate)
+                            cell.tintColor = color
+                        }
                         return cell
                 
                 case .manageStorage:
-                    let cell = UITableViewCell(style: .value1, reuseIdentifier: "value1CellReuseID")
+                    let cell = UITableViewCell()
                     cell.textLabel?.text = item.title
                     if self.quota.isNotEmpty {
                         cell.detailTextLabel?.text = "\(used) of \(quota)"
                     } else {
-                        cell.detailTextLabel?.text = "    "
+//                        cell.detailTextLabel?.text = "    "
                         cell.detailTextLabel?.addSubview(spinner)
                         cell.accessoryType = .disclosureIndicator
                     }
                     cell.accessoryType = .disclosureIndicator
+                    if let icon = item.icon,
+                       let color = item.color {
+                        cell.imageView?.image = UIImage(named: icon)?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate)
+                        cell.tintColor = color
+                    }
                     return cell
                 
                 case .subscriptions:
@@ -163,6 +174,11 @@ extension SettingsViewController: UITableViewDataSource {
                             cell.detailTextLabel?.text = "Trial"
                     }
                     cell.accessoryType = .disclosureIndicator
+                    if let icon = item.icon,
+                       let color = item.color {
+                        cell.imageView?.image = UIImage(named: icon)?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate)
+                        cell.tintColor = color
+                    }
                     return cell
                 
                 case .passcode:
@@ -170,6 +186,11 @@ extension SettingsViewController: UITableViewDataSource {
                     cell.textLabel?.text = item.title
                     cell.detailTextLabel?.text = CredentialsManager.shared.isPincodeSetted() ? "On" : "Off"
                     cell.accessoryType = .disclosureIndicator
+                    if let icon = item.icon,
+                       let color = item.color {
+                        cell.imageView?.image = UIImage(named: icon)?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate)
+                        cell.tintColor = color
+                    }
                     return cell
                 
                 default: break
@@ -179,8 +200,10 @@ extension SettingsViewController: UITableViewDataSource {
             let cell = tableView.dequeueReusableCell(withIdentifier: "SettingsItem", for: indexPath)
             cell.textLabel?.text = item.title
             cell.accessoryType = .disclosureIndicator
-            if let asset = item.assetReference {
-                cell.imageView?.image = #imageLiteral(resourceName: asset).withRenderingMode(.alwaysTemplate)
+            if let icon = item.icon,
+               let color = item.color {
+                cell.imageView?.image = UIImage(named: icon)
+                cell.tintColor = color
             }
             return cell
         }
@@ -219,16 +242,5 @@ extension SettingsViewController: UITableViewDataSource {
     
     func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
         return datasource[section].subtitle
-    }
-    
-    func scrollViewDidScroll(_ scrollView: UIScrollView) {
-//        let value = scrollView.contentOffset.y
-//        self.scrollViewContentOffsetYCopy = value
-//
-//        if value < 0 {
-//            UIView.performWithoutAnimation {
-//                self.headerView.frame = CGRect(x: 0, y: -(value + headerHeightMax - 20), width: view.frame.width, height: headerHeightMax)
-//            }
-//        }
     }
 }

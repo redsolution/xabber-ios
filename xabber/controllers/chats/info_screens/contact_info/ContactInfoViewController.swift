@@ -618,30 +618,12 @@ class ContactInfoViewController: BaseViewController {
     }
     
     @objc
-    func verificationSucceded(_ notification: Notification) {
-        if let userInfo = notification.userInfo {
-            guard let deviceId = userInfo["deviceId"] as? String,
-                  let jid = userInfo["jid"] as? String else {
-                return
-            }
-            DispatchQueue.main.async {
-                let vc = SuccessfulVerificationViewController()
-                vc.owner = self.owner
-                vc.jid = jid
-                vc.deviceId = deviceId
-                
-                showModal(vc)
-            }
-        }
-    }
-    
-    @objc
     func onAcceptButtonPressed() {
         AccountManager.shared.find(for: self.owner)?.action { user, stream in
             DispatchQueue.main.async {
                 _ = user.akeManager.acceptVerificationRequest(jid: self.jid, sid: self.activeVerificationSession!.sid)
                 
-                NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_VerificationCodeViewController"),
+                NotificationCenter.default.post(name: AuthenticatedKeyExchangeManager.showCodeOutputViewNotification,
                                                 object: self,
                                                 userInfo: [
                                                     "owner": self.owner,
@@ -653,7 +635,7 @@ class ContactInfoViewController: BaseViewController {
     
     @objc
     func onShowCodePressed() {
-        NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_VerificationCodeViewController"),
+        NotificationCenter.default.post(name: AuthenticatedKeyExchangeManager.showCodeOutputViewNotification,
                                         object: self,
                                         userInfo: [
                                             "owner": self.owner,
@@ -664,17 +646,9 @@ class ContactInfoViewController: BaseViewController {
     @objc
     func onEnterCodePressed() {
         NotificationCenter.default.post(
-            name: NSNotification.Name(rawValue: "show_AuthenticationCodeInputViewController"),
+            name: AuthenticatedKeyExchangeManager.showCodeInputViewNotification,
             object: self,
             userInfo: ["owner": self.owner, "sid": activeVerificationSession!.sid]
         )
-        
-//        let vc = AuthenticationCodeInputViewController()
-//        vc.jid = self.jid
-//        vc.owner = self.owner
-//        vc.sid = activeVerificationSession!.sid
-//        vc.isVerificationWithUsersDevice = false
-//        
-//        showModal(vc, replaceParent: false)
     }
 }

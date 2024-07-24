@@ -207,6 +207,13 @@ class TrustedDevicesViewController: SimpleBaseViewController {
             }
             
             datasource.append(devicesDatasource)
+            
+            for device in devices {
+                if device.state == .trusted {
+                    datasource.append([Datasource(.button, name: "Revoke trust", key: "revoke_trust")])
+                    break
+                }
+            }
         } catch {
             DDLogDebug("TrustedDevicesViewController: \(#function). \(error.localizedDescription)")
         }
@@ -307,7 +314,7 @@ class TrustedDevicesViewController: SimpleBaseViewController {
             DispatchQueue.main.async {
                 _ = user.akeManager.acceptVerificationRequest(jid: self.jid, sid: self.activeVerificationSession!.sid)
                 
-                NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_VerificationCodeViewController"),
+                NotificationCenter.default.post(name: AuthenticatedKeyExchangeManager.showCodeOutputViewNotification,
                                                 object: self,
                                                 userInfo: [
                                                     "owner": self.owner,
@@ -319,7 +326,7 @@ class TrustedDevicesViewController: SimpleBaseViewController {
     
     @objc
     func onShowCodePressed() {
-        NotificationCenter.default.post(name: NSNotification.Name(rawValue: "show_VerificationCodeViewController"),
+        NotificationCenter.default.post(name: AuthenticatedKeyExchangeManager.showCodeOutputViewNotification,
                                         object: self,
                                         userInfo: [
                                             "owner": self.owner,
@@ -330,7 +337,7 @@ class TrustedDevicesViewController: SimpleBaseViewController {
     @objc
     func onEnterCodePressed() {
         NotificationCenter.default.post(
-            name: NSNotification.Name(rawValue: "show_AuthenticationCodeInputViewController"),
+            name: AuthenticatedKeyExchangeManager.showCodeInputViewNotification,
             object: self,
             userInfo: ["owner": self.owner, "sid": activeVerificationSession!.sid]
         )
@@ -384,6 +391,7 @@ extension TrustedDevicesViewController: UITableViewDelegate {
                             instance.state = .distrusted
                             instance.trustDate = Date(timeIntervalSince1970: -1)
                             instance.trustedByDeviceId = nil
+                            instance.lastTrustedItemsUpdateTimestamp = ""
                         }
                         
                         untrustedDevicesList.append(instance.deviceId)

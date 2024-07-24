@@ -163,7 +163,7 @@ extension ManualVerificationDeviceViewController: UITableViewDelegate {
             if self.jid != self.owner {
                 AccountManager.shared.find(for: self.owner)?.action({ user, stream in
                     user.trustSharingManager.sendUpdateOfContactsDevices(jid: self.jid, updatedDevicesIds: [deviceIdInt])
-                    user.trustSharingManager.getUserTrustedDevices(jid: XMPPJID(string: self.jid)!, deviceId: String(self.deviceId))
+                    user.trustSharingManager.getUserTrustedDevices(jid: self.jid, deviceId: String(self.deviceId))
                 })
                 
             }

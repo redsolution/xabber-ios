@@ -111,19 +111,19 @@ class ApplicationStateManager: NSObject {
         
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(showVerificationConfirmationViewController(_:)),
-                                               name: NSNotification.Name(rawValue: "received_VerificationConfirmationViewController"),
+                                               name: AuthenticatedKeyExchangeManager.showConfirmationViewNotification,
                                                object: nil)
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(verificationSucceded(_:)),
-                                               name: NSNotification.Name(rawValue: "show_success"),
+                                               name: AuthenticatedKeyExchangeManager.showSuccessViewNotification,
                                                object: nil)
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(showAuthenticationCodeInputViewController(_:)),
-                                               name: NSNotification.Name(rawValue: "show_AuthenticationCodeInputViewController"),
+                                               name: AuthenticatedKeyExchangeManager.showCodeInputViewNotification,
                                                object: nil)
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(showVerificationCodeViewController(_:)),
-                                               name: NSNotification.Name(rawValue: "show_VerificationCodeViewController"),
+                                               name: AuthenticatedKeyExchangeManager.showCodeOutputViewNotification,
                                                object: nil)
     }
     

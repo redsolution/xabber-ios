@@ -68,7 +68,7 @@ class RoundedStatusView: UIView {
         case .contact:
             subviews.forEach { $0.removeFromSuperview() }
         case .privateChat:
-            let view = UIImageView(image: #imageLiteral(resourceName: "badge-group-private").withRenderingMode(.alwaysTemplate))
+//            let view = UIImageView(image: #imageLiteral(resourceName: "badge-group-private").withRenderingMode(.alwaysTemplate))
             view.frame = CGRect(x: 0, y: 0, width: frame.width , height: frame.height )
             view.tintColor = .white
             addSubview(view)

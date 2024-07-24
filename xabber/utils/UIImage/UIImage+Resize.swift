@@ -32,6 +32,9 @@ extension UIImage {
     }
     
     func upscale(dimension: CGFloat) -> UIImage {
+        if dimension == 0 {
+            return self
+        }
         let size = self.size
         
         if size.width >= dimension && size.height >= dimension {
