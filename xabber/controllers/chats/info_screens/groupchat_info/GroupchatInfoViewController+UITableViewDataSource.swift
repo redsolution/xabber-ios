@@ -66,6 +66,7 @@ extension GroupchatInfoViewController: UITableViewDataSource {
                     cell.accessoryType = .disclosureIndicator
                 } else {
                     cell.accessoryType = .none
+                    cell.statusIndicator.rightAnchor.constraint(equalTo: cell.stack.rightAnchor, constant: -15).isActive = true
                 }
                 
                 return cell

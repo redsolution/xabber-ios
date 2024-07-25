@@ -240,19 +240,23 @@ class XabberActivityViewController: SimpleBaseViewController {
                 let realm = try WRealm.safe()
                 chatsDataset = realm.objects(LastChatsStorageItem.self).filter("owner IN %@ AND (jid CONTAINS[cd] %@ OR rosterItem.customUsername CONTAINS[cd] %@ OR rosterItem.username CONTAINS[cd] %@)", AccountManager.shared.users, jidFilter, jidFilter,  jidFilter)
                     .sorted(byKeyPath: "messageDate", ascending: false)
+      
             } else {
                 let realm = try WRealm.safe()
                 chatsDataset = realm.objects(LastChatsStorageItem.self).filter("owner == %@", self.owner)
                     .sorted(byKeyPath: "messageDate", ascending: false)
             }
+  
         } catch {
             DDLogDebug("XabberActivityViewController: \(#function). \(error.localizedDescription)")
         }
     }
     
     override func onAppear() {
-        navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
-        navigationController?.navigationBar.shadowImage = nil
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithDefaultBackground()
+        navigationController?.navigationBar.scrollEdgeAppearance = appearance
+        navigationController?.navigationBar.isTranslucent = true
         
         let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom ?? 0
         containerView.frame = CGRect(x: 0, y: view.bounds.height - 44 - bottomInset, width: self.view.bounds.width, height: 44)

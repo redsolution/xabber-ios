@@ -124,7 +124,7 @@ class NotificationsListViewController: SimpleBaseViewController {
         let owner: String
         let jid: String?
         let title: String
-        let message: String
+        let message: String?
         let key: String
         let date: Date
         let category: XMPPNotificationsManager.Category
@@ -253,8 +253,12 @@ class NotificationsListViewController: SimpleBaseViewController {
                 )
             ])
             self.datasource = [
-                mapResult(contactNotifications, title: "", key: "contact"),
-                mapResult(allNotifications, title: "", key: "all"),
+                Datasource(title: "Subscription requests", key: "contact", childs: [
+                    DatasourceChild(owner: "ekaterina.korotkova@redsolution.com", jid: "bob@xmppdev01.xabber.com", title: "Bob Bobov", message: nil, key: "request", date: Date(), category: .contact, verificationState: nil, verificationSid: nil),
+                    DatasourceChild(owner: "ekaterina.korotkova@redsolution.com", jid: "alice@xmppdev01.xabber.com", title: "Alice", message: "some message in request", key: "request", date: Date(), category: .contact, verificationState: nil, verificationSid: nil)
+                ]),
+//                mapResult(contactNotifications, title: "", key: "contact"),
+                mapResult(allNotifications, title: "All", key: "all"),
             ].compactMap({ return $0.childs.isNotEmpty ? $0 : nil })
 
             self.emptyScreenShowObserver.accept(self.datasource.isEmpty)
@@ -403,7 +407,7 @@ extension NotificationsListViewController: UITableViewDataSource {
     
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         if self.datasource[section].key == "contact" {
-            return 1
+            return self.datasource[section].childs.count
         }
         return self.datasource[section].childs.count
     }
@@ -424,25 +428,29 @@ extension NotificationsListViewController: UITableViewDataSource {
                 
                 return cell
             case .contact:
-                guard let cell = tableView.dequeueReusableCell(withIdentifier: ContactItemCell.cellName, for: indexPath) as? ContactItemCell else {
-                    fatalError()
-                }
-                
-                let message_more = "\(self.datasource[indexPath.section].childs.first?.title ?? "undefined") and  \(self.datasource[indexPath.section].childs.count) contacts more"
-                
-                let message = "\(self.datasource[indexPath.section].childs.first?.title ?? "undefined") sent a subscri"
-                cell.configure(owner: item.owner, username: item.title, title: "Subscribtion requests", message: self.datasource[indexPath.section].childs.count > 1 ? message_more : message )
-                
-//                cell.collectionView.delegate = self
-//                cell.collectionView.dataSource = self
-//                
-                cell.accessoryType = .disclosureIndicator
-                
-                let view = UIView()
-                view.backgroundColor = AccountColorManager.shared.palette(for: item.owner).tint50
-                cell.selectedBackgroundView = view
+                let cell = NewContactItemCell()
+                cell.configure(owner: item.owner, username: item.title, jid: item.jid ?? "")
                 
                 return cell
+//                guard let cell = tableView.dequeueReusableCell(withIdentifier: ContactItemCell.cellName, for: indexPath) as? ContactItemCell else {
+//                    fatalError()
+//                }
+//                
+//                let message_more = "\(self.datasource[indexPath.section].childs.first?.title ?? "undefined")"
+//                
+//                let message = "\(self.datasource[indexPath.section].childs.first?.title ?? "undefined") sent a subscri"
+//            cell.configure(owner: item.owner, username: item.title, title: item.title, message: item.message )
+//                
+////                cell.collectionView.delegate = self
+////                cell.collectionView.dataSource = self
+////                
+//                cell.accessoryType = .disclosureIndicator
+//                
+//                let view = UIView()
+//                view.backgroundColor = AccountColorManager.shared.palette(for: item.owner).tint50
+//                cell.selectedBackgroundView = view
+//                
+//                return cell
             case .device:
                 guard let cell = tableView.dequeueReusableCell(withIdentifier: DeviceItemCell.cellName, for: indexPath) as? DeviceItemCell else {
                     fatalError()
@@ -455,7 +463,7 @@ extension NotificationsListViewController: UITableViewDataSource {
                     customImage: nil,
                     username: item.jid ?? item.owner,
                     title: "New login",
-                    message: item.message,
+                    message: item.message ?? "",
                     date: nil,
                     positiveButtonTitle: "Verify",
                     negativeButtonTitle: "Revoke"
@@ -478,9 +486,9 @@ extension NotificationsListViewController: UITableViewDataSource {
         }
     }
     
-    func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        return self.datasource[section].title
-    }
+//    func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+//        return self.datasource[section].title
+//    }
 }
 
 extension NotificationsListViewController: UITableViewDelegate {
@@ -490,7 +498,7 @@ extension NotificationsListViewController: UITableViewDelegate {
             case .trust:
                 return tableView.estimatedRowHeight
             case .contact:
-                return 74
+                return tableView.estimatedRowHeight
             case .device:
                 return tableView.estimatedRowHeight
             case .mention:
@@ -593,9 +601,10 @@ extension NotificationsListViewController: UITableViewDelegate {
             }
                 break
             case .contact:
-                let vc = NotificationsSubscribtionsListViewController()
-                vc.owner = item.owner
-                showStacked(vc, in: self)
+                break
+//                let vc = NotificationsSubscribtionsListViewController()
+//                vc.owner = item.owner
+//                showStacked(vc, in: self)
 //                self.navigationController?.pushViewController(vc, animated: true)
             case .device:
                 do {
@@ -622,6 +631,33 @@ extension NotificationsListViewController: UITableViewDelegate {
             case .none:
                 break
         }
+        
+    }
+    
+    func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
+        let header = UITableViewHeaderFooterView()
+        
+        let title = UILabel()
+        title.font = .systemFont(ofSize: 20, weight: .medium)
+        title.text = self.datasource[section].title
+        title.translatesAutoresizingMaskIntoConstraints = false
+        
+        let separator = UIView()
+        separator.backgroundColor = MDCPalette.grey.tint300
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        
+        header.contentView.addSubview(title)
+        header.contentView.addSubview(separator)
+        
+        NSLayoutConstraint.activate([
+            title.leadingAnchor.constraint(equalTo: header.contentView.leadingAnchor, constant: 16),
+            separator.heightAnchor.constraint(equalToConstant: 1),
+            separator.leftAnchor.constraint(equalTo: header.contentView.leftAnchor, constant: 16),
+            separator.rightAnchor.constraint(equalTo: header.contentView.rightAnchor, constant: -16),
+            separator.bottomAnchor.constraint(equalTo: header.contentView.bottomAnchor)
+        ])
+        
+        return header
         
     }
 }
