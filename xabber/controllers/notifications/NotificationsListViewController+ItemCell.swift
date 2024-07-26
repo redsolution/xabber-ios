@@ -10,121 +10,6 @@ import Foundation
 import UIKit
 import MaterialComponents.MDCPalettes
 
-/*
- import UIKit
- import MaterialComponents.MDCPalettes
-
- class VerificationSessionTableViewCell: UITableViewCell {
-     static let cellName = "VerificationSessionTableViewCell"
-     
-     let stack: UIStackView = {
-         let stack = UIStackView()
-         stack.axis = .horizontal
-         stack.alignment = .firstBaseline
-         stack.spacing = 10
-         
-         return stack
-     }()
-     
-     let labelsStack: UIStackView = {
-         let stack = UIStackView()
-         stack.translatesAutoresizingMaskIntoConstraints = false
-         stack.axis = .vertical
-         stack.spacing = 10
-         stack.alignment = .leading
-         
-         return stack
-     }()
-     
-     let titleLabel: UILabel = {
-         let label = UILabel()
-         label.numberOfLines = 0
-         label.setContentHuggingPriority(.defaultLow, for: .horizontal)
-         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-         
-         return label
-     }()
-     
-     let subtitleLabel: UILabel = {
-         let label = UILabel()
-         label.textColor = MDCPalette.grey.tint800
-         label.font = UIFont.systemFont(ofSize: 14)
-         label.numberOfLines = 0
-         label.setContentHuggingPriority(.defaultLow, for: .horizontal)
-         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-         
-         return label
-     }()
-     
-     let closeButton: UIButton = {
-         let button = UIButton(frame: CGRect(square: 44))
-         button.setImage(UIImage(systemName: "xmark"), for: .normal)
-         button.imageEdgeInsets = UIEdgeInsets(top: 11, right: 11)
-         button.tintColor = .lightGray
-         button.contentHorizontalAlignment = .right
-         button.contentVerticalAlignment = .top
-         
-         return button
-     }()
-     
-     let verifyButton: UIButton = {
-         let button = UIButton()
-         button.setTitle("Verify", for: .normal)
-         button.setTitleColor(.white, for: .normal)
-         button.configuration = UIButton.Configuration.filled()
-         button.configuration!.baseBackgroundColor = .systemBlue
-         button.translatesAutoresizingMaskIntoConstraints = false
-         button.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
-         
-         return button
-     }()
-     
-     let customImageView: UIImageView = {
-         let imageView = UIImageView(frame: CGRect(square: 40))
-         let image = UIImage(systemName: "exclamationmark.triangle.fill")?.upscale(dimension: 40).withTintColor(.systemOrange)
-         imageView.image = image
-         imageView.translatesAutoresizingMaskIntoConstraints = false
-         imageView.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-         
-         return imageView
-     }()
-     
-     func configure(title: String, subtitle: String?) {
-         contentView.addSubview(stack)
-         stack.fillSuperviewWithOffset(top: 11, bottom: 11, left: 11, right: 11)
-         
-         titleLabel.text = title
-         
-         if subtitle != nil {
-             let paragraphStyle = NSMutableParagraphStyle()
-             paragraphStyle.lineSpacing = 3
-             let attributedText = NSMutableAttributedString(string: subtitle!, attributes: [NSAttributedString.Key.paragraphStyle: paragraphStyle])
-             subtitleLabel.attributedText = attributedText
-         }
-         
-         labelsStack.addArrangedSubview(titleLabel)
-         labelsStack.addArrangedSubview(subtitleLabel)
-         
-         stack.addArrangedSubview(customImageView)
-         stack.addArrangedSubview(labelsStack)
- //        stack.addArrangedSubview(closeButton)
-         
-         activateConstraints()
-         
-         accessoryType = .none
-     }
-     
-     func activateConstraints() {
-         NSLayoutConstraint.activate([
- //            closeButton.widthAnchor.constraint(equalToConstant: 44),
- //            closeButton.heightAnchor.constraint(equalToConstant: 44),
- //            closeButton.rightAnchor.constraint(equalTo: self.contentView.rightAnchor),
-         ])
-     }
- }
-
- */
-
 extension NotificationsListViewController {
     class DeviceItemCell: UITableViewCell {
         static let cellName = "DeviceItemCell"
@@ -145,7 +30,7 @@ extension NotificationsListViewController {
             
             stack.axis = .vertical
             stack.distribution = .fill
-            stack.spacing = 0
+            stack.spacing = 4
             
             return stack
         }()
@@ -212,9 +97,10 @@ extension NotificationsListViewController {
         let titleLabel: UILabel = {
             let label = UILabel()
             
-            label.textColor = UIColor(red: 33/255, green: 33/255, blue: 33/255, alpha:1)
+//            label.textColor = UIColor(red: 33/255, green: 33/255, blue: 33/255, alpha:1)
 
             label.font = UIFont.systemFont(ofSize: 17, weight: .medium)
+            label.numberOfLines = 0
             
             label.setContentHuggingPriority(.defaultLow, for: .horizontal)
             label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -308,7 +194,7 @@ extension NotificationsListViewController {
         var currentUrl: String? = nil
         public func configure(_ jid: String, owner: String, avatarUrl: String?, customImage: UIImage? = nil, username: String, title: String?, message: String, date: Date?, positiveButtonTitle: String?, negativeButtonTitle: String?) {
 
-            if currentUrl != avatarUrl {
+            if currentUrl != avatarUrl || currentUrl == nil {
                 currentUrl = avatarUrl
                 DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 56) { image in
                     if let image = image {
@@ -341,6 +227,8 @@ extension NotificationsListViewController {
             if let positiveButtonTitle = positiveButtonTitle {
                 positiveButton.setTitle(positiveButtonTitle, for: .normal)
             }
+            
+            accessoryType = .disclosureIndicator
         }
         
         func setMask() {
@@ -379,18 +267,18 @@ extension NotificationsListViewController {
             avatarContainer.addSubview(badgeIndicator)
             avatarContainer.bringSubviewToFront(badgeIndicator)
             
-            infoStack.addArrangedSubview(topStack)
+            infoStack.addArrangedSubview(titleLabel)
 //            infoStack.addArrangedSubview(itsNotMeButton)
             
-            topStack.addArrangedSubview(titleLabel)
-            topStack.addArrangedSubview(dateLabel)
-            infoStack.addArrangedSubview(messageLabel)
-            infoStack.addArrangedSubview(bottomStack)
-            bottomStack.addArrangedSubview(positiveButton)
-            bottomStack.addArrangedSubview(negativeButton)
-            bottomStack.addArrangedSubview(UIStackView())
-//            infoStack.addArrangedSubview(dateLabel)
-            infoStack.setCustomSpacing(8, after: messageLabel)
+//            topStack.addArrangedSubview(titleLabel)
+//            topStack.addArrangedSubview(dateLabel)
+//            infoStack.addArrangedSubview(messageLabel)
+//            infoStack.addArrangedSubview(bottomStack)
+//            bottomStack.addArrangedSubview(positiveButton)
+//            bottomStack.addArrangedSubview(negativeButton)
+//            bottomStack.addArrangedSubview(UIStackView())
+            infoStack.addArrangedSubview(dateLabel)
+//            infoStack.setCustomSpacing(8, after: messageLabel)
             
             
             
@@ -629,252 +517,252 @@ extension NotificationsListViewController {
 //        }
     }
     
-    class ContactItemCell: UITableViewCell {
-        static let cellName = "ContactItemCell"
-        
-        let stack: UIStackView = {
-            let stack = UIStackView()
-            
-            stack.axis = .horizontal
-            stack.alignment = .center
-            stack.spacing = 8
-            stack.distribution = .fill
-            
-            return stack
-        }()
-        
-        let infoStack: UIStackView = {
-            let stack = UIStackView()
-            
-            stack.axis = .vertical
-            stack.distribution = .fill
-            stack.spacing = 0
-            stack.isLayoutMarginsRelativeArrangement = true
-            stack.layoutMargins = UIEdgeInsets(top: 10, bottom: 10, left: 72, right: 4)
-            
-            return stack
-        }()
-                
-        let topStack: UIStackView = {
-            let stack = UIStackView()
-            
-            stack.axis = .horizontal
-            stack.spacing = 4
-            stack.distribution = .fill
-            stack.alignment = .center
-            
-            return stack
-        }()
-        
-        let bottomStack: UIStackView = {
-            let stack = UIStackView()
-            
-            stack.axis = .horizontal
-            stack.alignment = .top
-            stack.spacing = 8
-            stack.distribution = .fill
-            stack.isLayoutMarginsRelativeArrangement = true
-            stack.layoutMargins = UIEdgeInsets(top: 0, bottom: 0, left: 0, right: 8)
-
-            return stack
-        }()
-        
-        let avatarContainer: UIView = {
-            let view = UIView(frame: CGRect(square: 60))
-            
-            view.backgroundColor = .clear
-            
-            return view
-        }()
-        
-        let userImageView: UIView = {
-            let view = UIView(frame: CGRect(square: 60))
-            
-            view.backgroundColor = .clear//MDCPalette.grey.tint200
-            if let image = UIImage(named: AccountMasksManager.shared.mask56pt), AccountMasksManager.shared.load() != "square" {
-                view.mask = UIImageView(image: image.upscale(dimension: 60))
-            } else {
-                view.mask = nil
-            }
-            
-            return view
-        }()
-        
-        let avatarView: UIImageView = {
-            let view = UIImageView(frame: CGRect(square: 56))
-            if let image = UIImage(named: AccountMasksManager.shared.mask56pt), AccountMasksManager.shared.load() != "square" {
-                view.mask = UIImageView(image: image)
-            } else {
-                view.mask = nil
-            }
-            view.contentMode = .scaleAspectFill
-            
-            view.backgroundColor = MDCPalette.grey.tint200
-            
-            return view
-        }()
-        
-
-        
-        let titleLabel: UILabel = {
-            let label = UILabel()
-            
-            label.textColor = UIColor(red: 33/255, green: 33/255, blue: 33/255, alpha:1)
-
-            label.font = UIFont.systemFont(ofSize: 17, weight: .medium)
-            
-            label.setContentHuggingPriority(.defaultLow, for: .horizontal)
-            label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-            
-            return label
-        }()
-        
-        let messageLabel: UILabel = {
-            let label = UILabel()
-            
-    //            label.backgroundColor = .white
-            
-            label.lineBreakMode = .byTruncatingTail
-            label.font = UIFont.systemFont(ofSize: 14, weight: .regular)
-            label.textColor = .secondaryLabel//UIColor(red: 33/255, green: 33/255, blue: 33/255, alpha:1)
-            label.numberOfLines = 1
-            
-            return label
-        }()
-        
-        let dateLabel: UILabel = {
-            let label = UILabel()
-            
-    //            label.backgroundColor = .white
-            label.textColor = UIColor(red:0.56, green:0.56, blue:0.58, alpha:1)
-            label.font = UIFont.systemFont(ofSize: 14)
-            label.textAlignment = .left
-            
-            label.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-            label.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
-            
-            return label
-        }()
-        
-        
-        let badgeIndicator: UIImageView = {
-            let view = UIImageView(frame: CGRect(x: 40, y: 40, width: 18, height: 18))
-            
-            view.layer.cornerRadius = 9
-            view.layer.masksToBounds = true
-            
-            return view
-        }()
-        
-        let badgeIcon: UIImageView = {
-            let view = UIImageView(frame: CGRect(1, 1, 16, 16))
-            
-            view.backgroundColor = .clear
-            view.tintColor = MDCPalette.green.tint700
-            view.image = UIImage(systemName: "info.circle.fill")
-            
-            return view
-        }()
-        
-        let itsNotMeButton: UIButton = {
-            let button = UIButton(frame: .zero)
-            
-            button.setTitle("Revoke device", for: .normal)
-            button.setTitleColor(.systemRed, for: .normal)
-            
-            return button
-        }()
-        
-        
-        public final func configure(owner: String, username: String, title: String, message: String) {
-            self.avatarView.image = UIImageView.getDefaultAvatar(for: username, owner: owner, size: 56)
-            self.badgeIndicator.backgroundColor = .systemBackground
-            self.badgeIndicator.tintColor = .systemOrange
-            
-            self.titleLabel.text = title
-            self.messageLabel.text = message
-            
-            self.accessoryType = .disclosureIndicator
-        }
-        
-        func setMask() {
-            if let image = UIImage(named: AccountMasksManager.shared.mask56pt), AccountMasksManager.shared.load() != "square" {
-                avatarView.mask = UIImageView(image: image)
-                userImageView.mask = UIImageView(image: image.upscale(dimension: 60))
-            } else {
-                avatarView.mask = nil
-                userImageView.mask = nil
-            }
-        }
-        
-        override func prepareForReuse() {
-            super.prepareForReuse()
-
-        }
-        
-        override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-            super.init(style: style, reuseIdentifier: reuseIdentifier)
-
-    //        self.layer.shouldRasterize = true
-    //        self.layer.rasterizationScale = UIScreen.main.scale
-            
-            contentView.addSubview(infoStack)
-            infoStack.fillSuperviewWithOffset(top: 4, bottom: 4, left: 2, right: 0)
-            
-            backgroundColor = .systemBackground
-            
-//            accountIndicator.frame = CGRect(x: 0.5, y: 1, width: 2, height: 74)
-            badgeIndicator.addSubview(badgeIcon)
-            avatarContainer.frame = CGRect(x: 8, y: 8, width: 60, height: 60)
-            avatarContainer.addSubview(userImageView)
-            avatarView.frame = CGRect(x: 2, y: 2, width: 56, height: 56)
-            addSubview(avatarContainer)
-            userImageView.addSubview(avatarView)
-            avatarContainer.addSubview(badgeIndicator)
-            avatarContainer.bringSubviewToFront(badgeIndicator)
-            
-//            infoStack.addArrangedSubview(topStack)
-//            infoStack.addArrangedSubview(bottomStack)
-//            infoStack.addArrangedSubview(itsNotMeButton)
-            
-            infoStack.addArrangedSubview(titleLabel)
-            infoStack.addArrangedSubview(messageLabel)
-//            infoStack.addArrangedSubview(dateLabel)
-//            infoStack.setCustomSpacing(8, after: messageLabel)
-            
-            
-            
-//            self.selectionStyle = .none
-            separatorInset = UIEdgeInsets(top: 0, bottom: 0, left: 74, right: 0)
-            activateConstraints()
-            layoutIfNeeded()
-        }
-        
-        override open func layoutSubviews() {
-            super.layoutSubviews()
-        }
-        
-        private func activateConstraints() {
-            NSLayoutConstraint.activate([
-                itsNotMeButton.heightAnchor.constraint(equalToConstant: 32),
-                titleLabel.heightAnchor.constraint(equalToConstant: 24),
-                messageLabel.heightAnchor.constraint(equalToConstant: 20)
-            ])
-        }
-        
-        required init?(coder aDecoder: NSCoder) {
-            fatalError("init(coder:) has not been implemented")
-        }
-        
-        override func awakeFromNib() {
-            super.awakeFromNib()
-            print("awaked from nib")
-        }
+//    class ContactItemCell: UITableViewCell {
+//        static let cellName = "ContactItemCell"
 //        
-//        override func setSelected(_ selected: Bool, animated: Bool) {
-//            super.setSelected(selected, animated: animated)
+//        let stack: UIStackView = {
+//            let stack = UIStackView()
+//            
+//            stack.axis = .horizontal
+//            stack.alignment = .center
+//            stack.spacing = 8
+//            stack.distribution = .fill
+//            
+//            return stack
+//        }()
+//        
+//        let infoStack: UIStackView = {
+//            let stack = UIStackView()
+//            
+//            stack.axis = .vertical
+//            stack.distribution = .fill
+//            stack.spacing = 0
+//            stack.isLayoutMarginsRelativeArrangement = true
+//            stack.layoutMargins = UIEdgeInsets(top: 10, bottom: 10, left: 72, right: 4)
+//            
+//            return stack
+//        }()
+//                
+//        let topStack: UIStackView = {
+//            let stack = UIStackView()
+//            
+//            stack.axis = .horizontal
+//            stack.spacing = 4
+//            stack.distribution = .fill
+//            stack.alignment = .center
+//            
+//            return stack
+//        }()
+//        
+//        let bottomStack: UIStackView = {
+//            let stack = UIStackView()
+//            
+//            stack.axis = .horizontal
+//            stack.alignment = .top
+//            stack.spacing = 8
+//            stack.distribution = .fill
+//            stack.isLayoutMarginsRelativeArrangement = true
+//            stack.layoutMargins = UIEdgeInsets(top: 0, bottom: 0, left: 0, right: 8)
+//
+//            return stack
+//        }()
+//        
+//        let avatarContainer: UIView = {
+//            let view = UIView(frame: CGRect(square: 60))
+//            
+//            view.backgroundColor = .clear
+//            
+//            return view
+//        }()
+//        
+//        let userImageView: UIView = {
+//            let view = UIView(frame: CGRect(square: 60))
+//            
+//            view.backgroundColor = .clear//MDCPalette.grey.tint200
+//            if let image = UIImage(named: AccountMasksManager.shared.mask56pt), AccountMasksManager.shared.load() != "square" {
+//                view.mask = UIImageView(image: image.upscale(dimension: 60))
+//            } else {
+//                view.mask = nil
+//            }
+//            
+//            return view
+//        }()
+//        
+//        let avatarView: UIImageView = {
+//            let view = UIImageView(frame: CGRect(square: 56))
+//            if let image = UIImage(named: AccountMasksManager.shared.mask56pt), AccountMasksManager.shared.load() != "square" {
+//                view.mask = UIImageView(image: image)
+//            } else {
+//                view.mask = nil
+//            }
+//            view.contentMode = .scaleAspectFill
+//            
+//            view.backgroundColor = MDCPalette.grey.tint200
+//            
+//            return view
+//        }()
+//        
+//
+//        
+//        let titleLabel: UILabel = {
+//            let label = UILabel()
+//            
+//            label.textColor = UIColor(red: 33/255, green: 33/255, blue: 33/255, alpha:1)
+//
+//            label.font = UIFont.systemFont(ofSize: 17, weight: .medium)
+//            
+//            label.setContentHuggingPriority(.defaultLow, for: .horizontal)
+//            label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+//            
+//            return label
+//        }()
+//        
+//        let messageLabel: UILabel = {
+//            let label = UILabel()
+//            
+//    //            label.backgroundColor = .white
+//            
+//            label.lineBreakMode = .byTruncatingTail
+//            label.font = UIFont.systemFont(ofSize: 14, weight: .regular)
+//            label.textColor = .secondaryLabel//UIColor(red: 33/255, green: 33/255, blue: 33/255, alpha:1)
+//            label.numberOfLines = 1
+//            
+//            return label
+//        }()
+//        
+//        let dateLabel: UILabel = {
+//            let label = UILabel()
+//            
+//    //            label.backgroundColor = .white
+//            label.textColor = UIColor(red:0.56, green:0.56, blue:0.58, alpha:1)
+//            label.font = UIFont.systemFont(ofSize: 14)
+//            label.textAlignment = .left
+//            
+//            label.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+//            label.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+//            
+//            return label
+//        }()
+//        
+//        
+//        let badgeIndicator: UIImageView = {
+//            let view = UIImageView(frame: CGRect(x: 40, y: 40, width: 18, height: 18))
+//            
+//            view.layer.cornerRadius = 9
+//            view.layer.masksToBounds = true
+//            
+//            return view
+//        }()
+//        
+//        let badgeIcon: UIImageView = {
+//            let view = UIImageView(frame: CGRect(1, 1, 16, 16))
+//            
+//            view.backgroundColor = .clear
+//            view.tintColor = MDCPalette.green.tint700
+//            view.image = UIImage(systemName: "info.circle.fill")
+//            
+//            return view
+//        }()
+//        
+//        let itsNotMeButton: UIButton = {
+//            let button = UIButton(frame: .zero)
+//            
+//            button.setTitle("Revoke device", for: .normal)
+//            button.setTitleColor(.systemRed, for: .normal)
+//            
+//            return button
+//        }()
+//        
+//        
+//        public final func configure(owner: String, username: String, title: String, message: String) {
+//            self.avatarView.image = UIImageView.getDefaultAvatar(for: username, owner: owner, size: 56)
+//            self.badgeIndicator.backgroundColor = .systemBackground
+//            self.badgeIndicator.tintColor = .systemOrange
+//            
+//            self.titleLabel.text = title
+//            self.messageLabel.text = message
+//            
+//            self.accessoryType = .disclosureIndicator
 //        }
-    }
+//        
+//        func setMask() {
+//            if let image = UIImage(named: AccountMasksManager.shared.mask56pt), AccountMasksManager.shared.load() != "square" {
+//                avatarView.mask = UIImageView(image: image)
+//                userImageView.mask = UIImageView(image: image.upscale(dimension: 60))
+//            } else {
+//                avatarView.mask = nil
+//                userImageView.mask = nil
+//            }
+//        }
+//        
+//        override func prepareForReuse() {
+//            super.prepareForReuse()
+//
+//        }
+//        
+//        override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+//            super.init(style: style, reuseIdentifier: reuseIdentifier)
+//
+//    //        self.layer.shouldRasterize = true
+//    //        self.layer.rasterizationScale = UIScreen.main.scale
+//            
+//            contentView.addSubview(infoStack)
+//            infoStack.fillSuperviewWithOffset(top: 4, bottom: 4, left: 2, right: 0)
+//            
+//            backgroundColor = .systemBackground
+//            
+////            accountIndicator.frame = CGRect(x: 0.5, y: 1, width: 2, height: 74)
+//            badgeIndicator.addSubview(badgeIcon)
+//            avatarContainer.frame = CGRect(x: 8, y: 8, width: 60, height: 60)
+//            avatarContainer.addSubview(userImageView)
+//            avatarView.frame = CGRect(x: 2, y: 2, width: 56, height: 56)
+//            addSubview(avatarContainer)
+//            userImageView.addSubview(avatarView)
+//            avatarContainer.addSubview(badgeIndicator)
+//            avatarContainer.bringSubviewToFront(badgeIndicator)
+//            
+////            infoStack.addArrangedSubview(topStack)
+////            infoStack.addArrangedSubview(bottomStack)
+////            infoStack.addArrangedSubview(itsNotMeButton)
+//            
+//            infoStack.addArrangedSubview(titleLabel)
+//            infoStack.addArrangedSubview(messageLabel)
+////            infoStack.addArrangedSubview(dateLabel)
+////            infoStack.setCustomSpacing(8, after: messageLabel)
+//            
+//            
+//            
+////            self.selectionStyle = .none
+//            separatorInset = UIEdgeInsets(top: 0, bottom: 0, left: 74, right: 0)
+//            activateConstraints()
+//            layoutIfNeeded()
+//        }
+//        
+//        override open func layoutSubviews() {
+//            super.layoutSubviews()
+//        }
+//        
+//        private func activateConstraints() {
+//            NSLayoutConstraint.activate([
+//                itsNotMeButton.heightAnchor.constraint(equalToConstant: 32),
+//                titleLabel.heightAnchor.constraint(equalToConstant: 24),
+//                messageLabel.heightAnchor.constraint(equalToConstant: 20)
+//            ])
+//        }
+//        
+//        required init?(coder aDecoder: NSCoder) {
+//            fatalError("init(coder:) has not been implemented")
+//        }
+//        
+//        override func awakeFromNib() {
+//            super.awakeFromNib()
+//            print("awaked from nib")
+//        }
+////        
+////        override func setSelected(_ selected: Bool, animated: Bool) {
+////            super.setSelected(selected, animated: animated)
+////        }
+//    }
 }
 
 extension NotificationsListViewController {
@@ -1090,203 +978,5 @@ extension NotificationsListViewController {
         }
     }
     
-    class NewContactItemCell: UITableViewCell {
-        let stack: UIStackView = {
-            let stack = UIStackView()
-            stack.axis = .vertical
-            stack.spacing = 4
-            
-            return stack
-        }()
-        
-        let avatarContainer: UIView = {
-            let view = UIView(frame: CGRect(square: 64))
-            view.backgroundColor = .clear
-            
-            return view
-        }()
-        
-        let userImageView: UIView = {
-            let view = UIView(frame: CGRect(square: 64))
-            
-            view.backgroundColor = .clear
-            if let image = UIImage(named: AccountMasksManager.shared.mask56pt)?.upscale(dimension: 64), AccountMasksManager.shared.load() != "square" {
-                view.mask = UIImageView(image: image.upscale(dimension: 64))
-            } else {
-                view.mask = nil
-            }
-            
-            return view
-        }()
-        
-        let avatarView: UIImageView = {
-            let view = UIImageView(frame: CGRect(square: 64))
-            if let image = UIImage(named: AccountMasksManager.shared.mask56pt)?.upscale(dimension: 64), AccountMasksManager.shared.load() != "square" {
-                view.mask = UIImageView(image: image)
-            } else {
-                view.mask = nil
-            }
-            view.contentMode = .scaleAspectFill
-            
-            view.backgroundColor = MDCPalette.grey.tint200
-            
-            return view
-        }()
-        
-        let badgeIndicator: UIImageView = {
-            let view = UIImageView(frame: CGRect(x: 47, y: 47, width: 16, height: 16))
-            
-            view.layer.cornerRadius = 9
-            view.layer.masksToBounds = true
-            
-            return view
-        }()
-        
-        let badgeIcon: UIImageView = {
-            let view = UIImageView(frame: CGRect(1, 1, 16, 16))
-            
-            view.backgroundColor = .clear
-            view.tintColor = MDCPalette.green.tint700
-            view.image = UIImage(systemName: "plus.circle.fill")
-            
-            return view
-        }()
-        
-        let titleLabel: UILabel = {
-            let label = UILabel()
-            label.font = .systemFont(ofSize: label.font.pointSize, weight: .medium)
-            label.setContentHuggingPriority(.defaultLow, for: .horizontal)
-            
-            return label
-        }()
-        
-        let subtitleLabel: UILabel = {
-            let label = UILabel()
-            label.font = UIFont.systemFont(ofSize: 14)
-            label.textColor = .secondaryLabel
-            label.setContentHuggingPriority(.defaultLow, for: .horizontal)
-            
-            return label
-        }()
-        
-        let messageView: UIView = {
-            let view = UIView()
-            
-//            let layer = CAShapeLayer()
-//            layer.strokeColor = MDCPalette.deepPurple.tint700.cgColor
-//            layer.lineWidth = 1
-//            layer.lineDashPattern = [2, 2]
-//            layer.fillColor = nil
-            
-            view.layer.borderColor = MDCPalette.deepPurple.tint400.cgColor
-            view.layer.borderWidth = 1
-            view.layer.cornerRadius = 10
-            
-            let stack = UIStackView()
-            stack.axis = .horizontal
-            stack.alignment = .center
-            stack.translatesAutoresizingMaskIntoConstraints = false
-            
-            let label = UILabel()
-            label.numberOfLines = 0
-            label.text = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Vivamus ut vulputate nunc."
-            label.font = .systemFont(ofSize: 14)
-            label.textColor =  MDCPalette.deepPurple.tint700
-            
-            let quoteOpening = UIImageView(image: UIImage(systemName: "quote.opening")?.withTintColor(MDCPalette.deepPurple.tint700))
-            quoteOpening.image = quoteOpening.image?.resize(targetSize: CGSize(square: 15))
-            quoteOpening.translatesAutoresizingMaskIntoConstraints = false
-            
-            let quoteClosing = UIImageView(image: UIImage(systemName: "quote.closing")?.withTintColor(MDCPalette.deepPurple.tint700))
-            quoteClosing.image = quoteClosing.image?.resize(targetSize: CGSize(square: 15))
-            quoteClosing.translatesAutoresizingMaskIntoConstraints = false
-            
-            view.addSubview(stack)
-            view.addSubview(quoteOpening)
-            view.addSubview(quoteClosing)
-            stack.addArrangedSubview(label)
-            
-            NSLayoutConstraint.activate([
-                quoteOpening.topAnchor.constraint(equalTo: view.topAnchor, constant: 5),
-                quoteOpening.leftAnchor.constraint(equalTo: view.leftAnchor, constant: 5),
-
-                quoteClosing.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -5),
-                quoteClosing.rightAnchor.constraint(equalTo: view.rightAnchor, constant: -5),
-                
-                stack.topAnchor.constraint(equalTo: view.topAnchor, constant: 5),
-                stack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -5),
-                stack.leftAnchor.constraint(equalTo: view.leftAnchor, constant: 25),
-                stack.rightAnchor.constraint(equalTo: view.rightAnchor, constant: -25),
-            ])
-            
-            return view
-        }()
-        
-        let buttonsStack: UIStackView = {
-            let stack = UIStackView()
-            stack.axis = .horizontal
-            stack.distribution = .equalSpacing
-            
-            return stack
-        }()
-        
-        let addButton: UIButton = {
-            let button = UIButton()
-            var config = UIButton.Configuration.filled()
-            config.baseBackgroundColor = .systemBlue
-            button.configuration = config
-            
-            return button
-        }()
-        
-        let declineButton: UIButton = {
-            let button = UIButton()
-            var config = UIButton.Configuration.plain()
-            config.baseForegroundColor = .systemBlue
-
-            button.configuration = config
-            
-            return button
-        }()
-        
-        func configure(owner: String, username: String, jid: String) {
-            avatarView.image = UIImageView.getDefaultAvatar(for: jid, owner: owner, size: 56)
-            titleLabel.text = username
-            subtitleLabel.text = jid
-            
-            addButton.setTitle("Add contact", for: .normal)
-            declineButton.setTitle("Decline", for: .normal)
-        }
-        
-        override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-            super.init(style: style, reuseIdentifier: reuseIdentifier)
-            
-            badgeIndicator.addSubview(badgeIcon)
-            
-            contentView.addSubview(avatarContainer)
-            avatarContainer.frame = CGRect(x: 16, y: 10, width: 64, height: 64)
-            avatarContainer.addSubview(userImageView)
-            
-            userImageView.addSubview(avatarView)
-            avatarContainer.addSubview(badgeIndicator)
-            avatarContainer.bringSubviewToFront(badgeIndicator)
-            
-            contentView.addSubview(stack)
-            stack.fillSuperviewWithOffset(top: 10, bottom: 10, left: 96, right: 16)
-            
-            stack.addArrangedSubview(titleLabel)
-            stack.addArrangedSubview(subtitleLabel)
-            stack.addArrangedSubview(messageView)
-            stack.addArrangedSubview(buttonsStack)
-            
-            buttonsStack.addArrangedSubview(addButton)
-            buttonsStack.addArrangedSubview(declineButton)
-            buttonsStack.addArrangedSubview(UIStackView())
-        }
-        
-        required init?(coder: NSCoder) {
-            fatalError("init(coder:) has not been implemented")
-        }
-        
-    }
+    
 }

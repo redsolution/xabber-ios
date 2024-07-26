@@ -98,7 +98,6 @@ class NotificationsListViewController: SimpleBaseViewController {
         let view = UITableView(frame: .zero, style: .plain)
         
         view.register(DeviceItemCell.self, forCellReuseIdentifier: DeviceItemCell.cellName)
-        view.register(ContactItemCell.self, forCellReuseIdentifier: ContactItemCell.cellName)
         view.register(VerificationSessionItemCell.self, forCellReuseIdentifier: VerificationSessionItemCell.cellName)
         
         view.separatorStyle = .none
@@ -122,12 +121,13 @@ class NotificationsListViewController: SimpleBaseViewController {
     
     struct DatasourceChild {
         let owner: String
-        let jid: String?
+        let jid: String
         let title: String
         let message: String?
-        let key: String
-        let date: Date
+        let key: String?
+        let date: Date?
         let category: XMPPNotificationsManager.Category
+        let avatarUrl: String?
         let verificationState: VerificationSessionStorageItem.VerififcationState?
         let verificationSid: String?
     }
@@ -239,25 +239,15 @@ class NotificationsListViewController: SimpleBaseViewController {
                 .filter("category_ IN %@", [
                     XMPPNotificationsManager.Category.contact.rawValue
                 ])
-            let contactDatasource = Datasource(title: "", key: "contact", childs: [
-                DatasourceChild(
-                    owner: "",
-                    jid: "",
-                    title: "",
-                    message: "",
-                    key: "",
-                    date: Date(),
-                    category: .contact,
-                    verificationState: nil,
-                    verificationSid: nil
-                )
-            ])
+            
+//            let subscriptionsDatasource = Datasource(title: "Subscription requests", key: "contact", childs: [
+//                DatasourceChild(owner: "ekaterina.korotkova@redsolution.com", jid: "bob@xmppdev01.xabber.com", title: "Bob Bobov", message: nil, key: "request", date: Date(), category: .contact, verificationState: nil, verificationSid: nil),
+//                DatasourceChild(owner: "ekaterina.korotkova@redsolution.com", jid: "alice@xmppdev01.xabber.com", title: "Alice", message: "some message in request", key: "request", date: Date(), category: .contact, verificationState: nil, verificationSid: nil)
+//            ])
+            
             self.datasource = [
-                Datasource(title: "Subscription requests", key: "contact", childs: [
-                    DatasourceChild(owner: "ekaterina.korotkova@redsolution.com", jid: "bob@xmppdev01.xabber.com", title: "Bob Bobov", message: nil, key: "request", date: Date(), category: .contact, verificationState: nil, verificationSid: nil),
-                    DatasourceChild(owner: "ekaterina.korotkova@redsolution.com", jid: "alice@xmppdev01.xabber.com", title: "Alice", message: "some message in request", key: "request", date: Date(), category: .contact, verificationState: nil, verificationSid: nil)
-                ]),
-//                mapResult(contactNotifications, title: "", key: "contact"),
+//                subscriptionsDatasource,
+                mapResult(contactNotifications, title: "Subscription requests", key: "contact"),
                 mapResult(allNotifications, title: "All", key: "all"),
             ].compactMap({ return $0.childs.isNotEmpty ? $0 : nil })
 
@@ -269,30 +259,29 @@ class NotificationsListViewController: SimpleBaseViewController {
     
     private func mapResult(_ results: Results<NotificationStorageItem>, title: String, key: String) -> Datasource {
         return Datasource(title: title, key: key, childs: results.compactMap({
-            (item) in
+            (item) -> DatasourceChild? in
             switch item.category {
                 case .trust:
                     do {
                         let realm = try WRealm.safe()
-                        guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: item.verificationSid!)) else {
-                            return nil
-                        }
-                        
-                        if item.verificationState == .acceptedRequest && instance.state == .receivedRequest && instance.myDeviceId != Int(item.deviceId!)! {
-//                            try realm.write {
-//                                realm.delete(instance)
-//                                realm.delete(item)
-//                            }
-                            return nil
-                        } else if item.verificationState == .rejected && instance.state == .receivedRequest {
-//                            try realm.write {
-//                                realm.delete(instance)
-//                                realm.delete(item)
-//                            }
-                            return nil
-                        }
-                        if item.verificationState != instance.state {
-                            return nil
+                        if let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: item.verificationSid!)) {
+                            
+                            if item.verificationState == .acceptedRequest && instance.state == .receivedRequest && instance.myDeviceId != Int(item.deviceId!)! {
+                                //                            try realm.write {
+                                //                                realm.delete(instance)
+                                //                                realm.delete(item)
+                                //                            }
+                                return nil
+                            } else if item.verificationState == .rejected && instance.state == .receivedRequest {
+                                //                            try realm.write {
+                                //                                realm.delete(instance)
+                                //                                realm.delete(item)
+                                //                            }
+                                return nil
+                            }
+                            if item.verificationState != instance.state {
+                                return nil
+                            }
                         }
                     } catch {
                         DDLogDebug("NotificationsListViewController: \(#function). \(error.localizedDescription)")
@@ -304,7 +293,7 @@ class NotificationsListViewController: SimpleBaseViewController {
                         message: item.text ?? "",
                         key: item.uniqueId,
                         date: item.date,
-                        category: item.category,
+                        category: item.category, avatarUrl: nil,
                         verificationState: item.verificationState,
                         verificationSid: item.verificationSid
                     )
@@ -313,29 +302,46 @@ class NotificationsListViewController: SimpleBaseViewController {
                           let nick = item.displayedNick ?? item.associatedJid else {
                         return nil
                     }
+                
+                    var askMessage: String? = nil
+                    var avatarUrl: String? = nil
+                    do {
+                        let realm = try WRealm.safe()
+                        let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: "\(jid)_\(item.owner)")
+                        
+                        askMessage = instance?.askMessage == "" ? nil : instance?.askMessage
+                        avatarUrl = instance?.avatarUrl
+                        
+                    } catch {
+                        DDLogDebug("NotificationsListViewController: \(#function). \(error.localizedDescription)")
+                    }
+                
                     return DatasourceChild(
                         owner: item.owner,
-                        jid: item.associatedJid,
+                        jid: jid,
                         title: nick,
-                        message: "New subscribtion request from \(jid)",
-                        key: jid,
-                        date: item.date,
+                        message: askMessage,
+                        key: nil,
+                        date: nil,
                         category: item.category,
+                        avatarUrl: avatarUrl,
                         verificationState: nil,
                         verificationSid: nil
                     )
+                
                 case .device:
                     guard let deviceId = item.metadata?["deviceId"] as? String else {
                         return nil
                     }
                     return DatasourceChild(
                         owner: item.owner,
-                        jid: item.associatedJid,
+                        jid: item.associatedJid ?? item.jid,
                         title: "New device login",
                         message: item.text ?? " ",//"Detected new login from \(ip) by \(client) on \(device) device",
                         key: deviceId,
                         date: item.date,
                         category: item.category,
+                        avatarUrl: nil,
                         verificationState: nil,
                         verificationSid: nil
                     )
@@ -344,7 +350,7 @@ class NotificationsListViewController: SimpleBaseViewController {
                 case .none:
                     return nil
             }
-        }))
+        }) ?? [])
     }
     
     override func viewDidLoad() {
@@ -416,10 +422,12 @@ extension NotificationsListViewController: UITableViewDataSource {
         let item = self.datasource[indexPath.section].childs[indexPath.row]
         switch item.category {
             case .trust:
-                guard let cell = tableView.dequeueReusableCell(withIdentifier: VerificationSessionItemCell.cellName, for: indexPath) as? VerificationSessionItemCell else {
-                    fatalError()
+                guard let cell = tableView.dequeueReusableCell(withIdentifier: VerificationSessionItemCell.cellName, for: indexPath) as? VerificationSessionItemCell,
+                      let date = item.date else {
+                    return UITableViewCell(frame: .zero)
                 }
-                cell.configure(item.jid!, owner: self.owner, username: "username", date: item.date, verificationState: item.verificationState!)
+            
+                cell.configure(item.jid, owner: self.owner, username: "username", date: date, verificationState: item.verificationState!)
                 cell.accessoryType = .disclosureIndicator
                 
                 let view = UIView()
@@ -428,8 +436,8 @@ extension NotificationsListViewController: UITableViewDataSource {
                 
                 return cell
             case .contact:
-                let cell = NewContactItemCell()
-                cell.configure(owner: item.owner, username: item.title, jid: item.jid ?? "")
+                let cell = ContactItemCell()
+                cell.configure(owner: item.owner, username: item.title, jid: item.jid, message: item.message, avatarUrl: item.avatarUrl)
                 
                 return cell
 //                guard let cell = tableView.dequeueReusableCell(withIdentifier: ContactItemCell.cellName, for: indexPath) as? ContactItemCell else {
@@ -462,16 +470,15 @@ extension NotificationsListViewController: UITableViewDataSource {
                     avatarUrl: nil,
                     customImage: nil,
                     username: item.jid ?? item.owner,
-                    title: "New login",
+                    title: "New login to server \(item.jid)",
                     message: item.message ?? "",
-                    date: nil,
+                    date: item.date,
                     positiveButtonTitle: "Verify",
                     negativeButtonTitle: "Revoke"
                 )
                 
 //                cell.configure("", owner: self.owner, username: XMPPJID(string: self.owner)?.domain ?? self.owner, title: item.title, message: item.message, date: item.date)
 //                cell.accessoryType = .disclosureIndicator
-                cell.accessoryType = .none//.disclosureIndicator
                 
                 
                 let view = UIView()
@@ -568,8 +575,7 @@ extension NotificationsListViewController: UITableViewDelegate {
 //                vc.isVerificationWithUsersDevice = item.jid == item.owner
 //                self.present(vc, animated: true)
             } else if item.verificationState == .failed || item.verificationState == .rejected || item.verificationState == .trusted {
-                guard let sid = item.verificationSid,
-                      let jid = item.jid else {
+                guard let sid = item.verificationSid else {
                     return
                 }
                 do {
@@ -609,11 +615,11 @@ extension NotificationsListViewController: UITableViewDelegate {
             case .device:
                 do {
                     let realm = try WRealm.safe()
-                    if let _ = realm.object(ofType: DeviceStorageItem.self, forPrimaryKey: DeviceStorageItem.genPrimary(uid: item.key, owner: item.owner)) {
+                    if let _ = realm.object(ofType: DeviceStorageItem.self, forPrimaryKey: DeviceStorageItem.genPrimary(uid: item.key ?? "", owner: item.owner)) {
                         let vc = DeviceDetailViewController()
                         vc.owner = item.owner
                         vc.jid = item.owner
-                        vc.uid = item.key
+                        vc.uid = item.key ?? ""
                         showStacked(vc, in: self)
 //                        self.navigationController?.pushViewController(vc, animated: true)
                     } else {

@@ -698,6 +698,7 @@
 		844952262BFDC4F2003A9A38 /* ContactDeviceDetailViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 844952252BFDC4F2003A9A38 /* ContactDeviceDetailViewController.swift */; };
 		84790B882C007F9400246B0E /* VerificationSessionTableViewCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84790B872C007F9400246B0E /* VerificationSessionTableViewCell.swift */; };
 		84882D422C492C7D003C94E9 /* XabberActivityViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84882D412C492C7D003C94E9 /* XabberActivityViewController.swift */; };
+		848AC4FE2C53A38500EC452E /* ContactItemCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 848AC4FD2C53A38500EC452E /* ContactItemCell.swift */; };
 		8496E00B2B98556800EBDE2B /* VerififcationSessionStorageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8496E00A2B98556800EBDE2B /* VerififcationSessionStorageItem.swift */; };
 		849C46762C4E828E0050C82E /* ChatFilesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 849C46752C4E828E0050C82E /* ChatFilesViewController.swift */; };
 		849D262A2C4F7C29000A19D2 /* ChatFilesViewController+Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 849D26292C4F7C29000A19D2 /* ChatFilesViewController+Extensions.swift */; };
@@ -1659,6 +1660,7 @@
 		844952252BFDC4F2003A9A38 /* ContactDeviceDetailViewController.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ContactDeviceDetailViewController.swift; sourceTree = "<group>"; };
 		84790B872C007F9400246B0E /* VerificationSessionTableViewCell.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = VerificationSessionTableViewCell.swift; sourceTree = "<group>"; };
 		84882D412C492C7D003C94E9 /* XabberActivityViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XabberActivityViewController.swift; sourceTree = "<group>"; };
+		848AC4FD2C53A38500EC452E /* ContactItemCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactItemCell.swift; sourceTree = "<group>"; };
 		8496E00A2B98556800EBDE2B /* VerififcationSessionStorageItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerififcationSessionStorageItem.swift; sourceTree = "<group>"; };
 		849C46752C4E828E0050C82E /* ChatFilesViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatFilesViewController.swift; sourceTree = "<group>"; };
 		849D26292C4F7C29000A19D2 /* ChatFilesViewController+Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatFilesViewController+Extensions.swift"; sourceTree = "<group>"; };
@@ -3943,6 +3945,7 @@
 			isa = PBXGroup;
 			children = (
 				66EB12912BC7F85200524E1B /* NotificationsSubscribtionsListViewController.swift */,
+				848AC4FD2C53A38500EC452E /* ContactItemCell.swift */,
 			);
 			path = subscribtions;
 			sourceTree = "<group>";
@@ -4892,6 +4895,7 @@
 				667AEDB524A9C8E5000F339E /* SynchronizedArray.swift in Sources */,
 				844952262BFDC4F2003A9A38 /* ContactDeviceDetailViewController.swift in Sources */,
 				6635A04825CC1A3600EA57FE /* NewCallViewController+UITableViewDelegate.swift in Sources */,
+				848AC4FE2C53A38500EC452E /* ContactItemCell.swift in Sources */,
 				1A95607228040A8B00CE02ED /* AccountSecurityViewController+Flow.swift in Sources */,
 				6678DFF92497812200B3640B /* GroupchatContactInfoViewController+UITableViewDataSource.swift in Sources */,
 				666D80332439C4D500BD33B1 /* TemporaryMessageStanzaStorageItem.swift in Sources */,
