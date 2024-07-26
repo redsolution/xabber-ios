@@ -1172,7 +1172,13 @@ extension NotificationsListViewController {
         let messageView: UIView = {
             let view = UIView()
             
-            view.layer.borderColor = MDCPalette.purple.tint400.cgColor
+//            let layer = CAShapeLayer()
+//            layer.strokeColor = MDCPalette.deepPurple.tint700.cgColor
+//            layer.lineWidth = 1
+//            layer.lineDashPattern = [2, 2]
+//            layer.fillColor = nil
+            
+            view.layer.borderColor = MDCPalette.deepPurple.tint400.cgColor
             view.layer.borderWidth = 1
             view.layer.cornerRadius = 10
             
@@ -1185,31 +1191,32 @@ extension NotificationsListViewController {
             label.numberOfLines = 0
             label.text = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Vivamus ut vulputate nunc."
             label.font = .systemFont(ofSize: 14)
-            label.textColor =  MDCPalette.purple.tint700
+            label.textColor =  MDCPalette.deepPurple.tint700
             
-            let quoteOpening = UIImageView(image: UIImage(systemName: "quote.opening")?.withTintColor(MDCPalette.purple.tint700).upscale(dimension: 12))
+            let quoteOpening = UIImageView(image: UIImage(systemName: "quote.opening")?.withTintColor(MDCPalette.deepPurple.tint700))
+            quoteOpening.image = quoteOpening.image?.resize(targetSize: CGSize(square: 15))
             quoteOpening.translatesAutoresizingMaskIntoConstraints = false
-            quoteOpening.frame = CGRect(square: 12)
-            let quoteClosing = UIImageView(image: UIImage(systemName: "quote.closing")?.withTintColor(MDCPalette.purple.tint700, renderingMode: .alwaysTemplate))
+            
+            let quoteClosing = UIImageView(image: UIImage(systemName: "quote.closing")?.withTintColor(MDCPalette.deepPurple.tint700))
+            quoteClosing.image = quoteClosing.image?.resize(targetSize: CGSize(square: 15))
             quoteClosing.translatesAutoresizingMaskIntoConstraints = false
-            quoteClosing.frame = CGRect(square: 12)
             
             view.addSubview(stack)
-//            view.addSubview(quoteOpening)
-//            view.addSubview(quoteClosing)
+            view.addSubview(quoteOpening)
+            view.addSubview(quoteClosing)
             stack.addArrangedSubview(label)
             
             NSLayoutConstraint.activate([
-//                quoteOpening.topAnchor.constraint(equalTo: view.topAnchor, constant: 2),
-//                quoteOpening.leftAnchor.constraint(equalTo: view.leftAnchor, constant: 2),
-////
-//                quoteClosing.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -2),
-//                quoteClosing.rightAnchor.constraint(equalTo: view.rightAnchor, constant: -2),
+                quoteOpening.topAnchor.constraint(equalTo: view.topAnchor, constant: 5),
+                quoteOpening.leftAnchor.constraint(equalTo: view.leftAnchor, constant: 5),
+
+                quoteClosing.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -5),
+                quoteClosing.rightAnchor.constraint(equalTo: view.rightAnchor, constant: -5),
                 
                 stack.topAnchor.constraint(equalTo: view.topAnchor, constant: 5),
                 stack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -5),
-                stack.leftAnchor.constraint(equalTo: view.leftAnchor, constant: 15),
-                stack.rightAnchor.constraint(equalTo: view.rightAnchor, constant: -15),
+                stack.leftAnchor.constraint(equalTo: view.leftAnchor, constant: 25),
+                stack.rightAnchor.constraint(equalTo: view.rightAnchor, constant: -25),
             ])
             
             return view
@@ -1249,8 +1256,6 @@ extension NotificationsListViewController {
             
             addButton.setTitle("Add contact", for: .normal)
             declineButton.setTitle("Decline", for: .normal)
-            
-            activeConstraints()
         }
         
         override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
