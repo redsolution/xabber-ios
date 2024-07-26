@@ -112,7 +112,7 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
         let touchPoint = gestureRecognizer.location(in: collectionView)
         guard let indexPath = collectionView.indexPathForItem(at: touchPoint) else { return }
         cancelSelectButton = UIBarButtonItem(title: "Cancel", style: .plain, target: self, action: #selector(cancelSelectButtonTapped))
-        deleteSelectedFilesButton = UIBarButtonItem(image: #imageLiteral(resourceName: "trash-outline"), style: .plain, target: self, action: #selector(deleteSelectedFilesButtonTapped))
+        deleteSelectedFilesButton = UIBarButtonItem(image: imageLiteral( "trash-outline"), style: .plain, target: self, action: #selector(deleteSelectedFilesButtonTapped))
         navigationItem.hidesBackButton = true
         navigationItem.setRightBarButton(deleteSelectedFilesButton, animated: true)
         navigationItem.setLeftBarButton(cancelSelectButton, animated: true)
@@ -643,7 +643,7 @@ extension CloudStorageGalleryViewController: UITableViewDelegate {
         dismiss(animated: false)
         self.navigationItem.title = "0 \(selectedType)s selected"
         cancelSelectButton = UIBarButtonItem(title: "Cancel", style: .plain, target: self, action: #selector(cancelSelectButtonTapped))
-        deleteSelectedFilesButton = UIBarButtonItem(image: #imageLiteral(resourceName: "trash-outline"), style: .plain, target: self, action: #selector(deleteSelectedFilesButtonTapped))
+        deleteSelectedFilesButton = UIBarButtonItem(image: imageLiteral( "trash-outline"), style: .plain, target: self, action: #selector(deleteSelectedFilesButtonTapped))
         deleteSelectedFilesButton?.isEnabled = false
         navigationItem.hidesBackButton = true
         navigationItem.setRightBarButton(deleteSelectedFilesButton, animated: true)

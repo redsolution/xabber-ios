@@ -49,7 +49,7 @@ extension AccountNewStatusViewController {
         
         var resourceImage: UIImageView = {
             let image = UIImageView()
-//            image.image = #imageLiteral(resourceName: "lightBulbOn36").withRenderingMode(.alwaysTemplate)
+//            image.image = imageLiteral( "lightBulbOn36").withRenderingMode(.alwaysTemplate)
             image.frame = CGRect(origin: .zero, size: CGSize(width: 64, height: 64))
             return image
         }()

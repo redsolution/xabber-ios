@@ -216,7 +216,7 @@ class ImagePickerViewController: UIViewController {
     }
     
     internal func configureDissmiss(_ button: UIButton) {// -> UIButton {
-        button.setImage(#imageLiteral(resourceName: "chevron-down").withRenderingMode(.alwaysTemplate), for: .normal)
+        button.setImage(imageLiteral( "chevron-down")?.withRenderingMode(.alwaysTemplate), for: .normal)
         button.tintColor = MDCPalette.grey.tint600
         button.backgroundColor = MDCPalette.grey.tint400
         button.imageEdgeInsets = UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
@@ -224,7 +224,7 @@ class ImagePickerViewController: UIViewController {
     }
     
     internal func configiureSend(_ button: UIButton) {
-        button.setImage(#imageLiteral(resourceName: "send").withRenderingMode(.alwaysTemplate), for: .normal)
+        button.setImage(imageLiteral( "send")?.withRenderingMode(.alwaysTemplate), for: .normal)
         button.tintColor = .white
         button.backgroundColor = MDCPalette.green.tint500
         button.imageEdgeInsets = UIEdgeInsets(top: 12, left: 16, bottom: 12, right: 12)
@@ -269,7 +269,7 @@ class ImagePickerViewController: UIViewController {
         let containerWidth = self.view.frame.width / 4
         
         baseView.addSubview(pickerButton(CGPoint(x: 0, y: 108), itemWidth: containerWidth) {
-            $0.setImage(#imageLiteral(resourceName: "camera-iris").withRenderingMode(.alwaysTemplate), for: .normal)
+            $0.setImage(imageLiteral( "camera-iris")?.withRenderingMode(.alwaysTemplate), for: .normal)
             $0.backgroundColor = MDCPalette.red.tint400
             $0.addTarget(self, action: #selector(self.openCamera), for: .touchUpInside)
         })
@@ -279,7 +279,7 @@ class ImagePickerViewController: UIViewController {
         })
         
         baseView.addSubview(pickerButton(CGPoint(x: containerWidth + 0, y: 108), itemWidth: containerWidth) {
-            $0.setImage(#imageLiteral(resourceName: "image").withRenderingMode(.alwaysTemplate), for: .normal)
+            $0.setImage(imageLiteral( "image")?.withRenderingMode(.alwaysTemplate), for: .normal)
             $0.backgroundColor = MDCPalette.purple.tint600
             $0.addTarget(self, action: #selector(self.openGallery), for: .touchUpInside)
         })
@@ -289,7 +289,7 @@ class ImagePickerViewController: UIViewController {
         })
         
         baseView.addSubview(pickerButton(CGPoint(x: containerWidth * 2 + 0, y: 108), itemWidth: containerWidth) {
-            $0.setImage(#imageLiteral(resourceName: "file").withRenderingMode(.alwaysTemplate), for: .normal)
+            $0.setImage(imageLiteral( "file")?.withRenderingMode(.alwaysTemplate), for: .normal)
             $0.backgroundColor = MDCPalette.lightBlue.tint400
             $0.addTarget(self, action: #selector(self.openDocuments), for: .touchUpInside)
         })

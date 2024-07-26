@@ -41,7 +41,7 @@ class SignUpSelectAvatarViewController: SignUpBaseViewController {
         
         button.backgroundColor = UIColor(red: 227/255, green: 242/255, blue: 253/255, alpha: 1.0)
         
-        button.setImage(#imageLiteral(resourceName: "avatar_gen_placeholder_128dp").withRenderingMode(.alwaysTemplate), for: .normal)
+        button.setImage(imageLiteral( "avatar_gen_placeholder_128dp")?.withRenderingMode(.alwaysTemplate), for: .normal)
         button.tintColor = .white
         
         if let image = UIImage(named: AccountMasksManager.shared.mask176pt), AccountMasksManager.shared.load() != "square" {
@@ -58,14 +58,14 @@ class SignUpSelectAvatarViewController: SignUpBaseViewController {
         
         button.layer.cornerRadius = button.frame.width / 2
         button.backgroundColor = .systemBlue
-        button.setImage(#imageLiteral(resourceName: "avatar_gen_camera_36dp").withRenderingMode(.alwaysTemplate), for: .normal)
+        button.setImage(imageLiteral( "camera.fill"), for: .normal)
         button.tintColor = .white
         
         return button
     }()
     
     private let activityIndicator: UIActivityIndicatorView = {
-        let view = UIActivityIndicatorView(style: .gray)
+        let view = UIActivityIndicatorView(style: .medium)
         
         view.startAnimating()
         

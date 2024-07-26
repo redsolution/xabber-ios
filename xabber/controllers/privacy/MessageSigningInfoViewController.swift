@@ -90,10 +90,10 @@ class MessageSigningInfoViewController: SimpleBaseViewController {
             subtitleLabel.text = subtitle
             
             if value {
-                indicator.image = UIImage(named: "check-circle")?.withRenderingMode(.alwaysTemplate)
+                indicator.image = UIImage(named: "xabber.checkmark")
                 indicator.tintColor = .systemGreen
             } else {
-                indicator.image = UIImage(named: "alert-circle")?.withRenderingMode(.alwaysTemplate)
+                indicator.image = imageLiteral("exclamationmark.circle.fill")
                 indicator.tintColor = .systemRed
             }
         }

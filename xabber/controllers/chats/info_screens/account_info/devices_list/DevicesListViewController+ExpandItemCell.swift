@@ -28,7 +28,7 @@ extension DevicesListViewController {
         private let expandIndicator: UIImageView = {
             let view = UIImageView(frame: CGRect(square: 24))
             
-            view.image = #imageLiteral(resourceName: "chevron-down").withRenderingMode(.alwaysTemplate)
+            view.image = imageLiteral( "chevron-down")?.withRenderingMode(.alwaysTemplate)
             if #available(iOS 13.0, *) {
                 view.tintColor = .secondaryLabel
             } else {

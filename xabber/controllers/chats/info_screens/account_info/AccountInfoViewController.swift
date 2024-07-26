@@ -351,11 +351,11 @@ class AccountInfoViewController: BaseViewController {
     }
     
     func navigationBarButtonsConfigure() {
-        let qrCodeButton = UIBarButtonItem(image: #imageLiteral(resourceName: "qrcode").withRenderingMode(.alwaysTemplate),
+        let qrCodeButton = UIBarButtonItem(image: imageLiteral( "qrcode")?.withRenderingMode(.alwaysTemplate),
                                        style: .plain,
                                        target: self,
                                        action: #selector(self.onQRCode))
-        let paletteButton = UIBarButtonItem(image: #imageLiteral(resourceName: "palette").withRenderingMode(.alwaysTemplate),
+        let paletteButton = UIBarButtonItem(image: imageLiteral( "palette")?.withRenderingMode(.alwaysTemplate),
                                        style: .plain,
                                        target: self,
                                        action: #selector(self.showAccountColorViewController))

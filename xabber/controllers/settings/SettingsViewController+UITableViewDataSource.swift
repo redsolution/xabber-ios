@@ -45,7 +45,7 @@ extension SettingsViewController: UITableViewDataSource {
                 cell.textLabel?.text = "Add Account".localizeString(id: "account_add", arguments: [])
                 cell.textLabel?.textColor = .systemBlue
                 cell.imageView?.tintColor = .systemBlue
-                cell.imageView?.image = #imageLiteral(resourceName: "contact-add").withRenderingMode(.alwaysTemplate)
+                cell.imageView?.image = imageLiteral( "contact-add")?.withRenderingMode(.alwaysTemplate)
                 return cell
             }
             guard let item = accounts?[indexPath.row],

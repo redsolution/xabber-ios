@@ -193,7 +193,7 @@ class InfoScreenHeaderView: UIView {
     
     internal func setMask() {
         if AccountMasksManager.shared.load() != "square" {
-            imageButton.mask = UIImageView(image: #imageLiteral(resourceName: AccountMasksManager.shared.mask128pt))
+            imageButton.mask = UIImageView(image: imageLiteral( AccountMasksManager.shared.mask128pt))
         } else {
             imageButton.mask = nil
         }

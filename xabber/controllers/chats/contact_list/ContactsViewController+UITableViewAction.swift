@@ -35,7 +35,7 @@ extension ContactsViewController {
             
             handler(true)
         }
-        deleteAction.image = #imageLiteral(resourceName: "trash-outline").withRenderingMode(.alwaysTemplate)
+        deleteAction.image = imageLiteral("trash-outline")?.withRenderingMode(.alwaysTemplate)
         deleteAction.backgroundColor = .systemRed
         return UISwipeActionsConfiguration(actions: [deleteAction])
     }
@@ -59,7 +59,7 @@ extension ContactsViewController {
             
             handler(true)
         }
-        infoAction.image = #imageLiteral(resourceName: "information").withRenderingMode(.alwaysTemplate)
+        infoAction.image = imageLiteral("info.circle.fill")
         infoAction.backgroundColor = .systemBlue
         return UISwipeActionsConfiguration(actions: [infoAction])
     }

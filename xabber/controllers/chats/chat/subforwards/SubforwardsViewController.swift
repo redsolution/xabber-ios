@@ -130,7 +130,7 @@ class SubforwardsViewController: MessagesViewController {
         messagesCollectionView.accountPalette = accountPallete
         
         let backgroundImage = UIImageView(frame: self.view.bounds)
-        backgroundImage.image =  #imageLiteral(resourceName: "chatBackground320").withRenderingMode(.alwaysOriginal)
+        backgroundImage.image =  imageLiteral( "chatBackground320")?.withRenderingMode(.alwaysOriginal)
             .resizableImage(withCapInsets: UIEdgeInsets.zero,
                             resizingMode: .tile)
         backgroundImage.contentMode = .scaleAspectFill//.scaleAspectFit

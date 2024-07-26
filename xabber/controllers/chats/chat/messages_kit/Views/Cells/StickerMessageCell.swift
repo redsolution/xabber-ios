@@ -158,23 +158,24 @@ class StickerMessageCell: MessageContentCell {
         default: self.messageDeliveryIndicator.isHidden = false
         }
         switch state {
-        case .sending, .notSended, .uploading:
-            self.messageDeliveryIndicator.image = #imageLiteral(resourceName: "clock").withRenderingMode(.alwaysTemplate)
-            self.messageDeliveryIndicator.tintColor = MDCPalette.lightBlue.tint700
-        case .sended:
-            self.messageDeliveryIndicator.image = #imageLiteral(resourceName: "check").withRenderingMode(UIImage.RenderingMode.alwaysTemplate)
-            self.messageDeliveryIndicator.tintColor = MDCPalette.grey.tint600
-        case .deliver:
-            self.messageDeliveryIndicator.image = #imageLiteral(resourceName: "check").withRenderingMode(UIImage.RenderingMode.alwaysTemplate)
-            self.messageDeliveryIndicator.tintColor = MDCPalette.lightGreen.tint700
-        case .read:
-            self.messageDeliveryIndicator.image = #imageLiteral(resourceName: "check-all").withRenderingMode(UIImage.RenderingMode.alwaysTemplate)
-            self.messageDeliveryIndicator.tintColor = MDCPalette.lightGreen.tint700
-        case .error:
-            error = true
-            self.messageDeliveryIndicator.image = #imageLiteral(resourceName: "alert-circle-outline").withRenderingMode(UIImage.RenderingMode.alwaysTemplate)
-            self.messageDeliveryIndicator.tintColor = MDCPalette.red.tint400
-        case .none: break
+            case .sending, .notSended, .uploading:
+                self.messageDeliveryIndicator.image = imageLiteral( "clock")
+                self.messageDeliveryIndicator.tintColor = .systemBlue
+            case .sended:
+                self.messageDeliveryIndicator.image = imageLiteral("xabber.checkmark")
+                self.messageDeliveryIndicator.tintColor = .systemGray
+            case .deliver:
+                self.messageDeliveryIndicator.image = imageLiteral("xabber.checkmark")
+                self.messageDeliveryIndicator.tintColor = .systemGreen
+            case .read:
+                self.messageDeliveryIndicator.image = imageLiteral("xabber.checkmark.double")
+                self.messageDeliveryIndicator.tintColor = .systemGreen
+            case .error:
+                error = true
+                self.messageDeliveryIndicator.image = imageLiteral("info.circle")
+                self.messageDeliveryIndicator.tintColor = .systemRed
+            case .none:
+                break
         }
     }
     

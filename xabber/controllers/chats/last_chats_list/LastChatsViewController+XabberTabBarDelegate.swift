@@ -25,8 +25,8 @@
 //    func onSelect(_ tabBar: XabberTabBar, item: UITabBarItem, myTag: Int, tag: Int) {
 //        NotifyManager.shared.clearAllNotifications()
 //        filter.accept(.chats)
-//        item.image = #imageLiteral(resourceName: "chat-outline")
-//        item.selectedImage = #imageLiteral(resourceName: "chat-outline")
+//        item.image = imageLiteral( "chat-outline")
+//        item.selectedImage = imageLiteral( "chat-outline")
 //        item.title = "Chats".localizeString(id: "toolbar__menu_item__chats", arguments: [])
 //        return
 //    }
@@ -40,16 +40,16 @@
 //        case .chats:
 //            if NotifyManager.shared.unreadMessagesCount > 0 {
 //                filter.accept(.unread)
-//                item.image = #imageLiteral(resourceName: "chat-alert-outline")
-//                item.selectedImage = #imageLiteral(resourceName: "chat-alert-outline")
+//                item.image = imageLiteral( "chat-alert-outline")
+//                item.selectedImage = imageLiteral( "chat-alert-outline")
 //                item.title = "Unread".localizeString(id: "unread_chats", arguments: [])
 //            } else {
 //                self.tableView.scrollToRow(at: IndexPath(item: 0, section: 0), at: .top, animated: true)
 //            }
 //        case .unread:
 //            filter.accept(.chats)
-//            item.image = #imageLiteral(resourceName: "chat-outline")
-//            item.selectedImage = #imageLiteral(resourceName: "chat-outline")
+//            item.image = imageLiteral( "chat-outline")
+//            item.selectedImage = imageLiteral( "chat-outline")
 //            item.title = "Chats".localizeString(id: "toolbar__menu_item__chats", arguments: [])
 //        case .archived:
 //            break

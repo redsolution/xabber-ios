@@ -47,7 +47,7 @@ extension ChatViewController {
 
             let mask = AccountMasksManager.shared.load()
             if mask != "square" {
-                image.mask = UIImageView(image: #imageLiteral(resourceName: AccountMasksManager.shared.mask32pt))
+                image.mask = UIImageView(image: imageLiteral( AccountMasksManager.shared.mask32pt))
             } else {
                 image.mask = nil
             }
@@ -94,7 +94,7 @@ extension ChatViewController {
         
         func setMask() {
             if AccountMasksManager.shared.load() != "square" {
-                avatar.mask = UIImageView(image: #imageLiteral(resourceName: AccountMasksManager.shared.mask32pt))
+                avatar.mask = UIImageView(image: imageLiteral( AccountMasksManager.shared.mask32pt))
             } else {
                 avatar.mask = nil
             }
@@ -224,7 +224,7 @@ extension ChatViewController {
             gradientView.layer.addSublayer(gradient)
             
             guard let currentMask = AccountMasksManager.shared.load() else { return }
-            gradientMask.mask = UIImageView(image: #imageLiteral(resourceName: String(currentMask + "_outline_32pt")))
+            gradientMask.mask = UIImageView(image: imageLiteral( String(currentMask + "_outline_32pt")))
         }
         
         public final func configure(owner: String, jid: String) {

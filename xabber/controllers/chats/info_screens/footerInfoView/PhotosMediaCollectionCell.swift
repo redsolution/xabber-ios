@@ -123,7 +123,7 @@ class PhotosMediaCollectionCell: UICollectionViewCell {
     
     func activateErrorImage() {
         imageView.addSubview(errorImageView)
-        errorImageView.image = #imageLiteral(resourceName: "badge-blocked").withRenderingMode(.alwaysTemplate)
+        errorImageView.image = imageLiteral("badge-blocked")?.withRenderingMode(.alwaysTemplate)
         NSLayoutConstraint.activate([
             errorImageView.centerXAnchor.constraint(equalTo: imageView.centerXAnchor),
             errorImageView.centerYAnchor.constraint(equalTo: imageView.centerYAnchor),
@@ -142,9 +142,9 @@ class PhotosMediaCollectionCell: UICollectionViewCell {
     }
     
     func select() {
-        selectedImageView.image = #imageLiteral(resourceName: "check-circle").withRenderingMode(.alwaysTemplate)
+        selectedImageView.image = imageLiteral( "xabber.checkmark")
         selectedImageView.tintColor = .systemBlue
-        selectedImageView.backgroundColor = UIColor.white
+        selectedImageView.backgroundColor = .clear
     }
     
     func deselect() {

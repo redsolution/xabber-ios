@@ -62,7 +62,7 @@ extension ChatViewController {
         internal let indicatorView: UIButton = {
             let view = UIButton()
             
-            view.setImage( #imageLiteral(resourceName: "record").withRenderingMode(.alwaysTemplate), for: .disabled)
+            view.setImage(imageLiteral("record")?.withRenderingMode(.alwaysTemplate), for: .disabled)
             view.isEnabled = false
             view.alpha = 1.0
             view.tintColor = .systemRed
@@ -93,7 +93,7 @@ extension ChatViewController {
         let cancelButton: UIButton = {
             let button = UIButton()
             
-            button.setImage(#imageLiteral(resourceName: "feather_chevron_left_18pt").withRenderingMode(.alwaysTemplate), for: .disabled)
+            button.setImage(imageLiteral( "feather_chevron_left_18pt")?.withRenderingMode(.alwaysTemplate), for: .disabled)
             button.imageView?.tintColor = MDCPalette.grey.tint500
             button.setImage(nil, for: .normal)
             button.setTitleColor(MDCPalette.grey.tint500, for: .disabled)
@@ -115,7 +115,7 @@ extension ChatViewController {
         let deleteButton: UIButton = {
             let button = UIButton()
             
-            button.setImage(#imageLiteral(resourceName: "trash").withRenderingMode(.alwaysTemplate), for: .normal)
+            button.setImage(imageLiteral( "trash")?.withRenderingMode(.alwaysTemplate), for: .normal)
             if #available(iOS 13.0, *) {
                 button.tintColor = .secondaryLabel
             } else {
@@ -155,7 +155,7 @@ extension ChatViewController {
             let button = UIButton()
             
             button.tintColor = .white
-            button.setImage(#imageLiteral(resourceName: "play").withRenderingMode(.alwaysTemplate), for: .normal)
+            button.setImage(imageLiteral("play")?.withRenderingMode(.alwaysTemplate), for: .normal)
             button.backgroundColor = .clear
             
             
@@ -327,7 +327,7 @@ extension ChatViewController {
         open func play(for duration: TimeInterval) {
             isPlayed = true
             self.waveform.barBackgroundFillColor = MDCPalette.grey.tint400
-            self.playButton.setImage(#imageLiteral(resourceName: "pause").withRenderingMode(.alwaysTemplate), for: .normal)
+            self.playButton.setImage(imageLiteral("pause")?.withRenderingMode(.alwaysTemplate), for: .normal)
             self.waveform.play(for: duration)
             waveform.playChronometer?.timerDidComplete = waveformEndPlaying
             onPlayCallback?()
@@ -335,14 +335,14 @@ extension ChatViewController {
         
         open func pause() {
             isPlayed = false
-            self.playButton.setImage(#imageLiteral(resourceName: "play").withRenderingMode(.alwaysTemplate), for: .normal)
+            self.playButton.setImage(imageLiteral("play")?.withRenderingMode(.alwaysTemplate), for: .normal)
             self.waveform.pause()
             onPauseCallback?()
         }
         
         open func waveformEndPlaying() {
             isPlayed = false
-            self.playButton.setImage(#imageLiteral(resourceName: "play").withRenderingMode(.alwaysTemplate), for: .normal)
+            self.playButton.setImage(imageLiteral("play")?.withRenderingMode(.alwaysTemplate), for: .normal)
             onEndPlayingCallback?()
         }
         

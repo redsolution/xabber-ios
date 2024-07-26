@@ -141,7 +141,7 @@ class InlineImagesGridView: InlineMediaBaseView {
                 imageView.startAnimating()
                 
                 if urls[index].absoluteString == "" {
-                    errorImageView.image = #imageLiteral(resourceName: "badge-blocked").withRenderingMode(.alwaysTemplate)
+                    errorImageView.image = imageLiteral( "badge-blocked")?.withRenderingMode(.alwaysTemplate)
                     activateErrorImage(on: imageView)
                     return
                 }
@@ -158,7 +158,7 @@ class InlineImagesGridView: InlineMediaBaseView {
                                 break
                             }
                         case .failure(_):
-                            errorImageView.image = #imageLiteral(resourceName: "badge-blocked").withRenderingMode(.alwaysTemplate)
+                            errorImageView.image = imageLiteral("badge-blocked")?.withRenderingMode(.alwaysTemplate)
                             activateErrorImage(on: imageView)
                             imageView.stopAnimating()
                         }
@@ -174,7 +174,7 @@ class InlineImagesGridView: InlineMediaBaseView {
                                 break
                             }
                         case .failure(_):
-                            errorImageView.image = #imageLiteral(resourceName: "badge-blocked").withRenderingMode(.alwaysTemplate)
+                            errorImageView.image = imageLiteral( "badge-blocked")?.withRenderingMode(.alwaysTemplate)
                             activateErrorImage(on: imageView)
                             imageView.stopAnimating()
                         }

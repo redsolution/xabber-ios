@@ -150,9 +150,9 @@ class ChatViewController: MessagesViewController {
                 }
             }
             if result {
-                return "security"
+                return "shield.checkered"
             } else {
-                return "alert"
+                return "exclamationmark.triangle.fill"
             }
         }
     }

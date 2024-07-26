@@ -108,27 +108,27 @@ class InlineFilesGridView: InlineMediaBaseView {
         public func configure(file mimeType: String, filename: String, size: String) {
             switch MimeIconTypes(rawValue: mimeType) {
             case .image:
-                iconButton.setImage(#imageLiteral(resourceName: "image").withRenderingMode(.alwaysTemplate), for: .normal)
+                iconButton.setImage(imageLiteral("image")?.withRenderingMode(.alwaysTemplate), for: .normal)
             case .audio:
-                iconButton.setImage(#imageLiteral(resourceName: "file-audio").withRenderingMode(.alwaysTemplate), for: .normal)
+                iconButton.setImage(imageLiteral("file-audio")?.withRenderingMode(.alwaysTemplate), for: .normal)
             case .video:
-                iconButton.setImage(#imageLiteral(resourceName: "file-video").withRenderingMode(.alwaysTemplate), for: .normal)
+                iconButton.setImage(imageLiteral("file-video")?.withRenderingMode(.alwaysTemplate), for: .normal)
             case .document:
-                iconButton.setImage(#imageLiteral(resourceName: "file-document").withRenderingMode(.alwaysTemplate), for: .normal)
+                iconButton.setImage(imageLiteral("file-document")?.withRenderingMode(.alwaysTemplate), for: .normal)
             case .pdf:
-                iconButton.setImage(#imageLiteral(resourceName: "file-pdf").withRenderingMode(.alwaysTemplate), for: .normal)
+                iconButton.setImage(imageLiteral("file-pdf")?.withRenderingMode(.alwaysTemplate), for: .normal)
             case .table:
-                iconButton.setImage(#imageLiteral(resourceName: "file-table").withRenderingMode(.alwaysTemplate), for: .normal)
+                iconButton.setImage(imageLiteral("file-table")?.withRenderingMode(.alwaysTemplate), for: .normal)
             case .presentation:
-                iconButton.setImage(#imageLiteral(resourceName: "file-presentation").withRenderingMode(.alwaysTemplate), for: .normal)
+                iconButton.setImage(imageLiteral("file-presentation")?.withRenderingMode(.alwaysTemplate), for: .normal)
             case .archive:
-                iconButton.setImage(#imageLiteral(resourceName: "file-zip").withRenderingMode(.alwaysTemplate), for: .normal)
+                iconButton.setImage(imageLiteral("file-zip")?.withRenderingMode(.alwaysTemplate), for: .normal)
             case .file:
-                iconButton.setImage(#imageLiteral(resourceName: "file").withRenderingMode(.alwaysTemplate), for: .normal)
+                iconButton.setImage(imageLiteral("file")?.withRenderingMode(.alwaysTemplate), for: .normal)
             case .none:
-                iconButton.setImage(#imageLiteral(resourceName: "file").withRenderingMode(.alwaysTemplate), for: .normal)
+                iconButton.setImage(imageLiteral("file")?.withRenderingMode(.alwaysTemplate), for: .normal)
             default:
-                iconButton.setImage(#imageLiteral(resourceName: "image").withRenderingMode(.alwaysTemplate), for: .normal)
+                iconButton.setImage(imageLiteral("file")?.withRenderingMode(.alwaysTemplate), for: .normal)
             }
             filenameLabel.text = filename
             sizeLabel.text = size

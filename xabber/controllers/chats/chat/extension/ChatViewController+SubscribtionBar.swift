@@ -98,7 +98,7 @@
 //        let cancelButton: UIButton = {
 //            let button = UIButton()
 //            
-//            button.setImage(#imageLiteral(resourceName: "feather_close_24pt").withRenderingMode(.alwaysTemplate), for: .normal)
+//            button.setImage(imageLiteral( "feather_close_24pt").withRenderingMode(.alwaysTemplate), for: .normal)
 //            button.frame = CGRect(square: 36)
 //            button.tintColor = .gray
 //            

@@ -160,7 +160,7 @@ extension AccountInfoViewController: UITableViewDataSource {
         cell.textLabel?.text = item.title
         cell.accessoryType = .disclosureIndicator
         if let asset = item.assetReference {
-            cell.imageView?.image = #imageLiteral(resourceName: asset).withRenderingMode(.alwaysTemplate)
+            cell.imageView?.image = imageLiteral(asset)?.withRenderingMode(.alwaysTemplate)
         }
         return cell
         

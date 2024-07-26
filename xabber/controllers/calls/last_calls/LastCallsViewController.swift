@@ -104,7 +104,7 @@ class LastCallsViewController: BaseViewController {
     
     internal let addButton: UIBarButtonItem = {
 //        let button = UIBarButtonItem(barButtonSystemItem: .add, target: nil, action: nil)
-        let button = UIBarButtonItem(image: #imageLiteral(resourceName: "call").withRenderingMode(.alwaysTemplate), style: .done, target: nil, action: nil)
+        let button = UIBarButtonItem(image: imageLiteral("phone.fill"), style: .done, target: nil, action: nil)
         
         button.tintColor = .systemGray
         

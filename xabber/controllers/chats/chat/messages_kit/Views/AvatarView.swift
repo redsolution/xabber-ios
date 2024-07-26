@@ -57,7 +57,7 @@ open class AvatarView: UIImageView {
     open override var frame: CGRect {
         didSet {
             if AccountMasksManager.shared.load() != "square" {
-                self.mask = UIImageView(image: #imageLiteral(resourceName: AccountMasksManager.shared.mask32pt))
+                self.mask = UIImageView(image: imageLiteral( AccountMasksManager.shared.mask32pt))
             } else {
                 self.mask = nil
             }
@@ -67,7 +67,7 @@ open class AvatarView: UIImageView {
     open override var bounds: CGRect {
         didSet {
             if AccountMasksManager.shared.load() != "square" {
-                self.mask = UIImageView(image: #imageLiteral(resourceName: AccountMasksManager.shared.mask32pt))
+                self.mask = UIImageView(image: imageLiteral( AccountMasksManager.shared.mask32pt))
             } else {
                 self.mask = nil
             }
@@ -88,7 +88,7 @@ open class AvatarView: UIImageView {
         guard let initials = initials else { return }
         image = getImageFrom(initials: initials)
         if AccountMasksManager.shared.load() != "square" {
-            mask = UIImageView(image: #imageLiteral(resourceName: AccountMasksManager.shared.mask32pt))
+            mask = UIImageView(image: imageLiteral( AccountMasksManager.shared.mask32pt))
         } else {
             mask = nil
         }
@@ -174,7 +174,7 @@ open class AvatarView: UIImageView {
         layer.masksToBounds = true
         clipsToBounds = true
         if AccountMasksManager.shared.load() != "square" {
-            mask = UIImageView(image: #imageLiteral(resourceName: AccountMasksManager.shared.mask48pt))
+            mask = UIImageView(image: imageLiteral( AccountMasksManager.shared.mask48pt))
         } else {
             mask = nil
         }
@@ -187,7 +187,7 @@ open class AvatarView: UIImageView {
         if let image = avatar.image {
             self.image = image
             if AccountMasksManager.shared.load() != "square" {
-                self.mask = UIImageView(image: #imageLiteral(resourceName: AccountMasksManager.shared.mask32pt))
+                self.mask = UIImageView(image: imageLiteral( AccountMasksManager.shared.mask32pt))
             } else {
                 self.mask = nil
             }

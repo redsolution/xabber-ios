@@ -52,7 +52,7 @@ extension AccountBlockListViewController {
             image.layer.masksToBounds = true
             image.layer.borderColor = UIColor.white.cgColor
             if AccountMasksManager.shared.load() != "square" {
-                image.mask = UIImageView(image: #imageLiteral(resourceName: AccountMasksManager.shared.mask48pt))
+                image.mask = UIImageView(image: imageLiteral( AccountMasksManager.shared.mask48pt))
             } else {
                 image.mask = nil
             }

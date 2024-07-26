@@ -105,13 +105,13 @@ class ContactInfoViewController: BaseViewController {
     }()
     
     internal let editButton: UIBarButtonItem = {
-        let button = UIBarButtonItem(image: (UIImage(named: "xabber.pencil.cap") ?? UIImage(systemName: "pencil"))?.withRenderingMode(.alwaysTemplate), style: .plain, target: nil, action: nil)
+        let button = UIBarButtonItem(image: imageLiteral("xabber.pencil.cap"), style: .plain, target: nil, action: nil)
         
         return button
     }()
     
     internal let showQRCodeButton: UIBarButtonItem = {
-//        let button = UIBarButtonItem(image: #imageLiteral(resourceName: "qrcode").withRenderingMode(.alwaysTemplate), style: .plain, target: nil, action: nil)
+//        let button = UIBarButtonItem(image: imageLiteral( "qrcode").withRenderingMode(.alwaysTemplate), style: .plain, target: nil, action: nil)
         let button = UIBarButtonItem(image: UIImage(systemName: "qrcode"), style: .done, target: nil, action: nil)
         
         return button

@@ -89,7 +89,7 @@ extension ChatViewController: ChatToolsButtonDelegate {
         internal let upIcon: UIImageView = {
             let image = UIImageView(frame: CGRect(x: 6, y: 42, width: 24, height: 24))
             
-            image.image = #imageLiteral(resourceName: "chevron-down").withRenderingMode(.alwaysTemplate)
+            image.image = imageLiteral("chevron-down")?.withRenderingMode(.alwaysTemplate)
             image.tintColor = MDCPalette.grey.tint600
             image.isHidden = true
             image.transform = CGAffineTransform(scaleX: 1.0, y: -1.0)
@@ -182,7 +182,7 @@ extension ChatViewController: ChatToolsButtonDelegate {
                 animate {
                     self.isHidden = false
                     self.frame = CGRect(origin: CGPoint(x: 5, y: 0), size: CGSize(square: 36))
-                    self.setImage(#imageLiteral(resourceName: "chevron-down").withRenderingMode(.alwaysTemplate), for: .normal)
+                    self.setImage(imageLiteral( "chevron-down")?.withRenderingMode(.alwaysTemplate), for: .normal)
                     self.tintColor = MDCPalette.grey.tint600
                     self.imageEdgeInsets = UIEdgeInsets(top: 6, bottom: 6, left: 6, right: 6)
                     self.upIcon.isHidden = true
@@ -196,7 +196,7 @@ extension ChatViewController: ChatToolsButtonDelegate {
                     self.isHidden = false
 //                    let origin = CGPoint(x: self.frame.origin.x, y: self.frame.origin.y - 18)
                     self.frame = CGRect(origin: CGPoint(x: 5, y: 0), size: CGSize(width: 36, height: 72))
-                    self.setImage(#imageLiteral(resourceName: "lock-open").withRenderingMode(.alwaysTemplate), for: .normal)
+                    self.setImage(imageLiteral( "lock-open")?.withRenderingMode(.alwaysTemplate), for: .normal)
                     self.tintColor = MDCPalette.grey.tint600
                     self.imageEdgeInsets = UIEdgeInsets(top: 10, bottom: 38, left: 6, right: 6)
                     self.upIcon.isHidden = false
@@ -209,7 +209,7 @@ extension ChatViewController: ChatToolsButtonDelegate {
                 animate {
                     self.isHidden = false
                     self.frame = CGRect(origin: CGPoint(x: 5, y: 36), size: CGSize(square: 36))
-                    self.setImage(#imageLiteral(resourceName: "stop").withRenderingMode(.alwaysTemplate), for: .normal)
+                    self.setImage(imageLiteral("stop")?.withRenderingMode(.alwaysTemplate), for: .normal)
                     self.tintColor = MDCPalette.red.tint600
                     self.imageEdgeInsets = UIEdgeInsets(top: 6, bottom: 6, left: 6, right: 6)
                     self.upIcon.isHidden = true
@@ -222,7 +222,7 @@ extension ChatViewController: ChatToolsButtonDelegate {
                 animate {
                     self.isHidden = false
                     self.frame = CGRect(origin: CGPoint(x: 5, y: 36), size: CGSize(square: 36))
-                    self.setImage(#imageLiteral(resourceName: "lock").withRenderingMode(.alwaysTemplate), for: .normal)
+                    self.setImage(imageLiteral("lock")?.withRenderingMode(.alwaysTemplate), for: .normal)
                     self.tintColor = MDCPalette.grey.tint600
                     self.imageEdgeInsets = UIEdgeInsets(top: 6, bottom: 6, left: 6, right: 6)
                     self.upIcon.isHidden = true
@@ -235,7 +235,7 @@ extension ChatViewController: ChatToolsButtonDelegate {
                 animate {
                     self.isHidden = false
                     self.frame = CGRect(origin: CGPoint(x: 5, y: 36), size: CGSize(square: 36))
-                    self.setImage(#imageLiteral(resourceName: "trash").withRenderingMode(.alwaysTemplate), for: .normal)
+                    self.setImage(imageLiteral("trash")?.withRenderingMode(.alwaysTemplate), for: .normal)
                     self.tintColor = .systemRed
                     self.imageEdgeInsets = UIEdgeInsets(top: 6, bottom: 6, left: 6, right: 6)
                     self.upIcon.isHidden = true

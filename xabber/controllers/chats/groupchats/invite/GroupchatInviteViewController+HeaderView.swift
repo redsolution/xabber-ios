@@ -89,9 +89,9 @@ extension GroupchatInviteViewController {
         
         internal func updateCollapsedIndicator() {
             if self.collapsed {
-                collapseButton.setImage(#imageLiteral(resourceName: "chevron-up").withRenderingMode(.alwaysTemplate), for: .normal)
+                collapseButton.setImage(imageLiteral( "chevron-up")?.withRenderingMode(.alwaysTemplate), for: .normal)
             } else {
-                collapseButton.setImage(#imageLiteral(resourceName: "chevron-down").withRenderingMode(.alwaysTemplate), for: .normal)
+                collapseButton.setImage(imageLiteral( "chevron-down")?.withRenderingMode(.alwaysTemplate), for: .normal)
             }
         }
         

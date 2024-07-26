@@ -35,7 +35,7 @@ extension ChatViewController {
             let button = UIButton(frame: CGRect(square: 40))
             
             button.restorationIdentifier = SearchResultDirection.up.rawValue
-            button.setImage(#imageLiteral(resourceName: "chevron-up").withRenderingMode(.alwaysTemplate), for: .normal)
+            button.setImage(imageLiteral("chevron-up")?.withRenderingMode(.alwaysTemplate), for: .normal)
             button.tintColor = MDCPalette.grey.tint500
             button.imageEdgeInsets = UIEdgeInsets(square: 8)
             
@@ -46,7 +46,7 @@ extension ChatViewController {
             let button = UIButton(frame: CGRect(square: 40))
             
             button.restorationIdentifier = SearchResultDirection.down.rawValue
-            button.setImage(#imageLiteral(resourceName: "chevron-down").withRenderingMode(.alwaysTemplate), for: .normal)
+            button.setImage(imageLiteral("chevron-down")?.withRenderingMode(.alwaysTemplate), for: .normal)
             button.tintColor = MDCPalette.grey.tint500
             button.imageEdgeInsets = UIEdgeInsets(square: 8)
             

@@ -72,7 +72,7 @@ extension AccountEditViewController {
             let button = UIButton(frame: CGRect(square: 128))
             button.backgroundColor = .red
             if AccountMasksManager.shared.load() != "square" {
-                button.mask = UIImageView(image: #imageLiteral(resourceName: AccountMasksManager.shared.mask128pt))
+                button.mask = UIImageView(image: imageLiteral( AccountMasksManager.shared.mask128pt))
             } else {
                 button.mask = nil
             }
@@ -174,7 +174,7 @@ extension AccountEditViewController {
                 
         func setMask() {
             if AccountMasksManager.shared.load() != "square" {
-                avatarButton.mask = UIImageView(image: #imageLiteral(resourceName: AccountMasksManager.shared.mask128pt))
+                avatarButton.mask = UIImageView(image: imageLiteral( AccountMasksManager.shared.mask128pt))
             } else {
                 avatarButton.mask = nil
             }

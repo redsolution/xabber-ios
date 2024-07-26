@@ -210,7 +210,7 @@ class PhotoGalleryCell: UICollectionViewCell {
     private func activateErrorImage() {
         imageView.addSubview(errorImageView)
         imageView.addSubview(errorLabel)
-        errorImageView.image = #imageLiteral(resourceName: "badge-blocked").withRenderingMode(.alwaysTemplate)
+        errorImageView.image = imageLiteral( "badge-blocked")?.withRenderingMode(.alwaysTemplate)
         NSLayoutConstraint.activate([
             errorImageView.centerXAnchor.constraint(equalTo: self.centerXAnchor),
             errorImageView.centerYAnchor.constraint(equalTo: self.centerYAnchor),

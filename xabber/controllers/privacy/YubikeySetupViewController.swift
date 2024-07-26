@@ -266,7 +266,7 @@ extension YubikeySetupViewController: UITableViewDataSource {
             } else {
                 cell.detailTextLabel?.text = item.subtitle
                 let checkView = UIImageView(frame: CGRect(square: 24))
-                checkView.image = #imageLiteral(resourceName: "check-circle").withRenderingMode(.alwaysTemplate)
+                checkView.image = imageLiteral( "xabber.checkmark")
                 checkView.tintColor = .systemGreen
                 cell.accessoryView = checkView
             }

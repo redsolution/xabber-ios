@@ -133,13 +133,13 @@ class GroupchatInfoViewController: SimpleBaseViewController {
     }()
     
     internal let infoButton: UIBarButtonItem = {
-        let button = UIBarButtonItem(image: #imageLiteral(resourceName: "information").withRenderingMode(.alwaysTemplate), style: .plain, target: nil, action: nil)
+        let button = UIBarButtonItem(image: imageLiteral( "info.circle.fill"), style: .plain, target: nil, action: nil)
         
         return button
     }()
     
     internal let showQRCodeButton: UIBarButtonItem = {
-        let button = UIBarButtonItem(image: #imageLiteral(resourceName: "qrcode").withRenderingMode(.alwaysTemplate), style: .plain, target: nil, action: nil)
+        let button = UIBarButtonItem(image: imageLiteral( "qrcode")?.withRenderingMode(.alwaysTemplate), style: .plain, target: nil, action: nil)
         
         return button
     }()
@@ -246,9 +246,9 @@ class GroupchatInfoViewController: SimpleBaseViewController {
                         DispatchQueue.main.async {
                             if self.canBeChanged {
 //                                self.infoButton.title = "Edit"
-                                self.infoButton.image = #imageLiteral(resourceName: "pencil").withRenderingMode(.alwaysTemplate)
+                                self.infoButton.image = imageLiteral("xabber.pencil.cap")
                             } else {
-                                self.infoButton.image = #imageLiteral(resourceName: "information").withRenderingMode(.alwaysTemplate)
+                                self.infoButton.image = imageLiteral("info.circle.fill")
                             }
                         }
                         

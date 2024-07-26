@@ -252,7 +252,7 @@ extension SearchResultsViewController {
             userImageView.addSubview(statusIndicator)
             
             
-            let iconView = UIImageView(image: #imageLiteral(resourceName: "group-public").withRenderingMode(.alwaysTemplate))
+            let iconView = UIImageView(image: imageLiteral( "group-public")?.withRenderingMode(.alwaysTemplate))
             iconView.frame = CGRect(x: 2,
                                     y: 2,
                                     width: 14,

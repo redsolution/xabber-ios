@@ -70,7 +70,7 @@ extension ContactsViewController {
         internal var subtitleButton: UIButton = {
             let button = UIButton()
             
-            button.setImage(#imageLiteral(resourceName: "group-incognito"), for: .normal)
+            button.setImage(imageLiteral( "group-incognito"), for: .normal)
             if #available(iOS 13.0, *) {
                 button.tintColor = .secondaryLabel
                 button.setTitleColor(.secondaryLabel, for: .normal)
@@ -107,9 +107,9 @@ extension ContactsViewController {
             titleLabel.text = title
             subtitleLabel.text = subtitle
             if collapsed {
-                collapsedIcon.image = #imageLiteral(resourceName: "menu-up").withRenderingMode(.alwaysTemplate)
+                collapsedIcon.image = imageLiteral( "menu-up")?.withRenderingMode(.alwaysTemplate)
             } else {
-                collapsedIcon.image = #imageLiteral(resourceName: "menu-down").withRenderingMode(.alwaysTemplate)
+                collapsedIcon.image = imageLiteral( "menu-down")?.withRenderingMode(.alwaysTemplate)
             }
         }
         

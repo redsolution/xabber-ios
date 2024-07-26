@@ -139,19 +139,19 @@ class InlineCallGridView: InlineMediaBaseView {
                 iconButton.tintColor = color
 //            }
             subtitleButton.setTitleColor(color, for: .normal)
-            subtitleButton.setImage(#imageLiteral(resourceName: "call-missed").withRenderingMode(.alwaysTemplate).resize(targetSize: CGSize(square: 12)), for: .normal)
-            iconButton.setImage(#imageLiteral(resourceName: "call").withRenderingMode(.alwaysTemplate), for: .normal)
+            subtitleButton.setImage(imageLiteral("phone.arrow.down.left.fill")?.withRenderingMode(.alwaysTemplate).resize(targetSize: CGSize(square: 12)), for: .normal)
+            iconButton.setImage(imageLiteral("phone.fill"), for: .normal)
             
             switch state {
             case .missed:
                 subtitleButton.setTitle(dateString, for: .normal)
                 titleLabel.text = "Missed call".localizeString(id: "chat_message_missed_call", arguments: [])
             case .noanswer, .busy:
-//                iconButton.setImage(#imageLiteral(resourceName: "call-noanswer").withRenderingMode(.alwaysTemplate), for: .normal)
+//                iconButton.setImage(imageLiteral( "call-noanswer").withRenderingMode(.alwaysTemplate), for: .normal)
                 subtitleButton.setTitle(dateString, for: .normal)
                 titleLabel.text = "Cancelled call".localizeString(id: "chat_message_cancelled_call", arguments: [])
             case .made:
-//                iconButton.setImage(#imageLiteral(resourceName: "call-made").withRenderingMode(.alwaysTemplate), for: .normal)
+//                iconButton.setImage(imageLiteral( "call-made").withRenderingMode(.alwaysTemplate), for: .normal)
                 if let duration = duration,
                    duration > 0 {
                     subtitleButton.setTitle(
@@ -162,7 +162,7 @@ class InlineCallGridView: InlineMediaBaseView {
                     subtitleButton.setTitle(dateString, for: .normal)
                 }
             case .received:
-//                iconButton.setImage(#imageLiteral(resourceName: "call-received").withRenderingMode(.alwaysTemplate), for: .normal)
+//                iconButton.setImage(imageLiteral( "call-received").withRenderingMode(.alwaysTemplate), for: .normal)
                 if let duration = duration,
                    duration > 0 {
                     subtitleButton.setTitle(
@@ -174,7 +174,7 @@ class InlineCallGridView: InlineMediaBaseView {
                 }
             case .none:
                 subtitleButton.setTitle(dateString, for: .normal)
-//                iconButton.setImage(#imageLiteral(resourceName: "call-outline").withRenderingMode(.alwaysTemplate), for: .normal)
+//                iconButton.setImage(imageLiteral( "call-outline").withRenderingMode(.alwaysTemplate), for: .normal)
             }
         }
     }

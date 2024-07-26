@@ -209,9 +209,9 @@ class VoiceMediaCollectionCell: UICollectionViewCell {
             
             switch state {
             case .playing:
-                playButton.setImage(#imageLiteral(resourceName: "pause").withRenderingMode(.alwaysTemplate), for: .normal)
+                playButton.setImage(imageLiteral("pause")?.withRenderingMode(.alwaysTemplate), for: .normal)
             case .paused:
-                playButton.setImage(#imageLiteral(resourceName: "play").withRenderingMode(.alwaysTemplate), for: .normal)
+                playButton.setImage(imageLiteral("play")?.withRenderingMode(.alwaysTemplate), for: .normal)
             }
         }
     }
@@ -272,7 +272,7 @@ class VoiceMediaCollectionCell: UICollectionViewCell {
         switch state {
         case .stop:
             audioView.loadingIndicator.removeFromSuperview()
-            audioView.playButton.setImage(#imageLiteral(resourceName: "play").withRenderingMode(.alwaysTemplate), for: .normal)
+            audioView.playButton.setImage(imageLiteral("play")?.withRenderingMode(.alwaysTemplate), for: .normal)
             deactivateDurationLabel()
         case .loading:
             audioView.playButton.setImage(nil, for: .normal)
@@ -281,11 +281,11 @@ class VoiceMediaCollectionCell: UICollectionViewCell {
             audioView.playButton.addSubview(audioView.loadingIndicator)
         case .play:
             audioView.loadingIndicator.removeFromSuperview()
-            audioView.playButton.setImage(#imageLiteral(resourceName: "play").withRenderingMode(.alwaysTemplate), for: .normal)
+            audioView.playButton.setImage(imageLiteral("play")?.withRenderingMode(.alwaysTemplate), for: .normal)
             
         case .pause:
             audioView.loadingIndicator.removeFromSuperview()
-            audioView.playButton.setImage(#imageLiteral(resourceName: "pause").withRenderingMode(.alwaysTemplate), for: .normal)
+            audioView.playButton.setImage(imageLiteral("pause")?.withRenderingMode(.alwaysTemplate), for: .normal)
             deactivateDurationLabel()
         }
     }
@@ -304,17 +304,17 @@ class VoiceMediaCollectionCell: UICollectionViewCell {
 //            self.state = .pause
 //            lastPlayedDuration = OpusAudio.shared.player?.currentTime ?? 0.0
 //            duration = OpusAudio.shared.player?.duration ?? 0
-//            audioView.playButton.setImage(#imageLiteral(resourceName: "pause").withRenderingMode(.alwaysTemplate), for: .normal)
+//            audioView.playButton.setImage(imageLiteral( "pause").withRenderingMode(.alwaysTemplate), for: .normal)
 //            OpusAudio.shared.player?.play()
 //            activateDurationLabel()
 //        case .pause:
 //            self.state = .play
-//            audioView.playButton.setImage(#imageLiteral(resourceName: "play").withRenderingMode(.alwaysTemplate), for: .normal)
+//            audioView.playButton.setImage(imageLiteral( "play").withRenderingMode(.alwaysTemplate), for: .normal)
 //            OpusAudio.shared.player?.pause()
 //            deactivateDurationLabel()
 //        case .stop:
 //            self.state = .play
-//            audioView.playButton.setImage(#imageLiteral(resourceName: "play").withRenderingMode(.alwaysTemplate), for: .normal)
+//            audioView.playButton.setImage(imageLiteral( "play").withRenderingMode(.alwaysTemplate), for: .normal)
 //            audioView.durationLabel.text = "\(TimeInterval(0).minuteFormatedString) / \(duration.minuteFormatedString), \(sizeInBytes)"
 //        default: return
 //        }

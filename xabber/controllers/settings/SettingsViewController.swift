@@ -514,7 +514,7 @@ class SettingsViewController: BaseViewController {
     
     func navigationBarButtonsConfigure(multiAccounts: Bool) {
         barButtonItemAddAccount = (CommonConfigManager.shared.config.supports_multiaccounts && !multiAccounts) ?
-        UIBarButtonItem(image: #imageLiteral(resourceName: "contact-add").withRenderingMode(.alwaysTemplate),
+        UIBarButtonItem(image: imageLiteral( "contact-add")?.withRenderingMode(.alwaysTemplate),
                         style: .plain,
                         target: self,
                         action: #selector(addAccount)) : nil
@@ -531,11 +531,11 @@ class SettingsViewController: BaseViewController {
                 navigationItem.setRightBarButtonItems([editButton].compactMap { $0 }, animated: false)
             }
         } else {
-            let qrCodeButton = UIBarButtonItem(image: #imageLiteral(resourceName: "qrcode").withRenderingMode(.alwaysTemplate),
+            let qrCodeButton = UIBarButtonItem(image: imageLiteral( "qrcode")?.withRenderingMode(.alwaysTemplate),
                                                style: .plain,
                                                target: self,
                                                action: #selector(self.onQRCode))
-            let paletteButton = UIBarButtonItem(image: #imageLiteral(resourceName: "palette").withRenderingMode(.alwaysTemplate),
+            let paletteButton = UIBarButtonItem(image: imageLiteral( "palette")?.withRenderingMode(.alwaysTemplate),
                                                 style: .plain,
                                                 target: self,
                                                 action: #selector(self.showAccountColorViewController))

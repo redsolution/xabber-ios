@@ -49,7 +49,7 @@ extension EditContactViewController {
         private let indicator: UIImageView = {
             let view = UIImageView()
             
-            view.image = #imageLiteral(resourceName: "information").withRenderingMode(.alwaysTemplate)
+            view.image = imageLiteral( "info.circle.fill")
             view.tintColor = .systemRed
             
             return view

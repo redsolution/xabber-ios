@@ -43,9 +43,9 @@ extension ChatViewController: MessagesDisplayDelegate {
             }
         }
         if result {
-            return "security"
+            return "shield.checkered"
         } else {
-            return "alert"
+            return "exclamationmark.triangle.fill"
         }
     }
     
@@ -183,19 +183,19 @@ extension ChatViewController: MessagesDisplayDelegate {
         default:
             switch self.entity {
             case .contact:
-                return #imageLiteral(resourceName: "56dp-chat")
+                return imageLiteral( "56dp-chat")
             case .groupchat:
-                return #imageLiteral(resourceName: "56dp-group-public")
+                return imageLiteral( "56dp-group-public")
             case .bot:
-                return #imageLiteral(resourceName: "56dp-chat")
+                return imageLiteral( "56dp-chat")
             case .server:
-                return #imageLiteral(resourceName: "56dp-chat")
+                return imageLiteral( "56dp-chat")
             case .incognitoChat:
-                return #imageLiteral(resourceName: "56dp-group-incognito")
+                return imageLiteral( "56dp-group-incognito")
             case .privateChat:
-                return #imageLiteral(resourceName: "56dp-group-private")
+                return imageLiteral( "56dp-group-private")
             case .encryptedChat:
-                return #imageLiteral(resourceName: "56dp-chat-encrypted")
+                return imageLiteral( "56dp-chat-encrypted")
             case .issue:
                 return nil
             }

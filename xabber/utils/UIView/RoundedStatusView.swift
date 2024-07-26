@@ -68,37 +68,37 @@ class RoundedStatusView: UIView {
         case .contact:
             subviews.forEach { $0.removeFromSuperview() }
         case .privateChat:
-//            let view = UIImageView(image: #imageLiteral(resourceName: "badge-group-private").withRenderingMode(.alwaysTemplate))
+            let view = UIImageView(image: imageLiteral("xabber.incognito.fill"))
             view.frame = CGRect(x: 0, y: 0, width: frame.width , height: frame.height )
             view.tintColor = .white
             addSubview(view)
             bringSubviewToFront(view)
         case .groupchat:
-            let view = UIImageView(image: #imageLiteral(resourceName: "badge-group-public").withRenderingMode(.alwaysTemplate))
+            let view = UIImageView(image: imageLiteral("person.2.fill"))
             view.frame = CGRect(x: 0, y: 0, width: frame.width , height: frame.height )
             view.tintColor = .white
             addSubview(view)
             bringSubviewToFront(view)
         case .bot:
-            let view = UIImageView(image: #imageLiteral(resourceName: "badge-bot").withRenderingMode(.alwaysTemplate))
+            let view = UIImageView(image: imageLiteral( "badge-bot")?.withRenderingMode(.alwaysTemplate))
             view.frame = CGRect(x: 0, y: 0, width: frame.width , height: frame.height )
             view.tintColor = .white
             addSubview(view)
             bringSubviewToFront(view)
         case .server:
-            let view = UIImageView(image: #imageLiteral(resourceName: "badge-server").withRenderingMode(.alwaysTemplate))
+            let view = UIImageView(image: imageLiteral( "badge-server")?.withRenderingMode(.alwaysTemplate))
             view.frame = CGRect(x: 0, y: 0, width: frame.width, height: frame.height)
             view.tintColor = .white
             addSubview(view)
             bringSubviewToFront(view)
         case .incognitoChat:
-            let view = UIImageView(image: #imageLiteral(resourceName: "badge-group-incognito").withRenderingMode(.alwaysTemplate))
+            let view = UIImageView(image: imageLiteral( "badge-group-incognito")?.withRenderingMode(.alwaysTemplate))
             view.frame = CGRect(x: 0, y: 0, width: frame.width , height: frame.height )
             view.tintColor = .white
             addSubview(view)
             bringSubviewToFront(view)
         case .issue:
-            let view = UIImageView(image: #imageLiteral(resourceName: "badge-task").withRenderingMode(.alwaysTemplate))
+            let view = UIImageView(image: imageLiteral( "badge-task")?.withRenderingMode(.alwaysTemplate))
             view.frame = CGRect(x: 0, y: 0, width: frame.width , height: frame.height )
             view.tintColor = .white
             addSubview(view)

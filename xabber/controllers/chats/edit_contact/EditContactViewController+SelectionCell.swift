@@ -63,7 +63,7 @@ extension EditContactViewController {
                     size: CGSize(square: 20))
             )
             
-            view.image = #imageLiteral(resourceName: "check").withRenderingMode(.alwaysTemplate)
+            view.image = imageLiteral( "check")?.withRenderingMode(.alwaysTemplate)
             if #available(iOS 13.0, *) {
                 view.tintColor = .systemBackground
             } else {

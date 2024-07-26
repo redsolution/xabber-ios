@@ -28,7 +28,7 @@ class InlineGridImagePlaceholderView: UIImageView, Placeholder {
     }
  
     internal func setup() {
-        self.image = #imageLiteral(resourceName: "image").withRenderingMode(.alwaysTemplate)
+        self.image = imageLiteral("image")?.withRenderingMode(.alwaysTemplate)
         self.tintColor = MDCPalette.grey.tint600
         self.layer.borderColor = MDCPalette.grey.tint600.cgColor
         self.layer.borderWidth = 1

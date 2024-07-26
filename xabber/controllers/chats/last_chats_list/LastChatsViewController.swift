@@ -920,7 +920,7 @@ class LastChatsViewController: BaseViewController {
                 switch value {
                 case .chats:
                     self.emptyView.update(
-                        image:  #imageLiteral(resourceName: "buffer160").withRenderingMode(.alwaysTemplate),
+                        image:  imageLiteral( "buffer160")?.withRenderingMode(.alwaysTemplate),
                         title: "Chats list is empty".localizeString(id: "chats_list_is_empty", arguments: []),
                         subtitle: "Try to start a new chat".localizeString(id: "try_to_start_new_chat", arguments: []),
                         buttonTitle: "Start new chat".localizeString(id: "start_new_chat", arguments: [])
@@ -928,7 +928,7 @@ class LastChatsViewController: BaseViewController {
                     break
                 case .unread:
                     self.emptyView.update(
-                        image:  #imageLiteral(resourceName: "buffer160").withRenderingMode(.alwaysTemplate),
+                        image:  imageLiteral( "buffer160")?.withRenderingMode(.alwaysTemplate),
                         title: "No unread chats".localizeString(id: "unreaded_chats_list_empty", arguments: []),
                         subtitle: " ",
                         buttonTitle: " "
@@ -936,7 +936,7 @@ class LastChatsViewController: BaseViewController {
                     break
                 case .archived:
                     self.emptyView.update(
-                        image:  #imageLiteral(resourceName: "buffer160").withRenderingMode(.alwaysTemplate),
+                        image:  imageLiteral( "buffer160")?.withRenderingMode(.alwaysTemplate),
                         title: "Your archived chats list is empty".localizeString(id: "archived_chats_list_empty", arguments: []),
                         subtitle: " ",
                         buttonTitle: " "
@@ -945,7 +945,7 @@ class LastChatsViewController: BaseViewController {
                 }
                 self.updateDatasource(value)
                 self.updateTitle(value)
-                self.bottomBar.leftButton.setImage(UIImage(systemName: self.filter.value == .unread ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate), for: .normal)
+                self.bottomBar.leftButton.setImage(imageLiteral(self.filter.value == .unread ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate), for: .normal)
                 do {
                     try self.updateBottomTitle()
                 } catch {
@@ -1047,7 +1047,6 @@ class LastChatsViewController: BaseViewController {
     internal func configure() {
         self.restorationIdentifier = "LastChatsViewController"
         self.restoresFocusAfterTransition = true
-        title = " "
         view.addSubview(tableView)
         tableView.fillSuperview()
         tableView.dataSource = self
@@ -1057,7 +1056,7 @@ class LastChatsViewController: BaseViewController {
 //        tableView.backgroundColor = .clear
         
         
-        emptyView.configure(image: #imageLiteral(resourceName: "buffer160").withRenderingMode(.alwaysTemplate),
+        emptyView.configure(image: imageLiteral( "buffer160")?.withRenderingMode(.alwaysTemplate),
                             title: "Chats list is empty".localizeString(id: "chats_list_is_empty", arguments: []),
                             subtitle: "Try to start a new chat".localizeString(id: "try_to_start_new_chat", arguments: []),
                             buttonTitle: "Start new chat".localizeString(id: "start_new_chat", arguments: [])) {
@@ -1122,7 +1121,7 @@ class LastChatsViewController: BaseViewController {
                     action: #selector(onAddButtonTouchUpInside)
                 )
                 let filterButton = UIBarButtonItem(
-                    image: UIImage(systemName: "line.3.horizontal.decrease.circle")?
+                    image: imageLiteral("line.3.horizontal.decrease.circle")?
                         .upscale(dimension: 24)
                         .withRenderingMode(.alwaysTemplate),
                     style: .done,
@@ -1152,14 +1151,14 @@ class LastChatsViewController: BaseViewController {
                 bottomBar.updateFrame(to: frame)
                 self.splitViewController?.navigationItem.setLeftBarButtonItems([], animated: true)
                 
-                let sidebarButton = UIBarButtonItem(image: UIImage(systemName: "sidebar.left"), style: .plain, target: self, action: #selector(onSidebarButtonTouchUp))
+                let sidebarButton = UIBarButtonItem(image: imageLiteral("sidebar.left"), style: .plain, target: self, action: #selector(onSidebarButtonTouchUp))
                 
                 if UIDevice.current.userInterfaceIdiom != .pad {
                     self.navigationItem.setHidesBackButton(true, animated: false)
                     self.navigationItem.setLeftBarButton(sidebarButton, animated: true)
                 }
                 bottomBar.leftCallback = self.onLeftBarButtonTapped
-                self.bottomBar.leftButton.setImage(UIImage(systemName: self.filter.value == .unread ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate), for: .normal)
+                self.bottomBar.leftButton.setImage(imageLiteral(self.filter.value == .unread ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate), for: .normal)
                 self.bottomBar.titleCallback = self.onTitleBarButtonTapped
                 self.bottomBar.isHidden = !shouldShowBottomBar
         }
@@ -1177,7 +1176,6 @@ class LastChatsViewController: BaseViewController {
                     .filter("isArchived == false AND unread > 0 AND owner IN %@", Array(self.enabledAccounts.value))
                     .sorted(byKeyPath: "messageDate", ascending: false)
 
-                let unreadLastChatsArray = collection.toArray()
                 try realm.write {
                     collection.forEach { $0.unread = 0 }
                 }
@@ -1195,8 +1193,7 @@ class LastChatsViewController: BaseViewController {
         }
     }
     
-    func updateBottomTitle() throws {
-        let realm = try WRealm.safe()
+    func updateBottomTitle() {
         var title = ""
         switch self.filter.value {
             case .archived:

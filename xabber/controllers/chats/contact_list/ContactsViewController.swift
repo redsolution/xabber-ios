@@ -975,7 +975,7 @@ class ContactsViewController: BaseViewController {
         tableView.delegate = self
         self.tableView.tableFooterView = UIView()
         
-        emptyView.configure(image: #imageLiteral(resourceName: "buffer160").withRenderingMode(.alwaysTemplate),
+        emptyView.configure(image: imageLiteral( "buffer160")?.withRenderingMode(.alwaysTemplate),
                             title: "Contacts list is empty".localizeString(id: "contacts_list_is_empty", arguments: []),
                             subtitle: "Try to add a contact".localizeString(id: "try_to_add_a_contact", arguments: []),
                             buttonTitle: "Add contact".localizeString(id: "application_action_no_contacts", arguments: [])) {

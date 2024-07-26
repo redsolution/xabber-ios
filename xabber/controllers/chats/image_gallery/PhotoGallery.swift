@@ -341,11 +341,11 @@ public class PhotoGallery: UIViewController {
                                             style: .done,
                                             target: self,
                                             action: #selector(dismissGallery))
-        let linkButton = UIBarButtonItem(image: #imageLiteral(resourceName: "link-variant").withRenderingMode(.alwaysTemplate),
+        let linkButton = UIBarButtonItem(image: imageLiteral( "link-variant")?.withRenderingMode(.alwaysTemplate),
                                          style: .plain,
                                          target: self,
                                          action: #selector(onCopyLinkButton))
-        let shareButton = UIBarButtonItem(image: #imageLiteral(resourceName: "share").withRenderingMode(.alwaysTemplate),
+        let shareButton = UIBarButtonItem(image: imageLiteral( "share")?.withRenderingMode(.alwaysTemplate),
                                           style: .plain,
                                           target: self,
                                           action: #selector(onShareButton))

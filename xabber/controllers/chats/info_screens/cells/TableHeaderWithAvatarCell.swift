@@ -44,7 +44,7 @@ class TableHeaderWithAvatarCell: UITableViewCell {
         let button = UIButton(frame: CGRect(square: 128))
         
         if AccountMasksManager.shared.load() != "square" {
-            button.mask = UIImageView(image: #imageLiteral(resourceName: AccountMasksManager.shared.mask128pt))
+            button.mask = UIImageView(image: imageLiteral( AccountMasksManager.shared.mask128pt))
         } else {
             button.mask = nil
         }

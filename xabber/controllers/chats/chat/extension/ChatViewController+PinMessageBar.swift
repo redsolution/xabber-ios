@@ -104,7 +104,7 @@
 //        let iconView: UIImageView = {
 //            let view = UIImageView(frame: CGRect(square: 24))
 //            
-//            view.image = #imageLiteral(resourceName: "pin").withRenderingMode(.alwaysTemplate)
+//            view.image = imageLiteral( "pin").withRenderingMode(.alwaysTemplate)
 //            view.tintColor = MDCPalette.grey.tint500
 ////            view.insets
 //            
@@ -114,7 +114,7 @@
 //        let unpinButton: UIButton = {
 //            let button = UIButton()
 //            
-//            button.setImage(#imageLiteral(resourceName: "feather_close_24pt").withRenderingMode(.alwaysTemplate), for: .normal)
+//            button.setImage(imageLiteral( "feather_close_24pt").withRenderingMode(.alwaysTemplate), for: .normal)
 //            button.frame = CGRect(square: 36)
 //            button.tintColor = .gray
 //            

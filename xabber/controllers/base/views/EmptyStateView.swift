@@ -88,12 +88,8 @@ class EmptyStateView: UIView {
         
     }
     
-    public final func configure(image: UIImage, title: String, subtitle: String, buttonTitle: String, onButtonTouchUp: (() -> Void)?) {
-        if #available(iOS 13.0, *) {
-            backgroundColor = .systemBackground
-        } else {
-            backgroundColor = .white
-        }
+    public final func configure(image: UIImage?, title: String, subtitle: String, buttonTitle: String, onButtonTouchUp: (() -> Void)?) {
+        backgroundColor = .systemBackground
         addSubview(stack)
         stack.fillSuperview()
         stack.addArrangedSubview(UIStackView())
@@ -102,10 +98,7 @@ class EmptyStateView: UIView {
         centerStack.addArrangedSubview(iconImage)
         centerStack.addArrangedSubview(titleLabel)
         centerStack.addArrangedSubview(subtitleLabel)
-//        centerStack.addArrangedSubview(button)
-//        titleLabel.text = title
-//        subtitleLabel.text = subtitle
-        
+
         self.update(image: image, title: title, subtitle: subtitle, buttonTitle: buttonTitle)
         
         button.titleLabel?.numberOfLines = 0
@@ -115,7 +108,7 @@ class EmptyStateView: UIView {
         callback = onButtonTouchUp
     }
     
-    public final func update(image: UIImage, title: String, subtitle: String, buttonTitle: String) {
+    public final func update(image: UIImage?, title: String, subtitle: String, buttonTitle: String) {
         titleLabel.text = title
         subtitleLabel.text = subtitle
         button.setTitle(buttonTitle, for: .normal)

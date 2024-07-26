@@ -52,7 +52,7 @@ class VideosMediaCollectionCell: UICollectionViewCell {
     
     let videoPlayIcon: UIImageView = {
         let view = UIImageView()
-        view.image = #imageLiteral(resourceName: "play").withRenderingMode(.alwaysTemplate)
+        view.image = imageLiteral( "play")?.withRenderingMode(.alwaysTemplate)
         view.tintColor = .white
         view.backgroundColor = .clear
         view.translatesAutoresizingMaskIntoConstraints = false
@@ -101,7 +101,7 @@ class VideosMediaCollectionCell: UICollectionViewCell {
     
     let videoWithoutPreviewIcon: UIImageView = {
         let view = UIImageView()
-        view.image = #imageLiteral(resourceName: "file-video").withRenderingMode(.alwaysTemplate)
+        view.image = imageLiteral("file-video")?.withRenderingMode(.alwaysTemplate)
         view.tintColor = .white
         view.backgroundColor = .clear
         view.translatesAutoresizingMaskIntoConstraints = false
@@ -209,7 +209,7 @@ class VideosMediaCollectionCell: UICollectionViewCell {
     
     func activateErrorImage() {
         imageView.addSubview(errorImageView)
-        errorImageView.image = #imageLiteral(resourceName: "video-off-outline").withRenderingMode(.alwaysTemplate)
+        errorImageView.image = imageLiteral( "video-off-outline")?.withRenderingMode(.alwaysTemplate)
         NSLayoutConstraint.activate([
             errorImageView.centerXAnchor.constraint(equalTo: imageView.centerXAnchor),
             errorImageView.centerYAnchor.constraint(equalTo: imageView.centerYAnchor),
@@ -228,9 +228,9 @@ class VideosMediaCollectionCell: UICollectionViewCell {
     }
     
     func select() {
-        selectedVideoView.image = #imageLiteral(resourceName: "check-circle").withRenderingMode(.alwaysTemplate)
+        selectedVideoView.image = imageLiteral( "xabber.checkmark")
         selectedVideoView.tintColor = .systemBlue
-        selectedVideoView.backgroundColor = UIColor.white
+        selectedVideoView.backgroundColor = .clear
     }
     
     func deselect() {

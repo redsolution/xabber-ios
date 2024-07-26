@@ -81,7 +81,7 @@ extension ContactsViewController {
         let menuButton: UIButton = {
             let button = UIButton(frame: CGRect(square: 24))
             
-            button.setImage(#imageLiteral(resourceName: "menu").withRenderingMode(.alwaysTemplate), for: .normal)
+            button.setImage(imageLiteral( "menu")?.withRenderingMode(.alwaysTemplate), for: .normal)
             button.tintColor = .gray
             
             return button
@@ -130,9 +130,9 @@ extension ContactsViewController {
             self.jid = jid
             self.isCollapsed = collapsed
             if collapsed {
-                collapseButton.setImage( #imageLiteral(resourceName: "chevron-up").withRenderingMode(.alwaysTemplate), for: .normal)
+                collapseButton.setImage( imageLiteral( "chevron-up")?.withRenderingMode(.alwaysTemplate), for: .normal)
             } else {
-                collapseButton.setImage( #imageLiteral(resourceName: "chevron-down").withRenderingMode(.alwaysTemplate), for: .normal)
+                collapseButton.setImage( imageLiteral( "chevron-down")?.withRenderingMode(.alwaysTemplate), for: .normal)
             }
             menuButton.addTarget(self, action: #selector(onMenuButtonPressed), for: .touchUpInside)
             collapseButton.addTarget(self, action: #selector(onCollapseAccount), for: .touchUpInside)
@@ -146,9 +146,9 @@ extension ContactsViewController {
             self.collapseCallback?(self.jid)
             self.isCollapsed = !self.isCollapsed
             if self.isCollapsed {
-                collapseButton.setImage( #imageLiteral(resourceName: "chevron-up").withRenderingMode(.alwaysTemplate), for: .normal)
+                collapseButton.setImage( imageLiteral( "chevron-up")?.withRenderingMode(.alwaysTemplate), for: .normal)
             } else {
-                collapseButton.setImage( #imageLiteral(resourceName: "chevron-down").withRenderingMode(.alwaysTemplate), for: .normal)
+                collapseButton.setImage( imageLiteral( "chevron-down")?.withRenderingMode(.alwaysTemplate), for: .normal)
             }
         }
         

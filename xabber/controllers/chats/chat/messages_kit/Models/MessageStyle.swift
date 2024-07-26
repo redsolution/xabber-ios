@@ -50,15 +50,18 @@ public enum MessageStyle {
         if let cachedImage = cache.object(forKey: imageCacheKey as NSString) {
             return cachedImage
         }
-        var image = #imageLiteral(resourceName: imageName)
+        var image = imageLiteral( imageName) 
+        if image == nil {
+            return nil
+        }
         
         switch self {
         case .bubbleTail(let corner), .bubble(let corner):
-            guard let cgImage = image.cgImage else { return nil }
-            image = UIImage(cgImage: cgImage, scale: image.scale, orientation: corner.imageOrientation)
+            guard let cgImage = image?.cgImage else { return nil }
+            image = UIImage(cgImage: cgImage, scale: image!.scale, orientation: corner.imageOrientation)
         }
         
-        let stretchedImage = stretch(shadow: image)
+        let stretchedImage = stretch(shadow: image!)
         cache.setObject(stretchedImage, forKey: imageCacheKey as NSString)
         return stretchedImage
     }
@@ -72,15 +75,19 @@ public enum MessageStyle {
         if let cachedImage = cache.object(forKey: imageCacheKey as NSString) {
             return cachedImage
         }
-        var image = #imageLiteral(resourceName: imageName)
+        var image = imageLiteral( imageName)
+        
+        if image == nil {
+            return nil
+        }
         
         switch self {
         case .bubbleTail(let corner), .bubble(let corner):
-            guard let cgImage = image.cgImage else { return nil }
-            image = UIImage(cgImage: cgImage, scale: image.scale, orientation: corner.imageOrientation)
+            guard let cgImage = image?.cgImage else { return nil }
+            image = UIImage(cgImage: cgImage, scale: image!.scale, orientation: corner.imageOrientation)
         }
         
-        let stretchedImage = stretch(image)
+        let stretchedImage = stretch(image!)
         cache.setObject(stretchedImage, forKey: imageCacheKey as NSString)
         return stretchedImage
     }

@@ -67,7 +67,7 @@ class EditCirclesCell: UITableViewCell {
     public final func configure(icon: String?, title: String, circles: [String]) {
         titleLabel.text = title
         if let icon = icon {
-//            let image = #imageLiteral(resourceName: icon).upscale(dimension: 24).withRenderingMode(.alwaysTemplate)
+//            let image = imageLiteral( icon).upscale(dimension: 24).withRenderingMode(.alwaysTemplate)
 //            if  {
 //                iconView.image = image
 //            } else 

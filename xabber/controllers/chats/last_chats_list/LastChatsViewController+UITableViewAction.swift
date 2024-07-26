@@ -41,7 +41,7 @@ extension LastChatsViewController {
             handler(true)
         }
         
-        deleteAction.image = #imageLiteral(resourceName: "trash").withRenderingMode(.alwaysTemplate)
+        deleteAction.image = imageLiteral( "trash")?.withRenderingMode(.alwaysTemplate)
         deleteAction.backgroundColor = .systemRed
         
         let archiveAction = UIContextualAction(style: .normal,
@@ -64,8 +64,8 @@ extension LastChatsViewController {
             handler(true)
         }
         
-        archiveAction.image = #imageLiteral(resourceName: "archive-put-filled").withRenderingMode(.alwaysTemplate)
-        archiveAction.backgroundColor = MDCPalette.grey.tint300
+        archiveAction.image = imageLiteral( "archive-put-filled")?.withRenderingMode(.alwaysTemplate)
+        archiveAction.backgroundColor = .systemGreen
         
         let unarchiveAction = UIContextualAction(style: .normal,
                                                  title: "Unarchive".localizeString(id: "unarchive_chat", arguments: [])) {
@@ -78,8 +78,8 @@ extension LastChatsViewController {
             handler(true)
         }
         
-        unarchiveAction.image = #imageLiteral(resourceName: "archive-remove-filled").withRenderingMode(.alwaysTemplate)
-        unarchiveAction.backgroundColor = MDCPalette.grey.tint300
+        unarchiveAction.image = imageLiteral( "archive-remove-filled")?.withRenderingMode(.alwaysTemplate)
+        unarchiveAction.backgroundColor = .systemGray3
         
         let muteAction = UIContextualAction(style: .normal, title: isMuted ?
                                             "Unmute".localizeString(id: "unmute_chat", arguments: []) :
@@ -95,9 +95,9 @@ extension LastChatsViewController {
         
         muteAction.backgroundColor = .systemBlue
         if isMuted {
-            muteAction.image = #imageLiteral(resourceName: "bell").withRenderingMode(.alwaysTemplate)
+            muteAction.image = imageLiteral( "bell")?.withRenderingMode(.alwaysTemplate)
         } else {
-            muteAction.image = #imageLiteral(resourceName: "bell-off").withRenderingMode(.alwaysTemplate)
+            muteAction.image = imageLiteral( "bell-off")?.withRenderingMode(.alwaysTemplate)
         }
 
         var actions: [UIContextualAction] = []
@@ -131,7 +131,7 @@ extension LastChatsViewController {
                 self.pinChat(jid: jid, owner: owner, conversationType: conversationType)
                 handler(true)
             }
-            pinAction.image = #imageLiteral(resourceName: "pin").withRenderingMode(.alwaysTemplate)
+            pinAction.image = imageLiteral( "pin")?.withRenderingMode(.alwaysTemplate)
             pinAction.backgroundColor = .systemGreen
             return UISwipeActionsConfiguration(actions: [pinAction])
         } else {

@@ -119,8 +119,8 @@ extension NewCallViewController {
             let button = UIButton(frame: CGRect(square: 36))
             
             button.backgroundColor = MDCPalette.grey.tint100
-            button.setImage(#imageLiteral(resourceName: "call").withRenderingMode(.alwaysTemplate), for: .normal)
-            button.tintColor = MDCPalette.grey.tint500
+            button.setImage(imageLiteral( "phone.fill"), for: .normal)
+            button.tintColor = .systemGray
             button.layer.cornerRadius = button.frame.width / 2
             button.layer.masksToBounds = true
             button.imageEdgeInsets = UIEdgeInsets(square: 6)

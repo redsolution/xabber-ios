@@ -42,7 +42,7 @@ extension LastChatsViewController {
         let iconButton: UIButton = {
             let button = UIButton(frame: CGRect(square: 56))
 
-            button.setImage(#imageLiteral(resourceName: "archive-filled").withRenderingMode(.alwaysTemplate), for: .normal)
+            button.setImage(imageLiteral( "archive-filled")?.withRenderingMode(.alwaysTemplate), for: .normal)
             button.layer.cornerRadius = 27
             button.layer.masksToBounds = true
             

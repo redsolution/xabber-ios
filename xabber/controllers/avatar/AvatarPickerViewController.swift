@@ -208,7 +208,7 @@ class AvatarPickerViewController: BaseViewController {
             )
         )
         
-        button.setImage(#imageLiteral(resourceName: "pencil").withRenderingMode(.alwaysTemplate), for: .normal)
+        button.setImage(imageLiteral( "xabber.pencil.cap"), for: .normal)
         button.layer.cornerRadius = button.frame.width / 2
         button.backgroundColor = MDCPalette.grey.tint200.withAlphaComponent(0.7)
         button.tintColor = MDCPalette.grey.tint500

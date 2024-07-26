@@ -209,7 +209,7 @@ class ChatListTableViewCell: UITableViewCell {
     let syncedIndicator: UIImageView = {
         let view = UIImageView()
         
-        view.image = #imageLiteral(resourceName: "circle4").withRenderingMode(.alwaysTemplate)
+        view.image = imageLiteral( "circle4")?.withRenderingMode(.alwaysTemplate)
         view.tintColor = MDCPalette.grey.tint300
         
         return view
@@ -218,7 +218,7 @@ class ChatListTableViewCell: UITableViewCell {
     let muteIndicator: UIImageView = {
         let view = UIImageView()
         
-        view.image = #imageLiteral(resourceName: "bell-off").withRenderingMode(.alwaysTemplate)
+        view.image = imageLiteral( "bell-off")?.withRenderingMode(.alwaysTemplate)
         view.tintColor = MDCPalette.grey.tint400
         
         return view
@@ -227,8 +227,8 @@ class ChatListTableViewCell: UITableViewCell {
     let encryptedIndicator: UIImageView = {
         let view = UIImageView()
         
-//        view.image = #imageLiteral(resourceName: "lock").withRenderingMode(.alwaysTemplate)
-        view.image = UIImage(systemName: "lock.fill")?.withRenderingMode(.alwaysTemplate)
+//        view.image = imageLiteral( "lock").withRenderingMode(.alwaysTemplate)
+        view.image = imageLiteral("lock.fill")?.withRenderingMode(.alwaysTemplate)
         view.tintColor = MDCPalette.green.tint500
         view.isHidden = true
         
@@ -244,8 +244,8 @@ class ChatListTableViewCell: UITableViewCell {
     let pinnedIndicator: UIImageView = {
         let view = UIImageView()
         
-        view.image = #imageLiteral(resourceName: "pinned").withRenderingMode(.alwaysTemplate)
-        view.tintColor = MDCPalette.grey.tint500
+        view.image = imageLiteral( "pinned")?.withRenderingMode(.alwaysTemplate)
+        view.tintColor = .systemGray
         
         return view
     }()
@@ -253,8 +253,8 @@ class ChatListTableViewCell: UITableViewCell {
     let errorIndicator: UIImageView = {
         let view = UIImageView()
         
-        view.image = #imageLiteral(resourceName: "alert-circle").withRenderingMode(.alwaysTemplate)
-        view.tintColor = MDCPalette.red.tint500
+        view.image = imageLiteral("exclamationmark.circle.fill")
+        view.tintColor = .systemRed
         
         return view
     }()
@@ -413,24 +413,24 @@ class ChatListTableViewCell: UITableViewCell {
         if let deliveryState = deliveryState {
             deliveryIndicator.isHidden = false
             switch deliveryState {
-            case .sending, .notSended, .uploading:
-                deliveryIndicator.image = #imageLiteral(resourceName: "clock").withRenderingMode(.alwaysTemplate)
-                deliveryIndicator.tintColor = MDCPalette.lightBlue.tint500
-            case .sended:
-                deliveryIndicator.image = #imageLiteral(resourceName: "check").withRenderingMode(.alwaysTemplate)
-                deliveryIndicator.tintColor = MDCPalette.grey.tint500
-            case .deliver:
-                deliveryIndicator.image = #imageLiteral(resourceName: "check").withRenderingMode(.alwaysTemplate)
-                deliveryIndicator.tintColor = MDCPalette.green.tint500
-            case .read:
-                deliveryIndicator.image = #imageLiteral(resourceName: "check-all").withRenderingMode(.alwaysTemplate)
-                deliveryIndicator.tintColor = MDCPalette.green.tint500
-            case .error:
-                deliveryIndicator.image = #imageLiteral(resourceName: "close").withRenderingMode(.alwaysTemplate)
-                deliveryIndicator.tintColor = MDCPalette.red.tint500
-            case .none:
-                deliveryIndicator.isHidden = true
-                break
+                case .sending, .notSended, .uploading:
+                    deliveryIndicator.image = imageLiteral("clock")
+                    deliveryIndicator.tintColor = .systemBlue
+                case .sended:
+                    deliveryIndicator.image = imageLiteral("xabber.checkmark")
+                    deliveryIndicator.tintColor = .systemGray
+                case .deliver:
+                    deliveryIndicator.image = imageLiteral("xabber.checkmark")
+                    deliveryIndicator.tintColor = .systemGreen
+                case .read:
+                    deliveryIndicator.image = imageLiteral("xabber.checkmark.double")
+                    deliveryIndicator.tintColor = .systemGreen
+                case .error:
+                    deliveryIndicator.image = imageLiteral("xmark")
+                    deliveryIndicator.tintColor = .systemRed
+                case .none:
+                    deliveryIndicator.isHidden = true
+                    break
             }
         } else {
             deliveryIndicator.isHidden = true

@@ -78,7 +78,7 @@ class MessageContentCell: MessageCollectionViewCell {
     let messageErrorButton: UIButton = {
         let button = UIButton(frame: CGRect(square: 16))//24
         button.backgroundColor = .clear
-        button.setImage(#imageLiteral(resourceName: "alert-circle").withRenderingMode(.alwaysTemplate), for: .normal)
+        button.setImage(imageLiteral("exclamationmark.circle.fill"), for: .normal)
         button.tintColor = MDCPalette.red.tint700
         
         return button
@@ -108,7 +108,7 @@ class MessageContentCell: MessageCollectionViewCell {
     
     let replyIcon: UIImageView = {
         let view = UIImageView()
-        view.image = #imageLiteral(resourceName: "reply").withRenderingMode(.alwaysTemplate)
+        view.image = imageLiteral("reply")?.withRenderingMode(.alwaysTemplate)
         view.tintColor = .white
         view.alpha = 0
         
@@ -226,20 +226,20 @@ class MessageContentCell: MessageCollectionViewCell {
         error = message.error
         if error {
             if message.errorType == "omemo" {
-                messageErrorButton.setImage(#imageLiteral(resourceName: "alert").withRenderingMode(.alwaysTemplate), for: .normal)
+                messageErrorButton.setImage(imageLiteral( "alert")?.withRenderingMode(.alwaysTemplate), for: .normal)
                 messageErrorButton.tintColor = .systemRed
                 messageErrorButton.backgroundColor = .clear
             } else if message.errorType == "cert_error" {
-                let icon = displayDelegate.messageErrorIcon(for: message, at: indexPath, on: messagesCollectionView) ?? "alert"
-                messageErrorButton.setImage(#imageLiteral(resourceName: icon).withRenderingMode(.alwaysTemplate), for: .normal)
-                if icon != "alert" {
+                let icon = displayDelegate.messageErrorIcon(for: message, at: indexPath, on: messagesCollectionView) ?? "exclamationmark.triangle.fill"
+                messageErrorButton.setImage(imageLiteral( icon), for: .normal)
+                if icon != "exclamationmark.triangle.fill" {
                     messageErrorButton.tintColor = .systemGreen
                 } else {
                     messageErrorButton.tintColor = .systemRed
                 }
                 messageErrorButton.backgroundColor = .clear
             } else {
-                messageErrorButton.setImage(#imageLiteral(resourceName: "alert-circle").withRenderingMode(.alwaysTemplate), for: .normal)
+                messageErrorButton.setImage(imageLiteral("exclamationmark.circle.fill"), for: .normal)
                 messageErrorButton.tintColor = MDCPalette.red.tint700
                 messageErrorButton.backgroundColor = .clear
             }
@@ -254,9 +254,9 @@ class MessageContentCell: MessageCollectionViewCell {
                 self.messageContainerView.alpha = 1.0
                 self.errorButtonBackgroundView.isHidden = false
                 self.messageErrorButton.isHidden = false
-                let icon = displayDelegate.messageErrorIcon(for: message, at: indexPath, on: messagesCollectionView) ?? "alert"
-                messageErrorButton.setImage(#imageLiteral(resourceName: icon).withRenderingMode(.alwaysTemplate), for: .normal)
-                if icon != "alert" {
+                let icon = displayDelegate.messageErrorIcon(for: message, at: indexPath, on: messagesCollectionView) ?? "exclamationmark.triangle.fill"
+                messageErrorButton.setImage(imageLiteral( icon)?.withRenderingMode(.alwaysTemplate), for: .normal)
+                if icon != "exclamationmark.triangle.fill" {
                     messageErrorButton.tintColor = .systemGreen
                 } else {
                     messageErrorButton.tintColor = .systemRed
@@ -455,29 +455,30 @@ class MessageContentCell: MessageCollectionViewCell {
     func drawDeliveryIndicator(at indexPath: IndexPath, in messageCollectionView: MessagesCollectionView) {
         let state = messageCollectionView.messagesDisplayDelegate?.deliveryState(at: indexPath) ?? .none
         switch state {
-        case .none:
-            self.messageDeliveryIndicator.isHidden = true
-            return
-        default: self.messageDeliveryIndicator.isHidden = false
-        }
-        switch state {
-        case .sending, .notSended, .uploading:
-            self.messageDeliveryIndicator.image = #imageLiteral(resourceName: "clock").withRenderingMode(.alwaysTemplate)
-            self.messageDeliveryIndicator.tintColor = MDCPalette.lightBlue.tint400
-        case .sended:
-            self.messageDeliveryIndicator.image = #imageLiteral(resourceName: "check").withRenderingMode(UIImage.RenderingMode.alwaysTemplate)
-            self.messageDeliveryIndicator.tintColor = MDCPalette.grey.tint400
-        case .deliver:
-            self.messageDeliveryIndicator.image = #imageLiteral(resourceName: "check").withRenderingMode(UIImage.RenderingMode.alwaysTemplate)
-            self.messageDeliveryIndicator.tintColor = MDCPalette.green.tint500
-        case .read:
-            self.messageDeliveryIndicator.image = #imageLiteral(resourceName: "check-all").withRenderingMode(UIImage.RenderingMode.alwaysTemplate)
-            self.messageDeliveryIndicator.tintColor = MDCPalette.green.tint500
-        case .error:
-            error = true
-            self.messageDeliveryIndicator.image = #imageLiteral(resourceName: "alert-circle-outline").withRenderingMode(UIImage.RenderingMode.alwaysTemplate)
-            self.messageDeliveryIndicator.tintColor = MDCPalette.red.tint500
-        case .none: break
+            case .none:
+                self.messageDeliveryIndicator.isHidden = true
+            default:
+                self.messageDeliveryIndicator.isHidden = false
+                switch state {
+                    case .sending, .notSended, .uploading:
+                        self.messageDeliveryIndicator.image = imageLiteral("clock")
+                        self.messageDeliveryIndicator.tintColor = .systemBlue
+                    case .sended:
+                        self.messageDeliveryIndicator.image = imageLiteral("xabber.checkmark")
+                        self.messageDeliveryIndicator.tintColor = .systemGray
+                    case .deliver:
+                        self.messageDeliveryIndicator.image = imageLiteral( "xabber.checkmark")
+                        self.messageDeliveryIndicator.tintColor = .systemGreen
+                    case .read:
+                        self.messageDeliveryIndicator.image = imageLiteral("xabber.checkmark.double")
+                        self.messageDeliveryIndicator.tintColor = .systemGreen
+                    case .error:
+                        error = true
+                        self.messageDeliveryIndicator.image = imageLiteral("info.circle")
+                        self.messageDeliveryIndicator.tintColor = .systemRed
+                    case .none:
+                        break
+                }
         }
     }
     

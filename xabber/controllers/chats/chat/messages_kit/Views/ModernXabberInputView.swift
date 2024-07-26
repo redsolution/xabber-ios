@@ -69,7 +69,7 @@ class ModernXabberInputView: UIView {
         let closeButton: UIButton = {
             let button = UIButton()
             
-            button.setImage(#imageLiteral(resourceName: "feather_close_24pt").withRenderingMode(.alwaysTemplate), for: .normal)
+            button.setImage(imageLiteral( "feather_close_24pt")?.withRenderingMode(.alwaysTemplate), for: .normal)
             button.tintColor = .systemGray
             
             return button
@@ -86,15 +86,12 @@ class ModernXabberInputView: UIView {
         }
         
         public func configureForEdit() {
-            self.indicatorButton.setImage(
-                #imageLiteral(resourceName: "pencil").withRenderingMode(.alwaysTemplate),
-                for: .normal
-            )
+            self.indicatorButton.setImage(imageLiteral("xabber.pencil.cap"),for: .normal)
         }
         
         public func configureForForward() {
             self.indicatorButton.setImage(
-                #imageLiteral(resourceName: "reply").withRenderingMode(.alwaysTemplate),
+                imageLiteral( "reply")?.withRenderingMode(.alwaysTemplate),
                 for: .normal
             )
         }
@@ -161,7 +158,7 @@ class ModernXabberInputView: UIView {
         let deleteButton: UIButton = {
             let button = UIButton()
             
-            button.setImage(#imageLiteral(resourceName: "trash-outline").withRenderingMode(.alwaysTemplate), for: .normal)
+            button.setImage(imageLiteral("trash-outline")?.withRenderingMode(.alwaysTemplate), for: .normal)
             button.tintColor = .systemGray
             
             return button
@@ -170,7 +167,7 @@ class ModernXabberInputView: UIView {
         let shareButton: UIButton = {
             let button = UIButton()
             
-            button.setImage(#imageLiteral(resourceName: "share").withRenderingMode(.alwaysTemplate), for: .normal)
+            button.setImage(imageLiteral("share")?.withRenderingMode(.alwaysTemplate), for: .normal)
             button.tintColor = .systemGray
             
             return button
@@ -180,7 +177,7 @@ class ModernXabberInputView: UIView {
         let replyButton: UIButton = {
             let button = UIButton()
             
-            button.setImage(#imageLiteral(resourceName: "reply").withRenderingMode(.alwaysTemplate), for: .normal)
+            button.setImage(imageLiteral("reply")?.withRenderingMode(.alwaysTemplate), for: .normal)
             button.tintColor = .systemGray
             
             return button
@@ -189,7 +186,7 @@ class ModernXabberInputView: UIView {
         let forwardButton: UIButton = {
             let button = UIButton()
             
-            button.setImage(#imageLiteral(resourceName: "forward").withRenderingMode(.alwaysTemplate), for: .normal)
+            button.setImage(imageLiteral("forward")?.withRenderingMode(.alwaysTemplate), for: .normal)
             button.tintColor = .systemGray
             
             return button
@@ -361,7 +358,7 @@ class ModernXabberInputView: UIView {
     let sendButton: UIButton = {
         let button = UIButton(frame: CGRect(width: 44, height: 38))
         
-        button.setImage(#imageLiteral(resourceName: "microphone").withRenderingMode(.alwaysTemplate), for: .normal)
+        button.setImage(imageLiteral("microphone")?.withRenderingMode(.alwaysTemplate), for: .normal)
         button.tintColor = .secondaryLabel
                         
         return button
@@ -370,7 +367,7 @@ class ModernXabberInputView: UIView {
     let attachButton: UIButton = {
         let button = UIButton(frame: CGRect(width: 44, height: 38))
         
-        button.setImage(#imageLiteral(resourceName: "attach").withRenderingMode(.alwaysTemplate), for: .normal)
+        button.setImage(imageLiteral("attach")?.withRenderingMode(.alwaysTemplate), for: .normal)
         button.tintColor = .secondaryLabel
         
         return button
@@ -379,7 +376,7 @@ class ModernXabberInputView: UIView {
     let timerButton: UIButton = {
         let button = UIButton(frame: CGRect(width: 44, height: 38))
         
-        button.setImage(UIImage(systemName: "stopwatch"), for: .normal)
+        button.setImage(imageLiteral("stopwatch"), for: .normal)
         button.tintColor = .secondaryLabel
         button.isEnabled = true
 //        button.isHidden = true
@@ -727,13 +724,13 @@ class ModernXabberInputView: UIView {
         self.sendButtonState = state
         switch state {
             case .record:
-//                self.sendButton.setImage(#imageLiteral(resourceName: "microphone").withRenderingMode(.alwaysTemplate), for: .normal)
-                self.sendButton.setImage(#imageLiteral(resourceName: "send").withRenderingMode(.alwaysTemplate), for: .normal)
+//                self.sendButton.setImage(imageLiteral( "microphone").withRenderingMode(.alwaysTemplate), for: .normal)
+                self.sendButton.setImage(imageLiteral( "send")?.withRenderingMode(.alwaysTemplate), for: .normal)
                 self.sendButton.tintColor = .secondaryLabel
                 self.attachButton.isEnabled = self.isSendButtonEnabled
                 self.sendButton.isEnabled = false //self.isSendButtonEnabled
             case .send:
-                self.sendButton.setImage(#imageLiteral(resourceName: "send").withRenderingMode(.alwaysTemplate), for: .normal)
+                self.sendButton.setImage(imageLiteral( "send")?.withRenderingMode(.alwaysTemplate), for: .normal)
                 self.sendButton.tintColor = self.isSendButtonEnabled ? self.accountPalette.tint600 : .secondaryLabel
                 self.sendButton.isEnabled = self.isSendButtonEnabled
                 self.attachButton.isEnabled = self.isSendButtonEnabled

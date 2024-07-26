@@ -55,8 +55,9 @@ extension LastCallsViewController {
 //            self.onDelete(sid)
         }
         
-        
-        deleteAction.image = #imageLiteral(resourceName: "trash").withRenderingMode(.alwaysTemplate)
+        if let image = imageLiteral( "trash")?.withRenderingMode(.alwaysTemplate) {
+            deleteAction.image = image
+        }
         deleteAction.backgroundColor = MDCPalette.red.tint500
             
         return UISwipeActionsConfiguration(actions: [deleteAction])

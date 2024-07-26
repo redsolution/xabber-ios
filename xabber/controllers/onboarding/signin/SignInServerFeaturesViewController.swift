@@ -133,7 +133,7 @@ class SignInServerFeaturesViewController: UIViewController {
         private let checkView: UIImageView = {
             let view = UIImageView(frame: CGRect(square: 24))
             
-            view.image = #imageLiteral(resourceName: "check-circle").withRenderingMode(.alwaysTemplate)
+            view.image = imageLiteral( "xabber.checkmark")
             view.tintColor = .systemGreen
             view.isHidden = true
             
@@ -186,7 +186,7 @@ class SignInServerFeaturesViewController: UIViewController {
         public final func setChecked(_ checked: Bool) {
             if checked {
                 self.checkView.tintColor = .systemGreen
-                self.checkView.image = #imageLiteral(resourceName: "check-circle").withRenderingMode(.alwaysTemplate)
+                self.checkView.image = imageLiteral( "xabber.checkmark")
                 self.indicator.isHidden = true
                 self.indicator.alpha = 0.0
                 self.checkView.isHidden = false
@@ -224,10 +224,10 @@ class SignInServerFeaturesViewController: UIViewController {
                     }
                     if isDamger {
                         self.checkView.tintColor = .systemRed
-                        self.checkView.image = #imageLiteral(resourceName: "alert-circle").withRenderingMode(.alwaysTemplate)
+                        self.checkView.image = imageLiteral("exclamationmark.circle.fill")
                     } else {
                         self.checkView.tintColor = .systemYellow
-                        self.checkView.image = #imageLiteral(resourceName: "alert").withRenderingMode(.alwaysTemplate)
+                        self.checkView.image = imageLiteral("exclamationmark.triangle.fill")
                     }
                     self.indicator.isHidden = true
                     self.indicator.alpha = 0.0

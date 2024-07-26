@@ -30,9 +30,9 @@ class ImagePickerCollectionViewCell: UICollectionViewCell {
 
     func updateSelection() {
         if isSelected {
-            self.selectedView.image = #imageLiteral(resourceName: "check-circle").withRenderingMode(.alwaysTemplate)
+            self.selectedView.image = imageLiteral( "xabber.checkmark")
             selectedView.tintColor = .systemRed
-            selectedView.backgroundColor = UIColor.white//.withAlphaComponent(0.5)
+            selectedView.backgroundColor = .clear
         } else {
             self.selectedView.image = nil
             selectedView.backgroundColor = UIColor.black.withAlphaComponent(0.2)

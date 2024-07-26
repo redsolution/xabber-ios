@@ -146,7 +146,7 @@
 //            )
 //        )
 //        
-//        button.setImage(#imageLiteral(resourceName: "pencil").withRenderingMode(.alwaysTemplate), for: .normal)
+//        button.setImage(imageLiteral( "pencil").withRenderingMode(.alwaysTemplate), for: .normal)
 //        button.layer.cornerRadius = button.frame.width / 2
 //        button.backgroundColor = MDCPalette.grey.tint100
 //        button.tintColor = MDCPalette.grey.tint500

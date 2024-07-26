@@ -80,8 +80,8 @@ extension LastChatsViewController {
         self.filter.accept(.chats)
 //        DispatchQueue.main.async {
 //            
-//            getAppTabBar()?.tabBar.items?.first?.image = #imageLiteral(resourceName: "chat-outline")
-//            getAppTabBar()?.tabBar.items?.first?.selectedImage = #imageLiteral(resourceName: "chat-outline")
+//            getAppTabBar()?.tabBar.items?.first?.image = imageLiteral( "chat-outline")
+//            getAppTabBar()?.tabBar.items?.first?.selectedImage = imageLiteral( "chat-outline")
 //            getAppTabBar()?.tabBar.items?.first?.title = "Chats".localizeString(id: "toolbar__menu_item__chats", arguments: [])
 //        }
     }

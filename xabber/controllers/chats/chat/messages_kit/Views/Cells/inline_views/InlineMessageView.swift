@@ -129,8 +129,8 @@ class InlineMessageView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
     
-    internal var backgroundImage: UIImage = {
-        let image = #imageLiteral(resourceName: "message_bubble_inline").withRenderingMode(.alwaysTemplate)
+    internal var backgroundImage: UIImage? = {
+        let image = imageLiteral( "message_bubble_inline")?.withRenderingMode(.alwaysTemplate)
             .resizableImage(withCapInsets: UIEdgeInsets(top: 6,
                                                         bottom: 6,
                                                         left: 6,

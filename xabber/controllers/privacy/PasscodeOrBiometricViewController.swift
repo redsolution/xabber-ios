@@ -97,7 +97,7 @@ class PasscodeOrBiometricViewController: SimpleBaseViewController {
             let title = index == 11 ? "0" : "\(index)"
             if index == 10 {
                 if biometricsSuport {
-                    button.setImage(#imageLiteral(resourceName: "baseline_fingerprint_black_36pt").withRenderingMode(.alwaysTemplate), for: .normal)
+                    button.setImage(imageLiteral("touchid"), for: .normal)
                     button.tintColor = .black.withAlphaComponent(0.4)
                     button.backgroundColor = .clear
                 } else {
@@ -105,7 +105,7 @@ class PasscodeOrBiometricViewController: SimpleBaseViewController {
                     button.isEnabled = false
                 }
             } else if index == 12 {
-                button.setImage(#imageLiteral(resourceName: "baseline_backspace_black_24pt").withRenderingMode(.alwaysTemplate), for: .normal)
+                button.setImage(imageLiteral( "delete.left.fill"), for: .normal)
                 button.tintColor = .black.withAlphaComponent(0.4)
                 button.backgroundColor = .clear
             } else {

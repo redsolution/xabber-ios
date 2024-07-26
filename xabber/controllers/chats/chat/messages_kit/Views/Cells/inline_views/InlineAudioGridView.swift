@@ -149,9 +149,9 @@ class InlineAudioGridView: InlineMediaBaseView {
             
             switch state {
             case .playing:
-                playButton.setImage(#imageLiteral(resourceName: "pause").withRenderingMode(.alwaysTemplate), for: .normal)
+                playButton.setImage(imageLiteral( "pause")?.withRenderingMode(.alwaysTemplate), for: .normal)
             case .paused:
-                playButton.setImage(#imageLiteral(resourceName: "play").withRenderingMode(.alwaysTemplate), for: .normal)
+                playButton.setImage(imageLiteral( "play")?.withRenderingMode(.alwaysTemplate), for: .normal)
             }
             waveform.currentGradientPercentage = 0.0
         }
@@ -208,7 +208,7 @@ class InlineAudioGridView: InlineMediaBaseView {
         switch state {
         case .stop:
             audioView.loadingIndicator.removeFromSuperview()
-            audioView.playButton.setImage(#imageLiteral(resourceName: "play").withRenderingMode(.alwaysTemplate), for: .normal)
+            audioView.playButton.setImage(imageLiteral("play")?.withRenderingMode(.alwaysTemplate), for: .normal)
         case .loading:
             audioView.playButton.setImage(nil, for: .normal)
             audioView.loadingIndicator.startAnimating()
@@ -216,10 +216,10 @@ class InlineAudioGridView: InlineMediaBaseView {
             audioView.playButton.addSubview(audioView.loadingIndicator)
         case .play:
             audioView.loadingIndicator.removeFromSuperview()
-            audioView.playButton.setImage(#imageLiteral(resourceName: "play").withRenderingMode(.alwaysTemplate), for: .normal)
+            audioView.playButton.setImage(imageLiteral("play")?.withRenderingMode(.alwaysTemplate), for: .normal)
         case .pause:
             audioView.loadingIndicator.removeFromSuperview()
-            audioView.playButton.setImage(#imageLiteral(resourceName: "pause").withRenderingMode(.alwaysTemplate), for: .normal)
+            audioView.playButton.setImage(imageLiteral("pause")?.withRenderingMode(.alwaysTemplate), for: .normal)
             audioView.waveform.play(for: duration - lastPlayedDuration)
         }
         audioView.waveform
@@ -249,15 +249,15 @@ class InlineAudioGridView: InlineMediaBaseView {
         case .play:
             self.state = .pause
 //            animateButtonTap()
-            audioView.playButton.setImage(#imageLiteral(resourceName: "pause").withRenderingMode(.alwaysTemplate), for: .normal)
+            audioView.playButton.setImage(imageLiteral("pause")?.withRenderingMode(.alwaysTemplate), for: .normal)
             audioView.waveform.play(for: duration - lastPlayedDuration)
         case .pause:
             self.state = .play
             audioView.waveform.pause()
-            audioView.playButton.setImage(#imageLiteral(resourceName: "play").withRenderingMode(.alwaysTemplate), for: .normal)
+            audioView.playButton.setImage(imageLiteral("play")?.withRenderingMode(.alwaysTemplate), for: .normal)
         case .stop:
             self.state = .play
-            audioView.playButton.setImage(#imageLiteral(resourceName: "play").withRenderingMode(.alwaysTemplate), for: .normal)
+            audioView.playButton.setImage(imageLiteral("play")?.withRenderingMode(.alwaysTemplate), for: .normal)
             audioView.waveform.stop()
             audioView.durationLabel.text = "\(TimeInterval(0).minuteFormatedString) / \(duration.minuteFormatedString)"
         default: return
