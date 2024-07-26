@@ -303,6 +303,19 @@ class ContactInfoViewController: BaseViewController {
                         }
                     }
                     
+                    let imagesCount = realm.objects(MessageReferenceStorageItem.self).filter("owner == %@ AND jid == %@ AND kind_ == %@ AND mimeType == %@ AND hasError == false", self.owner, self.jid, MessageReferenceStorageItem.Kind.media.rawValue, "image").count
+                    let videosCount = realm.objects(MessageReferenceStorageItem.self).filter("owner == %@ AND jid == %@ AND kind_ == %@ AND mimeType == %@ AND hasError == false", self.owner, self.jid, MessageReferenceStorageItem.Kind.media.rawValue, "video").count
+                    let audiosCount = realm.objects(MessageReferenceStorageItem.self).filter("owner == %@ AND jid == %@ AND kind_ == %@ AND hasError == false", self.owner, self.jid, MessageReferenceStorageItem.Kind.voice.rawValue).count
+                    let mimeTypes: [String] = ["document", "pdf", "table", "presentation", "archive", "audio", "file"]
+                    let filesCount = realm.objects(MessageReferenceStorageItem.self).filter("owner == %@ AND jid == %@ AND mimeType IN %@ AND hasError == false", self.owner, self.jid, mimeTypes, "image").count
+                    
+                    newDatasource.append(Datasource(.text, title: "", childs: [
+                        Datasource(.button, title: "Images", subtitle: String(imagesCount), key: "images"),
+                        Datasource(.button, title: "Videos", subtitle: String(videosCount), key: "videos"),
+                        Datasource(.button, title: "Files", subtitle: String(filesCount), key: "files"),
+                        Datasource(.button, title: "Voice", subtitle: String(audiosCount), key: "voice")
+                    ]))
+                    
                     self.datasource = newDatasource
                     self.tableView.reloadData()
                 })
@@ -428,16 +441,16 @@ class ContactInfoViewController: BaseViewController {
         tableView.tableHeaderView = headerView
         headerView.delegate = self
         
-        footerView.conversationType = self.conversationType
-        footerView.jid = self.jid
-        footerView.owner = self.owner
-        
-        footerView.frame = CGRect(x: 0, y: 0,
-                                  width: view.frame.width,
-                                  height: view.frame.height)
-        footerView.mediaButtonsDelegate = self
-        footerView.infoVCDelegate = self
-        tableView.tableFooterView = footerView
+//        footerView.conversationType = self.conversationType
+//        footerView.jid = self.jid
+//        footerView.owner = self.owner
+//        
+//        footerView.frame = CGRect(x: 0, y: 0,
+//                                  width: view.frame.width,
+//                                  height: view.frame.height)
+//        footerView.mediaButtonsDelegate = self
+//        footerView.infoVCDelegate = self
+//        tableView.tableFooterView = footerView
         
         editButton.target = self
         editButton.action = #selector(onEditContact)
@@ -556,8 +569,11 @@ class ContactInfoViewController: BaseViewController {
 //        navigationController?.isNavigationBarHidden = true
         navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
         navigationController?.navigationBar.shadowImage = UIImage()
-        footerView.getReferences()
-        tableView.fillSuperviewWithOffset(top: 0, bottom: 0, left: 0, right: 0)
+//        footerView.getReferences()
+        tableView.fillSuperview()
+        
+//        activateConstraints()
+        
         headerView.frame = CGRect(
             width: view.frame.width,
             height: headerHeightMax

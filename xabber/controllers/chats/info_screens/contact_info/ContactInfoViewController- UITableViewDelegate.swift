@@ -66,6 +66,34 @@ extension ContactInfoViewController: UITableViewDelegate {
                 showFingerprints()
             case "encrypted":
                 onStartEncryptedChat()
+            case "images":
+                let vc = ChatFilesViewController()
+                vc.owner = self.owner
+                vc.jid = self.jid
+                vc.selectedType = .images
+                navigationController?.pushViewController(vc, animated: true)
+                
+            case "videos":
+                let vc = ChatFilesViewController()
+                vc.owner = self.owner
+                vc.jid = self.jid
+                vc.selectedType = .videos
+                navigationController?.pushViewController(vc, animated: true)
+                
+            case "voice":
+                let vc = ChatFilesViewController()
+                vc.owner = self.owner
+                vc.jid = self.jid
+                vc.selectedType = .voice
+                navigationController?.pushViewController(vc, animated: true)
+                
+            case "files":
+                let vc = ChatFilesViewController()
+                vc.owner = self.owner
+                vc.jid = self.jid
+                vc.selectedType = .files
+                navigationController?.pushViewController(vc, animated: true)
+                
             default: break
             }
         }

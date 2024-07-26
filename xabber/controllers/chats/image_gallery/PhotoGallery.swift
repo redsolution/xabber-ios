@@ -619,11 +619,8 @@ extension PhotoGallery {
         guard let image = (imageCollectionView.cellForItem(at: IndexPath(item: currentPage, section: 0)) as? PhotoGalleryCell)?.imageView.image else { return } //row?
         let objectsToShare = [image, imageUrls[currentPage]] as [Any]
         
-        let xabberActivity = XabberActivity { sharedItems in
-            sharedItems.forEach { item in
-                print(item)
-            }
-        }
+        let activityImage = UIImage(imageLiteralResourceName: "xabber_icon_call_kit").resize(targetSize: CGSize(square: 60))
+        let xabberActivity = XabberActivity(title: "Xabber", image: activityImage)
         
         let activityVC = UIActivityViewController(activityItems: objectsToShare, applicationActivities: [xabberActivity])
         activityVC.excludedActivityTypes = []
@@ -631,50 +628,4 @@ extension PhotoGallery {
     }
 }
 
-class XabberActivity: UIActivity {
-    var _activityTitle = "Xabber"
-    var _activityImage = UIImage(imageLiteralResourceName: "xabber_icon_call_kit").resize(targetSize: CGSize(square: 60))
-    var activityItems = [Any]()
-    var action: ([Any]) -> Void
-    
-    init(performAction: @escaping ([Any]) -> Void) {
-        action = performAction
-        super.init()
-    }
-    
-    override var activityTitle: String? {
-        return _activityTitle
-    }
-    
-    override var activityImage: UIImage? {
-        return _activityImage
-    }
-    
-    override var activityType: UIActivity.ActivityType? {
-        return UIActivity.ActivityType("com.xabber.ios.activity")
-    }
-    
-    override var activityViewController: UIViewController? {
-        let owner = AccountManager.shared.users.first?.jid
-        
-        let vc = XabberActivityViewController()
-        vc.owner = owner ?? ""
-        
-        let nvc = UINavigationController(rootViewController: vc)
-        
-        return nvc
-    }
-    
-    override class var activityCategory: UIActivity.Category {
-        return .share
-    }
-    
-    override func canPerform(withActivityItems activityItems: [Any]) -> Bool {
-        return true
-    }
-    
-    override func prepare(withActivityItems activityItems: [Any]) {
-        self.activityItems = activityItems
-    }
-    
-}
+

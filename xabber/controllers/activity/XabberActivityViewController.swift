@@ -12,6 +12,7 @@ import RealmSwift
 import RxSwift
 import CocoaLumberjack
 import XMPPFramework
+import Kingfisher
 
 class XabberActivityViewController: SimpleBaseViewController {
     class Datasource {
@@ -40,6 +41,7 @@ class XabberActivityViewController: SimpleBaseViewController {
         let avatarUrl: String?
         let hasErrorInChat: Bool
         let updateTS: Double
+        var isSelected = false
         
         init(jid: String, owner: String, username: String, attributedUsername: NSAttributedString?, message: String, date: Date? = nil, state: MessageStorageItem.MessageSendingState? = nil, isMute: Bool, isSynced: Bool, status: ResourceStatus, entity: RosterItemEntity?, conversationType: ClientSynchronizationManager.ConversationType, unread: Int, unreadString: String? = nil, color: UIColor, isDraft: Bool, hasAttachment: Bool, userNickname: String?, isSystemMessage: Bool, isPinned: Bool, subRequest: Bool, isEncrypted: Bool, avatarUrl: String?, hasErrorInChat: Bool, updateTS: Double) {
             self.jid = jid
@@ -70,9 +72,10 @@ class XabberActivityViewController: SimpleBaseViewController {
         }
     }
     
-    internal var datasource: [Datasource] = []
+    internal var datasource = [Datasource]()
     internal var chatsDataset: Results<LastChatsStorageItem>? = nil
-    internal var rosterDataset: Results<RosterStorageItem>? = nil
+    internal var activityItems = [Any]()
+    internal var activity: UIActivity? = nil
     
     internal let containerView: UIView = {
         let view = UIView(frame: .zero)
@@ -108,6 +111,7 @@ class XabberActivityViewController: SimpleBaseViewController {
         controller.searchBar.placeholder = "Search contacts and messages".localizeString(id: "search_contacts_and_messages", arguments: [])
         controller.searchBar.isTranslucent = true
         controller.hidesNavigationBarDuringPresentation = true
+        controller.definesPresentationContext = true
         
         return controller
     }()
@@ -120,6 +124,8 @@ class XabberActivityViewController: SimpleBaseViewController {
     override func setupSubviews() {
         title = "Share"
         
+        view.backgroundColor = .systemBackground
+        
         navigationItem.searchController = searchController
         if #available(iOS 16.0, *) {
             navigationItem.preferredSearchBarPlacement = .stacked
@@ -129,22 +135,16 @@ class XabberActivityViewController: SimpleBaseViewController {
         searchController.searchResultsUpdater = self
         
         let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom ?? 0
+        
         view.addSubview(tableView)
         tableView.fillSuperviewWithOffset(top: 0, bottom: 44 + 16 + bottomInset, left: 0, right: 0)
-        
         tableView.dataSource = self
         tableView.delegate = self
         
         view.addSubview(containerView)
         containerView.addSubview(button)
-        
+        button.addTarget(self, action: #selector(onButtonPressed), for: .touchUpInside)
     }
-    
-//    override func activateConstraints() {
-//        NSLayoutConstraint.activate([
-//            button.heightAnchor.constraint(equalToConstant: 44)
-//        ])
-//    }
     
     override func loadDatasource() {
         datasource = chatsDataset?.map { item in
@@ -238,25 +238,91 @@ class XabberActivityViewController: SimpleBaseViewController {
             if let jidFilter = jidFilter,
                jidFilter != "" {
                 let realm = try WRealm.safe()
-                chatsDataset = realm.objects(LastChatsStorageItem.self).filter("owner == %@ AND (jid CONTAINS[cd] %@ OR rosterItem.customUsername CONTAINS[cd] %@ OR rosterItem.username CONTAINS[cd] %@)", self.owner, jidFilter, jidFilter,  jidFilter)
+                chatsDataset = realm.objects(LastChatsStorageItem.self).filter("owner IN %@ AND (jid CONTAINS[cd] %@ OR rosterItem.customUsername CONTAINS[cd] %@ OR rosterItem.username CONTAINS[cd] %@)", AccountManager.shared.users, jidFilter, jidFilter,  jidFilter)
                     .sorted(byKeyPath: "messageDate", ascending: false)
+      
             } else {
                 let realm = try WRealm.safe()
                 chatsDataset = realm.objects(LastChatsStorageItem.self).filter("owner == %@", self.owner)
                     .sorted(byKeyPath: "messageDate", ascending: false)
             }
+  
         } catch {
             DDLogDebug("XabberActivityViewController: \(#function). \(error.localizedDescription)")
         }
     }
     
     override func onAppear() {
-        super.onAppear()
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithDefaultBackground()
+        navigationController?.navigationBar.scrollEdgeAppearance = appearance
+        navigationController?.navigationBar.isTranslucent = true
         
         let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom ?? 0
         containerView.frame = CGRect(x: 0, y: view.bounds.height - 44 - bottomInset, width: self.view.bounds.width, height: 44)
         
         button.fillSuperviewWithOffset(top: 0, bottom: 0, left: 10, right: 10)
+    }
+    
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        
+        activity?.activityDidFinish(true)
+    }
+    
+    @objc
+    func onButtonPressed() {
+        var url: NSURL? = nil
+        var image: UIImage? = nil
+        
+        activityItems.forEach { item in
+            if let itemUrl = item as? NSURL {
+                url = itemUrl
+                
+            } else if let itemImage = item as? UIImage {
+                image = itemImage
+                
+            }
+        }
+        
+        guard let url = url?.absoluteURL,
+              let image = image else {
+            return
+        }
+        
+        for chat in datasource {
+            if !chat.isSelected {
+                continue
+            }
+            
+            let item = MessageReferenceStorageItem()
+            item.kind = .media
+            item.owner = chat.owner
+            item.jid = chat.jid
+            item.conversationType = chat.conversationType
+            item.mimeType = MimeIcon(MimeType(url: url).value).value.rawValue
+            item.temporaryData = image.jpegData(compressionQuality: 0.9)
+            item.metadata = [
+                "name": "Image".localizeString(id: "chat_message_image", arguments: []),
+                "filename": url.lastPathComponent,
+                "size": item.temporaryData?.count ?? 0,
+                "media-type": "image/jpeg",
+                "uri": url.absoluteString,
+                "width": image.size.width,
+                "height": image.size.height,
+            ]
+            
+            ImageCache.default.store(image, forKey: url.absoluteString)
+            item.primary = UUID().uuidString
+            item.localFileUrl = item.temporaryData?.saveToTemporaryDir(name: url.lastPathComponent)
+            
+            AccountManager.shared.find(for: chat.owner)?.action({ user, stream in
+                user.messages.sendMediaMessage([item], to: chat.jid, forwarded: [], conversationType: chat.conversationType)
+            })
+            
+        }
+        
+        activity?.activityDidFinish(true)
     }
 }
 

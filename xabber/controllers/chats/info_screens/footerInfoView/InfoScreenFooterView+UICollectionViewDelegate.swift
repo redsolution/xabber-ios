@@ -30,7 +30,8 @@ extension InfoScreenFooterView: UICollectionViewDelegateFlowLayout {
         if datasource.isNotEmpty {
             switch selectedKind {
             case .images, .videos:
-                let width = frame.width / InfoScreenFooterView.numberOfCells - InfoScreenFooterView.cellSpacing * (InfoScreenFooterView.numberOfCells + 1) / InfoScreenFooterView.numberOfCells
+                let widthRaw = frame.width / InfoScreenFooterView.numberOfCells - InfoScreenFooterView.cellSpacing * (InfoScreenFooterView.numberOfCells + 1) / InfoScreenFooterView.numberOfCells
+                let width = floor(widthRaw * 100) / 100
                 return CGSize(square: width)
             case .files, .voice:
                 return CGSize(width: (frame.width - InfoScreenFooterView.cellSpacing * 2), height: 60)

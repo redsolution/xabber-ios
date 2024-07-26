@@ -15,6 +15,9 @@ extension XabberActivityViewController: UITableViewDelegate {
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        let item = datasource[indexPath.row]
+        item.isSelected = true
+        
         let cell = tableView.cellForRow(at: indexPath)
         cell?.accessoryType = .checkmark
         
@@ -22,6 +25,9 @@ extension XabberActivityViewController: UITableViewDelegate {
     }
     
     func tableView(_ tableView: UITableView, didDeselectRowAt indexPath: IndexPath) {
+        let item = datasource[indexPath.row]
+        item.isSelected = false
+        
         let cell = tableView.cellForRow(at: indexPath)
         cell?.accessoryType = .none
         
