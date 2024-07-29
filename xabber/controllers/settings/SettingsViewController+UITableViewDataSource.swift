@@ -139,7 +139,7 @@ extension SettingsViewController: UITableViewDataSource {
                         cell.accessoryType = .disclosureIndicator
                         if let icon = item.icon,
                            let color = item.color {
-                            cell.imageView?.image = UIImage(named: icon)?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate)
+                            cell.imageView?.image = UIImage(named: icon)?.upscale(dimension: 32).withRenderingMode(.alwaysTemplate)
                             cell.tintColor = color
                         }
                         return cell
@@ -157,7 +157,7 @@ extension SettingsViewController: UITableViewDataSource {
                     cell.accessoryType = .disclosureIndicator
                     if let icon = item.icon,
                        let color = item.color {
-                        cell.imageView?.image = UIImage(named: icon)?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate)
+                        cell.imageView?.image = UIImage(named: icon)?.upscale(dimension: 32).withRenderingMode(.alwaysTemplate)
                         cell.tintColor = color
                     }
                     return cell
@@ -176,7 +176,7 @@ extension SettingsViewController: UITableViewDataSource {
                     cell.accessoryType = .disclosureIndicator
                     if let icon = item.icon,
                        let color = item.color {
-                        cell.imageView?.image = UIImage(named: icon)?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate)
+                        cell.imageView?.image = UIImage(named: icon)?.upscale(dimension: 32).withRenderingMode(.alwaysTemplate)
                         cell.tintColor = color
                     }
                     return cell
@@ -188,7 +188,7 @@ extension SettingsViewController: UITableViewDataSource {
                     cell.accessoryType = .disclosureIndicator
                     if let icon = item.icon,
                        let color = item.color {
-                        cell.imageView?.image = UIImage(named: icon)?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate)
+                        cell.imageView?.image = UIImage(named: icon)?.upscale(dimension: 32).withRenderingMode(.alwaysTemplate)
                         cell.tintColor = color
                     }
                     return cell
@@ -202,7 +202,7 @@ extension SettingsViewController: UITableViewDataSource {
             cell.accessoryType = .disclosureIndicator
             if let icon = item.icon,
                let color = item.color {
-                cell.imageView?.image = UIImage(named: icon)
+                cell.imageView?.image = UIImage(named: icon)?.upscale(dimension: 32).withRenderingMode(.alwaysTemplate)
                 cell.tintColor = color
             }
             return cell

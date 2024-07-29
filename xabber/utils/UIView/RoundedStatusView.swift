@@ -41,25 +41,25 @@ class RoundedStatusView: UIView {
 */
     func setStatus(status: ResourceStatus, entity: RosterItemEntity?) {
         self.backgroundColor = .clear
-        self.borderColor = .white
+        self.borderColor = .systemBackground
         switch status {
-        case .online:
-            self.color = MDCPalette.green.tint700
-        case .offline:
-            if [.groupchat, .incognitoChat, .server, .privateChat, .issue].contains(entity) {
-                self.color = MDCPalette.grey.tint500
-            } else {
-                self.color = .clear
-                self.borderColor = .clear
-            }
-        case .away:
-            self.color = MDCPalette.amber.tint700
-        case .chat:
-            self.color = MDCPalette.lightGreen.tint500
-        case .dnd:
-            self.color = MDCPalette.red.tint700
-        case .xa:
-            self.color = MDCPalette.blue.tint500
+            case .online:
+                self.color = .systemGreen
+            case .offline:
+                if [.groupchat, .incognitoChat, .server, .privateChat, .issue].contains(entity) {
+                    self.color = .systemGray
+                } else {
+                    self.color = .clear
+                    self.borderColor = .clear
+                }
+            case .away:
+                    self.color = .systemOrange
+            case .chat:
+                self.color = MDCPalette.lightGreen.tint500
+            case .dnd:
+                self.color = .systemGreen
+            case .xa:
+                self.color = .systemBlue
         }
         subviews.compactMap { return $0 as? UIImageView }.forEach { $0.removeFromSuperview() }
         switch entity {

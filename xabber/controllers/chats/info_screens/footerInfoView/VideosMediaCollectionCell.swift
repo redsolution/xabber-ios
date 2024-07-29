@@ -228,7 +228,7 @@ class VideosMediaCollectionCell: UICollectionViewCell {
     }
     
     func select() {
-        selectedVideoView.image = imageLiteral( "xabber.checkmark")
+        selectedVideoView.image = imageLiteral("checkmark.circle.fill")
         selectedVideoView.tintColor = .systemBlue
         selectedVideoView.backgroundColor = .clear
     }

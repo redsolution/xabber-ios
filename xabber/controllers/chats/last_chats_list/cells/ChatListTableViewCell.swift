@@ -153,7 +153,7 @@ class ChatListTableViewCell: UITableViewCell {
     let usernameLabel: UILabel = {
         let label = UILabel()
         
-        label.textColor = UIColor(red: 33/255, green: 33/255, blue: 33/255, alpha:1)
+        label.textColor = .label//UIColor(red: 33/255, green: 33/255, blue: 33/255, alpha:1)
 
         label.font = UIFont.systemFont(ofSize: 17, weight: .medium)
         
@@ -490,7 +490,7 @@ class ChatListTableViewCell: UITableViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         deliveryIndicator.image = nil
-        usernameLabel.textColor = UIColor(red:0.13, green:0.13, blue:0.13, alpha:1)
+        usernameLabel.textColor = .label//UIColor(red:0.13, green:0.13, blue:0.13, alpha:1)
         usernameLabel.text = nil
         usernameLabel.attributedText = nil
         muteIndicator.isHidden = true
@@ -508,7 +508,7 @@ class ChatListTableViewCell: UITableViewCell {
         errorIndicator.isHidden = true
         
         self.contentView.backgroundColor = .clear//.systemBackground
-
+        
         badgeString = ""
         badgeView.setTitle(nil, for: .normal)
         verificationBadgeView.setImage(nil, for: .normal)

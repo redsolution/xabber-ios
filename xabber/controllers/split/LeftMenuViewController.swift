@@ -202,7 +202,7 @@ class LeftMenuViewController: UIViewController {
                 Datasource(title: "Chats", icon: "message", key: "chat", subtitle: "\(chatsCount)"),
                 Datasource(title: "Calls", icon: "phone", key: "calls", subtitle: "\(callsCount)"),
     //            Datasource(title: "Mentions", icon: "at", key: "mentions"),
-                Datasource(title: "Notifications", icon: "bell.badge", key: "notifications", subtitle: "\(notificationsCount)"),
+                Datasource(title: "Notifications", icon: "bell", key: "notifications", subtitle: "\(notificationsCount)"),
                 Datasource(title: "Contacts", icon: "person.2", key: "contacts", subtitle: "\(contactsCount)"),
                 Datasource(title: "Archive", icon: "archivebox", key: "archive", subtitle: "\(archivedCount)"),
     //            Datasource(title: "Saved messages", icon: "bookmark", key: "saved"),
@@ -408,7 +408,12 @@ class LeftMenuViewController: UIViewController {
     
     @objc
     func onTableViewEmptySpaceTap(_ sender: AnyObject) {
-        self.splitViewController?.hide(.primary)
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            self.splitViewController?.hide(.primary)
+        } else {
+            self.splitViewController?.show(.supplementary)
+            self.splitViewController?.hide(.primary)
+        }
     }
     
     func setupBottomBar() {

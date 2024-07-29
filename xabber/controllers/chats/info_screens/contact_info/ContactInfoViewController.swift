@@ -476,7 +476,7 @@ class ContactInfoViewController: BaseViewController {
             voiceCall.addTarget(self, action: #selector(onCallButtonTouchUpInside), for: .touchUpInside)
             
             let videoCall = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
-            videoCall.configure(icon: "video.fill", title: "Video")
+            videoCall.configure(icon: "xabber.video.fill", title: "Video")
             videoCall.addTarget(self, action: #selector(onVideoButtonTouchUpInside), for: .touchUpInside)
             
             return [regularChat, encryptedChat, voiceCall, videoCall]

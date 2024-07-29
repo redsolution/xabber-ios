@@ -77,7 +77,7 @@ extension SettingsItemDetailViewController {
         open func configure(key: String, for title: String, value: String, icon image: String, color: UIColor, isFirstLevelVuew: Bool = false) {
             self.key = key
             
-            imageView?.image = UIImage(named: image)?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate)
+            imageView?.image = UIImage(named: image)?.upscale(dimension: 32).withRenderingMode(.alwaysTemplate)
             imageView?.tintColor = color
             
             titleLabel.text = "  "

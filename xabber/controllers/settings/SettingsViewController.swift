@@ -249,7 +249,7 @@ class SettingsViewController: BaseViewController {
         override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
             super.init(style: style, reuseIdentifier: reuseIdentifier)
             contentView.addSubview(stack)
-            stack.fillSuperviewWithOffset(top: 4, bottom: 4, left: 56, right: 8)
+            stack.fillSuperviewWithOffset(top: 4, bottom: 4, left: 72, right: 8)
             stack.addArrangedSubview(self.titleLabel)
             stack.addArrangedSubview(self.subtitleButton)
             self.subtitleButton.isUserInteractionEnabled = false
@@ -616,7 +616,7 @@ class SettingsViewController: BaseViewController {
             }
             if CommonConfigManager.shared.config.should_block_application_when_subscribtion_end {
                 datasource.append(Datasource(section: .accountSettings, childs: [
-                    Datasource(section: .accountSettings, title: "Profile, status, password", icon: "custom.paintpalette.square.fill", color: MDCPalette.lightBlue.tint700, viewController: SimpleTableViewController.self, childs: [
+                    Datasource(section: .accountSettings, title: "Profile, status, password", icon: "custom.person.square.fill", color: UIColor.systemBlue, viewController: SimpleTableViewController.self, childs: [
                         Datasource(section: .status, childs: [
                             Datasource(section: .status, title: Datasource.Section.status.description(), key: .accountStatus)
                         ]),
@@ -627,12 +627,12 @@ class SettingsViewController: BaseViewController {
                                        key: .accountDelete)
                         ])
                     ]),
-                    Datasource(section: .accountSettings, title: "Devices", icon: "custom.cylinder.split.1x2.square.fill", color: MDCPalette.lightBlue.tint700, key: .accountSessions),
-                    Datasource(section: .accountSettings, title: "Subscriptions", icon: "custom.cylinder.split.1x2.square.fill", color: MDCPalette.lightBlue.tint700, key: .subscriptions)
+                    Datasource(section: .accountSettings, title: "Devices", icon: "xabber.globe.connected.square.fill", color: UIColor.systemBlue, key: .accountSessions),
+                    Datasource(section: .accountSettings, title: "Subscriptions", icon: "xabber.lightbulb.square.fill", color: UIColor.systemBlue, key: .subscriptions)
                 ]))
             } else {
                 datasource.append(Datasource(section: .accountSettings, childs: [
-                    Datasource(section: .accountSettings, title: "Profile, status, password", icon: "custom.paintpalette.square.fill", color: MDCPalette.lightBlue.tint700, viewController: SimpleTableViewController.self, childs: [
+                    Datasource(section: .accountSettings, title: "Profile, status, password", icon: "custom.person.square.fill", color: UIColor.systemBlue, viewController: SimpleTableViewController.self, childs: [
                         Datasource(section: .status, childs: [
                             Datasource(section: .status, title: Datasource.Section.status.description(), key: .accountStatus)
                         ]),
@@ -643,12 +643,12 @@ class SettingsViewController: BaseViewController {
                                        key: .accountDelete)
                         ])
                     ]),
-                    Datasource(section: .accountSettings, title: "Devices", icon: "custom.cylinder.split.1x2.square.fill", color: MDCPalette.lightBlue.tint700, key: .accountSessions)
+                    Datasource(section: .accountSettings, title: "Devices", icon: "xabber.globe.connected.square.fill", color: UIColor.systemBlue, key: .accountSessions)
                 ]))
             }
             
             if AccountManager.shared.find(for: self.jid)?.cloudStorage.isAvailable() ?? false {
-                let item = Datasource(section: .accountSettings, title: "Cloud storage", icon: "custom.paintpalette.square.fill", color: MDCPalette.lightBlue.tint700, key: .manageStorage)
+                let item = Datasource(section: .accountSettings, title: "Cloud storage", icon: "custom.cloud.square.fill", color: UIColor.systemBlue, key: .manageStorage)
                 let sectionToInsert = datasource.firstIndex(where: { $0.section == .accountSettings })
                 datasource[sectionToInsert!].childs.insert(item, at: 1)
             }
@@ -685,13 +685,13 @@ class SettingsViewController: BaseViewController {
                 title: Datasource.Section.privacy.description(),
                 subtitle: nil,
                 icon:"xabber.incognito.square.fill",
-                color: MDCPalette.green.tint700,
+                color: UIColor.systemGreen,
                 premiumOnly: false,
                 viewController: PrivacySettingsViewController.self,
                 childs: []
               ),
-            Datasource(section: .interface, title: "Interface", icon: "custom.ant.square.fill", color: MDCPalette.green.tint700, viewController: SimpleTableViewController.self, childs: interfaceChilds),
-                Datasource(section: .settings, title: "Notifications", icon: "custom.bell.square.fill", color: MDCPalette.green.tint700, viewController: SimpleTableViewController.self, childs: [
+            Datasource(section: .interface, title: "Interface", icon: "custom.paintpalette.square.fill", color: UIColor.systemGreen, viewController: SimpleTableViewController.self, childs: interfaceChilds),
+            Datasource(section: .settings, title: "Notifications", icon: "custom.bell.square.fill", color: UIColor.systemGreen, viewController: SimpleTableViewController.self, childs: [
                         Datasource(section: .chat, title: "Notifications Sound", childs: [
                             Datasource(section: .chat, title: "Incoming massages", itemType: .selector,
                                                            values: MusicBox.shared.fileURLs.lazy.compactMap({$0.absoluteString}).sorted(),
@@ -715,12 +715,12 @@ class SettingsViewController: BaseViewController {
                                        key: .notificationInAppAlertLastChats)
                     ])
                 ]),
-            Datasource(section: .settings, title: "Debug", icon:"custom.ant.square.fill", color: MDCPalette.green.tint700, key: .developer),
-                Datasource(section: .settings, title: "Language", icon:"xabber.translate.square.fill", color: MDCPalette.amber.tint500, key: .languages)
+            Datasource(section: .settings, title: "Debug", icon:"custom.ant.square.fill", color: UIColor.systemGreen, key: .developer),
+            Datasource(section: .settings, title: "Language", icon:"xabber.translate.square.fill", color: UIColor.systemPurple, key: .languages)
             ]))
         if CommonConfigManager.shared.config.use_yubikey {
             datasource.append(Datasource(section: .security, title: Datasource.Section.security.description(), subtitle: Datasource.Section.security.secondaryDescription(), childs: [
-                    Datasource(section: .security, title: "Passcode lock *", icon:"xabber.incognito.square.fill", color: MDCPalette.amber.tint700, premiumOnly: true, viewController: SimpleTableViewController.self, childs: [
+                Datasource(section: .security, title: "Passcode lock *", icon:"custom.hand.raised.square.fill", color: UIColor.systemOrange, premiumOnly: true, viewController: SimpleTableViewController.self, childs: [
                         Datasource(section: .security, subtitle: "If you forget your passcode, you'll need to reinstall the app.\n\nIf you premium subscription expire, passcode will be reset.", childs: [
                             Datasource(section: .security, title: "Turn passcode Off", key: .turnPasscodeOff),
                             Datasource(section: .security, title: "Change Passcode", viewController: PasscodeViewController.self),
@@ -732,11 +732,11 @@ class SettingsViewController: BaseViewController {
                             Datasource(section: .autolock, title: "Show attempts left", itemType: .toggle, toggle: (dict[Datasource.Keys.showAttempts.rawValue] as? Bool) ?? false, key: .showAttempts)
                         ])
                     ], key: .passcode),
-                    Datasource(section: .security, title: "Yubikey signature", viewController: YubikeySetupViewController.self, key: .yubikey),
+                    Datasource(section: .security, title: "Yubikey signature", icon: "custom.key.square.fill", color: UIColor.systemOrange, viewController: YubikeySetupViewController.self, key: .yubikey),
                 ]))
         } else {
             datasource.append(Datasource(section: .security, title: Datasource.Section.security.description(), subtitle: Datasource.Section.security.secondaryDescription(), childs: [
-                    Datasource(section: .security, title: "Passcode lock *", icon:"xabber.incognito.square.fill", color: MDCPalette.amber.tint700, premiumOnly: true, viewController: SimpleTableViewController.self, childs: [
+                Datasource(section: .security, title: "Passcode lock *", icon:"custom.hand.raised.square.fill", color: UIColor.systemOrange, premiumOnly: true, viewController: SimpleTableViewController.self, childs: [
                         Datasource(section: .security, subtitle: "If you forget your passcode, you'll need to reinstall the app.\n\nIf you premium subscription expire, passcode will be reset.", childs: [
                             Datasource(section: .security, title: "Turn passcode Off", key: .turnPasscodeOff),
                             Datasource(section: .security, title: "Change Passcode", viewController: PasscodeViewController.self),

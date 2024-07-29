@@ -142,7 +142,7 @@ class PhotosMediaCollectionCell: UICollectionViewCell {
     }
     
     func select() {
-        selectedImageView.image = imageLiteral( "xabber.checkmark")
+        selectedImageView.image = imageLiteral("checkmark.circle.fill")
         selectedImageView.tintColor = .systemBlue
         selectedImageView.backgroundColor = .clear
     }
