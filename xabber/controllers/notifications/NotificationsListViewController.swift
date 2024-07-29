@@ -225,28 +225,24 @@ class NotificationsListViewController: SimpleBaseViewController {
     }
     
     func getAndMapDatasource() {
+        let jids = AccountManager.shared.users.map { $0.jid }
+        
         do {
             let realm = try WRealm.safe()
             let allNotifications = realm
                 .objects(NotificationStorageItem.self)
-                .filter("category_ IN %@", [
+                .filter("owner IN %@ AND category_ IN %@", jids, [
                     XMPPNotificationsManager.Category.device.rawValue,
                     XMPPNotificationsManager.Category.mention.rawValue,
                     XMPPNotificationsManager.Category.trust.rawValue
                 ]).sorted(byKeyPath: "date", ascending: false)
             let contactNotifications = realm
                 .objects(NotificationStorageItem.self)
-                .filter("category_ IN %@", [
+                .filter("owner IN %@ AND category_ IN %@", jids, [
                     XMPPNotificationsManager.Category.contact.rawValue
                 ])
             
-//            let subscriptionsDatasource = Datasource(title: "Subscription requests", key: "contact", childs: [
-//                DatasourceChild(owner: "ekaterina.korotkova@redsolution.com", jid: "bob@xmppdev01.xabber.com", title: "Bob Bobov", message: nil, key: "request", date: Date(), category: .contact, verificationState: nil, verificationSid: nil),
-//                DatasourceChild(owner: "ekaterina.korotkova@redsolution.com", jid: "alice@xmppdev01.xabber.com", title: "Alice", message: "some message in request", key: "request", date: Date(), category: .contact, verificationState: nil, verificationSid: nil)
-//            ])
-            
             self.datasource = [
-//                subscriptionsDatasource,
                 mapResult(contactNotifications, title: "Subscription requests", key: "contact"),
                 mapResult(allNotifications, title: "All", key: "all"),
             ].compactMap({ return $0.childs.isNotEmpty ? $0 : nil })
@@ -307,10 +303,14 @@ class NotificationsListViewController: SimpleBaseViewController {
                     var avatarUrl: String? = nil
                     do {
                         let realm = try WRealm.safe()
-                        let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: "\(jid)_\(item.owner)")
-                        
-                        askMessage = instance?.askMessage == "" ? nil : instance?.askMessage
-                        avatarUrl = instance?.avatarUrl
+                        if let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: "\(jid)_\(item.owner)") {
+                            if instance.ask == .none {
+                                return nil
+                            }
+                            
+                            askMessage = instance.askMessage == "" ? nil : instance.askMessage
+                            avatarUrl = instance.avatarUrl
+                        }
                         
                     } catch {
                         DDLogDebug("NotificationsListViewController: \(#function). \(error.localizedDescription)")
@@ -369,9 +369,11 @@ class NotificationsListViewController: SimpleBaseViewController {
     override func subscribe() {
         super.subscribe()
         
+        let jids = AccountManager.shared.users.map { $0.jid }
+        
         do {
             let realm = try WRealm.safe()
-            let collectionObserver = realm.objects(NotificationStorageItem.self).filter("owner == %@", self.owner)
+            let collectionObserver = realm.objects(NotificationStorageItem.self).filter("owner IN %@", jids)
             Observable
                 .collection(from: collectionObserver)
                 .debounce(.milliseconds(200), scheduler: MainScheduler.asyncInstance)
@@ -398,6 +400,22 @@ class NotificationsListViewController: SimpleBaseViewController {
                 } onDisposed: {
                     
                 }.disposed(by: self.bag)
+            
+            let rosterObserver = realm.objects(RosterStorageItem.self).filter("owner IN %@ AND ask_ == %@", jids, RosterStorageItem.Ask.in.rawValue)
+            Observable
+                .collection(from: rosterObserver)
+                .subscribe { _ in
+                    self.loadDatasource()
+                    self.tableView.reloadData()
+                } onError: { _ in
+                    
+                } onCompleted: {
+                    
+                } onDisposed: {
+                    
+                }.disposed(by: self.bag)
+
+            
         } catch {
             
         }
@@ -438,6 +456,28 @@ extension NotificationsListViewController: UITableViewDataSource {
             case .contact:
                 let cell = ContactItemCell()
                 cell.configure(owner: item.owner, username: item.title, jid: item.jid, message: item.message, avatarUrl: item.avatarUrl)
+            
+            cell.addButtonAction = {
+                AccountManager.shared.find(for: item.owner)?.action({ user, stream in
+                    user.presences.subscribed(stream, jid: item.jid, storePreaproved: false)
+                    self.loadDatasource()
+                    
+                    DispatchQueue.main.async {
+                        self.tableView.reloadData()
+                    }
+                })
+            }
+            
+            cell.declineButtonAction = {
+                AccountManager.shared.find(for: item.owner)?.action({ user, stream in
+                    user.presences.unsubscribed(stream, jid: item.jid)
+                    self.loadDatasource()
+                    
+                    DispatchQueue.main.async {
+                        self.tableView.reloadData()
+                    }
+                })
+            }
                 
                 return cell
 //                guard let cell = tableView.dequeueReusableCell(withIdentifier: ContactItemCell.cellName, for: indexPath) as? ContactItemCell else {
