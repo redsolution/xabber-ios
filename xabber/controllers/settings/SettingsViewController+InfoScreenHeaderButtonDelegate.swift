@@ -68,18 +68,30 @@ extension SettingsViewController: InfoScreenHeaderDelegate {
     }
     
     @objc func onQRCode() {
+        let vc = QRCodeViewController()
+        
+        vc.username = self.nickname
+        vc.jid = self.jid
+        vc.stringValue = "xmpp:\(self.jid)"
+        
         do {
             let realm = try Realm()
-            let displayedName = realm.object(ofType: AccountStorageItem.self,
-                                             forPrimaryKey: jid)?.username ?? jid
-            let vc = QRCodeViewController()
-            vc.username = displayedName
-            vc.jid = self.jid
-            vc.stringValue = "xmpp:\(self.jid)"
-            showModal(vc)
+            let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid)
+            
+            let avatarUrl = instance?.avatarUrl
+            DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 56) { image in
+                if let image = image?.resize(targetSize: CGSize(square: 56)) {
+                    vc.avatarImageView.image = image
+                } else {
+                    vc.avatarImageView.image = UIImageView.getDefaultAvatar(for: self.nickname, owner: self.owner, size: 56)
+                }
+            }
+            
         } catch {
             DDLogDebug("GroupchatInfoViewController: \(#function). \(error.localizedDescription)")
         }
+        
+        showModal(vc)
     }
     
     func onChangeAvatar() {

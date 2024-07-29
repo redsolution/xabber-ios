@@ -39,13 +39,35 @@ class QRCodeViewController: UIViewController {
         return view
     }()
     
+    internal let logoInsideQR: UIImageView = {
+        let view = UIImageView(frame: CGRect(square: 128))
+        view.backgroundColor = .white
+        view.layer.cornerRadius = 40
+        
+        view.widthAnchor.constraint(equalToConstant: 80).isActive = true
+        view.heightAnchor.constraint(equalToConstant: 80).isActive = true
+        
+        return view
+    }()
+    
+    internal let avatarImageView: UIImageView = {
+        let view = UIImageView(frame: CGRect(square: 56))
+        view.contentMode = .center
+        if let image = UIImage(named: AccountMasksManager.shared.mask56pt)?.upscale(dimension: 56), AccountMasksManager.shared.load() != "square" {
+            view.mask = UIImageView(image: image)
+        } else {
+            view.mask = nil
+        }
+        
+        return view
+    }()
+    
     private let stack: UIStackView = {
         let stack = UIStackView()
         
         stack.alignment = .center
         stack.axis = .vertical
-        stack.distribution = .fill
-        stack.spacing = 32
+        stack.spacing = 16
         
         return stack
     }()
@@ -143,22 +165,32 @@ class QRCodeViewController: UIViewController {
         } else {
             view.backgroundColor = .white
         }
-        view.addSubview(imageView)
-        imageView.centerInSuperview()
+        view.addSubview(stack)
+        stack.fillSuperviewWithOffset(top: 56, bottom: 0, left: 0, right: 0)
+        
+        stack.addArrangedSubview(imageView)
+        stack.addArrangedSubview(usernameLabel)
+        stack.addArrangedSubview(jidLabel)
+        stack.addArrangedSubview(UIStackView())
+        
+        stack.setCustomSpacing(32, after: imageView)
+        
         qrImage = generateQRCode(from: stringValue)?.upscale(dimension: 280)
         imageView.image = qrImage
+        
+        imageView.addSubview(logoInsideQR)
+        logoInsideQR.centerInSuperview()
+        logoInsideQR.addSubview(avatarImageView)
+        avatarImageView.centerInSuperview()
+        
         let cancelButton = UIBarButtonItem(barButtonSystemItem: .cancel, target: self, action: #selector(cancel))
         let shareButton = UIBarButtonItem(barButtonSystemItem: .action, target: self, action: #selector(share))
         navigationItem.setLeftBarButton(cancelButton, animated: true)
         navigationItem.setRightBarButton(shareButton, animated: true)
         
-        view.addSubview(stack)
-        stack.fillSuperviewWithOffset(top: (view.frame.height - QRSize.height) / 2 + QRSize.height + 24, bottom: 0, left: 16, right: 16)
-        stack.addArrangedSubview(usernameLabel)
-        stack.addArrangedSubview(jidLabel)
-        stack.addArrangedSubview(UIStackView())
         usernameLabel.text = username
-        jidLabel.text = JidManager.shared.prepareJid(jid: jid)
+//        jidLabel.text = JidManager.shared.prepareJid(jid: jid)
+        jidLabel.text = jid
     }
     
     override func viewDidLoad() {
@@ -168,6 +200,7 @@ class QRCodeViewController: UIViewController {
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        
         self.brightness = UIScreen.main.brightness
         UIScreen.main.brightness = 1.0
     }

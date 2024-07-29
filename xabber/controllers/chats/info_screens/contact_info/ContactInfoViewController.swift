@@ -482,14 +482,12 @@ class ContactInfoViewController: BaseViewController {
                 AccountManager.shared.find(for: self.owner)?.action({ user, stream in
                     user.akeManager.rejectRequestToVerify(jid: self.jid, sid: sid)
                 })
-//                akeManager.rejectRequestToVerify(jid: self.jid, sid: sid)
                 
                 return
             } else if instance?.state != VerificationSessionStorageItem.VerififcationState.failed && instance?.state != VerificationSessionStorageItem.VerififcationState.trusted && instance?.state != VerificationSessionStorageItem.VerififcationState.rejected {
                 AccountManager.shared.find(for: self.owner)?.action({ user, stream in
                     user.akeManager.sendErrorMessage(fullJID: jid, sid: sid, reason: "Сontact canceled verification session")
                 })
-//                akeManager.sendErrorMessage(fullJID: jid, sid: sid, reason: "Сontact canceled verification session")
                 
             }
             try realm.write {

@@ -56,18 +56,31 @@ extension ContactInfoViewController: InfoScreenHeaderDelegate {
     }
     
     func onQRCode() {
+        let vc = QRCodeViewController()
+        
+        vc.username = self.nickname
+        vc.jid = self.jid
+        vc.stringValue = "xmpp:\(self.jid)"
+        
         do {
             let realm = try WRealm.safe()
-            let displayedName = realm.object(ofType: RosterStorageItem.self,
-                                             forPrimaryKey: [jid, owner].prp())?.displayName ?? jid
-            let vc = QRCodeViewController()
-            vc.username = displayedName
-            vc.jid = self.jid
-            vc.stringValue = "xmpp:\(self.jid)"
-            showModal(vc)
+            let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: [jid, owner].prp())
+            
+            let avatarUrl = instance?.avatarUrl
+            DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 56) { image in
+                if let image = image?.resize(targetSize: CGSize(square: 56)) {
+                    vc.avatarImageView.image = image
+                } else {
+                    vc.avatarImageView.image = UIImageView.getDefaultAvatar(for: self.nickname, owner: self.owner, size: 56)
+                }
+            }
+            
         } catch {
             DDLogDebug("GroupchatInfoViewController: \(#function). \(error.localizedDescription)")
         }
+        
+        showModal(vc)
+        
     }
     
     internal func openChat() {
@@ -299,18 +312,30 @@ extension ContactInfoViewController: InfoScreenHeaderDelegate {
     
     @objc
     func showQRCode() {
+        let vc = QRCodeViewController()
+        
+        vc.jid = self.jid
+        vc.stringValue = "xmpp:\(self.jid)"
+        vc.username = nickname
+        
         do {
             let realm = try WRealm.safe()
-            let displayedName = realm.object(ofType: GroupChatStorageItem.self,
-                                             forPrimaryKey: [jid, owner].prp())?.name ?? jid
-            let vc = QRCodeViewController()
-            vc.username = displayedName
-            vc.jid = self.jid
-            vc.stringValue = "xmpp:\(self.jid)"
-            showModal(vc)
+            let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: [jid, owner].prp())
+            let avatarUrl = instance?.avatarUrl
+            DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 56) { image in
+                if let image = image?.resize(targetSize: CGSize(square: 56)) {
+                    vc.avatarImageView.image = image
+                } else {
+                    vc.avatarImageView.image = UIImageView.getDefaultAvatar(for: self.nickname, owner: self.owner, size: 56)
+                }
+            }
+            
         } catch {
             DDLogDebug("GroupchatInfoViewController: \(#function). \(error.localizedDescription)")
         }
+        
+        showModal(vc)
+        
     }
     
     @objc

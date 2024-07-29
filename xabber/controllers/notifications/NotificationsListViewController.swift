@@ -457,27 +457,29 @@ extension NotificationsListViewController: UITableViewDataSource {
                 let cell = ContactItemCell()
                 cell.configure(owner: item.owner, username: item.title, jid: item.jid, message: item.message, avatarUrl: item.avatarUrl)
             
-            cell.addButtonAction = {
-                AccountManager.shared.find(for: item.owner)?.action({ user, stream in
-                    user.presences.subscribed(stream, jid: item.jid, storePreaproved: false)
-                    self.loadDatasource()
-                    
-                    DispatchQueue.main.async {
-                        self.tableView.reloadData()
-                    }
-                })
-            }
+                cell.addButtonAction = {
+                    AccountManager.shared.find(for: item.owner)?.action({ user, stream in
+                        user.presences.subscribed(stream, jid: item.jid, storePreaproved: false)
+                        self.loadDatasource()
+                        
+                        DispatchQueue.main.async {
+                            self.tableView.reloadData()
+                        }
+                    })
+                }
             
-            cell.declineButtonAction = {
-                AccountManager.shared.find(for: item.owner)?.action({ user, stream in
-                    user.presences.unsubscribed(stream, jid: item.jid)
-                    self.loadDatasource()
-                    
-                    DispatchQueue.main.async {
-                        self.tableView.reloadData()
-                    }
-                })
-            }
+                cell.declineButtonAction = {
+                    AccountManager.shared.find(for: item.owner)?.action({ user, stream in
+                        user.presences.unsubscribed(stream, jid: item.jid)
+                        self.loadDatasource()
+                        
+                        DispatchQueue.main.async {
+                            self.tableView.reloadData()
+                        }
+                    })
+                }
+                
+                cell.selectionStyle = .none
                 
                 return cell
 //                guard let cell = tableView.dequeueReusableCell(withIdentifier: ContactItemCell.cellName, for: indexPath) as? ContactItemCell else {
