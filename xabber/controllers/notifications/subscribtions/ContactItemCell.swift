@@ -102,6 +102,9 @@ class ContactItemCell: UITableViewCell {
     
     static let cellName = "ContactItemCell"
     
+    var addButtonAction: (() -> Void)?
+    var declineButtonAction: (() -> Void)?
+    
     let stack: UIStackView = {
         let stack = UIStackView()
         stack.axis = .vertical
@@ -286,36 +289,9 @@ class ContactItemCell: UITableViewCell {
         buttonsStack.addArrangedSubview(addButton)
         buttonsStack.addArrangedSubview(declineButton)
         buttonsStack.addArrangedSubview(UIStackView())
-    }
-    
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
         
-//        badgeIndicator.addSubview(badgeIcon)
-//        
-//        contentView.addSubview(avatarContainer)
-//        avatarContainer.frame = CGRect(x: 16, y: 10, width: 64, height: 64)
-//        avatarContainer.addSubview(userImageView)
-//        
-//        userImageView.addSubview(avatarView)
-//        avatarContainer.addSubview(badgeIndicator)
-//        avatarContainer.bringSubviewToFront(badgeIndicator)
-//        
-//        contentView.addSubview(stack)
-//        stack.fillSuperviewWithOffset(top: 10, bottom: 10, left: 96, right: 16)
-//        
-//        stack.addArrangedSubview(titleLabel)
-//        stack.addArrangedSubview(subtitleLabel)
-//        stack.addArrangedSubview(messageView)
-//        stack.addArrangedSubview(buttonsStack)
-//        
-//        buttonsStack.addArrangedSubview(addButton)
-//        buttonsStack.addArrangedSubview(declineButton)
-//        buttonsStack.addArrangedSubview(UIStackView())
-    }
-    
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+        addButton.addTarget(self, action: #selector(addButtonPressed), for: .touchUpInside)
+        declineButton.addTarget(self, action: #selector(declineButtonPressed), for: .touchUpInside)
     }
     
     func configure(owner: String, username: String, jid: String, message: String? = nil, avatarUrl: String? = nil) {
@@ -344,6 +320,16 @@ class ContactItemCell: UITableViewCell {
         super.prepareForReuse()
         
         
+    }
+    
+    @objc
+    private func addButtonPressed() {
+        addButtonAction?()
+    }
+    
+    @objc
+    private func declineButtonPressed() {
+        declineButtonAction?()
     }
     
 }
