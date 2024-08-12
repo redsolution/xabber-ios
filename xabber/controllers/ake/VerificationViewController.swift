@@ -116,7 +116,7 @@ class VerificationViewController: SimpleBaseViewController {
         let view = UIStackView()
         view.alignment = .center
         view.axis = .vertical
-        view.spacing = 8
+        view.distribution = .fillEqually
         
         return view
     }()
@@ -124,13 +124,23 @@ class VerificationViewController: SimpleBaseViewController {
     let agreeButton: UIButton = {
         let button = UIButton()
         
+        var config = UIButton.Configuration.plain()
+        config.baseForegroundColor = .systemBlue
+        config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 30, bottom: 0, trailing: 30)
+        
+        button.configuration = config
+        
         return button
     }()
     
     let cancelButton: UIButton = {
         let button = UIButton()
         
-        button.setTitleColor(.systemRed, for: .normal)
+        var config = UIButton.Configuration.plain()
+        config.baseForegroundColor = .systemRed
+        config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 30, bottom: 0, trailing: 30)
+        
+        button.configuration = config
         
         return button
     }()
@@ -240,6 +250,8 @@ class VerificationViewController: SimpleBaseViewController {
             agreeButton.addTarget(self, action: #selector(onCloseButtonPressed), for: .touchUpInside)
             
         } else if state == .acceptedRequest {
+            buttonsStack.addArrangedSubview(cancelButton)
+            cancelButton.setTitle("Cancel verification", for: .normal)
             cancelButton.addTarget(self, action: #selector(self.onCancelButtonPressed), for: .touchUpInside)
             
         } else {
@@ -414,13 +426,6 @@ class VerificationViewController: SimpleBaseViewController {
                 return
             }
         }
-    }
-    
-    override func activateConstraints() {
-        NSLayoutConstraint.activate ([
-            agreeButton.heightAnchor.constraint(equalToConstant: 44),
-            cancelButton.heightAnchor.constraint(equalToConstant: 44),
-        ])
     }
     
     override func addObservers() {

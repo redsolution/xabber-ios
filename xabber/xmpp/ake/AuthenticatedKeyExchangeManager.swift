@@ -342,42 +342,6 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             }
         }
         
-        do {
-            let realm = try WRealm.safe()
-            
-            let uniqueMessageId = getUniqueMessageId(message, owner: self.owner)
-            if realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: NotificationStorageItem.genPrimary(owner: self.owner, jid: jid.bare, uniqueId: uniqueMessageId)) != nil {
-                return nil
-            }
-            
-            let instance = NotificationStorageItem()
-            instance.owner = self.owner
-            instance.jid = jid.bare
-            instance.uniqueId = uniqueMessageId
-            instance.primary = NotificationStorageItem.genPrimary(owner: self.owner, jid: jid.bare, uniqueId: uniqueMessageId)
-//            instance.category = .trust
-            instance.verificationSid = sid
-            instance.associatedJid = jid.bare
-            
-            if let date = date {
-                instance.date = date
-            }
-            
-            if let verificationAccepted = authenticatedKeyExchange.element(forName: "verification-accepted") {
-                instance.verificationState = .acceptedRequest
-                instance.deviceId = verificationAccepted.attributeStringValue(forName: "device-id")
-            } else if authenticatedKeyExchange.element(forName: "verification-rejected") != nil {
-                instance.verificationState = .rejected
-            }
-            
-            try realm.write {
-                realm.add(instance)
-            }
-        } catch {
-            DDLogDebug("AuthenticatedKeyExchange: \(#function). \(error.localizedDescription)")
-            return nil
-        }
-        
         if authenticatedKeyExchange.element(forName: "verification-start") != nil {
             onVerificationStartReceived(message: message)
         } else if authenticatedKeyExchange.element(forName: "verification-accepted") != nil {
