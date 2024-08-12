@@ -22,6 +22,7 @@
 //
 //
 import Foundation
+import UIKit.UIFont
 
 class CommonConfigManager: NSObject {
     open class var shared: CommonConfigManager {
@@ -29,6 +30,19 @@ class CommonConfigManager: NSObject {
             static let instance = CommonConfigManager()
         }
         return CommonConfigManagerSingleton.instance
+    }
+    
+    
+    enum SymbolWeight: String {
+        case ultraLight = "ultraLight"
+        case thin = "thin"
+        case light = "light"
+        case regular = "regular"
+        case medium = "medium"
+        case semibold = "semibold"
+        case bold = "bold"
+        case heavy = "heavy"
+        case black = "black"
     }
     
     public struct CommonConfig: Codable {
@@ -70,10 +84,25 @@ class CommonConfigManager: NSObject {
         var locked_background: String
         var skip_vcard_nickname_onboarding_step: Bool
         var interface_type: String
+        var symbol_weight: String
     }
     
     var interfaceType: InterfaceType {
         return InterfaceType(rawValue: CommonConfigManager.shared.config.interface_type) ?? .split
+    }
+    
+    var symbolWeight: UIFont.Weight {
+        switch SymbolWeight(rawValue: CommonConfigManager.shared.config.symbol_weight) ?? .regular {
+            case .ultraLight: return .ultraLight
+            case .thin: return .thin
+            case .light: return .light
+            case .regular: return .regular
+            case .medium: return .medium
+            case .semibold: return .semibold
+            case .bold: return .bold
+            case .heavy: return .heavy
+            case .black: return .black
+        }
     }
     
     var config: CommonConfig

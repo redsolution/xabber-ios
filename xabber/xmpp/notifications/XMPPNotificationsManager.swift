@@ -18,11 +18,10 @@ class XMPPNotificationsManager: AbstractXMPPManager {
     open var node: String? =  nil
     
     enum Category: String {
-        case trust = "trust"
         case contact = "contact"
-        case device = "devoce"
+        case device = "device"
         case mention = "mention"
-        case none = "none"
+        case info = "info"
     }
     
     override func namespaces() -> [String] {
@@ -68,6 +67,11 @@ class XMPPNotificationsManager: AbstractXMPPManager {
                     realm.add(instance)
                 }
             }
+            if let chatInstance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular)) {
+                try realm.write {
+                    realm.delete(chatInstance)
+                }
+            }
             AccountManager.shared.find(for: self.owner)?.action({ user, stream in
                 user.notifications.update(stream)
             })
@@ -93,12 +97,10 @@ class XMPPNotificationsManager: AbstractXMPPManager {
             } else if isCarbonForwarded(message) {
                 bareMessage = getCarbonForwardedMessageContainer(message) ?? message
             }
-            if let notify = bareMessage.element(forName: "notify", xmlns: self.getPrimaryNamespace()) ?? bareMessage.element(forName: "notification", xmlns: self.getPrimaryNamespace()) {
+            if let notify = bareMessage.element(forName: "notification", xmlns: self.getPrimaryNamespace()) {
                 let uniqueMessageId = getUniqueMessageId(bareMessage, owner: self.owner)
-                guard let messageContainer = notify.element(forName: "forwarded")?.element(forName: "message") else {
-                    return false
-                }
-                guard let jidRaw = messageContainer.attributeStringValue(forName: "from"),
+                
+                guard let jidRaw = bareMessage.element(forName: "addresses")?.element(forName: "address")?.attributeStringValue(forName: "jid"),
                       let jid = XMPPJID(string: jidRaw)?.bare else {
                     return false
                 }
@@ -112,7 +114,8 @@ class XMPPNotificationsManager: AbstractXMPPManager {
                     instance.jid = jid
                     instance.uniqueId = uniqueMessageId
                     instance.primary = NotificationStorageItem.genPrimary(owner: self.owner, jid: jid, uniqueId: uniqueMessageId)
-                    if let deviceElement = messageContainer.element(forName: "device") {
+                    if let messageContainer = notify.element(forName: "forwarded")?.element(forName: "message"),
+                       let deviceElement = messageContainer.element(forName: "device") {
                         instance.category = .device
                         let deviceId = deviceElement.attributeStringValue(forName: "id", withDefaultValue: "none")
                         if let deviceInstance = realm.object(ofType: DeviceStorageItem.self, forPrimaryKey: DeviceStorageItem.genPrimary(uid: deviceId, owner: self.owner)) {
@@ -149,8 +152,49 @@ class XMPPNotificationsManager: AbstractXMPPManager {
                             date = dateFormatter.date(from: dateString)
                         }
                         instance.date = date ?? Date()
-                    } else {
-                        return false
+                    } else if let mentionElement = notify.element(forName: "mention") {
+                        instance.category = .mention
+                        guard let dateString = bareMessage
+                            .elements(forName: "time")
+                            .first(where: { $0.xmlns() == "https://xabber.com/protocol/delivery"
+                                && $0.attributeStringValue(forName: "by", withDefaultValue: "none") == owner})?
+                            .attributeStringValue(forName: "stamp", withDefaultValue: "0")
+                            else {
+                                return false
+                        }
+                        var date: Date? = nil
+                        let dateFormatter = DateFormatter()
+                        dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
+                        date = dateFormatter.date(from: dateString)
+                        if date == nil {
+                            let dateFormatter = DateFormatter()
+                            dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZ"
+                            date = dateFormatter.date(from: dateString)
+                        }
+                        instance.date = date ?? Date()
+                        instance.shouldShow = true
+                    } else if let infoElement = notify.element(forName: "info") {
+                        instance.category = .info
+                        guard let dateString = bareMessage
+                            .elements(forName: "time")
+                            .first(where: { $0.xmlns() == "https://xabber.com/protocol/delivery"
+                                && $0.attributeStringValue(forName: "by", withDefaultValue: "none") == owner})?
+                            .attributeStringValue(forName: "stamp", withDefaultValue: "0")
+                            else {
+                                return false
+                        }
+                        var date: Date? = nil
+                        let dateFormatter = DateFormatter()
+                        dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
+                        date = dateFormatter.date(from: dateString)
+                        if date == nil {
+                            let dateFormatter = DateFormatter()
+                            dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZ"
+                            date = dateFormatter.date(from: dateString)
+                        }
+                        instance.date = date ?? Date()
+                        instance.shouldShow = true
+                        instance.metadata = ["text": infoElement.stringValue]
                     }
                     try realm.write {
                         realm.add(instance)
@@ -165,7 +209,7 @@ class XMPPNotificationsManager: AbstractXMPPManager {
     }
     
     public func update(_ stream: XMPPStream) {
-        guard isAvailable(), let node = self.node, node.isNotEmpty, XMPPJID(string: node)?.bare != nil else { return }
+        guard isAvailable(), let node = self.node else { return }
         do {
             let realm = try WRealm.safe()
             let lastId = realm.object(
@@ -173,21 +217,17 @@ class XMPPNotificationsManager: AbstractXMPPManager {
                 forPrimaryKey: XMPPNotificationsManagerStorageItem
                     .genPrimary(owner: self.owner)
             )?.lastItemId
-            AccountManager
-                .shared
-                .find(for: self.owner)?
-                .action({ user, stream in
-                    user.mam.requestArchive(
-                        stream,
-                        jid: node,
-                        isContinues: true,
-                        conversationType: .notifications,
-                        flipPage: false,
-                        before: lastId
-                    )
-                })
+            AccountManager.shared.find(for: self.owner)?.mam.requestArchive(
+                stream,
+                jid: node,
+                isContinues: true,
+                conversationType: .notifications,
+                flipPage: false,
+                before: lastId,
+                max: 200
+            )
         } catch {
-            fatalError()
+            DDLogDebug("XMPPNotificationsManager: \(#function). \(error.localizedDescription)")
         }
         
     }
@@ -197,15 +237,19 @@ class XMPPNotificationsManager: AbstractXMPPManager {
             let realm = try WRealm.safe()
             let collection = realm.objects(XMPPNotificationsManagerStorageItem.self)
                 .filter("owner == %@", owner)
+            let notifications = realm.objects(NotificationStorageItem.self)
+                .filter("owner == %@", owner)
             if commitTransaction {
                 try realm.write {
                     realm.delete(collection)
+                    realm.delete(notifications)
                 }
             } else {
                 realm.delete(collection)
+                realm.delete(notifications)
             }
         } catch {
-            DDLogDebug("PresenceManager: \(#function). \(error.localizedDescription)")
+            DDLogDebug("XMPPNotificationsManager: \(#function). \(error.localizedDescription)")
         }
     }
 }

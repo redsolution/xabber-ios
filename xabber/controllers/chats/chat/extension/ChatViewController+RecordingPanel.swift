@@ -93,7 +93,7 @@ extension ChatViewController {
         let cancelButton: UIButton = {
             let button = UIButton()
             
-            button.setImage(imageLiteral( "feather_chevron_left_18pt")?.withRenderingMode(.alwaysTemplate), for: .disabled)
+            button.setImage(imageLiteral( "chevron.left"), for: .disabled)
             button.imageView?.tintColor = MDCPalette.grey.tint500
             button.setImage(nil, for: .normal)
             button.setTitleColor(MDCPalette.grey.tint500, for: .disabled)

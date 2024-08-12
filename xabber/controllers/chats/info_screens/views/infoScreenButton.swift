@@ -73,27 +73,32 @@ class InfoHeaderButton: UIButton {
     }
     
     public final func setupSubviews() {
-        addSubview(stack)
+//        addSubview(stack)
         backgroundColor = .white
         layer.cornerRadius = 8
         layer.masksToBounds = true
-        stack.fillSuperviewWithOffset(top: 4, bottom: 2, left: 4, right: 4)
-        stack.addArrangedSubview(icon)
-        stack.addArrangedSubview(title)
-        activateConstraints()
+//        stack.fillSuperviewWithOffset(top: 4, bottom: 2, left: 4, right: 4)
+//        stack.addArrangedSubview(icon)
+//        stack.addArrangedSubview(title)
+//        activateConstraints()
 //        addBlurSubviews()
+        
+        icon.center = CGPoint(x: self.frame.midX, y: 20)
+        addSubview(icon)
     }
     
     func configure(icon: String, title: String) {
-        self.icon.image = (UIImage(named: icon) ?? UIImage(systemName: icon))?.withRenderingMode(.alwaysTemplate)
+        self.icon.image = imageLiteral(icon)
+        self.icon.sizeToFit()
+        self.icon.center = CGPoint(x: self.frame.midX, y: 24)
         self.title.text = title.lowercased()
     }
     
     private final func activateConstraints() {
         NSLayoutConstraint.activate([
-            title.heightAnchor.constraint(equalToConstant: 16),
-            icon.widthAnchor.constraint(equalToConstant: 24),
-//            icon.heightAnchor.constraint(equalToConstant: 24)
+//            title.heightAnchor.constraint(equalToConstant: 16),
+//            icon.heightAnchor.constraint(equalToConstant: 24),
+            icon.heightAnchor.constraint(equalToConstant: 24)
         ])
     }
 }

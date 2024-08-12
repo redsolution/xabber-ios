@@ -195,9 +195,9 @@ class CommonMemberTableCell: UITableViewCell {
                 
         switch role {
         case .owner:
-            roleIndicator.image = imageLiteral( "star")?.withRenderingMode(.alwaysTemplate)
+            roleIndicator.image = imageLiteral( "star.fill")
         case .admin:
-            roleIndicator.image = imageLiteral( "star-outline")?.withRenderingMode(.alwaysTemplate)
+            roleIndicator.image = imageLiteral( "star")
         case .member:
             roleIndicator.image = nil
         }

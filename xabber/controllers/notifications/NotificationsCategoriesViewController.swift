@@ -8,6 +8,10 @@
 
 import Foundation
 import UIKit
+import RealmSwift
+import RxRealm
+import RxCocoa
+import RxSwift
 import CocoaLumberjack
 
 class NotificationsCategoriesViewController: UIViewController {
@@ -17,9 +21,13 @@ class NotificationsCategoriesViewController: UIViewController {
         let icon: String
         let key: String
         var subtitle: String
+        var color: UIColor
     }
     
     var datasource: [[Datasource]] = []
+    var bag: DisposeBag = DisposeBag()
+    
+    var filterDelegate: NotificationsControllerFilterProtocol? = nil
     
     
     private let tableView: UITableView = {
@@ -28,17 +36,13 @@ class NotificationsCategoriesViewController: UIViewController {
         view.register(UITableViewCell.self, forCellReuseIdentifier: "tablecell")
         view.separatorStyle = .none
         view.backgroundColor = .systemBackground
+        view.allowsMultipleSelection = true
         
         return view
     }()
     
     private func loadDatasource() {
-        self.datasource = [[
-            Datasource(title: "All", icon: "bell.fill", key: "all", subtitle: "\(0)"),
-            Datasource(title: "Security", icon: "exclamationmark.shield.fill", key: "security", subtitle: "\(0)"),
-            Datasource(title: "Subscribtion requests", icon: "person.crop.circle.fill.badge.plus", key: "subscribtion", subtitle: "\(0)"),
-            Datasource(title: "Information", icon: "info.circle.fill", key: "info", subtitle: "\(0)")
-        ]]
+        
     }
     
     @objc
@@ -48,11 +52,53 @@ class NotificationsCategoriesViewController: UIViewController {
     
     
     func subscribe() {
+        self.bag = DisposeBag()
+        do {
+            let realm = try WRealm.safe()
+            let accounts = realm.objects(AccountStorageItem.self).filter("enabled == true")
+            Observable.collection(from: accounts).subscribe { results in
+                
+                do {
+                    let realm = try WRealm.safe()
+                    let jids = results.toArray().compactMap({ return $0.jid })
+                    let notifications = realm.objects(NotificationStorageItem.self).filter("isRead == false AND shouldShow == true AND owner IN %@", jids).toArray()
+                    
+                    let accountsDatsource: [Datasource] = results.compactMap {
+                        let notificationsCount = notifications.filter({ $0.owner == $0.jid }).count
+                        return Datasource(title: $0.username, icon: "person.crop.circle", key: $0.jid, subtitle: "\(notificationsCount)", color: AccountColorManager.shared.palette(for: $0.jid).tint500)
+                    }
+                    let securityCount = notifications.filter({ $0.category == .device }).count
+                    let mentionsCount = notifications.filter({ $0.category == .mention }).count
+                    let infoCount = notifications.filter({ $0.category == .info }).count
+                    self.datasource = [[
+                        Datasource(title: "All", icon: "bell", key: "all", subtitle: "\(notifications.count)", color: .tintColor),
+                        Datasource(title: "Security", icon: "shield", key: "security", subtitle: "\(securityCount)", color: .tintColor),
+                        Datasource(title: "Mentions", icon: "at", key: "mentions", subtitle: "\(mentionsCount)", color: .tintColor),
+                        Datasource(title: "Information", icon: "info", key: "info", subtitle: "\(mentionsCount)", color: .tintColor)
+                    ],accountsDatsource]
+                } catch {
+                    DDLogDebug("NotificationsCategoriesViewController: \(#function). \(error.localizedDescription)")
+                }
+                
+                
+                
+                self.tableView.reloadData()
+            } onError: { _ in
+                
+            } onCompleted: {
+                
+            } onDisposed: {
+                
+            }.disposed(by: self.bag)
+
+        } catch {
+            DDLogDebug("NotificationsCategoriesViewController: \(#function). \(error.localizedDescription)")
+        }
         
     }
     
     func unsubscribe() {
-        
+        self.bag = DisposeBag()
     }
     
     
@@ -65,7 +111,6 @@ class NotificationsCategoriesViewController: UIViewController {
         tableView.fillSuperview()
         tableView.delegate = self
         tableView.dataSource = self
-        loadDatasource()
 //        bottomBar.configure()
 //        self.view.addSubview(bottomBar)
 //        self.view.bringSubviewToFront(bottomBar)
@@ -135,12 +180,38 @@ extension NotificationsCategoriesViewController: UITableViewDataSource {
         return datasource[section].count
     }
     
+    
+    func tableView(_ tableView: UITableView, willDisplayHeaderView view: UIView, forSection section: Int) {
+        var configuration = UIListContentConfiguration.sidebarHeader()
+//        configuration.textProperties.
+        switch section {
+            case 0: configuration.text = "Filters"
+            case 1: configuration.text = "Accounts"
+            default: break
+        }
+        
+//        configuration.textProperties.font = UIFont.preferredFont(forTextStyle: .title2)
+//        configuration.textProperties.color = .label
+//        configuration.textProperties.transform = .capitalized
+        
+        (view as? UITableViewHeaderFooterView)?.contentConfiguration = configuration
+    }
+    
+    func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+        switch section {
+            case 0: return "Filters"
+            case 1: return "Accounts"
+            default: return nil
+        }
+    }
+    
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = UITableViewCell(style: .value1, reuseIdentifier: "tablecell")
         
         cell.textLabel?.text = datasource[indexPath.section][indexPath.row].title
-        cell.imageView?.image = UIImage(systemName: datasource[indexPath.section][indexPath.row].icon)
-//        cell.selectionStyle = 
+        cell.imageView?.image = imageLiteral(datasource[indexPath.section][indexPath.row].icon, dimension: 24)
+        cell.imageView?.tintColor = datasource[indexPath.section][indexPath.row].color
+//        cell.selectionStyle =
         cell.backgroundColor = .clear
         let text = datasource[indexPath.section][indexPath.row].subtitle
         
@@ -149,7 +220,9 @@ extension NotificationsCategoriesViewController: UITableViewDataSource {
         let view = UIView()
         view.layer.cornerRadius = 16
         view.layer.masksToBounds = true
-        view.backgroundColor = AccountColorManager.shared.topPalette().tint50
+        
+        view.backgroundColor = AccountColorManager.shared.topPalette().tint50 | AccountColorManager.shared.topPalette().tint900
+        
         cell.selectedBackgroundView = view
         
         return cell
@@ -179,11 +252,17 @@ extension NotificationsCategoriesViewController: UITableViewDelegate {
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        let key = self.datasource[indexPath.section][indexPath.row].key
-        switch key {
-            case "all":
-                let vc = NotificationsListViewController()
-                showStacked(vc, in: self)
+        if tableView.indexPathsForSelectedRows?.filter({ $0.section == indexPath.section}).isNotEmpty ?? false {
+            guard let selectedInSection = tableView.indexPathsForSelectedRows?.filter({ $0.row != indexPath.row && $0.section == indexPath.section }) else {
+                return
+            }
+            selectedInSection.forEach { tableView.deselectRow(at: $0, animated: false) }
+        }
+        switch indexPath.section {
+            case 0:
+                self.filterDelegate?.shouldFilterBy(category: self.datasource[indexPath.section][indexPath.row].key)
+            case 1:
+                self.filterDelegate?.shouldFilterBy(account: self.datasource[indexPath.section][indexPath.row].key)
             default:
                 break
         }

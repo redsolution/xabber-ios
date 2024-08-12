@@ -193,11 +193,12 @@ class LeftMenuViewController: UIViewController {
     private func loadDatasource() {
         do {
             let realm = try WRealm.safe()
-            let chatsCount = realm.objects(LastChatsStorageItem.self).count
-            let archivedCount = realm.objects(LastChatsStorageItem.self).filter("isArchived == true").count
+            let jids = AccountManager.shared.users.map { $0.jid }
+            let chatsCount = realm.objects(LastChatsStorageItem.self).filter("isArchived == false AND unread > 0 AND owner IN %@", jids).count
+            let archivedCount = realm.objects(LastChatsStorageItem.self).filter("isArchived == true AND unread > 0 AND owner IN %@", jids).count
             let callsCount = realm.objects(CallMetadataStorageItem.self).count
-            let contactsCount = realm.objects(RosterStorageItem.self).filter("isHidden == false AND removed == false").count
-            let notificationsCount = realm.objects(NotificationStorageItem.self).count
+            let contactsCount = realm.objects(RosterStorageItem.self).filter("isHidden == false AND removed == false AND (ask_ == %@ OR ask_ == %@) AND owner IN %@", "in", "both", jids).count
+            let notificationsCount = realm.objects(NotificationStorageItem.self).filter("isRead == false AND shouldShow == true AND owner IN %@", jids).count
             self.datasource = [[
                 Datasource(title: "Chats", icon: "message", key: "chat", subtitle: "\(chatsCount)"),
                 Datasource(title: "Calls", icon: "phone", key: "calls", subtitle: "\(callsCount)"),
@@ -225,11 +226,11 @@ class LeftMenuViewController: UIViewController {
         self.bag = DisposeBag()
         do {
             let realm = try WRealm.safe()
-            let chats = realm.objects(LastChatsStorageItem.self)
-            let archived = realm.objects(LastChatsStorageItem.self).filter("isArchived == true")
+            let chats = realm.objects(LastChatsStorageItem.self).filter("isArchived == false AND unread > 0")
+            let archived = realm.objects(LastChatsStorageItem.self).filter("isArchived == true AND unread > 0")
             let calls = realm.objects(CallMetadataStorageItem.self)
-            let contacts = realm.objects(RosterStorageItem.self).filter("isHidden == false AND removed == false")
-            let notifications = realm.objects(NotificationStorageItem.self)
+            let contacts = realm.objects(RosterStorageItem.self).filter("isHidden == false AND removed == false AND (ask_ == %@ OR ask_ == %@)", "in", "out")
+            let notifications = realm.objects(NotificationStorageItem.self).filter("isRead == false AND shouldShow == true")
             
             let section = 0
             
@@ -402,7 +403,7 @@ class LeftMenuViewController: UIViewController {
         
         let tapGesture = UITapGestureRecognizer(target: self, action: #selector(onTableViewEmptySpaceTap))
         tapGesture.cancelsTouchesInView = false
-        tableView.addGestureRecognizer(tapGesture)
+//        tableView.addGestureRecognizer(tapGesture)
         
     }
     
@@ -521,7 +522,11 @@ extension LeftMenuViewController: UITableViewDataSource {
         let item = datasource[indexPath.section][indexPath.row]
         
         cell.configure(title: item.title, badge: item.subtitle, icon: item.icon)
-
+        if item.key == "archive" {
+            cell.badgeView.configuration?.baseBackgroundColor = .systemGray
+        } else {
+            cell.badgeView.configuration?.baseBackgroundColor = UIColor(red: 0.2196, green: 0.5569, blue: 0.2353, alpha: 1.0)
+        }
         return cell
     }
     
@@ -606,51 +611,46 @@ extension LeftMenuViewController: UITableViewDelegate {
         return 44
     }
     
-    private func show(controller vc: UIViewController) {
+    private func show(controller vc: UIViewController, kind: EmptyChatViewController.Kind, isNotifications: Bool = false) {
+        let svc: UIViewController
+        if isNotifications {
+            svc = NotificationsListViewController()
+            (vc as? NotificationsCategoriesViewController)?.filterDelegate = (svc as? NotificationsListViewController)
+        } else {
+            svc = EmptyChatViewController()
+        }
+        (svc as? EmptyChatViewController)?.kind = kind
+        let nsvc = UINavigationController(rootViewController: svc)
+        self.splitViewController?.viewControllers = [self, vc, nsvc]
         if UIDevice.current.userInterfaceIdiom == .pad {
-            self.splitViewController?.setViewController(vc, for: .supplementary)
             self.splitViewController?.hide(.primary)
         } else {
-            UIView.performWithoutAnimation {
-                self.splitViewController?.setViewController(vc, for: .supplementary)
-                self.splitViewController?.show(.supplementary)
-                self.splitViewController?.hide(.primary)
-            }
-        }
-        
-    }
-    
-    private func showEmptyDetail(for kind: EmptyChatViewController.Kind) {
-        if UIDevice.current.userInterfaceIdiom == .pad {
-            let svc = EmptyChatViewController()
-            svc.kind = kind
-//            UIView.performWithoutAnimation {
-//                self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: svc), sender: self)
-                self.splitViewController?.setViewController(UINavigationController(rootViewController: svc), for: .secondary)
-//            }
-            
+            self.splitViewController?.show(.supplementary)
         }
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         let key = self.datasource[indexPath.section][indexPath.row].key
         if self.previousSelectedKey == key {
-            self.splitViewController?.hide(.primary)
+            if UIDevice.current.userInterfaceIdiom == .pad {
+                self.splitViewController?.hide(.primary)
+            } else {
+                self.splitViewController?.show(.supplementary)
+            }
             return
         }
         self.previousSelectedKey = key
-        self.onAppear()
         switch key {
             case "chat":
                 if let vc = self.chatsVc {
                     vc.filter.accept(.chats)
-                    self.show(controller: vc)
-                    self.showEmptyDetail(for: .emptyChat)
+                    self.show(controller: vc, kind: .emptyChat)
+//                    self.showEmptyDetail(for: .emptyChat)
                 } else {
                     let vc = LastChatsViewController()
                     self.chatsVc = vc
-                    self.show(controller: vc)
-                    self.showEmptyDetail(for: .emptyChat)
+                    self.show(controller: vc, kind: .emptyChat)
+//                    self.showEmptyDetail(for: .emptyChat)
                 }
             case "calls":
                 if self.chatsVc?.filter.value == .unread {
@@ -660,13 +660,13 @@ extension LeftMenuViewController: UITableViewDelegate {
                     self.archivedVc?.filter.accept(.archived)
                 }
                 if let vc = self.callsVc {
-                    self.show(controller: vc)
-                    self.showEmptyDetail(for: .emptyCall)
+                    self.show(controller: vc, kind: .emptyCall)
+//                    self.showEmptyDetail(for: .emptyCall)
                 } else {
                     let vc = LastCallsViewController()
                     self.callsVc = vc
-                    self.show(controller: vc)
-                    self.showEmptyDetail(for: .emptyCall)
+                    self.show(controller: vc, kind: .emptyCall)
+//                    self.showEmptyDetail(for: .emptyCall)
                 }
             case "mentions":
                 if self.chatsVc?.filter.value == .unread {
@@ -676,11 +676,11 @@ extension LeftMenuViewController: UITableViewDelegate {
                     self.archivedVc?.filter.accept(.archived)
                 }
                 if let vc = self.notificationsVc {
-                    self.show(controller: vc)
+                    self.show(controller: vc, kind: .emptyChat)
                 } else {
                     let vc = NotificationsListViewController()
                     self.notificationsVc = vc
-                    self.show(controller: vc)
+                    self.show(controller: vc, kind: .emptyChat)
                 }
             case "notifications":
                 if self.chatsVc?.filter.value == .unread {
@@ -691,25 +691,19 @@ extension LeftMenuViewController: UITableViewDelegate {
                 }
                 if UIDevice.current.userInterfaceIdiom == .pad {
                     if let vc = self.notificationsCategoriesVc {
-                        self.show(controller: vc)
-                        let svc = NotificationsListViewController()
-                        self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: svc), sender: self)
-                        
+                        self.show(controller: vc, kind: .emptyChat, isNotifications: true)
                     } else {
                         let vc = NotificationsCategoriesViewController()
                         self.notificationsCategoriesVc = vc
-                        self.show(controller: vc)
-                        let svc = NotificationsListViewController()
-                        
-                        self.splitViewController?.showDetailViewController(UINavigationController(rootViewController: svc), sender: self)
+                        self.show(controller: vc, kind: .emptyChat, isNotifications: true)
                     }
                 } else {
                     if let vc = self.notificationsVc {
-                        self.show(controller: vc)
+                        self.show(controller: vc, kind: .emptyChat)
                     } else {
                         let vc = NotificationsListViewController()
                         self.notificationsVc = vc
-                        self.show(controller: vc)
+                        self.show(controller: vc, kind: .emptyChat)
                     }
                 }
                 
@@ -721,26 +715,25 @@ extension LeftMenuViewController: UITableViewDelegate {
                     self.archivedVc?.filter.accept(.archived)
                 }
                 if let vc = self.contactsVc {
-                    self.show(controller: vc)
-                    self.showEmptyDetail(for: .emptyContact)
+                    self.show(controller: vc, kind: .emptyContact)
+//                    self.showEmptyDetail(for: .emptyContact)
                 } else {
                     let vc = ContactsViewController()
                     self.contactsVc = vc
-                    self.show(controller: vc)
-                    self.showEmptyDetail(for: .emptyContact)
+                    self.show(controller: vc, kind: .emptyContact)
+//                    self.showEmptyDetail(for: .emptyContact)
                  }
             case "archive":
                 if let vc = self.archivedVc {
                     vc.filter.accept(.archived)
-                    self.show(controller: vc)
-                    self.showEmptyDetail(for: .emptyChat)
+                    self.show(controller: vc, kind: .emptyChat)
                 } else {
                     let vc = LastChatsViewController()
                     vc.shouldShowBottomBar = false
                     vc.filter.accept(.archived)
                     self.archivedVc = vc
-                    self.show(controller: vc)
-                    self.showEmptyDetail(for: .emptyChat)
+                    self.show(controller: vc, kind: .emptyChat)
+//                    self.showEmptyDetail(for: .emptyChat)
                 }
             case "saved":
                 if self.chatsVc?.filter.value == .unread {
@@ -751,12 +744,12 @@ extension LeftMenuViewController: UITableViewDelegate {
                 }
                 if let vc = self.chatsVc {
                     vc.filter.accept(LastChatsViewController.Filter.chats)
-                    self.show(controller: vc)
+                    self.show(controller: vc, kind: .emptyChat)
                 } else {
                     let vc = LastChatsViewController()
                     self.chatsVc = vc
                     vc.filter.accept(LastChatsViewController.Filter.chats)
-                    self.show(controller: vc)
+                    self.show(controller: vc, kind: .emptyChat)
                 }
             default:
                 break

@@ -50,37 +50,6 @@ class XmppAvatarManager: AbstractXMPPManager {
         super.init(withOwner: owner)
     }
     
-//    private final func storeBase64(jid: String, avatar: String, imageHash: String, source: AvatarStorageItem.Kind, userId: String? = nil) {
-//        guard let image = base64ToImage(avatar) else {
-//            return
-//        }
-//        let images = [
-//            DefaultAvatarManager.SizedImage(image: image, url: nil, size: .original)
-//        ]
-//        if let userId = userId {
-//            DefaultAvatarManager
-//                .shared
-//                .storeGroupAvatar(user: userId, jid: jid, owner: self.owner, hash: imageHash, images: images, kind: source)
-//        } else {
-//            DefaultAvatarManager
-//                .shared
-//                .storeAvatar(jid: jid, owner: self.owner, hash: imageHash, images: images, kind: source)
-//        }
-//    }
-//        
-//    private final func storeHttp(jid: String, imageHash: String, userId: String? = nil, images: [DefaultAvatarManager.SizedImage]) {
-//        
-//        if let userId = userId {
-//            DefaultAvatarManager
-//                .shared
-//                .storeGroupAvatar(user: userId, jid: jid, owner: owner, hash: imageHash, images: images, kind: .xabber)
-//        } else {
-//            DefaultAvatarManager
-//                .shared
-//                .storeAvatar(jid: jid, owner: owner, hash: imageHash, images: images, kind: .xabber)
-//        }
-//    }
-    
     public final func readFromVcard(_ iq: XMPPIQ) -> Bool {
         guard let base64 = iq
                 .element(forName: "vCard", xmlns: "vcard-temp")?
@@ -139,6 +108,9 @@ class XmppAvatarManager: AbstractXMPPManager {
                         instance.oldschoolAvatarKey = avatarKey
                         instance.avatarUpdatedTS = Date().timeIntervalSince1970
                         instance.updatedTS = Date().timeIntervalSince1970
+                        realm.objects(NotificationStorageItem.self).filter("owner == %@ AND jid == %@", owner, jid).forEach {
+                            $0.metadata_ = $0.metadata_
+                        }
                     }
                 }
             }
@@ -213,6 +185,9 @@ class XmppAvatarManager: AbstractXMPPManager {
                             instance.oldschoolAvatarKey = id
                             instance.avatarUpdatedTS = Date().timeIntervalSince1970
                             instance.updatedTS = Date().timeIntervalSince1970
+                            realm.objects(NotificationStorageItem.self).filter("owner == %@ AND jid == %@", owner, jid).forEach {
+                                $0.metadata_ = $0.metadata_
+                            }
                         }
                     }
                 }

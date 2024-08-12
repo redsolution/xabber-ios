@@ -81,7 +81,7 @@ extension ChatViewController: MessagesDisplayDelegate {
         if item.isHasAttachedMessages {
             return .clear
         }
-        return item.outgoing ? UIColor.white : self.accountPallete.tint50
+        return item.outgoing ? UIColor.systemBackground : self.accountPallete.tint50 | self.accountPallete.tint900
     }
     
     func deliveryState(at indexPath: IndexPath) -> MessageStorageItem.MessageSendingState {
@@ -179,25 +179,19 @@ extension ChatViewController: MessagesDisplayDelegate {
         switch self.conversationType {
         
         case .omemo, .omemo1, .axolotl:
-            return UIImage(named: "56dp-chat-encrypted")
+            return imageLiteral( "custom.lock.bubble.left.fill", dimension: 24)
         default:
             switch self.entity {
-            case .contact:
-                return imageLiteral( "56dp-chat")
+                case .contact, .bot, .server, .issue:
+                return imageLiteral("bubble.left.fill", dimension: 24)
             case .groupchat:
-                return imageLiteral( "56dp-group-public")
-            case .bot:
-                return imageLiteral( "56dp-chat")
-            case .server:
-                return imageLiteral( "56dp-chat")
+                return imageLiteral("person.2.fill", dimension: 24)
             case .incognitoChat:
-                return imageLiteral( "56dp-group-incognito")
+                return imageLiteral( "custom.person.2", dimension: 24)
             case .privateChat:
-                return imageLiteral( "56dp-group-private")
+                return imageLiteral( "xabber.incognito.fill", dimension: 24)
             case .encryptedChat:
-                return imageLiteral( "56dp-chat-encrypted")
-            case .issue:
-                return nil
+                return imageLiteral( "custom.lock.bubble.left.fill", dimension: 24)
             }
         }
         

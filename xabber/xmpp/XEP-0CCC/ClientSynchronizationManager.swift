@@ -609,6 +609,10 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             return nil
         }
         
+        if (XMPPJID(string: jid)?.isServer ?? false) {
+            return nil
+        }
+        
         if jid == AccountManager.shared.find(for: self.owner)?.notifications.node {
             return nil
         }

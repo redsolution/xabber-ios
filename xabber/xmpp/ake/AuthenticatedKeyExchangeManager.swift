@@ -355,7 +355,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             instance.jid = jid.bare
             instance.uniqueId = uniqueMessageId
             instance.primary = NotificationStorageItem.genPrimary(owner: self.owner, jid: jid.bare, uniqueId: uniqueMessageId)
-            instance.category = .trust
+//            instance.category = .trust
             instance.verificationSid = sid
             instance.associatedJid = jid.bare
             

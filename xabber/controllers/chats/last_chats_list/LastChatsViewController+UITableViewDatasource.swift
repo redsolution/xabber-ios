@@ -68,7 +68,7 @@ extension LastChatsViewController: UITableViewDataSource {
         cell.setMask()
         
         let view = UIView()
-        view.backgroundColor = AccountColorManager.shared.palette(for: item.owner).tint50
+        view.backgroundColor = AccountColorManager.shared.palette(for: item.owner).tint50 | AccountColorManager.shared.palette(for: item.owner).tint900
         cell.selectedBackgroundView = view
     
         return cell

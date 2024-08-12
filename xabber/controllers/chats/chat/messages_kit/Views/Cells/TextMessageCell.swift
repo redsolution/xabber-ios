@@ -74,9 +74,8 @@ class TextMessageCell: CommonMessageCell {
             }
             switch message.kind {
             case .text(let text), .emoji(let text):
-                let textColor = MDCPalette.grey.tint900//displayDelegate.textColor(for: message, at: indexPath, in: messagesCollectionView)
                 messageLabel.text = text
-                messageLabel.textColor = textColor
+                messageLabel.textColor = UIColor.label
                 if let font = messageLabel.messageLabelFont {
                     messageLabel.font = font
                 }

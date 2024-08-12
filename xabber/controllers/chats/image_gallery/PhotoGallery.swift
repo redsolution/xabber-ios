@@ -341,11 +341,11 @@ public class PhotoGallery: UIViewController {
                                             style: .done,
                                             target: self,
                                             action: #selector(dismissGallery))
-        let linkButton = UIBarButtonItem(image: imageLiteral( "link-variant")?.withRenderingMode(.alwaysTemplate),
+        let linkButton = UIBarButtonItem(image: imageLiteral( "paperclip")?.withRenderingMode(.alwaysTemplate),
                                          style: .plain,
                                          target: self,
                                          action: #selector(onCopyLinkButton))
-        let shareButton = UIBarButtonItem(image: imageLiteral( "share")?.withRenderingMode(.alwaysTemplate),
+        let shareButton = UIBarButtonItem(image: imageLiteral("square.and.arrow.up"),
                                           style: .plain,
                                           target: self,
                                           action: #selector(onShareButton))
@@ -619,7 +619,9 @@ extension PhotoGallery {
         guard let image = (imageCollectionView.cellForItem(at: IndexPath(item: currentPage, section: 0)) as? PhotoGalleryCell)?.imageView.image else { return } //row?
         let objectsToShare = [image, imageUrls[currentPage]] as [Any]
         
-        let activityImage = UIImage(imageLiteralResourceName: "xabber_icon_call_kit").resize(targetSize: CGSize(square: 60))
+        guard let activityImage = UIImage(named: "xabber_icon_call_kit")?.resize(targetSize: CGSize(square: 60)) else {
+            return
+        }
         let xabberActivity = XabberActivity(title: "Xabber", image: activityImage)
         
         let activityVC = UIActivityViewController(activityItems: objectsToShare, applicationActivities: [xabberActivity])

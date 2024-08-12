@@ -187,7 +187,7 @@ class InfoScreenHeaderView: UIView {
         self.titleButton.center = CGPoint(x: self.frame.width / 2, y: 204 - offset)
         self.subtitleLabel.frame = CGRect(width: self.frame.width, height: 18)
         self.subtitleLabel.center = CGPoint(x: self.frame.width / 2, y: 232 - offset)
-        self.buttonsStack.frame = CGRect(width: self.frame.width, height: 44)
+        self.buttonsStack.frame = CGRect(width: self.frame.width, height: 56)
         self.buttonsStack.center = CGPoint(x: self.frame.width / 2, y: 274 - offset)
     }
     
@@ -220,7 +220,7 @@ class InfoScreenHeaderView: UIView {
         self.buttons = block()
         NSLayoutConstraint.activate(self.buttons.compactMap { return [
             $0.widthAnchor.constraint(equalToConstant: 72),
-            $0.heightAnchor.constraint(equalToConstant: 44)
+            $0.heightAnchor.constraint(equalToConstant: 56)
         ] }.flatMap({ $0 }))
         self.buttons.forEach { self.supportButtonsStack.addArrangedSubview($0) }
     }

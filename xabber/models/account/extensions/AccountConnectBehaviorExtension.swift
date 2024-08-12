@@ -185,7 +185,6 @@ extension Account {
     }
     
     public final func didReceiveRoster() {
-        self.notifications.update(xmppStream)
         self.queue.asyncAfter(deadline: .now() + 1) {
             if !self.sm.didResume {
                 self.presence()
@@ -220,5 +219,6 @@ extension Account {
             }
             
         }
+        self.notifications.update(xmppStream)
     }
 }

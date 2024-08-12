@@ -122,13 +122,14 @@ class VerificationViewController: SimpleBaseViewController {
     }()
     
     let agreeButton: UIButton = {
-        let button = UIButton(type: .system)
+        let button = UIButton()
         
         return button
     }()
     
     let cancelButton: UIButton = {
-        let button = UIButton(type: .system)
+        let button = UIButton()
+        
         button.setTitleColor(.systemRed, for: .normal)
         
         return button

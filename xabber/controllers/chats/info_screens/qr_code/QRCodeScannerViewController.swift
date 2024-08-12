@@ -125,7 +125,7 @@ class QRCodeScannerViewController: UIViewController, AVCaptureMetadataOutputObje
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         addObservers()
-        
+        // TODO: -[AVCaptureSession startRunning] should be called from background thread. Calling it on the main thread can lead to UI unresponsiveness
         if (captureSession?.isRunning == false) {
             captureSession.startRunning()
         }

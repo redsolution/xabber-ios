@@ -25,9 +25,9 @@ class SkeletonMessageCell: CommonMessageCell {
     
     override func apply(_ layoutAttributes: UICollectionViewLayoutAttributes) {
         super.apply(layoutAttributes)
-        if let attributes = layoutAttributes as? MessagesCollectionViewLayoutAttributes {
-
-        }
+//        if let attributes = layoutAttributes as? MessagesCollectionViewLayoutAttributes {
+//
+//        }
     }
     
     override func prepareForReuse() {
@@ -42,6 +42,15 @@ class SkeletonMessageCell: CommonMessageCell {
     override func configure(with message: MessageType, at indexPath: IndexPath, and messagesCollectionView: MessagesCollectionView) {
         super.configure(with: message, at: indexPath, and: messagesCollectionView)
         self.messageContainerView.alpha = 0.35
+        
+//        UIView.animate(
+//            withDuration: 0.66,
+//            delay: 0.5,
+//            usingSpringWithDamping: 0.2,
+//            initialSpringVelocity: 0.6,
+//            options: [.repeat, .autoreverse, .beginFromCurrentState]) {
+//                self.messageContainerView.alpha = 0.5
+//            }
         
         UIView.animate(
             withDuration: 0.66,

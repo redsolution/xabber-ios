@@ -38,7 +38,7 @@ class BottomBarView: UIView {
     let leftButton: UIButton = {
         let button = UIButton()
         
-        button.setImage(UIImage(systemName: "line.3.horizontal.decrease.circle")?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate), for: .normal)
+        button.setImage(imageLiteral("line.3.horizontal.decrease.circle", dimension: 24), for: .normal)
         button.tintColor = .tintColor
         
         return button
@@ -47,7 +47,7 @@ class BottomBarView: UIView {
     let rightButton: UIButton = {
         let button = UIButton()
         
-        button.setImage(UIImage(systemName: "plus")?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate), for: .normal)
+        button.setImage(imageLiteral("plus", dimension: 24), for: .normal)
         button.tintColor = .tintColor
         
         return button

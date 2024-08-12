@@ -49,10 +49,10 @@ class CreateNewEntityViewController: UIViewController {
         if CommonConfigManager.shared.config.locked_conversation_type == "none" {
             self.datasource = [
                 [
-                    Datasource(title: "Add contact", iconImage: nil ,icon: "person", key: "add_contact", subtitle: ""),
-                    Datasource(title: "Create group", iconImage: nil, icon: "person.2", key: "create_group", subtitle: ""),
+                    Datasource(title: "Add contact", iconImage: nil ,icon: "person.fill", key: "add_contact", subtitle: ""),
+                    Datasource(title: "Create group", iconImage: nil, icon: "person.2.fill", key: "create_group", subtitle: ""),
                     Datasource(title: "Create incognito group", iconImage:  nil, icon: "custom.person.2", key: "create_incognito", subtitle: ""),
-                    Datasource(title: "Start secret chat", iconImage: nil, icon: "lock.shield", key: "start_secret_chat", subtitle: ""),
+                    Datasource(title: "Start secret chat", iconImage: nil, icon: "custom.lock.bubble.left.fill", key: "start_secret_chat", subtitle: ""),
                 ],
                 [
                     Datasource(title: "Scan QR code", iconImage: nil, icon: "qrcode.viewfinder", key: "qr_code", subtitle: ""),
@@ -61,7 +61,7 @@ class CreateNewEntityViewController: UIViewController {
         } else {
             self.datasource = [
                 [
-                    Datasource(title: "Add contact", iconImage: nil ,icon: "person", key: "add_contact", subtitle: ""),
+                    Datasource(title: "Add contact", iconImage: nil ,icon: "person.fill", key: "add_contact", subtitle: ""),
                 ],
                 [
                     Datasource(title: "Scan QR code", iconImage: nil, icon: "qrcode.viewfinder", key: "qr_code", subtitle: ""),
@@ -144,15 +144,13 @@ extension CreateNewEntityViewController: UITableViewDataSource {
             cell.imageView?.image = image.withRenderingMode(.alwaysTemplate)
             cell.tintColor = .tintColor
         } else {
-            cell.imageView?.image = (UIImage(named: datasource[indexPath.section][indexPath.row].icon) ?? UIImage(systemName: datasource[indexPath.section][indexPath.row].icon))?.withRenderingMode(.alwaysTemplate)
+            cell.imageView?.image = imageLiteral(datasource[indexPath.section][indexPath.row].icon, dimension: 24)
         }
         cell.selectionStyle = .none
         cell.accessoryType = .disclosureIndicator
         
         return cell
     }
-    
-    
 }
 
 extension CreateNewEntityViewController: UITableViewDelegate {

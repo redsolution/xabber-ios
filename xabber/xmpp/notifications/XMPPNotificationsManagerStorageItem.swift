@@ -39,7 +39,7 @@ class NotificationStorageItem: Object {
     @objc dynamic var jid: String = ""
     @objc dynamic var uniqueId: String = ""
     
-    @objc dynamic var category_: String = XMPPNotificationsManager.Category.none.rawValue
+    @objc dynamic var category_: String = ""
     @objc dynamic var isRead: Bool = true
     @objc dynamic var associatedJid: String? = nil
     @objc dynamic var displayedNick: String? = nil
@@ -58,7 +58,7 @@ class NotificationStorageItem: Object {
     
     var category: XMPPNotificationsManager.Category {
         get {
-            return XMPPNotificationsManager.Category(rawValue: self.category_) ?? .none
+            return XMPPNotificationsManager.Category(rawValue: self.category_) ?? .device
         } set {
             self.category_ = newValue.rawValue
         }

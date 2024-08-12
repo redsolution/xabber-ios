@@ -162,9 +162,9 @@ class InlineVideosGridView: InlineMediaBaseView {
                 guard let key = references[index].videoPreviewKey else { return }
                 
                 if references[index].isDownloaded {
-                    self.videoPlayIcon.image = imageLiteral( "play")?.withRenderingMode(.alwaysTemplate)
+                    self.videoPlayIcon.image = imageLiteral( "play")
                 } else {
-                    self.videoPlayIcon.image = imageLiteral( "download")?.withRenderingMode(.alwaysTemplate)
+                    self.videoPlayIcon.image = imageLiteral( "square.and.arrow.down")
                 }
                 ImageCache.default.retrieveImage(forKey: key) { result in
                     switch result {
@@ -175,7 +175,7 @@ class InlineVideosGridView: InlineMediaBaseView {
                         self.activateConstraints(view: imageView)
                         imageView.stopAnimating()
                     case .failure(let value):
-                        self.errorImageView.image = imageLiteral( "video-off-outline")?.withRenderingMode(.alwaysTemplate)
+                        self.errorImageView.image = imageLiteral( "video.slash")?.withRenderingMode(.alwaysTemplate)
                         self.activateErrorImage(on: imageView)
                         imageView.stopAnimating()
                         DDLogDebug("InlineImagesGridView: \(#function). \(value.localizedDescription)")

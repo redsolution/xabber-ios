@@ -627,7 +627,7 @@ class SettingsViewController: BaseViewController {
                                        key: .accountDelete)
                         ])
                     ]),
-                    Datasource(section: .accountSettings, title: "Devices", icon: "xabber.globe.connected.square.fill", color: UIColor.systemBlue, key: .accountSessions),
+                    Datasource(section: .accountSettings, title: "Devices", icon: "xabber.devices.fill.square.fill", color: UIColor.systemBlue, key: .accountSessions),
                     Datasource(section: .accountSettings, title: "Subscriptions", icon: "xabber.lightbulb.square.fill", color: UIColor.systemBlue, key: .subscriptions)
                 ]))
             } else {
@@ -643,7 +643,7 @@ class SettingsViewController: BaseViewController {
                                        key: .accountDelete)
                         ])
                     ]),
-                    Datasource(section: .accountSettings, title: "Devices", icon: "xabber.globe.connected.square.fill", color: UIColor.systemBlue, key: .accountSessions)
+                    Datasource(section: .accountSettings, title: "Devices", icon: "xabber.devices.fill.square.fill", color: UIColor.systemBlue, key: .accountSessions)
                 ]))
             }
             

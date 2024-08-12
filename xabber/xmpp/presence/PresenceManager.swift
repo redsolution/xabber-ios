@@ -508,9 +508,13 @@ class PresenceManager: AbstractXMPPManager {
                 instance.associatedJid = jid
                 instance.displayedNick = presence.element(forName: "nick", xmlns: "http://jabber.org/protocol/nick")?.stringValue
                 instance.date = Date()
-                instance.isRead = false
+                instance.isRead = true
                 instance.shouldShow = true
                 instance.category = .contact
+                instance.metadata = [
+                    "message": presence.status ?? "",
+                    "username": presence.element(forName: "nick", xmlns: "http://jabber.org/protocol/nick")?.stringValue ?? jid
+                ]
                 try realm.write {
                     realm.add(instance)
                 }
@@ -518,11 +522,15 @@ class PresenceManager: AbstractXMPPManager {
             if let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: [jid, owner].prp()) {
                 try realm.write {
                     instance.ask = .in
+                    if instance.username.isEmpty {
+                        instance.username = presence.element(forName: "nick", xmlns: "http://jabber.org/protocol/nick")?.stringValue ?? ""
+                    }
                 }
             } else {
                 let instance = RosterStorageItem()
                 instance.owner = self.owner
                 instance.jid = jid
+                instance.username = presence.element(forName: "nick", xmlns: "http://jabber.org/protocol/nick")?.stringValue ?? ""
                 instance.primary = RosterStorageItem.genPrimary(jid: jid, owner: owner)
                 instance.subscribtion = .undefined
                 instance.ask = .in
@@ -554,6 +562,9 @@ class PresenceManager: AbstractXMPPManager {
                     _ = initialMessage.save(commitTransaction: false)
                 }
             }
+            AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, stream in
+                user.avatarManager.requestPubSubItem(stream, node: .metadata, jid: jid, by: "")
+            })
         } catch {
             DDLogDebug("PresenceManager: \(#function). \(error.localizedDescription)")
         }

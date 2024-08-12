@@ -338,7 +338,7 @@ extension AddNewContactViewController: UITableViewDataSource {
 
 extension AddNewContactViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return tableView.estimatedRowHeight
+        return 44
     }
         
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {

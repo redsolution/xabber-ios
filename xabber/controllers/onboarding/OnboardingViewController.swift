@@ -188,8 +188,8 @@ class OnboardingViewController: SimpleBaseViewController {
     
     override func localizeResources() {
         super.localizeResources()
-        logoView.image = imageLiteral( "onboarding_logo_128pt")
-        titleImage.image = imageLiteral( "onboarding_logo_name_contrast_164pt")
+        logoView.image = UIImage(named: "onboarding_logo_128pt")
+        titleImage.image = UIImage(named: "onboarding_logo_name_contrast_164pt")
         titleLabel.text = CommonConfigManager.shared.config.app_name
         titleLabel.sizeToFit()
         subtitleLabel.text = CommonConfigManager.shared.config.onboarding_subtitle_text//"Secure chat".localizeString(id: "chat_type_secure", arguments: [])

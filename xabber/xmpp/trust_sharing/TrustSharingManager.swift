@@ -750,19 +750,19 @@ class TrustSharingManager: AbstractXMPPManager {
     }
     
     static func remove(for owner: String, commitTransaction: Bool) {
-//        do {
-//            let realm = try WRealm.safe()
-//            let collection = realm.objects(VerificationSessionStorageItem.self)
-//                .filter("owner == %@", owner)
-//            if commitTransaction {
-//                try realm.write {
-//                    realm.delete(collection)
-//                }
-//            } else {
-//                realm.delete(collection)
-//            }
-//        } catch {
-//            DDLogDebug("PresenceManager: \(#function). \(error.localizedDescription)")
-//        }
+        do {
+            let realm = try WRealm.safe()
+            let collection = realm.objects(VerificationSessionStorageItem.self)
+                .filter("owner == %@", owner)
+            if commitTransaction {
+                try realm.write {
+                    realm.delete(collection)
+                }
+            } else {
+                realm.delete(collection)
+            }
+        } catch {
+            DDLogDebug("PresenceManager: \(#function). \(error.localizedDescription)")
+        }
     }
 }

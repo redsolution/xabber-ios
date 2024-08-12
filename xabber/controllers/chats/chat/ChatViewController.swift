@@ -597,6 +597,13 @@ class ChatViewController: MessagesViewController {
         self.navigationItem.backButtonDisplayMode = .minimal
         self.title = ""
         
+//        let searchButton = UIBarButtonItem(image: imageLiteral("magnifyingglass"), style: .plain, target: nil, action: nil)
+//        if let item = self.navigationItem.backBarButtonItem {
+//            self.navigationItem.setLeftBarButtonItems([item, searchButton], animated: true)
+//        } else {
+//            self.navigationItem.setLeftBarButton(searchButton, animated: true)
+//        }
+        self.navigationItem.leftItemsSupplementBackButton = true
         self.titleStack.isUserInteractionEnabled = false
         
         self.titleButton.addTarget(self, action: #selector(self.onTitleButtonTouchUp(_:)), for: .touchUpInside)
@@ -663,7 +670,7 @@ class ChatViewController: MessagesViewController {
         
         let backgroundResourceName = SettingManager.shared.getString(for: "chat_chooseBackground") ?? "None"
         if backgroundResourceName != "None" {
-            backgroundImage.image = UIImage(imageLiteralResourceName: backgroundResourceName.lowercased())
+            backgroundImage.image = UIImage(named: backgroundResourceName.lowercased())?
                 .withRenderingMode(.alwaysTemplate)
                 .resizableImage(withCapInsets: UIEdgeInsets.zero,
                                 resizingMode: .tile)

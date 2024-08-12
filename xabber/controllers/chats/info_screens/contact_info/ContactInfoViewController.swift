@@ -74,7 +74,7 @@ class ContactInfoViewController: BaseViewController {
     
     public var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
     
-    var headerHeightMax: CGFloat = 240//188
+    var headerHeightMax: CGFloat = 252//188
     
     internal let headerView: InfoScreenHeaderView = {
         let view = InfoScreenHeaderView(frame: .zero)
@@ -282,7 +282,7 @@ class ContactInfoViewController: BaseViewController {
 //                            Datasource(.button, isDanger: true, icon: "circle.slash", title: "Block".localizeString(id: "contact_bar_block", arguments: []), key: "block")
 //                        ]),
                         Datasource(.text, title: "", childs: [
-                            Datasource(.button, icon: "circle.hexagonpath", title: "Circles".localizeString(id: "contact_circle", arguments: []), key: "circles"),
+                            Datasource(.button, icon: "xabber.circles", title: "Circles".localizeString(id: "contact_circle", arguments: []), key: "circles"),
                         ]),
                     ])
                     if let item = results.first {
@@ -464,11 +464,11 @@ class ContactInfoViewController: BaseViewController {
         self.navigationItem.setLeftBarButton(leftDevicesNavBarButton, animated: true)
         self.headerView.configureButtons {
             let regularChat = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
-            regularChat.configure(icon: "bubble.fill", title: "Chat")
+            regularChat.configure(icon: "bubble.fill", title: "Regular chat")
             regularChat.addTarget(self, action: #selector(onChatButtonTouchUpInside), for: .touchUpInside)
             
             let encryptedChat = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
-            encryptedChat.configure(icon: "custom.lock.bubble.left.fill", title: "Secure")
+            encryptedChat.configure(icon: "custom.lock.bubble.left.fill", title: "Secure chat")
             encryptedChat.addTarget(self, action: #selector(onEncryptedButtonTouchUpInside), for: .touchUpInside)
             
             let voiceCall = InfoHeaderButton(frame: CGRect(width: 72, height: 40))

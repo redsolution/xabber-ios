@@ -291,30 +291,7 @@ class MessageContentCell: MessageCollectionViewCell {
                 }
             }
         }
-        
-//        if let avatarMeta = displayDelegate.metadataForAvatarView(at: indexPath) {
-//            avatarView.isHidden = false
-//            if let userId = avatarMeta.userId {
-//                DefaultAvatarManager.shared.getGroupAvatar(user: userId, jid: avatarMeta.jid, owner: avatarMeta.owner, size: 32) { image in
-//                    if let image = image {
-//                        self.avatarView.image = image
-//                    } else {
-//                        self.avatarView.setDefaultAvatar(for: avatarMeta.jid, owner: avatarMeta.owner)
-//                    }
-//                }
-//            } else {
-//                DefaultAvatarManager.shared.getAvatar(url: nil, jid: avatarMeta.jid, owner: avatarMeta.owner, size: 32) { image in
-//                    if let image = image {
-//                        self.avatarView.image = image
-//                    } else {
-//                        self.avatarView.setDefaultAvatar(for: avatarMeta.jid, owner: avatarMeta.owner)
-//                    }
-//                }
-//            }
-//        } else {
-//            avatarView.isHidden = true
-//        }
-        
+
         self.isBurnedMessage = displayDelegate.isBurnedMessage(at: indexPath)
         let messageColor = displayDelegate.backgroundColor(for: message, at: indexPath, in: messagesCollectionView)
         let messageStyle = displayDelegate.messageStyle(for: message, at: indexPath, in: messagesCollectionView)
@@ -461,20 +438,20 @@ class MessageContentCell: MessageCollectionViewCell {
                 self.messageDeliveryIndicator.isHidden = false
                 switch state {
                     case .sending, .notSended, .uploading:
-                        self.messageDeliveryIndicator.image = imageLiteral("clock")
+                        self.messageDeliveryIndicator.image = imageLiteral("clock", dimension: 12)
                         self.messageDeliveryIndicator.tintColor = .systemBlue
                     case .sended:
-                        self.messageDeliveryIndicator.image = imageLiteral("xabber.checkmark")
+                        self.messageDeliveryIndicator.image = imageLiteral("xabber.checkmark", dimension: 12)
                         self.messageDeliveryIndicator.tintColor = .systemGray
                     case .deliver:
-                        self.messageDeliveryIndicator.image = imageLiteral( "xabber.checkmark")
+                        self.messageDeliveryIndicator.image = imageLiteral("xabber.checkmark", dimension: 12)
                         self.messageDeliveryIndicator.tintColor = .systemGreen
                     case .read:
-                        self.messageDeliveryIndicator.image = imageLiteral("xabber.checkmark.double")
+                        self.messageDeliveryIndicator.image = imageLiteral("xabber.checkmark.double", dimension: 12)
                         self.messageDeliveryIndicator.tintColor = .systemGreen
                     case .error:
                         error = true
-                        self.messageDeliveryIndicator.image = imageLiteral("info.circle")
+                        self.messageDeliveryIndicator.image = imageLiteral("info.circle", dimension: 12)
                         self.messageDeliveryIndicator.tintColor = .systemRed
                     case .none:
                         break
@@ -567,20 +544,20 @@ class MessageContentCell: MessageCollectionViewCell {
 
     func layoutErrorButton(with attributes: MessagesCollectionViewLayoutAttributes) {
         switch attributes.avatarPosition.horizontal {
-        case .cellLeading:
-            let origin = CGPoint(
-                x: attributes.messageContainerSize.width + 16,
-                y: attributes.frame.height - 32//32
-            )
-            messageErrorButton.frame = CGRect(origin: origin, size: CGSize(square: 24))//24
-        case .cellTrailing:
-            let origin = CGPoint(
-                x: attributes.frame.width - attributes.avatarSize.width - attributes.messageContainerSize.width - attributes.messageContainerPadding.right - 24 - 16,
-                y: attributes.frame.height - 32//32
-            )
-            messageErrorButton.frame = CGRect(origin: origin, size: CGSize(square: 24))//20
-        case .natural:
-            break
+            case .cellLeading:
+                let origin = CGPoint(
+                    x: attributes.messageContainerSize.width + 16,
+                    y: attributes.frame.height - 32//32
+                )
+                messageErrorButton.frame = CGRect(origin: origin, size: CGSize(square: 24))//24
+            case .cellTrailing:
+                let origin = CGPoint(
+                    x: attributes.frame.width - attributes.avatarSize.width - attributes.messageContainerSize.width - attributes.messageContainerPadding.right - 24 - 16,
+                    y: attributes.frame.height - 32//32
+                )
+                messageErrorButton.frame = CGRect(origin: origin, size: CGSize(square: 24))//20
+            case .natural:
+                break
         }
         
         errorButtonBackgroundView.center = messageErrorButton.center
@@ -595,20 +572,19 @@ class MessageContentCell: MessageCollectionViewCell {
         var origin: CGPoint = .zero
         origin.y = messageContainerView.frame.maxY - 20
         switch attributes.avatarPosition.horizontal {
-        case .cellLeading, .natural:
-            origin.x = messageContainerView.frame.width + attributes.avatarSize.width - attributes.messageBottomLabelSize.width - 4 - 20
-        case .cellTrailing:
-            origin.x = attributes.frame.width - attributes.messageBottomLabelSize.width - deliveryIndicatorSize.width - attributes.messageContainerPadding.right - 18 - 4 - 20
-            if !attributes.showMessageStateIndicator {
-                origin.x += 18
-            }
+            case .cellLeading, .natural:
+                origin.x = messageContainerView.frame.width + attributes.avatarSize.width - attributes.messageBottomLabelSize.width - 4 - 20
+            case .cellTrailing:
+                origin.x = attributes.frame.width - attributes.messageBottomLabelSize.width - deliveryIndicatorSize.width - attributes.messageContainerPadding.right - 18 - 4 - 20
+                if !attributes.showMessageStateIndicator {
+                    origin.x += 18
+                }
         }
         
         let size = CGSize(width: attributes.messageBottomLabelSize.width + 20, height: attributes.messageBottomLabelSize.height)
         
         messageBottomLabel.textAlignment = .right
         messageBottomLabel.frame = CGRect(origin: origin, size: size)
-//        messageBottomLabel.textColor = MDCPalette.grey.tint600
     }
     
     func layoutReplyIcon() {

@@ -567,6 +567,8 @@
 		66CD4D512ACD937900F53799 /* SubscribtionsListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66CD4D502ACD937900F53799 /* SubscribtionsListViewController.swift */; };
 		66CDBEDC279EBE2900B2CC6F /* NewSecretChatViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66CDBEDB279EBE2900B2CC6F /* NewSecretChatViewController.swift */; };
 		66CDBEDE279EC0C400B2CC6F /* ContactListTableViewCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66CDBEDD279EC0C400B2CC6F /* ContactListTableViewCell.swift */; };
+		66CDFFEC2C63524100BF5DCC /* UIColor+TraitCollectionExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66CDFFEB2C63524100BF5DCC /* UIColor+TraitCollectionExtension.swift */; };
+		66CDFFEE2C63942500BF5DCC /* NotificationsControllerFilterProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66CDFFED2C63942500BF5DCC /* NotificationsControllerFilterProtocol.swift */; };
 		66D016BB2574D80B007857EE /* VoIPManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66D016BA2574D80B007857EE /* VoIPManager.swift */; };
 		66D15B1729FAAE8100203A1D /* ToastPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66D15B1629FAAE8100203A1D /* ToastPresenter.swift */; };
 		66D1E7EE28683380006C58A7 /* ChatViewController+TrustedDevies.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66D1E7ED28683380006C58A7 /* ChatViewController+TrustedDevies.swift */; };
@@ -1538,6 +1540,8 @@
 		66CD4D502ACD937900F53799 /* SubscribtionsListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscribtionsListViewController.swift; sourceTree = "<group>"; };
 		66CDBEDB279EBE2900B2CC6F /* NewSecretChatViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewSecretChatViewController.swift; sourceTree = "<group>"; };
 		66CDBEDD279EC0C400B2CC6F /* ContactListTableViewCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactListTableViewCell.swift; sourceTree = "<group>"; };
+		66CDFFEB2C63524100BF5DCC /* UIColor+TraitCollectionExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIColor+TraitCollectionExtension.swift"; sourceTree = "<group>"; };
+		66CDFFED2C63942500BF5DCC /* NotificationsControllerFilterProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsControllerFilterProtocol.swift; sourceTree = "<group>"; };
 		66D016BA2574D80B007857EE /* VoIPManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoIPManager.swift; sourceTree = "<group>"; };
 		66D15B1629FAAE8100203A1D /* ToastPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToastPresenter.swift; sourceTree = "<group>"; };
 		66D1E7ED28683380006C58A7 /* ChatViewController+TrustedDevies.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewController+TrustedDevies.swift"; sourceTree = "<group>"; };
@@ -2565,6 +2569,7 @@
 		6652EB43203BF91E0088C8FA /* utils */ = {
 			isa = PBXGroup;
 			children = (
+				66CDFFEA2C63521A00BF5DCC /* UIColor */,
 				66E46FEF2C46474100394F0D /* lock */,
 				662908D42ABDB9D40027535E /* nick_generator */,
 				66A09C982938D10C004ABC35 /* lipsum */,
@@ -3722,6 +3727,14 @@
 			name = Packages;
 			sourceTree = "<group>";
 		};
+		66CDFFEA2C63521A00BF5DCC /* UIColor */ = {
+			isa = PBXGroup;
+			children = (
+				66CDFFEB2C63524100BF5DCC /* UIColor+TraitCollectionExtension.swift */,
+			);
+			path = UIColor;
+			sourceTree = "<group>";
+		};
 		66D016B92574D7ED007857EE /* VoIPManager */ = {
 			isa = PBXGroup;
 			children = (
@@ -3798,6 +3811,7 @@
 				66EB12902BC7F82400524E1B /* subscribtions */,
 				66DB6E042BFF27AD00AAEA94 /* NotificationsCategoriesViewController.swift */,
 				66E3190F2BA8550300F149B1 /* NotificationsListViewController.swift */,
+				66CDFFED2C63942500BF5DCC /* NotificationsControllerFilterProtocol.swift */,
 				660B6DAD2BBC152F0040E20E /* NotificationsListViewController+ItemCell.swift */,
 			);
 			path = notifications;
@@ -4839,6 +4853,7 @@
 				1A95607028040A1C00CE02ED /* AccountEditViewController+UINavigationControllerDelegate.swift in Sources */,
 				6643F31121C2650E00333229 /* AvatarView.swift in Sources */,
 				66E6A148248FAE78006F6968 /* GroupchatInfoViewController+UITableViewDelegate.swift in Sources */,
+				66CDFFEC2C63524100BF5DCC /* UIColor+TraitCollectionExtension.swift in Sources */,
 				6689B4B824AB1C2200A993BD /* LastChatsViewController+AccountNavButton.swift in Sources */,
 				660F5604239A79BE00252608 /* GroupchatInviteListViewController+ContactCell.swift in Sources */,
 				667CB28F2852156600E12157 /* ContactsViewController+UITableViewAction.swift in Sources */,
@@ -5083,6 +5098,7 @@
 				66999CB827DA0B520046CED3 /* AccountEncryptionInfoViewController.swift in Sources */,
 				4DC843C528A9FAD200F61AEE /* PasscodeEdtitView.swift in Sources */,
 				661D8E122ACADD2700990FDF /* DevicePrivacyViewController.swift in Sources */,
+				66CDFFEE2C63942500BF5DCC /* NotificationsControllerFilterProtocol.swift in Sources */,
 				66CB16C321F9C9D100CB03C2 /* ChatViewController.swift in Sources */,
 				66B7992022E08167001589A5 /* SearchResultsViewController+UITableViewDatasource.swift in Sources */,
 				1A999D8627DF497A0093A011 /* CloudStorageViewController.swift in Sources */,
