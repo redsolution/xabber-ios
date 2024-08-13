@@ -292,13 +292,6 @@ extension Account: XMPPStreamDelegate {
             case .chat, .normal:
 
             if self.notifications.read(withMessage: message) {
-                if isCarbonCopy(message) || isCarbonForwarded(message) {
-                    return
-                }
-                
-                if self.akeManager.didReceivedVerificationMessage(message: message) {}
-                else if self.trustSharingManager.didReceivedListOfContactsDevices(message: message) {}
-                
                 return
             }
             if self.groupchats.readMessage(withMessage: message) {

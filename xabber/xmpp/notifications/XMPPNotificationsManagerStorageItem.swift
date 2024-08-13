@@ -46,9 +46,6 @@ class NotificationStorageItem: Object {
     @objc dynamic var text: String? = nil
     @objc dynamic var metadata_: String? = nil
     @objc dynamic var date: Date = Date()
-    @objc dynamic var verificationState_: String? = nil
-    @objc dynamic var verificationSid: String? = nil
-    @objc dynamic var deviceId: String? = nil
     
     @objc dynamic var shouldShow: Bool = false
     
@@ -86,14 +83,6 @@ class NotificationStorageItem: Object {
             } else {
                 self.metadata_ = nil
             }
-        }
-    }
-    
-    var verificationState: VerificationSessionStorageItem.VerififcationState {
-        get {
-            return VerificationSessionStorageItem.VerififcationState(rawValue: self.verificationState_ ?? "none") ?? .none
-        } set {
-            self.verificationState_ = newValue.rawValue
         }
     }
     
