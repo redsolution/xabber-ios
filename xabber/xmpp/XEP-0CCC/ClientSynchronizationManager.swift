@@ -51,6 +51,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         case omemo1 = "urn:xmpp:omemo:1"
         case axolotl = "eu.siacs.conversations.axolotl"
         case notifications = "urn:xabber:xen:0"
+        case saved = "urn:xabber:favorites:0"
     }
     
     static public let primaryNamespace = "https://xabber.com/protocol/synchronization"
@@ -609,7 +610,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             return nil
         }
         
-        if (XMPPJID(string: jid)?.isServer ?? false) {
+        if (XMPPJID(string: jid)?.isServer ?? false) && conversationType != .saved {
             return nil
         }
         

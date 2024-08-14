@@ -313,5 +313,11 @@ func conversationTypeByMessage(_ message: XMPPMessage) -> ClientSynchronizationM
     if let xmlns = message.element(forName: "encrypted")?.xmlns {
         return ClientSynchronizationManager.ConversationType(rawValue: xmlns) ?? ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
     }
+    if let owner = message.from?.bare,
+       let account = AccountManager.shared.find(for: owner),
+       let to = message.to?.bare,
+       to == account.favorites.node {
+        return .saved
+    }
     return .regular
 }

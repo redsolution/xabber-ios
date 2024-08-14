@@ -542,7 +542,7 @@ class LastChatsViewController: BaseViewController {
             return collection.compactMap {
                 item in
                 
-                if (XMPPJID(string: item.jid)?.isServer ?? false) {
+                if (XMPPJID(string: item.jid)?.isServer ?? false) && item.jid != AccountManager.shared.find(for: item.owner)?.favorites.node {
                     return nil
                 }
                 let blankMessageText: String = "Start messaging here".localizeString(id: "chat_message_start_messaging", arguments: [])
