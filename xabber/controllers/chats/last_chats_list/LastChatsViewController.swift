@@ -49,6 +49,7 @@ class LastChatsViewController: BaseViewController {
         case chats
         case unread
         case archived
+        case saved
     }
     
     struct Datasource: DiffAware {
@@ -63,7 +64,7 @@ class LastChatsViewController: BaseViewController {
         let username: String
         let attributedUsername: NSAttributedString?
         let message: String
-        let date: Date
+        let date: Date?
         let state: MessageStorageItem.MessageSendingState?
         let isMute: Bool
         let isSynced: Bool
@@ -258,7 +259,7 @@ class LastChatsViewController: BaseViewController {
             DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
         }
         switch value {
-            case .chats:
+        case .chats, .saved:
                 self.title = "Chats".localizeString(id: "toolbar__menu_item__chats", arguments: [])
             case .unread:
                 self.title = "Unread".localizeString(id: "unread_chats", arguments: [])
@@ -288,6 +289,8 @@ class LastChatsViewController: BaseViewController {
                 tableView.scrollToRow(at: IndexPath(row: 0, section: 0), at: .top, animated: false)
             case .archived:
                 predicate = NSPredicate(format: "isArchived == %@ AND owner IN %@", argumentArray: [true, Array(enabledAccounts.value)])
+            case .saved:
+                predicate = NSPredicate(format: "owner IN %@ AND conversationType_ == %@", argumentArray: [Array(enabledAccounts.value), ClientSynchronizationManager.ConversationType.saved.rawValue])
             }
             chatsObserver = realm
                 .objects(LastChatsStorageItem.self)
@@ -522,6 +525,8 @@ class LastChatsViewController: BaseViewController {
                 } else {
                     predicate = NSPredicate(format: "isArchived == %@ AND owner IN %@", argumentArray: [true, Array(enabledAccounts.value)])
                 }
+            case .saved:
+                predicate = NSPredicate(format: "owner IN %@ AND conversationType_ == %@", argumentArray: [Array(enabledAccounts.value), ClientSynchronizationManager.ConversationType.saved.rawValue])
             }
             var collection = realm
                 .objects(LastChatsStorageItem.self)
@@ -542,7 +547,7 @@ class LastChatsViewController: BaseViewController {
             return collection.compactMap {
                 item in
                 
-                if (XMPPJID(string: item.jid)?.isServer ?? false) && item.jid != AccountManager.shared.find(for: item.owner)?.favorites.node {
+                if (XMPPJID(string: item.jid)?.isServer ?? false) && item.conversationType != .saved {
                     return nil
                 }
                 let blankMessageText: String = "Start messaging here".localizeString(id: "chat_message_start_messaging", arguments: [])
@@ -550,6 +555,8 @@ class LastChatsViewController: BaseViewController {
                 let subscriptionRequest: Bool = item.rosterItem?.isThereSubscriptionRequest() ?? false
                 
                 let primaryResource = item.rosterItem?.getPrimaryResource()
+                
+                let date = item.messageDate == Date(timeIntervalSince1970: 0) ? nil : item.messageDate
                 
                 var message: String
                 
@@ -561,6 +568,9 @@ class LastChatsViewController: BaseViewController {
                     if lastMessage.isDeleted {
                         message = blankMessageText
                     }
+                } else if item.conversationType == .saved {
+                    let usersCount = AccountManager.shared.users.count
+                    message = usersCount > 1 ? "Save messages here" : item.owner
                 } else {
                     message = blankMessageText
                 }
@@ -682,7 +692,7 @@ class LastChatsViewController: BaseViewController {
                     username: username,
                     attributedUsername: attributedUsername,
                     message: message,
-                    date: item.messageDate,
+                    date: date,
                     state: item.lastMessage?.outgoing ?? true ? item.lastMessage?.state ?? nil : nil,
                     isMute: item.isMuted,
                     isSynced: item.isSynced,
@@ -941,6 +951,8 @@ class LastChatsViewController: BaseViewController {
                         subtitle: " ",
                         buttonTitle: " "
                     )
+                    break
+                default:
                     break
                 }
                 self.updateDatasource(value)
@@ -1205,6 +1217,8 @@ class LastChatsViewController: BaseViewController {
             case .chats:
                 title = CommonConfigManager.shared.config.app_name
                 bottomBar.titleButton.setTitleColor(.label, for: .normal)
+        case .saved:
+            bottomBar.isHidden = true
         }
         bottomBar.titleButton.setTitle(title, for: .normal)
     }

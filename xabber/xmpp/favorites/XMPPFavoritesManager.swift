@@ -50,21 +50,10 @@ class XMPPFavoritesManager: AbstractXMPPManager {
         self.node = jid
         
         do {
-            let realm = try WRealm.safe()
-            if let instance = realm.object(ofType: XMPPFavoritesManagerStorageItem.self, forPrimaryKey: XMPPFavoritesManagerStorageItem.genPrimary(owner: self.owner)) {
-                try realm.write {
-                    instance.node = jid
-                }
-            } else {
-                let instance = XMPPFavoritesManagerStorageItem()
-                instance.owner = self.owner
-                instance.primary = XMPPFavoritesManagerStorageItem.genPrimary(owner: self.owner)
-                instance.node = jid
-                
-                try realm.write {
-                    realm.add(instance)
-                }
-            }
+            try createXMPPFavoritesManagerStorageItem()
+            try createRosterStorageItem()
+            try createLastChatsStorageItem()
+            
         } catch {
             DDLogDebug("XMPPFavoritesManager: \(#function). \(error.localizedDescription)")
         }
@@ -72,6 +61,62 @@ class XMPPFavoritesManager: AbstractXMPPManager {
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
             user.favorites.update(stream)
         })
+    }
+    
+    func createXMPPFavoritesManagerStorageItem() throws {
+        guard let node = self.node else { throw ManagerErrorType.notAvailable }
+        
+        let realm = try WRealm.safe()
+        
+        let instance = XMPPFavoritesManagerStorageItem()
+        instance.owner = self.owner
+        instance.primary = XMPPFavoritesManagerStorageItem.genPrimary(owner: self.owner)
+        instance.node = node
+        
+        try realm.write {
+            realm.add(instance)
+        }
+    }
+    
+    func createRosterStorageItem() throws {
+        guard let node = self.node else { throw ManagerErrorType.notAvailable }
+        
+        let realm = try WRealm.safe()
+        
+        let rosterItem = RosterStorageItem()
+        rosterItem.owner = owner
+        rosterItem.jid = node
+        rosterItem.primary = RosterStorageItem.genPrimary(jid: node, owner: owner)
+        rosterItem.username = "Saved messages"
+        
+        try realm.write {
+            realm.add(rosterItem)
+        }
+    }
+    
+    func createLastChatsStorageItem(commitTransaction: Bool = true) throws {
+        guard let node = self.node else { throw ManagerErrorType.notAvailable }
+        
+        let realm = try WRealm.safe()
+        
+        let instance = LastChatsStorageItem()
+        instance.owner = self.owner
+        instance.jid = node
+        instance.isSynced = false
+        instance.conversationType = .saved
+        instance.primary = LastChatsStorageItem.genPrimary(jid: node, owner: self.owner, conversationType: .saved)
+        
+        let rosterItem = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: node, owner: self.owner))
+        
+        instance.rosterItem = rosterItem
+        
+        if commitTransaction {
+            try realm.write {
+                realm.add(instance)
+            }
+        } else {
+            realm.add(instance)
+        }
     }
     
     public final func isAvailable() -> Bool {
@@ -95,19 +140,36 @@ class XMPPFavoritesManager: AbstractXMPPManager {
             return
         }
         
-        var lastArchivedMessageId: String? = nil
+        var lastArchivedMessageDate: Date? = nil
         do {
             let realm = try WRealm.safe()
-            lastArchivedMessageId = realm
+            lastArchivedMessageDate = realm
                 .objects(MessageStorageItem.self)
                 .filter("opponent == %@ AND owner == %@ AND conversationType_ == %@", node, self.owner, ClientSynchronizationManager.ConversationType.saved.rawValue)
                 .sorted(byKeyPath: "date", ascending: false)
-                .last?
-                .archivedId
+                .first?
+                .date
         } catch {
             DDLogDebug("XMPPFavoritesManager: \(#function). \(error.localizedDescription)")
         }
         
-        AccountManager.shared.find(for: self.owner)?.mam.requestArchive(stream, jid: node, isContinues: true, conversationType: .saved, before: lastArchivedMessageId)
+        AccountManager.shared.find(for: self.owner)?.mam.requestArchive(stream, jid: node, isContinues: true, conversationType: .saved, start: lastArchivedMessageDate)
+    }
+    
+    static func remove(for owner: String, commitTransaction: Bool) {
+        do {
+            let realm = try WRealm.safe()
+            let collection = realm.objects(XMPPFavoritesManagerStorageItem.self).filter("owner == %@", owner)
+            
+            if commitTransaction {
+                try realm.write {
+                    realm.delete(collection)
+                }
+            } else {
+                realm.delete(collection)
+            }
+        } catch {
+            DDLogDebug("XMPPFavoritesManager: \(#function). \(error.localizedDescription)")
+        }
     }
 }

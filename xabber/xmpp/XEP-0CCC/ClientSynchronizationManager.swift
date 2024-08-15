@@ -363,12 +363,19 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                         let messagesInlines = realm
                             .objects(MessageForwardsInlineStorageItem.self)
                             .filter("jid == %@ AND owner == %@", jid, owner)
+                        
+                        let conversationType = instance.conversationType
+                        
                         try transaction {
                             instance.rosterItem?.associatedLastChat = nil
                             realm.delete(instance)
                             realm.delete(messages)
                             realm.delete(messagesReference)
                             realm.delete(messagesInlines)
+                        }
+                        
+                        if conversationType == .saved {
+                            try AccountManager.shared.find(for: owner)?.favorites.createLastChatsStorageItem(commitTransaction: commitTransaction)
                         }
                     }
                 }
@@ -629,6 +636,10 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                         owner: self.owner,
                         conversationType: conversationType)) {
                     realm.delete(instance)
+                    
+                    if instance.conversationType == .saved {
+                        try AccountManager.shared.find(for: self.owner)?.favorites.createLastChatsStorageItem(commitTransaction: false)
+                    }
                 }
                 return nil
             }

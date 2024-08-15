@@ -330,11 +330,18 @@ class ChatListTableViewCell: UITableViewCell {
                                 hasErrorInChat: Bool,
                                 verAction: Bool) {
 
-        DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 64) { image in
-            if let image = image {
-                self.avatarView.image = image
-            } else {
-                self.avatarView.image = UIImageView.getDefaultAvatar(for: username, owner: owner, size: 64)
+        if conversationType == .saved {
+            self.avatarView.image = imageLiteral(XMPPFavoritesManagerStorageItem.imageName, dimension: 32)
+            self.avatarView.contentMode = .center
+            self.avatarView.tintColor = AccountColorManager.shared.palette(for: owner).tint900
+            self.avatarView.backgroundColor = AccountColorManager.shared.palette(for: owner).tint100
+        } else {
+            DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 64) { image in
+                if let image = image {
+                    self.avatarView.image = image
+                } else {
+                    self.avatarView.image = UIImageView.getDefaultAvatar(for: username, owner: owner, size: 64)
+                }
             }
         }
         

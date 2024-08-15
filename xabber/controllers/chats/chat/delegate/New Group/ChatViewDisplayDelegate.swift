@@ -180,6 +180,8 @@ extension ChatViewController: MessagesDisplayDelegate {
         
         case .omemo, .omemo1, .axolotl:
             return imageLiteral( "custom.lock.bubble.left.fill", dimension: 24)
+        case .saved:
+            return imageLiteral(XMPPFavoritesManagerStorageItem.imageName, dimension: 24)
         default:
             switch self.entity {
                 case .contact, .bot, .server, .issue:

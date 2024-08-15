@@ -14,9 +14,11 @@ class XMPPFavoritesManagerStorageItem: Object {
         return "primary"
     }
     
+    static let imageName: String = "bookmark.fill"
+    
     @objc dynamic var primary: String = ""
     @objc dynamic var owner: String = ""
-    @objc dynamic var node: String? = ""
+    @objc dynamic var node: String = ""
     
     static func genPrimary(owner: String) -> String {
         return [owner].prp()
