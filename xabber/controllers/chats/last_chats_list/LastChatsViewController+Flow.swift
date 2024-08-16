@@ -207,18 +207,25 @@ extension LastChatsViewController {
 //                    }
                     do {
                         let realm = try  WRealm.safe()
-                        try realm.write {
-                            if let instance = realm.object(
-                                ofType: LastChatsStorageItem.self,
-                                forPrimaryKey: LastChatsStorageItem.genPrimary(
-                                    jid: jid,
-                                    owner: owner,
-                                    conversationType: conversationType
-                                )
-                            ) {
+                        
+                        if let instance = realm.object(
+                            ofType: LastChatsStorageItem.self,
+                            forPrimaryKey: LastChatsStorageItem.genPrimary(
+                                jid: jid,
+                                owner: owner,
+                                conversationType: conversationType
+                            )
+                        ) {
+                            
+                            try realm.write {
                                 realm.delete(instance)
                             }
+                            
+                            if conversationType == .saved {
+                                try AccountManager.shared.find(for: owner)?.favorites.createLastChatsStorageItem()
+                            }
                         }
+                        
                         self.canUpdateDataset = true
                         self.runDatasetUpdateTask()
                     } catch {

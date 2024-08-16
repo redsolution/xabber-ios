@@ -137,6 +137,8 @@ class ServerDiscoManager: AbstractXMPPManager {
             if let jid = iq.from?.bare {
                 if getNotificationServiceNode(query, jid: iq.from!.bare) {
                     return true
+                } else if getFavoritesServiceNode(query, jid: iq.from!.bare) {
+                    return true
                 }
             }
                 
@@ -292,6 +294,17 @@ class ServerDiscoManager: AbstractXMPPManager {
             return true
         }
         return false
+    }
+    
+    private func getFavoritesServiceNode(_ query: DDXMLElement, jid: String)-> Bool {
+        guard let identity = query.element(forName: "identity"),
+              identity.attributeStringValue(forName: "type") == "archive",
+              identity.attributeStringValue(forName: "category") == "component" else {
+                  return false
+              }
+        
+        AccountManager.shared.find(for: self.owner)?.favorites.configure(for: jid)
+        return true
     }
     
     private func parseHTTPSettings(_ query: DDXMLElement, node: String) {

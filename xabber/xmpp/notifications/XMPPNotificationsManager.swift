@@ -195,6 +195,8 @@ class XMPPNotificationsManager: AbstractXMPPManager {
                         instance.date = date ?? Date()
                         instance.shouldShow = true
                         instance.metadata = ["text": infoElement.stringValue]
+                    } else {
+                        return false
                     }
                     try realm.write {
                         realm.add(instance)

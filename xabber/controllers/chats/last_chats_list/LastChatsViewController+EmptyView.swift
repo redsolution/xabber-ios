@@ -107,6 +107,8 @@ extension LastChatsViewController {
             case .archived:
                 titleLabel.text = "You don't have archived chats".localizeString(id: "no_archived_chats", arguments: [])
                 newChatButton.isHidden = true
+            default:
+                break
             }
         }
         

@@ -8,6 +8,7 @@
 
 import Foundation
 import UIKit
+import CocoaLumberjack
 
 extension ChatViewController {
     internal func applyPinMessagePanel() {
@@ -119,6 +120,22 @@ extension ChatViewController {
             stack.addArrangedSubview(button)
             
             button.addTarget(self, action: #selector(onRequestingVerification), for: .touchUpInside)
+            
+            do {
+                let realm = try WRealm.safe()
+                guard let deviceId = AccountManager.shared.find(for: self.owner)?.omemo.localStore.localDeviceId() else {
+                    return
+                }
+                let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: deviceId))
+                
+                // if the device doesnt have published bundle, it cant accept the verification request
+                if instance == nil {
+                    button.isEnabled = false
+                }
+                
+            } catch {
+                DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            }
         })
     }
     

@@ -220,5 +220,6 @@ extension Account {
             
         }
         self.notifications.update(xmppStream)
+        self.favorites.update(xmppStream)
     }
 }

@@ -51,6 +51,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         case omemo1 = "urn:xmpp:omemo:1"
         case axolotl = "eu.siacs.conversations.axolotl"
         case notifications = "urn:xabber:xen:0"
+        case saved = "urn:xabber:favorites:0"
     }
     
     static public let primaryNamespace = "https://xabber.com/protocol/synchronization"
@@ -362,12 +363,19 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                         let messagesInlines = realm
                             .objects(MessageForwardsInlineStorageItem.self)
                             .filter("jid == %@ AND owner == %@", jid, owner)
+                        
+                        let conversationType = instance.conversationType
+                        
                         try transaction {
                             instance.rosterItem?.associatedLastChat = nil
                             realm.delete(instance)
                             realm.delete(messages)
                             realm.delete(messagesReference)
                             realm.delete(messagesInlines)
+                        }
+                        
+                        if conversationType == .saved {
+                            try AccountManager.shared.find(for: owner)?.favorites.createLastChatsStorageItem(commitTransaction: commitTransaction)
                         }
                     }
                 }
@@ -609,7 +617,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             return nil
         }
         
-        if (XMPPJID(string: jid)?.isServer ?? false) {
+        if (XMPPJID(string: jid)?.isServer ?? false) && conversationType != .saved {
             return nil
         }
         
@@ -628,6 +636,10 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                         owner: self.owner,
                         conversationType: conversationType)) {
                     realm.delete(instance)
+                    
+                    if instance.conversationType == .saved {
+                        try AccountManager.shared.find(for: self.owner)?.favorites.createLastChatsStorageItem(commitTransaction: false)
+                    }
                 }
                 return nil
             }

@@ -164,6 +164,7 @@ class LeftMenuViewController: UIViewController {
     var notificationsVc: NotificationsListViewController? = nil
     var notificationsCategoriesVc: NotificationsCategoriesViewController? = nil
     var contactsVc: ContactsViewController? = nil
+    var savedMessagesChatsVc: LastChatsViewController? = nil
     
     private let tableView: UITableView = {
         let view = UITableView(frame: .zero, style: .insetGrouped)
@@ -206,7 +207,7 @@ class LeftMenuViewController: UIViewController {
                 Datasource(title: "Notifications", icon: "bell", key: "notifications", subtitle: "\(notificationsCount)"),
                 Datasource(title: "Contacts", icon: "person.2", key: "contacts", subtitle: "\(contactsCount)"),
                 Datasource(title: "Archive", icon: "archivebox", key: "archive", subtitle: "\(archivedCount)"),
-    //            Datasource(title: "Saved messages", icon: "bookmark", key: "saved"),
+                Datasource(title: "Saved messages", icon: "bookmark", key: "saved", subtitle: "0"),
             ],
            ]
         } catch {
@@ -633,6 +634,15 @@ extension LeftMenuViewController: UITableViewDelegate {
         }
     }
     
+    private func showSavedMessages(controller vc: UIViewController) {
+        self.splitViewController?.viewControllers = [self, vc]
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            self.splitViewController?.hide(.primary)
+        } else {
+            self.splitViewController?.show(.supplementary)
+        }
+    }
+    
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         let key = self.datasource[indexPath.section][indexPath.row].key
         if self.previousSelectedKey == key {
@@ -746,14 +756,14 @@ extension LeftMenuViewController: UITableViewDelegate {
                 if self.archivedVc?.filter.value == .unread {
                     self.archivedVc?.filter.accept(.archived)
                 }
-                if let vc = self.chatsVc {
-                    vc.filter.accept(LastChatsViewController.Filter.chats)
-                    self.show(controller: vc, kind: .emptyChat)
+                if let vc = self.savedMessagesChatsVc {
+                    self.showSavedMessages(controller: vc)
                 } else {
                     let vc = LastChatsViewController()
-                    self.chatsVc = vc
-                    vc.filter.accept(LastChatsViewController.Filter.chats)
-                    self.show(controller: vc, kind: .emptyChat)
+                    vc.shouldShowBottomBar = false
+                    vc.filter.accept(.saved)
+                    self.savedMessagesChatsVc = vc
+                    self.showSavedMessages(controller: vc)
                 }
             default:
                 break

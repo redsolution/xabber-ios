@@ -721,6 +721,14 @@ class ChatViewController: MessagesViewController {
         self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 100, right: 0)
         
         userBarButton.configure(owner: owner, jid: jid)
+        
+        if self.conversationType == .saved {
+            userBarButton.avatar.image = imageLiteral(XMPPFavoritesManagerStorageItem.imageName, dimension: 16)
+            userBarButton.avatar.tintColor = AccountColorManager.shared.palette(for: owner).tint900
+            userBarButton.avatar.backgroundColor = AccountColorManager.shared.palette(for: owner).tint100
+            userBarButton.avatar.contentMode = .center
+        }
+        
         configureSelectionPanel()
         configureMessagesPanel()
         configureCertificateUpdateTimer()
