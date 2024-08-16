@@ -69,7 +69,7 @@ class NetworkManager: NSObject {
                    let message = String(data: data, encoding: .utf8) {
                     self.delegate?.didDisconnectWithError(message)
                 } else {
-                    self.delegate?.didDisconnectWithError("\((response as? HTTPURLResponse)?.description)")
+                    self.delegate?.didDisconnectWithError("\((response as? HTTPURLResponse)?.description ?? "")")
                 }
                 
             }

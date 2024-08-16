@@ -549,7 +549,9 @@ extension LeftMenuViewController {
         
         let titleLabel: UILabel = {
             let label = UILabel()
-                        
+            
+            label.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            
             return label
         }()
         
@@ -562,6 +564,8 @@ extension LeftMenuViewController {
             view.titleLabel?.font = UIFont.systemFont(ofSize: 13, weight: .regular)
             view.layer.masksToBounds = true
             view.layer.cornerRadius = 10
+            
+            view.setContentHuggingPriority(.defaultHigh, for: .horizontal)
             
             var configuration = UIButton.Configuration.filled()
             configuration.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 6, bottom: 4, trailing: 6)

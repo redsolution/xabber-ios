@@ -177,50 +177,91 @@ class NotificationsListViewController: SimpleBaseViewController {
     var filterAccount: BehaviorRelay<String?> = BehaviorRelay(value: nil)
     var filterMenu: UIMenu = UIMenu()
     func configureBars() {
+        let button = UIBarButtonItem(image: UIImage(systemName: "ellipsis.circle"), style: .done, target: self, action: nil)
+        var childs: [UIMenuElement] = [
+            UIAction(
+                title: "All",
+                image: imageLiteral("bell"),
+                identifier: .none,
+                discoverabilityTitle: "Displays all notifications",
+                attributes: [],
+                state: filter.value == .all ? .on : .off,
+                handler: { action in
+                    self.shouldFilterBy(category: Filter.all.rawValue)
+                }),
+            UIAction(
+                title: "Security",
+                image: imageLiteral("shield"),
+                identifier: .none,
+                discoverabilityTitle: nil,
+                attributes: [],
+                state: filter.value == .security ? .on : .off,
+                handler: { action in
+                    self.shouldFilterBy(category: Filter.security.rawValue)
+                }),
+            UIAction(
+                title: "Mentions",
+                image: imageLiteral("at"),
+                identifier: .none,
+                discoverabilityTitle: nil,
+                attributes: [],
+                state: filter.value == .mentions ? .on : .off,
+                handler: { action in
+                    self.shouldFilterBy(category: Filter.mentions.rawValue)
+                }),
+            UIAction(
+                title: "Info",
+                image: imageLiteral("info"),
+                identifier: .none,
+                discoverabilityTitle: nil,
+                attributes: [],
+                state: filter.value == .info ? .on : .off,
+                handler: { action in
+                    self.shouldFilterBy(category: Filter.info.rawValue)
+                }),
+            UIMenu(title: "Accounts", subtitle: "sdaff", image: nil, identifier: nil, options: .displayInline, children: [])
+        ]
+        
+        do {
+            let realm = try WRealm.safe()
+            let accounts: [UIMenuElement] = realm
+                .objects(AccountStorageItem.self)
+                .filter("enabled == true")
+                .toArray()
+                .compactMap ({
+                    item in
+                    return UIAction(
+                        title: item.username,
+                        image: imageLiteral("person.crop.circle"),
+                        identifier: .none,
+                        discoverabilityTitle: nil,
+                        attributes: [],
+                        state: filter.value == .info ? .on : .off,
+                        handler: { action in
+                            self.shouldFilterBy(account: item.jid)
+                        }
+                    )
+                })
+            
+            childs.append(contentsOf: accounts)
+        } catch {
+            DDLogDebug("NotificationsListViewController: \(#function). \(error.localizedDescription)")
+        }
+        
+        filterMenu = UIMenu(options: [.singleSelection], children: childs)
+        
+        button.menu = filterMenu
+        
         switch CommonConfigManager.shared.interfaceType {
             case .tabs:
-                let button = UIBarButtonItem(image: UIImage(systemName: "ellipsis.circle"), style: .done, target: self, action: nil)
-                
-                filterMenu = UIMenu(options: [.singleSelection], children: [
-                    UIAction(
-                        title: "All",
-                        image: imageLiteral("bell"),
-                        identifier: .none,
-                        discoverabilityTitle: "Displays all notifications",
-                        attributes: [],
-                        state: filter.value == .all ? .on : .off,
-                        handler: { action in
-                            self.filter.accept(.all)
-                        }),
-                    UIAction(
-                        title: "Security",
-                        image: imageLiteral("shield"),
-                        identifier: .none,
-                        discoverabilityTitle: nil,
-                        attributes: [],
-                        state: filter.value == .security ? .on : .off,
-                        handler: { action in
-                            self.filter.accept(self.filter.value == .security ? .all : .security)
-                        }),
-                    UIAction(
-                        title: "Mentions",
-                        image: imageLiteral("at"),
-                        identifier: .none,
-                        discoverabilityTitle: nil,
-                        attributes: [],
-                        state: filter.value == .mentions ? .on : .off,
-                        handler: { action in
-                            self.filter.accept(self.filter.value == .mentions ? .all : .mentions)
-                        }),
-                ])
-                
-                button.menu = filterMenu
                 self.navigationItem.setRightBarButton(button, animated: true)
             case .split:
-                break
+                if UIDevice.current.userInterfaceIdiom != .pad {
+                    self.navigationItem.setRightBarButton(button, animated: true)
+                }
         }
     }
-    
+        
     func getAndMapDatasource() {
         
         do {
@@ -416,7 +457,9 @@ class NotificationsListViewController: SimpleBaseViewController {
         
         var out: [Datasource] = []
         let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "d MMM yyyy"
+        dateFormatter.dateStyle = .medium
+        dateFormatter.timeStyle = .none
+        dateFormatter.doesRelativeDateFormatting = true
         results.forEach {
             item in
             let calendarDate = Calendar.current.dateComponents([.day, .year, .month], from: item.date)
@@ -426,12 +469,12 @@ class NotificationsListViewController: SimpleBaseViewController {
                 let child = notificationItemToDatasourceChild(item)
                 
                 if let child = child {
-                    var title = dateFormatter.string(from: item.date)
-                    if NSCalendar.current.isDateInToday(item.date) {
-                        title = "Today"
-                    } else if NSCalendar.current.isDateInYesterday(item.date) {
-                        title = "Yesterday"
-                    }
+                    var title = dateFormatter.string(from: item.date)//string(from: item.date)
+//                    if NSCalendar.current.isDateInToday(item.date) {
+//                        title = "Today"
+//                    } else if NSCalendar.current.isDateInYesterday(item.date) {
+//                        title = "Yesterday"
+//                    }
                     out.append(Datasource(
                             title: title,
                             key: "notifications",
