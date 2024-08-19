@@ -138,7 +138,7 @@ class NavBarController: UINavigationController, UINavigationControllerDelegate {
             self.topToolbar.frame = CGRect(
                 origin: CGPoint(
                     x: 0,
-                    y: self.navigationBar.frame.height + self.view.safeAreaInsets.top
+                    y: (self.navigationController?.navigationBar.frame.origin.y ?? 0) + self.navigationBar.frame.height
                 ),
                 size: CGSize(
                     width: self.navigationBar.frame.width,

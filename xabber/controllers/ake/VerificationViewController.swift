@@ -145,6 +145,13 @@ class VerificationViewController: SimpleBaseViewController {
         return button
     }()
     
+    let spinner: UIActivityIndicatorView = {
+        let view = UIActivityIndicatorView(style: .large)
+        view.hidesWhenStopped = true
+        
+        return view
+    }()
+    
     override func subscribe() {
         super.subscribe()
         
@@ -176,6 +183,7 @@ class VerificationViewController: SimpleBaseViewController {
                     self.state = .trusted
                     
                     self.cancelButton.removeFromSuperview()
+                    self.spinner.removeFromSuperview()
                     
                     self.setupSubviews()
                     self.loadDatasource()
@@ -235,8 +243,11 @@ class VerificationViewController: SimpleBaseViewController {
             buttonsStack.addArrangedSubview(agreeButton)
             buttonsStack.addArrangedSubview(cancelButton)
             
-            agreeButton.configuration = UIButton.Configuration.filled()
-            agreeButton.tintColor = .systemBlue
+            var config = UIButton.Configuration.filled()
+            config.baseBackgroundColor = .systemBlue
+            config.baseForegroundColor = .white
+            config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 30, bottom: 0, trailing: 30)
+            agreeButton.configuration = config
             
             agreeButton.setTitle("Submit", for: .normal)
             cancelButton.setTitle("Cancel verification", for: .normal)
@@ -247,6 +258,12 @@ class VerificationViewController: SimpleBaseViewController {
         } else if state == .trusted {
             buttonsStack.addArrangedSubview(agreeButton)
             agreeButton.setTitle("Great", for: .normal)
+            
+            var config = UIButton.Configuration.plain()
+            config.baseForegroundColor = .systemBlue
+            config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 30, bottom: 0, trailing: 30)
+            agreeButton.configuration = config
+            
             agreeButton.addTarget(self, action: #selector(onCloseButtonPressed), for: .touchUpInside)
             
         } else if state == .acceptedRequest {
@@ -519,10 +536,19 @@ class VerificationViewController: SimpleBaseViewController {
     
     @objc
     func onSubmitButtonPressed() {
-        self.dismiss(animated: true) {
-            self.submitVerificationCode()
-        }
+        agreeButton.removeFromSuperview()
+        agreeButton.removeTarget(self, action: #selector(onSubmitButtonPressed), for: .touchUpInside)
+        cancelButton.removeFromSuperview()
+        buttonsStack.removeFromSuperview()
+        containerForButtons.removeFromSuperview()
+        datasource = []
+        tableView.reloadData()
         
+        view.addSubview(spinner)
+        spinner.startAnimating()
+        spinner.centerInSuperview()
+        
+        self.submitVerificationCode()
     }
     
     func submitVerificationCode() {
@@ -676,25 +702,13 @@ extension VerificationViewController: UITableViewDelegate {
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        
-//        let item = datasource[indexPath.row]
-        
-//        if item.type == .codeInput {
-//            codeInputField.becomeFirstResponder()
-//            codeInputField.returnKeyType = .continue
-//            codeInputField.delegate = self
-//            
-//            return
-//        }
     }
 }
 
 
 extension VerificationViewController: UITextFieldDelegate {
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-        self.dismiss(animated: true) {
-            self.submitVerificationCode()
-        }
+        onSubmitButtonPressed()
         
         return true
     }
