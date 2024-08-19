@@ -370,11 +370,11 @@ class VerificationViewController: SimpleBaseViewController {
             )
             
             if client == "XabberIOS" {
-                self.headerView.imageButton.setImage(UIImage(systemName: "iphone")?.withTintColor(.systemBlue), for: .normal)
+                self.headerView.imageButton.setImage(imageLiteral("iphone")?.withTintColor(.systemBlue), for: .normal)
             } else if client == "Xabber for Web" {
-                self.headerView.imageButton.setImage(UIImage(systemName: "desktopcomputer")?.withTintColor(.systemBlue), for: .normal)
+                self.headerView.imageButton.setImage(imageLiteral("desktopcomputer")?.withTintColor(.systemBlue), for: .normal)
             } else {
-                self.headerView.imageButton.setImage(UIImage(systemName: "questionmark.app.dashed")?.withTintColor(.systemBlue), for: .normal)
+                self.headerView.imageButton.setImage(imageLiteral("questionmark.app.dashed")?.withTintColor(.systemBlue), for: .normal)
             }
         } else {
             do {

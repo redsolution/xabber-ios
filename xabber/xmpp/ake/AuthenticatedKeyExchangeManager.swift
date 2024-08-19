@@ -324,14 +324,15 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             }
         }
         
-        if didVerificationStartReceived(authenticatedKeyExchange: authenticatedKeyExchange, jid: jid) {}
-        else if didVerificationAcceptReceived(authenticatedKeyExchange: authenticatedKeyExchange, jid: jid) {}
-        else if didHashFromInitiatorReceived(authenticatedKeyExchange: authenticatedKeyExchange, jid: jid) {}
-        else if didHashFromRecipientReceived(authenticatedKeyExchange: authenticatedKeyExchange, jid: jid) {}
-        else if didVerificationSuccessReceived(authenticatedKeyExchange: authenticatedKeyExchange, jid: jid) {}
-        else if didVerificationRejectReceived(authenticatedKeyExchange: authenticatedKeyExchange, jid: jid) {}
-        else if didVerificationFailureReceived(authenticatedKeyExchange: authenticatedKeyExchange, jid: jid) {}
-        else {
+        switch true {
+        case didVerificationStartReceived(authenticatedKeyExchange: authenticatedKeyExchange, jid: jid): break
+        case didVerificationAcceptReceived(authenticatedKeyExchange: authenticatedKeyExchange, jid: jid): break
+        case didHashFromInitiatorReceived(authenticatedKeyExchange: authenticatedKeyExchange, jid: jid): break
+        case didHashFromRecipientReceived(authenticatedKeyExchange: authenticatedKeyExchange, jid: jid): break
+        case didVerificationSuccessReceived(authenticatedKeyExchange: authenticatedKeyExchange, jid: jid): break
+        case didVerificationRejectReceived(authenticatedKeyExchange: authenticatedKeyExchange, jid: jid): break
+        case didVerificationFailureReceived(authenticatedKeyExchange: authenticatedKeyExchange, jid: jid): break
+        default:
             return nil
         }
         
