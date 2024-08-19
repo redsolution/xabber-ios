@@ -54,7 +54,7 @@ class VerificationSessionTableViewCell: UITableViewCell {
     
     let closeButton: UIButton = {
         let button = UIButton(frame: CGRect(square: 44))
-        button.setImage(UIImage(systemName: "xmark"), for: .normal)
+        button.setImage(imageLiteral("xmark"), for: .normal)
         button.imageEdgeInsets = UIEdgeInsets(top: 11, right: 11)
         button.tintColor = .lightGray
         button.contentHorizontalAlignment = .right
@@ -77,7 +77,7 @@ class VerificationSessionTableViewCell: UITableViewCell {
     
     let customImageView: UIImageView = {
         let imageView = UIImageView(frame: CGRect(square: 40))
-        let image = UIImage(systemName: "exclamationmark.triangle.fill")?.upscale(dimension: 40).withTintColor(.systemOrange)
+        let image = imageLiteral("exclamationmark.triangle.fill")?.upscale(dimension: 40).withTintColor(.systemOrange)
         imageView.image = image
         imageView.translatesAutoresizingMaskIntoConstraints = false
         imageView.setContentHuggingPriority(.defaultHigh, for: .horizontal)

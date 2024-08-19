@@ -174,6 +174,10 @@ class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISe
             )
         } ?? []
         
+        if let favoritesChat = datasource.firstIndex(where: { $0.conversationType == .saved }) {
+            datasource.swapAt(favoritesChat, 0)
+        }
+        
         self.datasource.append(contentsOf: self.rosterDataset?.compactMap({ item in
             if datasource.contains(where: {$0.jid == item.jid}) {
                 return nil
