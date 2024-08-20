@@ -375,6 +375,12 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                         }
                         
                         if conversationType == .saved {
+                            let savedMessages = realm.objects(MessageStorageItem.self).filter("owner == %@ AND conversationType_ == %@", owner, ClientSynchronizationManager.ConversationType.saved.rawValue)
+                            
+                            try transaction {
+                                realm.delete(savedMessages)
+                            }
+                            
                             try AccountManager.shared.find(for: owner)?.favorites.createLastChatsStorageItem(commitTransaction: commitTransaction)
                         }
                     }
@@ -617,7 +623,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             return nil
         }
         
-        if (XMPPJID(string: jid)?.isServer ?? false) && conversationType != .saved {
+        if XMPPJID(string: jid)?.isServer ?? false {
             return nil
         }
         

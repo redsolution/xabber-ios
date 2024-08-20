@@ -1056,10 +1056,17 @@ class ChatViewController: MessagesViewController {
             let realm = try  WRealm.safe()
             let dataset: Results<MessageStorageItem>
             realm.refresh()
-            dataset = realm
-                .objects(MessageStorageItem.self)
-                .filter ("owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@", self.owner, self.jid, self.conversationType.rawValue)
-                .sorted (byKeyPath: "date", ascending: false)
+            if conversationType == .saved {
+                dataset = realm
+                    .objects(MessageStorageItem.self)
+                    .filter ("owner == %@ AND isDeleted == false AND conversationType_ == %@", self.owner, self.conversationType.rawValue)
+                    .sorted (byKeyPath: "date", ascending: false)
+            } else {
+                dataset = realm
+                    .objects(MessageStorageItem.self)
+                    .filter ("owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@", self.owner, self.jid, self.conversationType.rawValue)
+                    .sorted (byKeyPath: "date", ascending: false)
+            }
             return dataset
         } catch {
             fatalError()

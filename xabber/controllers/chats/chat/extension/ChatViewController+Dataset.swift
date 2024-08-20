@@ -189,8 +189,19 @@ extension ChatViewController {
                         kind = .photos(Array(references.filter({ $0.kind == .media })))
                     }
             }
+            
             let withAuthor: Bool
-            if dataset.count > 1 && (offset + 1) < dataset.count {
+            var date = item.date
+            if conversationType == .saved {
+                if item.groupchatCard != nil {
+                    withAuthor = true
+                } else {
+                    withAuthor = false
+                }
+                
+                date = item.sentDate
+                
+            } else if dataset.count > 1 && (offset + 1) < dataset.count {
                 if dataset[offset + 1].groupchatAuthorNickname != item.groupchatAuthorNickname || self.isDateChange(from: dataset[offset + 1].sentDate, to: item.sentDate) {
                     withAuthor = self.groupchat ? (item.displayAs == .sticker ? false : (self.showMyNickname ? true : !item.outgoing)) : false
                 } else {
@@ -199,6 +210,7 @@ extension ChatViewController {
             } else {
                 withAuthor = self.groupchat ? (item.displayAs == .sticker ? false : (self.showMyNickname ? true : !item.outgoing)) : false
             }
+            
             if item.editDate != nil {
                 let primary = item.primary
                 DispatchQueue.main.async {
@@ -222,7 +234,7 @@ extension ChatViewController {
                 outgoing: item.outgoing,
                 sender: item.outgoing ? self.ownerSender : self.opponentSender,
                 messageId: item.messageId,
-                sentDate: item.date,
+                sentDate: date,
                 editDate: item.editDate,
                 kind: kind,
                 withAuthor: withAuthor,
