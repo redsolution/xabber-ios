@@ -472,11 +472,23 @@ class ChatViewController: MessagesViewController {
     }
     
     func initStatus() {
-        if (XMPPJID(string: self.jid)?.isServer ?? false) {
+        if conversationType == .saved {
+            let usersCount = AccountManager.shared.users.count
+            
+            if usersCount > 1 {
+                self.contactStatus = self.owner
+                self.statusLabel.text = self.contactStatus
+            }
+            
+            return
+            
+        } else if (XMPPJID(string: self.jid)?.isServer ?? false) {
             self.contactStatus = "Server"
             self.statusLabel.text = self.contactStatus
             return
+            
         }
+        
         do {
             let realm = try WRealm.safe()
             

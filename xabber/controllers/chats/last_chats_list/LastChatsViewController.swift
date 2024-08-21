@@ -570,7 +570,7 @@ class LastChatsViewController: BaseViewController {
                     }
                 } else if item.conversationType == .saved {
                     let usersCount = AccountManager.shared.users.count
-                    message = usersCount > 1 ? "Save messages here" : item.owner
+                    message = usersCount > 1 ? item.owner : "Save messages here"
                 } else {
                     message = blankMessageText
                 }

@@ -99,6 +99,10 @@ class XMPPFavoritesManager: AbstractXMPPManager {
         
         let realm = try WRealm.safe()
         
+        if realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: node, owner: self.owner, conversationType: .saved)) != nil {
+            return
+        }
+        
         let instance = LastChatsStorageItem()
         instance.owner = self.owner
         instance.jid = node
