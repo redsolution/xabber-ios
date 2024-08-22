@@ -45,6 +45,7 @@ class SettingsViewController: BaseViewController {
             case accountEncryption = "account_encryption"
             case subscriptions = "subscriptions"
             case manageStorage = "manage_storage"
+            case chatChooseBackgroundColor = "chat_chooseBackgroundColor"
             case chatChooseBackground = "chat_chooseBackground"
             case chatChooseMessageSound = "chat_choose_message_sound"
             case chatChooseSubscriptionSound = "chat_choose_subscription_sound"
@@ -656,7 +657,9 @@ class SettingsViewController: BaseViewController {
         
         var interfaceChilds = [
             Datasource(section: .chat, title: Datasource.Section.chat.description(), childs: [
-                Datasource(section: .chat, title: "Background", itemType: .selector,
+                Datasource(section: .chat, title: "Background color", itemType: .plain,
+                           key: .chatChooseBackgroundColor),
+                Datasource(section: .chat, title: "Background image", itemType: .selector,
                            values: ["None", "Honeycomb", "Aliens", "Summer", "Cats", "Flowers", "Flowers-daisy", "Hearts"],
                            current: (dict[Datasource.Keys.chatChooseBackground.rawValue] as? String) ?? "None",
                            key: .chatChooseBackground)

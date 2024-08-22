@@ -379,6 +379,7 @@ open class SettingManager: NSObject {
             "chat_showBackground": true,
             "chat_sendByEnter": false,
             "chat_chooseBackground": defaultBackground,
+            "chat_chooseBackgroundColor": "purple",
             "roster_sorting": "by_status",
             "roster_showAvatars": true,
             "roster_showOfflineContacts": true,

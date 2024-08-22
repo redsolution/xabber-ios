@@ -192,7 +192,7 @@ extension SettingsViewController: UITableViewDataSource {
                         cell.tintColor = color
                     }
                     return cell
-                
+                    
                 default: break
                 }
             }
