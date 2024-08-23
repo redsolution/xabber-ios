@@ -506,6 +506,12 @@ class VerificationViewController: SimpleBaseViewController {
         }
     }
     
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        
+        addTapGestureToHideKeyboard()
+    }
+    
     @objc
     func closeView(_ notification: Notification) {
         if let userInfo = notification.userInfo {
@@ -634,11 +640,25 @@ class VerificationViewController: SimpleBaseViewController {
             }
         }
     }
+    
+    func addTapGestureToHideKeyboard() {
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(tapGesture))
+        view.addGestureRecognizer(tapGesture)
+    }
+    
+    @objc func tapGesture() {
+        codeInputField.resignFirstResponder()
+    }
+    
 }
 
 extension VerificationViewController: UITableViewDataSource {
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         return datasource.count
+    }
+    
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        self.codeInputField.resignFirstResponder()
     }
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {

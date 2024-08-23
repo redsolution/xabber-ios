@@ -416,10 +416,15 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             
             DispatchQueue.main.asyncAfter(deadline: .now() + (ttl! - secondsPassed)) {
                 do {
-                    try realm.write {
-                        realm.delete(instance)
+                    let realm = try WRealm.safe()
+                    if let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)),
+                       instance.state == .receivedRequest {
+                        try realm.write {
+                            realm.delete(instance)
+                        }
+                        
+                        NotificationCenter.default.post(name: NSNotification.Name(rawValue: "close_view"), object: self, userInfo: ["sid": sid])
                     }
-                    NotificationCenter.default.post(name: NSNotification.Name(rawValue: "close_view"), object: self, userInfo: ["sid": sid])
                 } catch {
                     DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
                 }
@@ -928,6 +933,20 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
             stream.send(iq)
         })
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + TimeInterval(ttl)) {
+            do {
+                let realm = try WRealm.safe()
+                if let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid)),
+                   instance.state == .sentRequest {
+                    try realm.write {
+                        realm.delete(instance)
+                    }
+                }
+            } catch {
+                DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
+            }
+        }
     }
     
     @objc
