@@ -658,6 +658,7 @@ class SettingsViewController: BaseViewController {
         var interfaceChilds = [
             Datasource(section: .chat, title: Datasource.Section.chat.description(), childs: [
                 Datasource(section: .chat, title: "Background color", itemType: .plain,
+                           current: (dict[Datasource.Keys.chatChooseBackgroundColor.rawValue] as? String) ?? "purple",
                            key: .chatChooseBackgroundColor),
                 Datasource(section: .chat, title: "Background image", itemType: .selector,
                            values: ["None", "Honeycomb", "Aliens", "Summer", "Cats", "Flowers", "Flowers-daisy", "Hearts"],

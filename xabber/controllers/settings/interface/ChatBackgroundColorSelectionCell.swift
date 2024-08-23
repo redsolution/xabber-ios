@@ -10,16 +10,59 @@ import Foundation
 import UIKit
 
 class ChatBackgroundColorSelectionCell: UITableViewCell {
-    enum Color: CaseIterable {
-        case none
-        case purple
-        case darkRed
-        case lightRed
-        case yellowOrange
-        case yellowBlue
-        case lightGreen
-        case greenBlue
-        case lightBlue
+    class BackgroundColorCollectionViewCell: UICollectionViewCell {
+        static let cellName = "BackgroundColorCollectionViewCell"
+        
+        var color: ChatViewController.BackgroundColor? = nil
+        
+        let gradientView: UIView = {
+            let view = UIView()
+            
+            return view
+        }()
+        
+        let imageView: UIImageView = {
+            let imageView = UIImageView()
+            
+            return imageView
+        }()
+        
+        public func setup() {
+            contentView.layer.cornerRadius = 15
+            
+            contentView.addSubview(gradientView)
+            gradientView.frame = contentView.bounds.insetBy(dx: 5, dy: 5)
+            
+            gradientView.layer.sublayers = nil
+            
+            let gradient = getGradientFrom(commonColor: color ?? .purple, frame: gradientView.bounds)
+            gradientView.layer.insertSublayer(gradient, at: 0)
+            
+        }
+        
+        func getGradientFrom(commonColor color: ChatViewController.BackgroundColor, frame: CGRect) -> CAGradientLayer {
+            let gradient = CAGradientLayer()
+            gradient.colors = ChatViewController.getColorsForGradient(forColor: color)
+            gradient.startPoint = CGPoint.zero
+            gradient.endPoint = CGPoint(x: 1, y: 1)
+            
+            gradient.frame = frame
+            gradient.cornerRadius = 10
+            
+            return gradient
+        }
+        
+        override func prepareForReuse() {
+            super.prepareForReuse()
+            
+            contentView.layer.borderColor = nil
+            contentView.layer.borderWidth = 0
+            
+            gradientView.removeFromSuperview()
+            gradientView.layer.sublayers = nil
+            
+            isSelected = false
+        }
     }
     
     var currentColor: ChatViewController.BackgroundColor? = nil
@@ -28,11 +71,12 @@ class ChatBackgroundColorSelectionCell: UITableViewCell {
     let collectionView: UICollectionView = {
         let layout = UICollectionViewFlowLayout()
         layout.scrollDirection = .horizontal
+        layout.minimumInteritemSpacing = 5
         
         let view = UICollectionView(frame: .zero, collectionViewLayout: layout)
         view.showsHorizontalScrollIndicator = false
         
-        view.register(UICollectionViewCell.self, forCellWithReuseIdentifier: "UICollectionViewCell")
+        view.register(BackgroundColorCollectionViewCell.self, forCellWithReuseIdentifier: BackgroundColorCollectionViewCell.cellName)
         
         return view
     }()
@@ -45,57 +89,6 @@ class ChatBackgroundColorSelectionCell: UITableViewCell {
         collectionView.delegate = self
     }
     
-    func getGradientFrom(commonColor color: ChatViewController.BackgroundColor, frame: CGRect) -> CAGradientLayer {
-//        var firstColor: CGColor = CGColor(gray: 1, alpha: 1)
-//        var secondColor: CGColor = CGColor(gray: 1, alpha: 1)
-//        
-//        switch color {
-//        case .purple:
-//            firstColor = CGColor(red: 255/255, green: 122/255, blue: 245/255, alpha: 1.0)
-//            secondColor = CGColor(red: 81/255, green: 49/255, blue: 98/255, alpha: 1.0)
-//            
-//        case .darkRed:
-//            firstColor = CGColor(red: 205/255, green: 92/255, blue: 92/255, alpha: 0.5)
-//            secondColor = CGColor(red: 220/255, green: 20/255, blue: 60/255, alpha: 1)
-//            
-//        case .lightRed:
-//            firstColor = CGColor(red: 250/255, green: 128/255, blue: 114/255, alpha: 0.5)
-//            secondColor = CGColor(red: 250/255, green: 128/255, blue: 114/255, alpha: 1)
-//            
-//        case .yellowOrange:
-//            firstColor = CGColor(red: 255/255, green: 215/255, blue: 0, alpha: 1)
-//            secondColor = CGColor(red: 255/255, green: 69/255, blue: 0, alpha: 1)
-//            
-//        case .yellowBlue:
-//            firstColor = CGColor(red: 255/255, green: 215/255, blue: 0, alpha: 0.5)
-//            secondColor = CGColor(red: 30/255, green: 144/255, blue: 255/255, alpha: 0.5)
-//            
-//        case .lightGreen:
-//            firstColor = CGColor(red: 155/255, green: 255/255, blue: 150/255, alpha: 0.5)
-//            secondColor = CGColor(red: 155/255, green: 255/255, blue: 150/255, alpha: 0.5)
-//            
-//        case .greenBlue:
-//            firstColor = CGColor(red: 155/255, green: 255/255, blue: 150/255, alpha: 0.5)
-//            secondColor = CGColor(red: 0/255, green: 192/255, blue: 255/255, alpha: 0.5)
-//            
-//        case .lightBlue:
-//            firstColor = CGColor(red: 0/255, green: 192/255, blue: 255/255, alpha: 0.5)
-//            secondColor = CGColor(red: 0/255, green: 192/255, blue: 255/255, alpha: 0.5)
-//            
-//        default:
-//            break
-//        }
-        
-        let gradient = CAGradientLayer()
-        gradient.colors = ChatViewController.getColorsForGradient(forColor: color)
-        gradient.startPoint = CGPoint.zero
-        gradient.endPoint = CGPoint(x: 1, y: 1)
-        
-        gradient.frame = frame
-        gradient.cornerRadius = 10
-        
-        return gradient
-    }
 }
 
 extension ChatBackgroundColorSelectionCell: UICollectionViewDataSource {
@@ -106,11 +99,19 @@ extension ChatBackgroundColorSelectionCell: UICollectionViewDataSource {
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         let color = backgroundColors[indexPath.row]
         
-        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "UICollectionViewCell", for: indexPath)
-        cell.contentView.layer.sublayers = nil
+        guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: BackgroundColorCollectionViewCell.cellName, for: indexPath) as? BackgroundColorCollectionViewCell else {
+            return UICollectionViewCell(frame: .zero)
+        }
         
-        let gradient = getGradientFrom(commonColor: color, frame: cell.contentView.bounds)
-        cell.contentView.layer.insertSublayer(gradient, at: 0)
+        cell.color = color
+        cell.setup()
+        
+        if currentColor == backgroundColors[indexPath.row] {
+            collectionView.selectItem(at: indexPath, animated: true, scrollPosition: [])
+            
+            cell.contentView.layer.borderColor = UIColor.gray.cgColor
+            cell.contentView.layer.borderWidth = 1
+        }
         
         return cell
     }
@@ -123,15 +124,29 @@ extension ChatBackgroundColorSelectionCell: UICollectionViewDelegate {
                           sizeForItemAt indexPath: IndexPath) -> CGSize {
         return CGSize(width: 100, height: 120)
     }
-
+    
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-        
+        if let cell = collectionView.cellForItem(at: indexPath) as? BackgroundColorCollectionViewCell {
+            currentColor = backgroundColors[indexPath.item]
+            
+            cell.contentView.layer.borderColor = UIColor.gray.cgColor
+            cell.contentView.layer.borderWidth = 1
+            
+            SettingManager.shared.saveItem(key: "chat_chooseBackgroundColor", string: currentColor?.rawValue ?? ChatViewController.BackgroundColor.purple.rawValue)
+        }
+    }
+    
+    func collectionView(_ collectionView: UICollectionView, didDeselectItemAt indexPath: IndexPath) {
+        if let cell = collectionView.cellForItem(at: indexPath) as? BackgroundColorCollectionViewCell {
+            cell.contentView.layer.borderColor = nil
+            cell.contentView.layer.borderWidth = 0
+        }
     }
     
 }
 
 extension ChatBackgroundColorSelectionCell: UICollectionViewDelegateFlowLayout {
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, minimumInteritemSpacingForSectionAt section: Int) -> CGFloat {
-        return 10
+        return 5
     }
 }

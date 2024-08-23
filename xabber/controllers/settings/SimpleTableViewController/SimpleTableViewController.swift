@@ -236,7 +236,7 @@ extension SimpleTableViewController: UITableViewDelegate {
         let menuItem = datasource?.childs[indexPath.section].childs[indexPath.row]
         
         if menuItem?.key == .chatChooseBackgroundColor {
-            return 140
+            return 150
         }
         
         return 44
