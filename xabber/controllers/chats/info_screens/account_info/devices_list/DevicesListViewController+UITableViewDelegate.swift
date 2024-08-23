@@ -57,12 +57,12 @@ extension DevicesListViewController: UITableViewDelegate {
                 break
             }
         case .token:
-            if indexPath.row == 0 && (isVerificationRequired || self.activeVerificationSession != nil) {
+            if indexPath.row == 0 && (isVerificationRequired || self.activeVerificationSessionSid != nil) {
                 return
             }
             
             var uid = ""
-            if isVerificationRequired || self.activeVerificationSession != nil {
+            if isVerificationRequired || self.activeVerificationSessionSid != nil {
                 uid = devices[indexPath.row - 1].uid
             } else {
                 uid = devices[indexPath.row].uid
