@@ -114,6 +114,15 @@ class CredentialsManager: NSObject {
                 }
             }
         }
+        var validationKey: String? {
+            get {
+                return self.retrieveCreditionals(for: [jid, "validation_key"].prp())
+            } set {
+                if let value = newValue {
+                    self.storeCreditionals(for: [jid, "validation_key"].prp(), value: value)
+                }
+            }
+        }
         
 //        var callbacks: SynchronizedArray<SynchronizedArrayCallbackItem> = SynchronizedArray()
         var callbacks: Array<SynchronizedArrayCallbackItem> = Array()
@@ -248,10 +257,11 @@ class CredentialsManager: NSObject {
 //            }
 //        }
         
-        public func storeSecret(_ value: String) {
+        public func storeSecret(_ value: String, validationKey: String) {
             self.isFirstTokenIssued = true
             self.counter = 1
             self.kind = .secret
+            self.storeCreditionals(for: [jid, "validation_key"].prp(), value: validationKey)
             self.storeCreditionals(for: [jid, Kind.secret.rawValue].prp(), value: value)
             self.storeCreditionals(for: [jid, "counter"].prp(), value: "\(self.counter)")
 //            self.storeCounterToRealm(self.counter)
@@ -347,10 +357,10 @@ class CredentialsManager: NSObject {
         keychain.removeObject(forKey: [jid, "xabberDeviceId"].prp())
     }
     
-    public func setItem(for jid: String, secret: String? = nil, token: String? = nil, password: String? = nil, keepSecret: Bool = false) {
+    public func setItem(for jid: String, validationKey: String? = nil, secret: String? = nil, token: String? = nil, password: String? = nil, keepSecret: Bool = false) {
         if let item = storage.first(where: { $0.jid == jid }) {
             if let secret = secret {
-                item.storeSecret(secret)
+                item.storeSecret(secret, validationKey: validationKey ?? "")
             } else if let token = token {
                 item.storeToken(token)
             } else if let password = password {
@@ -359,7 +369,7 @@ class CredentialsManager: NSObject {
         } else {
             let item = Storage(jid: jid)
             if let secret = secret {
-                item.storeSecret(secret)
+                item.storeSecret(secret, validationKey: validationKey ?? "")
             } else if let token = token {
                 item.storeToken(token)
             } else if let password = password {
@@ -627,9 +637,10 @@ class CredentialsManager: NSObject {
         let secret: String
         let jid: String
         let service: String
+        let jwt: String
     }
     
-    public final func storePushCredentials(node: String, jid: String, host: String, secret: String, service: String) throws {
+    public final func storePushCredentials(node: String, jid: String, host: String, secret: String, service: String, jwt: String) throws {
         let keychain = KeychainWrapper(
             serviceName: CredentialsManager.uniqueServiceName(),
             accessGroup: CredentialsManager.uniqueAccessGroup()
@@ -638,7 +649,8 @@ class CredentialsManager: NSObject {
             "jid": jid,
             "host": host,
             "secret": secret,
-            "service": service
+            "service": service,
+            "jwt": jwt
         ]
 
         let data = try JSONSerialization.data(withJSONObject: dict, options: .sortedKeys)
@@ -661,10 +673,11 @@ class CredentialsManager: NSObject {
               let jid = dict["jid"] as? String,
               let service = dict["service"] as? String,
               let host = dict["host"] as? String,
-              let secret = dict["secret"] as? String else {
+              let secret = dict["secret"] as? String,
+              let jwt = dict["jwt"] as? String else {
             throw CredentialsError.itemNotFound
         }
-        return PushSecretData(host: host, secret: secret, jid: jid, service: service)
+        return PushSecretData(host: host, secret: secret, jid: jid, service: service, jwt: jwt)
     }
     
     public final func removePushCredentials(for node: String) {
@@ -686,10 +699,11 @@ class CredentialsManager: NSObject {
               let jid = dict["jid"] as? String,
               let service = dict["service"] as? String,
               let host = dict["host"] as? String,
-              let secret = dict["secret"] as? String else {
+              let secret = dict["secret"] as? String,
+              let jwt = dict["jwt"] as? String  else {
             throw CredentialsError.itemNotFound
         }
-        return PushSecretData(host: host, secret: secret, jid: jid, service: service)
+        return PushSecretData(host: host, secret: secret, jid: jid, service: service, jwt: jwt)
     }
     
     private final func clearKeychainFull() {

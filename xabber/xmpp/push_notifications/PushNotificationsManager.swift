@@ -24,7 +24,7 @@ import XMPPFramework
 
 class PushNotificationsManager: AbstractXMPPManager {
     
-    static let suitName: String = "group.com.xabber.push"
+    static let suitName: String = "group.com.xabber"
     
     var enable: Bool = true
     var node: String = ""
@@ -164,7 +164,8 @@ class PushNotificationsManager: AbstractXMPPManager {
                 jid: pushSecrets.jid,
                 host: pushSecrets.host,
                 secret: secret,
-                service: pushSecrets.service
+                service: pushSecrets.service,
+                jwt: ""
             )
         } catch {
             try? CredentialsManager.shared.storePushCredentials(
@@ -172,7 +173,8 @@ class PushNotificationsManager: AbstractXMPPManager {
                 jid: self.owner,
                 host: jid.domain,
                 secret: secret,
-                service: ""
+                service: "",
+                jwt: ""
             )
             print(error)
         }
@@ -211,9 +213,10 @@ class PushNotificationsManager: AbstractXMPPManager {
         
     private final func readPushRegistrationResult(_ iq: XMPPIQ) -> Bool {
         guard let elementId = iq.elementID,
-           queryIds.contains(elementId),
-           let x = iq.element(forName: "x", xmlns: "jabber:x:oob"),
-           let url = x.element(forName: "url")?.stringValue else {
+              queryIds.contains(elementId),
+              let x = iq.element(forName: "x", xmlns: "jabber:x:data"),
+              let url = x.elements(forName: "field").first(where: { $0.attributeStringValue(forName: "var") == "url" })?.element(forName: "value")?.stringValue,
+              let jwt = x.elements(forName: "field").first(where: { $0.attributeStringValue(forName: "var") == "jwt" })?.element(forName: "value")?.stringValue else {
             return false
         }
 //        DispatchQueue.main.async {
@@ -227,7 +230,8 @@ class PushNotificationsManager: AbstractXMPPManager {
                 jid: pushSecrets.jid,
                 host: pushSecrets.host,
                 secret: pushSecrets.secret,
-                service: url
+                service: url,
+                jwt: jwt
             )
         } catch {
             DDLogDebug(error.localizedDescription)

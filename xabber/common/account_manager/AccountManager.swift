@@ -371,6 +371,8 @@ public class AccountManager: NSObject {
         connecting.remove(jid)
         self.connectingUsers.accept(connecting)
         
+        CommonContactsMetadataManager.shared.clear(for: jid)
+        
         do {
             if let index = users.firstIndex(where: { $0.jid == jid }) {
                 autoreleasepool { () -> Void in

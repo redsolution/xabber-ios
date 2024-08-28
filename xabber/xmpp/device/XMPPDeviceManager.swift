@@ -463,8 +463,9 @@ class XMPPDeviceManager: AbstractXMPPManager {
         }
 //        print(self.deviceId, deviceId)
         self.deviceId = deviceId
+        let validationKey = device.element(forName: "validation-key")?.stringValue
         CredentialsManager.shared.setXabberDeviceId(for: owner, deviceId: deviceId)
-        CredentialsManager.shared.setItem(for: owner, secret: secret)
+        CredentialsManager.shared.setItem(for: owner, validationKey: validationKey, secret: secret)
         let deviceInfo = [[UIDevice.modelName, ","].joined(),  "iOS", UIDevice.current.systemVersion].joined(separator: " ")
         let clientInfo = CommonConfigManager.shared.config.app_name
         let descr = UIDevice.current.name

@@ -189,6 +189,9 @@ class XmppAvatarManager: AbstractXMPPManager {
                                 $0.metadata_ = $0.metadata_
                             }
                         }
+                        let username = instance.displayName
+                        let avatarUrl = instance.avatarUrl
+                        CommonContactsMetadataManager.shared.update(owner: self.owner, jid: jid, username: username, avatarUrl: avatarUrl)
                     }
                 }
                 

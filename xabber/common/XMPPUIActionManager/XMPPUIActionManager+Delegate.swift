@@ -98,7 +98,13 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
                         let counter = creditionalsItem.counter
                         stream.shouldRegisterDevice = false
                         stream.shouldRequestXToken = false
-                        try stream.authenticate(withHOTPSecret: secret, counter: counter)
+                        let realm = try WRealm.safe()
+                        let deviceUUID = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: stream.myJID?.bare ?? "")?.deviceUuid
+                        if stream.supportsOCRAAuthentication {
+                            try stream.authenticate(withOCRASecret: secret, validationKey: item.validationKey ?? "", deviceId: deviceUUID ?? "", counter: counter)
+                        } else {
+                            try stream.authenticate(withHOTPSecret: secret, counter: counter)
+                        }
                     } else {
                         item.decrementCounter()
                         invalidate()

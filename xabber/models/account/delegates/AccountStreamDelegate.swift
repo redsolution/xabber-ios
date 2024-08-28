@@ -119,7 +119,13 @@ extension Account: XMPPStreamDelegate {
 //                        }
                         stream.shouldRegisterDevice = false
                         stream.shouldRequestXToken = false
-                        try stream.authenticate(withHOTPSecret: secret, counter: counter)
+                        let realm = try WRealm.safe()
+                        let deviceUUID = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: self.jid)?.deviceUuid
+                        if stream.supportsOCRAAuthentication {
+                            try stream.authenticate(withOCRASecret: secret, validationKey: item.validationKey ?? "", deviceId: deviceUUID ?? "", counter: counter)
+                        } else {
+                            try stream.authenticate(withHOTPSecret: secret, counter: counter)
+                        }
                         AccountManager.shared.changeNewUserState(for: self.jid, to: .connect)
 //                        DispatchQueue.main.async {
 //                            ToastPresenter(message: "Stream try auth").present(animated: true)

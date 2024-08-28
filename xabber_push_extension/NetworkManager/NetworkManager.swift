@@ -22,22 +22,18 @@ import Foundation
 import KissXML
 
 class NetworkManager: NSObject {
-//    XMPP-Domain: redsolution.com
-//    auth bearer
     private var url: URL
-    private var token: String
+    private var jwt: String
     private var jid: String
-    private var deviceId: String
     
     public var delegate: PushPayloadDelegate? = nil
     
-    init(service url: String, jid: String, deviceId: String, token: String) {
+    init(service url: String, jid: String, jwt: String) {
         guard let url = URL(string: url) else {
             fatalError()
         }
         self.jid = jid
-        self.token = token
-        self.deviceId = deviceId
+        self.jwt = jwt
         self.url = url
     }
     
@@ -53,10 +49,7 @@ class NetworkManager: NSObject {
         var request = URLRequest(url: formedUrl)
         request.httpMethod = "GET"
         request.addValue(host, forHTTPHeaderField: "Xmpp-Domain")
-//        request.addValue("Bearer \(self.token)", forHTTPHeaderField: "Authorization")
-        
-        let credentials = "\(self.jid)/\(self.deviceId):\(self.token)".toBase64()
-        request.addValue("Basic \(credentials)", forHTTPHeaderField: "Authorization")
+        request.addValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization")
         
         let task = URLSession.shared.dataTask(with: request) { (data, response, error) in
             if let data = data,
@@ -178,7 +171,10 @@ class NetworkManager: NSObject {
                     payload["body"] = imagesCount == 1 ? "Image" : "\(imagesCount) images"
                 }
             }
-            delegate?.didUpdateContent(payload: payload)
+            let out = payload
+            Task {
+                await delegate?.didUpdateContent(payload: out)
+            }
         }
     }
     
@@ -204,4 +200,69 @@ class NetworkManager: NSObject {
         }
         return nil
     }
+}
+
+extension String {
+    func xmlEscaping(reverse: Bool) -> String {
+        var out = self
+        let symbols: [String: String] = [
+            "<": "&lt;",
+            ">": "&gt;",
+            "\"": "&quot;",
+            "\'": "&apos;",
+        ]
+        out = out.replacingOccurrences(of: reverse ? "&amp;" : "&",
+                                       with: reverse ? "&" : "&amp;",
+                                       options: [],
+                                       range: Range<String.Index>(NSRange(location: 0,
+                                                                          length: out.count), in: out))
+        symbols.forEach {
+            out = out.replacingOccurrences(of: reverse ? $0.value : $0.key,
+                                           with: reverse ? $0.key : $0.value,
+                                           options: [],
+                                           range: Range<String.Index>(NSRange(location: 0,
+                                                                              length: out.count), in: out))
+        }
+        return out
+    }
+       
+    func excludeFromBody(_ references: [DDXMLElement], groupchat: DDXMLElement?) -> String {
+        var out: String = self.xmlEscaping(reverse: false)
+        var mutableReferences: [DDXMLElement] = references
+        if let groupchatRef = groupchat {
+            mutableReferences.append(groupchatRef)
+        }
+        if self.isEmpty { return self }
+        for reference in mutableReferences
+            .sorted(by: { return (Int($0.attribute(forName: "begin")?.stringValue ?? "0") ?? 0) < (Int($1.attribute(forName: "begin")?.stringValue ?? "0") ?? 0) }) {
+            if reference.xmlns() != "https://xabber.com/protocol/references" { continue }
+            let offset = self.xmlEscaping(reverse: false).count - out.count
+            var begin = (Int(reference.attribute(forName: "begin")?.stringValue ?? "0") ?? 0) - offset
+            var end = (Int(reference.attribute(forName: "end")?.stringValue ?? "0") ?? 0) - offset// + 1
+            let kind = reference.attribute(forName: "type")?.stringValue ?? "none"
+            if end > out.count {
+                end = out.count - 1
+            }
+            if begin < 0 {
+                begin = 0
+            }
+            if begin >= end { continue }
+            switch kind {
+            case "mutable":
+                if let range = Range<String.Index>(NSRange(begin..<end), in: out) {
+                    out.removeSubrange(range)
+                }
+            default:
+                break
+            }
+        }
+        return out.xmlEscaping(reverse: true)
+    }
+}
+
+protocol PushPayloadDelegate {
+    func didDisconnectWithError(_ error: String)
+    func didUpdateContent(payload: [String: String]) async
+    func didReceiveSync(stanza: String)
+    func didReceiveStartVerification(payload: [String: String])
 }

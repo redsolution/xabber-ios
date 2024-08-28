@@ -22,9 +22,10 @@ import UserNotifications
 import SwiftKeychainWrapper
 import KissXML
 import CryptoSwift
+import Intents
 
 class NotificationService: UNNotificationServiceExtension {
-    static let suitName: String = "group.com.xabber.push"
+    static let suitName: String = "group.com.xabber"
     
     enum InviteKind: String {
         case group = "group"
@@ -238,7 +239,6 @@ class NotificationService: UNNotificationServiceExtension {
     
     var editMark: String = ""
     
-    var ws: WebsocketManager? = nil
     var retryCount: Int = 0
     
 
@@ -383,15 +383,12 @@ class NotificationService: UNNotificationServiceExtension {
             contentHandler?(bestAttemptContent!)
             return
         }
-        let hotp = HOTPAuth(jid: owner)
-        let token = hotp.getTOTPValueForTest()
         let stanzaId = payload.messageStanzaID(key: pushData.secret)
         let remoteArchiveJid = stanzaId?.by == pushData.jid ? nil : stanzaId?.by
         let manager = NetworkManager(
             service: pushData.service,
             jid: pushData.jid,
-            deviceId: self.deviceId ?? "",
-            token: token!
+            jwt: pushData.jwt
         )
         manager.delegate = self
         manager.getMessage(host: pushData.host, messageId: stanzaId!.id, by: remoteArchiveJid)
@@ -499,8 +496,6 @@ class NotificationService: UNNotificationServiceExtension {
             contentHandler?(bestAttemptContent!)
             return
         }
-        let hotp = HOTPAuth(jid: owner)
-        let token = hotp.getTOTPValueForTest()
         let stanzaId = payload.messageStanzaID(key: pushData.secret)
         let remoteArchiveJid = stanzaId?.by == pushData.jid ? nil : stanzaId?.by
         UNUserNotificationCenter
@@ -518,8 +513,7 @@ class NotificationService: UNNotificationServiceExtension {
         let manager = NetworkManager(
             service: pushData.service,
             jid: pushData.jid,
-            deviceId: self.deviceId ?? "",
-            token: token!
+            jwt: pushData.jwt
         )
         manager.delegate = self
         manager.getMessage(host: pushData.host, messageId: stanzaId!.id, by: remoteArchiveJid)
@@ -560,7 +554,7 @@ extension NotificationService: PushPayloadDelegate {
 //        }
     }
     
-    private final func updateContentFor(message payload: [String : String]) {
+    private final func updateContentFor(message payload: [String : String]) async {
         if let bestAttemptContent = bestAttemptContent {
             bestAttemptContent.userInfo["timestamp"] = Date().timeIntervalSinceReferenceDate
             if let stanzaId = payload["stanzaId"] {
@@ -600,13 +594,12 @@ extension NotificationService: PushPayloadDelegate {
                         bestAttemptContent.body = "Invitation to private chat"//.localizeString(id: "chat_message_private_invitation", arguments: [])
                     }
                     self.bestAttemptContent = bestAttemptContent
-                    self.ws?.prevPayload = payload
-                    _ = self.ws?.getVCard(jid: inviteToJid)
                     self.notificationType = .invite
                     return
                 }
                 self.bestAttemptContent = bestAttemptContent
             } else {
+                bestAttemptContent.title = CommonConfigManager.shared.config.app_name
                 if let body = payload["body"] {
                     bestAttemptContent.body = body
                 }
@@ -630,22 +623,13 @@ extension NotificationService: PushPayloadDelegate {
                     if from == owner {
                         bestAttemptContent.subtitle = "Carbon message"//.localizeString(id: "carbon_message", arguments: [])
                     }
-                    bestAttemptContent.title = from
-//                    do {
-//                        let realm = try Realm(configuration: realmConfig)
-//                        if let instance = realm.object(ofType: RosterDisplayNameStorageItem.self,
-//                                                       forPrimaryKey: [from, owner].joined(separator: "_")) {
-//                            bestAttemptContent.title = instance.displayName
-//                        } else {
-//                            bestAttemptContent.title = from
-//                        }
-//                    } catch {
-                        bestAttemptContent.title = from
-//                    }
+                    bestAttemptContent.subtitle = from
+
+                    bestAttemptContent.subtitle = from
                     if editMark.isNotEmpty {
-                        bestAttemptContent.title = [editMark, bestAttemptContent.title].joined(separator: " ")
+                        bestAttemptContent.subtitle = [editMark, bestAttemptContent.title].joined(separator: " ")
                     } else {
-                        bestAttemptContent.title = ["💨", bestAttemptContent.title].joined(separator: " ")
+                        bestAttemptContent.subtitle = ["💨", bestAttemptContent.title].joined(separator: " ")
                     }
                 }
                 if let imageUrls = payload["imageUrls"] {
@@ -654,15 +638,11 @@ extension NotificationService: PushPayloadDelegate {
                         .compactMap{ return "\($0)" }
                         .compactMap{ return URL(string: $0) }
                     let attaches = urls.compactMap { url -> UNNotificationAttachment? in
-//                        `if let data = try? Data(contentsOf: url),
-//                            let image = UIImage(data: data) {
-//                            return UNNotificationAttachment(
-//                                identifier: url.lastPathComponent,
-//                                image: image,
-//                                options: nil
-//                            )
-//                        }`
-                        return nil
+                        return try? UNNotificationAttachment(
+                            identifier: url.lastPathComponent,
+                            url: url,
+                            options: nil
+                        )
                     }
                     bestAttemptContent.attachments = attaches
                 }
@@ -670,17 +650,46 @@ extension NotificationService: PushPayloadDelegate {
                 bestAttemptContent.sound = .default
                 bestAttemptContent.categoryIdentifier = "com.xabber.ios.message.push"
                 
-//                if let stanza = payload["stanza"] {
-//                    let defaults  = UserDefaults.init(suiteName: NotificationService.suitName)
-//                    var stanzas: [String] = defaults?.object(forKey: "com.xabber.messages.temporary.\(owner)") as? [String] ?? []
-//                    stanzas.append(stanza)
-//                    defaults?.set(stanzas, forKey: "com.xabber.messages.temporary.\(owner)")
-//                    bestAttemptContent.userInfo["stanza"] = stanza
-//                }
-                bestAttemptContent.badge = 0
-                self.ws?.closeSocket()
-//                print(bestAttemptContent.userInfo)
-                contentHandler?(bestAttemptContent)
+                let metadata = CommonContactsMetadataManager.shared.getItem(owner: owner, jid: payload["from"] ?? "none")
+                
+                let handle = INPersonHandle(value: metadata.jid, type: .emailAddress)
+                
+                var avatar: INImage
+                if let avatarUrl = metadata.avatarUrl,
+                    let url = URL(string: avatarUrl),
+                    let image = INImage(url: url) {
+                    avatar = image
+                } else {
+                    avatar = INImage(named: "person.2.circle.fill")
+                }
+                
+                let sender = INPerson(personHandle: handle,
+                                      nameComponents: nil,
+                                      displayName: metadata.username ?? metadata.jid,
+                                      image: avatar,
+                                      contactIdentifier: nil,
+                                      customIdentifier: nil
+                )
+                
+                let intent = INSendMessageIntent(recipients: nil,
+                                                 outgoingMessageType: .outgoingMessageText,
+                                                 content: payload["body"] ?? "body",
+                                                 speakableGroupName: nil,
+                                                 conversationIdentifier: "\(owner)\(metadata.jid)",
+                                                 serviceName: nil,
+                                                 sender: sender,
+                                                 attachments: nil)
+                
+                let interaction = INInteraction(intent: intent, response: nil)
+                interaction.direction = .incoming
+                
+                do {
+                    try await interaction.donate()
+                    let updatedContent = try bestAttemptContent.updating(from: intent)
+                    contentHandler?(updatedContent)
+                } catch {
+                    return
+                }
             }
         } else {
             self.contentHandler = nil
@@ -777,13 +786,13 @@ extension NotificationService: PushPayloadDelegate {
         self.contentHandler?(content)
     }
     
-    func didUpdateContent(payload: [String : String]) {
+    func didUpdateContent(payload: [String : String]) async {
 //        print(#function, notificationType, payload)
         switch notificationType {
         case .invite: updateContentFor(invite: payload)
-        case .message: updateContentFor(message: payload)
+        case .message: await updateContentFor(message: payload)
         case .subscribe: updateContentFor(subscribtion: payload)
-        case .update: updateContentFor(message: payload)
+        case .update: await updateContentFor(message: payload)
         default:
             self.contentHandler = nil
             UNUserNotificationCenter

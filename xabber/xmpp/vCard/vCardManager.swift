@@ -322,6 +322,12 @@ class VCardManager: AbstractXMPPManager {
                                          forPrimaryKey: [jid, self.owner].prp())?
                                 .username = username
                         }
+                        if let rosterInstance = realm.object(ofType: RosterStorageItem.self,
+                                                             forPrimaryKey: [jid, self.owner].prp()) {
+                            let username = rosterInstance.displayName
+                            let avatarUrl = rosterInstance.avatarUrl
+                            CommonContactsMetadataManager.shared.update(owner: self.owner, jid: jid, username: username, avatarUrl: avatarUrl)
+                        }
                     }
                 } else {
                     let instance = vCardStorageItem()

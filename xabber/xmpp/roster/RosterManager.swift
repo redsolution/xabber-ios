@@ -330,6 +330,9 @@ class RosterManager: AbstractXMPPManager {
                             .forEach {
                             $0.rosterItem = instance
                         }
+                        let username = instance.displayName
+                        let avatarUrl = instance.avatarUrl
+                        CommonContactsMetadataManager.shared.update(owner: self.owner, jid: jid, username: username, avatarUrl: avatarUrl)
                     } else {
 //                        DefaultAvatarManager.shared.updateAvatarIfNeeded(for: jid, owner: owner)
                         let instance = RosterStorageItem()
@@ -394,6 +397,9 @@ class RosterManager: AbstractXMPPManager {
                             .forEach {
                             $0.rosterItem = instance
                         }
+                        let username = instance.displayName
+                        let avatarUrl = instance.avatarUrl
+                        CommonContactsMetadataManager.shared.update(owner: self.owner, jid: jid, username: username, avatarUrl: avatarUrl)
                     }
                 }
             }

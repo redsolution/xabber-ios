@@ -49,22 +49,22 @@ class AudioManager {
         
         player = nil
         
-        do {
-            storage = try Storage(diskConfig: DiskConfig(name: "AudioStorage",
-                                                         expiry: Expiry.seconds(TimeInterval(exactly: 6*60*60)!), // 6h
-                maxSize: 50 * 1024 * 1024, // 50mb
-                directory: nil,
-                protectionType: nil),
-                                  memoryConfig: MemoryConfig(expiry: Expiry.seconds(5*60),
-                                                             countLimit: 0,
-                                                             totalCostLimit: 0), transformer: Transformer<Data>(toData: { (data) -> Data in
-                                                                return data
-                                                             }, fromData: { (data) -> Data in
-                                                                return data
-                                                             }))
-        } catch {
-            DDLogDebug("cant invoke storage")
-        }
+//        do {
+//            storage = try Storage(diskConfig: DiskConfig(name: "AudioStorage",
+//                                                         expiry: Expiry.seconds(TimeInterval(exactly: 6*60*60)!), // 6h
+//                maxSize: 50 * 1024 * 1024, // 50mb
+//                directory: nil,
+//                protectionType: nil),
+//                                  memoryConfig: MemoryConfig(expiry: Expiry.seconds(5*60),
+//                                                             countLimit: 0,
+//                                                             totalCostLimit: 0), transformer: Transformer<Data>(toData: { (data) -> Data in
+//                                                                return data
+//                                                             }, fromData: { (data) -> Data in
+//                                                                return data
+//                                                             }))
+//        } catch {
+//            DDLogDebug("cant invoke storage")
+//        }
     }
     
     func isCached(_ url: URL) -> Bool {
