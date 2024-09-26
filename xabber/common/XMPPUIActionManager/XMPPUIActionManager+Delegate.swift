@@ -202,6 +202,9 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
         
         switch message.messageType ?? .chat {
         case .chat:
+            if self.mam?.readMessage(message) ?? false {
+                return
+            }
             if self.groupchat?.readMessage(withMessage: message) ?? false {
                 return
             }

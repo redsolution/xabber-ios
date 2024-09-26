@@ -153,7 +153,7 @@ extension ChatViewController {
                                 NSAttributedString.Key.font: UIFont.systemFont(ofSize: 16, weight: .regular),
                             ],
                             searchedText: self.searchTextObserver.value,
-                            searchedTextColor: AccountColorManager.shared.palette(for: self.owner).tint200.withAlphaComponent(0.5)
+                            searchedTextColor: item.primary == self.selectedSearchResultId ? AccountColorManager.shared.palette(for: self.owner).tint400.withAlphaComponent(0.5) :  AccountColorManager.shared.palette(for: self.owner).tint200.withAlphaComponent(0.5)
                         ),
                         false,
                         ContactChatMetadataManager
@@ -247,7 +247,8 @@ extension ChatViewController {
                 burnDate: item.burnDate,
                 afterburnInterval: item.afterburnInterval,
                 archivedId: item.archivedId,
-                isRead: item.isRead
+                isRead: item.isRead,
+                selectedSearchResultId: item.primary == self.selectedSearchResultId ? self.selectedSearchResultId : nil
             )
         }
     }
@@ -362,17 +363,13 @@ extension ChatViewController {
     
     private final func preprocessDataset(shouldScrollToLastMessage: Bool = false) {
         if !canUpdateDataset { return }
-//        self.updateQueue.async {
-            self.canUpdateDataset = false
-            let newDataset = self.mapDataset(count: self.messagesCount)
-            let changes = diff(old: self.datasource, new: newDataset)
-            let indexSet = self.convertChangeset(changes: changes)
-//            DispatchQueue.main.async {
-                self.apply(changes: indexSet, shouldScrollToLastMessage: shouldScrollToLastMessage) {
-                    self.datasource = newDataset
-                }
-//            }
-//        }
+        self.canUpdateDataset = false
+        let newDataset = self.mapDataset(count: self.messagesCount)
+        let changes = diff(old: self.datasource, new: newDataset)
+        let indexSet = self.convertChangeset(changes: changes)
+        self.apply(changes: indexSet, shouldScrollToLastMessage: shouldScrollToLastMessage) {
+            self.datasource = newDataset
+        }
     }
     
     private final func postprocessDataset() {

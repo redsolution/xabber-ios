@@ -297,6 +297,10 @@ extension Account: XMPPStreamDelegate {
         switch message.messageType ?? .chat {
             case .chat, .normal:
 
+            if self.mam.readMessage(message) {
+                return
+            }
+            
             if self.notifications.read(withMessage: message) {
                 return
             }

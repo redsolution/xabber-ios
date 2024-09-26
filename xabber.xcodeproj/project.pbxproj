@@ -99,6 +99,7 @@
 		660D497D2653C9AA00480A75 /* whitelabel_res.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 660D497C2653C9AA00480A75 /* whitelabel_res.xcassets */; };
 		660D49802653CFBA00480A75 /* SignUpBaseViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660D497F2653CFBA00480A75 /* SignUpBaseViewController.swift */; };
 		660F27DF2202DBB600A11AAC /* ResourceInfoViewController+StatusCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660F27DE2202DBB600A11AAC /* ResourceInfoViewController+StatusCell.swift */; };
+		660F505E2C91B10A00BB48F3 /* SearchChatListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660F505D2C91B10A00BB48F3 /* SearchChatListViewController.swift */; };
 		660F55F1239A2C7F00252608 /* GroupchatBlockedViewController+UITableViewDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660F55F0239A2C7F00252608 /* GroupchatBlockedViewController+UITableViewDelegate.swift */; };
 		660F55F3239A2CBA00252608 /* GroupchatBlockedViewController+UITableViewDatasource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660F55F2239A2CBA00252608 /* GroupchatBlockedViewController+UITableViewDatasource.swift */; };
 		660F55F5239A2CDD00252608 /* GroupchatBlockedViewController+ContactCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660F55F4239A2CDD00252608 /* GroupchatBlockedViewController+ContactCell.swift */; };
@@ -170,6 +171,8 @@
 		662D4A792489371D009E2B22 /* RoundedAvatarButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662D4A782489371D009E2B22 /* RoundedAvatarButton.swift */; };
 		662E370B257A20B400888358 /* VoIPManager+WebRTCClientDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662E370A257A20B400888358 /* VoIPManager+WebRTCClientDelegate.swift */; };
 		662EAB972549766C00807083 /* ChatViewController+XabberInputBarDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662EAB962549766C00807083 /* ChatViewController+XabberInputBarDelegate.swift */; };
+		663426CA2C8F0DF700F6873E /* ChangeChatStateProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 663426C92C8F0DF700F6873E /* ChangeChatStateProtocol.swift */; };
+		663426CC2C8F14A900F6873E /* ChatViewController+ChangeChatStateProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 663426CB2C8F14A900F6873E /* ChatViewController+ChangeChatStateProtocol.swift */; };
 		66344D392B6D0C2F00B31E7A /* PrivacySettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66344D382B6D0C2F00B31E7A /* PrivacySettingsViewController.swift */; };
 		6635A04325CC1A1E00EA57FE /* NewCallViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6635A04225CC1A1E00EA57FE /* NewCallViewController.swift */; };
 		6635A04825CC1A3600EA57FE /* NewCallViewController+UITableViewDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6635A04725CC1A3600EA57FE /* NewCallViewController+UITableViewDelegate.swift */; };
@@ -1069,6 +1072,7 @@
 		660D497C2653C9AA00480A75 /* whitelabel_res.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = whitelabel_res.xcassets; sourceTree = "<group>"; };
 		660D497F2653CFBA00480A75 /* SignUpBaseViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignUpBaseViewController.swift; sourceTree = "<group>"; };
 		660F27DE2202DBB600A11AAC /* ResourceInfoViewController+StatusCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ResourceInfoViewController+StatusCell.swift"; sourceTree = "<group>"; };
+		660F505D2C91B10A00BB48F3 /* SearchChatListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchChatListViewController.swift; sourceTree = "<group>"; };
 		660F55F0239A2C7F00252608 /* GroupchatBlockedViewController+UITableViewDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GroupchatBlockedViewController+UITableViewDelegate.swift"; sourceTree = "<group>"; };
 		660F55F2239A2CBA00252608 /* GroupchatBlockedViewController+UITableViewDatasource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GroupchatBlockedViewController+UITableViewDatasource.swift"; sourceTree = "<group>"; };
 		660F55F4239A2CDD00252608 /* GroupchatBlockedViewController+ContactCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GroupchatBlockedViewController+ContactCell.swift"; sourceTree = "<group>"; };
@@ -1141,6 +1145,8 @@
 		662D4A782489371D009E2B22 /* RoundedAvatarButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoundedAvatarButton.swift; sourceTree = "<group>"; };
 		662E370A257A20B400888358 /* VoIPManager+WebRTCClientDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VoIPManager+WebRTCClientDelegate.swift"; sourceTree = "<group>"; };
 		662EAB962549766C00807083 /* ChatViewController+XabberInputBarDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewController+XabberInputBarDelegate.swift"; sourceTree = "<group>"; };
+		663426C92C8F0DF700F6873E /* ChangeChatStateProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangeChatStateProtocol.swift; sourceTree = "<group>"; };
+		663426CB2C8F14A900F6873E /* ChatViewController+ChangeChatStateProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewController+ChangeChatStateProtocol.swift"; sourceTree = "<group>"; };
 		66344D382B6D0C2F00B31E7A /* PrivacySettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacySettingsViewController.swift; sourceTree = "<group>"; };
 		6635A04225CC1A1E00EA57FE /* NewCallViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewCallViewController.swift; sourceTree = "<group>"; };
 		6635A04725CC1A3600EA57FE /* NewCallViewController+UITableViewDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NewCallViewController+UITableViewDelegate.swift"; sourceTree = "<group>"; };
@@ -1996,6 +2002,14 @@
 			path = signup;
 			sourceTree = "<group>";
 		};
+		660F505C2C91812400BB48F3 /* search_chat_list */ = {
+			isa = PBXGroup;
+			children = (
+				660F505D2C91B10A00BB48F3 /* SearchChatListViewController.swift */,
+			);
+			path = search_chat_list;
+			sourceTree = "<group>";
+		};
 		660F55FA239A74EF00252608 /* invited_list */ = {
 			isa = PBXGroup;
 			children = (
@@ -2289,6 +2303,14 @@
 				66A92F1C287466C1001EE8F6 /* DeviceDetailViewController.swift */,
 			);
 			path = device_info;
+			sourceTree = "<group>";
+		};
+		663426C82C8F0DCA00F6873E /* protocols */ = {
+			isa = PBXGroup;
+			children = (
+				663426C92C8F0DF700F6873E /* ChangeChatStateProtocol.swift */,
+			);
+			path = protocols;
 			sourceTree = "<group>";
 		};
 		6635A04125CC1A0600EA57FE /* new_call */ = {
@@ -3539,6 +3561,7 @@
 		66B7991C22E06ADE001589A5 /* search */ = {
 			isa = PBXGroup;
 			children = (
+				660F505C2C91812400BB48F3 /* search_chat_list */,
 				66B7991D22E06B06001589A5 /* SearchResultsViewController.swift */,
 				66153B4922E1BF87005D4567 /* SearchResultsViewController+SearchResultsUpdater.swift */,
 				66B7991F22E08167001589A5 /* SearchResultsViewController+UITableViewDatasource.swift */,
@@ -3569,6 +3592,7 @@
 				666E1F5C220449EF00172F55 /* ChatViewController+ImagePickerDelegate.swift */,
 				6661D8A8221C41EF008707E3 /* ChatViewController+AudioPlayerDelegate.swift */,
 				667F8775249CD68100167EF4 /* ChatViewController+UISearchControllerDelegate.swift */,
+				663426CB2C8F14A900F6873E /* ChatViewController+ChangeChatStateProtocol.swift */,
 			);
 			path = action;
 			sourceTree = "<group>";
@@ -4018,6 +4042,7 @@
 		66ED0D492488FA4B0053CBEF /* info_screens */ = {
 			isa = PBXGroup;
 			children = (
+				663426C82C8F0DCA00F6873E /* protocols */,
 				1A3040B727A2A12F00305868 /* footerInfoView */,
 				66CB2F6F26C533D50085F311 /* vcard_info */,
 				6678DFF524977E1D00B3640B /* groupchat_contact_info */,
@@ -5159,6 +5184,7 @@
 				66128D0024458B860056A8CA /* MessageManager+ChatUpdater.swift in Sources */,
 				66DA9F0B2237944400A98A05 /* RTCStates.swift in Sources */,
 				66C9FD6B2227F21200120A54 /* AudioManager.swift in Sources */,
+				660F505E2C91B10A00BB48F3 /* SearchChatListViewController.swift in Sources */,
 				664CFF31291E788900CDB62C /* SubscribtionTopInfoTableViewCell.swift in Sources */,
 				66BDBB252C37CB0600A86F6E /* ChatViewController+OpenChatDelegate.swift in Sources */,
 				4DB3259B290FAE8D005364DD /* SubscriptionsTableViewController.swift in Sources */,
@@ -5220,6 +5246,7 @@
 				1A939B2A27E49EC100014E43 /* MasksSelectionViewController+TableViewDelegate.swift in Sources */,
 				84882D422C492C7D003C94E9 /* XabberActivityViewController.swift in Sources */,
 				66A51ACD23ADFB90005369C3 /* PanDirectionGestureRecognizer.swift in Sources */,
+				663426CC2C8F14A900F6873E /* ChatViewController+ChangeChatStateProtocol.swift in Sources */,
 				66036F6D23D7202300F6B2D2 /* ChatViewController+RecordingPanel.swift in Sources */,
 				66AD82A523869A030070C740 /* CreateNewGroupEditViewController.swift in Sources */,
 				665451B722A93A750077635D /* AccountEditViewController+Flow.swift in Sources */,
@@ -5265,6 +5292,7 @@
 				669E185B2089EBE100D59D38 /* UIImageExtension.swift in Sources */,
 				4DDD5CA8292DEC18003AD478 /* MusicBox.swift in Sources */,
 				665002AB23E951410009F351 /* ChatViewController+SelectionPanel.swift in Sources */,
+				663426CA2C8F0DF700F6873E /* ChangeChatStateProtocol.swift in Sources */,
 				6695786427A1317A00A6C4AB /* OmemoManager.swift in Sources */,
 				66A15B4E281C086100FC1E65 /* SignalPreKeyStorageItem.swift in Sources */,
 				6686A7F822BB90CE0014376A /* AboutXabberViewController+Cell.swift in Sources */,

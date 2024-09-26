@@ -24,6 +24,10 @@ import KissXML
 import RealmSwift
 import RxSwift
 
+protocol TemporaryMessageReceiverProtocol {
+    func didReceiveMessage(_ item: MessageStorageItem, queryId: String)
+}
+
 class MessageArchiveManager: AbstractXMPPManager {
     
     struct GapItem: Hashable, Equatable {
@@ -80,6 +84,10 @@ class MessageArchiveManager: AbstractXMPPManager {
     public var continuesTaskID: String? = nil
     
     internal let pageSize: Int = 50
+    
+    internal var searchResultsQueries: Set<String> = Set()
+    
+    open var temporaryMessageReceiverDelegate: TemporaryMessageReceiverProtocol? = nil
     
     override init(withOwner owner: String) {
         self.isInitialArchiveRequested = SettingManager.shared.getKey(for: owner, scope: .messageArchive, key: "initial") == nil
@@ -210,9 +218,23 @@ class MessageArchiveManager: AbstractXMPPManager {
         return true
     }
     
-    internal func requestArchive(_ stream: XMPPStream, jid: String, isContinues: Bool, conversationType: ClientSynchronizationManager.ConversationType, flipPage: Bool = true, before: String? = nil, start: Date? = nil, nextPage: String? = nil, max: Int? = nil, callback: (() -> Void)? = nil) {
+    public func searchText(_ stream: XMPPStream, jid: String, conversationType: ClientSynchronizationManager.ConversationType, text: String) -> String {
+        let queryId = "MAM: \(NanoID.new(8))"
+        self.requestArchive(
+            stream,
+            jid: jid,
+            isContinues: false,
+            conversationType: conversationType,
+            queryId: queryId,
+            searchText: text,
+            max: 250,
+            callback: nil)
+        return queryId
+    }
+    
+    internal func requestArchive(_ stream: XMPPStream, jid: String, isContinues: Bool, conversationType: ClientSynchronizationManager.ConversationType, queryId: String? = nil, searchText: String? = nil, flipPage: Bool = true, before: String? = nil, start: Date? = nil, nextPage: String? = nil, max: Int? = nil, callback: (() -> Void)? = nil) {
         let isGroupchat = [.group, .channel].contains(conversationType)
-        let elementId = "MAM: \(NanoID.new(8))"
+        var elementId = queryId ?? "MAM: \(NanoID.new(8))"
         let query = DDXMLElement(name: "query", xmlns: getPrimaryNamespace())
         query.addAttribute(withName: "queryid", stringValue: elementId)
         let x = DDXMLElement(name: "x", xmlns: "jabber:x:data")
@@ -246,6 +268,13 @@ class MessageArchiveManager: AbstractXMPPManager {
             ctElement.addAttribute(withName: "var", stringValue: "conversation-type")
             ctElement.addChild(DDXMLElement(name: "value", stringValue: conversationType.rawValue))
             x.addChild(ctElement)
+        }
+        if let searchText = searchText {
+            let stElement = DDXMLElement(name: "field")
+            stElement.addAttribute(withName: "var", stringValue: "withtext")
+            stElement.addChild(DDXMLElement(name: "value", stringValue: searchText))
+            x.addChild(stElement)
+            self.searchResultsQueries.insert(elementId)
         }
         
         
@@ -506,6 +535,177 @@ class MessageArchiveManager: AbstractXMPPManager {
             }
             self.continuesTaskID = nil
         }
+    }
+    
+    public func readMessage(_ message: XMPPMessage) -> Bool {
+        guard let queryId = message.element(forName: "result")?.attributeStringValue(forName: "queryid") else {
+            return false
+        }
+        if !self.searchResultsQueries.contains(queryId) {
+            return false
+        }
+        if let date = getDelayedDate(message),
+            let messageBare = getArchivedMessageContainer(message) {
+            let item = MessageManager.MessageQueueItem(messageBare,
+                                     messageId: getOriginId(messageBare),
+                                     archivedFrom: message.from?.bare,
+                                     isRead: true,
+                                     date: getDeliveryTime(messageBare, owner: owner) ?? date,
+                                     state: .deliver,
+                                     queryId: getMAMQueryId(message))
+            
+            
+            
+            if isVoIPMessage(item.message) {
+                return true
+            }
+            let instance: MessageStorageItem = MessageStorageItem()
+            let from = item.message.from?.bare ?? item.archivedFrom ?? item.originalFrom
+            guard let to = item.message.to?.bare else {
+                    return true
+            }
+            if let formElement = item.message.element(forName: "x", xmlns: "jabber:x:data"),
+                formElement.attributeStringValue(forName: "type") == "submit" {
+                return true
+            }
+            let opponent = to != owner ? to : from
+            
+            var omemoError: Bool = !(item.message.element(forName: "omemo-result__system")?.attributeBoolValue(forName: "result") ?? false)
+            var errorMetadata: [String: Any] = [:]
+            var isEncryptedMessage: Bool = false
+            if item.message.element(forName: "encrypted") != nil {
+                isEncryptedMessage = true
+                errorMetadata = SignatureManager.MessageError().errorMetadata
+            }
+            
+            let afterburnInterval = item.message.element(forName: "ephemeral", xmlns: "urn:xmpp:ephemeral:0")?.attributeDoubleValue(forName: "timer") ?? 0
+            
+            var hasSignElement: Bool = false
+            var envelopeContainer: String? = nil
+            print("RECEIVER", #function, item.message.prettyXMLString!)
+            if let sign = item.message.element(forName: "time-signature", xmlns: SignatureManager.xmlns){
+                omemoError = false
+                hasSignElement = true
+                envelopeContainer = sign.xmlString
+                do {
+                    errorMetadata = try SignatureManager.shared.checkSignature(
+                        owner: self.owner,
+                        for: from,
+                        signature: sign,
+                        messageDate: item.date
+                    ).errorMetadata
+                } catch {
+                    errorMetadata = SignatureManager.MessageError().errorMetadata
+                }
+            }
+            
+            if let userId = item
+                .message
+                .element(forName: "x", xmlns: "https://xabber.com/protocol/groups")?
+                .element(forName: "reference")?
+                .element(forName: "user", xmlns: "https://xabber.com/protocol/groups")?
+                .attributeStringValue(forName: "id") {
+                if let userCard = item.groupchatUserCard,
+                    let myId = userCard.attributeStringValue(forName: "id") {
+                    item.originalOutgoing = userId == myId
+                } else {
+                    do {
+                        let realm = try WRealm.safe()
+                        if let instance = realm.object(ofType: GroupchatUserStorageItem.self, forPrimaryKey: [userId, opponent, owner].prp()) {
+                            item.originalOutgoing = instance.isMe
+                        }
+                    } catch {
+                        DDLogDebug("MessageManager: \(#function). \(error.localizedDescription)")
+                    }
+                }
+            } else if let groupchatRef = item.message
+                    .element(forName: "x", xmlns: "https://xabber.com/protocol/groups")?
+                    .elements(forName: "reference"),
+                      let groupchatAuthor = MessageManager.getMessageAuthorGroupchatStatic(groupchatRef, jid: opponent, owner: self.owner) {
+                    item.originalOutgoing = groupchatAuthor == owner
+            } else {
+                item.originalOutgoing = from == owner
+            }
+            
+//            if item.originalOutgoing || item.state == .read {
+//                item.isRead = true
+            let conversationType = conversationTypeByMessage(item.message)
+            let readDate = item.readDate ??  nil
+            if let readDate = readDate,
+               item.date < readDate {
+                item.isRead = true
+            } else {
+                item.isRead = item.state == .read
+            }
+            if parseSystemMessageMetadata(item.message) != nil {
+                instance.configureSystemMessage(item.message,
+                                                owner: owner,
+                                                opponent: opponent,
+                                                date: item.date)
+                instance.state = .none
+                instance.isRead = item.forceUnreadState ?? item.isRead
+            } else {
+                instance.configureIncomingMessage(item.message,
+                                          owner: owner,
+                                          opponent: opponent,
+                                          outgoing: item.originalOutgoing,
+                                          isRead: item.forceUnreadState ?? item.isRead,
+                                          date: item.date, isEncrypted: isEncryptedMessage)
+                instance.forceUnreadState = item.forceUnreadState
+                instance.state = item.state
+                
+            }
+            instance.envelopeContainer = envelopeContainer
+            instance.updatePrimary()
+            instance.afterburnInterval = afterburnInterval
+            
+            if hasSignElement {
+                instance.errorMetadata = errorMetadata
+            }
+            
+                      
+            
+            if isEncryptedMessage {
+                if !errorMetadata.isEmpty {
+                    if omemoError {
+                        instance.messageError = "omemo"
+                    } else {
+                        if hasSignElement {
+                            instance.messageError = "cert_error"
+                        }
+                    }
+                }
+            }
+            
+            if afterburnInterval > 0 {
+                if isEncryptedMessage {
+                    if !errorMetadata.isEmpty {
+                        if omemoError {
+                            instance.isDeleted = true
+                        }
+                    }
+                }
+            }
+            if let readDate = readDate,
+               afterburnInterval > 0 {
+                instance.isRead = true
+                if !item.originalOutgoing {
+                    instance.state = .read
+                }
+                instance.readDate = readDate.timeIntervalSince1970
+                instance.burnDate = readDate.timeIntervalSince1970 + afterburnInterval
+                
+                
+                if instance.burnDate <= Date().timeIntervalSince1970 {
+                    instance.isDeleted = true
+                    instance.body = ""
+                    instance.legacyBody = ""
+                }
+            }
+            
+            self.temporaryMessageReceiverDelegate?.didReceiveMessage(instance, queryId: queryId)
+        }
+        return true
     }
     
     func didResetState() {

@@ -94,7 +94,7 @@ class GroupchatInfoViewController: SimpleBaseViewController {
 //    open var owner: String = ""
 //    open var jid: String = ""
     
-    var headerHeightMax: CGFloat = 156//264
+    var headerHeightMax: CGFloat = 252//264
 //    var headerHeightMin: CGFloat = 180150
     
     internal let lastSeenDateFormatter: DateFormatter = {
@@ -132,8 +132,8 @@ class GroupchatInfoViewController: SimpleBaseViewController {
         return view
     }()
     
-    internal let infoButton: UIBarButtonItem = {
-        let button = UIBarButtonItem(image: imageLiteral( "info.circle.fill"), style: .plain, target: nil, action: nil)
+    internal let searchButton: UIBarButtonItem = {
+        let button = UIBarButtonItem(image: imageLiteral( "magnifyingglass"), style: .plain, target: nil, action: nil)
         
         return button
     }()
@@ -143,6 +143,8 @@ class GroupchatInfoViewController: SimpleBaseViewController {
         
         return button
     }()
+    
+    open var chatStateDelegate: ChangeChatStateProtocol? = nil
     
     internal var headerConstraintSet: NSLayoutConstraintSet? = nil
     
@@ -243,30 +245,30 @@ class GroupchatInfoViewController: SimpleBaseViewController {
                         }
                         var newDatasource: [Datasource] = []
                         self.canBeChanged = item.canChangeSettings
-                        DispatchQueue.main.async {
-                            if self.canBeChanged {
-//                                self.infoButton.title = "Edit"
-                                self.infoButton.image = imageLiteral("xabber.pencil.cap")
-                            } else {
-                                self.infoButton.image = imageLiteral("info.circle.fill")
-                            }
-                        }
+//                        DispatchQueue.main.async {
+//                            if self.canBeChanged {
+////                                self.infoButton.title = "Edit"
+//                                self.infoButton.image = imageLiteral("xabber.pencil.cap")
+//                            } else {
+//                                self.infoButton.image = imageLiteral("info.circle.fill")
+//                            }
+//                        }
                         
                         self.isIncognitoChat = item.privacy == .incognito
                         self.canChangeAvatar = item.canChangeSettings
                         self.canChangeStatus = item.canChangeSettings
                         self.canInvite = item.canInvite
 
-                        if self.canInvite {
-                            newDatasource.append(Datasource(.text, title: " ", childs: [
-                                Datasource(.button, title: "Invite".localizeString(id: "groupchat_bar_invite", arguments: []), icon: "person.badge.plus", key: "invite"),
-                                Datasource(.danger, title: "Leave".localizeString(id: "groupchat_bar_leave", arguments: []), icon: "figure.run", key: "leave")
-                            ]))
-                        } else {
-                            newDatasource.append(Datasource(.text, title: " ", childs: [
-                                Datasource(.danger, title: "Leave".localizeString(id: "groupchat_bar_leave", arguments: []), key: "leave")
-                            ]))
-                        }
+//                        if self.canInvite {
+//                            newDatasource.append(Datasource(.text, title: " ", childs: [
+//                                Datasource(.button, title: "Invite".localizeString(id: "groupchat_bar_invite", arguments: []), icon: "person.badge.plus", key: "invite"),
+//                                Datasource(.danger, title: "Leave".localizeString(id: "groupchat_bar_leave", arguments: []), icon: "figure.run", key: "leave")
+//                            ]))
+//                        } else {
+//                            newDatasource.append(Datasource(.text, title: " ", childs: [
+//                                Datasource(.danger, title: "Leave".localizeString(id: "groupchat_bar_leave", arguments: []), key: "leave")
+//                            ]))
+//                        }
                         
                         newDatasource.append(Datasource(.text, title: "About".localizeString(id: "about", arguments: []), childs: [
                             Datasource(.info, title: item.descr.isNotEmpty ? item.descr : "No description".localizeString(id: "no_description", arguments: []), key: "gc_descr"),
@@ -449,6 +451,8 @@ class GroupchatInfoViewController: SimpleBaseViewController {
         navigationController?.navigationBar.shadowImage = UIImage()
         view.addSubview(tableView)
         
+        navigationItem.setRightBarButtonItems([showQRCodeButton, searchButton], animated: true)
+        
         tableView.fillSuperview()
         tableView.delegate = self
         tableView.dataSource = self
@@ -468,13 +472,100 @@ class GroupchatInfoViewController: SimpleBaseViewController {
 //        footerView.getReferences()
 //        tableView.tableFooterView = footerView
         
-        infoButton.target = self
-        infoButton.action = #selector(groupchatInfo)
+//        infoButton.target = self
+//        infoButton.action = #selector(groupchatInfo)
         
         showQRCodeButton.target = self
         showQRCodeButton.action = #selector(showQRCode)
-        
+        searchButton.target = self
+        searchButton.action = #selector(onSearchButtonTouchUpInside)
         datasource = []
+        
+        self.headerView.configureButtons {
+            let invite = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
+            invite.configure(icon: "xabber.person.plus", title: "Invite")
+            invite.addTarget(self, action: #selector(onInviteButtonTouchUpInside), for: .touchUpInside)
+            
+            let write = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
+            write.configure(icon: "bubble", title: "Chat")
+            write.addTarget(self, action: #selector(onWriteButtonTouchUpInside), for: .touchUpInside)
+            
+//            let search = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
+//            search.configure(icon: "magnifyingglass", title: "Search", forceStrong: false)
+//            search.addTarget(self, action: #selector(onSearchButtonTouchUpInside), for: .touchUpInside)
+            
+            let mute = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
+            mute.configure(icon: "bell", title: "Sound", forceStrong: false)
+//            mute.addTarget(self, action: #selector(onSearchButtonTouchUpInside), for: .touchUpInside)
+            
+            let more = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
+            more.configure(icon: "ellipsis", title: "More", forceStrong: false)
+            
+            let childs: [UIMenuElement] = [
+                UIAction(
+                    title: "Edit",
+                    image: imageLiteral("xabber.pencil.cap"),
+                    identifier: .none,
+                    discoverabilityTitle: "Edit",
+                    attributes: [],
+                    state: .off,//filter.value == .all ? .on : .off,
+                    handler: { action in
+                        self.showSettings()
+                    }
+                ),
+                UIAction(
+                    title: "Info",
+                    image: imageLiteral("info"),
+                    identifier: .none,
+                    discoverabilityTitle: "Info",
+                    attributes: [],
+                    state: .off,//filter.value == .all ? .on : .off,
+                    handler: { action in
+                        self.showSettings()
+                    }
+                ),
+                UIAction(
+                    title: "Leave",
+                    image: imageLiteral("xabber.figure.exit"),
+                    identifier: .none,
+                    discoverabilityTitle: "Leave",
+                    attributes: [],
+                    state: .off,//filter.value == .all ? .on : .off,
+                    handler: { action in
+                        self.onLeave()
+                    }
+                ),
+            ]
+            more.menu = UIMenu(options: [.singleSelection], children: childs)
+            more.showsMenuAsPrimaryAction = true
+            
+            return [write, invite, mute, more]
+        }
+    }
+    
+    @objc
+    internal func onInviteButtonTouchUpInside(_ sender: InfoHeaderButton) {
+        print(#function)
+    }
+    
+    @objc
+    internal func onWriteButtonTouchUpInside(_ sender: InfoHeaderButton) {
+        self.openChat()
+    }
+    
+    @objc
+    internal func onSearchButtonTouchUpInside(_ sender: UIBarButtonItem) {
+        self.searchChat()
+    }
+    
+    @objc
+    internal func onNotifyButtonTouchUpInside(_ sender: InfoHeaderButton) {
+        self.onChangeNotifications()
+    }
+    
+    @objc
+    internal func onMoreButtonTouchUpInside(_ sender: InfoHeaderButton) {
+        print(#function)
     }
     
     override func viewDidLoad() {
@@ -529,42 +620,33 @@ class GroupchatInfoViewController: SimpleBaseViewController {
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        
+        subscribe()
+        navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
+        navigationController?.navigationBar.shadowImage = UIImage()
+        tableView.fillSuperview()
         headerView.frame = CGRect(
             width: view.frame.width,
             height: headerHeightMax
         )
-        headerView.updateSubviews()
-        headerView.setMask()
+        self.headerView.updateSubviews()
     }
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        shouldResetNavbar = true
-        navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
-        navigationController?.navigationBar.shadowImage = UIImage()
-        navigationController?.navigationBar.setNeedsLayout()
-//        navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
-//        navigationController?.navigationBar.shadowImage = UIImage()
     }
     
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        navigationItem.backButtonDisplayMode = .minimal
         unsubscribe()
     }
     
     override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
         callbackIds.forEach {
             AccountManager.shared.find(for: owner)?.groupchats.invalidateCallback($0)
             XMPPUIActionManager.shared.groupchat?.invalidateCallback($0)
         }
-        super.viewDidDisappear(animated)
-        if shouldResetNavbar {
-            navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
-            navigationController?.navigationBar.shadowImage = nil
-        }
-        
-//        navigationController?.navigationBar.isTranslucent = true
     }
     
     override func didReceiveMemoryWarning() {

@@ -76,6 +76,8 @@ class ContactInfoViewController: BaseViewController {
     
     var headerHeightMax: CGFloat = 252//188
     
+    open var chatStateDelegate: ChangeChatStateProtocol? = nil
+    
     internal let headerView: InfoScreenHeaderView = {
         let view = InfoScreenHeaderView(frame: .zero)
         
@@ -104,8 +106,8 @@ class ContactInfoViewController: BaseViewController {
         return view
     }()
     
-    internal let editButton: UIBarButtonItem = {
-        let button = UIBarButtonItem(image: imageLiteral("xabber.pencil.cap"), style: .plain, target: nil, action: nil)
+    internal let searchButton: UIBarButtonItem = {
+        let button = UIBarButtonItem(image: imageLiteral("magnifyingglass"), style: .plain, target: nil, action: nil)
         
         return button
     }()
@@ -157,7 +159,7 @@ class ContactInfoViewController: BaseViewController {
                     jid: self.jid,
                     titleColor: .label,//AccountColorManager.shared.primaryColor(for: self.owner),
                     title: self.nickname,
-                    subtitle: self.jid,
+                    subtitle: nil,
                     thirdLine: nil
                 )
                 if item.subscribtion == .undefined {
@@ -179,7 +181,7 @@ class ContactInfoViewController: BaseViewController {
                     jid: self.jid,
                     titleColor: .label,//AccountColorManager.shared.primaryColor(for: self.owner),
                     title: self.jid,
-                    subtitle: self.jid,
+                    subtitle: nil,
                     thirdLine: nil
                 )
             }
@@ -199,7 +201,7 @@ class ContactInfoViewController: BaseViewController {
                             jid: self.jid,
                             titleColor: .label,//AccountColorManager.shared.primaryColor(for: self.owner),
                             title: self.nickname,
-                            subtitle: self.jid,
+                            subtitle: nil,
                             thirdLine: nil
                         )
                         if item.subscribtion == .undefined {
@@ -221,7 +223,7 @@ class ContactInfoViewController: BaseViewController {
                             jid: self.jid,
                             titleColor: .label,//AccountColorManager.shared.primaryColor(for: self.owner),
                             title: self.jid,
-                            subtitle: self.jid,
+                            subtitle: nil,
                             thirdLine: nil
                         )
                     }
@@ -429,68 +431,81 @@ class ContactInfoViewController: BaseViewController {
     
     
     internal func configure() {
-//        navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
-//        navigationController?.navigationBar.shadowImage = UIImage()
-        navigationItem.setRightBarButtonItems([editButton, showQRCodeButton], animated: false)
+        navigationItem.setRightBarButtonItems([showQRCodeButton, searchButton], animated: false)
         view.addSubview(tableView)
-        
         
         tableView.delegate = self
         tableView.dataSource = self
         
         tableView.tableHeaderView = headerView
         headerView.delegate = self
-        
-//        footerView.conversationType = self.conversationType
-//        footerView.jid = self.jid
-//        footerView.owner = self.owner
-//        
-//        footerView.frame = CGRect(x: 0, y: 0,
-//                                  width: view.frame.width,
-//                                  height: view.frame.height)
-//        footerView.mediaButtonsDelegate = self
-//        footerView.infoVCDelegate = self
-//        tableView.tableFooterView = footerView
-        
-        editButton.target = self
-        editButton.action = #selector(onEditContact)
+        searchButton.target = self
+        searchButton.action = #selector(onSearchButtonTouchUpInside)
         showQRCodeButton.target = self
         showQRCodeButton.action = #selector(showQRCode)
         
-        title = " "
         footerView.imagesButton.isSelected = true
         leftDevicesNavBarButton.target = self
         leftDevicesNavBarButton.action = #selector(onLEftDevicesNavBarButtonTouchUp)
         self.navigationItem.setLeftBarButton(leftDevicesNavBarButton, animated: true)
         self.headerView.configureButtons {
-            let regularChat = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
-            regularChat.configure(icon: "bubble.fill", title: "Regular chat")
-            regularChat.addTarget(self, action: #selector(onChatButtonTouchUpInside), for: .touchUpInside)
+            let call = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
+            call.configure(icon: "phone", title: "Call")
+            call.addTarget(self, action: #selector(onCallButtonTouchUpInside), for: .touchUpInside)
+            call.isEnabled = false
             
-            let encryptedChat = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
-            encryptedChat.configure(icon: "custom.lock.bubble.left.fill", title: "Secure chat")
-            encryptedChat.addTarget(self, action: #selector(onEncryptedButtonTouchUpInside), for: .touchUpInside)
+            let write = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
+            write.configure(icon: "bubble", title: "Chat")
+            write.addTarget(self, action: #selector(onWriteButtonTouchUpInside), for: .touchUpInside)
+                        
+            let mute = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
+            mute.configure(icon: "bell", title: "Sound", forceStrong: false)
+            mute.addTarget(self, action: #selector(onNotifyButtonTouchUpInside), for: .touchUpInside)
             
-            let voiceCall = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
-            voiceCall.configure(icon: "phone.fill", title: "Call")
-            voiceCall.addTarget(self, action: #selector(onCallButtonTouchUpInside), for: .touchUpInside)
+            let more = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
+            more.configure(icon: "ellipsis", title: "More", forceStrong: false)
             
-            let videoCall = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
-            videoCall.configure(icon: "xabber.video.fill", title: "Video")
-            videoCall.addTarget(self, action: #selector(onVideoButtonTouchUpInside), for: .touchUpInside)
+            let childs: [UIMenuElement] = [
+                UIAction(
+                    title: "Edit",
+                    image: imageLiteral("xabber.pencil.cap"),
+                    identifier: .none,
+                    discoverabilityTitle: "Edit",
+                    attributes: [],
+                    state: .off,//filter.value == .all ? .on : .off,
+                    handler: { action in
+                        self.editContact()
+                    }
+                ),
+                
+                UIAction(
+                    title: "Secret chat",
+                    image: imageLiteral("lock"),
+                    identifier: .none,
+                    discoverabilityTitle: "Secret chat",
+                    attributes: [],
+                    state: .off,//filter.value == .all ? .on : .off,
+                    handler: { action in
+                        self.openChat(conversationType: .omemo)
+                    }
+                ),
             
-            return [regularChat, encryptedChat, voiceCall, videoCall]
+                UIAction(
+                    title: "Block",
+                    image: imageLiteral("nosign"),
+                    identifier: .none,
+                    discoverabilityTitle: "Block",
+                    attributes: [],
+                    state: .off,//filter.value == .all ? .on : .off,
+                    handler: { action in
+                        self.onBlock()
+                    }
+                ),
+            ]
+            more.menu = UIMenu(options: [.singleSelection], children: childs)
+            more.showsMenuAsPrimaryAction = true
+            return [write, call, mute, more]
         }
-    }
-    
-    @objc
-    internal func onChatButtonTouchUpInside(_ sender: InfoHeaderButton) {
-        self.openChat()
-    }
-    
-    @objc
-    internal func onEncryptedButtonTouchUpInside(_ sender: InfoHeaderButton) {
-        self.onStartEncryptedChat()
     }
     
     @objc
@@ -499,7 +514,22 @@ class ContactInfoViewController: BaseViewController {
     }
     
     @objc
-    internal func onVideoButtonTouchUpInside(_ sender: InfoHeaderButton) {
+    internal func onWriteButtonTouchUpInside(_ sender: InfoHeaderButton) {
+        self.openChat()
+    }
+    
+    @objc
+    internal func onSearchButtonTouchUpInside(_ sender: UIBarButtonItem) {
+        self.searchChat()
+    }
+    
+    @objc
+    internal func onNotifyButtonTouchUpInside(_ sender: InfoHeaderButton) {
+        self.onChangeNotifications()
+    }
+    
+    @objc
+    internal func onMoreButtonTouchUpInside(_ sender: InfoHeaderButton) {
         print(#function)
     }
     
@@ -564,14 +594,9 @@ class ContactInfoViewController: BaseViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         subscribe()
-//        navigationController?.isNavigationBarHidden = true
         navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
         navigationController?.navigationBar.shadowImage = UIImage()
-//        footerView.getReferences()
         tableView.fillSuperview()
-        
-//        activateConstraints()
-        
         headerView.frame = CGRect(
             width: view.frame.width,
             height: headerHeightMax
@@ -591,8 +616,6 @@ class ContactInfoViewController: BaseViewController {
     
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
-//        navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
-//        navigationController?.navigationBar.shadowImage = nil
     }
     
     override func didReceiveMemoryWarning() {

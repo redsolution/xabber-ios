@@ -113,6 +113,7 @@ class ChatViewController: MessagesViewController {
         var afterburnInterval: Double
         var archivedId:  String?
         var isRead: Bool
+        var selectedSearchResultId: String? = nil
         
         static func compareContent(_ a: ChatViewController.Datasource, _ b: ChatViewController.Datasource) -> Bool {
             return a.primary == b.primary &&
@@ -128,7 +129,8 @@ class ChatViewController: MessagesViewController {
                 a.burnDate == b.burnDate &&
                 a.archivedId == b.archivedId &&
                 a.isRead == b.isRead &&
-                ChatViewController.Datasource.iconForMetadata(for: a.errorMetadata) == ChatViewController.Datasource.iconForMetadata(for: b.errorMetadata)
+                ChatViewController.Datasource.iconForMetadata(for: a.errorMetadata) == ChatViewController.Datasource.iconForMetadata(for: b.errorMetadata) &&
+                a.selectedSearchResultId == b.selectedSearchResultId
         }
         
         static func iconForMetadata(for meta: [String: Any]?) -> String? {
@@ -212,6 +214,8 @@ class ChatViewController: MessagesViewController {
     var shouldShowNormalStatus: Bool = false
 // Search mode
     public var inSearchMode: BehaviorRelay<Bool> = BehaviorRelay(value: false)
+    public var searchResultsIds: [String] = []
+    public var selectedSearchResultId: String? = nil
 // Pin message bar
     internal var pinnedMessageId: BehaviorRelay<String?> = BehaviorRelay(value: nil)
     internal var canUnpinMessage: BehaviorRelay<Bool> = BehaviorRelay(value: false)
@@ -241,7 +245,6 @@ class ChatViewController: MessagesViewController {
     var editMessageId: BehaviorRelay<String?> = BehaviorRelay(value: nil)
 //    ChatStates
     var refreshChatStateTimer: Timer? = nil
-    
     
     var toolsButtonStateObserver: BehaviorRelay<ToolsButton.ToolsState> = BehaviorRelay(value: .hidden)
     
@@ -425,10 +428,12 @@ class ChatViewController: MessagesViewController {
         if groupchat {
             vc = GroupchatInfoViewController()
             (vc as! GroupchatInfoViewController).footerView.chatsDelegate = self
+            (vc as! GroupchatInfoViewController).chatStateDelegate = self
         } else {
             vc = ContactInfoViewController()
             (vc as! ContactInfoViewController).footerView.chatsDelegate = self
             (vc as! ContactInfoViewController).conversationType = self.conversationType
+            (vc as! ContactInfoViewController).chatStateDelegate = self
         }
         vc.owner = self.owner
         vc.jid = self.jid
@@ -455,20 +460,39 @@ class ChatViewController: MessagesViewController {
     }
         
     internal func configureRecordingPanel() {
-        recordingPanel.cancelCallback = onCancelRecord
-        recordingPanel.deleteCallback = onDeleteRecord
-        recordingPanel.onPlayCallback = onRecordingPanelWillPlay
-        recordingPanel.onPauseCallback = onRecordingPanelWillPause
-        recordingPanel.onEndPlayingCallback = onRecordingPanelWillEnd
+        self.recordingPanel.cancelCallback = onCancelRecord
+        self.recordingPanel.deleteCallback = onDeleteRecord
+        self.recordingPanel.onPlayCallback = onRecordingPanelWillPlay
+        self.recordingPanel.onPauseCallback = onRecordingPanelWillPause
+        self.recordingPanel.onEndPlayingCallback = onRecordingPanelWillEnd
     }
     
     func configureSearchBar() {
-        navigationItem.setRightBarButton(UIBarButtonItem(customView: searchBar), animated: true)
-        searchBar.sizeToFit()
-        searchBar.delegate = self
-        navigationItem.setHidesBackButton(true, animated: true)
+        self.navigationItem.setRightBarButton(UIBarButtonItem(customView: searchBar), animated: true)
+        self.searchBar.sizeToFit()
+        self.searchBar.delegate = self
+        self.navigationItem.setHidesBackButton(true, animated: true)
         let barFrame = self.view.inputAccessoryView?.frame
         self.bottomSearchBar.frame = barFrame ?? .zero
+        self.searchBar.becomeFirstResponder()
+        self.searchBar.searchTextField.becomeFirstResponder()
+    }
+    
+    public func onSearchPanelChangeConversationType(_ oldConversationType: ClientSynchronizationManager.ConversationType) {
+        let vc = ChatViewController()
+        vc.owner = self.owner
+        vc.jid = self.jid
+        switch oldConversationType {
+            case .regular: vc.conversationType = .omemo
+            case .omemo: vc.conversationType = .regular
+            default: vc.conversationType = self.conversationType
+        }
+        vc.inSearchMode.accept(true)
+        if let rootVc = self.navigationController?.viewControllers[0] {
+            self.navigationController?.setViewControllers([rootVc, vc], animated: true)
+        } else {
+            self.navigationController?.pushViewController(vc, animated: true)
+        }
     }
     
     func initStatus() {
@@ -904,11 +928,23 @@ class ChatViewController: MessagesViewController {
     
     func scrollToMessage(primary: String) {
         //item always = 0, section = message
+        print(self.messagesObserver?.first(where: { $0.primary == primary }))
         if let index = self.datasource.firstIndex(where: { $0.primary == primary }) {
-            if self.messagesCollectionView.indexPathsForVisibleItems.compactMap({ return $0.section }).contains(index) {
-                return
+            self.canUpdateDataset = true
+            self.runDatasetUpdateTask()
+//            if self.messagesCollectionView.indexPathsForVisibleItems.compactMap({ return $0.section }).contains(index) {
+//                return
+//            }
+            self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: index), at: .centeredVertically, animated: true)
+        } else if let index = self.messagesObserver?.firstIndex(where: { $0.primary == primary }) {
+            if index > self.messagesCount {
+                self.messagesCount = index + 10 + ChatViewController.datasourcePageSize
             }
-            self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: index), at: .centeredVertically, animated: false)
+            self.canUpdateDataset = true
+            self.runDatasetUpdateTask()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: index), at: .centeredVertically, animated: true)
+            }
         }
     }
     
@@ -975,6 +1011,12 @@ class ChatViewController: MessagesViewController {
         }
         
         self.initializeDataset()
+        
+        self.xabberInputView.searchPanel.conversationType = self.conversationType
+        self.xabberInputView.searchPanel.onChangeConversationTypeCallback = onSearchPanelChangeConversationType
+        self.xabberInputView.searchPanel.onSeekUpCallback = self.onSearchPanelSeekUp
+        self.xabberInputView.searchPanel.onSeekDownCallback = self.onSearchPanelSeekDown
+        self.xabberInputView.searchPanel.onChangeViewStateCallback = self.onSearchPanelChangeChatViewState
 //        self.xabberInputView.isSendButtonEnabled = false
 //        self.xabberInputView.updateSendButtonState()
     }

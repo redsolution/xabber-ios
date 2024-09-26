@@ -83,13 +83,23 @@ extension ContactInfoViewController: InfoScreenHeaderDelegate {
         
     }
     
-    internal func openChat() {
+    internal func openChat(conversationType: ClientSynchronizationManager.ConversationType = .regular) {
+        if conversationType == .omemo {
+            AccountManager.shared.find(for: self.owner)?.omemo.initChat(jid: self.jid)
+        }
+        
         let chatVc = ChatViewController()
         chatVc.owner = self.owner
         chatVc.jid = self.jid
-        chatVc.conversationType = .regular
+        chatVc.conversationType = conversationType
         
         showDetail(chatVc, currentVc: self)
+    }
+    
+    internal func searchChat(conversationType: ClientSynchronizationManager.ConversationType = .regular) {
+        self.dismiss(animated: true) {
+            self.chatStateDelegate?.openSearchBar()
+        }
     }
     
     internal func onStartEncryptedChat() {
@@ -104,10 +114,10 @@ extension ContactInfoViewController: InfoScreenHeaderDelegate {
     internal func onChangeNotifications() {
         if isMuted {
 //            XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-//                _ = session.sync?.update(stream, jid: self.jid, conversationType: .omemo, mute: nil)
+//                _ = session.sync?.update(stream, jid: self.jid, conversationType: self.conversationType, mute: nil)
 //            } fail: {
                 AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                    _ = user.syncManager.update(stream, jid: self.jid, conversationType: .omemo, mute: nil)
+                    _ = user.syncManager.update(stream, jid: self.jid, conversationType: self.conversationType, mute: nil)
                 })
 //            }
         } else {
@@ -139,7 +149,7 @@ extension ContactInfoViewController: InfoScreenHeaderDelegate {
 //                    _ = session.sync?.update(stream, jid: self.jid, conversationType: .omemo, mute: expiredAt)
 //                } fail: {
                     AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                        _ = user.syncManager.update(stream, jid: self.jid, conversationType: .omemo, mute: expiredAt)
+                        _ = user.syncManager.update(stream, jid: self.jid, conversationType: self.conversationType, mute: expiredAt)
                     })
 //                }
             }
@@ -291,8 +301,17 @@ extension ContactInfoViewController: InfoScreenHeaderDelegate {
         }
     }
     
+    
+    ////DEPREcated
     @objc
     internal func onEditContact(_ sender: UIBarButtonItem) {
+        let vc = EditContactViewController()
+        vc.owner = self.owner
+        vc.jid = self.jid
+        self.navigationController?.pushViewController(vc, animated: true)
+    }
+    
+    internal func editContact() {
         let vc = EditContactViewController()
         vc.owner = self.owner
         vc.jid = self.jid

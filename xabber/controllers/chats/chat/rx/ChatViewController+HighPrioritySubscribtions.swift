@@ -29,6 +29,42 @@ import XMPPFramework.XMPPJID
 
 extension ChatViewController {
 
+    public func updateSearchResults(value: String?) {
+        print(searchTextObserver.value)
+        if value == nil {
+            self.xabberInputView.searchPanel.changeState(to: .empty)
+        } else {
+            self.xabberInputView.searchPanel.changeState(to: .withResults)
+        }
+        
+        if let value = value {
+            do {
+                let realm = try WRealm.safe()
+                let searchResults = realm
+                    .objects(MessageStorageItem.self)
+                    .filter(
+                        "owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@ AND messageType != %@ AND messageType != %@ AND messageType != %@ AND body CONTAINS[cd] %@",
+                        self.owner,
+                        self.jid,
+                        self.conversationType.rawValue,
+                        MessageStorageItem.MessageDisplayType.initial.rawValue,
+                        MessageStorageItem.MessageDisplayType.system.rawValue,
+                        MessageStorageItem.MessageDisplayType.voice.rawValue,
+                        value
+                    ).sorted(byKeyPath: "date", ascending: false)
+                self.searchResultsIds = searchResults.toArray().compactMap { return $0.primary }
+                if self.selectedSearchResultId == nil {
+                    self.selectedSearchResultId = self.searchResultsIds.first
+                }
+                let selectedIndex = self.searchResultsIds.firstIndex(of: self.selectedSearchResultId ?? "")
+                self.xabberInputView.searchPanel.updateResults(current: selectedIndex ?? 0, total: self.searchResultsIds.count)
+            } catch {
+                DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            }
+        }
+        self.reloadDataset(withSearchText: value)
+    }
+    
     internal func subscribe() throws {
         NotifyManager.shared.currentDialog = [self.jid, self.owner].prp()
         self.reloadDataset(withSearchText: self.searchTextObserver.value)
@@ -69,9 +105,11 @@ extension ChatViewController {
             .subscribe(onNext: { (value) in
                 if value {
                     self.configureSearchBar()
+                    self.xabberInputView.changeState(to: .search)
                 } else {
                     self.searchTextObserver.accept(nil)
                     self.configureNavigationBar()
+                    self.xabberInputView.changeState(to: self.xabberInputView.state)
                 }
             })
             .disposed(by: bag)
@@ -80,7 +118,7 @@ extension ChatViewController {
             .asObservable()
             .skip(1)
             .subscribe(onNext: { (value) in
-                self.reloadDataset(withSearchText: value)
+                self.updateSearchResults(value: value)
             })
             .disposed(by: bag)
         

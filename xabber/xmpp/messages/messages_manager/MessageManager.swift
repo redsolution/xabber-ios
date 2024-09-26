@@ -309,6 +309,10 @@ class MessageManager: AbstractXMPPManager {
     }
     
     internal func getMessageAuthorGroupchat(_ references: [DDXMLElement], jid: String) -> String? {
+        return MessageManager.getMessageAuthorGroupchatStatic(references, jid: jid, owner: self.owner)
+    }
+    
+    static func getMessageAuthorGroupchatStatic(_ references: [DDXMLElement], jid: String, owner: String) -> String? {
         guard let groupchatRef = references.first(where: { $0.element(forName: "user",
                                                                       xmlns: "https://xabber.com/protocol/groups") != nil }),
             let user = groupchatRef.element(forName: "user", xmlns: "https://xabber.com/protocol/groups") else {

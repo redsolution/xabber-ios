@@ -9,16 +9,20 @@
 import Foundation
 import UIKit
 
-func imageLiteral(_ name: String, dimension: CGFloat = 18) -> UIImage? {
+func imageLiteral(_ name: String, dimension: CGFloat = 18, forceStrong: Bool = false) -> UIImage? {
+    var weight: UIFont.Weight = CommonConfigManager.shared.symbolWeight
+    if forceStrong {
+        weight = .bold
+    }
     if dimension > 0 {
         return (UIImage(
                 named: name,
                 in: nil,
                 with: UIImage.SymbolConfiguration(
-                    font: .systemFont(ofSize: dimension, weight: CommonConfigManager.shared.symbolWeight)
+                    font: .systemFont(ofSize: dimension, weight: weight)
                 )
             ) ?? UIImage(systemName: name, withConfiguration: UIImage.SymbolConfiguration(
-                font: .systemFont(ofSize: dimension, weight: CommonConfigManager.shared.symbolWeight)
+                font: .systemFont(ofSize: dimension, weight: weight)
             )))?
             .withRenderingMode(.alwaysTemplate)
     } else {

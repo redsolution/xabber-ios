@@ -47,8 +47,12 @@ class InfoHeaderButton: UIButton {
     internal let title: UILabel = {
         let label = UILabel()
         
-        label.font = UIFont.systemFont(ofSize: 9, weight: .regular)
+        label.font = UIFont.systemFont(ofSize: 12, weight: .light)
         label.textColor = .tintColor
+        label.textAlignment = .center
+        
+        label.numberOfLines = 1
+        
         
         return label
     }()
@@ -83,21 +87,26 @@ class InfoHeaderButton: UIButton {
 //        activateConstraints()
 //        addBlurSubviews()
         
-        icon.center = CGPoint(x: self.frame.midX, y: 20)
+        icon.center = CGPoint(x: self.frame.midX, y: 18)
         addSubview(icon)
+//        title.frame = CGRect(
+//            origin: CGPoint(x: 0, y: 24),
+//            size: CGSize(width: 80, height: 32)
+//        )
+        addSubview(title)
     }
     
-    func configure(icon: String, title: String) {
-        self.icon.image = imageLiteral(icon)
+    func configure(icon: String, title: String, forceStrong: Bool = false) {
+        self.icon.image = imageLiteral(icon, dimension: 24, forceStrong: forceStrong)
         self.icon.sizeToFit()
-        self.icon.center = CGPoint(x: self.frame.midX, y: 24)
+        self.icon.center = CGPoint(x: 40, y: 20)
         self.title.text = title.lowercased()
+        self.title.sizeToFit()
+        self.title.center = CGPoint(x: 40, y: 44)
     }
     
     private final func activateConstraints() {
         NSLayoutConstraint.activate([
-//            title.heightAnchor.constraint(equalToConstant: 16),
-//            icon.heightAnchor.constraint(equalToConstant: 24),
             icon.heightAnchor.constraint(equalToConstant: 24)
         ])
     }

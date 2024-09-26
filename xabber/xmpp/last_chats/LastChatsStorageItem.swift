@@ -106,6 +106,7 @@ class LastChatsStorageItem: Object {
     
     var isMuted: Bool {
         get {
+            print("mute", self.jid, Date().timeIntervalSince1970, self.muteExpired, Date().timeIntervalSince1970 < self.muteExpired)
             return Date().timeIntervalSince1970 < self.muteExpired //self.muteExpired >= 0
         }
     }

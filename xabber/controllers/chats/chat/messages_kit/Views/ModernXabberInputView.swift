@@ -151,6 +151,185 @@ class ModernXabberInputView: UIView {
         }
     }
     
+    class SearchPanel: UIView {
+        
+        enum State {
+            case empty
+            case withResults
+        }
+        
+        var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular {
+            didSet {
+                if self.conversationType == .omemo {
+                    self.changeChatButton.setTitle("Search non-encrypted messages", for: .normal)
+                } else {
+                    self.changeChatButton.setTitle("Search encrypted messages", for: .normal)
+                }
+            }
+        }
+        
+        var state: State = .empty
+        
+        var shouldShowSeekUpDownButtons: Bool = true
+        
+        open var onChangeConversationTypeCallback: ((ClientSynchronizationManager.ConversationType) -> Void)? = nil
+        open var onSeekUpCallback: (() -> Void)? = nil
+        open var onSeekDownCallback: (() -> Void)? = nil
+        open var onChangeViewStateCallback: (() -> Void)? = nil
+        
+        let listButton: UIButton = {
+            let button = UIButton()
+            
+            button.setImage(imageLiteral("list.bullet", dimension: 24), for: .normal)
+            button.tintColor = .tintColor
+            
+            return button
+        }()
+        
+        let changeChatButton: UIButton = {
+            let button = UIButton()
+            
+            button.setTitle("Search encrypted messages", for: .normal)
+            button.tintColor = .tintColor
+            button.setTitleColor(.tintColor, for: .normal)
+            
+            return button
+        }()
+        
+        let counterLabel: UILabel = {
+            let label = UILabel()
+            
+            label.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            label.textAlignment = .center
+            label.textColor = .tintColor
+            
+            return label
+        }()
+        
+        let seekUpButton: UIButton = {
+            let button = UIButton()
+            
+            button.setImage(imageLiteral("chevron.up", dimension: 24), for: .normal)
+            button.tintColor = .tintColor
+            
+            return button
+        }()
+        
+        let seekDownButton: UIButton = {
+            let button = UIButton()
+            
+            button.setImage(imageLiteral("chevron.down", dimension: 24), for: .normal)
+            button.tintColor = .tintColor
+            
+            return button
+        }()
+        
+        let stack: UIStackView = {
+            let stack = UIStackView()
+            
+            stack.axis = .horizontal
+            stack.distribution = .fill
+            stack.alignment = .center
+            
+            return stack
+        }()
+        
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            self.setup()
+        }
+        
+        required init?(coder: NSCoder) {
+            super.init(coder: coder)
+            self.setup()
+        }
+        
+        func activateConstraints() {
+            NSLayoutConstraint.activate([
+                self.changeChatButton.leftAnchor.constraint(equalTo: self.stack.leftAnchor),
+                self.changeChatButton.rightAnchor.constraint(equalTo: self.stack.rightAnchor),
+                self.listButton.leftAnchor.constraint(equalTo: self.stack.leftAnchor),
+                self.listButton.widthAnchor.constraint(equalToConstant: 44),
+                self.counterLabel.leftAnchor.constraint(equalTo: self.listButton.rightAnchor),
+                self.counterLabel.rightAnchor.constraint(equalTo: self.seekUpButton.leftAnchor),
+                self.seekUpButton.widthAnchor.constraint(equalToConstant: 44),
+                self.seekUpButton.rightAnchor.constraint(equalTo: self.seekDownButton.leftAnchor),
+                self.seekDownButton.widthAnchor.constraint(equalToConstant: 44),
+                self.seekDownButton.rightAnchor.constraint(equalTo: self.stack.rightAnchor),
+                self.listButton.heightAnchor.constraint(equalToConstant: 36),
+                self.changeChatButton.heightAnchor.constraint(equalToConstant: 36),
+                self.counterLabel.heightAnchor.constraint(equalToConstant: 36),
+                self.seekUpButton.heightAnchor.constraint(equalToConstant: 36),
+                self.seekDownButton.heightAnchor.constraint(equalToConstant: 36)
+            ])
+        }
+        
+        open func changeState(to newState: State) {
+            self.state = newState
+            switch newState {
+                case .empty:
+                    self.changeChatButton.isHidden  = false
+                    self.listButton.isHidden        = true
+                    self.counterLabel.isHidden      = true
+                    self.seekUpButton.isHidden      = true
+                    self.seekDownButton.isHidden    = true
+                case .withResults:
+                    self.changeChatButton.isHidden  = true
+                    self.listButton.isHidden        = false
+                    self.counterLabel.isHidden      = false
+                    self.seekUpButton.isHidden      = !self.shouldShowSeekUpDownButtons
+                    self.seekDownButton.isHidden    = !self.shouldShowSeekUpDownButtons
+            }
+        }
+        
+        open func updateResults(current: Int, total: Int) {
+            if total == 0 {
+                self.counterLabel.text = "0 found"
+                return
+            }
+            if current < 0 {
+                self.counterLabel.text = "\(total) found"
+                return
+            }
+            self.counterLabel.text = "\(current + 1) of \(total)"
+        }
+        
+        @objc
+        private func onChangeConversationTypeButtonTouchUp(_ sender: UIButton) {
+            self.onChangeConversationTypeCallback?(self.conversationType)
+        }
+        
+        @objc
+        private func onSeekUpButtonTouchUp(_ sender: UIButton) {
+            self.onSeekUpCallback?()
+        }
+        
+        @objc
+        private func onSeekDownButtonTouchUp(_ sender: UIButton) {
+            self.onSeekDownCallback?()
+        }
+        
+        @objc
+        private func onChangeViewStateTouchUp(_ sender: UIButton) {
+            self.onChangeViewStateCallback?()
+        }
+        
+        func setup() {
+            self.addSubview(self.stack)
+            self.stack.fillSuperview()
+            self.stack.addArrangedSubview(self.listButton)
+            self.stack.addArrangedSubview(self.changeChatButton)
+            self.stack.addArrangedSubview(self.counterLabel)
+            self.stack.addArrangedSubview(self.seekUpButton)
+            self.stack.addArrangedSubview(self.seekDownButton)
+            self.activateConstraints()
+            self.changeChatButton.addTarget(self, action: #selector(onChangeConversationTypeButtonTouchUp), for: .touchUpInside)
+            self.seekUpButton.addTarget(self, action: #selector(onSeekUpButtonTouchUp), for: .touchUpInside)
+            self.seekDownButton.addTarget(self, action: #selector(onSeekDownButtonTouchUp), for: .touchUpInside)
+            self.listButton.addTarget(self, action: #selector(onChangeViewStateTouchUp), for: .touchUpInside)
+        }
+    }
+    
     class SelectionPanel: UIView {
         
         var delegate: MessagesSelectionPanelActionDelegate? = nil
@@ -310,6 +489,7 @@ class ModernXabberInputView: UIView {
         case checkDevices
         case skeleton
         case selection
+        case search
     }
     
     private var textViewHeightAnchor: NSLayoutConstraint?
@@ -409,6 +589,14 @@ class ModernXabberInputView: UIView {
         return view
     }()
     
+    internal let searchPanel: SearchPanel = {
+        let view = SearchPanel(frame: .zero)
+        
+        view.isHidden = true
+        
+        return view
+    }()
+    
     let forwardPanel: MessagesPanel = {
         let view = MessagesPanel(frame: .zero)
         
@@ -484,6 +672,10 @@ class ModernXabberInputView: UIView {
             origin: CGPoint(x: 16, y: 6),
             size: CGSize(width: self.bounds.width - 32, height: 38)
         )
+        searchPanel.frame = CGRect(
+            origin: CGPoint(x: 16, y: 6),
+            size: CGSize(width: self.bounds.width - 32, height: 38)
+        )
         selectionPanel.update()
     }
     
@@ -501,6 +693,7 @@ class ModernXabberInputView: UIView {
         
         addSubview(selectionPanel)
         addSubview(forwardPanel)
+        addSubview(searchPanel)
         
         stateButton.fillSuperview()
         stateButton.isHidden = true
@@ -531,6 +724,7 @@ class ModernXabberInputView: UIView {
                 self.stateButton.isHidden =     true
 //                self.sendButton.isEnabled =     true
                 self.selectionPanel.isHidden =  true
+                self.searchPanel.isHidden =     true
             case .updateSignature:
                 self.state = state
                 self.attachButton.isHidden =    true
@@ -540,6 +734,7 @@ class ModernXabberInputView: UIView {
                 self.stateButton.isHidden =     false
 //                self.sendButton.isEnabled =     true
                 self.selectionPanel.isHidden =  true
+                self.searchPanel.isHidden =     true
                 self.stateButton.setTitle("Update signature", for: .normal)
                 self.stateButton.setTitleColor(.systemBlue, for: .normal)
             case .identityVerification:
@@ -549,6 +744,7 @@ class ModernXabberInputView: UIView {
                 self.timerButton.isHidden =     true
                 self.sendButton.isHidden =      true
                 self.stateButton.isHidden =     false
+                self.searchPanel.isHidden =     true
 //                self.sendButton.isEnabled =     true
                 self.selectionPanel.isHidden =  true
                 self.stateButton.setTitle("Identity verification", for: .normal)
@@ -560,6 +756,7 @@ class ModernXabberInputView: UIView {
                 self.timerButton.isHidden =     true
                 self.sendButton.isHidden =      true
                 self.stateButton.isHidden =     false
+                self.searchPanel.isHidden =     true
 //                self.sendButton.isEnabled =     true
                 self.selectionPanel.isHidden =  true
                 self.stateButton.setTitle("Check devices", for: .normal)
@@ -568,6 +765,7 @@ class ModernXabberInputView: UIView {
                 self.state = state
 //                self.sendButton.isEnabled =     false
                 self.selectionPanel.isHidden =  true
+                self.searchPanel.isHidden =     true
             case .selection:
                 self.attachButton.isHidden =    true
                 self.textField.isHidden =       true
@@ -575,6 +773,15 @@ class ModernXabberInputView: UIView {
                 self.sendButton.isHidden =      true
                 self.stateButton.isHidden =     true
                 self.selectionPanel.isHidden =  false
+                self.searchPanel.isHidden =     true
+            case .search:
+                self.attachButton.isHidden =    true
+                self.textField.isHidden =       true
+                self.timerButton.isHidden =     true
+                self.sendButton.isHidden =      true
+                self.stateButton.isHidden =     true
+                self.selectionPanel.isHidden =  true
+                self.searchPanel.isHidden =     false
         }
         self.layoutSubviews()
     }

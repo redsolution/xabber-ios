@@ -96,4 +96,51 @@ extension ChatViewController {
             self.callback?(direction)
         }
     }
+    
+    
+    internal func onSearchPanelSeekUp() {
+        guard let currentIndex = self.searchResultsIds.firstIndex(of: self.selectedSearchResultId ?? "") else {
+            return
+        }
+        if self.searchResultsIds.count == 1 {
+            return
+        }
+        var newIndex = currentIndex + 1
+        if newIndex >= self.searchResultsIds.count {
+            newIndex = 0
+        }
+        print(self.selectedSearchResultId!)
+        self.selectedSearchResultId = self.searchResultsIds[newIndex]
+        print(self.selectedSearchResultId!)
+        self.xabberInputView.searchPanel.updateResults(current: newIndex, total: self.searchResultsIds.count)
+        self.scrollToMessage(primary: self.selectedSearchResultId ?? "")
+        print(#function)
+    }
+    
+    internal func onSearchPanelSeekDown() {
+        guard let currentIndex = self.searchResultsIds.firstIndex(of: self.selectedSearchResultId ?? "") else {
+            return
+        }
+        if self.searchResultsIds.count == 1 {
+            return
+        }
+        var newIndex = currentIndex - 1
+        if newIndex < 0 {
+            newIndex = self.searchResultsIds.count - 1
+        }
+        self.selectedSearchResultId = self.searchResultsIds[newIndex]
+        self.xabberInputView.searchPanel.updateResults(current: newIndex, total: self.searchResultsIds.count)
+        self.scrollToMessage(primary: self.selectedSearchResultId ?? "")
+        print(#function)
+    }
+    
+    internal func onSearchPanelChangeChatViewState() {
+        let vc = SearchChatListViewController()
+        vc.jid = self.jid
+        vc.owner = self.owner
+        vc.conversationType = self.conversationType
+        vc.searchTextObserver.accept(self.searchBar.text)
+        vc.searchBar.text = self.searchBar.text
+        self.navigationController?.pushViewController(vc, animated: true)
+    }
 }

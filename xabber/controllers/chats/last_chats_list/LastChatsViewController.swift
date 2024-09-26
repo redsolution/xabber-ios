@@ -685,7 +685,6 @@ class LastChatsViewController: BaseViewController {
                     ]))
                     attributedUsername = attributedTitle as NSAttributedString
                 }
-                
                 return Datasource(
                     jid: item.jid,
                     owner: item.owner,

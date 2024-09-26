@@ -627,7 +627,7 @@ class SettingsViewController: BaseViewController {
                                        key: .accountDelete)
                         ])
                     ]),
-                    Datasource(section: .accountSettings, title: "Devices", icon: "xabber.devices.fill.square.fill", color: UIColor.systemBlue, key: .accountSessions),
+                    Datasource(section: .accountSettings, title: "Devices", icon: "xabber.devices.square.fill", color: UIColor.systemBlue, key: .accountSessions),
                     Datasource(section: .accountSettings, title: "Subscriptions", icon: "xabber.lightbulb.square.fill", color: UIColor.systemBlue, key: .subscriptions)
                 ]))
             } else {
@@ -643,7 +643,7 @@ class SettingsViewController: BaseViewController {
                                        key: .accountDelete)
                         ])
                     ]),
-                    Datasource(section: .accountSettings, title: "Devices", icon: "xabber.devices.fill.square.fill", color: UIColor.systemBlue, key: .accountSessions)
+                    Datasource(section: .accountSettings, title: "Devices", icon: "xabber.devices.square.fill", color: UIColor.systemBlue, key: .accountSessions)
                 ]))
             }
             
@@ -684,7 +684,7 @@ class SettingsViewController: BaseViewController {
                 section: .privacy,
                 title: Datasource.Section.privacy.description(),
                 subtitle: nil,
-                icon:"xabber.incognito.square.fill",
+                icon:"xabber.incognito.fill.square.fill",
                 color: UIColor.systemGreen,
                 premiumOnly: false,
                 viewController: PrivacySettingsViewController.self,

@@ -87,12 +87,12 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
         chatVc.owner = self.owner
         chatVc.jid = self.jid
         chatVc.conversationType = .group
-        navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
-        navigationController?.navigationBar.shadowImage = nil
-        if let rootVc = navigationController?.viewControllers.first {
-            navigationController?.setViewControllers([rootVc, chatVc], animated: true)
-        } else {
-            navigationController?.pushViewController(chatVc, animated: true)
+        showDetail(chatVc, currentVc: self)
+    }
+    
+    internal func searchChat() {
+        self.dismiss(animated: true) {
+            self.chatStateDelegate?.openSearchBar()
         }
     }
     
