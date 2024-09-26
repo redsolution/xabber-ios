@@ -312,6 +312,14 @@ extension Account: XMPPStreamDelegate {
             } else if isArchivedMessage(message) {
                 
                 if let bareMessage = getArchivedMessageContainer(message) {
+                    if bareMessage.to?.bare == AccountManager.shared.find(for: self.jid)?.favorites.node {
+                        AccountManager.shared.find(for: self.jid)?.action({ user, stream in
+                            user.favorites.receiveSaved(message: bareMessage)
+                        })
+                        
+                        return
+                    }
+                    
                     if VoIPManager.shared.onReceiveMessage(bareMessage, owner: self.jid, archivedDate: getDeliveryTime(bareMessage, owner: self.jid) ?? getDelayedDate(message)) {
                         return
                     } else if self.groupchats.readInvite(in: bareMessage, date: getDelayedDate(message) ?? Date(), isRead: nil) {
@@ -334,6 +342,14 @@ extension Account: XMPPStreamDelegate {
                 }
             } else if isCarbonCopy(message) {
                 if let bareMessage = getCarbonCopyMessageContainer(message) {
+                    if bareMessage.to?.bare == AccountManager.shared.find(for: self.jid)?.favorites.node {
+                        AccountManager.shared.find(for: self.jid)?.action({ user, stream in
+                            user.favorites.receiveSaved(message: bareMessage)
+                        })
+                        
+                        return
+                    }
+                    
                     if self.chatStates.read(withMessage: bareMessage) {
                         return
                     } else if VoIPManager.shared.onReceiveMessage(bareMessage, owner: self.jid, archivedDate: getDeliveryTime(bareMessage, owner: self.jid) ?? getDelayedDate(message), runtime: true, outgoing: true) {
@@ -350,6 +366,14 @@ extension Account: XMPPStreamDelegate {
                 
             } else if isCarbonForwarded(message) {
                 if let bareMessage = getCarbonForwardedMessageContainer(message) {
+                    if bareMessage.to?.bare == AccountManager.shared.find(for: self.jid)?.favorites.node {
+                        AccountManager.shared.find(for: self.jid)?.action({ user, stream in
+                            user.favorites.receiveSaved(message: bareMessage)
+                        })
+                        
+                        return
+                    }
+                    
                     if VoIPManager.shared.onReceiveMessage(bareMessage, owner: self.jid, archivedDate: getDeliveryTime(bareMessage, owner: self.jid) ?? getDelayedDate(message), runtime: true, outgoing: true) {
                         return
                     } else if self.deliveryReceipts.read(withMessage: bareMessage) {
@@ -368,6 +392,14 @@ extension Account: XMPPStreamDelegate {
                     self.messages.receiveCarbonForwarded(message)
                 }
             } else {
+                if message.to?.bare == AccountManager.shared.find(for: self.jid)?.favorites.node {
+                    AccountManager.shared.find(for: self.jid)?.action({ user, stream in
+                        user.favorites.receiveSaved(message: message)
+                    })
+                    
+                    return
+                }
+                
                 if self.chatMarkers.read(withMessage: message) {
                     return
                 }

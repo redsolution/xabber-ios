@@ -29,6 +29,17 @@ extension ShareDialogController: UITableViewDelegate {
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         let item = datasource[indexPath.row]
+        
+        if item.conversationType == .saved {
+            self.dismiss(animated: true) {
+                AccountManager.shared.find(for: item.owner)?.action({ user, stream in
+                    user.messages.sendSimpleMessage("", to: item.jid, forwarded: self.forwardIds, conversationType: item.conversationType)
+                })
+            }
+            
+            return
+        }
+        
         onOpen(item.jid)
     }
     

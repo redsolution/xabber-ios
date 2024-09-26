@@ -718,6 +718,7 @@
 		84B8E73C2C4A3D1A00DCB86E /* XabberActivityViewController+UITableViewDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84B8E73B2C4A3D1A00DCB86E /* XabberActivityViewController+UITableViewDelegate.swift */; };
 		84B8E7412C4A8F5000DCB86E /* XabberActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84B8E7402C4A8F5000DCB86E /* XabberActivity.swift */; };
 		84E7AEFA2C6CC3D90028C22A /* XMPPFavoritesManagerStorageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84E7AEF92C6CC3D90028C22A /* XMPPFavoritesManagerStorageItem.swift */; };
+		84FF7F612C7714DD00C9D3E8 /* ChatBackgroundColorSelectionCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84FF7F602C7714DD00C9D3E8 /* ChatBackgroundColorSelectionCell.swift */; };
 		AF5FCCC52A84BB0000C7DDC0 /* CloudPhotoGallery.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF5FCCC42A84BB0000C7DDC0 /* CloudPhotoGallery.swift */; };
 		AF6ADC052ABABFE40048BEF6 /* FileDeletionConfirmation.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF6ADC042ABABFE40048BEF6 /* FileDeletionConfirmation.swift */; };
 		AF6CDE1D2AB1B5A7004EBB9F /* CloudStorageDeleteViewController+UICollectionViewDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF6CDE1C2AB1B5A7004EBB9F /* CloudStorageDeleteViewController+UICollectionViewDataSource.swift */; };
@@ -1688,6 +1689,7 @@
 		84B8E73B2C4A3D1A00DCB86E /* XabberActivityViewController+UITableViewDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "XabberActivityViewController+UITableViewDelegate.swift"; sourceTree = "<group>"; };
 		84B8E7402C4A8F5000DCB86E /* XabberActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XabberActivity.swift; sourceTree = "<group>"; };
 		84E7AEF92C6CC3D90028C22A /* XMPPFavoritesManagerStorageItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XMPPFavoritesManagerStorageItem.swift; sourceTree = "<group>"; };
+		84FF7F602C7714DD00C9D3E8 /* ChatBackgroundColorSelectionCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatBackgroundColorSelectionCell.swift; sourceTree = "<group>"; };
 		95BBDD332E1BBA6B58CF98AC /* Pods-xabber.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-xabber.release.xcconfig"; path = "Target Support Files/Pods-xabber/Pods-xabber.release.xcconfig"; sourceTree = "<group>"; };
 		A5A1B180AC3ADA69A08E4243 /* Pods-clandestino.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-clandestino.release.xcconfig"; path = "Target Support Files/Pods-clandestino/Pods-clandestino.release.xcconfig"; sourceTree = "<group>"; };
 		AF5FCCC42A84BB0000C7DDC0 /* CloudPhotoGallery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPhotoGallery.swift; sourceTree = "<group>"; };
@@ -3297,6 +3299,7 @@
 		669F726E209C223600E757DB /* settings */ = {
 			isa = PBXGroup;
 			children = (
+				84FF7F5F2C77144100C9D3E8 /* interface */,
 				661D8E102ACADD0600990FDF /* device_privacy */,
 				4DFF74FF2851E5170036AE0D /* SelectorViewController */,
 				4D0AD0C32850A31F00C3D9DE /* SimpleTableViewController */,
@@ -4251,6 +4254,14 @@
 				84B8E7402C4A8F5000DCB86E /* XabberActivity.swift */,
 			);
 			path = share;
+			sourceTree = "<group>";
+		};
+		84FF7F5F2C77144100C9D3E8 /* interface */ = {
+			isa = PBXGroup;
+			children = (
+				84FF7F602C7714DD00C9D3E8 /* ChatBackgroundColorSelectionCell.swift */,
+			);
+			path = interface;
 			sourceTree = "<group>";
 		};
 		AFAC3CBE2B837A42001A4344 /* ake */ = {
@@ -5336,6 +5347,7 @@
 				66FD8EF822B3717200693944 /* AccountConnectionViewController+UITableViewDatasource.swift in Sources */,
 				6689207A21C0E16400A62CF7 /* ArrayExtension.swift in Sources */,
 				667810A923F6746C007F25B3 /* FeedbackManager.swift in Sources */,
+				84FF7F612C7714DD00C9D3E8 /* ChatBackgroundColorSelectionCell.swift in Sources */,
 				669F8AA7238EB7360022A9AA /* GroupchatInviteViewController.swift in Sources */,
 				66802906205A58B8005F0C9A /* AccountStreamDelegate.swift in Sources */,
 				665451BC22A9451A0077635D /* AccountNewStatusViewController.swift in Sources */,

@@ -284,6 +284,7 @@ extension MessageManager {
         let sortedItems = Array(items).sorted(by: {
             $0.date.timeIntervalSince1970 < $1.date.timeIntervalSince1970
         })
+        
         sortedItems.forEach { (item) in
             if isVoIPMessage(item.message) {
                 return

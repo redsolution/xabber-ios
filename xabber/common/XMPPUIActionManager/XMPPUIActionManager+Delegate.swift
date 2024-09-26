@@ -213,6 +213,14 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
             }
             if isArchivedMessage(message) {
                 if let bareMessage = getArchivedMessageContainer(message) {
+                    if bareMessage.to?.bare == AccountManager.shared.find(for: currentJid ?? "")?.favorites.node {
+                        AccountManager.shared.find(for: currentJid ?? "")?.action({ user, stream in
+                            user.favorites.receiveSaved(message: bareMessage)
+                        })
+                        
+                        return
+                    }
+                    
                     if VoIPManager.shared.onReceiveMessage(bareMessage, owner: sender.myJID!.bare, archivedDate: getDeliveryTime(message, owner: sender.myJID!.bare) ?? getDelayedDate(message)) {
                         return
                     } else if self.groupchat?.readInvite(in: bareMessage, date: getDelayedDate(message) ?? Date(), isRead: nil) ?? false {

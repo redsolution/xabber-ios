@@ -45,6 +45,7 @@ class SettingsViewController: BaseViewController {
             case accountEncryption = "account_encryption"
             case subscriptions = "subscriptions"
             case manageStorage = "manage_storage"
+            case chatChooseBackgroundColor = "chat_chooseBackgroundColor"
             case chatChooseBackground = "chat_chooseBackground"
             case chatChooseMessageSound = "chat_choose_message_sound"
             case chatChooseSubscriptionSound = "chat_choose_subscription_sound"
@@ -306,7 +307,7 @@ class SettingsViewController: BaseViewController {
     internal var doneEditButton: UIBarButtonItem? = nil
     internal var barButtonItemAddAccount: UIBarButtonItem? = nil
     
-    var activeVerificationSession: VerificationSessionStorageItem? = nil
+    var activeVerificationSessionSid: String? = nil
     
     internal let headerView: InfoScreenHeaderView = {
         let view = InfoScreenHeaderView(frame: .zero)
@@ -549,7 +550,7 @@ class SettingsViewController: BaseViewController {
     
     internal func load() {
         datasource = []
-        activeVerificationSession = nil
+        activeVerificationSessionSid = nil
         guard let userDefaults = UserDefaults.init(suiteName: "com.xabber.ios.settings.common")
             else { fatalError() }
         let dict = userDefaults.dictionaryRepresentation()
@@ -591,7 +592,7 @@ class SettingsViewController: BaseViewController {
                 }
                 
                 if let sessionInstance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.owner).first {
-                    self.activeVerificationSession = sessionInstance
+                    self.activeVerificationSessionSid = sessionInstance.sid
                     let (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(withOwnDevice: true, verificationState: sessionInstance.state)
                     let verificationDatasource = Datasource(section: .session, childs: [Datasource(section: .session, title: text, subtitle: secondaryText)])
                     
@@ -656,7 +657,10 @@ class SettingsViewController: BaseViewController {
         
         var interfaceChilds = [
             Datasource(section: .chat, title: Datasource.Section.chat.description(), childs: [
-                Datasource(section: .chat, title: "Background", itemType: .selector,
+                Datasource(section: .chat, title: "Background color", itemType: .plain,
+                           current: (dict[Datasource.Keys.chatChooseBackgroundColor.rawValue] as? String) ?? "purple",
+                           key: .chatChooseBackgroundColor),
+                Datasource(section: .chat, title: "Background image", itemType: .selector,
                            values: ["None", "Honeycomb", "Aliens", "Summer", "Cats", "Flowers", "Flowers-daisy", "Hearts"],
                            current: (dict[Datasource.Keys.chatChooseBackground.rawValue] as? String) ?? "None",
                            key: .chatChooseBackground)
@@ -795,13 +799,13 @@ class SettingsViewController: BaseViewController {
     func onAcceptButtonPressed() {
         AccountManager.shared.find(for: self.owner)?.action { user, stream in
             DispatchQueue.main.async {
-                _ = user.akeManager.acceptVerificationRequest(jid: self.jid, sid: self.activeVerificationSession!.sid)
+                _ = user.akeManager.acceptVerificationRequest(jid: self.jid, sid: self.activeVerificationSessionSid ?? "")
                 
                 NotificationCenter.default.post(name: AuthenticatedKeyExchangeManager.showCodeOutputViewNotification,
                                                 object: self,
                                                 userInfo: [
                                                     "owner": self.owner,
-                                                    "sid": self.activeVerificationSession!.sid
+                                                    "sid": self.activeVerificationSessionSid ?? ""
                                                 ])
             }
         }
@@ -813,7 +817,7 @@ class SettingsViewController: BaseViewController {
                                         object: self,
                                         userInfo: [
                                             "owner": self.owner,
-                                            "sid": activeVerificationSession!.sid
+                                            "sid": activeVerificationSessionSid ?? ""
                                         ])
     }
     
@@ -822,22 +826,14 @@ class SettingsViewController: BaseViewController {
         NotificationCenter.default.post(
             name: AuthenticatedKeyExchangeManager.showCodeInputViewNotification,
             object: self,
-            userInfo: ["owner": self.jid, "sid": activeVerificationSession!.sid]
+            userInfo: ["owner": self.jid, "sid": activeVerificationSessionSid ?? ""]
         )
-        
-//        let vc = AuthenticationCodeInputViewController()
-//        vc.jid = self.jid
-//        vc.owner = self.jid
-//        vc.sid = activeVerificationSession!.sid
-//        vc.isVerificationWithUsersDevice = true
-//        
-//        self.navigationController?.present(vc, animated: true)
     }
     
     @objc
     func onCloseVerificationButtonPressed() {
         guard let jid = XMPPJID(string: self.owner),
-              let sid = activeVerificationSession?.sid else {
+              let sid = activeVerificationSessionSid else {
             DDLogDebug("SettingsViewController: \(#function).")
             return
         }
@@ -860,6 +856,9 @@ class SettingsViewController: BaseViewController {
 //                akeManager.sendErrorMessage(fullJID: jid, sid: sid, reason: "Сontact canceled verification session")
                 
             }
+            
+            activeVerificationSessionSid = nil
+            
             try realm.write {
                 realm.delete(instance!)
             }

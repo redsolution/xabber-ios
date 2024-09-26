@@ -132,7 +132,7 @@ class ContactInfoViewController: BaseViewController {
     
     internal var circles: [String] = []
     
-    var activeVerificationSession: VerificationSessionStorageItem? = nil
+    var activeVerificationSessionSid: String? = nil
     
     internal let leftDevicesNavBarButton: UIBarButtonItem = {
         let button = UIBarButtonItem()
@@ -374,7 +374,7 @@ class ContactInfoViewController: BaseViewController {
                     guard let item = results.first else {
                         let section = self.datasource.firstIndex(where: { $0.key == "verification-session" })
                         if let section = section {
-                            self.activeVerificationSession = nil
+                            self.activeVerificationSessionSid = nil
                             
                             self.datasource.remove(at: section)
                             self.tableView.reloadData()
@@ -391,7 +391,7 @@ class ContactInfoViewController: BaseViewController {
                                 Datasource(.session, title: text, subtitle: secondaryText, verificationSid: item.sid, verificationJid: self.jid)
                             ])
                             
-                            self.activeVerificationSession = item
+                            self.activeVerificationSessionSid = item.sid
                             self.datasource[section!] = verificationDatasource
                             self.tableView.reloadData()
                             
@@ -409,7 +409,7 @@ class ContactInfoViewController: BaseViewController {
                                 Datasource(.session, title: text, subtitle: secondaryText, verificationSid: verificationInstance!.sid, verificationJid: self.jid)
                             ])
                             
-                            self.activeVerificationSession = item
+                            self.activeVerificationSessionSid = item.sid
                             self.datasource.insert(verificationDatasource, at: 0)
                             self.tableView.reloadData()
                             
@@ -561,6 +561,9 @@ class ContactInfoViewController: BaseViewController {
                 })
                 
             }
+            
+            activeVerificationSessionSid = nil
+            
             try realm.write {
                 realm.delete(instance!)
             }
@@ -658,13 +661,13 @@ class ContactInfoViewController: BaseViewController {
     func onAcceptButtonPressed() {
         AccountManager.shared.find(for: self.owner)?.action { user, stream in
             DispatchQueue.main.async {
-                _ = user.akeManager.acceptVerificationRequest(jid: self.jid, sid: self.activeVerificationSession!.sid)
+                _ = user.akeManager.acceptVerificationRequest(jid: self.jid, sid: self.activeVerificationSessionSid ?? "")
                 
                 NotificationCenter.default.post(name: AuthenticatedKeyExchangeManager.showCodeOutputViewNotification,
                                                 object: self,
                                                 userInfo: [
                                                     "owner": self.owner,
-                                                    "sid": self.activeVerificationSession!.sid
+                                                    "sid": self.activeVerificationSessionSid ?? ""
                                                 ])
             }
         }
@@ -676,7 +679,7 @@ class ContactInfoViewController: BaseViewController {
                                         object: self,
                                         userInfo: [
                                             "owner": self.owner,
-                                            "sid": activeVerificationSession!.sid
+                                            "sid": activeVerificationSessionSid ?? ""
                                         ])
     }
     
@@ -685,7 +688,7 @@ class ContactInfoViewController: BaseViewController {
         NotificationCenter.default.post(
             name: AuthenticatedKeyExchangeManager.showCodeInputViewNotification,
             object: self,
-            userInfo: ["owner": self.owner, "sid": activeVerificationSession!.sid]
+            userInfo: ["owner": self.owner, "sid": activeVerificationSessionSid ?? ""]
         )
     }
 }

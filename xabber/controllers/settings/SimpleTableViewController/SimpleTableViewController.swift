@@ -151,6 +151,18 @@ extension SimpleTableViewController: UITableViewDataSource {
                 cell.accessoryType = .disclosureIndicator
                 return cell
                 
+            case .chatChooseBackgroundColor:
+                let cell = ChatBackgroundColorSelectionCell()
+                cell.configure()
+                
+                guard let userDefaults = UserDefaults.init(suiteName: "com.xabber.ios.settings.common") else {
+                    return UITableViewCell(frame: .zero)
+                }
+                let dict = userDefaults.dictionaryRepresentation()
+                cell.currentColor = ChatViewController.BackgroundColor(rawValue: dict["chat_chooseBackgroundColor"] as? String ?? "purple")
+                
+                return cell
+                
             default:
                 break
             }
@@ -221,6 +233,12 @@ extension SimpleTableViewController: UITableViewDataSource {
 extension SimpleTableViewController: UITableViewDelegate {
     
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        let menuItem = datasource?.childs[indexPath.section].childs[indexPath.row]
+        
+        if menuItem?.key == .chatChooseBackgroundColor {
+            return 150
+        }
+        
         return 44
     }
 

@@ -21,6 +21,7 @@
 import Foundation
 import UIKit
 import MaterialComponents.MDCPalettes
+import RealmSwift
 
 extension SettingsViewController: UITableViewDataSource {
     
@@ -67,27 +68,35 @@ extension SettingsViewController: UITableViewDataSource {
             cell.configure(title: item.title ?? "", subtitle: item.subtitle)
             cell.closeButton.addTarget(self, action: #selector(onCloseVerificationButtonPressed), for: .touchUpInside)
             
-            switch activeVerificationSession?.state {
-            case .receivedRequest:
-                cell.blueButton.setTitle("Proceed to Verification", for: .normal)
-                cell.blueButton.addTarget(self, action: #selector(onAcceptButtonPressed), for: .touchUpInside)
-                cell.labelsStack.addArrangedSubview(cell.blueButton)
-                cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
-                break
-            case .acceptedRequest:
-                cell.blueButton.setTitle("Show the code", for: .normal)
-                cell.blueButton.addTarget(self, action: #selector(onShowCodePressed), for: .touchUpInside)
-                cell.labelsStack.addArrangedSubview(cell.blueButton)
-                cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
-                break
-            case .receivedRequestAccept:
-                cell.blueButton.setTitle("Enter the code", for: .normal)
-                cell.blueButton.addTarget(self, action: #selector(onEnterCodePressed), for: .touchUpInside)
-                cell.labelsStack.addArrangedSubview(cell.blueButton)
-                cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
-                break
-            default:
-                break
+            do {
+                let realm = try WRealm.safe()
+                let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.jid, sid: activeVerificationSessionSid ?? ""))
+                
+                switch instance?.state {
+                case .receivedRequest:
+                    cell.blueButton.setTitle("Proceed to Verification", for: .normal)
+                    cell.blueButton.addTarget(self, action: #selector(onAcceptButtonPressed), for: .touchUpInside)
+                    cell.labelsStack.addArrangedSubview(cell.blueButton)
+                    cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
+                    break
+                case .acceptedRequest:
+                    cell.blueButton.setTitle("Show the code", for: .normal)
+                    cell.blueButton.addTarget(self, action: #selector(onShowCodePressed), for: .touchUpInside)
+                    cell.labelsStack.addArrangedSubview(cell.blueButton)
+                    cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
+                    break
+                case .receivedRequestAccept:
+                    cell.blueButton.setTitle("Enter the code", for: .normal)
+                    cell.blueButton.addTarget(self, action: #selector(onEnterCodePressed), for: .touchUpInside)
+                    cell.labelsStack.addArrangedSubview(cell.blueButton)
+                    cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
+                    break
+                default:
+                    break
+                }
+                
+            } catch {
+                //
             }
 
             return cell
@@ -192,7 +201,7 @@ extension SettingsViewController: UITableViewDataSource {
                         cell.tintColor = color
                     }
                     return cell
-                
+                    
                 default: break
                 }
             }

@@ -183,7 +183,7 @@ extension ChatViewController {
                     self.contactUsename = nickname
                     self.titleLabel.attributedText = self.updateTitle()
                     let statusStr = AccountManager.shared.connectingUsers.value.contains(self.owner) ? "Waiting for network...".localizeString(id: "waiting_for_network", arguments: []) : status
-                    if self.statusLabel.text == " " {
+                    if self.statusLabel.text == " " && self.conversationType != .saved {
                         self.statusLabel.text = statusStr
                     }
                     if self.shouldShowNormalStatus {
@@ -228,7 +228,18 @@ extension ChatViewController {
             .debounce(.milliseconds(200), scheduler: MainScheduler.asyncInstance)
             .subscribe(onNext: { (results) in
                 if self.groupchat { return }
-                if (XMPPJID(string: self.jid)?.isServer ?? false) {
+                
+                if self.conversationType == .saved {
+                    let usersCount = AccountManager.shared.users.count
+                    
+                    if usersCount > 1 {
+                        self.contactStatus = self.owner
+                        self.updateStatusText()
+                    }
+                    
+                    return
+                    
+                } else if (XMPPJID(string: self.jid)?.isServer ?? false) {
                     self.contactStatus = "Server"
                     self.updateStatusText()
                     return

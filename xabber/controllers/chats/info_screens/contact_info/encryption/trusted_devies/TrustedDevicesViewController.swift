@@ -63,7 +63,7 @@ class TrustedDevicesViewController: SimpleBaseViewController {
     }
     
     var datasource: [[Datasource]] = []
-    var activeVerificationSession: VerificationSessionStorageItem? = nil
+    var activeVerificationSessionSid: String? = nil
     
     let tableView: InsetGroupedTableView = {
         let view = InsetGroupedTableView(frame: .zero)
@@ -153,7 +153,7 @@ class TrustedDevicesViewController: SimpleBaseViewController {
         super.loadDatasource()
         
         datasource = []
-        activeVerificationSession = nil
+        activeVerificationSessionSid = nil
         
         do {
             let realm = try Realm()
@@ -187,7 +187,7 @@ class TrustedDevicesViewController: SimpleBaseViewController {
                 
                 (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(withOwnDevice: false, verificationState: verificationSession!.state)
                 
-                self.activeVerificationSession = verificationSession
+                self.activeVerificationSessionSid = verificationSession?.sid
                 devicesDatasource.append(Datasource(.session, name: text, subtitle: secondaryText))
             }
             
@@ -232,7 +232,7 @@ class TrustedDevicesViewController: SimpleBaseViewController {
     @objc
     func onCloseButtonPressed() {
         guard let jid = XMPPJID(string: self.jid),
-              let sid = activeVerificationSession?.sid else {
+              let sid = activeVerificationSessionSid else {
             DDLogDebug("TrustedDevicesViewController: \(#function).")
             return
         }
@@ -253,6 +253,9 @@ class TrustedDevicesViewController: SimpleBaseViewController {
                 })
                 
             }
+            
+            activeVerificationSessionSid = nil
+            
             try realm.write {
                 realm.delete(instance!)
             }
@@ -312,13 +315,13 @@ class TrustedDevicesViewController: SimpleBaseViewController {
     func onAcceptButtonPressed() {
         AccountManager.shared.find(for: self.owner)?.action { user, stream in
             DispatchQueue.main.async {
-                _ = user.akeManager.acceptVerificationRequest(jid: self.jid, sid: self.activeVerificationSession!.sid)
+                _ = user.akeManager.acceptVerificationRequest(jid: self.jid, sid: self.activeVerificationSessionSid ?? "")
                 
                 NotificationCenter.default.post(name: AuthenticatedKeyExchangeManager.showCodeOutputViewNotification,
                                                 object: self,
                                                 userInfo: [
                                                     "owner": self.owner,
-                                                    "sid": self.activeVerificationSession!.sid
+                                                    "sid": self.activeVerificationSessionSid ?? ""
                                                 ])
             }
         }
@@ -330,7 +333,7 @@ class TrustedDevicesViewController: SimpleBaseViewController {
                                         object: self,
                                         userInfo: [
                                             "owner": self.owner,
-                                            "sid": activeVerificationSession!.sid
+                                            "sid": activeVerificationSessionSid
                                         ])
     }
     
@@ -339,7 +342,7 @@ class TrustedDevicesViewController: SimpleBaseViewController {
         NotificationCenter.default.post(
             name: AuthenticatedKeyExchangeManager.showCodeInputViewNotification,
             object: self,
-            userInfo: ["owner": self.owner, "sid": activeVerificationSession!.sid]
+            userInfo: ["owner": self.owner, "sid": activeVerificationSessionSid]
         )
     }
     
@@ -480,7 +483,7 @@ extension TrustedDevicesViewController: UITableViewDataSource {
             cell.configure(title: item.name, subtitle: item.subtitle)
             cell.closeButton.addTarget(self, action: #selector(onCloseButtonPressed), for: .touchUpInside)
             
-            if activeVerificationSession == nil {
+            if activeVerificationSessionSid == nil {
                 cell.closeButton.removeFromSuperview()
                 cell.blueButton.setTitle("Verify", for: .normal)
                 cell.labelsStack.addArrangedSubview(cell.blueButton)
@@ -490,27 +493,35 @@ extension TrustedDevicesViewController: UITableViewDataSource {
                 return cell
             }
             
-            switch activeVerificationSession?.state {
-            case .receivedRequest:
-                cell.blueButton.setTitle("Proceed to Verification", for: .normal)
-                cell.blueButton.addTarget(self, action: #selector(onAcceptButtonPressed), for: .touchUpInside)
-                cell.labelsStack.addArrangedSubview(cell.blueButton)
-                cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
-                break
-            case .acceptedRequest:
-                cell.blueButton.setTitle("Show the code", for: .normal)
-                cell.blueButton.addTarget(self, action: #selector(onShowCodePressed), for: .touchUpInside)
-                cell.labelsStack.addArrangedSubview(cell.blueButton)
-                cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
-                break
-            case .receivedRequestAccept:
-                cell.blueButton.setTitle("Enter the code", for: .normal)
-                cell.blueButton.addTarget(self, action: #selector(onEnterCodePressed), for: .touchUpInside)
-                cell.labelsStack.addArrangedSubview(cell.blueButton)
-                cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
-                break
-            default:
-                break
+            do {
+                let realm = try WRealm.safe()
+                let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: activeVerificationSessionSid ?? ""))
+                
+                switch instance?.state {
+                case .receivedRequest:
+                    cell.blueButton.setTitle("Proceed to Verification", for: .normal)
+                    cell.blueButton.addTarget(self, action: #selector(onAcceptButtonPressed), for: .touchUpInside)
+                    cell.labelsStack.addArrangedSubview(cell.blueButton)
+                    cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
+                    break
+                case .acceptedRequest:
+                    cell.blueButton.setTitle("Show the code", for: .normal)
+                    cell.blueButton.addTarget(self, action: #selector(onShowCodePressed), for: .touchUpInside)
+                    cell.labelsStack.addArrangedSubview(cell.blueButton)
+                    cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
+                    break
+                case .receivedRequestAccept:
+                    cell.blueButton.setTitle("Enter the code", for: .normal)
+                    cell.blueButton.addTarget(self, action: #selector(onEnterCodePressed), for: .touchUpInside)
+                    cell.labelsStack.addArrangedSubview(cell.blueButton)
+                    cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
+                    break
+                default:
+                    break
+                }
+                
+            } catch {
+                //
             }
             
             return cell

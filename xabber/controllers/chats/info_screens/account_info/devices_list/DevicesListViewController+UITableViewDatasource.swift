@@ -73,7 +73,7 @@ extension DevicesListViewController: UITableViewDataSource {
                 let cell = VerificationSessionTableViewCell()
                 cell.configure(title: item.title, subtitle: item.value)
                 
-                if activeVerificationSession == nil {
+                if activeVerificationSessionSid == nil {
                     cell.closeButton.removeFromSuperview()
                     cell.blueButton.setTitle("Verify", for: .normal)
                     cell.labelsStack.addArrangedSubview(cell.blueButton)
@@ -85,28 +85,41 @@ extension DevicesListViewController: UITableViewDataSource {
                 
                 cell.closeButton.addTarget(self, action: #selector(onCloseButtonPressed), for: .touchUpInside)
                 
-                switch activeVerificationSession?.state {
-                case .receivedRequest:
-                    cell.blueButton.setTitle("Proceed to Verification", for: .normal)
-                    cell.blueButton.addTarget(self, action: #selector(onAcceptButtonPressed), for: .touchUpInside)
-                    cell.labelsStack.addArrangedSubview(cell.blueButton)
-                    cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
-                    break
-                case .acceptedRequest:
-                    cell.blueButton.setTitle("Show the code", for: .normal)
-                    cell.blueButton.addTarget(self, action: #selector(onShowCodePressed), for: .touchUpInside)
-                    cell.labelsStack.addArrangedSubview(cell.blueButton)
-                    cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
-                    break
-                case .receivedRequestAccept:
-                    cell.blueButton.setTitle("Enter the code", for: .normal)
-                    cell.blueButton.addTarget(self, action: #selector(onEnterCodePressed), for: .touchUpInside)
-                    cell.labelsStack.addArrangedSubview(cell.blueButton)
-                    cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
-                    break
-                default:
-                    break
+                do {
+                    let realm = try WRealm.safe()
+                    let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: activeVerificationSessionSid ?? ""))
+                    
+                    switch instance?.state {
+                    case .receivedRequest:
+                        cell.blueButton.setTitle("Proceed to Verification", for: .normal)
+                        cell.blueButton.addTarget(self, action: #selector(onAcceptButtonPressed), for: .touchUpInside)
+                        cell.labelsStack.addArrangedSubview(cell.blueButton)
+                        cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
+                        break
+                        
+                    case .acceptedRequest:
+                        cell.blueButton.setTitle("Show the code", for: .normal)
+                        cell.blueButton.addTarget(self, action: #selector(onShowCodePressed), for: .touchUpInside)
+                        cell.labelsStack.addArrangedSubview(cell.blueButton)
+                        cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
+                        break
+                        
+                    case .receivedRequestAccept:
+                        cell.blueButton.setTitle("Enter the code", for: .normal)
+                        cell.blueButton.addTarget(self, action: #selector(onEnterCodePressed), for: .touchUpInside)
+                        cell.labelsStack.addArrangedSubview(cell.blueButton)
+                        cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
+                        break
+                        
+                    default:
+                        break
+                    }
+                    
+                } catch {
+                    //
                 }
+                
+                
                 
                 return cell
             }
@@ -116,7 +129,7 @@ extension DevicesListViewController: UITableViewDataSource {
             }
             
             var deviceItem: DeviceStorageItem? = nil
-            if isVerificationRequired || activeVerificationSession != nil {
+            if isVerificationRequired || activeVerificationSessionSid != nil {
                 deviceItem = devices[indexPath.row - 1]
             } else {
                 deviceItem = devices[indexPath.row]
@@ -177,7 +190,7 @@ extension DevicesListViewController: UITableViewDataSource {
         switch item.kind {
         case .current, .button: return item.childs.count
         case .token: 
-            if isVerificationRequired || activeVerificationSession != nil {
+            if isVerificationRequired || activeVerificationSessionSid != nil {
                 return devices.count + 1
             }
             

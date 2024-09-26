@@ -57,6 +57,17 @@ class ChatViewController: MessagesViewController {
         case selection
     }
     
+    enum BackgroundColor: String, CaseIterable {
+        case purple = "purple"
+        case darkRed = "darkRed"
+        case lightRed = "lightRed"
+        case yellowOrange = "yellowOrange"
+        case yellowBlue = "yellowBlue"
+        case lightGreen = "lightGreen"
+        case greenBlue = "greenBlue"
+        case lightBlue = "lightBlue"
+    }
+    
     class PlayingAudioCell {
         var indexPath: IndexPath
         var isForward: Bool
@@ -496,11 +507,23 @@ class ChatViewController: MessagesViewController {
     }
     
     func initStatus() {
-        if (XMPPJID(string: self.jid)?.isServer ?? false) {
+        if conversationType == .saved {
+            let usersCount = AccountManager.shared.users.count
+            
+            if usersCount > 1 {
+                self.contactStatus = self.owner
+                self.statusLabel.text = self.contactStatus
+            }
+            
+            return
+            
+        } else if (XMPPJID(string: self.jid)?.isServer ?? false) {
             self.contactStatus = "Server"
             self.statusLabel.text = self.contactStatus
             return
+            
         }
+        
         do {
             let realm = try WRealm.safe()
             
@@ -692,7 +715,12 @@ class ChatViewController: MessagesViewController {
         gradient.startPoint = CGPoint(x: 0.0, y: 1.0)
         gradient.endPoint = CGPoint(x: 1.0, y: 0.0)
         
-        let backgroundResourceName = SettingManager.shared.getString(for: "chat_chooseBackground") ?? "None"
+        guard let userDefaults = UserDefaults.init(suiteName: "com.xabber.ios.settings.common") else {
+            return
+        }
+        let dict = userDefaults.dictionaryRepresentation()
+        
+        let backgroundResourceName = dict["chat_chooseBackground"] as? String ?? "None"
         if backgroundResourceName != "None" {
             backgroundImage.image = UIImage(named: backgroundResourceName.lowercased())?
                 .withRenderingMode(.alwaysTemplate)
@@ -711,10 +739,8 @@ class ChatViewController: MessagesViewController {
                 CGColor(red: 232/255, green: 5/255, blue: 5/255, alpha: 1.0)
             ]
         } else {
-            gradient.colors = [
-                CGColor(red: 255/255, green: 122/255, blue: 245/255, alpha: 1.0),
-                CGColor(red: 81/255, green: 49/255, blue: 98/255, alpha: 1.0)
-            ]
+            let backgroundResourceColor = dict["chat_chooseBackgroundColor"] as? String ?? "None"
+            gradient.colors = ChatViewController.getColorsForGradient(forColor: BackgroundColor(rawValue: backgroundResourceColor) ?? .purple)
         }
         
         gradientView.layer.addSublayer(gradient)
@@ -1098,10 +1124,17 @@ class ChatViewController: MessagesViewController {
             let realm = try  WRealm.safe()
             let dataset: Results<MessageStorageItem>
             realm.refresh()
-            dataset = realm
-                .objects(MessageStorageItem.self)
-                .filter ("owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@", self.owner, self.jid, self.conversationType.rawValue)
-                .sorted (byKeyPath: "date", ascending: false)
+            if conversationType == .saved {
+                dataset = realm
+                    .objects(MessageStorageItem.self)
+                    .filter ("owner == %@ AND isDeleted == false AND conversationType_ == %@", self.owner, self.conversationType.rawValue)
+                    .sorted (byKeyPath: "date", ascending: false)
+            } else {
+                dataset = realm
+                    .objects(MessageStorageItem.self)
+                    .filter ("owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@", self.owner, self.jid, self.conversationType.rawValue)
+                    .sorted (byKeyPath: "date", ascending: false)
+            }
             return dataset
         } catch {
             fatalError()
@@ -1142,6 +1175,61 @@ class ChatViewController: MessagesViewController {
             }
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        }
+    }
+    
+    static func getColorsForGradient(forColor color: BackgroundColor) -> [CGColor] {
+        switch color {
+        case .purple:
+            return [
+                CGColor(red: 255/255, green: 122/255, blue: 245/255, alpha: 1),
+                CGColor(red: 81/255, green: 49/255, blue: 98/255, alpha: 1)
+            ]
+            
+        case .darkRed:
+            return [
+                CGColor(red: 205/255, green: 92/255, blue: 92/255, alpha: 0.5),
+                CGColor(red: 220/255, green: 20/255, blue: 60/255, alpha: 1)
+            ]
+            
+        case .lightRed:
+            return [
+                CGColor(red: 250/255, green: 128/255, blue: 114/255, alpha: 0.5),
+                CGColor(red: 250/255, green: 128/255, blue: 114/255, alpha: 1)
+            ]
+            
+        case .yellowOrange:
+            return [
+                CGColor(red: 255/255, green: 215/255, blue: 0/255, alpha: 1),
+                CGColor(red: 255/255, green: 69/255, blue: 0/255, alpha: 1)
+            ]
+            
+        case .yellowBlue:
+            return [
+                CGColor(red: 255/255, green: 215/255, blue: 0/255, alpha: 0.5),
+                CGColor(red: 30/255, green: 144/255, blue: 255/255, alpha: 0.5)
+            ]
+            
+        case .lightGreen:
+            return [
+                CGColor(red: 155/255, green: 255/255, blue: 150/255, alpha: 0.5),
+                CGColor(red: 155/255, green: 255/255, blue: 150/255, alpha: 0.5)
+            ]
+            
+        case .greenBlue:
+            return [
+                CGColor(red: 155/255, green: 255/255, blue: 150/255, alpha: 0.5),
+                CGColor(red: 0/255, green: 192/255, blue: 255/255, alpha: 0.5)
+            ]
+            
+        case .lightBlue:
+            return [
+                CGColor(red: 0/255, green: 192/255, blue: 255/255, alpha: 0.5),
+                CGColor(red: 0/255, green: 192/255, blue: 255/255, alpha: 0.5)
+            ]
+            
+        default:
+            break
         }
     }
     
