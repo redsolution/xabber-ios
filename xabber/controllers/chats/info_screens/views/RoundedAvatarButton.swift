@@ -36,8 +36,6 @@ class RoundedAvatarButton: UIButton {
     }
     
     override func draw(_ rect: CGRect) {
-//        layer.cornerRadius = rect.height / 2
-        print(rect)
         self.mask?.frame = CGRect(origin: .zero, size: rect.size)
         super.draw(rect)
     }

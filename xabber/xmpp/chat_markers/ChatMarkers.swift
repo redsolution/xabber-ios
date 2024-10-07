@@ -393,7 +393,7 @@ class ChatMarkersManager: AbstractXMPPManager {
                 }
                 let response = XMPPMessage(messageType: .chat, to: XMPPJID(string: instance.opponent), elementID: elementId, child: displayed)
                 let conversationType = instance.conversationType
-                if [.omemo, .omemo1, .axolotl].contains(conversationType) {
+                if conversationType.isEncrypted {
                     let encryptionElement = DDXMLElement(name: "encryption", xmlns: "urn:xmpp:eme:0")
                     encryptionElement.addAttribute(withName: "namespace", stringValue: conversationType.rawValue)
                     response.addChild(encryptionElement)

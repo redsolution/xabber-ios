@@ -114,7 +114,7 @@ class AudioRecorder: NSObject {
                     completion(result, nil)
                 }
             } catch {
-                print(error.localizedDescription)
+//                print(error.localizedDescription)
                 DispatchQueue.main.async {
                     completion(nil, error)
                 }

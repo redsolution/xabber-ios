@@ -10,12 +10,12 @@ import Foundation
 
 extension ChatViewController: ChangeChatStateProtocol {
     func openSearchBar() {
-//        self.inSearchMode.accept(true)
-        let vc = SearchChatListViewController()
-        vc.jid = self.jid
-        vc.owner = self.owner
-        vc.conversationType = self.conversationType
-        self.navigationController?.pushViewController(vc, animated: true)
+        self.inSearchMode.accept(true)
+//        let vc = SearchChatListViewController()
+//        vc.jid = self.jid
+//        vc.owner = self.owner
+//        vc.conversationType = self.conversationType
+//        self.navigationController?.pushViewController(vc, animated: true)
 //        showStacked(vc, in: self)
     }
 }

@@ -172,7 +172,7 @@ class ServerDiscoManager: AbstractXMPPManager {
             features.forEach {
                 feature in
                 if let node = feature.attributeStringValue(forName: "var") {
-                    print("NODE", node)
+//                    print("NODE", node)
                     switch node {
                     case "urn:xmpp:mam:0":
                         let item = "mam"

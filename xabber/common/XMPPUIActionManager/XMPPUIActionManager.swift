@@ -92,7 +92,7 @@ class XMPPUIActionManager: NSObject {
         if self.currentJid == owner && (self.stream.isAuthenticated || self.stream.isConnected || self.stream.isConnecting) {
             return
         }
-        print("UI CONNECTION OPEN!!!!!!")
+//        print("UI CONNECTION OPEN!!!!!!")
         if self.currentJid != nil {
             self.close(disconnect: true)
         }
@@ -135,7 +135,7 @@ class XMPPUIActionManager: NSObject {
     
     public final func disable(_ owner: String) {
 //        return
-        print("UI CONNECTION DISABLE!!!!!!")
+//        print("UI CONNECTION DISABLE!!!!!!")
         if self.currentJid != owner {
             return
         }
@@ -160,7 +160,7 @@ class XMPPUIActionManager: NSObject {
     
     public final func close(soft: Bool = false, disconnect: Bool = false) {
 //        return
-        print("UI CONNECTION CLOSE!!!!!!")
+//        print("UI CONNECTION CLOSE!!!!!!")
         if !CommonConfigManager.shared.config.supports_multiaccounts && !disconnect {
             return
         }
@@ -186,7 +186,7 @@ class XMPPUIActionManager: NSObject {
     }
     
     public final func restore() {
-        print("UI CONNECTION RESTORE")
+//        print("UI CONNECTION RESTORE")
         guard let owner = self.currentJid else { return }
         stream.disconnect()
         stream.asyncSocket.disconnect()
@@ -286,7 +286,7 @@ class XMPPUIActionManager: NSObject {
     }
     
     deinit {
-        print("UI DEINIT")
+//        print("UI DEINIT")
     }
 }
 

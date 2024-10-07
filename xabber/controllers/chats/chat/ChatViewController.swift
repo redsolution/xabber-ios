@@ -189,9 +189,12 @@ class ChatViewController: MessagesViewController {
     public var groupchatDescr: String = ""
     
     internal var messagesCount: Int = ChatViewController.datasourceInitialPageSize
+    internal var lastBottomIndex: Int = 0
     internal var shouldChangeOffsetOnUpdate: Bool = false
     
-
+    var oldestMessageId: String? = nil
+    var newestMessageId: String? = nil
+    
     internal var messagesObserver: Results<MessageStorageItem>? = nil
     
     internal var datasource: [Datasource] = []
@@ -225,7 +228,8 @@ class ChatViewController: MessagesViewController {
     var shouldShowNormalStatus: Bool = false
 // Search mode
     public var inSearchMode: BehaviorRelay<Bool> = BehaviorRelay(value: false)
-    public var searchResultsIds: [String] = []
+    public var searchResultsFinObserver: BehaviorRelay<Bool> = BehaviorRelay(value: false)
+//    public var searchResultsIds: [String] = []
     public var selectedSearchResultId: String? = nil
 // Pin message bar
     internal var pinnedMessageId: BehaviorRelay<String?> = BehaviorRelay(value: nil)
@@ -261,13 +265,13 @@ class ChatViewController: MessagesViewController {
     
 //    var topMenuShowObserver: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     var searchTextObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)
-    var searchTextBouncerObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)
+//    var searchTextBouncerObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)
     
     var messagesListDisposable: Disposable? = nil
     
     var isInitiallyDeletedGroup: Bool? = nil
     
-    var shouldUpdateMessagesCount: Bool = true
+//    var shouldUpdateMessagesCount: Bool = true
     
     var isInviteViewControllerShowed: Bool = false
     
@@ -291,9 +295,17 @@ class ChatViewController: MessagesViewController {
     
     var selectedAfterburnId: Int = 0
     
+    
     //// panel
     var topPanelShowed: Bool = false
     var topPanelState: BehaviorRelay<TopPanelState> = BehaviorRelay(value: .none)
+    //MAM
+    var hasActiveMamaArchive: Bool = false
+    var searchMessagesQueue: [MessageStorageItem] = []
+    var currentSearchQueryId: String? = nil
+    
+    var lastVelocityYSign = 0
+    var isLoadNextPage: Bool = false
     
     internal let skeletonMessages: [NSAttributedString] = {
         return (0..<30).compactMap {
@@ -630,36 +642,7 @@ class ChatViewController: MessagesViewController {
 
     }
     
-    func configureNavigationBar() {
-        self.titleStack.addArrangedSubview(titleLabel)
-        self.titleStack.addArrangedSubview(statusLabel)
-        self.titleButton.addSubview(titleStack)
-        self.titleStack.fillSuperview()
-        self.titleButton.bringSubviewToFront(titleStack)
-        
-        self.navigationItem.setLeftBarButton(nil, animated: true)
-        let gesture = UITapGestureRecognizer(target: self, action: #selector(self.showInfo))
-        self.userBarButton.addGestureRecognizer(gesture)
-        self.navigationItem.setRightBarButton(UIBarButtonItem(customView: self.userBarButton), animated: true)
-        self.navigationItem.backButtonDisplayMode = .minimal
-        self.title = ""
-        
-//        let searchButton = UIBarButtonItem(image: imageLiteral("magnifyingglass"), style: .plain, target: nil, action: nil)
-//        if let item = self.navigationItem.backBarButtonItem {
-//            self.navigationItem.setLeftBarButtonItems([item, searchButton], animated: true)
-//        } else {
-//            self.navigationItem.setLeftBarButton(searchButton, animated: true)
-//        }
-        self.navigationItem.leftItemsSupplementBackButton = true
-        self.titleStack.isUserInteractionEnabled = false
-        
-        self.titleButton.addTarget(self, action: #selector(self.onTitleButtonTouchUp(_:)), for: .touchUpInside)
-        self.navigationItem.titleView = titleButton
-        
-        self.titleButton.frame = CGRect(width: self.view.frame.width - 64, height: 40)
-        self.titleLabel.attributedText = self.updateTitle()
-        self.initStatus()
-    }
+
     
     override var disablesAutomaticKeyboardDismissal: Bool {
         get {
@@ -674,14 +657,11 @@ class ChatViewController: MessagesViewController {
     
     private func configure() {
         restorationIdentifier = "CHAT_VIEW_CONTROLLER_RID"
-        ownerSender = Sender(
-            id: owner,
-            displayName: AccountManager.shared.find(for: owner)?.username ?? ""
-        )
+        self.initSender()
+        
         accountPallete = AccountColorManager.shared.palette(for: owner)
 //        
-        self.navigationController?.navigationBar.prefersLargeTitles = false
-        self.navigationController?.navigationItem.largeTitleDisplayMode = .never
+        
         
         self.messagesCollectionView.prefetchDataSource = self
         self.messagesCollectionView.messagesDataSource = self
@@ -702,52 +682,9 @@ class ChatViewController: MessagesViewController {
             self.configureSearchBar()
         } else {
             self.searchTextObserver.accept(nil)
-            self.configureNavigationBar()
+            self.configureNavbar()
         }
         
-        backgroundView.frame = self.view.bounds
-        backgroundImage.frame = self.view.bounds
-        
-        gradientView.frame = self.view.bounds
-        
-        gradient.frame = self.view.bounds
-        
-        gradient.startPoint = CGPoint(x: 0.0, y: 1.0)
-        gradient.endPoint = CGPoint(x: 1.0, y: 0.0)
-        
-        guard let userDefaults = UserDefaults.init(suiteName: "com.xabber.ios.settings.common") else {
-            return
-        }
-        let dict = userDefaults.dictionaryRepresentation()
-        
-        let backgroundResourceName = dict["chat_chooseBackground"] as? String ?? "None"
-        if backgroundResourceName != "None" {
-            backgroundImage.image = UIImage(named: backgroundResourceName.lowercased())?
-                .withRenderingMode(.alwaysTemplate)
-                .resizableImage(withCapInsets: UIEdgeInsets.zero,
-                                resizingMode: .tile)
-            backgroundImage.tintColor = UIColor.white
-            backgroundImage.alpha = 0.1
-            backgroundImage.contentMode = .scaleAspectFill
-        } else {
-            backgroundImage.image = nil
-        }
-        
-        if conversationType == .omemo {
-            gradient.colors = [
-                CGColor(red: 253/255, green: 216/255, blue: 25/255, alpha: 1.0),
-                CGColor(red: 232/255, green: 5/255, blue: 5/255, alpha: 1.0)
-            ]
-        } else {
-            let backgroundResourceColor = dict["chat_chooseBackgroundColor"] as? String ?? "None"
-            gradient.colors = ChatViewController.getColorsForGradient(forColor: BackgroundColor(rawValue: backgroundResourceColor) ?? .purple)
-        }
-        
-        gradientView.layer.addSublayer(gradient)
-        backgroundView.addSubview(gradientView)
-        backgroundView.addSubview(backgroundImage)
-        backgroundView.bringSubviewToFront(backgroundImage)
-        messagesCollectionView.backgroundView =  backgroundView
         
         toolsButton.delegate = self
         toolsButton.frame = CGRect(
@@ -770,22 +707,130 @@ class ChatViewController: MessagesViewController {
         self.messagesCollectionView.keyboardDismissMode = .interactive
         self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 100, right: 0)
         
-        userBarButton.configure(owner: owner, jid: jid)
+        configureBackground()
+        configureNavbar()
+        configureSelectionPanel()
+        configureMessagesPanel()
+        configureCertificateUpdateTimer()
+        configureDataset()
+        previousFrame = self.view.bounds
+    }
+    
+    var previousFrame: CGRect = .zero
+    
+    final func configureDataset() {
+        do {
+            let realm = try  WRealm.safe()
+            self.messagesObserver = realm
+                .objects(MessageStorageItem.self)
+                .filter("owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@", self.owner, self.jid, self.conversationType.rawValue)
+                .sorted(byKeyPath: "date", ascending: false)
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        }
+    }
+    
+    final func configureBackground() {
+        backgroundView.frame = self.view.bounds
+        backgroundImage.frame = self.view.bounds
         
+        gradientView.frame = self.view.bounds
+        
+        gradient.frame = self.view.bounds
+        
+        gradient.startPoint = CGPoint(x: 0.0, y: 1.0)
+        gradient.endPoint = CGPoint(x: 1.0, y: 0.0)
+        
+        let backgroundResourceName = SettingManager.shared.getString(for: "chat_chooseBackground") ?? "None"
+        if backgroundResourceName != "None" {
+            backgroundImage.image = UIImage(named: backgroundResourceName.lowercased())?
+                .withRenderingMode(.alwaysTemplate)
+                .resizableImage(withCapInsets: UIEdgeInsets.zero,
+                                resizingMode: .tile)
+            backgroundImage.tintColor = .systemBackground
+            backgroundImage.alpha = 0.1
+            backgroundImage.contentMode = .scaleAspectFill
+        } else {
+            backgroundImage.image = nil
+        }
+        
+        if conversationType.isEncrypted {
+            gradient.colors = [
+                CGColor(red: 253/255, green: 216/255, blue: 25/255, alpha: 1.0),
+                CGColor(red: 232/255, green: 5/255, blue: 5/255, alpha: 1.0)
+            ]
+        } else {
+            let backgroundResourceColor = SettingManager.shared.getString(for: "chat_chooseBackgroundColor") ?? "None"
+            gradient.colors = ChatViewController.getColorsForGradient(forColor: BackgroundColor(rawValue: backgroundResourceColor) ?? .purple)
+        }
+        
+        gradientView.layer.addSublayer(gradient)
+        backgroundView.addSubview(gradientView)
+        backgroundView.addSubview(backgroundImage)
+        backgroundView.bringSubviewToFront(backgroundImage)
+        messagesCollectionView.backgroundView =  backgroundView
+        
+    }
+    
+    final func configureNavbar() {
+        self.navigationController?.navigationBar.prefersLargeTitles = false
+        self.navigationController?.navigationItem.largeTitleDisplayMode = .never
+        self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
+        self.navigationController?.navigationBar.shadowImage = nil
+        self.navigationController?.navigationBar.superview?.bringSubviewToFront(self.navigationController!.navigationBar)
+        self.navigationController?.navigationBar.layoutIfNeeded()
+
+        userBarButton.gradient.colors = [UIColor.white.cgColor,
+                                         AccountColorManager.shared.palette(for: self.owner).tint700.cgColor]
+        
+        self.titleStack.addArrangedSubview(titleLabel)
+        self.titleStack.addArrangedSubview(statusLabel)
+        self.titleButton.addSubview(titleStack)
+        self.titleStack.fillSuperview()
+        self.titleButton.bringSubviewToFront(titleStack)
+        
+        self.navigationItem.setLeftBarButton(nil, animated: true)
+        let gesture = UITapGestureRecognizer(target: self, action: #selector(self.showInfo))
+        self.userBarButton.addGestureRecognizer(gesture)
+        self.navigationItem.setRightBarButton(UIBarButtonItem(customView: self.userBarButton), animated: true)
+        self.navigationItem.backButtonDisplayMode = .minimal
+        self.title = ""
+        self.navigationItem.leftItemsSupplementBackButton = true
+        self.titleStack.isUserInteractionEnabled = false
+        
+        self.titleButton.addTarget(self, action: #selector(self.onTitleButtonTouchUp(_:)), for: .touchUpInside)
+        self.navigationItem.titleView = titleButton
+        
+        self.titleButton.frame = CGRect(width: self.view.frame.width - 64, height: 40)
+        self.titleLabel.attributedText = self.updateTitle()
+        self.initStatus()
+        
+        userBarButton.configure(owner: owner, jid: jid)
         if self.conversationType == .saved {
             userBarButton.avatar.image = imageLiteral(XMPPFavoritesManagerStorageItem.imageName, dimension: 16)
             userBarButton.avatar.tintColor = AccountColorManager.shared.palette(for: owner).tint900
             userBarButton.avatar.backgroundColor = AccountColorManager.shared.palette(for: owner).tint100
             userBarButton.avatar.contentMode = .center
         }
-        
-        configureSelectionPanel()
-        configureMessagesPanel()
-        configureCertificateUpdateTimer()
-        previousFrame = self.view.bounds
     }
     
-    var previousFrame: CGRect = .zero
+    final func configureInputBar() {
+        if self.conversationType.isEncrypted {
+            self.xabberInputView.timerButton.isHidden = self.xabberInputView.shouldHideTimer
+            self.xabberInputView.timerButton.isEnabled = true
+            self.xabberInputView.shouldHideTimer = false
+        } else {
+            self.xabberInputView.shouldHideTimer = true
+            self.xabberInputView.timerButton.isHidden = true
+            self.xabberInputView.timerButton.isEnabled = false
+        }
+        self.xabberInputView.update(screenHeight: self.view.bounds.height, keyboardHeight: 0)
+        self.xabberInputView.searchPanel.conversationType = self.conversationType
+        self.xabberInputView.searchPanel.onChangeConversationTypeCallback = onSearchPanelChangeConversationType
+        self.xabberInputView.searchPanel.onSeekUpCallback = self.onSearchPanelSeekUp
+        self.xabberInputView.searchPanel.onSeekDownCallback = self.onSearchPanelSeekDown
+        self.xabberInputView.searchPanel.onChangeViewStateCallback = self.onSearchPanelChangeChatViewState
+    }
     
     override func shouldChangeFrame() {
         super.shouldChangeFrame()
@@ -872,9 +917,9 @@ class ChatViewController: MessagesViewController {
     
     @objc
     private func didReceiveEndOfFixHistoryTask(_ notification: Notification) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            self.userBarButton.stopAnimation()
-        }
+//        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+//            self.userBarButton.stopAnimation()
+//        }
     }
     
     @objc
@@ -882,16 +927,16 @@ class ChatViewController: MessagesViewController {
         NotifyManager.shared.currentDialog = [self.jid, self.owner].prp()
         appInBackground = false
         AccountManager.shared.find(for: self.owner)?.chatMarkers.updateDeleteEphemeralMessagesTimer()
-        self.updateQueue
-            .asyncAfter(deadline: .now() + 3) {
-            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
-            })
-                DispatchQueue.main.async {
-                    self.canUpdateDataset = true
-                    self.runDatasetUpdateTask()
-                }
-        }
+//        self.updateQueue
+//            .asyncAfter(deadline: .now() + 3) {
+//            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+//                user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
+//            })
+//                DispatchQueue.main.async {
+//                    self.canUpdateDataset = true
+//                    self.runDatasetUpdateTask()
+//                }
+//        }
     }
     
     @objc
@@ -929,74 +974,32 @@ class ChatViewController: MessagesViewController {
                                                   object: UIApplication.shared)
     }
     
-    internal func loadDatasource() {
+    private final func initSender() {
+        self.ownerSender = Sender(
+            id: self.owner,
+            displayName: AccountManager.shared.find(for: owner)?.username ?? ""
+        )
         do {
             let realm = try WRealm.safe()
             if let instance = realm.object(ofType: RosterStorageItem.self,
                                            forPrimaryKey: [jid, owner].prp()) {
-                opponentSender = Sender(id: jid, displayName: instance.displayName)
+                self.opponentSender = Sender(id: jid, displayName: instance.displayName)
             } else if let instance = realm.object(ofType: vCardStorageItem.self, forPrimaryKey: jid) {
-                opponentSender = Sender(id: jid, displayName: instance.generatedNickname)
+                self.opponentSender = Sender(id: jid, displayName: instance.generatedNickname)
             } else {
-                opponentSender = Sender(id: jid, displayName: jid)
+                self.opponentSender = Sender(id: jid, displayName: jid)
             }
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
     }
     
-    @objc
-    internal func checkForGaps(_ from: Int = 0) {
-        if let count = messagesObserver?.count,
-            count != 0,
-            from >= count { return }
-    }
-    
-    func scrollToMessage(primary: String) {
-        //item always = 0, section = message
-        print(self.messagesObserver?.first(where: { $0.primary == primary }))
-        if let index = self.datasource.firstIndex(where: { $0.primary == primary }) {
-            self.canUpdateDataset = true
-            self.runDatasetUpdateTask()
-//            if self.messagesCollectionView.indexPathsForVisibleItems.compactMap({ return $0.section }).contains(index) {
-//                return
-//            }
-            self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: index), at: .centeredVertically, animated: true)
-        } else if let index = self.messagesObserver?.firstIndex(where: { $0.primary == primary }) {
-            if index > self.messagesCount {
-                self.messagesCount = index + 10 + ChatViewController.datasourcePageSize
-            }
-            self.canUpdateDataset = true
-            self.runDatasetUpdateTask()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: index), at: .centeredVertically, animated: true)
-            }
-        }
-    }
+    var scrollToMessageTaskId: String? = nil
+    var scrollToMessageArchivedId: String? = nil
     
     override func viewDidLoad() {
         super.viewDidLoad()
-        self.loadDatasource()
         self.configure()
-//        self.addObservers()
-        self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
-        self.navigationController?.navigationBar.shadowImage = nil
-        self.navigationController?.navigationBar.superview?.bringSubviewToFront(self.navigationController!.navigationBar)
-        self.navigationController?.navigationBar.layoutIfNeeded()
-
-        userBarButton.gradient.colors = [UIColor.white.cgColor,
-                                         AccountColorManager.shared.palette(for: self.owner).tint700.cgColor]
-        
-        if [.omemo, .omemo1, .axolotl].contains(self.conversationType) {
-            self.xabberInputView.timerButton.isHidden = self.xabberInputView.shouldHideTimer
-            self.xabberInputView.timerButton.isEnabled = true
-            self.xabberInputView.shouldHideTimer = false
-        } else {
-            self.xabberInputView.shouldHideTimer = true
-            self.xabberInputView.timerButton.isHidden = true
-            self.xabberInputView.timerButton.isEnabled = false
-        }
-//        self.navigationController?.toolbar.delegate = self
     }
     
     override func reloadDatasource() {
@@ -1005,19 +1008,24 @@ class ChatViewController: MessagesViewController {
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        do {
+            try self.subscribe()
+            try self.groupSubscribtions()
+            try self.encryptedSubscribtions()
+            try self.subscribeOnDatasetChanges()
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        }
         self.shouldChangeFrame()
-        self.xabberInputView.update(screenHeight: self.view.bounds.height, keyboardHeight: 0)
         var inputHeight: CGFloat = 49
         if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
             inputHeight += bottomInset
         }
         self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 100, right: 0)
         
-        try? self.subscribe()
-        self.lowPrioritySubscribtions()
         self.addObservers()
         (self.navigationController as? NavBarController)?.cancelButton.addTarget(self, action: #selector(additionalNavBarPanelCancelButtonTouchUpInside), for: .touchUpInside)
-        if [.omemo, .omemo1, .axolotl].contains(conversationType) {
+        if self.conversationType.isEncrypted {
             AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
                 if CommonConfigManager.shared.config.required_time_signature_for_messages {
                     user.x509Manager.retrieveCert(stream, for: self.jid)
@@ -1035,31 +1043,42 @@ class ChatViewController: MessagesViewController {
                 self.onUpdateTimeSignatureBlockState(!SignatureManager.shared.isSignatureValid())
             }
         }
-        
+        self.syncChat()
         self.initializeDataset()
-        
-        self.xabberInputView.searchPanel.conversationType = self.conversationType
-        self.xabberInputView.searchPanel.onChangeConversationTypeCallback = onSearchPanelChangeConversationType
-        self.xabberInputView.searchPanel.onSeekUpCallback = self.onSearchPanelSeekUp
-        self.xabberInputView.searchPanel.onSeekDownCallback = self.onSearchPanelSeekDown
-        self.xabberInputView.searchPanel.onChangeViewStateCallback = self.onSearchPanelChangeChatViewState
-//        self.xabberInputView.isSendButtonEnabled = false
-//        self.xabberInputView.updateSendButtonState()
+        self.configureInputBar()
+        self.lowPrioritySubscribtions()
+    }
+    
+    final func syncChat() {
+        func callback() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                self.showSkeletonObserver.accept(false)
+                self.oldestMessageId = self.getMessageIdAtPostionOrLast(index: self.messagesCount)
+                self.newestMessageId = self.getMessageIdAtPostionOrLast(index: self.lastBottomIndex)
+                self.runDatasetUpdateTask(shouldScrollToLastMessage: false)
+            }
+        }
+        XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { stream, session in
+            session.mam?.syncChat(stream, jid: self.jid, conversationType: self.conversationType, callback: callback)
+        }) {
+            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                user.mam.syncChat(stream, jid: self.jid, conversationType: self.conversationType, callback: callback)
+            })
+        }
+//        XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { stream, session in
+//            session.mam?.syncChatOld(stream, jid: self.jid, conversationType: self.conversationType)
+//        }) {
+//            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+//                user.mam.syncChatOld(stream, jid: self.jid, conversationType: self.conversationType)
+//            })
+//        }
     }
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        
+        self.syncChat()
         self.canLoadPage = true
 
-        XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { stream, session in
-            session.mam?.syncChat(stream, jid: self.jid, conversationType: self.conversationType)
-        }) {
-            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                user.mam.syncChat(stream, jid: self.jid, conversationType: self.conversationType)
-            })
-        }
-        
         do {
             let realm = try WRealm.safe()
             let chat = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid, owner: self.owner, conversationType: self.conversationType))
@@ -1119,43 +1138,11 @@ class ChatViewController: MessagesViewController {
         AccountManager.shared.find(for: self.owner)?.mam.endLoadHistory(jid: self.jid, conversationType: conversationType)
     }
     
-    open func prepareDataset() -> Results<MessageStorageItem> {
-        do {
-            let realm = try  WRealm.safe()
-            let dataset: Results<MessageStorageItem>
-            realm.refresh()
-            if conversationType == .saved {
-                dataset = realm
-                    .objects(MessageStorageItem.self)
-                    .filter ("owner == %@ AND isDeleted == false AND conversationType_ == %@", self.owner, self.conversationType.rawValue)
-                    .sorted (byKeyPath: "date", ascending: false)
-            } else {
-                dataset = realm
-                    .objects(MessageStorageItem.self)
-                    .filter ("owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@", self.owner, self.jid, self.conversationType.rawValue)
-                    .sorted (byKeyPath: "date", ascending: false)
-            }
-            return dataset
-        } catch {
-            fatalError()
-        }
-    }
-    
-    open func reloadDataset(withSearchText value: String?) {
-        DispatchQueue.main.async {
-            do {
-                let realm = try  WRealm.safe()
-                self.messagesObserver = realm
-                    .objects(MessageStorageItem.self)
-                    .filter("owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@", self.owner, self.jid, self.conversationType.rawValue)
-                    .sorted(byKeyPath: "date", ascending: false)
-                realm.refresh()
-                self.subscribeOnDatasetChanges()
-            } catch {
-                DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-            }
-        }
-    }
+
+//    
+//    open func reloadDataset(withSearchText value: String?) {
+//        
+//    }
     
     internal final func scrollToLastUnreadMessage(select: Bool = false) {
         do {
@@ -1253,11 +1240,11 @@ extension ChatViewController: TappedPhotoInMediaGalleryDelegate {
     }
     
     func didTapPhotoFromChat(primary: String) {
-        scrollToMessage(primary: primary)
+//        scrollToMessage(primary: primary)
     }
     
     func didTapPhotoFromGallery(primary: String) {
-        scrollToMessage(primary: primary)
+//        scrollToMessage(primary: primary)
         navigationController?.popViewController(animated: true)
     }
     

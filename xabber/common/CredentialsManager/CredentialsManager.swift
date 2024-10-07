@@ -199,13 +199,15 @@ class CredentialsManager: NSObject {
             print("RELEASE SECRET FOR \(self.jid)")
             DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {
                 self.isInvalidate = error
-                if error {
-                    self.isBlocked = false
-                    self.callbacks = Array()
-                } else {
-                    self.isBlocked = false
-                    if self.callbacks.isNotEmpty {
-                        self.callbacks.removeFirst().callback?()
+                do {
+                    if error {
+                        self.isBlocked = false
+                        self.callbacks = Array()
+                    } else {
+                        self.isBlocked = false
+                        if self.callbacks.isNotEmpty {
+                            self.callbacks.removeFirst().callback?()
+                        }
                     }
                 }
             }

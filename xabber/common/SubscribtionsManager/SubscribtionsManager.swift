@@ -174,7 +174,7 @@ class SubscribtionsManager: NSObject {
                 headers: ["Cache-Control": "no-cache"]
             ).responseJSON {
                 response in
-                print(response)
+//                print(response)
                 if (response.response?.statusCode ?? 500) >= 301 {
                     callback?(false)
                     return
@@ -186,7 +186,7 @@ class SubscribtionsManager: NSObject {
                             return
                         }
                         let status = dict["status"] as? String ?? "EXPIRED"
-                        print(dict)
+//                        print(dict)
                         self.accounts = self.accounts.filter({ $0.jid != jid })
                         if let expiresRaw = dict["expires"] as? String,
                            let expires = Date.parseXMPPFormattedString(expiresRaw) {
@@ -284,7 +284,7 @@ class SubscribtionsManager: NSObject {
             for await entitlement in Transaction.currentEntitlements {
                 switch entitlement {
                     case .verified(let transaction):
-                        print(transaction.jsonRepresentation)
+//                        print(transaction.jsonRepresentation)
                         if let expiration = transaction.expirationDate {
                             if Date().timeIntervalSince1970 < expiration.timeIntervalSince1970 {
                                 purchaisedProducts.insert(transaction.productID)

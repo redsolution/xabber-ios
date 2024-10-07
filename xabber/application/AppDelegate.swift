@@ -59,9 +59,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         
         #if RELEASE
         _DEBUG = false
-        DDLog.add(DDOSLogger.sharedInstance, with: DDLogLevel.all)
+        DDLog.add(DDOSLogger.sharedInstance, with: DDLogLevel.off)
         #else
-        DDLog.add(DDOSLogger.sharedInstance, with: DDLogLevel.all)
+        DDLog.add(DDOSLogger.sharedInstance, with: DDLogLevel.off)
         #endif
 
         if SettingManager.logEnabled {
@@ -331,7 +331,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         }
         let token = tokenParts.joined()
         APNSManager.shared.receive(deviceToken: token)
-        print("device token: \(token)")
+//        print("device token: \(token)")
     }
     
     func application(_ application: UIApplication,
@@ -407,13 +407,13 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
         // Determine who sent the URL.
         let sendingAppID = options[.sourceApplication]
-        print("source application = \(sendingAppID ?? "Unknown")")
+//        print("source application = \(sendingAppID ?? "Unknown")")
 
 
         // Process the URL.
         guard let components = NSURLComponents(url: url, resolvingAgainstBaseURL: true),
             let jid = components.path else {
-                print("Invalid URL or album path missing")
+//                print("Invalid URL or album path missing")
                 return false
         }
 //        getAppTabBar()?.displayAddContactVC(jid: jid, nickname: nil)

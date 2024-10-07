@@ -464,6 +464,6 @@ class AccountInfoViewController: BaseViewController {
     
     @objc
     internal func onRefresh(_ sender: AnyObject) {
-        print("sssssssssss")
+        
     }
 }

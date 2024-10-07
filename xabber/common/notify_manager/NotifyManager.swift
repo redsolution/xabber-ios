@@ -958,12 +958,12 @@ class NotifyManager {
                 isGroupchat = true
                 isIncognito = instance.privacy == .incognito
             } else {
-                print(userInfo)
+//                print(userInfo)
                 if let stanza = userInfo["stanza"] as? String,
                    let document = try? DDXMLDocument(xmlString: stanza, options: 0),
                    let message = document.rootElement(),
                    let bareMessage = getArchivedMessageContainer(XMPPMessage(from: message)) {
-                    print("bareMessage", bareMessage.prettyXMLString!)
+//                    print("bareMessage", bareMessage.prettyXMLString!)
                 }
                 if let stanza = userInfo["stanza"] as? String,
                    let document = try? DDXMLDocument(xmlString: stanza, options: 0),
@@ -973,7 +973,7 @@ class NotifyManager {
                    let privacy = x.element(forName: "privacy", xmlns: GroupchatManager.staticGetNamespace())?.stringValue {
                     isGroupchat = true
                     isIncognito = privacy == "incognito"
-                    print("isIncognito", isIncognito)
+//                    print("isIncognito", isIncognito)
                 }
             }
 

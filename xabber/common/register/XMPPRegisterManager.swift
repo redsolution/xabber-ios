@@ -154,11 +154,11 @@ extension XMPPRegistrationManager: XMPPStreamDelegate {
     }
     
     func xmppStream(_ sender: XMPPStream, didReceiveError error: DDXMLElement) {
-        print("registration error: \(error.prettyXMLString!)")
+//        print("registration error: \(error.prettyXMLString!)")
         do {
             try sender.connect(withTimeout: 15)
         } catch {
-            print("asd")
+//            print("asd")
         }
     }
     

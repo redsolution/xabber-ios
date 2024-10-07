@@ -151,7 +151,7 @@ class XabberActivityViewController: SimpleBaseViewController {
             let username = item.rosterItem?.displayName ?? item.jid
             var attributedUsername: NSAttributedString? = nil
                             
-            if [.omemo, .omemo1, .axolotl].contains(item.conversationType) {
+            if item.conversationType.isEncrypted {
                 let attributedTitle: NSMutableAttributedString = NSMutableAttributedString()
                 let indicatorAttach = NSTextAttachment()
                 var color: UIColor = .label
@@ -225,7 +225,7 @@ class XabberActivityViewController: SimpleBaseViewController {
                 isSystemMessage: [.system, .initial].contains(item.lastMessage?.displayAs),
                 isPinned: item.isPinned,
                 subRequest: false,
-                isEncrypted: [.omemo, .axolotl, .omemo1].contains(item.conversationType),
+                isEncrypted: item.conversationType.isEncrypted,
                 avatarUrl: item.rosterItem?.avatarMinUrl ?? item.rosterItem?.avatarMaxUrl ?? item.rosterItem?.oldschoolAvatarKey,
                 hasErrorInChat: item.hasErrorInChat,
                 updateTS: item.updateTS

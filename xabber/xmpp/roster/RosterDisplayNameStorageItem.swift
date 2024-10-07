@@ -44,7 +44,7 @@ class RosterDisplayNameStorageItem: Object {
                     block()
                 }
             } catch {
-                print(error.localizedDescription)
+//                print(error.localizedDescription)
             }
         }
         do {
@@ -65,7 +65,7 @@ class RosterDisplayNameStorageItem: Object {
                 }
             }
         } catch {
-            print(error.localizedDescription)
+//            print(error.localizedDescription)
         }
     }
 }

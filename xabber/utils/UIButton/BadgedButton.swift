@@ -249,7 +249,7 @@ open class BadgedButton: UIButton {
                 self.badgeAnchor = .center
                 break
             default:
-                print("Unknow anchor position. Fallback to default")
+//                print("Unknow anchor position. Fallback to default")
                 self.anchorIndex  = 1
             }
         }

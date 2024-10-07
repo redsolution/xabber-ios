@@ -488,7 +488,7 @@ open class SettingManager: NSObject {
     
     public final func getKey(for jid: String, scope: KeyScope, key: String) -> String? {
         guard let userDefaults = UserDefaults.init(suiteName: "com.xabber.ios.settings.common") else {
-            print("SettingsManager: \(#function). Can`t load UserDefaults")
+//            print("SettingsManager: \(#function). Can`t load UserDefaults")
             return nil
         }
         let computedKey: String = [scope.rawValue, key, jid].prp()
@@ -497,7 +497,7 @@ open class SettingManager: NSObject {
     
     public final func getInt(for jid: String, scope: KeyScope, key: String) -> Int {
         guard let userDefaults = UserDefaults.init(suiteName: "com.xabber.ios.settings.common") else {
-            print("SettingsManager: \(#function). Can`t load UserDefaults")
+//            print("SettingsManager: \(#function). Can`t load UserDefaults")
             return 0
         }
         let computedKey: String = [scope.rawValue, key, jid].prp()
@@ -506,7 +506,7 @@ open class SettingManager: NSObject {
     
     public final func getKeyBool(for jid: String, scope: KeyScope, key: String) -> Bool? {
         guard let userDefaults = UserDefaults.init(suiteName: "com.xabber.ios.settings.common") else {
-            print("SettingsManager: \(#function). Can`t load UserDefaults")
+//            print("SettingsManager: \(#function). Can`t load UserDefaults")
             return nil
         }
         let computedKey: String = [scope.rawValue, key, jid].prp()

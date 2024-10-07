@@ -41,7 +41,7 @@ extension ChatViewController: UISearchBarDelegate {
             return
         }
         print(searchText)
-        searchTextBouncerObserver.accept(searchText.isEmpty ? nil : searchText)
+        searchTextObserver.accept(searchText.isEmpty ? nil : searchText)
     }
 }
 

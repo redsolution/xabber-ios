@@ -64,12 +64,12 @@ extension MessageManager {
 //                    })
 //                }
                 
-            }, onError: { (error) in
-                print(error.localizedDescription)
+            }, onError: { (_) in
+                
             }, onCompleted: {
-                print("completed")
+                
             }) {
-                print("disposed")
+                
             }
             .disposed(by: senderBag)
     }
@@ -194,7 +194,7 @@ extension MessageManager {
             let missRetryElementOnResend = item.messageErrorCode == "405"
             try realm.write {
                 if item.displayAs != .system {
-                    if [.omemo, .omemo1, .axolotl].contains(item.conversationType) {
+                    if item.conversationType.isEncrypted {
                         if let conversation = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: item.opponent, owner: item.owner, conversationType: item.conversationType)) {
                             if conversation.isAfterburnEnabled {
                                 let ephemeralElement = DDXMLElement(name: "ephemeral", xmlns: "urn:xmpp:ephemeral:0")
@@ -217,7 +217,7 @@ extension MessageManager {
                     )
                 )?.isSynced ?? false
                 
-                if [.omemo, .omemo1, .axolotl].contains(item.conversationType) && item.displayAs != .system {
+                if item.conversationType.isEncrypted && item.displayAs != .system {
                     if SignatureManager.shared.isSignatureSetted {
                         item.errorMetadata = (try? SignatureManager.shared.checkSignature(
                             owner: self.owner,
@@ -326,8 +326,6 @@ extension MessageManager {
                     forwardedElement.addChild(message)
                     refElement.addChild(forwardedElement)
                     stanza = refElement
-                    print(stanza!.prettyXMLString!)
-                    print(1)
                 }
                 if let body = body,
                     let stanza = stanza,
@@ -427,7 +425,8 @@ extension MessageManager {
         }
     }
         
-    public func sendSimpleMessage(_ body: String, to jid: String, childs: [DDXMLElement] = [],  forwarded: [String], conversationType: ClientSynchronizationManager.ConversationType) {
+    public func sendSimpleMessage(_ body: String, to jid: String, childs: [DDXMLElement] = [],  forwarded: [String], conversationType: ClientSynchronizationManager.ConversationType) -> String {
+        let originalId = NanoID.new(8)
         do {
             let realm = try  WRealm.safe()
             let instance = MessageStorageItem()
@@ -440,7 +439,7 @@ extension MessageManager {
             instance.conversationType = conversationType
             instance.configureOutgoingMessage(body,
                                               legacy: legacyBody,
-                                              messageId: UUID().uuidString,
+                                              messageId: originalId,
                                               owner: owner,
                                               opponent: jid,
                                               references: [],
@@ -474,6 +473,7 @@ extension MessageManager {
         } catch {
             DDLogDebug("cant store new message item")
         }
+        return originalId
     }
     
     public func sendSystemMessage(_ body: String, attachments: [MessageReferenceStorageItem], to jid: String, childs: [DDXMLElement] = [], conversationType: ClientSynchronizationManager.ConversationType) {
@@ -504,7 +504,6 @@ extension MessageManager {
     public func willSendMediaMessage(_ attachments: [MessageReferenceStorageItem], to jid: String, forwarded: [String], conversationType: ClientSynchronizationManager.ConversationType) -> String? {
         if attachments.isEmpty { return nil }
         do {
-            print(attachments)
             let realm = try  WRealm.safe()
             let instance = MessageStorageItem()
             var legacyBody: String = ""
@@ -547,7 +546,6 @@ extension MessageManager {
     public func sendMediaMessage(_ attachments: [MessageReferenceStorageItem], to jid: String, forwarded: [String], conversationType: ClientSynchronizationManager.ConversationType) {
         if attachments.isEmpty { return }
         do {
-            print(attachments)
             let realm = try  WRealm.safe()
             let instance = MessageStorageItem()
             var legacyBody: String = ""

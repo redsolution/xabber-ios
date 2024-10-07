@@ -85,7 +85,7 @@ class XMPPBackgroundTask: NSObject {
         super.init()
         self.connect()
         self.mam.backgroundTaskDelegate = self
-        print(self.backgroundUpdateTask, self.taskType, "new background task")
+//        print(self.backgroundUpdateTask, self.taskType, "new background task")
     }
     
     func endBackgroundUpdateTask() {

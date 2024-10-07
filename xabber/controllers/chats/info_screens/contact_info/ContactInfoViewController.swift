@@ -510,7 +510,7 @@ class ContactInfoViewController: BaseViewController {
     
     @objc
     internal func onCallButtonTouchUpInside(_ sender: InfoHeaderButton) {
-        print(#function)
+        
     }
     
     @objc
@@ -530,7 +530,7 @@ class ContactInfoViewController: BaseViewController {
     
     @objc
     internal func onMoreButtonTouchUpInside(_ sender: InfoHeaderButton) {
-        print(#function)
+        
     }
     
     @objc

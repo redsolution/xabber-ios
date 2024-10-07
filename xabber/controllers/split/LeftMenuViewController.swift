@@ -479,7 +479,7 @@ class LeftMenuViewController: UIViewController {
 
     @objc
     func languageChanged() {
-        print("Notification received")
+//        print("Notification received")
     }
 
     private func removeNotificationObserer() {

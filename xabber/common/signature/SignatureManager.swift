@@ -303,7 +303,7 @@ class SignatureManager: NSObject {
                 return result
             }
             result.signDecrypted = true
-            print(tsRaw, ts, ts.bytes)
+//            print(tsRaw, ts, ts.bytes)
             var error: Unmanaged<CFError>?
             let verf = SecKeyVerifySignature(
                 key,
@@ -506,7 +506,7 @@ extension SignatureManager: YKFManagerDelegate {
                             return
                         }
                         var errorPointer: Unmanaged<CFError>?
-                        print(stamp, ts, ts.bytes)
+//                        print(stamp, ts, ts.bytes)
                         guard let cert = SignatureManager.shared.certificate,
                               let publicKey = SecCertificateCopyKey(cert),
                               let signature = result,
@@ -546,7 +546,7 @@ extension SignatureManager: YKFManagerDelegate {
     }
     
     func didDisconnectNFC(_ connection: YKFNFCConnection, error: Error?) {
-        print(#function)
+//        print(#function)
     }
     
     func didConnectAccessory(_ connection: YKFAccessoryConnection) {
@@ -554,7 +554,7 @@ extension SignatureManager: YKFManagerDelegate {
     }
     
     func didDisconnectAccessory(_ connection: YKFAccessoryConnection, error: Error?) {
-        print(#function)
+//        print(#function)
     }
     
     

@@ -27,7 +27,7 @@ import CocoaLumberjack
 
 extension ChatViewController {
     internal func startRecord() {
-        print(#function)
+//        print(#function)
 //        FeedbackManager.shared.generate(feedback: .success)
         
         AudioRecorder.shared.askPermission(completion: { (value, request) in

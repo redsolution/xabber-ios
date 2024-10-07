@@ -165,7 +165,7 @@ class SearchChatListViewController: SimpleBaseViewController {
             if let frameValue = userInfo[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue {
                 let frame = frameValue.cgRectValue
                 let keyboardVisibleHeight = frame.size.height
-                print("keyboardVisibleHeight", keyboardVisibleHeight)
+//                print("keyboardVisibleHeight", keyboardVisibleHeight)
                 switch (userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber, userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber) {
                 case let (.some(duration), .some(curve)):
                     let options = UIView.AnimationOptions(rawValue: curve.uintValue)
@@ -269,7 +269,7 @@ class SearchChatListViewController: SimpleBaseViewController {
             let vc = vcs[vcs.count - 2] as? ChatViewController
             vc?.inSearchMode.accept(false)
             vc?.searchBar.text = nil
-            vc?.searchTextBouncerObserver.accept(nil)
+//            vc?.searchTextBouncerObserver.accept(nil)
             vc?.searchTextObserver.accept(nil)
             vc?.updateSearchResults(value: nil)
             vc?.canUpdateDataset = true
@@ -285,7 +285,7 @@ class SearchChatListViewController: SimpleBaseViewController {
             let vc = vcs[vcs.count - 2] as? ChatViewController
             vc?.inSearchMode.accept(true)
             vc?.searchBar.text = self.searchBar.text
-            vc?.searchTextBouncerObserver.accept(self.searchBar.text)
+//            vc?.searchTextBouncerObserver.accept(self.searchBar.text)
             vc?.searchTextObserver.accept(self.searchBar.text)
             vc?.updateSearchResults(value: self.searchBar.text)
             vc?.canUpdateDataset = true
@@ -394,7 +394,7 @@ class SearchChatListViewController: SimpleBaseViewController {
             
             var isVerificationActionRequired: Bool = false
                             
-            if [.omemo, .omemo1, .axolotl].contains(item.conversationType) {
+            if item.conversationType.isEncrypted {
                 let attributedTitle: NSMutableAttributedString = NSMutableAttributedString()
                 let indicatorAttach = NSTextAttachment()
                 var color: UIColor = .label
@@ -463,7 +463,7 @@ class SearchChatListViewController: SimpleBaseViewController {
                 isSystemMessage: isSystemMessage,
                 isPinned: item.isPinned,
                 subRequest: (XMPPJID(string: item.jid)?.isServer ?? true) ? false :  subscriptionRequest,
-                isEncrypted: [.omemo, .axolotl, .omemo1].contains(item.conversationType),
+                isEncrypted: item.conversationType.isEncrypted,
                 avatarUrl: item.rosterItem?.avatarMinUrl ?? item.rosterItem?.avatarMaxUrl ?? item.rosterItem?.oldschoolAvatarKey,
                 hasErrorInChat: item.hasErrorInChat,
                 updateTS: item.updateTS,
@@ -514,6 +514,8 @@ class SearchChatListViewController: SimpleBaseViewController {
                             self.currentQueryId = user.mam.searchText(stream, jid: self.jid, conversationType: self.conversationType, text: value)
                         })
                     }
+                } else {
+                    self.messagesQueue = []
                 }
             })
             .disposed(by: bag)
@@ -547,14 +549,16 @@ extension SearchChatListViewController: UITableViewDelegate {
 }
 
 extension SearchChatListViewController: TemporaryMessageReceiverProtocol {
+    func didReceiveEndPage(queryId: String, fin: Bool, first: String, last: String, count: Int) {
+        
+    }
+    
     func didReceiveMessage(_ item: MessageStorageItem, queryId: String) {
         if queryId == self.currentQueryId {
             self.messagesQueue.append(item)
             self.searchResultsObserver.accept(item.primary)
         }
     }
-    
-    
 }
 
 extension SearchChatListViewController: UITableViewDataSource {
@@ -621,7 +625,7 @@ extension SearchChatListViewController: UISearchBarDelegate {
     }
     
     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
-        print(searchText)
+//        print(searchText)
         searchTextObserver.accept(searchText.isEmpty ? nil : searchText)
     }
 }

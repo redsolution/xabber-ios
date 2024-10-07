@@ -87,7 +87,7 @@ struct EncryptedPushDate: Codable {
                 ivCount < data.count else {
                 return nil
             }
-            print(encryptedStr)
+//            print(encryptedStr)
             return Padding.zeroPadding.add(to: Array(data.bytes.suffix(from: ivCount)), blockSize: 16)
         }
     }

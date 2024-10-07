@@ -384,7 +384,7 @@ class SearchResultsViewController: SimpleBaseViewController {
                                 let username = item.rosterItem?.displayName ?? item.jid
                                 var attributedUsername: NSAttributedString? = nil
                                                 
-                                if [.omemo, .omemo1, .axolotl].contains(item.conversationType) {
+                                if item.conversationType.isEncrypted {
                                     let attributedTitle: NSMutableAttributedString = NSMutableAttributedString()
                                     let indicatorAttach = NSTextAttachment()
                                     var color: UIColor = .label
@@ -442,7 +442,7 @@ class SearchResultsViewController: SimpleBaseViewController {
                                     isSystemMessage: isSystemMessage,
                                     isPinned: item.isPinned,
                                     subRequest: (XMPPJID(string: item.jid)?.isServer ?? true) ? false :  subscriptionRequest,
-                                    isEncrypted: [.omemo, .axolotl, .omemo1].contains(item.conversationType),
+                                    isEncrypted: item.conversationType.isEncrypted,
                                     avatarUrl: item.rosterItem?.avatarMinUrl ?? item.rosterItem?.avatarMaxUrl ?? item.rosterItem?.oldschoolAvatarKey,
                                     hasErrorInChat: item.hasErrorInChat,
                                     updateTS: item.updateTS,

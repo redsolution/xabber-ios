@@ -268,18 +268,18 @@ extension ChatViewController {
             })
             .disposed(by: bag)
         
-        searchTextBouncerObserver
-            .asObservable()
-            .debounce(.milliseconds(600), scheduler: MainScheduler.asyncInstance)
-            .skip(1)
-            .subscribe(onNext: { (value) in
-                if self.searchTextObserver.value != value {
-                    self.searchTextObserver.accept(value)
-                    self.canUpdateDataset = true
-                    self.runDatasetUpdateTask()
-                }
-            })
-            .disposed(by: bag)
+//        searchTextBouncerObserver
+//            .asObservable()
+//            .debounce(.milliseconds(600), scheduler: MainScheduler.asyncInstance)
+//            .skip(1)
+//            .subscribe(onNext: { (value) in
+//                if self.searchTextObserver.value != value {
+//                    self.searchTextObserver.accept(value)
+//                    self.canUpdateDataset = true
+//                    self.runDatasetUpdateTask()
+//                }
+//            })
+//            .disposed(by: bag)
 
         blockInputFieldByTimeSignature
             .asObservable()
@@ -295,128 +295,9 @@ extension ChatViewController {
             }.disposed(by: bag)
 
         
-        if [.omemo, .omemo1, .axolotl].contains(self.conversationType) {
-            do {
-                let realm = try Realm()
-                if CommonConfigManager.shared.config.required_time_signature_for_messages {
-                    let certsCollection = realm.objects(X509StorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid)
-                    
-                    Observable
-                        .collection(from: certsCollection)
-                        .debounce(.milliseconds(200), scheduler: MainScheduler.asyncInstance)
-                        .subscribe { results in
-                            self.contactWithSigningCertificate = !results.isEmpty
-                            self.titleLabel.attributedText = self.updateTitle()
-                            self.titleLabel.sizeToFit()
-                            self.titleLabel.layoutIfNeeded()
-                        } onError: { error in
-                            
-                        } onCompleted: {
-                            
-                        } onDisposed: {
-                            
-                        }.disposed(by: bag)
-                    
-                }
-                
-                let badMessageCollection = realm
-                    .objects(MessageStorageItem.self)
-                    .filter(
-                        "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND messageType != %@ AND (state_ == %@ OR state_ == %@)",
-                        self.owner,
-                        self.jid,
-                        self.conversationType.rawValue,
-                        MessageStorageItem.MessageDisplayType.system.rawValue,
-                        MessageStorageItem.MessageSendingState.sending.rawValue,
-                        MessageStorageItem.MessageSendingState.error.rawValue
-                    )
-                
-                Observable
-                    .collection(from: badMessageCollection)
-                    .debounce(.milliseconds(5), scheduler: MainScheduler.asyncInstance)
-                    .subscribe(onNext: { results in
-                        if !self.showSkeletonObserver.value {
-                            if AccountManager.shared.connectingUsers.value.contains(self.owner) {
-                                self.xabberInputView.isSendButtonEnabled = false
-                            } else {
-                                self.xabberInputView.isSendButtonEnabled = results.isEmpty
-                            }
-                            self.xabberInputView.updateSendButtonState()
-                        } else {
-                            self.xabberInputView.isSendButtonEnabled = false
-                            self.xabberInputView.updateSendButtonState()
-                        }
-                    }, onError: { _ in
-                        
-                    }, onCompleted: {
-                        
-                    }, onDisposed: {
-                        
-                    })
-                    .disposed(by: bag)
-                
-                let myUntrustedDevicesCollection = realm
-                    .objects(SignalDeviceStorageItem.self)
-                    .filter("owner == %@ AND jid == %@ AND state_ != %@", self.owner, self.owner, SignalDeviceStorageItem.TrustState.trusted.rawValue)
-                
-                let theirUntrustDevicesCollection = realm
-                    .objects(SignalDeviceStorageItem.self)
-                    .filter("owner == %@ AND jid == %@", self.owner, self.jid)
-                
-                Observable
-                    .collection(from: myUntrustedDevicesCollection)
-                    .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
-                    .subscribe { results in
-                        if !results.isEmpty {
-                            self.onUpdateTrustedDevicesBlockState(true, identityVerification: false)
-                        } else {
-                            self.onUpdateTrustedDevicesBlockState(false, identityVerification: false)
-                        }
-                    } onError: { error in
-                        
-                    } onCompleted: {
-                        
-                    } onDisposed: {
-                        
-                    }.disposed(by: self.bag)
-                
-                Observable
-                    .collection(from: theirUntrustDevicesCollection)
-                    .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
-                    .subscribe { results in
-                        do {
-                            let realm = try WRealm.safe()
-                            let myUntrustedDevicesCollection = realm
-                                .objects(SignalDeviceStorageItem.self)
-                                .filter("owner == %@ AND jid == %@ AND state_ != %@", self.owner, self.owner, SignalDeviceStorageItem.TrustState.trusted.rawValue)
-                            
-                            if results.isEmpty {
-                                self.onUpdateTrustedDevicesBlockState(true, identityVerification: myUntrustedDevicesCollection.isEmpty)
-                            } else {
-                                self.onUpdateTrustedDevicesBlockState(!myUntrustedDevicesCollection.isEmpty, identityVerification: false)
-                            }
-                        } catch {
-                            
-                        }
-                        
-                        self.titleLabel.attributedText = self.updateTitle()
-                        self.titleLabel.sizeToFit()
-                        self.titleLabel.layoutIfNeeded()
-                    } onError: { error in
-                        
-                    } onCompleted: {
-                        
-                    } onDisposed: {
-                        
-                    }.disposed(by: self.bag)
-
-            } catch {
-                DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-            }
-        }
+        
         self.showSkeletonObserver
             .asObservable()
-//            .debounce(.milliseconds(5), scheduler: MainScheduler.asyncInstance)
             .skip(1)
             .subscribe { value in
                 self.canUpdateDataset = true
@@ -502,7 +383,7 @@ extension ChatViewController {
                     if self.showSkeletonObserver.value {
                         self.xabberInputView.isSendButtonEnabled = false
                     } else {
-                        print(badMessageCollection.toArray())
+//                        print(badMessageCollection.toArray())
                         self.xabberInputView.isSendButtonEnabled = badMessageCollection.isEmpty
                     }
                     self.xabberInputView.updateSendButtonState()
@@ -518,78 +399,156 @@ extension ChatViewController {
             
         }.disposed(by: self.bag)
 
-        if [.omemo, .omemo1, .axolotl].contains(self.conversationType) {
-            do {
-                let realm = try WRealm.safe()
-                let verificationSessions = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid)
-                Observable
-                    .collection(from: verificationSessions)
-                    .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
-                    .subscribe { results in
-                        if results.isEmpty {
-                            let contactDevices = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@ AND state_ IN %@", self.owner, self.jid, [SignalDeviceStorageItem.TrustState.unknown.rawValue, SignalDeviceStorageItem.TrustState.distrusted.rawValue])
-                            if !contactDevices.isEmpty {
-                                if ![.addContact, .allowSubscribtion, .requestSubscribtion].contains(self.topPanelState.value) {
-                                    self.topPanelState.accept(.shouldRequestVerification)
-                                }
-                                return
-                            }
-                        }
-                        
-                        let item = results.first
-                        if ![.addContact, .allowSubscribtion, .requestSubscribtion].contains(self.topPanelState.value) {
-                            switch item?.state {
-                                case .receivedRequestAccept:
-                                    self.topPanelState.accept(.enterCodeVerification)
-                                case .receivedRequest:
-                                    self.topPanelState.accept(.requestingVerification)
-                                case .acceptedRequest:
-                                    self.topPanelState.accept(.acceptedVerification)
-                                case .trusted:
-                                    self.topPanelState.accept(.none)
-                                default:
-                                    break
-                            }
-                        }
-                    } onError: { _ in
-                        
-                    } onCompleted: {
-                        
-                    } onDisposed: {
-                        
-                    }.disposed(by: self.bag)
-                
-                let contactDevices = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@ AND state_ IN %@", self.owner, self.jid, [SignalDeviceStorageItem.TrustState.distrusted.rawValue, SignalDeviceStorageItem.TrustState.unknown.rawValue])
-                Observable
-                    .collection(from: contactDevices)
-                    .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
-                    .subscribe { results in
-                        if results.isEmpty {
-                            return
-                        }
-                        
-                        let instance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid).first
-                        if instance != nil {
-                            return
-                        }
-                        
-                        if ![.addContact, .allowSubscribtion, .requestSubscribtion, .shouldRequestVerification].contains(self.topPanelState.value) {
-                            self.topPanelState.accept(.shouldRequestVerification)
-                        }
-                        
-                    } onError: { _ in
-                        
-                    } onCompleted: {
-                        
-                    } onDisposed: {
-                        
-                    }.disposed(by: self.bag)
-                
-
-            } catch {
-                DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-            }
-        }
+        
     }
     
+    final func encryptedSubscribtions() throws {
+        if !self.conversationType.isEncrypted { return }
+
+        let realm = try Realm()
+        if CommonConfigManager.shared.config.required_time_signature_for_messages {
+            let certsCollection = realm.objects(X509StorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid)
+            
+            Observable
+                .collection(from: certsCollection)
+                .debounce(.milliseconds(200), scheduler: MainScheduler.asyncInstance)
+                .subscribe { results in
+                    self.contactWithSigningCertificate = !results.isEmpty
+                    self.titleLabel.attributedText = self.updateTitle()
+                    self.titleLabel.sizeToFit()
+                    self.titleLabel.layoutIfNeeded()
+                } onError: { error in
+                    
+                } onCompleted: {
+                    
+                } onDisposed: {
+                    
+                }.disposed(by: bag)
+            
+        }
+        
+        let badMessageCollection = realm
+            .objects(MessageStorageItem.self)
+            .filter(
+                "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND messageType != %@ AND (state_ == %@ OR state_ == %@)",
+                self.owner,
+                self.jid,
+                self.conversationType.rawValue,
+                MessageStorageItem.MessageDisplayType.system.rawValue,
+                MessageStorageItem.MessageSendingState.sending.rawValue,
+                MessageStorageItem.MessageSendingState.error.rawValue
+            )
+        
+        Observable
+            .collection(from: badMessageCollection)
+            .debounce(.milliseconds(5), scheduler: MainScheduler.asyncInstance)
+            .subscribe { results in
+                if !self.showSkeletonObserver.value {
+                    if AccountManager.shared.connectingUsers.value.contains(self.owner) {
+                        self.xabberInputView.isSendButtonEnabled = false
+                    } else {
+                        self.xabberInputView.isSendButtonEnabled = results.isEmpty
+                    }
+                    self.xabberInputView.updateSendButtonState()
+                } else {
+                    self.xabberInputView.isSendButtonEnabled = false
+                    self.xabberInputView.updateSendButtonState()
+                }
+            }.disposed(by: bag)
+        
+        let myUntrustedDevicesCollection = realm
+            .objects(SignalDeviceStorageItem.self)
+            .filter("owner == %@ AND jid == %@ AND state_ != %@", self.owner, self.owner, SignalDeviceStorageItem.TrustState.trusted.rawValue)
+        
+        let theirUntrustDevicesCollection = realm
+            .objects(SignalDeviceStorageItem.self)
+            .filter("owner == %@ AND jid == %@", self.owner, self.jid)
+        
+        Observable
+            .collection(from: myUntrustedDevicesCollection)
+            .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
+            .subscribe { results in
+                if !results.isEmpty {
+                    self.onUpdateTrustedDevicesBlockState(true, identityVerification: false)
+                } else {
+                    self.onUpdateTrustedDevicesBlockState(false, identityVerification: false)
+                }
+            }.disposed(by: self.bag)
+        
+        Observable
+            .collection(from: theirUntrustDevicesCollection)
+            .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
+            .subscribe { results in
+                do {
+                    let realm = try WRealm.safe()
+                    let myUntrustedDevicesCollection = realm
+                        .objects(SignalDeviceStorageItem.self)
+                        .filter("owner == %@ AND jid == %@ AND state_ != %@", self.owner, self.owner, SignalDeviceStorageItem.TrustState.trusted.rawValue)
+                    
+                    if results.isEmpty {
+                        self.onUpdateTrustedDevicesBlockState(true, identityVerification: myUntrustedDevicesCollection.isEmpty)
+                    } else {
+                        self.onUpdateTrustedDevicesBlockState(!myUntrustedDevicesCollection.isEmpty, identityVerification: false)
+                    }
+                } catch {
+                    
+                }
+                
+                self.titleLabel.attributedText = self.updateTitle()
+                self.titleLabel.sizeToFit()
+                self.titleLabel.layoutIfNeeded()
+            }.disposed(by: self.bag)
+
+        let verificationSessions = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid)
+        Observable
+            .collection(from: verificationSessions)
+            .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
+            .subscribe { results in
+                if results.isEmpty {
+                    let contactDevices = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@ AND state_ IN %@", self.owner, self.jid, [SignalDeviceStorageItem.TrustState.unknown.rawValue, SignalDeviceStorageItem.TrustState.distrusted.rawValue])
+                    if !contactDevices.isEmpty {
+                        if ![.addContact, .allowSubscribtion, .requestSubscribtion].contains(self.topPanelState.value) {
+                            self.topPanelState.accept(.shouldRequestVerification)
+                        }
+                        return
+                    }
+                }
+                
+                let item = results.first
+                if ![.addContact, .allowSubscribtion, .requestSubscribtion].contains(self.topPanelState.value) {
+                    switch item?.state {
+                        case .receivedRequestAccept:
+                            self.topPanelState.accept(.enterCodeVerification)
+                        case .receivedRequest:
+                            self.topPanelState.accept(.requestingVerification)
+                        case .acceptedRequest:
+                            self.topPanelState.accept(.acceptedVerification)
+                        case .trusted:
+                            self.topPanelState.accept(.none)
+                        default:
+                            break
+                    }
+                }
+            }.disposed(by: self.bag)
+        
+        let contactDevices = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@ AND state_ IN %@", self.owner, self.jid, [SignalDeviceStorageItem.TrustState.distrusted.rawValue, SignalDeviceStorageItem.TrustState.unknown.rawValue])
+        Observable
+            .collection(from: contactDevices)
+            .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
+            .subscribe { results in
+                if results.isEmpty {
+                    return
+                }
+                
+                let instance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid).first
+                if instance != nil {
+                    return
+                }
+                
+                if ![.addContact, .allowSubscribtion, .requestSubscribtion, .shouldRequestVerification].contains(self.topPanelState.value) {
+                    self.topPanelState.accept(.shouldRequestVerification)
+                }
+                
+            }.disposed(by: self.bag)
+    }
 }

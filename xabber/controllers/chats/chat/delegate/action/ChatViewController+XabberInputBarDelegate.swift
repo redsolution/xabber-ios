@@ -28,7 +28,7 @@ import CocoaLumberjack
 
 extension ChatViewController: UIPickerViewDelegate {
     func pickerView(_ pickerView: UIPickerView, didSelectRow row: Int, inComponent component: Int) {
-        print(row)
+//        print(row)
         self.selectedAfterburnId = row
     }
 }
@@ -77,7 +77,7 @@ extension ChatViewController: XabberInputBarDelegate {
     }
     
     func onHeightChanged(to height: CGFloat, bar barHeight: CGFloat) {
-        print("self.messagesCollectionView.contentOffset.y", self.messagesCollectionView.contentOffset.y)
+//        print("self.messagesCollectionView.contentOffset.y", self.messagesCollectionView.contentOffset.y)
         if self.messagesCollectionView.contentOffset.y < 0 { // -340
             self.messagesCollectionView.contentOffset.y = -height - 8
         }
@@ -91,7 +91,7 @@ extension ChatViewController: XabberInputBarDelegate {
     }
     
     func onAfterburnButtonTouchUp() {
-        print(#function)
+//        print(#function)
         if UIDevice.current.userInterfaceIdiom == .pad {
             let items = ChatMarkersManager.BurnMessagesTimerValues.values().compactMap {
                 return ActionSheetPresenter.Item(destructive: false, title: ChatMarkersManager.BurnMessagesTimerValues.verbose($0), value: "\($0.rawValue)", isEnabled: true)
@@ -368,7 +368,7 @@ extension ChatViewController: XabberInputBarDelegate {
             } else {
                 AccountManager.shared.find(for: self.owner)?.unsafeAction({ (user, stream) in
                     user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
-                    user.messages.sendSimpleMessage(
+                    self.newestMessageId = user.messages.sendSimpleMessage(
                         text,
                         to: self.jid,
                         forwarded: forwarded,
@@ -399,7 +399,7 @@ extension ChatViewController: XabberInputBarDelegate {
             return
         }
         
-        if [.omemo, .axolotl, .omemo1].contains(self.conversationType) {
+        if self.conversationType.isEncrypted {
             do {
                 let realm = try WRealm.safe()
                 let collection = realm

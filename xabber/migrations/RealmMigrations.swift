@@ -41,8 +41,8 @@ func realmMigrations(scheme: UInt64) {
             return total > limit && Double(used) / Double(total) < 0/5
         }
 
-    if _DEBUG {
-        print(config.fileURL)
-    }
+//    if _DEBUG {
+//        print(config.fileURL)
+//    }
     Realm.Configuration.defaultConfiguration = config
 }

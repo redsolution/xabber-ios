@@ -52,6 +52,12 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         case axolotl = "eu.siacs.conversations.axolotl"
         case notifications = "urn:xabber:xen:0"
         case saved = "urn:xabber:favorites:0"
+        
+        var isEncrypted: Bool {
+            get {
+                return [.omemo, .omemo1, .axolotl].contains(self)
+            }
+        }
     }
     
     static public let primaryNamespace = "https://xabber.com/protocol/synchronization"
@@ -864,14 +870,14 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                                     commitTransaction: false)
             }
             
-            if [.omemo, .axolotl, .omemo1].contains(conversationType),
+            if conversationType.isEncrypted,
                metadata.element(forName: "last-message")?.element(forName: "message") == nil {
                 instance.isFreshNotEmptyEncryptedChat = true
                 instance.isSynced = false//!firstSync
             }
             if let messageElement = metadata.element(forName: "last-message")?.element(forName: "message") {
                 if let date = getDeliveryDate(XMPPMessage(from: messageElement)) {
-                    if [.omemo, .axolotl, .omemo1].contains(conversationType), let accountCreateDate = accountCreateDate {
+                    if conversationType.isEncrypted, let accountCreateDate = accountCreateDate {
                         if date.timeIntervalSince1970 < accountCreateDate.timeIntervalSince1970 {
                             instance.isFreshNotEmptyEncryptedChat = true
                             instance.isSynced = false//!firstSync

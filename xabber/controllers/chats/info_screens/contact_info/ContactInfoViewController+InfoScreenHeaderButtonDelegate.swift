@@ -32,11 +32,11 @@ extension ContactInfoViewController: InfoScreenHeaderDelegate {
     }
         
     func onImageButtonPressed() {
-        print(#function)
+        
     }
     
     func onTitleButtonPressed() {
-        print(#function)
+        
     }
     
     @objc

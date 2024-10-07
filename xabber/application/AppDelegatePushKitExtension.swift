@@ -31,13 +31,13 @@ extension AppDelegate: PKPushRegistryDelegate {
             return String(format: "%02.2hhx", data)
             }.joined()
 //        print("voip \(token)")
-        print("********* TOKEN VOIP\(token)")
+//        print("********* TOKEN VOIP\(token)")
         APNSManager.shared.receive(voipToken: token)
 //        self.voipToken = token
     }
     
     func pushRegistry(_ registry: PKPushRegistry, didInvalidatePushTokenFor type: PKPushType) {
-        print("pushkit receive invalid token")
+//        print("pushkit receive invalid token")
         registry.pushToken(for: type)
         
     }

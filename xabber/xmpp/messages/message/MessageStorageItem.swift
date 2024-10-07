@@ -82,6 +82,7 @@ class MessageStorageItem: Object {
     
     @objc dynamic var trustedSource: Bool = false
     @objc dynamic var previousId: String? = nil
+    @objc dynamic var queryIds: String? = nil
     
     @objc dynamic var archivedId: String = ""
     
@@ -456,7 +457,7 @@ class MessageStorageItem: Object {
     }
     
     internal func updateDisplayMode() {
-        print(#function, self.references.toArray(), self.legacyBody, self.createReferences())
+//        print(#function, self.references.toArray(), self.legacyBody, self.createReferences())
         if !references.filter({ $0.kind == .call }).isEmpty {
             displayAs = .call
         } else if !references.filter({ $0.kind == .voice }).isEmpty {
@@ -632,7 +633,7 @@ class MessageStorageItem: Object {
             $0.sentDate = Date()
             if CommonConfigManager.shared.config.use_file_enryption_by_default {
                 
-                if [.omemo, .omemo1, .axolotl].contains($0.conversationType) {
+                if $0.conversationType.isEncrypted {
                     
                     var key = Data(count: 32)
                     
@@ -776,7 +777,7 @@ class MessageStorageItem: Object {
     }
     
     public final func save(commitTransaction: Bool, silentNotifications: Bool = false) -> Bool {
-        print("BODY \(self.body)")
+//        print("BODY \(self.body)")
         if self.opponent.isEmpty {
             return false
         }
@@ -825,6 +826,15 @@ class MessageStorageItem: Object {
                         }
                         instance.trustedSource = true//previousId = "id"//self.previousId
                         instance.previousId = self.previousId
+                    }
+                }
+                try transaction(commit: commitTransaction) {
+                    if let oldQueryIds = instance.queryIds {
+                        if let newQueryIds = self.queryIds {
+                            instance.queryIds = [oldQueryIds, newQueryIds].joined(separator: ",")
+                        }
+                    } else {
+                        instance.queryIds = self.queryIds
                     }
                 }
                 return false
@@ -960,7 +970,7 @@ class MessageStorageItem: Object {
                         instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
                         instance.afterburnInterval = self.afterburnInterval
                     }
-                    if self.displayAs == .initial && [.omemo, .omemo1, .axolotl].contains(self.conversationType) {
+                    if self.displayAs == .initial && self.conversationType.isEncrypted {
                         instance.isFreshNotEmptyEncryptedChat = true
                     }
                     try transaction(commit: commitTransaction, callback: {
@@ -1280,7 +1290,7 @@ class MessageStorageItem: Object {
             switch reference.kind {
             case .media:
                 out += "\(reference.metadata?["uri"] as? String ?? "")\n"
-                print("OUT: \(out)")
+//                print("OUT: \(out)")
             case .voice:
                 out += "Voice message (duration \(TimeInterval(reference.metadata?["duration"] as? Double ?? 0).minuteFormatedString) sec)\n\(reference.metadata?["uri"] as? String ?? "")\n"
             default: break

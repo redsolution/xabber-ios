@@ -116,7 +116,7 @@ class XabberUploadManager: AbstractXMPPManager {
         let headers: [String: String] = [
             "Authorization" : "Bearer \(token)",
         ]
-        print("TOKEN:\n\(token)")
+//        print("TOKEN:\n\(token)")
         
         let mime: String = mimeType ?? ""
         var jsonMetadata: Data? = nil
@@ -249,7 +249,7 @@ class XabberUploadManager: AbstractXMPPManager {
                             let ivb64 = reference.metadata?["iv"] as? String
                             var encryptedFiles = false
                             if CommonConfigManager.shared.config.use_file_enryption_by_default {
-                                if [.omemo, .omemo1, .axolotl].contains(reference.conversationType) {
+                                if reference.conversationType.isEncrypted {
                                     guard let encryptionKeyb64 = encryptionKeyb64,
                                           let ivb64 = ivb64 else {
                                         return
@@ -314,7 +314,7 @@ class XabberUploadManager: AbstractXMPPManager {
                                                     ImageCache.default.storeToDisk(decryptedData, forKey: getUrl)
                                                 }
                                             } catch {
-                                                print(error)
+//                                                print(error)
                                             }
                                             
                                         } else {

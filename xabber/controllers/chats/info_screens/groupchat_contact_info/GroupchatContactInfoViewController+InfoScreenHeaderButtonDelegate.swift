@@ -273,11 +273,11 @@ extension GroupchatContactInfoViewController: InfoScreenHeaderDelegate {
     internal func showMessages() {
 //        let vc = GroupchatContactMessagesViewController()
 //        vc.configure(userId: self.userId, jid: self.jid, owner: self.owner)
-        let vc = GroupChatMessagesByUserViewController()
-        vc.jid = self.jid
-        vc.owner = self.owner
-        vc.userId = self.userId
-        showModal(vc)
+//        let vc = GroupChatMessagesByUserViewController()
+//        vc.jid = self.jid
+//        vc.owner = self.owner
+//        vc.userId = self.userId
+//        showModal(vc)
     }
     
     internal func onBlock() {

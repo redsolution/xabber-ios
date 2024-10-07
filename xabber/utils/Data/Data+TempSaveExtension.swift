@@ -30,7 +30,7 @@ extension Data {
             try self.write(to: targetUrl)
             return targetUrl
         } catch {
-            print(error.localizedDescription)
+//            print(error.localizedDescription)
             return nil
         }
     }

@@ -43,9 +43,9 @@ class MusicBox: NSObject {
             return
         }
         fileURLs = urls
-        fileURLs.forEach {
-            print($0.absoluteString)
-        }
+//        fileURLs.forEach {
+//            print($0.absoluteString)
+//        }
     }
     
     private final func createSound(url: URL) -> SystemSoundID {
@@ -53,10 +53,10 @@ class MusicBox: NSObject {
         var sysSound: SystemSoundID = .zero
         
         let osstatus = AudioServicesCreateSystemSoundID(url as CFURL, &sysSound)
-        if osstatus != kAudioServicesNoError {
-            print("Could not create system sound")
-            print("osstatus: \(osstatus)")
-        }
+//        if osstatus != kAudioServicesNoError {
+//            print("Could not create system sound")
+//            print("osstatus: \(osstatus)")
+//        }
         
         return sysSound
     }

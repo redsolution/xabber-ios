@@ -118,7 +118,7 @@ extension OmemoManager {
         keyElement.addAttribute(withName: "kex", stringValue: needKex ? "true" : "false")
         keyElement.stringValue = message.base64EncodedString()
         
-        print(keyElement)
+//        print(keyElement)
                 
         return keyElement
     }

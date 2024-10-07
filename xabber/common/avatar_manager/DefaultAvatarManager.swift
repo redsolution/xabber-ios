@@ -206,7 +206,7 @@ class DefaultAvatarManager: NSObject {
                 realm.delete(avatars)
             }
         } catch {
-            print("Error while deleting AvatarStorageItems")
+//            print("Error while deleting AvatarStorageItems")
         }
     }
 }

@@ -321,7 +321,7 @@ class LastChatsViewController: BaseViewController {
                 .skip(1)
                 .subscribe { _ in
                     
-                    print(#function, "show skeleton")
+//                    print(#function, "show skeleton")
                     self.runDatasetUpdateTask()
                 }
                 .disposed(by: self.bag)
@@ -331,7 +331,7 @@ class LastChatsViewController: BaseViewController {
                 .debounce(.milliseconds(70), scheduler: MainScheduler.asyncInstance)
                 .skip(1)
                 .subscribe { (results) in
-                    print(#function, "show skeleton")
+//                    print(#function, "show skeleton")
                     self.runDatasetUpdateTask()
                 } onError: { (error) in
                     DDLogDebug("LastChatsViewController: \(#function). RX error: \(error.localizedDescription)")
@@ -475,7 +475,7 @@ class LastChatsViewController: BaseViewController {
                         .compactMap({ return $0.jid })))
                     self.unreadedJids.append(contentsOf: unreadedJidsNew)
                     self.unreadedJids = Array(Set(self.unreadedJids))
-                    print(unreadedJids)
+//                    print(unreadedJids)
                     predicate = NSPredicate(
                         format: "isArchived == %@ AND owner IN %@ AND (conversationType_ == %@ OR jid IN %@) AND (unread > %@ OR jid IN %@)",
                         argumentArray: [
@@ -638,7 +638,7 @@ class LastChatsViewController: BaseViewController {
                 
                 var isVerificationActionRequired: Bool = false
                                 
-                if [.omemo, .omemo1, .axolotl].contains(item.conversationType) {
+                if item.conversationType.isEncrypted {
                     let attributedTitle: NSMutableAttributedString = NSMutableAttributedString()
                     let indicatorAttach = NSTextAttachment()
                     var color: UIColor = .label
@@ -707,7 +707,7 @@ class LastChatsViewController: BaseViewController {
                     isSystemMessage: isSystemMessage,
                     isPinned: item.isPinned,
                     subRequest: (XMPPJID(string: item.jid)?.isServer ?? true) ? false :  subscriptionRequest,
-                    isEncrypted: [.omemo, .axolotl, .omemo1].contains(item.conversationType),
+                    isEncrypted: item.conversationType.isEncrypted,
                     avatarUrl: item.rosterItem?.avatarMinUrl ?? item.rosterItem?.avatarMaxUrl ?? item.rosterItem?.oldschoolAvatarKey,
                     hasErrorInChat: item.hasErrorInChat,
                     updateTS: item.updateTS,
@@ -1043,7 +1043,7 @@ class LastChatsViewController: BaseViewController {
     
     @objc
     private func willEnterForeground() {
-        print(#function)
+//        print(#function)
         NotifyManager.shared.clearAllNotifications()
     }
     

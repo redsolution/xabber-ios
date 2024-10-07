@@ -49,6 +49,7 @@ class LastChatsStorageItem: Object {
     
     @objc dynamic var lastMessageId: String = ""
     @objc dynamic var isSynced: Bool = true
+    @objc dynamic var isInitialArchiveLoaded: Bool = false
     @objc dynamic var isHistoryGapFixedForSession: Bool = false
     @objc dynamic var isArchived: Bool = false
     
@@ -106,7 +107,7 @@ class LastChatsStorageItem: Object {
     
     var isMuted: Bool {
         get {
-            print("mute", self.jid, Date().timeIntervalSince1970, self.muteExpired, Date().timeIntervalSince1970 < self.muteExpired)
+//            print("mute", self.jid, Date().timeIntervalSince1970, self.muteExpired, Date().timeIntervalSince1970 < self.muteExpired)
             return Date().timeIntervalSince1970 < self.muteExpired //self.muteExpired >= 0
         }
     }

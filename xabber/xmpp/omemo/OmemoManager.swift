@@ -358,7 +358,7 @@ extension OmemoManager {
         pubsub.addChild(items)
         let iq = XMPPIQ(iqType: .get, to: jid == owner ? nil : XMPPJID(string: jid), elementID: elementId, child: pubsub)
         xmppStream.send(iq)
-        print(iq.prettyXMLString!)
+//        print(iq.prettyXMLString!)
         self.queryIds.append(elementId)
     }
     
@@ -374,7 +374,7 @@ extension OmemoManager {
         if error.attributeStringValue(forName: "code") == "404" {
             do {
                 let realm = try WRealm.safe()
-                print("devices omemom 2", realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@", owner, owner).toArray())
+//                print("devices omemom 2", realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@", owner, owner).toArray())
                 if jid == owner {
                     XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, _ in
     //                    self.configureNode(stream, node: .device)

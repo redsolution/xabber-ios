@@ -71,9 +71,9 @@ class CellWithBadge : UITableViewCell {
         
         subBadgeView.frame.origin.x = floor(contentView.frame.width - subBadgeView.frame.width - offsetX) - subBadgeOffset
         subBadgeView.frame.origin.y = floor((frame.height / 2 + 4) - (subBadgeView.frame.height / 2))
-        print(badgeView.frame.width)
-        print(subBadgeView.frame.width)
-        print((offsetX * 2))
+//        print(badgeView.frame.width)
+//        print(subBadgeView.frame.width)
+//        print((offsetX * 2))
         let labelWidth = self.contentView.frame.width - (badgeView.frame.width + (offsetX * 2));
         if textLabel != nil {
             textLabel!.frame.size.width = labelWidth - textLabel!.frame.origin.x

@@ -37,7 +37,7 @@ extension ChatViewController {
         
         var color: UIColor = .label//self.accountPallete.tint500
         
-        if [.omemo, .omemo1, .axolotl].contains(self.conversationType) {
+        if self.conversationType.isEncrypted {
             do {
                 let realm = try WRealm.safe()
                 let collectionJid = realm

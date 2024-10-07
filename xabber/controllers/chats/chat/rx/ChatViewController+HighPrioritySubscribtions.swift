@@ -30,7 +30,7 @@ import XMPPFramework.XMPPJID
 extension ChatViewController {
 
     public func updateSearchResults(value: String?) {
-        print(searchTextObserver.value)
+//        print(searchTextObserver.value)
         if value == nil {
             self.xabberInputView.searchPanel.changeState(to: .empty)
         } else {
@@ -38,67 +38,56 @@ extension ChatViewController {
         }
         
         if let value = value {
-            do {
-                let realm = try WRealm.safe()
-                let searchResults = realm
-                    .objects(MessageStorageItem.self)
-                    .filter(
-                        "owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@ AND messageType != %@ AND messageType != %@ AND messageType != %@ AND body CONTAINS[cd] %@",
-                        self.owner,
-                        self.jid,
-                        self.conversationType.rawValue,
-                        MessageStorageItem.MessageDisplayType.initial.rawValue,
-                        MessageStorageItem.MessageDisplayType.system.rawValue,
-                        MessageStorageItem.MessageDisplayType.voice.rawValue,
-                        value
-                    ).sorted(byKeyPath: "date", ascending: false)
-                self.searchResultsIds = searchResults.toArray().compactMap { return $0.primary }
-                if self.selectedSearchResultId == nil {
-                    self.selectedSearchResultId = self.searchResultsIds.first
-                }
-                let selectedIndex = self.searchResultsIds.firstIndex(of: self.selectedSearchResultId ?? "")
-                self.xabberInputView.searchPanel.updateResults(current: selectedIndex ?? 0, total: self.searchResultsIds.count)
-            } catch {
-                DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            self.searchMessagesQueue = []
+            XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+                session.mam?.temporaryMessageReceiverDelegate = self
+                self.currentSearchQueryId = session.mam?.searchText(stream, jid: self.jid, conversationType: self.conversationType, text: value)
+            } fail: {
+                AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                    user.mam.temporaryMessageReceiverDelegate = self
+                    self.currentSearchQueryId = user.mam.searchText(stream, jid: self.jid, conversationType: self.conversationType, text: value)
+                })
             }
+        } else {
+            self.searchMessagesQueue = []
         }
-        self.reloadDataset(withSearchText: value)
+        
+//        if let value = value {
+//            do {
+//                let realm = try WRealm.safe()
+//                let searchResults = realm
+//                    .objects(MessageStorageItem.self)
+//                    .filter(
+//                        "owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@ AND messageType != %@ AND messageType != %@ AND messageType != %@ AND body CONTAINS[cd] %@",
+//                        self.owner,
+//                        self.jid,
+//                        self.conversationType.rawValue,
+//                        MessageStorageItem.MessageDisplayType.initial.rawValue,
+//                        MessageStorageItem.MessageDisplayType.system.rawValue,
+//                        MessageStorageItem.MessageDisplayType.voice.rawValue,
+//                        value
+//                    ).sorted(byKeyPath: "date", ascending: false)
+//                self.searchResultsIds = searchResults.toArray().compactMap { return $0.primary }
+//                if self.selectedSearchResultId == nil {
+//                    self.selectedSearchResultId = self.searchResultsIds.first
+//                }
+//                let selectedIndex = self.searchResultsIds.firstIndex(of: self.selectedSearchResultId ?? "")
+//                self.xabberInputView.searchPanel.updateResults(current: selectedIndex ?? 0, total: self.searchResultsIds.count)
+//            } catch {
+//                DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+//            }
+//        }
+//        self.reloadDataset(withSearchText: value)
     }
     
     internal func subscribe() throws {
         NotifyManager.shared.currentDialog = [self.jid, self.owner].prp()
-        self.reloadDataset(withSearchText: self.searchTextObserver.value)
         self.bag = DisposeBag()
-        DispatchQueue.global(qos: .default).async {
-            do {
-                let realm = try  WRealm.safe()
-                self.showMyNickname = realm
-                    .objects(GroupchatUserStorageItem.self)
-                    .filter("groupchatId == %@ AND isMe == true", [self.jid, self.owner].prp())
-                    .first?
-                    .nickname == AccountManager.shared.find(for: self.owner)?.username
-            } catch {
-                DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-            }
-        }
         let realm = try WRealm.safe()
+        if self.groupchat {
+            
+        }
         
-        Observable
-            .collection(from: realm
-                .objects(GroupchatInvitesStorageItem.self)
-                .filter("owner == %@ AND groupchat == %@ AND isProcessed == false", self.owner, self.jid))
-            .subscribe { (results) in
-                if let item = results.first {
-                    self.didReceiveInvite(item.primary)
-                }
-            } onError: { (error) in
-                DDLogDebug("ChatViewController: \(#function). Invite error \(error.localizedDescription)")
-            } onCompleted: {
-                DDLogDebug("ChatViewController: \(#function). Invite completed")
-            } onDisposed: {
-                DDLogDebug("ChatViewController: \(#function). Invite disposed")
-            }
-            .disposed(by: bag)
         
         inSearchMode
             .asObservable()
@@ -108,15 +97,27 @@ extension ChatViewController {
                     self.xabberInputView.changeState(to: .search)
                 } else {
                     self.searchTextObserver.accept(nil)
-                    self.configureNavigationBar()
+                    self.configureNavbar()
                     self.xabberInputView.changeState(to: self.xabberInputView.state)
                 }
             })
             .disposed(by: bag)
         
+        searchResultsFinObserver
+            .asObservable()
+            .subscribe { value in
+//                self.searchResultsIds = self.searchMessagesQueue.compactMap { return $0.archivedId }
+                self.selectedSearchResultId = self.searchMessagesQueue.first?.archivedId
+                self.xabberInputView.searchPanel.updateResults(current: 0, total: self.searchMessagesQueue.count)
+                self.xabberInputView.searchPanel.isInLoadingState = !value
+            }
+            .disposed(by: bag)
+
+        
         searchTextObserver
             .asObservable()
             .skip(1)
+            .debounce(.milliseconds(500), scheduler: MainScheduler.asyncInstance)
             .subscribe(onNext: { (value) in
                 self.updateSearchResults(value: value)
             })
@@ -154,19 +155,10 @@ extension ChatViewController {
                     default:
                         (self.navigationController as? NavBarController)?.showAdditionalPanel(animated: false)
                 }
-            } onError: { _ in
-                
-            } onCompleted: {
-                
-            } onDisposed: {
-                
-            }
-            .disposed(by: bag)
+            }.disposed(by: bag)
 
         
-        if [.group, .channel].contains(self.conversationType) {
-            try groupSubscribtions()
-        } else {
+        if !self.groupchat {
             Observable
                 .collection(from: realm
                                     .objects(ResourceStorageItem.self)
@@ -342,16 +334,20 @@ extension ChatViewController {
     
     private final func updateContentByLastChatInstance(_ item: LastChatsStorageItem) {
         self.lastReadMessageId = item.lastReadId
-        if self.showSkeletonObserver.value != (!item.isSynced) {
-            self.showSkeletonObserver.accept(!item.isSynced)
-            if item.isSynced {
-                if item.unread > 0 {
-                    self.updateQueue
-                        .asyncAfter(deadline: .now() + 3) {
-                            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                                user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
-                            })
-                        }
+        if item.isInitialArchiveLoaded {
+            if self.showSkeletonObserver.value != (!item.isSynced) {
+                
+                self.showSkeletonObserver.accept(!item.isSynced)
+                
+                if item.isSynced {
+                    if item.unread > 0 {
+                        self.updateQueue
+                            .asyncAfter(deadline: .now() + 3) {
+                                AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                                    user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
+                                })
+                            }
+                    }
                 }
             }
         }
@@ -395,9 +391,30 @@ extension ChatViewController {
         }
     }
     
-    private final func groupSubscribtions() throws {
-//        subscribePinMessageBar()
+    internal final func groupSubscribtions() throws {
         let realm = try WRealm.safe()
+        
+        self.showMyNickname = realm
+            .objects(GroupchatUserStorageItem.self)
+            .filter("groupchatId == %@ AND isMe == true", [self.jid, self.owner].prp())
+            .first?
+            .nickname == AccountManager.shared.find(for: self.owner)?.username
+        Observable
+            .collection(from: realm
+                .objects(GroupchatInvitesStorageItem.self)
+                .filter("owner == %@ AND groupchat == %@ AND isProcessed == false", self.owner, self.jid))
+            .subscribe { (results) in
+                if let item = results.first {
+                    self.didReceiveInvite(item.primary)
+                }
+            } onError: { (error) in
+                DDLogDebug("ChatViewController: \(#function). Invite error \(error.localizedDescription)")
+            } onCompleted: {
+                DDLogDebug("ChatViewController: \(#function). Invite completed")
+            } onDisposed: {
+                DDLogDebug("ChatViewController: \(#function). Invite disposed")
+            }
+            .disposed(by: bag)
         
         Observable
             .collection(from: realm

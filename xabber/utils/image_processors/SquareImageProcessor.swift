@@ -49,7 +49,7 @@ struct SquareImageProcessor: ImageProcessor {
         switch item {
         case .image(let image):
             let referenceSize: CGSize = CGSize(square: min(image.size.width, image.size.height))
-            print(referenceSize)
+//            print(referenceSize)
             if image.size == referenceSize { return image }
             if referenceSize.width < minimumSize.width {
                 return image.kf.scaled(to: options.scaleFactor)

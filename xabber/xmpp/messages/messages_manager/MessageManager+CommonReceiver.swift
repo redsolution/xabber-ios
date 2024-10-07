@@ -312,7 +312,7 @@ extension MessageManager {
             
             var hasSignElement: Bool = false
             var envelopeContainer: String? = nil
-            print("RECEIVER", #function, item.message.prettyXMLString!)
+//            print("RECEIVER", #function, item.message.prettyXMLString!)
             if let sign = item.message.element(forName: "time-signature", xmlns: SignatureManager.xmlns){
                 omemoError = false
                 hasSignElement = true
@@ -424,13 +424,15 @@ extension MessageManager {
                                           isRead: item.forceUnreadState ?? item.isRead,
                                           date: item.date, isEncrypted: isEncryptedMessage)
                 instance.forceUnreadState = item.forceUnreadState
-                print(instance)
+//                print(instance)
                 instance.state = item.state
                 
             }
             instance.envelopeContainer = envelopeContainer
             instance.updatePrimary()
             instance.afterburnInterval = afterburnInterval
+            
+            instance.queryIds = item.queryId
             
             if hasSignElement {
                 instance.errorMetadata = errorMetadata

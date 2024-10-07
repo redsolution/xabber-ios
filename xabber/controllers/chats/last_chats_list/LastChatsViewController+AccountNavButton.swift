@@ -75,7 +75,7 @@ class AccountNavButton: UIButton {
             DDLogDebug("AccountNavButton: \(#function). \(error.localizedDescription)")
         }
         if avatarUrl != url {
-            print(url)
+//            print(url)
             DefaultAvatarManager.shared.getAvatar(url: url, jid: jid, owner: jid, size: 128) { image in
                 if let image = image {
                     self.avatarView.image = image

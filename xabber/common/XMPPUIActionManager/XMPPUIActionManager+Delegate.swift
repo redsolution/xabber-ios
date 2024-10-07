@@ -110,20 +110,20 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
                         invalidate()
                     }
                 } catch {
-                    print(error.localizedDescription)
+//                    print(error.localizedDescription)
                     item.decrementCounter()
                     reconnect(error)
                 }
             }
         }
-        print("UI STREAM CONNECTED")
+//        print("UI STREAM CONNECTED")
     }
     
     func xmppStreamDidAuthenticate(_ sender: XMPPStream) {
         guard let jid = sender.myJID?.bare else { return }
         CredentialsManager.shared.getItem(for: jid).release(error: false)
         canSendStanzas = true
-        print("UI STREAM AUTHENTICATED")
+//        print("UI STREAM AUTHENTICATED")
     }
     
     func xmppStream(_ sender: XMPPStream, didNotAuthenticate error: DDXMLElement) {

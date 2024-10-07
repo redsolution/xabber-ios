@@ -98,14 +98,14 @@ extension ChatViewController {
             if let frameValue = userInfo[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue {
                 let frame = frameValue.cgRectValue
                 let keyboardVisibleHeight = frame.size.height
-                print("keyboardVisibleHeight", keyboardVisibleHeight)
+//                print("keyboardVisibleHeight", keyboardVisibleHeight)
                 switch (userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber, userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber) {
                 case let (.some(duration), .some(curve)):
                         let inputHeight: CGFloat = self.xabberInputView.barHeight + keyboardVisibleHeight
                     
                     let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
                     let options = UIView.AnimationOptions(rawValue: curve.uintValue)
-                    print("duration, options", duration, options)
+//                    print("duration, options", duration, options)
                     UIView.animate(
                         withDuration: TimeInterval(duration.doubleValue),
                         delay: 0,
@@ -116,7 +116,7 @@ extension ChatViewController {
                             
                             if self.messagesCollectionView.contentOffset.y < 100 {
                                 self.messagesCollectionView.contentOffset.y = -inputHeight - 8
-                                print("-inputHeight - 8", -inputHeight - 8)
+//                                print("-inputHeight - 8", -inputHeight - 8)
                             }
                             return
                         }, completion: { finished in
@@ -139,7 +139,7 @@ extension ChatViewController {
             switch (userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber, userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber) {
             case let (.some(duration), .some(curve)):
                 let options = UIView.AnimationOptions(rawValue: curve.uintValue)
-                print("duration, options", duration, options)
+//                print("duration, options", duration, options)
                 var inputHeight: CGFloat = self.xabberInputView.barHeight
                 if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
                     inputHeight += bottomInset

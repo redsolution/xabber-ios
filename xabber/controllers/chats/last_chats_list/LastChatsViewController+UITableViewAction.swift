@@ -33,7 +33,7 @@ extension LastChatsViewController {
                                               title: "Delete".localizeString(id: "delete", arguments: [])) {
             (action, view, handler) in
             let item = self.datasource[index]
-            print(item)
+//            print(item)
             let jid = item.jid
             let owner = item.owner
             let conversationType = item.conversationType

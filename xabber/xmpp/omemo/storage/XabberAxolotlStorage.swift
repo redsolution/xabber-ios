@@ -270,7 +270,7 @@ extension XabberAxolotlStorage: SignalPreKeyStore {
     
     func loadPreKey(withId preKeyId: UInt32) -> Data? {
         guard let preKey = CredentialsManager.shared.getPreKey(for: self.owner, id: Int(preKeyId)) else {
-            print(preKeyId)
+//            print(preKeyId)
             return nil
             
         }
