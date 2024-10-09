@@ -40,7 +40,5 @@ extension ChatViewController: ImagePickerViewDelegate {
     
     func onDismissPicker() {
         self.inputAccessoryView?.isHidden = false
-        self.canUpdateDataset = true
-        self.runDatasetUpdateTask()
     }
 }

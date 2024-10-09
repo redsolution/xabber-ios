@@ -29,30 +29,30 @@ extension ChatViewController: ChatViewMessagesPanelDelegate {
     }
     
     func messagesPanelOnIndicatorTouch() {
-        if let editMessageId = self.editMessageId.value {
-            guard let index = self.datasource.firstIndex(where: { item in
-                item.primary == editMessageId
-            }) else {
-                return
-            }
-            let indexPath = IndexPath(row: 0, section: index)
-            self.messagesCollectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: true)
-            
-        } else {
-            let indexes = self.attachedMessagesIds.value
-                .compactMap({
-                    id in
-                    return self.datasource.firstIndex(where: {
-                        item in
-                        item.primary == id
-                    })
-                }).sorted()
-            guard let minIndex = indexes.min() else {
-                return
-            }
-            let indexPath = IndexPath(row: 0, section: minIndex)
-            self.messagesCollectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: true)
-        }
+//        if let editMessageId = self.editMessageId.value {
+//            guard let index = self.datasource.firstIndex(where: { item in
+//                item.primary == editMessageId
+//            }) else {
+//                return
+//            }
+//            let indexPath = IndexPath(row: 0, section: index)
+//            self.messagesCollectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: true)
+//            
+//        } else {
+//            let indexes = self.attachedMessagesIds.value
+//                .compactMap({
+//                    id in
+//                    return self.datasource.firstIndex(where: {
+//                        item in
+//                        item.primary == id
+//                    })
+//                }).sorted()
+//            guard let minIndex = indexes.min() else {
+//                return
+//            }
+//            let indexPath = IndexPath(row: 0, section: minIndex)
+//            self.messagesCollectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: true)
+//        }
         
     }
 }

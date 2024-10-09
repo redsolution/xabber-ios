@@ -272,8 +272,8 @@ class SearchChatListViewController: SimpleBaseViewController {
 //            vc?.searchTextBouncerObserver.accept(nil)
             vc?.searchTextObserver.accept(nil)
             vc?.updateSearchResults(value: nil)
-            vc?.canUpdateDataset = true
-            vc?.runDatasetUpdateTask()
+//            vc?.canUpdateDataset = true
+//            vc?.runDatasetUpdateTask()
         }
         self.navigationController?.popViewController(animated: true)
     }
@@ -288,8 +288,6 @@ class SearchChatListViewController: SimpleBaseViewController {
 //            vc?.searchTextBouncerObserver.accept(self.searchBar.text)
             vc?.searchTextObserver.accept(self.searchBar.text)
             vc?.updateSearchResults(value: self.searchBar.text)
-            vc?.canUpdateDataset = true
-            vc?.runDatasetUpdateTask()
         }
         self.navigationController?.popViewController(animated: true)
     }

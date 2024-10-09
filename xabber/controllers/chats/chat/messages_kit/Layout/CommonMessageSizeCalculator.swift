@@ -68,7 +68,9 @@ class CommonMessageSizeCalculator: MessageSizeCalculator {
             bodyContainer.width += labelInsets.horizontal
             bodyContainer.width += 16
         default:
-            fatalError("messageContainerSize text received unhandled MessageDataType: \(message.kind)")
+            bodyContainer = .zero
+            lastLineWidth = 64.0
+            //fatalError("messageContainerSize text received unhandled MessageDataType: \(message.kind)")
         }
         inlineMessageContainers.append(bodyContainer)
         let messageInsets = messageLabelInsets(for: message)

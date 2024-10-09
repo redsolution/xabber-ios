@@ -556,63 +556,63 @@ extension ChatViewController: MessageCellDelegate {
             return
         }
 
-        guard let indexPath = indexPathFor(cell) else {
-                return
-        }
-        let primary = self.datasource[indexPath.section].primary
-        let item = datasource[indexPath.section]
-        if inlineItem {
-            if let inline = item.forwards.first(where: { $0.messageId == messageId }) {
-                if isSubforward {
-                    self.showSubforwards(inline.subforwards.sorted(by: { ($0.originalDate ?? Date()) > ($1.originalDate ?? Date()) }))
-                } else {
-                    switch inline.kind {
-                    case .text, .quote:
-                        break
-                    case .images:
-                        showGallery(from: inline
-                                            .references
-                                            .filter({ $0.mimeType == MimeIconTypes.image.rawValue }),
-                                    start: index,
-                                    messageId: primary)
-                    case .videos:
-                        if inline.references[index].isDownloaded {
-                            playVideo(withURL: inline.references[index].localFileUrl)
-                        } else {
-                            downloadVideo(inline.references[index].primary)
-                        }
-                        
-                    case .files:
-                        if let uri = inline
-                            .references
-                            .filter({ $0.kind == .media })[index]
-                            .metadata?["uri"] as? String {
-                            openFile(URL(string: uri))
-                        }
-                    case .voice:
-                        didTapAudioCell(cell: cell, messageId: messageId, at: nil)
-                    }
-                }
-            }
-        } else {
-            switch item.kind {
-            case .photos(let photos):
-                showGallery(from: photos, start: index, messageId: primary)
-                
-            case .files(let files): //Videos go as files with mimeType == "video"
-                let _ = files.map {
-                    if $0.mimeType == "video" {
-                        playVideo(withURL: $0.downloadUrl)
-                        
-                    } else {
-                        openFile($0.downloadUrl)
-                    }
-                }
-            case .audio(_):
-                didTapAudioCell(cell: cell, messageId: nil, at: nil)
-            default: break
-            }
-        }
+//        guard let indexPath = indexPathFor(cell) else {
+//                return
+//        }
+//        let primary = self.datasource[indexPath.section].primary
+//        let item = datasource[indexPath.section]
+//        if inlineItem {
+//            if let inline = item.forwards.first(where: { $0.messageId == messageId }) {
+//                if isSubforward {
+//                    self.showSubforwards(inline.subforwards.sorted(by: { ($0.originalDate ?? Date()) > ($1.originalDate ?? Date()) }))
+//                } else {
+//                    switch inline.kind {
+//                    case .text, .quote:
+//                        break
+//                    case .images:
+//                        showGallery(from: inline
+//                                            .references
+//                                            .filter({ $0.mimeType == MimeIconTypes.image.rawValue }),
+//                                    start: index,
+//                                    messageId: primary)
+//                    case .videos:
+//                        if inline.references[index].isDownloaded {
+//                            playVideo(withURL: inline.references[index].localFileUrl)
+//                        } else {
+//                            downloadVideo(inline.references[index].primary)
+//                        }
+//                        
+//                    case .files:
+//                        if let uri = inline
+//                            .references
+//                            .filter({ $0.kind == .media })[index]
+//                            .metadata?["uri"] as? String {
+//                            openFile(URL(string: uri))
+//                        }
+//                    case .voice:
+//                        didTapAudioCell(cell: cell, messageId: messageId, at: nil)
+//                    }
+//                }
+//            }
+//        } else {
+//            switch item.kind {
+//            case .photos(let photos):
+//                showGallery(from: photos, start: index, messageId: primary)
+//                
+//            case .files(let files): //Videos go as files with mimeType == "video"
+//                let _ = files.map {
+//                    if $0.mimeType == "video" {
+//                        playVideo(withURL: $0.downloadUrl)
+//                        
+//                    } else {
+//                        openFile($0.downloadUrl)
+//                    }
+//                }
+//            case .audio(_):
+//                didTapAudioCell(cell: cell, messageId: nil, at: nil)
+//            default: break
+//            }
+//        }
     }
     
     internal func showSubforwards(_ items: [MessageForwardsInlineStorageItem.Model]) {

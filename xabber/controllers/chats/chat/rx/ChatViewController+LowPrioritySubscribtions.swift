@@ -28,22 +28,22 @@ import Toast_Swift
 
 extension ChatViewController {
     internal func updateStatusText() {
-        if let text = CommonChatStatesManager.shared.actionText(for: self.jid, owner: self.owner) {
-            self.statusTextObserver.accept(text)
-        } else {
-            self.statusTextObserver.accept(AccountManager
-                .shared
-                .connectingUsers
-                .value
-                .contains(self.owner) ? "Waiting for network..."
-                        .localizeString(id: "waiting_for_network", arguments: []) : self.contactStatus ?? " ")
-        }
-        self.statusLabel.layoutIfNeeded()
-        if (self.statusLabel.text ?? "").isEmpty {
-            self.statusLabel.isHidden = true
-        } else {
-            self.statusLabel.isHidden = false
-        }
+//        if let text = CommonChatStatesManager.shared.actionText(for: self.jid, owner: self.owner) {
+//            self.statusTextObserver.accept(text)
+//        } else {
+//            self.statusTextObserver.accept(AccountManager
+//                .shared
+//                .connectingUsers
+//                .value
+//                .contains(self.owner) ? "Waiting for network..."
+//                        .localizeString(id: "waiting_for_network", arguments: []) : self.contactStatus ?? " ")
+//        }
+//        self.statusLabel.layoutIfNeeded()
+//        if (self.statusLabel.text ?? "").isEmpty {
+//            self.statusLabel.isHidden = true
+//        } else {
+//            self.statusLabel.isHidden = false
+//        }
     }
     
     internal func lowPrioritySubscribtions() {
@@ -259,27 +259,7 @@ extension ChatViewController {
                 }
             })
             .disposed(by: bag)
-                
-        toolsButtonStateObserver
-            .asObservable()
-            .debounce(.milliseconds(50), scheduler: MainScheduler.asyncInstance)
-            .subscribe(onNext: { (value) in
-                self.toolsButton.changeState(value)
-            })
-            .disposed(by: bag)
-        
-//        searchTextBouncerObserver
-//            .asObservable()
-//            .debounce(.milliseconds(600), scheduler: MainScheduler.asyncInstance)
-//            .skip(1)
-//            .subscribe(onNext: { (value) in
-//                if self.searchTextObserver.value != value {
-//                    self.searchTextObserver.accept(value)
-//                    self.canUpdateDataset = true
-//                    self.runDatasetUpdateTask()
-//                }
-//            })
-//            .disposed(by: bag)
+
 
         blockInputFieldByTimeSignature
             .asObservable()
@@ -300,8 +280,6 @@ extension ChatViewController {
             .asObservable()
             .skip(1)
             .subscribe { value in
-                self.canUpdateDataset = true
-                self.runDatasetUpdateTask(shouldScrollToLastMessage: true)
                 if AccountManager.shared.connectingUsers.value.contains(self.owner) {
                     self.xabberInputView.isSendButtonEnabled = false
                 } else {
@@ -351,53 +329,48 @@ extension ChatViewController {
                 }
             }.disposed(by: self.bag)
         
-        AccountManager
-            .shared
-            .connectingUsers
-            .asObservable()
-            .subscribe { result in
-            if result.contains(self.owner) {
-                if !self.shouldRequestChatInfo {
-                    self.xabberInputView.isSendButtonEnabled = false
-                    self.xabberInputView.updateSendButtonState()
-                    self.shouldRequestChatInfo = true
-                }
-            } else {
-                if self.shouldRequestChatInfo {
-                    self.willEnterForeground()
-                    self.shouldRequestChatInfo = false
-                }
-                do {
-                    let realm = try WRealm.safe()
-                    let badMessageCollection = realm
-                        .objects(MessageStorageItem.self)
-                        .filter(
-                            "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND messageType != %@ AND (state_ == %@ OR state_ == %@)",
-                            self.owner,
-                            self.jid,
-                            self.conversationType.rawValue,
-                            MessageStorageItem.MessageDisplayType.system.rawValue,
-                            MessageStorageItem.MessageSendingState.sending.rawValue,
-                            MessageStorageItem.MessageSendingState.error.rawValue
-                        )
-                    if self.showSkeletonObserver.value {
-                        self.xabberInputView.isSendButtonEnabled = false
-                    } else {
-//                        print(badMessageCollection.toArray())
-                        self.xabberInputView.isSendButtonEnabled = badMessageCollection.isEmpty
-                    }
-                    self.xabberInputView.updateSendButtonState()
-                } catch {
-                    DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-                }
-            }
-        } onError: { _ in
-            
-        } onCompleted: {
-            
-        } onDisposed: {
-            
-        }.disposed(by: self.bag)
+//        AccountManager
+//            .shared
+//            .connectingUsers
+//            .asObservable()
+//            .subscribe { result in
+//            if result.contains(self.owner) {
+//            } else {
+//                if self.shouldRequestChatInfo {
+//                    self.willEnterForeground()
+//                    self.shouldRequestChatInfo = false
+//                }
+//                do {
+//                    let realm = try WRealm.safe()
+//                    let badMessageCollection = realm
+//                        .objects(MessageStorageItem.self)
+//                        .filter(
+//                            "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND messageType != %@ AND (state_ == %@ OR state_ == %@)",
+//                            self.owner,
+//                            self.jid,
+//                            self.conversationType.rawValue,
+//                            MessageStorageItem.MessageDisplayType.system.rawValue,
+//                            MessageStorageItem.MessageSendingState.sending.rawValue,
+//                            MessageStorageItem.MessageSendingState.error.rawValue
+//                        )
+//                    if self.showSkeletonObserver.value {
+//                        self.xabberInputView.isSendButtonEnabled = false
+//                    } else {
+////                        print(badMessageCollection.toArray())
+//                        self.xabberInputView.isSendButtonEnabled = badMessageCollection.isEmpty
+//                    }
+//                    self.xabberInputView.updateSendButtonState()
+//                } catch {
+//                    DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+//                }
+//            }
+//        } onError: { _ in
+//            
+//        } onCompleted: {
+//            
+//        } onDisposed: {
+//            
+//        }.disposed(by: self.bag)
 
         
     }

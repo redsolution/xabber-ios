@@ -180,7 +180,7 @@ extension ChatViewController {
                     }
                     if self.shouldShowNormalStatus {
                         self.statusTextObserver.accept(statusStr)
-                        self.contactStatus = status
+//                        self.contactStatus = status
                         self.statusLabel.layoutIfNeeded()
                     }
                     self.titleLabel.sizeToFit()
@@ -225,14 +225,14 @@ extension ChatViewController {
                     let usersCount = AccountManager.shared.users.count
                     
                     if usersCount > 1 {
-                        self.contactStatus = self.owner
+//                        self.contactStatus = self.owner
                         self.updateStatusText()
                     }
                     
                     return
                     
                 } else if (XMPPJID(string: self.jid)?.isServer ?? false) {
-                    self.contactStatus = "Server"
+//                    self.contactStatus = "Server"
                     self.updateStatusText()
                     return
                 }
@@ -273,40 +273,40 @@ extension ChatViewController {
                             }
                     }
                     self.shouldShowNormalStatus = false
-                    switch item.subscribtion {
-                    case .from:
-                        switch item.ask {
-                            case .none:
-                                self.contactStatus = "Receives your presence updates"
-                                    .localizeString(id: "chat_receives_presence_updates", arguments: [])
-                            case .out:
-                                self.contactStatus = "Subscription request pending..."
-                                    .localizeString(id: "chat_subscription_request_pending", arguments: [])
-                            default:
-                                break
-                        }
-                    case .none:
-                        switch item.ask {
-                        case .out, .both:
-                            self.contactStatus = "Subscription request pending..."
-                                .localizeString(id: "chat_subscription_request_pending", arguments: [])
-                        case .in:
-                            self.contactStatus = "In your contacts"
-                                .localizeString(id: "contact_state_in_contact_list", arguments: [])
-                        case .none:
-                            self.contactStatus = "In your contacts"
-                                .localizeString(id: "contact_state_in_contact_list", arguments: [])
-                        }
-                    case .undefined:
-                        self.contactStatus = "Not in your contacts"
-                            .localizeString(id: "contact_state_not_in_contact_list", arguments: [])
-                    default:
-                        self.shouldShowNormalStatus = true
-                        break
-                    }
+//                    switch item.subscribtion {
+//                    case .from:
+//                        switch item.ask {
+//                            case .none:
+//                                self.contactStatus = "Receives your presence updates"
+//                                    .localizeString(id: "chat_receives_presence_updates", arguments: [])
+//                            case .out:
+//                                self.contactStatus = "Subscription request pending..."
+//                                    .localizeString(id: "chat_subscription_request_pending", arguments: [])
+//                            default:
+//                                break
+//                        }
+//                    case .none:
+//                        switch item.ask {
+//                        case .out, .both:
+//                            self.contactStatus = "Subscription request pending..."
+//                                .localizeString(id: "chat_subscription_request_pending", arguments: [])
+//                        case .in:
+//                            self.contactStatus = "In your contacts"
+//                                .localizeString(id: "contact_state_in_contact_list", arguments: [])
+//                        case .none:
+//                            self.contactStatus = "In your contacts"
+//                                .localizeString(id: "contact_state_in_contact_list", arguments: [])
+//                        }
+//                    case .undefined:
+//                        self.contactStatus = "Not in your contacts"
+//                            .localizeString(id: "contact_state_not_in_contact_list", arguments: [])
+//                    default:
+//                        self.shouldShowNormalStatus = true
+//                        break
+//                    }
                 } else {
-                    self.contactStatus = "Not in your contacts"
-                        .localizeString(id: "contact_state_not_in_contact_list", arguments: [])
+//                    self.contactStatus = "Not in your contacts"
+//                        .localizeString(id: "contact_state_not_in_contact_list", arguments: [])
 //                    self.showSubscribtionBar(animated: true, state: .notInRoster)
                 }
                 self.updateStatusText()
@@ -333,7 +333,6 @@ extension ChatViewController {
     }
     
     private final func updateContentByLastChatInstance(_ item: LastChatsStorageItem) {
-        self.lastReadMessageId = item.lastReadId
         if item.isInitialArchiveLoaded {
             if self.showSkeletonObserver.value != (!item.isSynced) {
                 
@@ -341,17 +340,13 @@ extension ChatViewController {
                 
                 if item.isSynced {
                     if item.unread > 0 {
-                        self.updateQueue
-                            .asyncAfter(deadline: .now() + 3) {
-                                AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                                    user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
-                                })
-                            }
+                        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                            user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
+                        })
                     }
                 }
             }
         }
-        self.toolsButton.setUnreadBadge(item.unread)
         let id = self.opponentSender.id
         if !(item.rosterItem?.isInvalidated ?? false) {
             self.opponentSender = Sender(
@@ -361,12 +356,12 @@ extension ChatViewController {
         }
         self.contactUsename = self.opponentSender.displayName
         self.titleLabel.attributedText = self.updateTitle()
-        self.statusTextObserver.accept(AccountManager
-            .shared
-            .connectingUsers
-            .value
-            .contains(self.owner) ? "Waiting for network..."
-                    .localizeString(id: "waiting_for_network", arguments: []) : self.contactStatus ?? " ")
+//        self.statusTextObserver.accept(AccountManager
+//            .shared
+//            .connectingUsers
+//            .value
+//            .contains(self.owner) ? "Waiting for network..."
+//                    .localizeString(id: "waiting_for_network", arguments: []) : self.contactStatus ?? " ")
         
         switch ChatMarkersManager.BurnMessagesTimerValues(rawValue: Int(item.afterburnInterval)) {
             case .off, .none:
@@ -449,22 +444,19 @@ extension ChatViewController {
                     }
                     
                     if item.isDeleted {
-                        if let value = self.isInitiallyDeletedGroup,
-                            value == false {
-                            self.navigationController?.popToRootViewController(animated: true)
-                        }
+                        
                     } else {
                         self.titleLabel.text = nickname
-                        let statusStr = self.isInviteViewControllerShowed ? (item.privacy == .incognito ? "Incognito group".localizeString(id: "intro_incognito_group", arguments: []) : "Public group".localizeString(id: "intro_public_group", arguments: [])) : item.statusString
+//                        let statusStr = self.isInviteViewControllerShowed ? (item.privacy == .incognito ? "Incognito group".localizeString(id: "intro_incognito_group", arguments: []) : "Public group".localizeString(id: "intro_public_group", arguments: [])) : item.statusString
                         if self.statusLabel.text == " " {
-                            self.statusLabel.text = statusStr
+//                            self.statusLabel.text = statusStr
                         }
                         
-                        self.statusTextObserver.accept(statusStr)
+//                        self.statusTextObserver.accept(statusStr)
                         
-                        self.contactStatus = self.isInviteViewControllerShowed ? (item.privacy == .incognito ?"Incognito group".localizeString(id: "intro_incognito_group", arguments: []) : "Public group".localizeString(id: "intro_public_group", arguments: [])) : item.statusString
+//                        self.contactStatus = self.isInviteViewControllerShowed ? (item.privacy == .incognito ?"Incognito group".localizeString(id: "intro_incognito_group", arguments: []) : "Public group".localizeString(id: "intro_public_group", arguments: [])) : item.statusString
                     }
-                    self.isInitiallyDeletedGroup = item.isDeleted
+//                    self.isInitiallyDeletedGroup = item.isDeleted
                 } else {
                     let status = "Unknown".localizeString(id: "unknown", arguments: [])
 //                            if self.entity != .incognitoChat || self.entity != .groupchat {
@@ -476,7 +468,6 @@ extension ChatViewController {
                     
                     self.titleLabel.text = nickname
                     self.statusTextObserver.accept(status)
-                    self.contactStatus = status
                 }
                 self.titleLabel.layoutIfNeeded()
             })

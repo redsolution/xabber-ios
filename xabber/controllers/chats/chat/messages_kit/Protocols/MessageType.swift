@@ -45,3 +45,54 @@ protocol MessageType {
     var isHasAttachedMessages: Bool { get }
     var afterburnInterval: Double { get }
 }
+
+class DumbMessageType: MessageType {
+    var primary: String = ""
+    
+    var jid: String = ""
+    
+    var owner: String = ""
+    
+    var sender: Sender = Sender(id: "", displayName: "")
+    
+    var messageId: String = ""
+    
+    var sentDate: Date = Date()
+    
+    var editDate: Date? = nil
+    
+    var kind: MessageKind = .text("")
+    
+    var withAuthor: Bool = false
+    
+    var withAvatar: Bool = false
+    
+    var error: Bool = false
+    
+    var errorType: String = ""
+    
+    var canPinMessage: Bool = false
+    
+    var canEditMessage: Bool = false
+    
+    var canDeleteMessage: Bool = false
+    
+    var forwards: [MessageForwardsInlineStorageItem.Model] = []
+    
+    var isOutgoing: Bool = false
+    
+    var isEdited: Bool = false
+    
+    var groupchatAuthorNickname: String = ""
+    
+    var groupchatAuthorBadge: String = ""
+    
+    var isHasAttachedMessages: Bool = false
+    
+    var afterburnInterval: Double = 0
+    
+    init() {
+        
+    }
+    
+}

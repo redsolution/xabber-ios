@@ -59,9 +59,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         
         #if RELEASE
         _DEBUG = false
-        DDLog.add(DDOSLogger.sharedInstance, with: DDLogLevel.off)
+        DDLog.add(DDOSLogger.sharedInstance, with: DDLogLevel.all)
         #else
-        DDLog.add(DDOSLogger.sharedInstance, with: DDLogLevel.off)
+        DDLog.add(DDOSLogger.sharedInstance, with: DDLogLevel.all)
         #endif
 
         if SettingManager.logEnabled {

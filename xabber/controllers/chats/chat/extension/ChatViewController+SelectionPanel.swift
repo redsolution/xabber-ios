@@ -275,9 +275,6 @@ extension ChatViewController: MessagesSelectionPanelActionDelegate {
                             (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
                                 .invalidateLastMessageCachedSize(primary: primary)
                         }
-                        
-                        self.canUpdateDataset = true
-                        self.runDatasetUpdateTask()
                     } catch {
                         DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
                     }

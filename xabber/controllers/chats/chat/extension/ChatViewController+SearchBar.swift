@@ -202,14 +202,6 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
         }
         if queryId == self.scrollToMessageTaskId {
             self.scrollToMessageTaskId = nil
-            self.oldestMessageId = first
-            self.newestMessageId = last
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                self.messagesBag = DisposeBag()
-                self.runDatasetUpdateTask(shouldScrollToLastMessage: true)
-                self.xabberInputView.searchPanel.isInLoadingState = false
-                
-            }
         }
     }
     

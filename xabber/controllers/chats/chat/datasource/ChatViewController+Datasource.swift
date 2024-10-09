@@ -42,140 +42,144 @@ extension ChatViewController: MessagesDataSource {
     }
     
     func messageForItem(at indexPath: IndexPath, in messagesCollectionView: MessagesCollectionView) -> MessageType {
-        if self.datasource.count < indexPath.section {
-            fatalError("Fatal error: ChatViewController:\(#function):l46. Count \(self.datasource.count)")
-        }
-        return self.datasource[indexPath.section]
+//        if self.proxyDatasource.count < indexPath.section {
+//            fatalError("Fatal error: ChatViewController:\(#function):l46. Count \(self.datasource.count)")
+//        }
+        return self.proxyDatasource[indexPath.section] ?? DumbMessageType()
     }
     
     func numberOfSections(in messagesCollectionView: MessagesCollectionView) -> Int {
-        return self.datasource.count
+        return self.proxyDatasource.count
     }
     
     func numberOfMessages(in messagesCollectionView: MessagesCollectionView) -> Int {
-        return self.datasource.count
+        return self.proxyDatasource.count
     }
     
     func cellTopLabelAttributedText(for message: MessageType, at indexPath: IndexPath) -> NSAttributedString? {
-        if let unreadId = self.lastReadMessageId {
-            if indexPath.section < ((self.messagesObserver?.count ?? 0) - 2) {
-                if self.messagesObserver?[indexPath.section + 1].archivedId == unreadId {
-                    return NSAttributedString(string: "New messages",
-                                              attributes: [
-                                                NSAttributedString.Key.font: UIFont.systemFont(ofSize: 13, weight: .semibold),
-                                                NSAttributedString.Key.foregroundColor: MDCPalette.grey.tint50 ])
-                }
-            }
-        }
-        var dateString: String = ""
-        
-        var itemDate = self.datasource[indexPath.section].sentDate
-        if self.conversationType == .saved {
-            do {
-                let realm = try WRealm.safe()
-                if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: self.datasource[indexPath.section].primary) {
-                    itemDate = instance.date
-                }
-            } catch {
-                //
-            }
-        }
-        
-        if indexPath.section < (self.datasource.count - 1) {
-            if self.conversationType == .saved {
-                do {
-                    let realm = try WRealm.safe()
-                    if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: self.datasource[indexPath.section].primary),
-                       let oldInstance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: self.datasource[indexPath.section + 1].primary) {
-                        
-                        if self.isDateChange(from: oldInstance.date, to: instance.date)  {
-                            dateString = sectionsDateFormatter.string(from: itemDate)
-                        }
-                    }
-                } catch {
-                    //
-                }
-            } else if self.isDateChange(from: self.datasource[indexPath.section + 1].sentDate, to: self.datasource[indexPath.section].sentDate)  {
-                dateString = sectionsDateFormatter.string(from: itemDate)
-            }
-        } else if indexPath.section == (self.datasource.count - 1) {
-            dateString = sectionsDateFormatter.string(from: itemDate)
-        }
-        if dateString.isEmpty { return nil }
-        return NSAttributedString(string: dateString,
-                                  attributes: [
-                                    NSAttributedString.Key.font: UIFont.systemFont(ofSize: 13, weight: .semibold),
-                                    NSAttributedString.Key.foregroundColor: MDCPalette.grey.tint50 ])
+        return nil
+//        if let unreadId = self.lastReadMessageId {
+//            if indexPath.section < ((self.messagesObserver?.count ?? 0) - 2) {
+//                if self.messagesObserver?[indexPath.section + 1].archivedId == unreadId {
+//                    return NSAttributedString(string: "New messages",
+//                                              attributes: [
+//                                                NSAttributedString.Key.font: UIFont.systemFont(ofSize: 13, weight: .semibold),
+//                                                NSAttributedString.Key.foregroundColor: MDCPalette.grey.tint50 ])
+//                }
+//            }
+//        }
+//        var dateString: String = ""
+//        
+//        var itemDate = self.datasource[indexPath.section].sentDate
+//        if self.conversationType == .saved {
+//            do {
+//                let realm = try WRealm.safe()
+//                if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: self.datasource[indexPath.section].primary) {
+//                    itemDate = instance.date
+//                }
+//            } catch {
+//                //
+//            }
+//        }
+//        
+//        if indexPath.section < (self.datasource.count - 1) {
+//            if self.conversationType == .saved {
+//                do {
+//                    let realm = try WRealm.safe()
+//                    if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: self.datasource[indexPath.section].primary),
+//                       let oldInstance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: self.datasource[indexPath.section + 1].primary) {
+//                        
+//                        if self.isDateChange(from: oldInstance.date, to: instance.date)  {
+//                            dateString = sectionsDateFormatter.string(from: itemDate)
+//                        }
+//                    }
+//                } catch {
+//                    //
+//                }
+//            } else if self.isDateChange(from: self.datasource[indexPath.section + 1].sentDate, to: self.datasource[indexPath.section].sentDate)  {
+//                dateString = sectionsDateFormatter.string(from: itemDate)
+//            }
+//        } else if indexPath.section == (self.datasource.count - 1) {
+//            dateString = sectionsDateFormatter.string(from: itemDate)
+//        }
+//        if dateString.isEmpty { return nil }
+//        return NSAttributedString(string: dateString,
+//                                  attributes: [
+//                                    NSAttributedString.Key.font: UIFont.systemFont(ofSize: 13, weight: .semibold),
+//                                    NSAttributedString.Key.foregroundColor: MDCPalette.grey.tint50 ])
     }
     
     func messageTopLabelAttributedText(for message: MessageType, at indexPath: IndexPath) -> NSAttributedString? {
-        let item = datasource[indexPath.section]
-        return ContactChatMetadataManager
-            .shared
-            .get(item.groupchatAuthorNickname,
-                 for: self.owner,
-                 badge: item.groupchatAuthorBadge,
-                 role: item.groupchatAuthorRole)
-            .getAttributedNickname([.font: UIFont.preferredFont(forTextStyle: .caption1)])
+        return nil
+//        let item = datasource[indexPath.section]
+//        return ContactChatMetadataManager
+//            .shared
+//            .get(item.groupchatAuthorNickname,
+//                 for: self.owner,
+//                 badge: item.groupchatAuthorBadge,
+//                 role: item.groupchatAuthorRole)
+//            .getAttributedNickname([.font: UIFont.preferredFont(forTextStyle: .caption1)])
     }
     
     
     
     func messageBottomLabelAttributedText(for message: MessageType, at indexPath: IndexPath) -> NSAttributedString? {
-        if self.showSkeletonObserver.value {
-            return nil
-        }
-        let item = datasource[indexPath.section]
-        switch item.kind {
-            case .initial(let value):
-                return nil
-            case .system(let value):
-                return nil
-            default:
-                break
-        }
-        if item.isHasAttachedMessages { return nil }
-        let dateString = self.messageDateFormatter.string(from: item.sentDate)
-        let attributedString: NSMutableAttributedString = NSMutableAttributedString()
-        
-        if item.editDate != nil {
-            attributedString.append(NSAttributedString(string: "edited "))
-        }
-        if item.afterburnInterval > 0 {
-            switch ChatMarkersManager.BurnMessagesTimerValues(rawValue: Int(item.afterburnInterval)) {
-                case .off, .none:
-                    break
-                case .s5:
-                    attributedString.append(NSAttributedString(string: "5s ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
-                case .s10:
-                    attributedString.append(NSAttributedString(string: "10s ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
-                case .s15:
-                    attributedString.append(NSAttributedString(string: "15s ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
-                case .s30:
-                    attributedString.append(NSAttributedString(string: "30s ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
-                case .m1:
-                    attributedString.append(NSAttributedString(string: "1m ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
-                case .m5:
-                    attributedString.append(NSAttributedString(string: "5m ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
-                case .m10:
-                    attributedString.append(NSAttributedString(string: "10m ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
-                case .m15:
-                    attributedString.append(NSAttributedString(string: "15m ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
-                
-            }
-        }
-        let start = attributedString.string.count
-        attributedString.append(NSAttributedString(string: dateString))
-        attributedString.addAttribute(.font, value: UIFont.systemFont(ofSize: 12, weight: .regular), range: NSRange(location: 0, length: attributedString.string.count))
-
-//        attributedString.addAttribute(.foregroundColor, value: UIColor.secondaryLabel.cgColor, range: NSRange(location: attributedString.string.count - dateString.count, length: dateString.count))
-//        attributedString.addAttribute(.foregroundColor, value: UIColor.secondaryLabel.cgColor, range: NSRange(location: start, length: dateString.count - 1))
-        
-        return attributedString
+        return nil
+//        if self.showSkeletonObserver.value {
+//            return nil
+//        }
+//        let item = datasource[indexPath.section]
+//        switch item.kind {
+//            case .initial(let value):
+//                return nil
+//            case .system(let value):
+//                return nil
+//            default:
+//                break
+//        }
+//        if item.isHasAttachedMessages { return nil }
+//        let dateString = self.messageDateFormatter.string(from: item.sentDate)
+//        let attributedString: NSMutableAttributedString = NSMutableAttributedString()
+//        
+//        if item.editDate != nil {
+//            attributedString.append(NSAttributedString(string: "edited "))
+//        }
+//        if item.afterburnInterval > 0 {
+//            switch ChatMarkersManager.BurnMessagesTimerValues(rawValue: Int(item.afterburnInterval)) {
+//                case .off, .none:
+//                    break
+//                case .s5:
+//                    attributedString.append(NSAttributedString(string: "5s ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
+//                case .s10:
+//                    attributedString.append(NSAttributedString(string: "10s ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
+//                case .s15:
+//                    attributedString.append(NSAttributedString(string: "15s ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
+//                case .s30:
+//                    attributedString.append(NSAttributedString(string: "30s ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
+//                case .m1:
+//                    attributedString.append(NSAttributedString(string: "1m ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
+//                case .m5:
+//                    attributedString.append(NSAttributedString(string: "5m ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
+//                case .m10:
+//                    attributedString.append(NSAttributedString(string: "10m ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
+//                case .m15:
+//                    attributedString.append(NSAttributedString(string: "15m ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
+//                
+//            }
+//        }
+//        let start = attributedString.string.count
+//        attributedString.append(NSAttributedString(string: dateString))
+//        attributedString.addAttribute(.font, value: UIFont.systemFont(ofSize: 12, weight: .regular), range: NSRange(location: 0, length: attributedString.string.count))
+//
+////        attributedString.addAttribute(.foregroundColor, value: UIColor.secondaryLabel.cgColor, range: NSRange(location: attributedString.string.count - dateString.count, length: dateString.count))
+////        attributedString.addAttribute(.foregroundColor, value: UIColor.secondaryLabel.cgColor, range: NSRange(location: start, length: dateString.count - 1))
+//        
+//        return attributedString
     }
     
     func messageBottomPadding(at indexPath: IndexPath) -> CGFloat {
-        return self.datasource[indexPath.section].isHasAttachedMessages ? -4 : 4
+//        return self.datasource[indexPath.section].isHasAttachedMessages ? -4 : 4
+        return 4
     }
     
     func showAvatar() -> Bool  {

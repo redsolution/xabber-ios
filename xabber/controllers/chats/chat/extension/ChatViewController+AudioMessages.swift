@@ -215,15 +215,6 @@ extension ChatViewController {
                 user.messages.sendMediaMessage([item],
                                                to: self.jid,
                                                forwarded: attachedMessages, conversationType: self.conversationType)
-                self.canUpdateDataset = true
-                self.messagesCount += 1
-                self.runDatasetUpdateTask()
-                DispatchQueue.main.async {
-                    let prevIndexPath = IndexPath(row: 0, section: 1)
-                    if self.messagesCollectionView.indexPathsForVisibleItems.contains(prevIndexPath) {
-                        self.messagesCollectionView.reloadItems(at: [prevIndexPath])
-                    }
-                }
             })
             print("Call empty", #function)
             self.attachedMessagesIds.accept([])

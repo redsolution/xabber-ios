@@ -45,13 +45,7 @@ class ChatViewController: MessagesViewController {
         case shouldRequestVerification = "should_request_verification"
         case acceptedVerification = "accepted_verification"
     }
-    
-    enum InputBarState {
-        case short
-        case normal
-        case selection
-    }
-    
+        
     enum NavigationBarStyle {
         case normal
         case selection
@@ -170,9 +164,6 @@ class ChatViewController: MessagesViewController {
         }
     }
     
-    public static let datasourcePageSize: Int = 100
-    public static let datasourceInitialPageSize: Int = 40
-    public final var canUpdateDataset: Bool = true
     
     internal let gapLength: Int = 200
     internal var currentGap: Int = 0
@@ -187,37 +178,22 @@ class ChatViewController: MessagesViewController {
     public var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
     public var entity: RosterItemEntity = .contact
     public var groupchatDescr: String = ""
-    
-    internal var messagesCount: Int = ChatViewController.datasourceInitialPageSize
-    internal var lastBottomIndex: Int = 0
-    internal var shouldChangeOffsetOnUpdate: Bool = false
-    
-    var oldestMessageId: String? = nil
-    var newestMessageId: String? = nil
-    
+
     internal var messagesObserver: Results<MessageStorageItem>? = nil
-    
-    internal var datasource: [Datasource] = []
+    internal var proxyDatasource: [Datasource?] = []
     
     internal var bag: DisposeBag = DisposeBag()
     internal var pinBag: DisposeBag = DisposeBag()
     internal var messagesBag: DisposeBag = DisposeBag()
-    internal var messagesUpdaterBag: DisposeBag = DisposeBag()
     
     var opponentSender: Sender = Sender(id: "", displayName: "")
     var ownerSender: Sender = Sender(id: "", displayName: "")
     
     var isInSelectionMode: BehaviorRelay<Bool> = BehaviorRelay(value: false)
-    
     var showSkeletonObserver: BehaviorRelay<Bool> = BehaviorRelay(value: true)
-//    var isSkeletonHided: Bool = false
-        
-    var canLoadPage: Bool = true
-    
+
     var accountPallete: MDCPalette = MDCPalette.blue
     var tmpUploadString: String = ""
-    
-    var contactStatus: String? = nil
     
     var isChatSynced: Bool = false
     
@@ -228,15 +204,16 @@ class ChatViewController: MessagesViewController {
     var shouldShowNormalStatus: Bool = false
 // Search mode
     public var inSearchMode: BehaviorRelay<Bool> = BehaviorRelay(value: false)
+    public var searchTextObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)
     public var searchResultsFinObserver: BehaviorRelay<Bool> = BehaviorRelay(value: false)
-//    public var searchResultsIds: [String] = []
     public var selectedSearchResultId: String? = nil
+    public var searchMessagesQueue: [MessageStorageItem] = []
+    public var currentSearchQueryId: String? = nil
 // Pin message bar
     internal var pinnedMessageId: BehaviorRelay<String?> = BehaviorRelay(value: nil)
     internal var canUnpinMessage: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     internal var currentPinnedMessageId: String? = nil
     internal var settedPinnedMessageId: String? = nil
-    internal var scrollItemIndexPath: IndexPath? = nil
 //    Audio messages
     internal var recordedFileUrl: URL? = nil
     internal var recordedFileDate: Date? = nil
@@ -250,7 +227,6 @@ class ChatViewController: MessagesViewController {
     var attachedMessagesIds: BehaviorRelay<[String]> = BehaviorRelay(value: [])
     
     var draftMessageText: BehaviorRelay<String?> = BehaviorRelay<String?>(value: nil)
-//    var previousDraftMessageText: String? = nil
     var inTypingMode: BehaviorRelay<Bool?> = BehaviorRelay(value: nil)
     
     var showMyNickname: Bool = false
@@ -260,69 +236,63 @@ class ChatViewController: MessagesViewController {
     var editMessageId: BehaviorRelay<String?> = BehaviorRelay(value: nil)
 //    ChatStates
     var refreshChatStateTimer: Timer? = nil
-    
-    var toolsButtonStateObserver: BehaviorRelay<ToolsButton.ToolsState> = BehaviorRelay(value: .hidden)
-    
-//    var topMenuShowObserver: BehaviorRelay<Bool> = BehaviorRelay(value: false)
-    var searchTextObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)
-//    var searchTextBouncerObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)
-    
-    var messagesListDisposable: Disposable? = nil
-    
-    var isInitiallyDeletedGroup: Bool? = nil
-    
-//    var shouldUpdateMessagesCount: Bool = true
-    
-    var isInviteViewControllerShowed: Bool = false
-    
-    var omemoDeviceListTimer: Timer? = nil
-    
-    var watchSignatureTimer: Timer? = nil
-    
-    var certificateUpdateTimer: Timer? = nil
-    var contactWithSigningCertificate: Bool = false
-    
-    var blockInputFieldByTimeSignature: BehaviorRelay<Bool> = BehaviorRelay<Bool>(value: false)
-    var isTimeSignatureBlockingPanelopen: Bool = false
-    
-    var isTrustedDevicesBlockingPanelopen: Bool = false
-    
-    var shouldUpdatePreviousMessage = false
-    
-    var appInBackground: Bool = false
-    
-    var lastReadMessageId: String? = nil
-    
+
+    internal var omemoDeviceListTimer: Timer? = nil
+    internal var watchSignatureTimer: Timer? = nil
+    internal var certificateUpdateTimer: Timer? = nil
+    internal var contactWithSigningCertificate: Bool = false
+    internal var blockInputFieldByTimeSignature: BehaviorRelay<Bool> = BehaviorRelay<Bool>(value: false)
+    internal var isTimeSignatureBlockingPanelopen: Bool = false
+    internal var isTrustedDevicesBlockingPanelopen: Bool = false
+
     var selectedAfterburnId: Int = 0
-    
     
     //// panel
     var topPanelShowed: Bool = false
     var topPanelState: BehaviorRelay<TopPanelState> = BehaviorRelay(value: .none)
-    //MAM
-    var hasActiveMamaArchive: Bool = false
-    var searchMessagesQueue: [MessageStorageItem] = []
-    var currentSearchQueryId: String? = nil
+
     
-    var lastVelocityYSign = 0
-    var isLoadNextPage: Bool = false
-    
-    internal let skeletonMessages: [NSAttributedString] = {
+    internal let skeletonMessagesDatasource: [Datasource] = {
         return (0..<30).compactMap {
             _ in
             return NSAttributedString(string: Lorem.words(Int.random(in: (4..<32))))
+        }.enumerated().compactMap {
+            (offset, item) in
+            let date = Date(timeIntervalSince1970: Date().timeIntervalSince1970 - Double(((30 - offset) * 1000)))
+            return Datasource(
+                primary: UUID().uuidString,
+                jid: "jid",
+                owner: "owner",
+                outgoing: false,
+                sender: Int.random(in: (4..<32)) % 3 == 0 ? Sender(id: "jid", displayName: "owner") : Sender(id: "owner", displayName: "owner"),
+                messageId: UUID().uuidString,
+                sentDate: date,
+                editDate: nil,
+                kind: .skeleton(item),
+                withAuthor: false,
+                withAvatar: false,
+                error: false,
+                errorType: "",
+                canPinMessage: false,
+                canEditMessage: false,
+                canDeleteMessage: false,
+                forwards: [],
+                isOutgoing: false,
+                isEdited: false,
+                groupchatAuthorRole: "",
+                groupchatAuthorId: "",
+                groupchatAuthorNickname: "",
+                groupchatAuthorBadge: "",
+                isHasAttachedMessages: false,
+                isDownloaded: true,
+                state: .read,
+                searchString: nil,
+                errorMetadata: [:],
+                burnDate: -1,
+                afterburnInterval: -1,
+                isRead: true
+            )
         }
-    }()
-    
-    internal let updateQueue: DispatchQueue = {
-        let queue = DispatchQueue(
-            label: "com.xabber.chat.updater",
-            qos: .userInteractive,
-            attributes: [],// [.concurrent],
-            autoreleaseFrequency: .never,
-            target: nil
-        )
-        return queue
     }()
     
     let sectionsDateFormatter: DateFormatter = {
@@ -372,22 +342,9 @@ class ChatViewController: MessagesViewController {
         let label = UILabel()
         
         label.font = UIFont.preferredFont(forTextStyle: .caption2)
-        if #available(iOS 13.0, *) {
-            label.textColor = .secondaryLabel
-        } else {
-            label.textColor = .darkText
-        }
+        label.textColor = .secondaryLabel
         
         return label
-    }()
-    
-    var bottomSearchBar: SearchBar = {
-        let bar = SearchBar()
-        
-        bar.barStyle = .default
-//        bar.backgroundImage = nil
-        
-        return bar
     }()
     
     let recordingPanel: RecordingPanel = {
@@ -398,13 +355,7 @@ class ChatViewController: MessagesViewController {
         
         return view
     }()
-    
-    internal let toolsButton: ToolsButton = {
-        let button = ToolsButton(frame: CGRect(square: 36))
         
-        return button
-    }()
-    
     let cancelSelectionBarButton: UIBarButtonItem = {
         let button = UIBarButtonItem(barButtonSystemItem: .cancel, target: nil, action: nil)
         
@@ -442,8 +393,6 @@ class ChatViewController: MessagesViewController {
     }()
     
     internal var xabberInputView: ModernXabberInputView!
-    
-    internal var shouldRequestChatInfo: Bool = false
     
     @objc
     internal func showInfo() {
@@ -495,8 +444,6 @@ class ChatViewController: MessagesViewController {
         self.searchBar.sizeToFit()
         self.searchBar.delegate = self
         self.navigationItem.setHidesBackButton(true, animated: true)
-        let barFrame = self.view.inputAccessoryView?.frame
-        self.bottomSearchBar.frame = barFrame ?? .zero
         self.searchBar.becomeFirstResponder()
         self.searchBar.searchTextField.becomeFirstResponder()
     }
@@ -519,22 +466,22 @@ class ChatViewController: MessagesViewController {
     }
     
     func initStatus() {
-        if conversationType == .saved {
-            let usersCount = AccountManager.shared.users.count
-            
-            if usersCount > 1 {
-                self.contactStatus = self.owner
-                self.statusLabel.text = self.contactStatus
-            }
-            
-            return
-            
-        } else if (XMPPJID(string: self.jid)?.isServer ?? false) {
-            self.contactStatus = "Server"
-            self.statusLabel.text = self.contactStatus
-            return
-            
-        }
+//        if conversationType == .saved {
+//            let usersCount = AccountManager.shared.users.count
+//            
+//            if usersCount > 1 {
+//                self.contactStatus = self.owner
+//                self.statusLabel.text = self.contactStatus
+//            }
+//            
+//            return
+//            
+//        } else if (XMPPJID(string: self.jid)?.isServer ?? false) {
+//            self.contactStatus = "Server"
+//            self.statusLabel.text = self.contactStatus
+//            return
+//            
+//        }
         
         do {
             let realm = try WRealm.safe()
@@ -574,42 +521,42 @@ class ChatViewController: MessagesViewController {
                             }
                     }
                     self.shouldShowNormalStatus = false
-                    switch item.subscribtion {
-                    case .from:
-                        switch item.ask {
-                            case .none:
-                                self.contactStatus = "Receives your presence updates"
-                                    .localizeString(id: "chat_receives_presence_updates", arguments: [])
-                            case .out:
-                                self.contactStatus = "Subscription request pending..."
-                                    .localizeString(id: "chat_subscription_request_pending", arguments: [])
-                            default:
-                                break
-                        }
-                    case .none:
-                        switch item.ask {
-                        case .out, .both:
-                            self.contactStatus = "Subscription request pending..."
-                                .localizeString(id: "chat_subscription_request_pending", arguments: [])
-                        case .in:
-                            self.contactStatus = "In your contacts"
-                                .localizeString(id: "contact_state_in_contact_list", arguments: [])
-                        case .none:
-                            self.contactStatus = "In your contacts"
-                                .localizeString(id: "contact_state_in_contact_list", arguments: [])
-                        }
-                    case .undefined:
-                        self.contactStatus = "Not in your contacts"
-                            .localizeString(id: "contact_state_not_in_contact_list", arguments: [])
-                    default:
-                        self.shouldShowNormalStatus = true
-                        break
-                    }
+//                    switch item.subscribtion {
+//                    case .from:
+//                        switch item.ask {
+//                            case .none:
+//                                self.contactStatus = "Receives your presence updates"
+//                                    .localizeString(id: "chat_receives_presence_updates", arguments: [])
+//                            case .out:
+//                                self.contactStatus = "Subscription request pending..."
+//                                    .localizeString(id: "chat_subscription_request_pending", arguments: [])
+//                            default:
+//                                break
+//                        }
+//                    case .none:
+//                        switch item.ask {
+//                        case .out, .both:
+//                            self.contactStatus = "Subscription request pending..."
+//                                .localizeString(id: "chat_subscription_request_pending", arguments: [])
+//                        case .in:
+//                            self.contactStatus = "In your contacts"
+//                                .localizeString(id: "contact_state_in_contact_list", arguments: [])
+//                        case .none:
+//                            self.contactStatus = "In your contacts"
+//                                .localizeString(id: "contact_state_in_contact_list", arguments: [])
+//                        }
+//                    case .undefined:
+//                        self.contactStatus = "Not in your contacts"
+//                            .localizeString(id: "contact_state_not_in_contact_list", arguments: [])
+//                    default:
+//                        self.shouldShowNormalStatus = true
+//                        break
+//                    }
                 
             } else {
-                self.contactStatus = "Not in your contacts"
-                    .localizeString(id: "contact_state_not_in_contact_list", arguments: [])
-//                    self.showSubscribtionBar(animated: true, state: .notInRoster)
+//                self.contactStatus = "Not in your contacts"
+//                    .localizeString(id: "contact_state_not_in_contact_list", arguments: [])
+////                    self.showSubscribtionBar(animated: true, state: .notInRoster)
                 self.topPanelState.accept(.addContact)
                 self.updateStatusText()
                 return
@@ -631,7 +578,7 @@ class ChatViewController: MessagesViewController {
             }
             if self.shouldShowNormalStatus {
                 self.statusTextObserver.accept(statusStr)
-                self.contactStatus = status
+//                self.contactStatus = status
                 self.statusLabel.layoutIfNeeded()
             }
             self.titleLabel.sizeToFit()
@@ -684,16 +631,7 @@ class ChatViewController: MessagesViewController {
             self.searchTextObserver.accept(nil)
             self.configureNavbar()
         }
-        
-        
-        toolsButton.delegate = self
-        toolsButton.frame = CGRect(
-            x: self.view.bounds.width - 44,
-            y: self.view.bounds.height - 88 - (UIDevice.needBottomOffset ? 44 : 0),
-            width: 36,
-            height: 44
-        )
-        
+                
         var inputHeight: CGFloat = 49
         if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
             inputHeight += bottomInset
@@ -845,12 +783,6 @@ class ChatViewController: MessagesViewController {
         gradientView.frame = self.view.bounds
         
         gradient.frame = self.view.bounds
-        toolsButton.frame = CGRect(
-            x: self.view.bounds.width - 44,
-            y: self.view.bounds.height - 88 - (UIDevice.needBottomOffset ? 44 : 0),
-            width: 36,
-            height: 44
-        )
         
         var inputHeight: CGFloat = 49 + self.xabberInputView.keyboardHeight
         if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
@@ -925,7 +857,6 @@ class ChatViewController: MessagesViewController {
     @objc
     internal func willEnterForeground() {
         NotifyManager.shared.currentDialog = [self.jid, self.owner].prp()
-        appInBackground = false
         AccountManager.shared.find(for: self.owner)?.chatMarkers.updateDeleteEphemeralMessagesTimer()
 //        self.updateQueue
 //            .asyncAfter(deadline: .now() + 3) {
@@ -942,7 +873,6 @@ class ChatViewController: MessagesViewController {
     @objc
     private func didEnterBackground() {
 //        self.unsubscribe()
-        appInBackground = true
         NotifyManager.shared.currentDialog = nil
         do {
             let realm = try WRealm.safe()
@@ -1012,7 +942,7 @@ class ChatViewController: MessagesViewController {
             try self.subscribe()
             try self.groupSubscribtions()
             try self.encryptedSubscribtions()
-            try self.subscribeOnDatasetChanges()
+            self.subscribeOnDataset()
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
@@ -1021,7 +951,7 @@ class ChatViewController: MessagesViewController {
         if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
             inputHeight += bottomInset
         }
-        self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 100, right: 0)
+        self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 0, right: 0)
         
         self.addObservers()
         (self.navigationController as? NavBarController)?.cancelButton.addTarget(self, action: #selector(additionalNavBarPanelCancelButtonTouchUpInside), for: .touchUpInside)
@@ -1051,12 +981,7 @@ class ChatViewController: MessagesViewController {
     
     final func syncChat() {
         func callback() {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                self.showSkeletonObserver.accept(false)
-                self.oldestMessageId = self.getMessageIdAtPostionOrLast(index: self.messagesCount)
-                self.newestMessageId = self.getMessageIdAtPostionOrLast(index: self.lastBottomIndex)
-                self.runDatasetUpdateTask(shouldScrollToLastMessage: false)
-            }
+
         }
         XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { stream, session in
             session.mam?.syncChat(stream, jid: self.jid, conversationType: self.conversationType, callback: callback)
@@ -1065,19 +990,11 @@ class ChatViewController: MessagesViewController {
                 user.mam.syncChat(stream, jid: self.jid, conversationType: self.conversationType, callback: callback)
             })
         }
-//        XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { stream, session in
-//            session.mam?.syncChatOld(stream, jid: self.jid, conversationType: self.conversationType)
-//        }) {
-//            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-//                user.mam.syncChatOld(stream, jid: self.jid, conversationType: self.conversationType)
-//            })
-//        }
     }
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         self.syncChat()
-        self.canLoadPage = true
 
         do {
             let realm = try WRealm.safe()
@@ -1097,7 +1014,7 @@ class ChatViewController: MessagesViewController {
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
-        
+        self.populateMissedDatasource()
     }
     
     override func viewWillDisappear(_ animated: Bool) {
