@@ -34,7 +34,7 @@ UICollectionViewDelegateFlowLayout, UICollectionViewDataSource {
             if width <= 414 {
                 return width - 32
             } else {
-                return 480
+                return 360
             }
         }
     }
@@ -79,17 +79,12 @@ UICollectionViewDelegateFlowLayout, UICollectionViewDataSource {
     
     internal var selectedIndexPathForMenu: IndexPath?
 
-    internal var messageCollectionViewBottomInset: CGFloat = 50 { //54 {
-        didSet {
-            messagesCollectionView.contentInset.bottom = messageCollectionViewBottomInset
-            messagesCollectionView.scrollIndicatorInsets.bottom = messageCollectionViewBottomInset
-        }
-    }
-    
-    open var accessoryViewSearchCorrectionConstant: CGFloat = 0
-    open var accessoryViewCorrectionConstant: CGFloat = 0
-    
-    open var messageCollectionViewTopInset: CGFloat = 50
+//    internal var messageCollectionViewBottomInset: CGFloat = 50 {
+//        didSet {
+////            messagesCollectionView.contentInset.bottom = messageCollectionViewBottomInset
+////            messagesCollectionView.scrollIndicatorInsets.bottom = messageCollectionViewBottomInset
+//        }
+//    }
     
     open var messageCollectionViewLastKBPosition: CGFloat = 0
     

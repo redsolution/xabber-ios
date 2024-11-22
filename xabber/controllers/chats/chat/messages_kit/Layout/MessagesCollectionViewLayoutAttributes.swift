@@ -50,6 +50,11 @@ open class MessagesCollectionViewLayoutAttributes: UICollectionViewLayoutAttribu
     public var showMessageStateIndicator: Bool = true
     
     public var shouldShowTopLabel: Bool = false
+    
+    public var audioInlineViewSize: CGSize = .zero
+    public var imagesInlineViewSize: CGSize = .zero
+    public var videosInlineViewSize: CGSize = .zero
+    public var filesInlineViewSize: CGSize = .zero
 
     // MARK: - Methods
 

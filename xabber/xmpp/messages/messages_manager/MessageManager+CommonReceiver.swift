@@ -189,36 +189,6 @@ extension MessageManager {
                                  date: getDeliveryTime(message, owner: owner) ?? Date(),
                                  state: .sended,
                                  queryId: getMAMQueryId(message)))
-//        if let from = message.from?.bare,
-//            from != owner {
-//            CommonChatStatesManager.shared.update(jid: from, owner: owner, state: .none)
-//            do {
-//                let conversationType = conversationTypeByMessage(message)
-//                let realm = try WRealm.safe()
-//                try realm.write {
-//                    realm
-//                        .objects(MessageStorageItem.self)
-//                        .filter("owner == %@ AND opponent == %@ AND state_ < %@ AND date <= %@ AND conversationType_ == %@",
-//                                owner,
-//                                from,
-//                                MessageStorageItem.MessageSendingState.read.rawValue,
-//                                getDeliveryTime(message, owner: owner) ?? Date(),
-//                                conversationType.rawValue)
-//                        .forEach {
-//                            $0.state = .read
-//                            $0.isRead = true
-//                            if $0.burnDate <= 1 {
-//                                if $0.afterburnInterval > 0 {
-//                                    $0.readDate = Date().timeIntervalSince1970
-//                                    $0.burnDate = Date().timeIntervalSince1970 + $0.afterburnInterval
-//                                }
-//                            }
-//                        }
-//                }
-//            } catch {
-//                DDLogDebug("MessageManager: \(#function). \(error.localizedDescription)")
-//            }
-//        }
     }
     
     

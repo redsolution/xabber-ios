@@ -387,7 +387,7 @@ class MessageDeleteManager: AbstractXMPPManager {
         queryIds.insert(elementId)
         itemsQuery.insert(Item("", kind: .retract, messageId: "", iqId: elementId, callback: callback))
         do {
-            let realm = try  WRealm.safe()
+            let realm = try WRealm.safe()
             try realm.write {
                 realm
                     .objects(MessageStorageItem.self)

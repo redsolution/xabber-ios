@@ -125,6 +125,7 @@ class ChatViewController: MessagesViewController {
         var archivedId:  String?
         var isRead: Bool
         var selectedSearchResultId: String? = nil
+        var references: [MessageReferenceStorageItem.Model] = []
         
         static func compareContent(_ a: ChatViewController.Datasource, _ b: ChatViewController.Datasource) -> Bool {
             return a.primary == b.primary &&
@@ -195,6 +196,8 @@ class ChatViewController: MessagesViewController {
     var oldestMessageId: String? = nil
     var newestMessageId: String? = nil
     
+    internal var bottomVisibleMessageId: BehaviorRelay<String?> = BehaviorRelay(value: nil)
+    
     internal var messagesObserver: Results<MessageStorageItem>? = nil
     
     internal var datasource: [Datasource] = []
@@ -211,7 +214,9 @@ class ChatViewController: MessagesViewController {
     
     var showSkeletonObserver: BehaviorRelay<Bool> = BehaviorRelay(value: true)
 //    var isSkeletonHided: Bool = false
-        
+    
+    var showLoadingIndicator: BehaviorRelay<Bool> = BehaviorRelay(value: false)
+    
     var canLoadPage: Bool = true
     
     var accountPallete: MDCPalette = MDCPalette.blue
@@ -227,8 +232,13 @@ class ChatViewController: MessagesViewController {
     var statusTextObserver: BehaviorRelay<String> = BehaviorRelay(value: " ")
     var shouldShowNormalStatus: Bool = false
 // Search mode
+    enum SearchSeekDirection {
+        case up
+        case down
+    }
     public var inSearchMode: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     public var searchResultsFinObserver: BehaviorRelay<Bool> = BehaviorRelay(value: false)
+    internal var searchSeekDirection: SearchSeekDirection? = nil
 //    public var searchResultsIds: [String] = []
     public var selectedSearchResultId: String? = nil
 // Pin message bar
@@ -300,7 +310,7 @@ class ChatViewController: MessagesViewController {
     var topPanelShowed: Bool = false
     var topPanelState: BehaviorRelay<TopPanelState> = BehaviorRelay(value: .none)
     //MAM
-    var hasActiveMamaArchive: Bool = false
+    var hasActiveMamArchiveRequest: Bool = false
     var searchMessagesQueue: [MessageStorageItem] = []
     var currentSearchQueryId: String? = nil
     
@@ -381,14 +391,14 @@ class ChatViewController: MessagesViewController {
         return label
     }()
     
-    var bottomSearchBar: SearchBar = {
-        let bar = SearchBar()
-        
-        bar.barStyle = .default
-//        bar.backgroundImage = nil
-        
-        return bar
-    }()
+//    var bottomSearchBar: SearchBar = {
+//        let bar = SearchBar()
+//        
+//        bar.barStyle = .default
+////        bar.backgroundImage = nil
+//        
+//        return bar
+//    }()
     
     let recordingPanel: RecordingPanel = {
         let view = RecordingPanel(frame: .zero)
@@ -441,6 +451,37 @@ class ChatViewController: MessagesViewController {
         return button
     }()
     
+    internal let chatViewLoadingOverlay: UIView = {
+        let view = UIView()
+        
+        let indicator = UIActivityIndicatorView(style: .large)
+        
+        indicator.startAnimating()
+        
+        let indicatorBackground = UIView(frame: CGRect(square: 128))
+        indicatorBackground.layer.cornerRadius = 24
+        indicatorBackground.layer.masksToBounds = true
+        indicatorBackground.addSubview(indicator)
+        indicator.centerInSuperview()
+        view.addSubview(indicatorBackground)
+        
+        indicatorBackground.centerInSuperview()
+        indicatorBackground.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.95)
+        
+        NSLayoutConstraint.activate([
+            indicator.centerXAnchor.constraint(equalTo: indicatorBackground.centerXAnchor),
+            indicator.centerYAnchor.constraint(equalTo: indicatorBackground.centerYAnchor),
+            indicatorBackground.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            indicatorBackground.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            indicatorBackground.widthAnchor.constraint(equalToConstant: 128),
+            indicatorBackground.heightAnchor.constraint(equalToConstant: 128),
+        ])
+        
+        view.isHidden = true
+        
+        return view
+    }()
+    
     internal var xabberInputView: ModernXabberInputView!
     
     internal var shouldRequestChatInfo: Bool = false
@@ -490,15 +531,45 @@ class ChatViewController: MessagesViewController {
         self.recordingPanel.onEndPlayingCallback = onRecordingPanelWillEnd
     }
     
+    internal let cancelSearchBarButton: UIBarButtonItem = {
+        let button = UIBarButtonItem(systemItem: .cancel, primaryAction: nil, menu: nil)
+        
+        return button
+    }()
+    
     func configureSearchBar() {
-        self.navigationItem.setRightBarButton(UIBarButtonItem(customView: searchBar), animated: true)
-        self.searchBar.sizeToFit()
+        self.cancelSearchBarButton.action = #selector(self.pnCancelButtonTouchUp)
+        self.cancelSearchBarButton.target = self
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            self.searchBar.frame = CGRect(width: self.view.bounds.width - 150, height: 44)
+            self.navigationItem.setLeftBarButton(UIBarButtonItem(customView: searchBar), animated: true)
+            self.navigationItem.setRightBarButton(self.cancelSearchBarButton, animated: true)
+//            self.navigationItem.setRightBarButtonItems([self.cancelSearchBarButton, UIBarButtonItem(customView: searchBar)], animated: true)
+//            self.cancelSearchBarButton.sizeToFit()
+//            self.searchBar.sizeToFit()
+//            var size = self.searchBar.frame.size
+//            self.searchBar.frame = CGRect(
+//                origin: self.searchBar.frame.origin,
+//                size: CGSize(width: size.width - 72,//self.cancelSearchBarButton.width,
+//                             height: size.height)
+//            )
+        } else {
+            self.searchBar.sizeToFit()
+            self.navigationItem.setRightBarButton(UIBarButtonItem(customView: searchBar), animated: true)
+        }
+        self.navigationItem.titleView = nil
         self.searchBar.delegate = self
         self.navigationItem.setHidesBackButton(true, animated: true)
-        let barFrame = self.view.inputAccessoryView?.frame
-        self.bottomSearchBar.frame = barFrame ?? .zero
+//        let barFrame = self.view.inputAccessoryView?.frame
+//        self.bottomSearchBar.frame = barFrame ?? .zero
         self.searchBar.becomeFirstResponder()
         self.searchBar.searchTextField.becomeFirstResponder()
+//        self.xabberInputView.searchPanel.isInLoadingState = false
+        self.showLoadingIndicator.accept(false)
+        self.xabberInputView.searchPanel.changeState(to: .empty)
+        self.xabberInputView.changeState(to: .search)
+        self.searchBar.setShowsCancelButton(true, animated: true)
+        
     }
     
     public func onSearchPanelChangeConversationType(_ oldConversationType: ClientSynchronizationManager.ConversationType) {
@@ -510,12 +581,12 @@ class ChatViewController: MessagesViewController {
             case .omemo: vc.conversationType = .regular
             default: vc.conversationType = self.conversationType
         }
-        vc.inSearchMode.accept(true)
         if let rootVc = self.navigationController?.viewControllers[0] {
             self.navigationController?.setViewControllers([rootVc, vc], animated: true)
         } else {
             self.navigationController?.pushViewController(vc, animated: true)
         }
+        vc.inSearchMode.accept(true)
     }
     
     func initStatus() {
@@ -663,6 +734,7 @@ class ChatViewController: MessagesViewController {
 //        
         
         
+        
         self.messagesCollectionView.prefetchDataSource = self
         self.messagesCollectionView.messagesDataSource = self
         self.messagesCollectionView.messageCellDelegate = self
@@ -678,12 +750,7 @@ class ChatViewController: MessagesViewController {
         
         messagesCollectionView.accountPalette = accountPallete
         
-        if self.inSearchMode.value {
-            self.configureSearchBar()
-        } else {
-            self.searchTextObserver.accept(nil)
-            self.configureNavbar()
-        }
+        
         
         
         toolsButton.delegate = self
@@ -705,15 +772,23 @@ class ChatViewController: MessagesViewController {
         self.view.addSubview(xabberInputView)
         self.view.bringSubviewToFront(xabberInputView)
         self.messagesCollectionView.keyboardDismissMode = .interactive
-        self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 100, right: 0)
-        
-        configureBackground()
-        configureNavbar()
-        configureSelectionPanel()
-        configureMessagesPanel()
-        configureCertificateUpdateTimer()
-        configureDataset()
-        previousFrame = self.view.bounds
+        self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 0, right: 0)
+        if self.inSearchMode.value {
+            self.configureSearchBar()
+        } else {
+            self.searchTextObserver.accept(nil)
+            self.configureNavbar()
+        }
+        self.configureBackground()
+        self.configureNavbar()
+        self.configureInputBar()
+        self.configureSelectionPanel()
+        self.configureMessagesPanel()
+        self.configureCertificateUpdateTimer()
+        self.configureDataset()
+        self.previousFrame = self.view.bounds
+        self.view.addSubview(self.chatViewLoadingOverlay)
+        self.chatViewLoadingOverlay.fillSuperview()
     }
     
     var previousFrame: CGRect = .zero
@@ -731,7 +806,11 @@ class ChatViewController: MessagesViewController {
     }
     
     final func configureBackground() {
-        backgroundView.frame = self.view.bounds
+        backgroundView.frame = CGRect(
+            origin: CGPoint(x: 0, y: ((UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top ?? 0) + (self.navigationController?.navigationBar.frame.height ?? 0)),
+            size: self.view.bounds.size
+        )
+//        backgroundView.frame = self.view.bounds
         backgroundImage.frame = self.view.bounds
         
         gradientView.frame = self.view.bounds
@@ -768,17 +847,20 @@ class ChatViewController: MessagesViewController {
         backgroundView.addSubview(gradientView)
         backgroundView.addSubview(backgroundImage)
         backgroundView.bringSubviewToFront(backgroundImage)
-        messagesCollectionView.backgroundView =  backgroundView
+//        messagesCollectionView.backgroundView =  backgroundView
+        self.messagesCollectionView.backgroundColor = .clear
+        self.view.addSubview(backgroundView)
+        self.view.sendSubviewToBack(backgroundView)
         
     }
     
     final func configureNavbar() {
-        self.navigationController?.navigationBar.prefersLargeTitles = false
-        self.navigationController?.navigationItem.largeTitleDisplayMode = .never
-        self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
-        self.navigationController?.navigationBar.shadowImage = nil
-        self.navigationController?.navigationBar.superview?.bringSubviewToFront(self.navigationController!.navigationBar)
-        self.navigationController?.navigationBar.layoutIfNeeded()
+//        self.navigationController?.navigationBar.prefersLargeTitles = false
+//        self.navigationController?.navigationItem.largeTitleDisplayMode = .never
+//        self.navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
+//        self.navigationController?.navigationBar.shadowImage = UIImage()
+//        self.navigationController?.navigationBar.superview?.bringSubviewToFront(self.navigationController!.navigationBar)
+//        self.navigationController?.navigationBar.layoutIfNeeded()
 
         userBarButton.gradient.colors = [UIColor.white.cgColor,
                                          AccountColorManager.shared.palette(for: self.owner).tint700.cgColor]
@@ -824,7 +906,7 @@ class ChatViewController: MessagesViewController {
             self.xabberInputView.timerButton.isHidden = true
             self.xabberInputView.timerButton.isEnabled = false
         }
-        self.xabberInputView.update(screenHeight: self.view.bounds.height, keyboardHeight: 0)
+        self.xabberInputView.update(screenHeight: UIScreen.main.bounds.height, keyboardHeight: 0)
         self.xabberInputView.searchPanel.conversationType = self.conversationType
         self.xabberInputView.searchPanel.onChangeConversationTypeCallback = onSearchPanelChangeConversationType
         self.xabberInputView.searchPanel.onSeekUpCallback = self.onSearchPanelSeekUp
@@ -839,7 +921,11 @@ class ChatViewController: MessagesViewController {
         }
         self.topPanelState.accept(self.topPanelState.value)
         previousFrame = self.view.bounds
-        backgroundView.frame = self.view.bounds
+//        backgroundView.frame = self.view.bounds
+        backgroundView.frame = CGRect(
+            origin: CGPoint(x: 0, y: ((UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top ?? 0) + (self.navigationController?.navigationBar.frame.height ?? 0)),
+            size: self.view.bounds.size
+        )
         backgroundImage.frame = self.view.bounds
         
         gradientView.frame = self.view.bounds
@@ -862,6 +948,7 @@ class ChatViewController: MessagesViewController {
         
         (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
             .cache.invalidate()
+        self.messagesCollectionView.reloadData()
     }
     
     private func unsubscribe() {
@@ -1021,7 +1108,7 @@ class ChatViewController: MessagesViewController {
         if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
             inputHeight += bottomInset
         }
-        self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 100, right: 0)
+        self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 40, right: 0)
         
         self.addObservers()
         (self.navigationController as? NavBarController)?.cancelButton.addTarget(self, action: #selector(additionalNavBarPanelCancelButtonTouchUpInside), for: .touchUpInside)
@@ -1043,15 +1130,14 @@ class ChatViewController: MessagesViewController {
                 self.onUpdateTimeSignatureBlockState(!SignatureManager.shared.isSignatureValid())
             }
         }
-        self.syncChat()
+//        self.syncChat()
         self.initializeDataset()
-        self.configureInputBar()
         self.lowPrioritySubscribtions()
     }
     
     final func syncChat() {
         func callback() {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
                 self.showSkeletonObserver.accept(false)
                 self.oldestMessageId = self.getMessageIdAtPostionOrLast(index: self.messagesCount)
                 self.newestMessageId = self.getMessageIdAtPostionOrLast(index: self.lastBottomIndex)
@@ -1065,13 +1151,6 @@ class ChatViewController: MessagesViewController {
                 user.mam.syncChat(stream, jid: self.jid, conversationType: self.conversationType, callback: callback)
             })
         }
-//        XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { stream, session in
-//            session.mam?.syncChatOld(stream, jid: self.jid, conversationType: self.conversationType)
-//        }) {
-//            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-//                user.mam.syncChatOld(stream, jid: self.jid, conversationType: self.conversationType)
-//            })
-//        }
     }
     
     override func viewDidAppear(_ animated: Bool) {

@@ -90,11 +90,7 @@ class MediaMessageSizeCalculator: MessageSizeCalculator {
         case .files(let items): //Videos go by .files with mimeType == "video"
             let _ = items.map {
                 if $0.mimeType == "video" {
-//                    if $0.sizeInPxThumb == nil {
-//                        out.append(sizeForMediaItem(maxWidth, CGSize(width: 360, height: 480)))
-//                    } else {
-                        out.append(sizeForMediaItem(maxWidth, $0.sizeInPx))
-//                    }
+                    out.append(sizeForMediaItem(maxWidth, $0.sizeInPx))
                 } else {
                     out.append(sizeForFiles(maxWidth, 1))
                 }

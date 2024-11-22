@@ -43,7 +43,7 @@ public final class ChangesWithIndexSet {
 
 extension ChatViewController {
 
-    private final func mapDataset(dataset: Slice<Results<MessageStorageItem>>) -> [Datasource] {
+    private final func mapDataset(dataset: Array<MessageStorageItem>) -> [Datasource] {
         if self.showSkeletonObserver.value {
             return skeletonMessages.enumerated().compactMap {
                 (offset, item) in
@@ -143,11 +143,22 @@ extension ChatViewController {
                             .getAttributedNickname([.font: UIFont.preferredFont(forTextStyle: .caption1)])
                     )
                 case .text:
+//                    kind = .attributedText(
+//                        NSAttributedString(string: "\(offset)"),
+//                        false,
+//                        ContactChatMetadataManager
+//                            .shared
+//                            .get(item.groupchatAuthorNickname ?? "",
+//                                 for: self.owner,
+//                                 badge: item.groupchatAuthorBadge ?? "",
+//                                 role: item.groupchatMetadata?["role"] as? String ?? "member")
+//                            .getAttributedNickname([.font: UIFont.preferredFont(forTextStyle: .caption1)])
+//                    )
                     kind = .attributedText(
                         item.createRefBody(
                             [
                                 NSAttributedString.Key.foregroundColor: UIColor.label,
-                                NSAttributedString.Key.font: UIFont.systemFont(ofSize: 16, weight: .regular),
+                                NSAttributedString.Key.font: UIFont.preferredFont(forTextStyle: .body)//UIFont.systemFont(ofSize: 16, weight: .regular),
                             ],
                             searchedText: self.searchTextObserver.value,
                             searchedTextColor: item.archivedId == self.selectedSearchResultId ? AccountColorManager.shared.palette(for: self.owner).tint400.withAlphaComponent(0.5) :  AccountColorManager.shared.palette(for: self.owner).tint200.withAlphaComponent(0.5)
@@ -201,6 +212,7 @@ extension ChatViewController {
             } else if !self.groupchat {
                 withAuthor = false
             } else if dataset.count > 1 && (offset + 1) < dataset.count {
+                print(dataset.count, offset, dataset.count > 1, (offset + 1) < dataset.count, dataset.count > 1 && (offset + 1) < dataset.count)
                 if dataset[offset + 1].groupchatAuthorNickname != item.groupchatAuthorNickname || self.isDateChange(from: dataset[offset + 1].sentDate, to: item.sentDate) {
                     withAuthor = self.groupchat ? (item.displayAs == .sticker ? false : (self.showMyNickname ? true : !item.outgoing)) : false
                 } else {
@@ -259,7 +271,8 @@ extension ChatViewController {
                 afterburnInterval: item.afterburnInterval,
                 archivedId: item.archivedId,
                 isRead: item.isRead,
-                selectedSearchResultId: item.archivedId == self.selectedSearchResultId ? self.selectedSearchResultId : nil
+                selectedSearchResultId: item.archivedId == self.selectedSearchResultId ? self.selectedSearchResultId : nil,
+                references: item.references.toArray().compactMap { $0.loadModel() }
             )
         }
     }
@@ -288,7 +301,7 @@ extension ChatViewController {
         )
     }
     
-    private final func apply(changes: ChangesWithIndexSet, shouldScrollToLastMessage: Bool = false, addToEnd: Bool = false, prepare: @escaping (() -> Void)) {
+    private final func apply(changes: ChangesWithIndexSet, shouldScrollToLastMessage: Bool = false, forceWithoutAnimations: Bool = false, addToEnd: Bool = false, addToStart: Bool = false, prepare: @escaping (() -> Void)) {
         if changes.deletes.isEmpty &&
             changes.inserts.isEmpty &&
             changes.moves.isEmpty &&
@@ -296,92 +309,97 @@ extension ChatViewController {
             prepare()
             self.canUpdateDataset = true
             if let archived = self.scrollToMessageArchivedId {
-                self.scrollToMessageArchivedId = nil
                 if let index = self.datasource.firstIndex(where: { $0.archivedId == archived }) {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: index), at: .centeredVertically, animated: true)
-                    }
+                    self.scrollToMessageArchivedId = nil
+                    self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: index), at: .bottom, animated: true)
+                    self.showLoadingIndicator.accept(false)
                 }
             }
             return
+        }
+        
+        func animationTransaction(_ block: () -> Void) {
+            if addToEnd || addToStart || forceWithoutAnimations {
+                UIView.performWithoutAnimation(block)
+            } else {
+                block()
+            }
         }
         
         if (changes.inserts.count + changes.deletes.count) > 40 {
             (messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?.cache.invalidate()
         }
         
+        
         (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
             .invalidateLastMessageCachedSize(primary: datasource.last?.primary)
         let heightBeforeUpdate = self.messagesCollectionView.contentSize.height
         let offsetBeforeUpdate = self.messagesCollectionView.contentOffset.y
         
-        prepare()
-        self.messagesCollectionView.performBatchUpdates({
-           if !changes.deletes.isEmpty {
-               self.messagesCollectionView.deleteSections(changes.deletes)
-           }
-           
-           if !changes.inserts.isEmpty {
-               self.messagesCollectionView.insertSections(changes.inserts)
-           }
-           
-           if changes.moves.isNotEmpty {
-               changes.moves.forEach {
-                   (from, to) in
-                   self.messagesCollectionView.moveItem(at: from, to: to)
-               }
-           }
-           
-            if let archived = self.scrollToMessageArchivedId {
-                self.scrollToMessageArchivedId = nil
-                if let index = self.datasource.firstIndex(where: { $0.archivedId == archived }) {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: index), at: .centeredVertically, animated: true)
+        animationTransaction {
+            self.messagesCollectionView.performBatchUpdates({
+                prepare()
+                if !changes.deletes.isEmpty {
+                   self.messagesCollectionView.deleteSections(changes.deletes)
+                }
+
+                if !changes.inserts.isEmpty {
+                   self.messagesCollectionView.insertSections(changes.inserts)
+                }
+
+                if changes.moves.isNotEmpty {
+                   changes.moves.forEach {
+                       (from, to) in
+                       self.messagesCollectionView.moveItem(at: from, to: to)
+                   }
+                }
+                if !changes.replaces.isEmpty {
+                    self.messagesCollectionView.reloadItems(at: changes.replaces.compactMap { return IndexPath(row: 0, section: $0) })
+                }
+            }, completion: {
+                result in
+                
+                
+                if let archived = self.scrollToMessageArchivedId {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        if let index = self.datasource.firstIndex(where: { $0.archivedId == archived  }) {//|| $0.messageId == archived
+                            self.scrollToMessageArchivedId = nil
+                            self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: index), at: self.searchSeekDirection == .down ? .centeredVertically : .bottom, animated: true)
+                            self.showLoadingIndicator.accept(false)
+                            self.searchSeekDirection = nil
+                            print("SCROLL TO \(index) first")
+                        } else {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                if let index = self.datasource.firstIndex(where: { $0.archivedId == archived }) {
+                                    self.scrollToMessageArchivedId = nil
+                                    self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: index), at: self.searchSeekDirection == .down ? .centeredVertically : .bottom, animated: true)
+                                    self.showLoadingIndicator.accept(false)
+                                    self.searchSeekDirection = nil
+                                    print("SCROLL TO \(index) last")
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    if addToEnd {
+                        self.messagesCollectionView.setContentOffset(CGPoint(x: 0, y: offsetBeforeUpdate), animated: false)
+                    } else if addToStart {
+                        let heightAfterUpdate = self.messagesCollectionView.contentSize.height
+                        let newOffset = offsetBeforeUpdate + (heightAfterUpdate - heightBeforeUpdate)
+                        self.messagesCollectionView.setContentOffset(CGPoint(x: 0, y: newOffset), animated: false)
                     }
                 }
-            }
-        }, completion: {
-            result in
-            if !changes.replaces.isEmpty {
-                self.messagesCollectionView.reconfigureItems(at: changes.replaces.compactMap { return IndexPath(row: 0, section: $0) })
-            }
-            if self.shouldUpdatePreviousMessage {
-                self.shouldUpdatePreviousMessage = false
-//                self.messagesCollectionView.reconfigureItems(at: [IndexPath(row: 0, section: 1)])
-                var reconfigureSizeItems: Set<String> = Set()
-                self.messagesCollectionView.indexPathsForVisibleItems.forEach {
-                    indexPath in
-                    reconfigureSizeItems.insert(self.datasource[indexPath.section].primary)
-                }
-                reconfigureSizeItems.forEach {
-                    primary in
-                    (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
-                            .invalidateLastMessageCachedSize(primary: primary)
-                }
-                UIView.performWithoutAnimation {
-                    self.messagesCollectionView.reloadItems(at: self.messagesCollectionView.indexPathsForVisibleItems)
-                }
-                
-            }
-//            let additionalOffset = self.messagesCollectionView.contentSize.height - heightBeforeUpdate
-//            if self.shouldChangeOffsetOnUpdate {
-//                self.messagesCollectionView
-//                    .setContentOffset(
-//                        CGPoint(x: 0,
-//                                y: offsetBeforeUpdate + additionalOffset),
-//                        animated: false
-//                    )
-//            }
-            if addToEnd {
-                let heightAfterUpdate = self.messagesCollectionView.contentSize.height
-//                self.messagesCollectionView
-                self.messagesCollectionView.setContentOffset(CGPoint(x: 0, y: offsetBeforeUpdate), animated: false)
-            }
-            self.canUpdateDataset = true
-        })
+                self.canUpdateDataset = true
+            })
+        }
+        
     }
     
-    internal final func getMessageIdAtPostionOrLast(index: Int) -> String {
+    internal final func getMessageIdAtPostionOrLast(index unsafeIndex: Int) -> String {
+        var index = unsafeIndex
+        if unsafeIndex < 0 {
+            index = 0
+        }
         if (self.messagesObserver?.count ?? 0) == 0 {
             return "none"
         } else if (self.messagesObserver?.count ?? 0) < index {
@@ -407,10 +425,11 @@ extension ChatViewController {
                     .filter ("owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@", self.owner, self.jid, self.conversationType.rawValue)
                     .sorted (byKeyPath: "date", ascending: false)
             }
-            let prefix = dataset.firstIndex(where: { $0.archivedId == newestMessageId || $0.messageId == newestMessageId }) ?? 0
-            let suffix = dataset.firstIndex(where: { $0.archivedId == oldestMessageId || $0.messageId == oldestMessageId }) ?? (dataset.count - 1)
+            let prefix = 0//dataset.firstIndex(where: { $0.archivedId == newestMessageId  }) ?? 0 // || $0.messageId == newestMessageId
+            let suffix = (dataset.count - 1)//dataset.firstIndex(where: { $0.archivedId == oldestMessageId  }) ?? (dataset.count - 1) //|| $0.messageId == oldestMessageId
             if suffix < prefix {
                 return dataset.prefix(dataset.count)
+                
             }
             return dataset[prefix...suffix]
         } catch {
@@ -420,31 +439,39 @@ extension ChatViewController {
     
     internal final func initializeDataset() {
         self.oldestMessageId = getMessageIdAtPostionOrLast(index: self.messagesCount)
-        self.newestMessageId = getMessageIdAtPostionOrLast(index: self.lastBottomIndex)
+        self.newestMessageId = "the most top message id \(NanoID.new(15))"//getMessageIdAtPostionOrLast(index: self.lastBottomIndex)
         let dataset = self.prepareDataset(
             oldestMessageId: self.oldestMessageId ?? "",
             newestMessageId: self.newestMessageId ?? ""
         )
-        self.datasource = self.mapDataset(dataset: dataset)
+        self.datasource = self.mapDataset(dataset: Array(dataset))
+        
     }
     
-    public final func runDatasetUpdateTask(shouldScrollToLastMessage: Bool = false, addToEnd: Bool = false) {
-        self.preprocessDataset(shouldScrollToLastMessage: shouldScrollToLastMessage, addToEnd: addToEnd)
+    public final func runDatasetUpdateTask(shouldScrollToLastMessage: Bool = false, forceWithoutAnimations: Bool = false, addToEnd: Bool = false, addToStart: Bool = false) {
+        autoreleasepool {
+            self.preprocessDataset(shouldScrollToLastMessage: shouldScrollToLastMessage, forceWithoutAnimations: forceWithoutAnimations, addToEnd: addToEnd, addToStart: addToStart)
+        }
         self.postprocessDataset()
     }
     
-    private final func preprocessDataset(shouldScrollToLastMessage: Bool = false, addToEnd: Bool = false) {
+    private final func preprocessDataset(shouldScrollToLastMessage: Bool = false, forceWithoutAnimations: Bool = false, addToEnd: Bool = false, addToStart: Bool = false) {
         if !canUpdateDataset { return }
         self.canUpdateDataset = false
         
+        var newestMessageId = self.newestMessageId
+        if self.messagesObserver?.first?.archivedId == self.newestMessageId || self.messagesObserver?.first?.messageId == self.newestMessageId {
+            newestMessageId = "the most top message id \(NanoID.new(15))"
+            self.newestMessageId = newestMessageId
+        }
         let dataset = prepareDataset(
             oldestMessageId: self.oldestMessageId ?? "",
-            newestMessageId: self.newestMessageId ?? ""
+            newestMessageId: newestMessageId ?? ""
         )
-        let newDataset = self.mapDataset(dataset: dataset)
+        let newDataset = self.mapDataset(dataset: Array(dataset))
         let changes = diff(old: self.datasource, new: newDataset)
         let indexSet = self.convertChangeset(changes: changes)
-        self.apply(changes: indexSet, shouldScrollToLastMessage: shouldScrollToLastMessage, addToEnd: addToEnd) {
+        self.apply(changes: indexSet, shouldScrollToLastMessage: shouldScrollToLastMessage, forceWithoutAnimations: forceWithoutAnimations, addToEnd: addToEnd, addToStart: addToStart) {
             self.datasource = newDataset
         }
     }
@@ -460,34 +487,143 @@ extension ChatViewController {
             .collection(from: self.messagesObserver!)
             .skip(1)
             .debounce(.milliseconds(150), scheduler: MainScheduler.asyncInstance)
-            .subscribe { (result) in
+            .subscribe { (_) in
                 if self.showSkeletonObserver.value { return }
-                if self.hasActiveMamaArchive { return }
+                if self.hasActiveMamArchiveRequest { return }
                 self.runDatasetUpdateTask()
             }
             .disposed(by: self.messagesBag)
     }
     
     final func addDatasourceToStart() {
-        
+        if self.isLoadNextPage {
+            return
+        }
+        func scroll() {
+            self.lastBottomIndex = self.messagesObserver?.firstIndex(where: { $0.archivedId == self.newestMessageId || $0.messageId == self.newestMessageId }) ?? self.lastBottomIndex
+            self.lastBottomIndex = self.lastBottomIndex - 200
+            if self.lastBottomIndex < 0 {
+                self.lastBottomIndex = 0
+            }
+            self.newestMessageId = self.getMessageIdAtPostionOrLast(index: self.lastBottomIndex)
+            self.runDatasetUpdateTask(shouldScrollToLastMessage: false, addToStart: true)
+        }
+        func callback() {
+            print("end")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                scroll()
+                self.isLoadNextPage = false
+            }
+        }
+        do {
+            let realm = try WRealm.safe()
+//            let chatInstance = realm.object(
+//                ofType: LastChatsStorageItem.self,
+//                forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid, owner: self.owner, conversationType: self.conversationType)
+//            )
+//            let messagesCount = self.messagesObserver?.count ?? 0
+//            let totalCount = chatInstance?.messagesCount ?? 0
+            let newestMessageId = self.messagesObserver?.firstIndex(where: { $0.archivedId == self.newestMessageId || $0.messageId == self.newestMessageId }) ?? 0
+            if newestMessageId == 0 { return }
+            if prevHasGap(before: newestMessageId, count: ChatViewController.datasourcePageSize * 2) {
+                self.isLoadNextPage = true
+                XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+                    session.mam?.getPrevHistory(stream, for: self.jid, conversationType: self.conversationType, messageId: self.newestMessageId ?? "", callback: callback)
+                } fail: {
+                    AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                        user.mam.getPrevHistory(stream, for: self.jid, conversationType: self.conversationType, messageId: self.newestMessageId ?? "", callback: callback)
+                    })
+                }
+            } else {
+                scroll()
+//                if let oldestItemIndex = self.messagesObserver?.firstIndex(where: { $0.archivedId == self.oldestMessageId || $0.messageId == self.oldestMessageId }) {
+//                    if oldestItemIndex == (messagesCount - 1) {
+//                        print("should load histpry", messagesCount, oldestItemIndex, totalCount)
+                        
+
+//                    } else if oldestItemIndex < (messagesCount - 1) {
+//                        self.messagesCount += ChatViewController.datasourcePageSize * 2
+//                        self.lastBottomIndex = self.messagesCount - ChatViewController.datasourcePageSize
+//                        if self.lastBottomIndex < 0 {
+//                            self.lastBottomIndex = 0
+//                        }
+//                        self.oldestMessageId = self.getMessageIdAtPostionOrLast(index: self.messagesCount)
+//                        self.newestMessageId = self.getMessageIdAtPostionOrLast(index: self.lastBottomIndex)
+//                        self.runDatasetUpdateTask(shouldScrollToLastMessage: false, addToEnd: true)
+//                    }
+//                }
+            }
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        }
+    }
+    
+    func nextHasGap(after: Int, count: Int) -> Bool {
+        let len = (self.messagesObserver?.count ?? 0) - after
+        if len < 1 {
+            return true
+        }
+        if let slice = self.messagesObserver?.suffix(len).prefix(count) {
+            let arr = Array(slice)
+            if arr.last?.displayAs != .initial && count > arr.count {
+                return true
+            }
+            var shouldRequestArchive = false
+            Array(slice).enumerated().forEach {
+                offset, item in
+                let nextIndex = offset + 1
+                if nextIndex < slice.count {
+                    let itemQueryIds = Set((item.queryIds ?? "").split(separator: ","))
+                    let nextItemQueryIds = Set((arr[nextIndex].queryIds ?? "").split(separator: ","))
+                    let intersection = itemQueryIds.intersection(nextItemQueryIds)
+                    if intersection.isEmpty {
+                        shouldRequestArchive = true
+                    }
+                }
+            }
+            return shouldRequestArchive
+        }
+        return true
+    }
+    
+    func prevHasGap(before: Int, count: Int) -> Bool {
+        if let slice = self.messagesObserver?.prefix(before).suffix(count) {
+            let arr = Array(slice)
+            var shouldRequestArchive = false
+            Array(slice).enumerated().forEach {
+                offset, item in
+                let nextIndex = offset + 1
+                if nextIndex < slice.count {
+                    let itemQueryIds = Set((item.queryIds ?? "").split(separator: ","))
+                    let nextItemQueryIds = Set((arr[nextIndex].queryIds ?? "").split(separator: ","))
+                    let intersection = itemQueryIds.intersection(nextItemQueryIds)
+                    if intersection.isEmpty {
+                        shouldRequestArchive = true
+                    }
+                }
+            }
+            return shouldRequestArchive
+        }
+        return false
     }
     
     final func addDatasourceToEnd() {
         if self.isLoadNextPage {
             return
         }
+        func scroll() {
+            self.messagesCount += ChatViewController.datasourcePageSize * 2
+            let oldestItemIndex = self.messagesObserver?.firstIndex(where: { $0.archivedId == self.oldestMessageId || $0.messageId == self.oldestMessageId }) ?? 0
+            let newestMessageIndex = self.messagesObserver?.firstIndex(where: { $0.archivedId == self.newestMessageId || $0.messageId == self.newestMessageId }) ?? 0
+            self.lastBottomIndex = newestMessageIndex
+            self.oldestMessageId = self.getMessageIdAtPostionOrLast(index: ChatViewController.datasourcePageSize * 2 + oldestItemIndex)
+            self.runDatasetUpdateTask(shouldScrollToLastMessage: false, addToEnd: true)
+        }
         func callback() {
             print("end")
-            self.isLoadNextPage = false
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                self.messagesCount += ChatViewController.datasourcePageSize * 2
-                self.lastBottomIndex = self.messagesCount - ChatViewController.datasourcePageSize
-                if self.lastBottomIndex < 0 {
-                    self.lastBottomIndex = 0
-                }
-                self.oldestMessageId = self.getMessageIdAtPostionOrLast(index: self.messagesCount)
-                self.newestMessageId = self.getMessageIdAtPostionOrLast(index: self.lastBottomIndex)
-                self.runDatasetUpdateTask(shouldScrollToLastMessage: false, addToEnd: true)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                scroll()
+                self.isLoadNextPage = false
             }
         }
         do {
@@ -500,30 +636,23 @@ extension ChatViewController {
             let totalCount = chatInstance?.messagesCount ?? 0
             if messagesCount < totalCount - 1 {
                 if let oldestItemIndex = self.messagesObserver?.firstIndex(where: { $0.archivedId == self.oldestMessageId || $0.messageId == self.oldestMessageId }) {
-                    if oldestItemIndex == (messagesCount - 1) {
+                    if nextHasGap(after: oldestItemIndex, count: 200) || (self.messagesObserver?.count ?? 0) < (totalCount + ChatViewController.datasourcePageSize * 2) {
                         print("should load histpry", messagesCount, oldestItemIndex, totalCount)
                         self.isLoadNextPage = true
                         XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-                            session.mam?.getNextHistory(stream, for: self.jid, conversationType: self.conversationType, callback: callback)
+                            session.mam?.getNextHistory(stream, for: self.jid, conversationType: self.conversationType, messageId: self.oldestMessageId ?? "none", callback: callback)
                         } fail: {
                             AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                                user.mam.getNextHistory(stream, for: self.jid, conversationType: self.conversationType, callback: callback)
+                                user.mam.getNextHistory(stream, for: self.jid, conversationType: self.conversationType, messageId: self.oldestMessageId ?? "none", callback: callback)
                             })
                         }
 
                     } else if oldestItemIndex < (messagesCount - 1) {
-                        self.messagesCount += ChatViewController.datasourcePageSize * 2
-                        self.lastBottomIndex = self.messagesCount - ChatViewController.datasourcePageSize
-                        if self.lastBottomIndex < 0 {
-                            self.lastBottomIndex = 0
-                        }
-                        self.oldestMessageId = self.getMessageIdAtPostionOrLast(index: self.messagesCount)
-                        self.newestMessageId = self.getMessageIdAtPostionOrLast(index: self.lastBottomIndex)
-                        self.runDatasetUpdateTask(shouldScrollToLastMessage: false, addToEnd: true)
+                        scroll()
                     }
                 }
             } else {
-                
+                scroll()
             }
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")

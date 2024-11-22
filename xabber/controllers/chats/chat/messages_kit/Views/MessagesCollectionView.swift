@@ -45,7 +45,7 @@ class MessagesCollectionView: UICollectionView {
 
     override init(frame: CGRect, collectionViewLayout layout: UICollectionViewLayout) {
         super.init(frame: frame, collectionViewLayout: layout)
-        backgroundColor = .white
+//        backgroundColor = .white
         registerReusableViews()
         setupGestureRecognizers()
     }
@@ -72,7 +72,7 @@ class MessagesCollectionView: UICollectionView {
         register(QuoteMessageCell.self)
         register(InitialMessageCell.self)
         register(SkeletonMessageCell.self)
-        register(MessageReusableView.self, forSupplementaryViewOfKind: UICollectionView.elementKindSectionHeader)
+        register(ActivityIndicatorHeaderMessageView.self, forSupplementaryViewOfKind: UICollectionView.elementKindSectionHeader)
         register(MessageReusableView.self, forSupplementaryViewOfKind: UICollectionView.elementKindSectionFooter)
     }
     

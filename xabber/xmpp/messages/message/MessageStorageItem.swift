@@ -59,7 +59,7 @@ class MessageStorageItem: Object {
     }
     
     override static func indexedProperties() -> [String] {
-        return ["owner", "opponent", "date", "conversationType_"]
+        return ["opponent", "owner", "date", "conversationType_", "archivedId", "messageId"]
     }
     
     @objc dynamic var primary: String = ""
@@ -461,10 +461,14 @@ class MessageStorageItem: Object {
         if !references.filter({ $0.kind == .call }).isEmpty {
             displayAs = .call
         } else if !references.filter({ $0.kind == .voice }).isEmpty {
-            if references.filter({ [.voice, .media].contains($0.kind) }).count == 1 {
-                displayAs = .voice
+            if self.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if references.filter({ [.voice, .media].contains($0.kind) }).count == 1 {
+                    displayAs = .voice
+                } else {
+                    displayAs = .files
+                }
             } else {
-                displayAs = .files
+                displayAs = .text
             }
             
         } else if !references.filter({ [MimeIconTypes.file,
@@ -477,13 +481,19 @@ class MessageStorageItem: Object {
             .map { return $0.rawValue}
             .contains($0.mimeType) })
             .isEmpty {
-            displayAs = .files
+            if self.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                displayAs = .files
+            } else {
+                displayAs = .text
+            }
         } else if !references.filter({ $0.mimeType == MimeIconTypes.image.rawValue }).isEmpty {
             if references.filter({ $0.kind != .groupchat }).count == 1,
                 (references.filter({ $0.kind != .groupchat }).first?.metadata?["name"] as? String) == "Memoji" {
                 displayAs = .sticker
-            } else {
+            } else if self.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 displayAs = .images
+            } else {
+                displayAs = .text
             }
         } else if !references.filter({ $0.mimeType == MimeIconTypes.file.rawValue }).isEmpty {
             if references.filter({ $0.kind == .quote }).isEmpty {
@@ -829,12 +839,14 @@ class MessageStorageItem: Object {
                     }
                 }
                 try transaction(commit: commitTransaction) {
-                    if let oldQueryIds = instance.queryIds {
-                        if let newQueryIds = self.queryIds {
-                            instance.queryIds = [oldQueryIds, newQueryIds].joined(separator: ",")
+                    if (self.queryIds?.contains("history") ?? false) {
+                        if let oldQueryIds = instance.queryIds {
+                            if let newQueryIds = self.queryIds {
+                                instance.queryIds = [oldQueryIds, newQueryIds].joined(separator: ",")
+                            }
+                        } else {
+                            instance.queryIds = self.queryIds
                         }
-                    } else {
-                        instance.queryIds = self.queryIds
                     }
                 }
                 return false

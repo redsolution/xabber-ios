@@ -2922,7 +2922,6 @@
 			isa = PBXGroup;
 			children = (
 				6697DB62224D046B007E7584 /* APNS */,
-				66802901205A52B6005F0C9A /* PushNotificationsManager.swift */,
 				66BA99C22420D46600D20CE2 /* PushMessageTemporaryStorageItem.swift */,
 				6680AE64257E4F39007FD793 /* EncryptedPushData.swift */,
 			);
@@ -3136,6 +3135,7 @@
 			children = (
 				6697DB63224D047B007E7584 /* APNSManager.swift */,
 				66F907192260B76400F64A37 /* APNSManager+Network.swift */,
+				66802901205A52B6005F0C9A /* PushNotificationsManager.swift */,
 			);
 			path = APNS;
 			sourceTree = "<group>";

@@ -155,6 +155,7 @@ class InlineFilesGridView: InlineMediaBaseView {
         subviews.forEach { $0.removeFromSuperview() }
         let items = references
             .filter { [.media, .voice].contains($0.kind) }
+        if items.isEmpty { return }
         grid.removeAll()
         prepareGrid(references).enumerated().forEach {
             index, cell in

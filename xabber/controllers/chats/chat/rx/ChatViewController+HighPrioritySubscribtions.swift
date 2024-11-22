@@ -88,6 +88,13 @@ extension ChatViewController {
             
         }
         
+        showLoadingIndicator
+            .asObservable()
+//            .debounce(.nanoseconds(10), scheduler: MainScheduler.asyncInstance)
+            .subscribe { value in
+                self.chatViewLoadingOverlay.isHidden = !value
+            }
+            .disposed(by: bag)
         
         inSearchMode
             .asObservable()
@@ -105,11 +112,16 @@ extension ChatViewController {
         
         searchResultsFinObserver
             .asObservable()
+            .debounce(.milliseconds(250), scheduler: MainScheduler.asyncInstance)
             .subscribe { value in
 //                self.searchResultsIds = self.searchMessagesQueue.compactMap { return $0.archivedId }
                 self.selectedSearchResultId = self.searchMessagesQueue.first?.archivedId
-                self.xabberInputView.searchPanel.updateResults(current: 0, total: self.searchMessagesQueue.count)
-                self.xabberInputView.searchPanel.isInLoadingState = !value
+//                self.xabberInputView.searchPanel.updateResults(current: 0, total: self.searchMessagesQueue.count)
+//                self.xabberInputView.searchPanel.isInLoadingState = !value
+                if value {
+                    self.xabberInputView.searchPanel.updateResults(current: 0, total: self.searchMessagesQueue.count)
+//                    self.showLoadingIndicator.accept(!value)
+                }
             }
             .disposed(by: bag)
 
@@ -117,8 +129,9 @@ extension ChatViewController {
         searchTextObserver
             .asObservable()
             .skip(1)
-            .debounce(.milliseconds(500), scheduler: MainScheduler.asyncInstance)
+            .debounce(.milliseconds(300), scheduler: MainScheduler.asyncInstance)
             .subscribe(onNext: { (value) in
+                self.showLoadingIndicator.accept(true)
                 self.updateSearchResults(value: value)
             })
             .disposed(by: bag)

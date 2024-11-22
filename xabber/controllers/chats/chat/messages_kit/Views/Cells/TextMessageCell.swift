@@ -25,6 +25,30 @@ class TextMessageCell: CommonMessageCell {
     
     var messageLabel = MessageLabel()
     
+    var audiosInlineView: InlineAudioGridView = {
+        let view = InlineAudioGridView()
+        
+        return view
+    }()
+    
+    var filesInlineView: InlineFilesGridView = {
+        let view = InlineFilesGridView()
+        
+        return view
+    }()
+    
+    var imagesInlineView: InlineImagesGridView = {
+        let view = InlineImagesGridView()
+        
+        return view
+    }()
+    
+    var videosInlineView: InlineVideosGridView = {
+        let view = InlineVideosGridView()
+        
+        return view
+    }()
+    
     override weak var delegate: MessageCellDelegate? {
         didSet {
             messageLabel.delegate = delegate
@@ -37,15 +61,52 @@ class TextMessageCell: CommonMessageCell {
         if let attributes = layoutAttributes as? MessagesCollectionViewLayoutAttributes {
             messageLabel.textInsets = attributes.messageLabelInsets
             messageLabel.messageLabelFont = attributes.messageLabelFont
-
-            messageLabel.frame = CGRect(x: messageContainerView.bounds.minX + 8,
-                                        y: messageContainerView.bounds.minY + attributes.inlineForwardsOffset,
-                                        width: messageContainerView.bounds.width - 16,
+//            let additionalYOffset = attributes.audioInlineViewSize.height + attributes.filesInlineViewSize.height + attributes.imagesInlineViewSize.height + attributes.
+            var messageLabelOffset: CGFloat = 0
+            audiosInlineView.frame = CGRect(
+                x: messageContainerView.bounds.minX + 8,
+                y: messageContainerView.bounds.minY + messageLabelOffset,
+                width: messageContainerView.bounds.width - 16,
+                height: attributes.audioInlineViewSize.height
+            )
+            messageLabelOffset += attributes.audioInlineViewSize.height
+            
+            filesInlineView.frame = CGRect(
+                x: messageContainerView.bounds.minX + 8,
+                y: messageContainerView.bounds.minY + messageLabelOffset,
+                width: messageContainerView.bounds.width - 16,
+                height: attributes.filesInlineViewSize.height
+            )
+            messageLabelOffset += attributes.filesInlineViewSize.height
+            
+            imagesInlineView.frame = CGRect(
+                x: messageContainerView.bounds.minX + 8,
+                y: messageContainerView.bounds.minY + messageLabelOffset,
+                width: messageContainerView.bounds.width - 16,
+                height: attributes.imagesInlineViewSize.height
+            )
+            messageLabelOffset += attributes.imagesInlineViewSize.height
+            
+            videosInlineView.frame = CGRect(
+                x: messageContainerView.bounds.minX + 8,
+                y: messageContainerView.bounds.minY + messageLabelOffset,
+                width: messageContainerView.bounds.width - 16,
+                height: attributes.videosInlineViewSize.height
+            )
+            messageLabelOffset += attributes.videosInlineViewSize.height
+            if messageLabelOffset > 0 {
+                messageLabelOffset += 8
+            }
+            
+            messageLabel.frame = CGRect(x: messageContainerView.bounds.minX + attributes.messageLabelInsets.left,
+                                        y: messageContainerView.bounds.minY + attributes.inlineForwardsOffset + messageLabelOffset + attributes.messageLabelInsets.top,
+                                        width: messageContainerView.bounds.width - attributes.messageLabelInsets.horizontal,
                                         height: messageContainerView.bounds.height - attributes.inlineForwardsOffset)
         }
     }
     
     override func prepareForReuse() {
+        
         super.prepareForReuse()
         messageLabel.attributedText = nil
         messageLabel.text = nil
@@ -55,6 +116,10 @@ class TextMessageCell: CommonMessageCell {
     override func setupSubviews() {
         super.setupSubviews()
         messageContainerView.addSubview(messageLabel)
+        messageContainerView.addSubview(audiosInlineView)
+        messageContainerView.addSubview(filesInlineView)
+        messageContainerView.addSubview(imagesInlineView)
+        messageContainerView.addSubview(videosInlineView)
     }
     
     override func configure(with message: MessageType, at indexPath: IndexPath, and messagesCollectionView: MessagesCollectionView) {
@@ -65,6 +130,12 @@ class TextMessageCell: CommonMessageCell {
         }
 
         let enabledDetectors = displayDelegate.enabledDetectors(for: message, at: indexPath, in: messagesCollectionView)
+        
+        self.audiosInlineView.configure(message.references, messageId: message.messageId, indexPath: indexPath)
+        self.filesInlineView.configure(message.references, messageId: message.messageId, indexPath: indexPath)
+        self.imagesInlineView.configure(message.references, messageId: message.messageId, indexPath: indexPath)
+        self.videosInlineView.configure(message.references, messageId: message.messageId, indexPath: indexPath)
+        
         
         messageLabel.configure {
             messageLabel.enabledDetectors = enabledDetectors

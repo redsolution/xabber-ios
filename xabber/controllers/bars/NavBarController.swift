@@ -26,26 +26,57 @@ class NavBarController: UINavigationController, UINavigationControllerDelegate {
     internal let topToolbar: UIToolbar = {
         let bar = UIToolbar()
         
-        bar.isTranslucent = false
-        bar.isHidden = true
+        bar.isTranslucent = true
+//        bar.isHidden = true
         
         return bar
     }()
     
+    override init(rootViewController: UIViewController) {
+        super.init(rootViewController: rootViewController)
+        
+//        super.init(nibName: nil, bundle: nil)
+//        self.viewControllers = [rootViewController]
+//        self.navigationItem.standardAppearance = UINavigationBarAppearance(idiom: UIDevice.current.userInterfaceIdiom)
+        self.setupSubviews()
+    }
+    
+    required init?(coder aDecoder: NSCoder) {
+        super.init(nibName: nil, bundle: nil)
+//        self.navigationItem.standardAppearance = UINavigationBarAppearance(idiom: UIDevice.current.userInterfaceIdiom)
+        self.setupSubviews()
+//        fatalError("init(coder:) has not been implemented")
+    }
+    
     override func viewDidLoad() {
         super.viewDidLoad()
         
+    }
+    
+    func setupSubviews() {
         self.delegate = self
+//        self.
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithDefaultBackground()
+//        appearance.backgroundColor = UIColor.systemRed
+//        appearance.titleTextAttributes = [.foregroundColor: UIColor.lightText] // With a red background, make the title more readable.
+        navigationItem.standardAppearance = appearance
+        navigationItem.scrollEdgeAppearance = appearance
+        navigationItem.compactAppearance = appearance
         
+//        self.navigationItem.standardAppearance = UINavigationBarAppearance(idiom: UIDevice.current.userInterfaceIdiom)
+//        self.navigationItem.scrollEdgeAppearance = UINavigationBarAppearance(idiom: UIDevice.current.userInterfaceIdiom)
+//        self.navigationItem.compactAppearance = UINavigationBarAppearance(idiom: UIDevice.current.userInterfaceIdiom)
+//        self.navigationItem.compactScrollEdgeAppearance = UINavigationBarAppearance(idiom: UIDevice.current.userInterfaceIdiom)
         self.view.addSubview(self.topToolbar)
         self.topToolbar.frame = CGRect(
             origin: CGPoint(
                 x: 0,
-                y: self.navigationBar.frame.height
+                y: 0//self.navigationBar.frame.height
             ),
             size: CGSize(
                 width: self.navigationBar.frame.width,
-                height: 0
+                height: self.navigationBar.frame.height//0
             )
         )
         
@@ -82,6 +113,8 @@ class NavBarController: UINavigationController, UINavigationControllerDelegate {
         stack.axis = .horizontal
         stack.distribution = .fill
         stack.alignment = .center
+        
+        stack.isHidden = true
         
         return stack
     }()
@@ -132,17 +165,17 @@ class NavBarController: UINavigationController, UINavigationControllerDelegate {
                 block()
             }
         }
-        self.topToolbar.isHidden = false
+        self.additionalPanelStack.isHidden = false
         transaction(animated: animated) {
             
             self.topToolbar.frame = CGRect(
                 origin: CGPoint(
                     x: 0,
-                    y: (self.navigationController?.navigationBar.frame.origin.y ?? 0) + self.navigationBar.frame.height
+                    y: 0//(self.navigationController?.navigationBar.frame.origin.y ?? 0) + self.navigationBar.frame.height
                 ),
                 size: CGSize(
                     width: self.navigationBar.frame.width,
-                    height: 44
+                    height: 44 + self.navigationBar.frame.height
                 )
             )
 //            self.navigationBar.frame = CGRect(
@@ -217,15 +250,15 @@ class NavBarController: UINavigationController, UINavigationControllerDelegate {
             self.topToolbar.frame = CGRect(
                 origin: CGPoint(
                     x: 0,
-                    y: self.navigationBar.frame.height
+                    y: 0//self.navigationBar.frame.height
                 ),
                 size: CGSize(
                     width: self.navigationBar.frame.width,
-                    height: 0
+                    height: self.navigationBar.frame.height//0
                 )
             )
         }
-        self.topToolbar.isHidden = true
+        self.additionalPanelStack.isHidden = true
     }
     
     var isFirstLayout: Bool = true
@@ -264,8 +297,10 @@ class NavBarController: UINavigationController, UINavigationControllerDelegate {
                 )
             )
             isFirstLayout = false
+            self.view.sendSubviewToBack(topToolbar)
         }
     }
+    
     func navigationController(_ navigationController: UINavigationController, willShow viewController: UIViewController, animated: Bool) {
         if self.panelShowd {
             self.hideAdditionalPanel(animated: false)

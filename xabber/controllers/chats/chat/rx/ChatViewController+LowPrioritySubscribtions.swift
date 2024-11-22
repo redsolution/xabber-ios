@@ -351,6 +351,20 @@ extension ChatViewController {
                 }
             }.disposed(by: self.bag)
         
+        self.bottomVisibleMessageId
+            .asObservable()
+            .debounce(.milliseconds(800), scheduler: MainScheduler.asyncInstance)
+            .subscribe { value in
+                do {
+                    let realm  = try WRealm.safe()
+                    try realm.write {
+                        realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid, owner: self.owner, conversationType: self.conversationType))?.lastBottomDisplayedMessageId = value
+                    }
+                } catch {
+                    DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+                }
+            }.disposed(by: self.bag)
+        
         AccountManager
             .shared
             .connectingUsers

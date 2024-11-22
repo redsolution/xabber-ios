@@ -112,13 +112,13 @@ class ChatMarkersManager: AbstractXMPPManager {
                 .objects(MessageStorageItem.self)
                 .filter("owner == %@ AND afterburnInterval > 0 AND isRead == true AND isDeleted == false AND burnDate < %@ AND burnDate > 0", self.owner, Date().timeIntervalSince1970)
             
+            if collection.isEmpty {
+                return
+            }
             let jids = Set(collection.compactMap { return $0.opponent })
             
             
             
-            if collection.isEmpty {
-                return
-            }
             
             let chats = realm.objects(LastChatsStorageItem.self).filter("owner == %@ AND jid IN %@", self.owner, Array(jids))
             

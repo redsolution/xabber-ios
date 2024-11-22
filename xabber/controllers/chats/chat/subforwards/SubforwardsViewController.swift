@@ -150,7 +150,7 @@ class SubforwardsViewController: MessagesViewController {
         navigationItem.setLeftBarButton(UIBarButtonItem(title: "Done", style: .done, target: self, action: #selector(self.dissmissModal)), animated: true)
 //        self.xab.isHidden = true
 //        self.additionalTopInset = -34
-        self.accessoryViewCorrectionConstant = 38
+//        self.accessoryViewCorrectionConstant = 38
     }
     
     override func viewDidLoad() {

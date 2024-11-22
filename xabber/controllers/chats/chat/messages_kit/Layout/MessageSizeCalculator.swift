@@ -51,8 +51,8 @@ class MessageSizeCalculator: CellSizeCalculator {
     var inlineMessageMargin = UIEdgeInsets(top: 4, bottom: 0, left: 4, right: 4)
     var inlineMessagePadding = UIEdgeInsets(top: 4, bottom: 4, left: 0, right: 0)
     
-    public var incomingMessageLabelInsets = UIEdgeInsets(top: 6, left: 8, bottom: 20, right: 0)
-    public var outgoingMessageLabelInsets = UIEdgeInsets(top: 6, left: 0, bottom: 20, right: 8)
+    public var incomingMessageLabelInsets = UIEdgeInsets(top: 4, left: 10, bottom: 20, right: 6)
+    public var outgoingMessageLabelInsets = UIEdgeInsets(top: 4, left: 6, bottom: 20, right: 10)
 
     var incomingMessageTopLabelAlignment = LabelAlignment(textAlignment: .left, textInsets: UIEdgeInsets(left: 20))
     var outgoingMessageTopLabelAlignment = LabelAlignment(textAlignment: .right, textInsets: UIEdgeInsets(right: 20))
@@ -87,6 +87,10 @@ class MessageSizeCalculator: CellSizeCalculator {
             default: attributes.inlineForwardsOffset += 20
             }
         }
+        attributes.audioInlineViewSize  = sizeForInlineAudioMedia(for:  message)
+        attributes.filesInlineViewSize  = sizeForInlineFilesMedia(for:  message)
+        attributes.imagesInlineViewSize = sizeForInlineImagesMedia(for: message)
+        attributes.videosInlineViewSize = sizeForInlineVideosMedia(for: message)
         attributes.inlineMessageMargin = inlineMessageMargin
         additionalPaddingForMinForwardComment = 0
         attributes.avatarSize = avatarSize(for: message)
@@ -118,21 +122,32 @@ class MessageSizeCalculator: CellSizeCalculator {
         return CGSize(width: messagesLayout.itemWidth, height: itemHeight)
     }
 
+    func sizeForInlineAudioMedia(for message: MessageType) -> CGSize {
+        return .zero
+    }
+    
+    func sizeForInlineFilesMedia(for message: MessageType) -> CGSize {
+        return .zero
+    }
+    
+    func sizeForInlineImagesMedia(for message: MessageType) -> CGSize {
+        return .zero
+    }
+    
+    func sizeForInlineVideosMedia(for message: MessageType) -> CGSize {
+        return .zero
+    }
+    
     func cellContentHeight(for message: MessageType, at indexPath: IndexPath) -> CGFloat {
         var totalHeight: CGFloat = 0
         
         let cellTopLabelHeight = cellTopLabelSize(for: message, at: indexPath).height
         
         let containerSize: CGSize = messageContainerSize(for: message)
-//        let topLabelHeight: CGFloat = message.withAuthor ? 20 : 0
-        
         
         totalHeight += cellTopLabelHeight
-//        totalHeight += topLabelHeight55
         totalHeight += bottomCellPadding
         totalHeight += containerSize.height
-        
-//        print(containerSize)
         
         return totalHeight
     }

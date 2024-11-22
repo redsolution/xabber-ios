@@ -112,7 +112,7 @@ extension ChatViewController {
                         options: options,
                         animations: {
                             self.xabberInputView.update(screenHeight: self.view.bounds.height, keyboardHeight: keyboardVisibleHeight)
-                            self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 100, right: 0)
+                            self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 0, right: 0)
                             
                             if self.messagesCollectionView.contentOffset.y < 100 {
                                 self.messagesCollectionView.contentOffset.y = -inputHeight - 8
@@ -151,7 +151,7 @@ extension ChatViewController {
                     options: options,
                     animations: {
                         self.xabberInputView.update(screenHeight: self.view.bounds.height, keyboardHeight: 0)
-                        self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 100, right: 0)
+                        self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 0, right: 0)
                         return
                     }, completion: { finished in
                 })

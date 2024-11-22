@@ -97,6 +97,8 @@ class SearchChatListViewController: SimpleBaseViewController {
     public var searchResultsIds: [String] = []
     public var selectedSearchResultId: String? = nil
     
+    var chatController: ChatViewController? = nil
+    
     internal let tableView: UITableView = {
         let view = UITableView(frame: .zero, style: .plain)
         
@@ -544,6 +546,28 @@ extension SearchChatListViewController: UITableViewDelegate {
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        if self.messagesQueue.isEmpty {
+            return
+        }
+        self.chatController?.searchResultsFinObserver.accept(true)
+        self.chatController?.searchMessagesQueue = self.messagesQueue.sorted(by: { $0.date > $1.date })
+        let newIndex = 0
+        self.chatController?.xabberInputView.searchPanel.updateResults(current: newIndex, total: self.messagesQueue.count)
+        
+       
+        
+        self.chatController?.selectedSearchResultId = self.messagesQueue[newIndex].archivedId
+        
+        self.chatController?.scrollToMessageArchivedId = self.messagesQueue[newIndex].archivedId
+        self.chatController?.xabberInputView.searchPanel.isInLoadingState = true
+        let date = self.messagesQueue[newIndex].date
+        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+            self.chatController?.scrollToMessageTaskId = session.mam?.getHistoryUntill(stream, jid: self.jid, conversationType: self.conversationType, start: date, archived: self.messagesQueue[newIndex].archivedId)
+        } fail: {
+            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                self.chatController?.scrollToMessageTaskId = user.mam.getHistoryUntill(stream, jid: self.jid, conversationType: self.conversationType, start: date, archived: self.messagesQueue[newIndex].archivedId)
+            })
+        }
         self.navigationController?.popViewController(animated: true)
     }
 }

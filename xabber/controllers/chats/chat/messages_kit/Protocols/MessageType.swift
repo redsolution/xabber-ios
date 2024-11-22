@@ -44,4 +44,5 @@ protocol MessageType {
     var groupchatAuthorBadge: String { get }
     var isHasAttachedMessages: Bool { get }
     var afterburnInterval: Double { get }
+    var references: [MessageReferenceStorageItem.Model] { get }
 }

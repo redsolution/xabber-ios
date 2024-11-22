@@ -48,6 +48,7 @@ public func showStacked(_ vc: UIViewController, in presenter: UIViewController) 
         case .tabs:
             presenter.navigationController?.pushViewController(vc, animated: true)
         case .split:
+//            presenter.splitViewController?.showDetailViewController(UINavigationController(rootViewController: vc), sender: presenter)
             presenter.splitViewController?.showDetailViewController(NavBarController(rootViewController: vc), sender: presenter)
             presenter.splitViewController?.hide(.primary)
     }

@@ -30,14 +30,110 @@ class CommonMessageSizeCalculator: MessageSizeCalculator {
     
 
     
-    
     override func messageContainerMaxWidth(for message: MessageType) -> CGFloat {
         let maxWidth = super.messageContainerMaxWidth(for: message)
         let textInsets = messageLabelInsets(for: message)
-        return maxWidth - textInsets.horizontal
+        return maxWidth //- textInsets.horizontal
+    }
+
+    override func sizeForInlineAudioMedia(for message: any MessageType) -> CGSize {
+        let audio = message.references.filter ({ $0.kind == .voice })
+        if audio.isEmpty {
+            return .zero
+        }
+        let mediaMaxWidth = messageContainerMaxWidth(for: message) > MessagesViewController.maxWidthForMessages ? MessagesViewController.maxWidthForMessages : messageContainerMaxWidth(for: message)
+        let mediaFileHeight: CGFloat = 60
+        
+        return CGSize(width: mediaMaxWidth, height: mediaFileHeight * CGFloat(audio.count))
+    }
+    
+    override func sizeForInlineFilesMedia(for message: any MessageType) -> CGSize {
+        
+        let fileTypes = Set([
+            MimeIconTypes.file.rawValue,
+            MimeIconTypes.archive.rawValue,
+            MimeIconTypes.document.rawValue,
+            MimeIconTypes.pdf.rawValue,
+            MimeIconTypes.presentation.rawValue,
+            MimeIconTypes.audio.rawValue,
+        ])
+        let files = message.references.filter ({ $0.kind == .media && fileTypes.contains($0.mimeType) })
+        if files.isEmpty {
+            return .zero
+        }
+        let mediaMaxWidth = messageContainerMaxWidth(for: message) > MessagesViewController.maxWidthForMessages ? MessagesViewController.maxWidthForMessages : messageContainerMaxWidth(for: message)
+        let mediaFileHeight: CGFloat = 60
+        
+        return CGSize(width: mediaMaxWidth, height: mediaFileHeight * CGFloat(files.count))
+    }
+    
+    private final func sizeForMediaItems(_ message: MessageType) -> CGSize {
+        let mediaMaxWidth = messageContainerMaxWidth(for: message) > MessagesViewController.maxWidthForMessages ? MessagesViewController.maxWidthForMessages : messageContainerMaxWidth(for: message)
+        return CGSize(width: mediaMaxWidth, height: mediaMaxWidth)
+    }
+    
+    private final func sizeForMediaItem(_ message: MessageType) -> CGSize {
+        let fileTypes = Set([
+            MimeIconTypes.image.rawValue,
+            MimeIconTypes.video.rawValue,
+        ])
+        let files = message.references.filter ({ $0.kind == .media && fileTypes.contains($0.mimeType) })
+        let maxWidth = messageContainerMaxWidth(for: message) > MessagesViewController.maxWidthForMessages ? MessagesViewController.maxWidthForMessages : messageContainerMaxWidth(for: message)
+        let maxHeight: CGFloat = UIScreen.main.bounds.height / 2
+        let minHeight: CGFloat = 128
+        let minWidth: CGFloat = 128
+        if let size = files.first?.sizeInPx {
+
+            var calculatedWidth = size.width
+            var calculatedHeight = size.height
+
+            if size.width > maxWidth {
+                calculatedWidth = maxWidth
+                calculatedHeight = maxWidth * size.height / size.width
+                if calculatedHeight > maxHeight {
+                    calculatedWidth = maxHeight * calculatedWidth / calculatedHeight
+                    calculatedHeight = maxHeight
+                }
+            } else if size.height > maxHeight {
+                calculatedHeight = maxHeight
+                calculatedWidth = maxHeight * size.width / size.height
+                if calculatedWidth > maxWidth {
+                    calculatedHeight = maxWidth * calculatedHeight / calculatedWidth
+                    calculatedWidth = maxWidth
+                }
+            }
+            return CGSize(width: max(minWidth, calculatedWidth), height: max(minHeight, calculatedHeight))
+        } else {
+            return CGSize(width: maxWidth, height: maxWidth)
+        }
+    }
+    
+    override func sizeForInlineImagesMedia(for message: any MessageType) -> CGSize {
+        let images = message.references.filter ({ $0.kind == .media && $0.mimeType == MimeIconTypes.image.rawValue })
+        if images.isEmpty {
+            return .zero
+        } else if images.count == 0 {
+            return sizeForMediaItem(message)
+        } else {
+            return sizeForMediaItems(message)
+        }
+    }
+    
+    override func sizeForInlineVideosMedia(for message: any MessageType) -> CGSize {
+        let images = message.references.filter ({ $0.kind == .media && $0.mimeType == MimeIconTypes.video.rawValue })
+        if images.isEmpty {
+            return .zero
+        } else if images.count == 0 {
+            return sizeForMediaItem(message)
+        } else {
+            return sizeForMediaItems(message)
+        }
     }
     
     override func messageContainerSize(for message: MessageType) -> CGSize {
+        
+        
+        
         var messageContainerSize: CGSize = .zero
         let maxWidth = messageContainerMaxWidth(for: message)
         if !isConfigured {
@@ -47,28 +143,58 @@ class CommonMessageSizeCalculator: MessageSizeCalculator {
         var bodyContainer: CGSize = .zero
         let lastLineWidth: CGFloat
         switch message.kind {
-        case .attributedText(let text, _, let author):
-            bodyContainer = labelSize(for: text, considering: maxWidth)
-            if message.withAuthor {
-                let authorSize = labelSize(for: author, considering: maxWidth)
-                if bodyContainer.width < authorSize.width {
-                    bodyContainer.width = authorSize.width
+            case .attributedText(let text, _, let author):
+                bodyContainer = labelSize(for: text, considering: maxWidth)
+                if message.withAuthor {
+                    let authorSize = labelSize(for: author, considering: maxWidth)
+                    if bodyContainer.width < authorSize.width {
+                        bodyContainer.width = authorSize.width
+                    }
                 }
-            }
-            lastLineWidth = UILabel.lastLineWidth(text: text, width: maxWidth)
-            let labelInsets = messageLabelInsets(for: message)
-            bodyContainer.width += labelInsets.horizontal
-            if message.isOutgoing {
+                lastLineWidth = UILabel.lastLineWidth(text: text, width: maxWidth)
+                let labelInsets = messageLabelInsets(for: message)
+                bodyContainer.width += labelInsets.horizontal
+                if message.isOutgoing {
+//                    bodyContainer.width += 16
+                }
+                if message.references.isNotEmpty {
+                    let audioInlines  = sizeForInlineAudioMedia(for:  message)
+                    let filesInlines  = sizeForInlineFilesMedia(for:  message)
+                    let imagesInlines = sizeForInlineImagesMedia(for: message)
+                    let videosInlines = sizeForInlineVideosMedia(for: message)
+                    var inlinesHeight: CGFloat = 0.0
+                    inlinesHeight += audioInlines.height
+                    inlinesHeight += filesInlines.height
+                    inlinesHeight += imagesInlines.height
+                    inlinesHeight += videosInlines.height
+                    
+                    if inlinesHeight > 0 {
+                        inlinesHeight += 8
+                    }
+                    bodyContainer.height += inlinesHeight
+                    
+                    if bodyContainer.width < audioInlines.width {
+                        bodyContainer.width = audioInlines.width
+                    }
+                    if bodyContainer.width < filesInlines.width {
+                        bodyContainer.width = filesInlines.width
+                    }
+                    if bodyContainer.width < imagesInlines.width {
+                        bodyContainer.width = imagesInlines.width
+                    }
+                    if bodyContainer.width < videosInlines.width {
+                        bodyContainer.width = videosInlines.width
+                    }
+                    
+                }
+            case .skeleton(let text):
+                bodyContainer = labelSize(for: text, considering: maxWidth)
+                lastLineWidth = 64.0
+                let labelInsets = messageLabelInsets(for: message)
+                bodyContainer.width += labelInsets.horizontal
                 bodyContainer.width += 16
-            }
-        case .skeleton(let text):
-            bodyContainer = labelSize(for: text, considering: maxWidth)
-            lastLineWidth = 64.0
-            let labelInsets = messageLabelInsets(for: message)
-            bodyContainer.width += labelInsets.horizontal
-            bodyContainer.width += 16
-        default:
-            fatalError("messageContainerSize text received unhandled MessageDataType: \(message.kind)")
+            default:
+                fatalError("messageContainerSize text received unhandled MessageDataType: \(message.kind)")
         }
         inlineMessageContainers.append(bodyContainer)
         let messageInsets = messageLabelInsets(for: message)
@@ -83,7 +209,7 @@ class CommonMessageSizeCalculator: MessageSizeCalculator {
         if lastLineDelta < dateWidth {
             if (messageContainerSize.width + (dateWidth - lastLineDelta)) <= maxWidth + 16 {
                 messageContainerSize.width = lastLineWidth + dateWidth
-                messageContainerSize.height += messageInsets.top
+                messageContainerSize.height += messageInsets.top + 6
             } else {
                 messageContainerSize.height += messageInsets.vertical
             }

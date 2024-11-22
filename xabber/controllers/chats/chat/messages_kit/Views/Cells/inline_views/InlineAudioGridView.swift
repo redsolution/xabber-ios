@@ -182,6 +182,7 @@ class InlineAudioGridView: InlineMediaBaseView {
         self.messageId = messageId
         subviews.forEach { $0.removeFromSuperview() }
         let items = references.filter({ $0.kind == .voice })
+        if items.isEmpty { return }
         prepareGrid(references).enumerated().forEach {
             index, cell in
             if let uri = items[index].metadata?["uri"] as? String,

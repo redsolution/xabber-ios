@@ -629,7 +629,7 @@ extension NotificationService: PushPayloadDelegate {
                     if editMark.isNotEmpty {
                         bestAttemptContent.subtitle = [editMark, bestAttemptContent.title].joined(separator: " ")
                     } else {
-                        bestAttemptContent.subtitle = ["💨", bestAttemptContent.title].joined(separator: " ")
+                        bestAttemptContent.subtitle = ["", bestAttemptContent.title].joined(separator: " ")
                     }
                 }
                 if let imageUrls = payload["imageUrls"] {

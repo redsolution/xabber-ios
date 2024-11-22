@@ -123,6 +123,7 @@ class InlineImagesGridView: InlineMediaBaseView {
         let urls = references
             .compactMap { return $0.metadata?["uri"] as? String }
             .compactMap { return URL(string: $0) }
+        if urls.isEmpty { return }
         prepareGrid(references).enumerated().forEach {
             index, cell in
             if index < urls.count {

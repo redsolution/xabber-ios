@@ -52,6 +52,11 @@ extension ChatViewController: MessagesDisplayDelegate {
     func isSelected(for message: MessageType, at indexPath: IndexPath, in messagesCollectionView: MessagesCollectionView) -> Bool {
         let item = self.datasource[indexPath.section]
 //        guard let item = self.messages?[indexPath.section] else { fatalError("found nil messages collection") }
+        if inSearchMode.value {
+            if item.archivedId == self.selectedSearchResultId {
+                return true
+            }
+        }
         if isInSelectionMode.value {
             if forwardedIds.value.contains(item.primary) { return true }
         }
