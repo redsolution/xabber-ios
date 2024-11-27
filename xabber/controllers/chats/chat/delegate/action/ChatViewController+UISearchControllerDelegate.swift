@@ -24,12 +24,25 @@ import UIKit
 extension ChatViewController: UISearchBarDelegate {
     func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
 //        searchBar.resignFirstResponder()
+        print("done")
+        if self.showSkeletonObserver.value {
+            return
+        }
+        guard let searchText = searchBar.text else {
+            return
+        }
+        print(searchText)
+        searchTextObserver.accept(searchText.isEmpty ? nil : searchText)
     }
     
     fileprivate func cancelSearch() {
         if self.showSkeletonObserver.value {
             return
         }
+        self.selectedSearchResultId = nil
+        self.scrollToMessageTaskId = nil
+        self.currentSearchQueryId = nil
+        self.messagesCollectionView.reconfigureItems(at: self.messagesCollectionView.indexPathsForVisibleItems)
         searchBar.resignFirstResponder()
         searchBar.endEditing(true)
         self.inSearchMode.accept(false)
@@ -48,11 +61,11 @@ extension ChatViewController: UISearchBarDelegate {
     }
     
     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
-        if self.showSkeletonObserver.value {
-            return
-        }
-        print(searchText)
-        searchTextObserver.accept(searchText.isEmpty ? nil : searchText)
+//        if self.showSkeletonObserver.value {
+//            return
+//        }
+//        print(searchText)
+//        searchTextObserver.accept(searchText.isEmpty ? nil : searchText)
     }
 }
 

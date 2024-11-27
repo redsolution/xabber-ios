@@ -90,7 +90,7 @@ class LastChatsStorageItem: Object {
     
     @objc dynamic var conversationType_: String = ClientSynchronizationManager.ConversationType.omemo.rawValue
     
-    @objc dynamic var lastBottomDisplayedMessageId: String? = nil
+    @objc dynamic var lastChatOffset: Float = 0
     
     var conversationType: ClientSynchronizationManager.ConversationType {
         get {

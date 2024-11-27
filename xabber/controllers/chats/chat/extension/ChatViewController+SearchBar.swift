@@ -45,20 +45,30 @@ extension ChatViewController {
         self.searchSeekDirection = .up
         if let index = self.messagesObserver?.firstIndex(where: { $0.archivedId == self.searchMessagesQueue[newIndex].archivedId }) { //|| $0.messageId == self.searchMessagesQueue[newIndex].archivedId
             let first = self.searchMessagesQueue[newIndex].archivedId
-//            let last = self.getMessageIdAtPostionOrLast(index: index - ChatViewController.datasourcePageSize)
             self.oldestMessageId = first
             self.messagesBag = DisposeBag()
             self.runDatasetUpdateTask(forceWithoutAnimations: true)
             self.showLoadingIndicator.accept(false)
-//            self.newestMessageId = last
         } else {
             self.showLoadingIndicator.accept(true)
-            XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-                self.scrollToMessageTaskId = session.mam?.getHistoryUntill(stream, jid: self.jid, conversationType: self.conversationType, start: date, archived: self.searchMessagesQueue[newIndex].archivedId)
-            } fail: {
-                AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                    self.scrollToMessageTaskId = user.mam.getHistoryUntill(stream, jid: self.jid, conversationType: self.conversationType, start: date, archived: self.searchMessagesQueue[newIndex].archivedId)
-                })
+            if !self.isLoadNextPage {
+                XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+                    self.scrollToMessageTaskId = session.mam?.getHistoryUntill(stream, jid: self.jid, conversationType: self.conversationType, start: date, archived: self.searchMessagesQueue[newIndex].archivedId)
+                } fail: {
+                    AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                        self.scrollToMessageTaskId = user.mam.getHistoryUntill(stream, jid: self.jid, conversationType: self.conversationType, start: date, archived: self.searchMessagesQueue[newIndex].archivedId)
+                    })
+                }
+            } else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+                        self.scrollToMessageTaskId = session.mam?.getHistoryUntill(stream, jid: self.jid, conversationType: self.conversationType, start: date, archived: self.searchMessagesQueue[newIndex].archivedId)
+                    } fail: {
+                        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                            self.scrollToMessageTaskId = user.mam.getHistoryUntill(stream, jid: self.jid, conversationType: self.conversationType, start: date, archived: self.searchMessagesQueue[newIndex].archivedId)
+                        })
+                    }
+                }
             }
         }
     }
@@ -90,12 +100,26 @@ extension ChatViewController {
 //            self.oldestMessageId = first
         } else {
             self.showLoadingIndicator.accept(true)
-            XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-                self.scrollToMessageTaskId = session.mam?.getHistoryUntill(stream, jid: self.jid, conversationType: self.conversationType, start: date, archived: self.searchMessagesQueue[newIndex].archivedId)
-            } fail: {
-                AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                    self.scrollToMessageTaskId = user.mam.getHistoryUntill(stream, jid: self.jid, conversationType: self.conversationType, start: date, archived: self.searchMessagesQueue[newIndex].archivedId)
-                })
+            
+            
+            if !self.isLoadNextPage {
+                XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+                    self.scrollToMessageTaskId = session.mam?.getHistoryUntill(stream, jid: self.jid, conversationType: self.conversationType, start: date, archived: self.searchMessagesQueue[newIndex].archivedId)
+                } fail: {
+                    AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                        self.scrollToMessageTaskId = user.mam.getHistoryUntill(stream, jid: self.jid, conversationType: self.conversationType, start: date, archived: self.searchMessagesQueue[newIndex].archivedId)
+                    })
+                }
+            } else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+                        self.scrollToMessageTaskId = session.mam?.getHistoryUntill(stream, jid: self.jid, conversationType: self.conversationType, start: date, archived: self.searchMessagesQueue[newIndex].archivedId)
+                    } fail: {
+                        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                            self.scrollToMessageTaskId = user.mam.getHistoryUntill(stream, jid: self.jid, conversationType: self.conversationType, start: date, archived: self.searchMessagesQueue[newIndex].archivedId)
+                        })
+                    }
+                }
             }
         }
     }
@@ -105,71 +129,80 @@ extension ChatViewController {
         vc.jid = self.jid
         vc.owner = self.owner
         vc.conversationType = self.conversationType
-        vc.searchTextObserver.accept(self.searchBar.text)
+//        vc.searchTextObserver.accept(self.searchBar.text)
         vc.searchBar.text = self.searchBar.text
         vc.messagesQueue = self.searchMessagesQueue
+        vc.searchPanel.changeState(to: self.xabberInputView.searchPanel.state)
+        if let currentIndex = self.searchMessagesQueue.firstIndex(where: { $0.archivedId == self.selectedSearchResultId }) {
+            vc.selectedSearchResultId = self.searchMessagesQueue[currentIndex].archivedId
+            vc.searchPanel.updateResults(current: currentIndex, total: self.searchMessagesQueue.count)
+        }
         do {
             vc.datasource = try vc.mapDatasource(vc.messagesQueue)
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
+        vc.searchResultsObserver.accept(self.selectedSearchResultId)
         self.navigationController?.pushViewController(vc, animated: true)
     }
 }
 
 extension ChatViewController: TemporaryMessageReceiverProtocol {
+    internal final func applySearchResults() {
+        self.searchMessagesQueue = self.searchMessagesQueue.sorted(by: { $0.date > $1.date })
+        let newIndex = 0
+        self.xabberInputView.searchPanel.updateResults(current: newIndex, total: self.searchMessagesQueue.count)
+        
+        if self.searchMessagesQueue.isEmpty {
+            return
+        }
+        
+        self.selectedSearchResultId = self.searchMessagesQueue[newIndex].archivedId
+        
+        self.scrollToMessageArchivedId = self.searchMessagesQueue[newIndex].archivedId
+//                self.xabberInputView.searchPanel.isInLoadingState = true
+        self.showLoadingIndicator.accept(true)
+        let date = self.searchMessagesQueue[newIndex].date
+        if let index = self.datasource.firstIndex(where: { $0.archivedId == self.searchMessagesQueue[newIndex].archivedId || $0.messageId == self.searchMessagesQueue[newIndex].archivedId }) {
+            self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: index), at: .bottom, animated: true)
+            self.showLoadingIndicator.accept(false)
+            self.messagesCollectionView.reconfigureItems(at: [IndexPath(row: 0, section: index)])
+        } else if let index = self.messagesObserver?.firstIndex(where: { $0.archivedId == self.searchMessagesQueue[newIndex].archivedId || $0.messageId == self.searchMessagesQueue[newIndex].archivedId }) {
+            let newestIndex = self.datasource.firstIndex(where: { $0.archivedId == self.newestMessageId || $0.messageId == self.newestMessageId }) ?? 0
+            let oldestIndex = self.datasource.firstIndex(where: { $0.archivedId == self.newestMessageId || $0.messageId == self.newestMessageId }) ?? self.messagesCount
+            if index < newestIndex {
+                self.lastBottomIndex = index
+                if self.lastBottomIndex < 0 {
+                    self.lastBottomIndex = 0
+                }
+                self.newestMessageId = self.getMessageIdAtPostionOrLast(index: self.lastBottomIndex)
+                self.runDatasetUpdateTask(shouldScrollToLastMessage: false, addToStart: true)
+            }
+            if index > oldestIndex {
+                self.messagesCount += ChatViewController.datasourcePageSize * 2
+                self.oldestMessageId = self.getMessageIdAtPostionOrLast(index: index)
+                self.runDatasetUpdateTask(shouldScrollToLastMessage: false, addToEnd: true)
+            }
+            self.searchSeekDirection = nil
+//                    self.showLoadingIndicator.accept(false)
+        } else {
+            self.showLoadingIndicator.accept(true)
+            XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+                self.scrollToMessageTaskId = session.mam?.getHistoryUntill(stream, jid: self.jid, conversationType: self.conversationType, start: date, archived: self.searchMessagesQueue[newIndex].archivedId)
+            } fail: {
+                AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                    self.scrollToMessageTaskId = user.mam.getHistoryUntill(stream, jid: self.jid, conversationType: self.conversationType, start: date, archived: self.searchMessagesQueue[newIndex].archivedId)
+                })
+            }
+        }
+    }
     func didReceiveEndPage(queryId: String, fin: Bool, first: String, last: String, count: Int) {
         print("FINALLY SEARCHED", fin)
         print(first, last, count)
         if queryId == self.currentSearchQueryId {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                 self.searchResultsFinObserver.accept(fin)
-                self.searchMessagesQueue = self.searchMessagesQueue.sorted(by: { $0.date > $1.date })
-                let newIndex = 0
-                self.xabberInputView.searchPanel.updateResults(current: newIndex, total: self.searchMessagesQueue.count)
-                
-                if self.searchMessagesQueue.isEmpty {
-                    return
-                }
-                
-                self.selectedSearchResultId = self.searchMessagesQueue[newIndex].archivedId
-                
-                self.scrollToMessageArchivedId = self.searchMessagesQueue[newIndex].archivedId
-//                self.xabberInputView.searchPanel.isInLoadingState = true
-                self.showLoadingIndicator.accept(true)
-                let date = self.searchMessagesQueue[newIndex].date
-                if let index = self.datasource.firstIndex(where: { $0.archivedId == self.searchMessagesQueue[newIndex].archivedId || $0.messageId == self.searchMessagesQueue[newIndex].archivedId }) {
-                    self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: index), at: .bottom, animated: true)
-                    self.showLoadingIndicator.accept(false)
-                } else if let index = self.messagesObserver?.firstIndex(where: { $0.archivedId == self.searchMessagesQueue[newIndex].archivedId || $0.messageId == self.searchMessagesQueue[newIndex].archivedId }) {
-                    let newestIndex = self.datasource.firstIndex(where: { $0.archivedId == self.newestMessageId || $0.messageId == self.newestMessageId }) ?? 0
-                    let oldestIndex = self.datasource.firstIndex(where: { $0.archivedId == self.newestMessageId || $0.messageId == self.newestMessageId }) ?? self.messagesCount
-                    if index < newestIndex {
-                        self.lastBottomIndex = index
-                        if self.lastBottomIndex < 0 {
-                            self.lastBottomIndex = 0
-                        }
-                        self.newestMessageId = self.getMessageIdAtPostionOrLast(index: self.lastBottomIndex)
-                        self.runDatasetUpdateTask(shouldScrollToLastMessage: false, addToStart: true)
-                    }
-                    if index > oldestIndex {
-                        self.messagesCount += ChatViewController.datasourcePageSize * 2
-                        self.oldestMessageId = self.getMessageIdAtPostionOrLast(index: index)
-                        self.runDatasetUpdateTask(shouldScrollToLastMessage: false, addToEnd: true)
-                    }
-                    self.searchSeekDirection = nil
-//                    self.showLoadingIndicator.accept(false)
-                } else {
-                    self.showLoadingIndicator.accept(true)
-                    XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-                        self.scrollToMessageTaskId = session.mam?.getHistoryUntill(stream, jid: self.jid, conversationType: self.conversationType, start: date, archived: self.searchMessagesQueue[newIndex].archivedId)
-                    } fail: {
-                        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                            self.scrollToMessageTaskId = user.mam.getHistoryUntill(stream, jid: self.jid, conversationType: self.conversationType, start: date, archived: self.searchMessagesQueue[newIndex].archivedId)
-                        })
-                    }
-                }
-                
+                self.applySearchResults()
             }
         }
         if queryId == self.scrollToMessageTaskId {

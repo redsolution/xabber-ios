@@ -54,6 +54,14 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
     }
     
     
+    func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
+//        guard let minVisibleItem = self.messagesCollectionView.indexPathsForVisibleItems.compactMap({ $0.section }).min() else {
+//            return
+//        }
+//        let messageId = self.datasource[minVisibleItem].archivedId
+//        self.bottomVisibleMessageId.accept(messageId)
+    }
+    
 //    func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>) {
 //        
 //    }
@@ -99,12 +107,11 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
             }
         }
         
-//        let messageId = self.datasource[maxVisibleItem].primary
-//        self.bottomVisibleMessageId.accept(messageId)
     }
     
-    func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
-        
-    }
+//    func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
+//        
+//    }
+    
     
 }

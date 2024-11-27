@@ -311,7 +311,11 @@ class ChatViewController: MessagesViewController {
     var topPanelState: BehaviorRelay<TopPanelState> = BehaviorRelay(value: .none)
     //MAM
     var hasActiveMamArchiveRequest: Bool = false
-    var searchMessagesQueue: [MessageStorageItem] = []
+    var searchMessagesQueue: [MessageStorageItem] = [] {
+        didSet {
+            print("A")
+        }
+    }
     var currentSearchQueryId: String? = nil
     
     var lastVelocityYSign = 0
@@ -565,8 +569,12 @@ class ChatViewController: MessagesViewController {
         self.searchBar.becomeFirstResponder()
         self.searchBar.searchTextField.becomeFirstResponder()
 //        self.xabberInputView.searchPanel.isInLoadingState = false
-        self.showLoadingIndicator.accept(false)
-        self.xabberInputView.searchPanel.changeState(to: .empty)
+//        self.showLoadingIndicator.accept(false)
+        if self.searchMessagesQueue.isEmpty {
+            self.xabberInputView.searchPanel.changeState(to: .empty)
+        } else {
+            self.xabberInputView.searchPanel.changeState(to: .withResults)
+        }
         self.xabberInputView.changeState(to: .search)
         self.searchBar.setShowsCancelButton(true, animated: true)
         
@@ -1133,6 +1141,7 @@ class ChatViewController: MessagesViewController {
 //        self.syncChat()
         self.initializeDataset()
         self.lowPrioritySubscribtions()
+        
     }
     
     final func syncChat() {
@@ -1157,6 +1166,19 @@ class ChatViewController: MessagesViewController {
         super.viewDidAppear(animated)
         self.syncChat()
         self.canLoadPage = true
+        do {
+            let realm = try WRealm.safe()
+            print(self.messagesCollectionView.contentOffset)
+            var inputHeight: CGFloat = 57
+            if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
+                inputHeight += bottomInset
+            }
+            if let offset = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid, owner: self.owner, conversationType: self.conversationType))?.lastChatOffset {
+                self.messagesCollectionView.setContentOffset(CGPoint(x: 0.0, y: offset == 0 ? -inputHeight : CGFloat(offset)), animated: false)
+            }
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        }
 
         do {
             let realm = try WRealm.safe()
@@ -1193,7 +1215,12 @@ class ChatViewController: MessagesViewController {
         LastChats.updateErrorState(for: self.jid, owner: self.owner, conversationType: self.conversationType)
         do {
             let realm = try WRealm.safe()
+            let offset = self.messagesCollectionView.contentOffset.y
             try realm.write {
+                realm.object(
+                    ofType: LastChatsStorageItem.self,
+                    forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid, owner: self.owner, conversationType: self.conversationType)
+                )?.lastChatOffset = Float(offset)
                 realm.object(
                     ofType: LastChatsStorageItem.self,
                     forPrimaryKey: LastChatsStorageItem.genPrimary(

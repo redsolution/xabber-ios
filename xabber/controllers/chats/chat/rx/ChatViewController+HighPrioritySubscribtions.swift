@@ -36,48 +36,51 @@ extension ChatViewController {
         } else {
             self.xabberInputView.searchPanel.changeState(to: .withResults)
         }
-        
-        if let value = value {
-            self.searchMessagesQueue = []
-            XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-                session.mam?.temporaryMessageReceiverDelegate = self
-                self.currentSearchQueryId = session.mam?.searchText(stream, jid: self.jid, conversationType: self.conversationType, text: value)
-            } fail: {
-                AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                    user.mam.temporaryMessageReceiverDelegate = self
-                    self.currentSearchQueryId = user.mam.searchText(stream, jid: self.jid, conversationType: self.conversationType, text: value)
-                })
+        if self.conversationType.isEncrypted {
+            if let value = value, value.isNotEmpty {
+                do {
+                    let realm = try WRealm.safe()
+                    realm
+                        .objects(MessageStorageItem.self)
+                        .filter(
+                            "owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@ AND messageType != %@ AND messageType != %@ AND messageType != %@ AND body CONTAINS[cd] %@",
+                            self.owner,
+                            self.jid,
+                            self.conversationType.rawValue,
+                            MessageStorageItem.MessageDisplayType.initial.rawValue,
+                            MessageStorageItem.MessageDisplayType.system.rawValue,
+                            MessageStorageItem.MessageDisplayType.voice.rawValue,
+                            value
+                        )
+                        .sorted(byKeyPath: "date", ascending: false)
+                        .toArray()
+                        .forEach {
+                            item in
+                            self.searchMessagesQueue.append(item)
+                            self.searchResultsFinObserver.accept(true)
+                            self.showLoadingIndicator.accept(false)
+                            self.applySearchResults()
+                        }
+                } catch {
+                    DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+                }
             }
         } else {
-            self.searchMessagesQueue = []
+            if let value = value, value.isNotEmpty {
+                self.searchMessagesQueue = []
+                XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+                    session.mam?.temporaryMessageReceiverDelegate = self
+                    self.currentSearchQueryId = session.mam?.searchText(stream, jid: self.jid, conversationType: self.conversationType, text: value)
+                } fail: {
+                    AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                        user.mam.temporaryMessageReceiverDelegate = self
+                        self.currentSearchQueryId = user.mam.searchText(stream, jid: self.jid, conversationType: self.conversationType, text: value)
+                    })
+                }
+            } else {
+                self.searchMessagesQueue = []
+            }
         }
-        
-//        if let value = value {
-//            do {
-//                let realm = try WRealm.safe()
-//                let searchResults = realm
-//                    .objects(MessageStorageItem.self)
-//                    .filter(
-//                        "owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@ AND messageType != %@ AND messageType != %@ AND messageType != %@ AND body CONTAINS[cd] %@",
-//                        self.owner,
-//                        self.jid,
-//                        self.conversationType.rawValue,
-//                        MessageStorageItem.MessageDisplayType.initial.rawValue,
-//                        MessageStorageItem.MessageDisplayType.system.rawValue,
-//                        MessageStorageItem.MessageDisplayType.voice.rawValue,
-//                        value
-//                    ).sorted(byKeyPath: "date", ascending: false)
-//                self.searchResultsIds = searchResults.toArray().compactMap { return $0.primary }
-//                if self.selectedSearchResultId == nil {
-//                    self.selectedSearchResultId = self.searchResultsIds.first
-//                }
-//                let selectedIndex = self.searchResultsIds.firstIndex(of: self.selectedSearchResultId ?? "")
-//                self.xabberInputView.searchPanel.updateResults(current: selectedIndex ?? 0, total: self.searchResultsIds.count)
-//            } catch {
-//                DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-//            }
-//        }
-//        self.reloadDataset(withSearchText: value)
     }
     
     internal func subscribe() throws {
@@ -128,10 +131,9 @@ extension ChatViewController {
         
         searchTextObserver
             .asObservable()
-            .skip(1)
-            .debounce(.milliseconds(300), scheduler: MainScheduler.asyncInstance)
+            .skip(1) // may be fail
             .subscribe(onNext: { (value) in
-                self.showLoadingIndicator.accept(true)
+                self.showLoadingIndicator.accept((value ?? "").isNotEmpty)
                 self.updateSearchResults(value: value)
             })
             .disposed(by: bag)

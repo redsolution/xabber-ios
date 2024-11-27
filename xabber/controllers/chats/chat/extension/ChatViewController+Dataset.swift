@@ -438,6 +438,7 @@ extension ChatViewController {
     }
     
     internal final func initializeDataset() {
+        
         self.oldestMessageId = getMessageIdAtPostionOrLast(index: self.messagesCount)
         self.newestMessageId = "the most top message id \(NanoID.new(15))"//getMessageIdAtPostionOrLast(index: self.lastBottomIndex)
         let dataset = self.prepareDataset(
@@ -445,7 +446,6 @@ extension ChatViewController {
             newestMessageId: self.newestMessageId ?? ""
         )
         self.datasource = self.mapDataset(dataset: Array(dataset))
-        
     }
     
     public final func runDatasetUpdateTask(shouldScrollToLastMessage: Bool = false, forceWithoutAnimations: Bool = false, addToEnd: Bool = false, addToStart: Bool = false) {

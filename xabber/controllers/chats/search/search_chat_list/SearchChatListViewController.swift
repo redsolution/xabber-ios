@@ -133,7 +133,7 @@ class SearchChatListViewController: SimpleBaseViewController {
     internal let searchPanel: ModernXabberInputView.SearchPanel = {
         let panel = ModernXabberInputView.SearchPanel(frame: .zero)
         
-        panel.shouldShowSeekUpDownButtons = false
+        panel.shouldShowSeekUpDownButtons = true
         
         return panel
     }()
@@ -141,24 +141,24 @@ class SearchChatListViewController: SimpleBaseViewController {
     
     override func addObservers() {
         super.addObservers()
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(self.keyboardWillShowNotification(_:)),
-            name: UIWindow.keyboardWillShowNotification,
-            object: nil
-        )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(self.keyboardWillHideNotification(_:)),
-            name: UIWindow.keyboardWillHideNotification,
-            object: nil
-        )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(self.keyboardWillChangeFrameNotification(_:)),
-            name: UIWindow.keyboardWillChangeFrameNotification,
-            object: nil
-        )
+//        NotificationCenter.default.addObserver(
+//            self,
+//            selector: #selector(self.keyboardWillShowNotification(_:)),
+//            name: UIWindow.keyboardWillShowNotification,
+//            object: nil
+//        )
+//        NotificationCenter.default.addObserver(
+//            self,
+//            selector: #selector(self.keyboardWillHideNotification(_:)),
+//            name: UIWindow.keyboardWillHideNotification,
+//            object: nil
+//        )
+//        NotificationCenter.default.addObserver(
+//            self,
+//            selector: #selector(self.keyboardWillChangeFrameNotification(_:)),
+//            name: UIWindow.keyboardWillChangeFrameNotification,
+//            object: nil
+//        )
     }
     
     @objc
@@ -231,12 +231,14 @@ class SearchChatListViewController: SimpleBaseViewController {
         super.activateConstraints()
         self.tableView.fillSuperview()
         self.emptyView.fillSuperview()
-        NSLayoutConstraint.activate([
-            self.searchPanel.leftAnchor.constraint(equalTo:  self.bottomBar.leftAnchor),
-            self.searchPanel.rightAnchor.constraint(equalTo: self.bottomBar.rightAnchor),
-            self.searchPanel.topAnchor.constraint(equalTo:   self.bottomBar.topAnchor),
-            self.searchPanel.heightAnchor.constraint(equalToConstant: 49)
-        ])
+        var inputHeight: CGFloat = 49
+        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
+            inputHeight += bottomInset
+        }
+        
+        let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
+        self.bottomBar.frame = frame
+        self.searchPanel.fillSuperviewWithOffset(top: 6, bottom: 6, left: 12, right: 12)
     }
     
     override func setupSubviews() {
@@ -256,12 +258,19 @@ class SearchChatListViewController: SimpleBaseViewController {
         self.searchBar.delegate = self
         self.view.addSubview(self.bottomBar)
         self.bottomBar.addSubview(self.searchPanel)
-        self.searchPanel.changeState(to: .empty)
+        if self.messagesQueue.isEmpty {
+            self.searchPanel.changeState(to: .empty)
+        } else {
+            self.searchPanel.changeState(to: .withResults)
+        }
+        
 //        self.searchPanel.fillSuperview()
         self.navigationItem.setHidesBackButton(true, animated: true)
         self.searchBar.becomeFirstResponder()
         self.searchBar.searchTextField.becomeFirstResponder()
         self.searchPanel.onChangeViewStateCallback = self.onChangeChatViewState
+        self.searchPanel.onSeekUpCallback = self.onSearchPanelSeekUp
+        self.searchPanel.onSeekDownCallback = self.onSearchPanelSeekDown
     }
     
     @objc
@@ -271,11 +280,9 @@ class SearchChatListViewController: SimpleBaseViewController {
             let vc = vcs[vcs.count - 2] as? ChatViewController
             vc?.inSearchMode.accept(false)
             vc?.searchBar.text = nil
-//            vc?.searchTextBouncerObserver.accept(nil)
             vc?.searchTextObserver.accept(nil)
             vc?.updateSearchResults(value: nil)
-            vc?.canUpdateDataset = true
-            vc?.runDatasetUpdateTask()
+            
         }
         self.navigationController?.popViewController(animated: true)
     }
@@ -285,13 +292,41 @@ class SearchChatListViewController: SimpleBaseViewController {
         let vcs = self.navigationController?.viewControllers ?? []
         if vcs.count > 1 {
             let vc = vcs[vcs.count - 2] as? ChatViewController
+            vc?.canUpdateDataset = true
+//            vc?.runDatasetUpdateTask()
+            
+            vc?.searchResultsFinObserver.accept(true)
+            vc?.searchMessagesQueue = self.messagesQueue.sorted(by: { $0.date > $1.date })
+            let newIndex = 0
+            vc?.xabberInputView.searchPanel.updateResults(current: newIndex, total: self.messagesQueue.count)
+            
+            vc?.selectedSearchResultId = self.messagesQueue[newIndex].archivedId
+            
+            vc?.scrollToMessageArchivedId = self.messagesQueue[newIndex].archivedId
+//                self.xabberInputView.searchPanel.isInLoadingState = true
+//            vc?.showLoadingIndicator.accept(false)
+            
             vc?.inSearchMode.accept(true)
             vc?.searchBar.text = self.searchBar.text
-//            vc?.searchTextBouncerObserver.accept(self.searchBar.text)
-            vc?.searchTextObserver.accept(self.searchBar.text)
-            vc?.updateSearchResults(value: self.searchBar.text)
-            vc?.canUpdateDataset = true
-            vc?.runDatasetUpdateTask()
+//            vc?.searchTextObserver.accept(self.searchBar.text)
+//            vc?.updateSearchResults(value: self.searchBar.text)
+            
+//            let date = self.messagesQueue[newIndex].date
+//            if let index = vc?.datasource.firstIndex(where: { $0.archivedId == self.messagesQueue[newIndex].archivedId }) {
+//                vc?.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: index), at: .bottom, animated: true)
+//                vc?.showLoadingIndicator.accept(false)
+//            } else if let index = vc?.messagesObserver?.firstIndex(where: { $0.archivedId == self.messagesQueue[newIndex].archivedId }) {
+//                vc?.runDatasetUpdateTask()
+//            } else {
+//                vc?.showLoadingIndicator.accept(true)
+//                XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+//                    vc?.scrollToMessageTaskId = session.mam?.getHistoryUntill(stream, jid: self.jid, conversationType: self.conversationType, start: date, archived: self.messagesQueue[newIndex].archivedId)
+//                } fail: {
+//                    AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+//                        vc?.scrollToMessageTaskId = user.mam.getHistoryUntill(stream, jid: self.jid, conversationType: self.conversationType, start: date, archived: self.messagesQueue[newIndex].archivedId)
+//                    })
+//                }
+//            }
         }
         self.navigationController?.popViewController(animated: true)
     }
@@ -316,13 +351,14 @@ class SearchChatListViewController: SimpleBaseViewController {
     
     override func onAppear() {
         super.onAppear()
-        var inputHeight: CGFloat = 49
-        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
-            inputHeight += bottomInset
-        }
+//        var inputHeight: CGFloat = 49
+//        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
+//            inputHeight += bottomInset
+//        }
         
-        let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
-        self.bottomBar.frame = frame
+//        let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
+//        self.bottomBar.frame = frame
+        
     }
     
     internal func mapDatasource(_ results: Array<MessageStorageItem>) throws -> [Datasource] {
@@ -337,11 +373,7 @@ class SearchChatListViewController: SimpleBaseViewController {
             if (XMPPJID(string: item.jid)?.isServer ?? false) && item.conversationType != .saved {
                 return nil
             }
-            
-            let subscriptionRequest: Bool = item.rosterItem?.isThereSubscriptionRequest() ?? false
-            
-            let primaryResource = item.rosterItem?.getPrimaryResource()
-            
+                       
             let date = messageItem.date
             
             var message: String = messageItem.body
@@ -391,10 +423,9 @@ class SearchChatListViewController: SimpleBaseViewController {
                 isSystemMessage = true
             }
             
-            let username = item.rosterItem?.displayName ?? item.jid
+            let username = messageItem.outgoing ? AccountManager.shared.find(for: messageItem.owner)?.username ?? messageItem.opponent : item.rosterItem?.displayName ?? item.jid
             var attributedUsername: NSAttributedString? = nil
             
-            var isVerificationActionRequired: Bool = false
                             
             if item.conversationType.isEncrypted {
                 let attributedTitle: NSMutableAttributedString = NSMutableAttributedString()
@@ -426,13 +457,6 @@ class SearchChatListViewController: SimpleBaseViewController {
                         indicatorAttach.image = UIImage(systemName: "lock.fill")?.withTintColor(.systemGreen)
                         attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
                     }
-                    
-                    let verificationInstance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", item.owner, item.jid).first
-                    if verificationInstance != nil &&
-                        [.receivedRequest, .receivedRequestAccept].contains((verificationInstance! as VerificationSessionStorageItem).state) {
-                       isVerificationActionRequired = true
-                    }
-                    
                 } catch {
                     DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
                 }
@@ -444,32 +468,32 @@ class SearchChatListViewController: SimpleBaseViewController {
                 attributedUsername = attributedTitle as NSAttributedString
             }
             return Datasource(
-                jid: item.jid,
-                owner: item.owner,
+                jid: messageItem.opponent,//item.jid,
+                owner: messageItem.owner,
                 username: username,
                 attributedUsername: attributedUsername,
                 message: message,
                 date: date,
                 state: messageItem.outgoing ? messageItem.state : nil,
-                isMute: item.isMuted,
-                isSynced: item.isSynced,
-                status: primaryResource?.status ?? .offline,
-                entity: primaryResource?.entity ?? .contact,
+                isMute: false,
+                isSynced: false,
+                status: .offline,//primaryResource?.status ?? .offline,
+                entity: .contact,
                 conversationType: item.conversationType,
-                unread: messageItem.outgoing ? 0 : item.unread,
+                unread: 0,//messageItem.outgoing ? 0 : item.unread,
                 unreadString: isInvite ? "1" : nil,
                 color: AccountManager.shared.users.count <= 1 ? .clear : AccountColorManager.shared.primaryColor(for: item.owner),
                 isDraft: false,
                 hasAttachment: isAttachment,
                 userNickname: nickname,
                 isSystemMessage: isSystemMessage,
-                isPinned: item.isPinned,
-                subRequest: (XMPPJID(string: item.jid)?.isServer ?? true) ? false :  subscriptionRequest,
+                isPinned: false,
+                subRequest: false,//(XMPPJID(string: item.jid)?.isServer ?? true) ? false :  subscriptionRequest,
                 isEncrypted: item.conversationType.isEncrypted,
-                avatarUrl: item.rosterItem?.avatarMinUrl ?? item.rosterItem?.avatarMaxUrl ?? item.rosterItem?.oldschoolAvatarKey,
-                hasErrorInChat: item.hasErrorInChat,
+                avatarUrl: item.rosterItem?.avatarUrl,
+                hasErrorInChat: false,
                 updateTS: item.updateTS,
-                isVerificationActionRequired: isVerificationActionRequired
+                isVerificationActionRequired: false
             )
         }
     }
@@ -489,6 +513,7 @@ class SearchChatListViewController: SimpleBaseViewController {
         
         searchTextObserver
             .asObservable()
+            .skip(1)
             .debounce(.milliseconds(250), scheduler: MainScheduler.asyncInstance)
             .subscribe(onNext: { (value) in
                 if value == nil {
@@ -529,7 +554,9 @@ class SearchChatListViewController: SimpleBaseViewController {
                 do {
                     self.datasource = try self.mapDatasource(self.messagesQueue)
                     self.tableView.reloadData()
-                    self.searchPanel.updateResults(current: -1, total: self.datasource.count)
+                    let index = self.messagesQueue.firstIndex(where: { $0.archivedId == self.selectedSearchResultId }) ?? -1
+                    self.searchPanel.updateResults(current: index, total: self.datasource.count)
+                    self.tableView.selectRow(at: IndexPath(row: index, section: 0), animated: true, scrollPosition: .none)
                 } catch {
                     DDLogDebug("SearchChatListViewController: \(error.localizedDescription). \(#function)")
                 }
@@ -538,13 +565,41 @@ class SearchChatListViewController: SimpleBaseViewController {
 
     }
     
+    internal func onSearchPanelSeekUp() {
+        guard let index = self.messagesQueue.firstIndex(where: { $0.archivedId == self.selectedSearchResultId }) else {
+            return
+        }
+        
+        var newIndex = index - 1
+        if newIndex < 0 {
+            newIndex = self.messagesQueue.count - 1
+        }
+        self.searchPanel.updateResults(current: newIndex, total: self.messagesQueue.count)
+        self.selectedSearchResultId = self.messagesQueue[newIndex].archivedId
+        self.tableView.deselectRow(at: IndexPath(row: index, section: 0), animated: true)
+        self.tableView.selectRow(at: IndexPath(row: newIndex, section: 0), animated: true, scrollPosition: .top)
+    }
+    
+    internal func onSearchPanelSeekDown() {
+        guard let index = self.messagesQueue.firstIndex(where: { $0.archivedId == self.selectedSearchResultId }) else {
+            return
+        }
+        var newIndex = index + 1
+        if newIndex > self.messagesQueue.count {
+            newIndex = 0
+        }
+        self.searchPanel.updateResults(current: newIndex, total: self.messagesQueue.count)
+        self.selectedSearchResultId = self.messagesQueue[newIndex].archivedId
+        self.tableView.deselectRow(at: IndexPath(row: index, section: 0), animated: true)
+        self.tableView.selectRow(at: IndexPath(row: newIndex, section: 0), animated: true, scrollPosition: .top)
+    }
 }
 
 extension SearchChatListViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         return 84
     }
-    
+        
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         if self.messagesQueue.isEmpty {
             return
