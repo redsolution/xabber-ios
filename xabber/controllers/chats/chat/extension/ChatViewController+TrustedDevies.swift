@@ -137,7 +137,9 @@ extension ChatViewController {
     
     private func hideTrustedDevicesBlockingPanel() {
         if !self.isTimeSignatureBlockingPanelopen {
-            self.xabberInputView.changeState(to: .normal)
+            if self.xabberInputView.state == .checkDevices || self.xabberInputView.state == .identityVerification {
+                self.xabberInputView.changeState(to: .normal)
+            }
             self.isTrustedDevicesBlockingPanelopen = false
             self.isTimeSignatureBlockingPanelopen = false
         }

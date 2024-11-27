@@ -31,14 +31,16 @@ extension ChatViewController {
 
     public func updateSearchResults(value: String?) {
 //        print(searchTextObserver.value)
-        if value == nil {
+        if (value ?? "").isEmpty {
             self.xabberInputView.searchPanel.changeState(to: .empty)
+            return
         } else {
             self.xabberInputView.searchPanel.changeState(to: .withResults)
         }
         if self.conversationType.isEncrypted {
             if let value = value, value.isNotEmpty {
                 do {
+                    self.searchMessagesQueue = []
                     let realm = try WRealm.safe()
                     realm
                         .objects(MessageStorageItem.self)
@@ -57,10 +59,10 @@ extension ChatViewController {
                         .forEach {
                             item in
                             self.searchMessagesQueue.append(item)
-                            self.searchResultsFinObserver.accept(true)
-                            self.showLoadingIndicator.accept(false)
-                            self.applySearchResults()
                         }
+//                    self.searchResultsFinObserver.accept(true)
+                    self.showLoadingIndicator.accept(false)
+                    self.applySearchResults()
                 } catch {
                     DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
                 }
@@ -91,7 +93,7 @@ extension ChatViewController {
             
         }
         
-        showLoadingIndicator
+        self.showLoadingIndicator
             .asObservable()
 //            .debounce(.nanoseconds(10), scheduler: MainScheduler.asyncInstance)
             .subscribe { value in
@@ -99,8 +101,9 @@ extension ChatViewController {
             }
             .disposed(by: bag)
         
-        inSearchMode
+        self.inSearchMode
             .asObservable()
+            .skip(1)
             .subscribe(onNext: { (value) in
                 if value {
                     self.configureSearchBar()
@@ -113,23 +116,19 @@ extension ChatViewController {
             })
             .disposed(by: bag)
         
-        searchResultsFinObserver
-            .asObservable()
-            .debounce(.milliseconds(250), scheduler: MainScheduler.asyncInstance)
-            .subscribe { value in
-//                self.searchResultsIds = self.searchMessagesQueue.compactMap { return $0.archivedId }
-                self.selectedSearchResultId = self.searchMessagesQueue.first?.archivedId
-//                self.xabberInputView.searchPanel.updateResults(current: 0, total: self.searchMessagesQueue.count)
-//                self.xabberInputView.searchPanel.isInLoadingState = !value
-                if value {
-                    self.xabberInputView.searchPanel.updateResults(current: 0, total: self.searchMessagesQueue.count)
-//                    self.showLoadingIndicator.accept(!value)
-                }
-            }
-            .disposed(by: bag)
+//        self.searchResultsFinObserver
+//            .asObservable()
+//            .debounce(.milliseconds(250), scheduler: MainScheduler.asyncInstance)
+//            .subscribe { value in
+//                self.selectedSearchResultId = self.searchMessagesQueue.first?.archivedId
+//                if value {
+//                    self.xabberInputView.searchPanel.updateResults(current: 0, total: self.searchMessagesQueue.count)
+//                }
+//            }
+//            .disposed(by: bag)
 
         
-        searchTextObserver
+        self.searchTextObserver
             .asObservable()
             .skip(1) // may be fail
             .subscribe(onNext: { (value) in

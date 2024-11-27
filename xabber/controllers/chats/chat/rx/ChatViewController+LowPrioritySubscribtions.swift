@@ -267,19 +267,6 @@ extension ChatViewController {
                 self.toolsButton.changeState(value)
             })
             .disposed(by: bag)
-        
-//        searchTextBouncerObserver
-//            .asObservable()
-//            .debounce(.milliseconds(600), scheduler: MainScheduler.asyncInstance)
-//            .skip(1)
-//            .subscribe(onNext: { (value) in
-//                if self.searchTextObserver.value != value {
-//                    self.searchTextObserver.accept(value)
-//                    self.canUpdateDataset = true
-//                    self.runDatasetUpdateTask()
-//                }
-//            })
-//            .disposed(by: bag)
 
         blockInputFieldByTimeSignature
             .asObservable()

@@ -171,6 +171,8 @@ class ChatViewController: MessagesViewController {
         }
     }
     
+    var isFirstAppear: Bool = true
+    
     public static let datasourcePageSize: Int = 100
     public static let datasourceInitialPageSize: Int = 40
     public final var canUpdateDataset: Bool = true
@@ -759,6 +761,7 @@ class ChatViewController: MessagesViewController {
         messagesCollectionView.accountPalette = accountPallete
         
         
+        (self.navigationController as? NavBarController)?.cancelButton.addTarget(self, action: #selector(additionalNavBarPanelCancelButtonTouchUpInside), for: .touchUpInside)
         
         
         toolsButton.delegate = self
@@ -1108,6 +1111,7 @@ class ChatViewController: MessagesViewController {
             try self.groupSubscribtions()
             try self.encryptedSubscribtions()
             try self.subscribeOnDatasetChanges()
+            self.addObservers()
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
@@ -1118,8 +1122,10 @@ class ChatViewController: MessagesViewController {
         }
         self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 40, right: 0)
         
-        self.addObservers()
-        (self.navigationController as? NavBarController)?.cancelButton.addTarget(self, action: #selector(additionalNavBarPanelCancelButtonTouchUpInside), for: .touchUpInside)
+//        (self.navigationController as? NavBarController)?.cancelButton.addTarget(self, action: #selector(additionalNavBarPanelCancelButtonTouchUpInside), for: .touchUpInside)
+        
+        self.initializeDataset()
+        self.lowPrioritySubscribtions()
         if self.conversationType.isEncrypted {
             AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
                 if CommonConfigManager.shared.config.required_time_signature_for_messages {
@@ -1139,9 +1145,6 @@ class ChatViewController: MessagesViewController {
             }
         }
 //        self.syncChat()
-        self.initializeDataset()
-        self.lowPrioritySubscribtions()
-        
     }
     
     final func syncChat() {
@@ -1164,6 +1167,7 @@ class ChatViewController: MessagesViewController {
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        guard self.isFirstAppear else { return }
         self.syncChat()
         self.canLoadPage = true
         do {
@@ -1198,14 +1202,13 @@ class ChatViewController: MessagesViewController {
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
-        
+        self.isFirstAppear = false
     }
     
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         self.navigationItem.backButtonDisplayMode = .minimal
-        self.navigationItem.backButtonTitle = self.titleLabel.text
-//        self.deleteRecord()
+//        self.navigationItem.backButtonTitle = self.titleLabel.text
         omemoDeviceListTimer?.invalidate()
         omemoDeviceListTimer = nil
         AccountManager.shared.find(for: owner)?.mam.allowHistoryFixTask = false
@@ -1243,12 +1246,6 @@ class ChatViewController: MessagesViewController {
         XMPPUIActionManager.shared.mam?.endLoadHistory(jid: self.jid, conversationType: conversationType)
         AccountManager.shared.find(for: self.owner)?.mam.endLoadHistory(jid: self.jid, conversationType: conversationType)
     }
-    
-
-//    
-//    open func reloadDataset(withSearchText value: String?) {
-//        
-//    }
     
     internal final func scrollToLastUnreadMessage(select: Bool = false) {
         do {

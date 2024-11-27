@@ -148,20 +148,7 @@ extension ChatViewController {
 }
 
 extension ChatViewController: TemporaryMessageReceiverProtocol {
-    internal final func applySearchResults() {
-        self.searchMessagesQueue = self.searchMessagesQueue.sorted(by: { $0.date > $1.date })
-        let newIndex = 0
-        self.xabberInputView.searchPanel.updateResults(current: newIndex, total: self.searchMessagesQueue.count)
-        
-        if self.searchMessagesQueue.isEmpty {
-            return
-        }
-        
-        self.selectedSearchResultId = self.searchMessagesQueue[newIndex].archivedId
-        
-        self.scrollToMessageArchivedId = self.searchMessagesQueue[newIndex].archivedId
-//                self.xabberInputView.searchPanel.isInLoadingState = true
-        self.showLoadingIndicator.accept(true)
+    public final func scrollToMessageAtIndex(_ newIndex: Int) {
         let date = self.searchMessagesQueue[newIndex].date
         if let index = self.datasource.firstIndex(where: { $0.archivedId == self.searchMessagesQueue[newIndex].archivedId || $0.messageId == self.searchMessagesQueue[newIndex].archivedId }) {
             self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: index), at: .bottom, animated: true)
@@ -195,6 +182,23 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
                 })
             }
         }
+    }
+    
+    internal final func applySearchResults() {
+        self.searchMessagesQueue = self.searchMessagesQueue.sorted(by: { $0.date > $1.date })
+        let newIndex = 0
+        self.xabberInputView.searchPanel.updateResults(current: newIndex, total: self.searchMessagesQueue.count)
+        
+        if self.searchMessagesQueue.isEmpty {
+            return
+        }
+        
+        self.selectedSearchResultId = self.searchMessagesQueue[newIndex].archivedId
+        
+        self.scrollToMessageArchivedId = self.searchMessagesQueue[newIndex].archivedId
+//                self.xabberInputView.searchPanel.isInLoadingState = true
+        self.showLoadingIndicator.accept(true)
+        scrollToMessageAtIndex(newIndex)
     }
     func didReceiveEndPage(queryId: String, fin: Bool, first: String, last: String, count: Int) {
         print("FINALLY SEARCHED", fin)

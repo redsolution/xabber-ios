@@ -293,40 +293,19 @@ class SearchChatListViewController: SimpleBaseViewController {
         if vcs.count > 1 {
             let vc = vcs[vcs.count - 2] as? ChatViewController
             vc?.canUpdateDataset = true
-//            vc?.runDatasetUpdateTask()
-            
-            vc?.searchResultsFinObserver.accept(true)
+//            vc?.searchResultsFinObserver.accept(true)
             vc?.searchMessagesQueue = self.messagesQueue.sorted(by: { $0.date > $1.date })
-            let newIndex = 0
+            guard let index = self.messagesQueue.firstIndex(where: { $0.archivedId == self.selectedSearchResultId }) else {
+                return
+            }
+            
+            var newIndex = index
             vc?.xabberInputView.searchPanel.updateResults(current: newIndex, total: self.messagesQueue.count)
-            
             vc?.selectedSearchResultId = self.messagesQueue[newIndex].archivedId
-            
             vc?.scrollToMessageArchivedId = self.messagesQueue[newIndex].archivedId
-//                self.xabberInputView.searchPanel.isInLoadingState = true
-//            vc?.showLoadingIndicator.accept(false)
-            
-            vc?.inSearchMode.accept(true)
+//            vc?.inSearchMode.accept(true)
             vc?.searchBar.text = self.searchBar.text
-//            vc?.searchTextObserver.accept(self.searchBar.text)
-//            vc?.updateSearchResults(value: self.searchBar.text)
-            
-//            let date = self.messagesQueue[newIndex].date
-//            if let index = vc?.datasource.firstIndex(where: { $0.archivedId == self.messagesQueue[newIndex].archivedId }) {
-//                vc?.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: index), at: .bottom, animated: true)
-//                vc?.showLoadingIndicator.accept(false)
-//            } else if let index = vc?.messagesObserver?.firstIndex(where: { $0.archivedId == self.messagesQueue[newIndex].archivedId }) {
-//                vc?.runDatasetUpdateTask()
-//            } else {
-//                vc?.showLoadingIndicator.accept(true)
-//                XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-//                    vc?.scrollToMessageTaskId = session.mam?.getHistoryUntill(stream, jid: self.jid, conversationType: self.conversationType, start: date, archived: self.messagesQueue[newIndex].archivedId)
-//                } fail: {
-//                    AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-//                        vc?.scrollToMessageTaskId = user.mam.getHistoryUntill(stream, jid: self.jid, conversationType: self.conversationType, start: date, archived: self.messagesQueue[newIndex].archivedId)
-//                    })
-//                }
-//            }
+
         }
         self.navigationController?.popViewController(animated: true)
     }
@@ -514,35 +493,63 @@ class SearchChatListViewController: SimpleBaseViewController {
         searchTextObserver
             .asObservable()
             .skip(1)
-            .debounce(.milliseconds(250), scheduler: MainScheduler.asyncInstance)
+//            .debounce(.milliseconds(250), scheduler: MainScheduler.asyncInstance)
             .subscribe(onNext: { (value) in
-                if value == nil {
+                if (value ?? "").isEmpty {
                     self.searchPanel.changeState(to: .empty)
                     self.datasource = []
                     self.tableView.reloadData()
                     if !self.isEmptyViewShowed.value {
                         self.isEmptyViewShowed.accept(true)
                     }
+                    return
                 } else {
                     self.searchPanel.changeState(to: .withResults)
                     if self.isEmptyViewShowed.value {
                         self.isEmptyViewShowed.accept(false)
                     }
-                }
-                
-                if let value = value {
-                    self.messagesQueue = []
-                    XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-                        session.mam?.temporaryMessageReceiverDelegate = self
-                        self.currentQueryId = session.mam?.searchText(stream, jid: self.jid, conversationType: self.conversationType, text: value)
-                    } fail: {
-                        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                            user.mam.temporaryMessageReceiverDelegate = self
-                            self.currentQueryId = user.mam.searchText(stream, jid: self.jid, conversationType: self.conversationType, text: value)
-                        })
+                    if self.conversationType.isEncrypted {
+                        do {
+                            self.messagesQueue = []
+                            let realm = try WRealm.safe()
+                            realm
+                                .objects(MessageStorageItem.self)
+                                .filter(
+                                    "owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@ AND messageType != %@ AND messageType != %@ AND messageType != %@ AND body CONTAINS[cd] %@",
+                                    self.owner,
+                                    self.jid,
+                                    self.conversationType.rawValue,
+                                    MessageStorageItem.MessageDisplayType.initial.rawValue,
+                                    MessageStorageItem.MessageDisplayType.system.rawValue,
+                                    MessageStorageItem.MessageDisplayType.voice.rawValue,
+                                    value ?? ""
+                                )
+                                .sorted(byKeyPath: "date", ascending: false)
+                                .toArray()
+                                .forEach {
+                                    item in
+                                    self.messagesQueue.append(item)
+                                }
+                            self.searchResultsObserver.accept("")
+                        } catch {
+                            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+                        }
+                    } else {
+                        if let value = value {
+                            self.messagesQueue = []
+                            XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+                                session.mam?.temporaryMessageReceiverDelegate = self
+                                self.currentQueryId = session.mam?.searchText(stream, jid: self.jid, conversationType: self.conversationType, text: value)
+                            } fail: {
+                                AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                                    user.mam.temporaryMessageReceiverDelegate = self
+                                    self.currentQueryId = user.mam.searchText(stream, jid: self.jid, conversationType: self.conversationType, text: value)
+                                })
+                            }
+                        } else {
+                            self.messagesQueue = []
+                        }
                     }
-                } else {
-                    self.messagesQueue = []
                 }
             })
             .disposed(by: bag)
@@ -604,24 +611,20 @@ extension SearchChatListViewController: UITableViewDelegate {
         if self.messagesQueue.isEmpty {
             return
         }
-        self.chatController?.searchResultsFinObserver.accept(true)
-        self.chatController?.searchMessagesQueue = self.messagesQueue.sorted(by: { $0.date > $1.date })
-        let newIndex = 0
-        self.chatController?.xabberInputView.searchPanel.updateResults(current: newIndex, total: self.messagesQueue.count)
         
-       
-        
-        self.chatController?.selectedSearchResultId = self.messagesQueue[newIndex].archivedId
-        
-        self.chatController?.scrollToMessageArchivedId = self.messagesQueue[newIndex].archivedId
-        self.chatController?.xabberInputView.searchPanel.isInLoadingState = true
-        let date = self.messagesQueue[newIndex].date
-        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-            self.chatController?.scrollToMessageTaskId = session.mam?.getHistoryUntill(stream, jid: self.jid, conversationType: self.conversationType, start: date, archived: self.messagesQueue[newIndex].archivedId)
-        } fail: {
-            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                self.chatController?.scrollToMessageTaskId = user.mam.getHistoryUntill(stream, jid: self.jid, conversationType: self.conversationType, start: date, archived: self.messagesQueue[newIndex].archivedId)
-            })
+        let vcs = self.navigationController?.viewControllers ?? []
+        if vcs.count > 1 {
+            let vc = vcs[vcs.count - 2] as? ChatViewController
+            vc?.canUpdateDataset = true
+            vc?.searchMessagesQueue = self.messagesQueue.sorted(by: { $0.date > $1.date })
+            var newIndex = indexPath.row
+            vc?.xabberInputView.searchPanel.updateResults(current: newIndex, total: self.messagesQueue.count)
+            vc?.selectedSearchResultId = self.messagesQueue[newIndex].archivedId
+            vc?.scrollToMessageArchivedId = self.messagesQueue[newIndex].archivedId
+            vc?.searchBar.text = self.searchBar.text
+            vc?.messagesCollectionView.reconfigureItems(at: vc?.messagesCollectionView.indexPathsForVisibleItems ?? [])
+            vc?.scrollToMessageAtIndex(newIndex)
+
         }
         self.navigationController?.popViewController(animated: true)
     }
@@ -694,17 +697,17 @@ extension SearchChatListViewController: UITableViewDataSource {
 
 extension SearchChatListViewController: UISearchBarDelegate {
     func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
-//        searchBar.resignFirstResponder()
+        searchBar.resignFirstResponder()
+        self.searchTextObserver.accept(searchBar.text)
     }
     
     func searchBarCancelButtonClicked(_ searchBar: UISearchBar) {
         searchBar.resignFirstResponder()
-        searchBar.endEditing(true)
-        self.becomeFirstResponder()
+//        searchBar.endEditing(true)
+//        self.becomeFirstResponder()
     }
     
     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
 //        print(searchText)
-        searchTextObserver.accept(searchText.isEmpty ? nil : searchText)
     }
 }

@@ -23,7 +23,7 @@ import UIKit
 
 extension ChatViewController: UISearchBarDelegate {
     func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
-//        searchBar.resignFirstResponder()
+        searchBar.resignFirstResponder()
         print("done")
         if self.showSkeletonObserver.value {
             return
@@ -61,11 +61,7 @@ extension ChatViewController: UISearchBarDelegate {
     }
     
     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
-//        if self.showSkeletonObserver.value {
-//            return
-//        }
-//        print(searchText)
-//        searchTextObserver.accept(searchText.isEmpty ? nil : searchText)
+        
     }
 }
 
