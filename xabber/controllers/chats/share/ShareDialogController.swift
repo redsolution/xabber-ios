@@ -91,7 +91,7 @@ class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISe
     internal func updateDatasource() {
         datasource = chatsDataset?.map { item in
             var blankMessageText: String = "No messages".localizeString(id: "no_messages", arguments: [])
-            if item.messagesCount != 0 {
+            if !item.fullArchiveLoaded {
                 blankMessageText = (item.retractVersion == "0" && item.retractVersion != "") ? "No messages".localizeString(id: "no_messages", arguments: []) :
                 "Message retracted".localizeString(id: "recent_chat__last_message_retracted", arguments: [])
             }

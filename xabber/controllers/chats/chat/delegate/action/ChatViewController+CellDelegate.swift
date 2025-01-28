@@ -157,22 +157,22 @@ extension ChatViewController: MessageCellDelegate {
     }
     
     func didTapAvatar(in cell: MessageCollectionViewCell) {
-        if self.showSkeletonObserver.value {
-            return
-        }
-        if groupchat {
-            guard let indexPath = indexPathFor(cell),
-                let item = messagesObserver?[indexPath.section],
-                let userId = item.groupchatMetadata?["id"] as? String else {
-                    return
-            }
-            let vc = GroupchatContactInfoViewController()
-            vc.owner = self.owner
-            vc.jid = self.jid
-            vc.userId = userId
-            vc.shouldResetNavbar = true
-            showModal(vc)
-        }
+//        if self.showSkeletonObserver.value {
+//            return
+//        }
+//        if groupchat {
+//            guard let indexPath = indexPathFor(cell),
+//                let item = messagesObserver?[indexPath.section],
+//                let userId = item.groupchatMetadata?["id"] as? String else {
+//                    return
+//            }
+//            let vc = GroupchatContactInfoViewController()
+//            vc.owner = self.owner
+//            vc.jid = self.jid
+//            vc.userId = userId
+//            vc.shouldResetNavbar = true
+//            showModal(vc)
+//        }
         return
     }
     
@@ -238,6 +238,9 @@ extension ChatViewController: MessageCellDelegate {
         if self.showSkeletonObserver.value {
             return
         }
+        if isInSelectionMode.value {
+            return
+        }
         guard let indexPath = indexPathFor(cell),
             let item = messagesObserver?[indexPath.section] else {
                 return
@@ -250,6 +253,9 @@ extension ChatViewController: MessageCellDelegate {
     func selectMessage(in cell: MessageCollectionViewCell) {
         if self.showSkeletonObserver.value {
             return
+        }
+        if self.inSearchMode.value {
+            self.inSearchMode.accept(false)
         }
         if attachedMessagesIds.value.isNotEmpty || (editMessageId.value?.isNotEmpty ?? false) { return }
         if let contentCell = cell as? MessageContentCell {
@@ -749,39 +755,39 @@ extension ChatViewController: MessageCellDelegate {
         if self.showSkeletonObserver.value {
             return
         }
-        var uri: URL? = nil
-        var title: String = ""
-        switch self.entity {
-        case .contact:
-            uri = URL(string: "https://www.xabber.com/learn/regular")
-            title = "Regular chats"
-        case .groupchat:
-            uri = URL(string: "https://www.xabber.com/learn/groups")
-            title = "Public groups"
-        case .bot:
-            uri = URL(string: "https://www.xabber.com/learn/bot")
-            title = "Bots"
-        case .server:
-            uri = URL(string: "https://www.xabber.com/learn/server")
-            title = "Servers"
-        case .incognitoChat:
-            uri = URL(string: "https://www.xabber.com/learn/incognito")
-            title = "Incognito groups"
-        case .privateChat:
-            uri = URL(string: "https://www.xabber.com/learn/private")
-            title = "Private chats"
-        case .encryptedChat:
-            uri = URL(string: "https://www.xabber.com/learn/encrypted")
-            title = "Encrypted chats"
-        case .issue:
-            uri = URL(string: "https://www.xabber.com/learn/issue")
-            title = "Issue"
-        }
-        guard let url = uri else { return }
-        
-        let vc = XabberWebViewController()
-        vc.configure(url: url, title: title)
-        showModal(vc)
+//        var uri: URL? = nil
+//        var title: String = ""
+//        switch self.entity {
+//        case .contact:
+//            uri = URL(string: "https://www.xabber.com/learn/regular")
+//            title = "Regular chats"
+//        case .groupchat:
+//            uri = URL(string: "https://www.xabber.com/learn/groups")
+//            title = "Public groups"
+//        case .bot:
+//            uri = URL(string: "https://www.xabber.com/learn/bot")
+//            title = "Bots"
+//        case .server:
+//            uri = URL(string: "https://www.xabber.com/learn/server")
+//            title = "Servers"
+//        case .incognitoChat:
+//            uri = URL(string: "https://www.xabber.com/learn/incognito")
+//            title = "Incognito groups"
+//        case .privateChat:
+//            uri = URL(string: "https://www.xabber.com/learn/private")
+//            title = "Private chats"
+//        case .encryptedChat:
+//            uri = URL(string: "https://www.xabber.com/learn/encrypted")
+//            title = "Encrypted chats"
+//        case .issue:
+//            uri = URL(string: "https://www.xabber.com/learn/issue")
+//            title = "Issue"
+//        }
+//        guard let url = uri else { return }
+//        
+//        let vc = XabberWebViewController()
+//        vc.configure(url: url, title: title)
+//        showModal(vc)
     }
     
     

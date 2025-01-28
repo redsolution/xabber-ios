@@ -68,7 +68,7 @@ extension ChatViewController {
                 DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
             }
         }
-        attributedTitle.append(NSAttributedString(string: self.contactUsename, attributes: [
+        attributedTitle.append(NSAttributedString(string: self.jid, attributes: [
             .foregroundColor: color,
             .font: UIFont.systemFont(ofSize: 17, weight: .semibold)
         ]))

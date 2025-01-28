@@ -257,8 +257,8 @@ class ModernXabberInputView: UIView {
         
         func activateConstraints() {
             NSLayoutConstraint.activate([
-                self.changeChatButton.leftAnchor.constraint(equalTo: self.stack.leftAnchor),
-                self.changeChatButton.rightAnchor.constraint(equalTo: self.stack.rightAnchor),
+//                self.changeChatButton.leftAnchor.constraint(equalTo: self.stack.leftAnchor),
+//                self.changeChatButton.rightAnchor.constraint(equalTo: self.stack.rightAnchor),
 //                self.listButton.leftAnchor.constraint(equalTo: self.stack.leftAnchor),
 //                self.listButton.widthAnchor.constraint(equalToConstant: 44),
                 self.counterLabel.leftAnchor.constraint(equalTo: self.stack.leftAnchor, constant: 88),
@@ -268,7 +268,7 @@ class ModernXabberInputView: UIView {
                 self.seekDownButton.widthAnchor.constraint(equalToConstant: 44),
                 self.seekDownButton.rightAnchor.constraint(equalTo: self.stack.rightAnchor),
                 self.listButton.heightAnchor.constraint(equalToConstant: 36),
-                self.changeChatButton.heightAnchor.constraint(equalToConstant: 36),
+//                self.changeChatButton.heightAnchor.constraint(equalToConstant: 36),
                 self.counterLabel.heightAnchor.constraint(equalToConstant: 36),
                 self.seekUpButton.heightAnchor.constraint(equalToConstant: 36),
                 self.seekDownButton.heightAnchor.constraint(equalToConstant: 36)
@@ -286,14 +286,14 @@ class ModernXabberInputView: UIView {
             self.activityIndicator.frame = CGRect(origin: CGPoint(x: self.frame.midX - 36, y: 0), size: CGSize(square: 36))
             switch newState {
                 case .empty:
-                    self.changeChatButton.isHidden  = self.isInLoadingState ? true : false
+//                    self.changeChatButton.isHidden  = true
                     self.listButton.isHidden        = true
                     self.counterLabel.isHidden      = true
                     self.seekUpButton.isHidden      = true
                     self.seekDownButton.isHidden    = true
                     self.activityIndicator.isHidden = true
                 case .withResults:
-                    self.changeChatButton.isHidden  = true
+//                    self.changeChatButton.isHidden  = true
                     self.listButton.isHidden        = self.isInLoadingState
                     self.counterLabel.isHidden      = self.isInLoadingState ? true : false
                     self.seekUpButton.isHidden      = self.isInLoadingState ? true : !self.shouldShowSeekUpDownButtons
@@ -343,7 +343,7 @@ class ModernXabberInputView: UIView {
             self.addSubview(self.activityIndicator)
             self.activityIndicator.frame = CGRect(origin: CGPoint(x: self.bounds.midX, y: 0), size: CGSize(square: 36))
 //            self.stack.addArrangedSubview(self.listButton)
-            self.stack.addArrangedSubview(self.changeChatButton)
+//            self.stack.addArrangedSubview(self.changeChatButton)
             self.stack.addArrangedSubview(self.counterLabel)
             self.stack.addArrangedSubview(self.seekUpButton)
             self.stack.addArrangedSubview(self.seekDownButton)

@@ -53,7 +53,7 @@ class LastChatsStorageItem: Object {
     @objc dynamic var isHistoryGapFixedForSession: Bool = false
     @objc dynamic var isArchived: Bool = false
     
-    @objc dynamic var messagesCount: Int = -1
+    @objc dynamic var fullArchiveLoaded: Bool = false
 
 //  XEP-0CCC
     @objc dynamic var retractVersion: String? = nil

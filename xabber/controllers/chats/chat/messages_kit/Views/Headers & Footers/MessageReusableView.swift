@@ -36,7 +36,7 @@ open class MessageReusableView: UICollectionReusableView {
     }
     
     public func configure() {
-        
+        self.backgroundColor = .red
     }
 
 }
@@ -53,6 +53,7 @@ open class ActivityIndicatorHeaderMessageView: MessageReusableView {
     
     override public func configure() {
         super.configure()
+        self.backgroundColor = .systemRed
         self.indicator.center = self.center
         self.addSubview(indicator)
     }

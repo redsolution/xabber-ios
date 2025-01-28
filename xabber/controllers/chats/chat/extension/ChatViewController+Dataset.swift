@@ -27,23 +27,79 @@ import RxRealm
 import DeepDiff
 import CocoaLumberjack
 
-public final class ChangesWithIndexSet {
-    public let inserts: IndexSet
-    public let deletes: IndexSet
-    public var replaces: IndexSet
-    public let moves: [(from: IndexPath, to: IndexPath)]
 
-    public init(inserts: IndexSet, deletes: IndexSet, replaces: IndexSet, moves: [(from: IndexPath, to: IndexPath)]) {
-        self.inserts = inserts
-        self.deletes = deletes
-        self.replaces = replaces
-        self.moves = moves
-    }
-}
 
 extension ChatViewController {
 
-    private final func mapDataset(dataset: Array<MessageStorageItem>) -> [Datasource] {
+    internal final func updateDateLabels(afterIndex: Int = 0) {
+        let layout = self.messagesCollectionView.collectionViewLayout as! MessagesCollectionViewFlowLayout
+        self.nextPinnedDateIndex = nil
+        self.pinnedDateIndex = nil
+        self.pinnedDateFrame = .zero
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
+            var indexPaths: [IndexPath] = []
+            self.dateViews.forEach { $0.isHidden = true }
+            self.dateViews.forEach { $0.removeFromSuperview() }
+            autoreleasepool {
+                self.dateViews = []
+                self.originalFrames = []
+            }
+            let maxVisible = ([(self.messagesCollectionView.indexPathsForVisibleItems.compactMap { $0.section }.max() ?? 0), afterIndex - 1].max() ?? 0 ) - 1
+            let firstPinned: Int = self.datasource.enumerated().compactMap {
+                switch $1.kind {
+                    case .date(_):
+                        if maxVisible < $0 {
+                            return $0
+                        } else {
+                            return nil
+                        }
+                    default:
+                        return nil
+                }
+            }.min() ?? 0
+
+            print(firstPinned, "firstPinned")
+            var dateItemIndex: Int = 0
+            self.datasource.enumerated().forEach {
+                (offset, item) in
+                switch item.kind {
+                    case .date(let text):
+                        let path = IndexPath(row: 0, section: offset)
+                        indexPaths.append(path)
+                        let attrib = layout.layoutAttributesForItem(at: path)
+                        guard let frame = attrib?.frame else { return }
+                        var convertedPoint = self.messagesCollectionView.convert(frame.origin, to: self.view)
+                        convertedPoint.y = convertedPoint.y - frame.height
+//                        print(frame)
+                        var newFrame = CGRect(origin: convertedPoint, size: frame.size)
+                        self.originalFrames.append(newFrame)
+                        let view = FloatDateView(frame: newFrame)
+                        view.primary = item.primary
+                        view.configure(text)
+                        view.isPinned = firstPinned == offset
+                        view.naturalIndex = offset
+                        if firstPinned == offset {
+                            var center = view.center
+                            var offsetY: CGFloat = 54
+                            if let topInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
+                                offsetY += topInset
+                            }
+                            center.y = offsetY + view.frame.height / 2
+                            view.center = center
+                            self.pinnedDateFrame = view.frame
+                            self.pinnedDateIndex = dateItemIndex
+                        }
+                        self.dateListContainerView.addSubview(view)
+                        self.dateViews.append(view)
+                        dateItemIndex += 1
+                    default:
+                        break
+                }
+            }
+        }
+    }
+    
+    internal final func mapDataset(dataset: Array<MessageStorageItem>) -> [Datasource] {
         if self.showSkeletonObserver.value {
             return skeletonMessages.enumerated().compactMap {
                 (offset, item) in
@@ -83,8 +139,16 @@ extension ChatViewController {
                 )
             }
         }
-        return dataset.enumerated().compactMap {
-            (offset, item) -> Datasource? in
+        var out: [Datasource] = []
+        var unreadId: String? = nil
+        do {
+            let realm = try WRealm.safe()
+            unreadId = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid, owner: self.owner, conversationType: self.conversationType))?.lastReadId
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        }
+        dataset.enumerated().forEach {
+            (offset, item) in
             let references = Array(item.references.toArray().compactMap { $0.loadModel() })
             let inlineForwards = Array(item.inlineForwards.sorted(byKeyPath: "originalDate", ascending: true).toArray().compactMap { $0.loadModel() })
             
@@ -103,14 +167,14 @@ extension ChatViewController {
                     case .regular:
                         descriptionText = "Messages in this chat are not encrypted. Servers often store transient messages in an archive. This allows easy device synchronization and server-side history search, but adds privacy risks."
                     case .group:
-                        switch self.entity {
-                        case .incognitoChat:
-                            descriptionText = "Identities of users in this group are kept hidden from each other, only group admins can access your real XMPP ID. Be vigilant, do not disclose yourself by being careless."
-                        case .privateChat:
-                            descriptionText = "Private chat with incognito user. Messages are routed through group server and your identites are kept secret from each other. Be vigilant, do not disclose yourself by being careless."
-                        default:
+//                        switch self.entity {
+//                        case .incognitoChat:
+//                            descriptionText = "Identities of users in this group are kept hidden from each other, only group admins can access your real XMPP ID. Be vigilant, do not disclose yourself by being careless."
+//                        case .privateChat:
+//                            descriptionText = "Private chat with incognito user. Messages are routed through group server and your identites are kept secret from each other. Be vigilant, do not disclose yourself by being careless."
+//                        default:
                             descriptionText = "Identities of users in this group are public, so any member can contact you using your real XMPP ID."
-                        }
+//                        }
                     case .channel:
                         descriptionText = "Identities of users in this group are public, so any member can contact you using your real XMPP ID."
                     case .omemo, .omemo1, .axolotl:
@@ -143,17 +207,6 @@ extension ChatViewController {
                             .getAttributedNickname([.font: UIFont.preferredFont(forTextStyle: .caption1)])
                     )
                 case .text:
-//                    kind = .attributedText(
-//                        NSAttributedString(string: "\(offset)"),
-//                        false,
-//                        ContactChatMetadataManager
-//                            .shared
-//                            .get(item.groupchatAuthorNickname ?? "",
-//                                 for: self.owner,
-//                                 badge: item.groupchatAuthorBadge ?? "",
-//                                 role: item.groupchatMetadata?["role"] as? String ?? "member")
-//                            .getAttributedNickname([.font: UIFont.preferredFont(forTextStyle: .caption1)])
-//                    )
                     kind = .attributedText(
                         item.createRefBody(
                             [
@@ -161,7 +214,7 @@ extension ChatViewController {
                                 NSAttributedString.Key.font: UIFont.preferredFont(forTextStyle: .body)//UIFont.systemFont(ofSize: 16, weight: .regular),
                             ],
                             searchedText: self.searchTextObserver.value,
-                            searchedTextColor: item.archivedId == self.selectedSearchResultId ? AccountColorManager.shared.palette(for: self.owner).tint400.withAlphaComponent(0.5) :  AccountColorManager.shared.palette(for: self.owner).tint200.withAlphaComponent(0.5)
+                            searchedTextColor: .systemGreen//item.archivedId == self.selectedSearchResultId ? AccountColorManager.shared.palette(for: self.owner).tint400.withAlphaComponent(0.5) :  AccountColorManager.shared.palette(for: self.owner).tint200.withAlphaComponent(0.5)
                         ),
                         false,
                         ContactChatMetadataManager
@@ -200,27 +253,28 @@ extension ChatViewController {
             
             let withAuthor: Bool
             var date = item.date
-            if conversationType == .saved {
-                if item.groupchatCard != nil {
-                    withAuthor = true
-                } else {
-                    withAuthor = false
-                }
-                
-                date = item.sentDate
-                
-            } else if !self.groupchat {
-                withAuthor = false
-            } else if dataset.count > 1 && (offset + 1) < dataset.count {
-                print(dataset.count, offset, dataset.count > 1, (offset + 1) < dataset.count, dataset.count > 1 && (offset + 1) < dataset.count)
-                if dataset[offset + 1].groupchatAuthorNickname != item.groupchatAuthorNickname || self.isDateChange(from: dataset[offset + 1].sentDate, to: item.sentDate) {
-                    withAuthor = self.groupchat ? (item.displayAs == .sticker ? false : (self.showMyNickname ? true : !item.outgoing)) : false
-                } else {
-                    withAuthor = false
-                }
-            } else {
-                withAuthor = self.groupchat ? (item.displayAs == .sticker ? false : (self.showMyNickname ? true : !item.outgoing)) : false
-            }
+//            if conversationType == .saved {
+//                if item.groupchatCard != nil {
+//                    withAuthor = true
+//                } else {
+//                    withAuthor = false
+//                }
+//                
+//                date = item.sentDate
+//                
+//            } else if !self.groupchat {
+//                withAuthor = false
+//            } else if dataset.count > 1 && (offset + 1) < dataset.count {
+//                print(dataset.count, offset, dataset.count > 1, (offset + 1) < dataset.count, dataset.count > 1 && (offset + 1) < dataset.count)
+//                if dataset[offset + 1].groupchatAuthorNickname != item.groupchatAuthorNickname || self.isDateChange(from: dataset[offset + 1].sentDate, to: item.sentDate) {
+//                    withAuthor = self.groupchat ? (item.displayAs == .sticker ? false : (self.showMyNickname ? true : !item.outgoing)) : false
+//                } else {
+//                    withAuthor = false
+//                }
+//            } else {
+//                withAuthor = self.groupchat ? (item.displayAs == .sticker ? false : (self.showMyNickname ? true : !item.outgoing)) : false
+//            }
+            
             
             if item.editDate != nil {
                 let primary = item.primary
@@ -238,7 +292,7 @@ extension ChatViewController {
                 searchString = str
             }
             
-            return Datasource(
+            out.append(Datasource(
                 primary: item.primary,
                 jid: self.jid,
                 owner: self.owner,
@@ -248,8 +302,8 @@ extension ChatViewController {
                 sentDate: date,
                 editDate: item.editDate,
                 kind: kind,
-                withAuthor: withAuthor,
-                withAvatar: self.groupchat ? !item.outgoing : false,
+                withAuthor: false,
+                withAvatar: false,//self.groupchat ? !item.outgoing : false,
                 error: item.state == .error,
                 errorType: item.messageError ?? "",
                 canPinMessage: [.system, .sticker].contains(item.displayAs) ? false : self.canUnpinMessage.value,
@@ -270,22 +324,163 @@ extension ChatViewController {
                 burnDate: item.burnDate,
                 afterburnInterval: item.afterburnInterval,
                 archivedId: item.archivedId,
+                queryIds: item.queryIds,
                 isRead: item.isRead,
-                selectedSearchResultId: item.archivedId == self.selectedSearchResultId ? self.selectedSearchResultId : nil,
-                references: item.references.toArray().compactMap { $0.loadModel() }
-            )
+                selectedSearchResultId: nil,//item.archivedId == self.selectedSearchResultId ? self.selectedSearchResultId : nil,
+                references: item.references.toArray().compactMap { $0.loadModel() },
+                isHadHistoryGap: false
+            ))
+            if (dataset.count > 1 && (offset + 1) < dataset.count) || (offset + 1 == dataset.count) {
+                if item.archivedId == unreadId {
+                    let kind: MessageKind = .unread(
+                        NSAttributedString(
+                            string: "Unread messages",
+                            attributes: [
+                                .font: UIFont.preferredFont(forTextStyle: .caption1),
+                                .foregroundColor: UIColor.white,
+                            ]
+                        )
+                    )
+                    self.unreadMessagePositionId = offset
+                    out.append(Datasource(
+                        primary: "\(item.primary) unread",
+                        jid: self.jid,
+                        owner: self.owner,
+                        outgoing: item.outgoing,
+                        sender: item.outgoing ? self.ownerSender : self.opponentSender,
+                        messageId: item.messageId,
+                        sentDate: date,
+                        editDate: nil,
+                        kind: kind,
+                        withAuthor: false,
+                        withAvatar: false,//self.groupchat ? !item.outgoing : false,
+                        error: item.state == .error,
+                        errorType: "",
+                        canPinMessage: false,
+                        canEditMessage: false,
+                        canDeleteMessage: false,
+                        forwards: [],
+                        isOutgoing: item.outgoing,
+                        isEdited: false,
+                        groupchatAuthorRole: "",
+                        groupchatAuthorId: "",
+                        groupchatAuthorNickname: "",
+                        groupchatAuthorBadge: "",
+                        isHasAttachedMessages: false,
+                        isDownloaded: true,
+                        state: .none,
+                        searchString:  "",
+                        errorMetadata: nil,
+                        burnDate: 0,
+                        afterburnInterval: 0,
+                        archivedId: "\(item.archivedId) unread",
+                        queryIds: "\(item.queryIds ?? "") unread",
+                        isRead: item.isRead,
+                        selectedSearchResultId: nil,//item.archivedId == self.selectedSearchResultId ? self.selectedSearchResultId : nil,
+                        references: [],
+                        isHadHistoryGap: false
+                    ))
+                }
+                if (offset + 1 == dataset.count) || self.isDateChange(from: item.sentDate, to: dataset[offset + 1].sentDate) {
+                    let kind: MessageKind = .date(
+                        NSAttributedString(
+                            string: sectionsDateFormatter.string(from: item.sentDate),
+                            attributes: [
+                                .font: UIFont.preferredFont(forTextStyle: .caption1),
+                                .foregroundColor: UIColor.white,
+                            ]
+                        )
+                    )
+                    out.append(Datasource(
+                        primary: "\(item.primary) date changed",
+                        jid: self.jid,
+                        owner: self.owner,
+                        outgoing: item.outgoing,
+                        sender: item.outgoing ? self.ownerSender : self.opponentSender,
+                        messageId: item.messageId,
+                        sentDate: date,
+                        editDate: nil,
+                        kind: kind,
+                        withAuthor: false,
+                        withAvatar: false,//self.groupchat ? !item.outgoing : false,
+                        error: item.state == .error,
+                        errorType: "",
+                        canPinMessage: false,
+                        canEditMessage: false,
+                        canDeleteMessage: false,
+                        forwards: [],
+                        isOutgoing: item.outgoing,
+                        isEdited: false,
+                        groupchatAuthorRole: "",
+                        groupchatAuthorId: "",
+                        groupchatAuthorNickname: "",
+                        groupchatAuthorBadge: "",
+                        isHasAttachedMessages: false,
+                        isDownloaded: true,
+                        state: .none,
+                        searchString:  "",
+                        errorMetadata: nil,
+                        burnDate: 0,
+                        afterburnInterval: 0,
+                        archivedId: "\(item.archivedId) date changed",
+                        queryIds: "\(item.queryIds ?? "") date changed",
+                        isRead: item.isRead,
+                        selectedSearchResultId: nil,//item.archivedId == self.selectedSearchResultId ? self.selectedSearchResultId : nil,
+                        references: [],
+                        isHadHistoryGap: false
+                    ))
+//                    if offset + 1 == dataset.count {
+//                        let kind: MessageKind = .activityIndicator
+//                        out.append(Datasource(
+//                            primary: "\(item.primary) date changed",
+//                            jid: self.jid,
+//                            owner: self.owner,
+//                            outgoing: item.outgoing,
+//                            sender: item.outgoing ? self.ownerSender : self.opponentSender,
+//                            messageId: item.messageId,
+//                            sentDate: date,
+//                            editDate: nil,
+//                            kind: kind,
+//                            withAuthor: false,
+//                            withAvatar: false,//self.groupchat ? !item.outgoing : false,
+//                            error: item.state == .error,
+//                            errorType: "",
+//                            canPinMessage: false,
+//                            canEditMessage: false,
+//                            canDeleteMessage: false,
+//                            forwards: [],
+//                            isOutgoing: item.outgoing,
+//                            isEdited: false,
+//                            groupchatAuthorRole: "",
+//                            groupchatAuthorId: "",
+//                            groupchatAuthorNickname: "",
+//                            groupchatAuthorBadge: "",
+//                            isHasAttachedMessages: false,
+//                            isDownloaded: true,
+//                            state: .none,
+//                            searchString:  "",
+//                            errorMetadata: nil,
+//                            burnDate: 0,
+//                            afterburnInterval: 0,
+//                            archivedId: "\(item.archivedId) date changed",
+//                            queryIds: "\(item.queryIds ?? "") date changed",
+//                            isRead: item.isRead,
+//                            selectedSearchResultId: nil,//item.archivedId == self.selectedSearchResultId ? self.selectedSearchResultId : nil,
+//                            references: [],
+//                            isHadHistoryGap: false
+//                        ))
+//                    }
+                }
+                
+            }
         }
+        return out
     }
     
     private final func convertChangeset(changes: [Change<Datasource>]) -> ChangesWithIndexSet {
         let inserts = IndexSet(changes.compactMap({ return $0.insert?.index }))
         let deletes = IndexSet(changes.compactMap({ return $0.delete?.index }))
         let replaces = IndexSet(changes.compactMap({ return $0.replace?.index }))
-//        if self.shouldUpdatePreviousMessage {
-//            self.shouldUpdatePreviousMessage = false
-//            replaces.insert(0)
-//        }
-        
         let moves = changes.compactMap({ $0.move }).map({
           (
             from: IndexPath(item: 0, section: $0.fromIndex),
@@ -306,356 +501,261 @@ extension ChatViewController {
             changes.inserts.isEmpty &&
             changes.moves.isEmpty &&
             changes.replaces.isEmpty {
+            return
+        }
+        
+        self.messagesCollectionView.performBatchUpdates({
             prepare()
-            self.canUpdateDataset = true
-            if let archived = self.scrollToMessageArchivedId {
-                if let index = self.datasource.firstIndex(where: { $0.archivedId == archived }) {
-                    self.scrollToMessageArchivedId = nil
-                    self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: index), at: .bottom, animated: true)
-                    self.showLoadingIndicator.accept(false)
+            if !changes.deletes.isEmpty {
+               self.messagesCollectionView.deleteSections(changes.deletes)
+            }
+
+            if !changes.inserts.isEmpty {
+               self.messagesCollectionView.insertSections(changes.inserts)
+            }
+
+            if changes.moves.isNotEmpty {
+               changes.moves.forEach {
+                   (from, to) in
+                   self.messagesCollectionView.moveItem(at: from, to: to)
+               }
+            }
+            if !changes.replaces.isEmpty {
+                self.messagesCollectionView.reloadItems(at: changes.replaces.compactMap { return IndexPath(row: 0, section: $0) })
+            }
+        }, completion: {
+            result in
+        })
+    }
+    
+    func reloadDataWithFixedPosition() {
+        let contentOffset = self.messagesCollectionView.contentOffset.y
+        let contentHeight = self.messagesCollectionView.contentSize.height
+//        self.messagesCollectionView.setContentOffset(CGPoint(x: 0, y: contentOffset), animated: false)
+        self.messagesCollectionView.reloadData()
+        let newContentHeight = self.messagesCollectionView.contentSize.height
+        print(contentOffset, contentHeight, "cont HEIGHT")
+        self.messagesCollectionView.setContentOffset(CGPoint(x: 0, y: contentOffset + (newContentHeight - contentHeight)), animated: false)
+    }
+    
+    internal final func onTouchStartPage(direction: ChatDirection) {
+        print(#function)
+        self.currentPage.prevPage {
+            self.loadDatasource(direction: direction) { addditional in
+                (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?.cache.invalidate()
+                print(self.datasource.count)
+                self.datasource.insert(contentsOf: self.mapDataset(dataset: addditional), at: 0)
+                print(self.datasource.count)
+                self.messagesCollectionView.reloadDataAndKeepOffset()
+                self.updateDateLabels(afterIndex: self.pinnedDateIndex ?? 0)
+            }
+        }
+    }
+    
+    internal final func onTouchEndPage(direction: ChatDirection) {
+        print(#function)
+        FeedbackManager.shared.generate(feedback: .success)
+        DispatchQueue.main.async {
+            self.messageLoadingActivityIndicator.isHidden = false
+        }
+        self.currentPage.nextPage {
+            self.loadDatasource(direction: direction) { addditional in
+                DispatchQueue.main.async {
+                    self.messageLoadingActivityIndicator.isHidden = true
+                }
+                (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?.cache.invalidate()
+                self.datasource.append(contentsOf: self.mapDataset(dataset: addditional))
+                self.messagesCollectionView.reloadData()
+                self.updateDateLabels(afterIndex: self.pinnedDateIndex ?? 0)
+            }
+        }
+    }
+    
+    internal final func loadDatasource(direction: ChatDirection, ignoreGaps: Bool = false, samePage: Bool = false, callback: @escaping ((Array<MessageStorageItem>) -> Void)) {
+        func onLoadingDone() {
+            DispatchQueue.main.async {
+                let (minIndex, maxIndex) = getIndexes()
+                let slice = Array(self.messagesObserver.prefix(maxIndex).suffix(maxIndex - minIndex))
+                self.currentPage.minIndex = minIndex
+                self.currentPage.maxIndex = maxIndex
+                callback(slice)
+            }
+        }
+        
+        func getIndexes() -> (Int, Int){
+            let pageStartIndex: Int // = self.c//self.currentPage.page * self.datasourcePageSize
+            let pageEndIndex: Int
+            
+            if samePage {
+                pageStartIndex = currentPage.minIndex
+                pageEndIndex = currentPage.maxIndex
+            } else {
+                switch direction {
+                    case .down:
+                        pageStartIndex = currentPage.minIndex
+                        pageEndIndex = pageStartIndex - self.datasourcePageSize
+                    case .up:
+                        pageStartIndex = currentPage.maxIndex
+                        pageEndIndex = pageStartIndex + self.datasourcePageSize
                 }
             }
+            let maxIndex = [pageStartIndex, pageEndIndex].max() ?? 0
+            let minIndex = [[pageStartIndex, pageEndIndex].min() ?? 0, 0].max() ?? 0
+            
+            return (minIndex, maxIndex)
+        }
+        
+        guard self.messagesObserver != nil else {
             return
         }
-        
-        func animationTransaction(_ block: () -> Void) {
-            if addToEnd || addToStart || forceWithoutAnimations {
-                UIView.performWithoutAnimation(block)
-            } else {
-                block()
-            }
-        }
-        
-        if (changes.inserts.count + changes.deletes.count) > 40 {
-            (messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?.cache.invalidate()
-        }
-        
-        
-        (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
-            .invalidateLastMessageCachedSize(primary: datasource.last?.primary)
-        let heightBeforeUpdate = self.messagesCollectionView.contentSize.height
-        let offsetBeforeUpdate = self.messagesCollectionView.contentOffset.y
-        
-        animationTransaction {
-            self.messagesCollectionView.performBatchUpdates({
-                prepare()
-                if !changes.deletes.isEmpty {
-                   self.messagesCollectionView.deleteSections(changes.deletes)
-                }
-
-                if !changes.inserts.isEmpty {
-                   self.messagesCollectionView.insertSections(changes.inserts)
-                }
-
-                if changes.moves.isNotEmpty {
-                   changes.moves.forEach {
-                       (from, to) in
-                       self.messagesCollectionView.moveItem(at: from, to: to)
-                   }
-                }
-                if !changes.replaces.isEmpty {
-                    self.messagesCollectionView.reloadItems(at: changes.replaces.compactMap { return IndexPath(row: 0, section: $0) })
-                }
-            }, completion: {
-                result in
-                
-                
-                if let archived = self.scrollToMessageArchivedId {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        if let index = self.datasource.firstIndex(where: { $0.archivedId == archived  }) {//|| $0.messageId == archived
-                            self.scrollToMessageArchivedId = nil
-                            self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: index), at: self.searchSeekDirection == .down ? .centeredVertically : .bottom, animated: true)
-                            self.showLoadingIndicator.accept(false)
-                            self.searchSeekDirection = nil
-                            print("SCROLL TO \(index) first")
-                        } else {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                                if let index = self.datasource.firstIndex(where: { $0.archivedId == archived }) {
-                                    self.scrollToMessageArchivedId = nil
-                                    self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: index), at: self.searchSeekDirection == .down ? .centeredVertically : .bottom, animated: true)
-                                    self.showLoadingIndicator.accept(false)
-                                    self.searchSeekDirection = nil
-                                    print("SCROLL TO \(index) last")
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    if addToEnd {
-                        self.messagesCollectionView.setContentOffset(CGPoint(x: 0, y: offsetBeforeUpdate), animated: false)
-                    } else if addToStart {
-                        let heightAfterUpdate = self.messagesCollectionView.contentSize.height
-                        let newOffset = offsetBeforeUpdate + (heightAfterUpdate - heightBeforeUpdate)
-                        self.messagesCollectionView.setContentOffset(CGPoint(x: 0, y: newOffset), animated: false)
-                    }
-                }
-                self.canUpdateDataset = true
-            })
-        }
-        
-    }
-    
-    internal final func getMessageIdAtPostionOrLast(index unsafeIndex: Int) -> String {
-        var index = unsafeIndex
-        if unsafeIndex < 0 {
-            index = 0
-        }
-        if (self.messagesObserver?.count ?? 0) == 0 {
-            return "none"
-        } else if (self.messagesObserver?.count ?? 0) < index {
-            return self.messagesObserver?.last?.archivedId ?? self.messagesObserver?.last?.messageId ?? "none"
-        } else {
-            let item = self.messagesObserver?[index]
-            return item?.archivedId ?? item?.messageId ?? "none"
-        }
-    }
-    
-    internal final func prepareDataset(oldestMessageId: String, newestMessageId: String) -> Slice<Results<MessageStorageItem>> {
-        do {
-            let realm = try  WRealm.safe()
-            let dataset: Results<MessageStorageItem>
-            if conversationType == .saved {
-                dataset = realm
-                    .objects(MessageStorageItem.self)
-                    .filter ("owner == %@ AND isDeleted == false AND conversationType_ == %@", self.owner, self.conversationType.rawValue)
-                    .sorted (byKeyPath: "date", ascending: false)
-            } else {
-                dataset = realm
-                    .objects(MessageStorageItem.self)
-                    .filter ("owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@", self.owner, self.jid, self.conversationType.rawValue)
-                    .sorted (byKeyPath: "date", ascending: false)
-            }
-            let prefix = 0//dataset.firstIndex(where: { $0.archivedId == newestMessageId  }) ?? 0 // || $0.messageId == newestMessageId
-            let suffix = (dataset.count - 1)//dataset.firstIndex(where: { $0.archivedId == oldestMessageId  }) ?? (dataset.count - 1) //|| $0.messageId == oldestMessageId
-            if suffix < prefix {
-                return dataset.prefix(dataset.count)
-                
-            }
-            return dataset[prefix...suffix]
-        } catch {
-            fatalError()
-        }
-    }
-    
-    internal final func initializeDataset() {
-        
-        self.oldestMessageId = getMessageIdAtPostionOrLast(index: self.messagesCount)
-        self.newestMessageId = "the most top message id \(NanoID.new(15))"//getMessageIdAtPostionOrLast(index: self.lastBottomIndex)
-        let dataset = self.prepareDataset(
-            oldestMessageId: self.oldestMessageId ?? "",
-            newestMessageId: self.newestMessageId ?? ""
-        )
-        self.datasource = self.mapDataset(dataset: Array(dataset))
-    }
-    
-    public final func runDatasetUpdateTask(shouldScrollToLastMessage: Bool = false, forceWithoutAnimations: Bool = false, addToEnd: Bool = false, addToStart: Bool = false) {
-        autoreleasepool {
-            self.preprocessDataset(shouldScrollToLastMessage: shouldScrollToLastMessage, forceWithoutAnimations: forceWithoutAnimations, addToEnd: addToEnd, addToStart: addToStart)
-        }
-        self.postprocessDataset()
-    }
-    
-    private final func preprocessDataset(shouldScrollToLastMessage: Bool = false, forceWithoutAnimations: Bool = false, addToEnd: Bool = false, addToStart: Bool = false) {
-        if !canUpdateDataset { return }
-        self.canUpdateDataset = false
-        
-        var newestMessageId = self.newestMessageId
-        if self.messagesObserver?.first?.archivedId == self.newestMessageId || self.messagesObserver?.first?.messageId == self.newestMessageId {
-            newestMessageId = "the most top message id \(NanoID.new(15))"
-            self.newestMessageId = newestMessageId
-        }
-        let dataset = prepareDataset(
-            oldestMessageId: self.oldestMessageId ?? "",
-            newestMessageId: newestMessageId ?? ""
-        )
-        let newDataset = self.mapDataset(dataset: Array(dataset))
-        let changes = diff(old: self.datasource, new: newDataset)
-        let indexSet = self.convertChangeset(changes: changes)
-        self.apply(changes: indexSet, shouldScrollToLastMessage: shouldScrollToLastMessage, forceWithoutAnimations: forceWithoutAnimations, addToEnd: addToEnd, addToStart: addToStart) {
-            self.datasource = newDataset
-        }
-    }
-    
-    private final func postprocessDataset() {
-        
-    }
-    
-    
-    internal final func subscribeOnDatasetChanges() throws {
-        self.messagesBag = DisposeBag()
-        Observable
-            .collection(from: self.messagesObserver!)
-            .skip(1)
-            .debounce(.milliseconds(150), scheduler: MainScheduler.asyncInstance)
-            .subscribe { (_) in
-                if self.showSkeletonObserver.value { return }
-                if self.hasActiveMamArchiveRequest { return }
-                self.runDatasetUpdateTask()
-            }
-            .disposed(by: self.messagesBag)
-    }
-    
-    final func addDatasourceToStart() {
-        if self.isLoadNextPage {
+        if direction == .down && self.currentPage.minIndex < 0 {
             return
         }
-        func scroll() {
-            self.lastBottomIndex = self.messagesObserver?.firstIndex(where: { $0.archivedId == self.newestMessageId || $0.messageId == self.newestMessageId }) ?? self.lastBottomIndex
-            self.lastBottomIndex = self.lastBottomIndex - 200
-            if self.lastBottomIndex < 0 {
-                self.lastBottomIndex = 0
-            }
-            self.newestMessageId = self.getMessageIdAtPostionOrLast(index: self.lastBottomIndex)
-            self.runDatasetUpdateTask(shouldScrollToLastMessage: false, addToStart: true)
-        }
-        func callback() {
-            print("end")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                scroll()
-                self.isLoadNextPage = false
-            }
-        }
+        let (minIndex, maxIndex) = getIndexes()
+        print(minIndex, maxIndex)
+        print(1)
+        var hasGap: Bool = false
+        var archivedId: String = ""
+        var isArchiveEnded: Bool = false
         do {
             let realm = try WRealm.safe()
-//            let chatInstance = realm.object(
-//                ofType: LastChatsStorageItem.self,
-//                forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid, owner: self.owner, conversationType: self.conversationType)
-//            )
-//            let messagesCount = self.messagesObserver?.count ?? 0
-//            let totalCount = chatInstance?.messagesCount ?? 0
-            let newestMessageId = self.messagesObserver?.firstIndex(where: { $0.archivedId == self.newestMessageId || $0.messageId == self.newestMessageId }) ?? 0
-            if newestMessageId == 0 { return }
-            if prevHasGap(before: newestMessageId, count: ChatViewController.datasourcePageSize * 2) {
-                self.isLoadNextPage = true
-                XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-                    session.mam?.getPrevHistory(stream, for: self.jid, conversationType: self.conversationType, messageId: self.newestMessageId ?? "", callback: callback)
-                } fail: {
-                    AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                        user.mam.getPrevHistory(stream, for: self.jid, conversationType: self.conversationType, messageId: self.newestMessageId ?? "", callback: callback)
-                    })
-                }
-            } else {
-                scroll()
-//                if let oldestItemIndex = self.messagesObserver?.firstIndex(where: { $0.archivedId == self.oldestMessageId || $0.messageId == self.oldestMessageId }) {
-//                    if oldestItemIndex == (messagesCount - 1) {
-//                        print("should load histpry", messagesCount, oldestItemIndex, totalCount)
-                        
-
-//                    } else if oldestItemIndex < (messagesCount - 1) {
-//                        self.messagesCount += ChatViewController.datasourcePageSize * 2
-//                        self.lastBottomIndex = self.messagesCount - ChatViewController.datasourcePageSize
-//                        if self.lastBottomIndex < 0 {
-//                            self.lastBottomIndex = 0
-//                        }
-//                        self.oldestMessageId = self.getMessageIdAtPostionOrLast(index: self.messagesCount)
-//                        self.newestMessageId = self.getMessageIdAtPostionOrLast(index: self.lastBottomIndex)
-//                        self.runDatasetUpdateTask(shouldScrollToLastMessage: false, addToEnd: true)
-//                    }
-//                }
-            }
-        } catch {
-            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-        }
-    }
-    
-    func nextHasGap(after: Int, count: Int) -> Bool {
-        let len = (self.messagesObserver?.count ?? 0) - after
-        if len < 1 {
-            return true
-        }
-        if let slice = self.messagesObserver?.suffix(len).prefix(count) {
-            let arr = Array(slice)
-            if arr.last?.displayAs != .initial && count > arr.count {
-                return true
-            }
-            var shouldRequestArchive = false
-            Array(slice).enumerated().forEach {
-                offset, item in
-                let nextIndex = offset + 1
-                if nextIndex < slice.count {
-                    let itemQueryIds = Set((item.queryIds ?? "").split(separator: ","))
-                    let nextItemQueryIds = Set((arr[nextIndex].queryIds ?? "").split(separator: ","))
-                    let intersection = itemQueryIds.intersection(nextItemQueryIds)
-                    if intersection.isEmpty {
-                        shouldRequestArchive = true
-                    }
-                }
-            }
-            return shouldRequestArchive
-        }
-        return true
-    }
-    
-    func prevHasGap(before: Int, count: Int) -> Bool {
-        if let slice = self.messagesObserver?.prefix(before).suffix(count) {
-            let arr = Array(slice)
-            var shouldRequestArchive = false
-            Array(slice).enumerated().forEach {
-                offset, item in
-                let nextIndex = offset + 1
-                if nextIndex < slice.count {
-                    let itemQueryIds = Set((item.queryIds ?? "").split(separator: ","))
-                    let nextItemQueryIds = Set((arr[nextIndex].queryIds ?? "").split(separator: ","))
-                    let intersection = itemQueryIds.intersection(nextItemQueryIds)
-                    if intersection.isEmpty {
-                        shouldRequestArchive = true
-                    }
-                }
-            }
-            return shouldRequestArchive
-        }
-        return false
-    }
-    
-    final func addDatasourceToEnd() {
-        if self.isLoadNextPage {
-            return
-        }
-        func scroll() {
-            self.messagesCount += ChatViewController.datasourcePageSize * 2
-            let oldestItemIndex = self.messagesObserver?.firstIndex(where: { $0.archivedId == self.oldestMessageId || $0.messageId == self.oldestMessageId }) ?? 0
-            let newestMessageIndex = self.messagesObserver?.firstIndex(where: { $0.archivedId == self.newestMessageId || $0.messageId == self.newestMessageId }) ?? 0
-            self.lastBottomIndex = newestMessageIndex
-            self.oldestMessageId = self.getMessageIdAtPostionOrLast(index: ChatViewController.datasourcePageSize * 2 + oldestItemIndex)
-            self.runDatasetUpdateTask(shouldScrollToLastMessage: false, addToEnd: true)
-        }
-        func callback() {
-            print("end")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                scroll()
-                self.isLoadNextPage = false
-            }
-        }
-        do {
-            let realm = try WRealm.safe()
-            let chatInstance = realm.object(
+            isArchiveEnded = realm.object(
                 ofType: LastChatsStorageItem.self,
-                forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid, owner: self.owner, conversationType: self.conversationType)
-            )
-            let messagesCount = self.messagesObserver?.count ?? 0
-            let totalCount = chatInstance?.messagesCount ?? 0
-            if messagesCount < totalCount - 1 {
-                if let oldestItemIndex = self.messagesObserver?.firstIndex(where: { $0.archivedId == self.oldestMessageId || $0.messageId == self.oldestMessageId }) {
-                    if nextHasGap(after: oldestItemIndex, count: 200) || (self.messagesObserver?.count ?? 0) < (totalCount + ChatViewController.datasourcePageSize * 2) {
-                        print("should load histpry", messagesCount, oldestItemIndex, totalCount)
-                        self.isLoadNextPage = true
-                        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-                            session.mam?.getNextHistory(stream, for: self.jid, conversationType: self.conversationType, messageId: self.oldestMessageId ?? "none", callback: callback)
-                        } fail: {
-                            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                                user.mam.getNextHistory(stream, for: self.jid, conversationType: self.conversationType, messageId: self.oldestMessageId ?? "none", callback: callback)
-                            })
-                        }
-
-                    } else if oldestItemIndex < (messagesCount - 1) {
-                        scroll()
-                    }
-                }
-            } else {
-                scroll()
-            }
+                forPrimaryKey: LastChatsStorageItem.genPrimary(
+                    jid: self.jid,
+                    owner: self.owner,
+                    conversationType: self.conversationType
+                )
+            )?.fullArchiveLoaded ?? false
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        }
+        if minIndex >= self.messagesObserver.count && isArchiveEnded {
+            callback([])
+            return
+        } else if maxIndex > self.messagesObserver.count {
+            if !(isArchiveEnded) {
+                hasGap = !ignoreGaps
+                archivedId = self.messagesObserver.last?.archivedId ?? ""
+            }
+        }
+        if !hasGap {
+            let slice = Array(self.messagesObserver!.prefix(maxIndex).suffix(maxIndex - minIndex))
+            
+            slice.enumerated().forEach {
+                (offset, item) in
+                let newIndex = offset + 1
+                if newIndex < slice.count {
+                    let currentQueryIds: Set<String> = Set((slice[offset].queryIds ?? "").split(separator: ",").compactMap { return String($0) })
+                    if currentQueryIds.intersection(["runtime_send", "runtime_send"]).isEmpty {
+                        let nextQueryIds: Set<String> = Set((slice[newIndex].queryIds ?? "").split(separator: ",").compactMap { return String($0) })
+                        let intersection = currentQueryIds.intersection(nextQueryIds)
+                        if intersection.isEmpty {
+                            hasGap = !ignoreGaps
+                        }
+                    }
+                }
+            }
+            if !hasGap {
+                self.currentPage.minIndex = minIndex
+                self.currentPage.maxIndex = maxIndex
+                callback(slice)
+            }
+            switch direction {
+                case .up:
+                    if minIndex == 0 {
+                        archivedId = ""
+                    } else {
+                        archivedId = slice.first?.archivedId ?? ""
+                    }
+                case .down: 
+                    archivedId = slice.last?.archivedId ?? ""
+            }
+        }
+        if hasGap {
+            XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+                switch direction {
+                    case .up:
+                        session.mam?.getNextHistory(
+                            stream,
+                            for: self.jid,
+                            conversationType: self.conversationType,
+                            messageId: archivedId,
+                            callback: onLoadingDone
+                        )
+                    case .down:
+                        session.mam?.getPrevHistory(
+                            stream,
+                            for: self.jid,
+                            conversationType: self.conversationType,
+                            messageId: archivedId,
+                            callback: onLoadingDone
+                        )
+                }
+            } fail: {
+                AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                    switch direction {
+                        case .up:
+                            user.mam.getNextHistory(
+                                stream,
+                                for: self.jid,
+                                conversationType: self.conversationType,
+                                messageId: archivedId,
+                                callback: onLoadingDone
+                            )
+                        case .down:
+                            user.mam.getPrevHistory(
+                                stream,
+                                for: self.jid,
+                                conversationType: self.conversationType,
+                                messageId: archivedId,
+                                callback: onLoadingDone
+                            )
+                    }
+                })
+            }
+        }
+    }
+    
+    
+    func didReceiveChangeset() {
+        self.loadDatasource(direction: self.chatScrollDirection ?? .up, ignoreGaps: true, samePage: true) { array in
+            let newDatasource = self.mapDataset(dataset: array)
+            let diff = diff(old: self.datasource, new: newDatasource)
+            let updated = diff.compactMap { $0.replace }
+            let inserted = diff.compactMap { $0.insert }
+            let deleted = diff.compactMap { $0.delete }
+            let moved = diff.compactMap { $0.move }
+            if updated.isEmpty && inserted.isEmpty && deleted.isEmpty && moved.isEmpty { return }
+            print("updated",updated.compactMap { return $0.index })
+            print("inserted", inserted.compactMap { return $0.index })
+            print("deleted", deleted.compactMap { return $0.index })
+//            print("moved", moved.compactMap { return $0.index })
+            self.messagesCollectionView.performBatchUpdates {
+                self.datasource = newDatasource
+                self.messagesCollectionView.deleteSections(IndexSet(deleted.compactMap { return $0.index }) )
+                self.messagesCollectionView.insertSections(IndexSet(inserted.compactMap { return $0.index }) )
+                moved.forEach {
+                    self.messagesCollectionView.moveItem(at: IndexPath(row: 0, section: $0.fromIndex), to: IndexPath(row: 0, section: $0.toIndex))
+                }
+                self.messagesCollectionView.reconfigureItems(at: updated.compactMap { return IndexPath(row: 0, section: $0.index) })
+                
+            } completion: { _ in
+                self.updateDateLabels()
+            }
+        }
+        
+    }
+    
+    internal func scrollToLastOrUnreadItem() {
+        if let index = self.unreadMessagePositionId {
+            if Set(self.messagesCollectionView.indexPathsForVisibleItems.compactMap({ return $0.section })).contains(index) {
+                self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: 0), at: .top, animated: true)
+            } else {
+                self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: index), at: .centeredVertically, animated: true)
+            }
+        } else {
+            self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: 0), at: .top, animated: true)
         }
     }
 }

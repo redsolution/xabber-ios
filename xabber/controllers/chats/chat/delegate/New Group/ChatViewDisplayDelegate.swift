@@ -24,6 +24,14 @@ import MaterialComponents.MDCPalettes
 
 extension ChatViewController: MessagesDisplayDelegate {
     
+//    func messageFooterView(for indexPath: IndexPath, in messagesCollectionView: MessagesCollectionView) -> MessageReusableView {
+//        let reusable = MessageReusableView(frame: CGRect(width: 200, height: 50))
+//        
+//        reusable.backgroundColor = .red
+//        
+//        return reusable
+//    }
+//    
     func messageErrorIcon(for message: MessageType, at indexPath: IndexPath, on messagesCollectionView: MessagesCollectionView) -> String? {
         guard let meta = self.datasource[indexPath.section].errorMetadata else {
             return nil
@@ -104,17 +112,17 @@ extension ChatViewController: MessagesDisplayDelegate {
         let item = datasource[indexPath.section]
         switch message.kind {
         case .text(_), .attributedText(_, _, _):
-            if indexPath.section > 0 {
-                if self.groupchat {
-                    if self.datasource[indexPath.section - 1].groupchatAuthorId == item.groupchatAuthorId {
-                        return .bubble(corner)
-                    }
-                } else {
-                    if self.datasource[indexPath.section - 1].outgoing == item.outgoing {
-                        return .bubble(corner)
-                    }
-                }
-            }
+//            if indexPath.section > 0 {
+//                if self.groupchat {
+//                    if self.datasource[indexPath.section - 1].groupchatAuthorId == item.groupchatAuthorId {
+//                        return .bubble(corner)
+//                    }
+//                } else {
+//                    if self.datasource[indexPath.section - 1].outgoing == item.outgoing {
+//                        return .bubble(corner)
+//                    }
+//                }
+//            }
             return .bubbleTail(corner)
         default:
             return .bubble(corner)
@@ -131,40 +139,40 @@ extension ChatViewController: MessagesDisplayDelegate {
     }
     
     func urlForAvatarView(at indexPath: IndexPath) -> URL? {
-        if self.conversationType != .group { return nil }
-        if indexPath.section > 1 && indexPath.section < self.datasource.count - 1 {
-            guard indexPath.section < self.messagesObserver?.count ?? 0,
-                  let item = self.messagesObserver?[indexPath.section] else {
-                return nil
-            }
-            if self.datasource[indexPath.section - 1].groupchatAuthorNickname != item.groupchatAuthorNickname || self.isDateChange(from: self.datasource[indexPath.section + 1].sentDate, to: self.datasource[indexPath.section].sentDate) {
-                guard let path = messagesObserver?[indexPath.section].groupchatUserAvatarPath else { return nil }
-                return URL(string: path)
-            }
-        } else {
-            guard indexPath.section < self.messagesObserver?.count ?? 0,
-                  let path = messagesObserver?[indexPath.section].groupchatUserAvatarPath else { return nil }
-            return URL(string: path)
-        }
+//        if self.conversationType != .group { return nil }
+//        if indexPath.section > 1 && indexPath.section < self.datasource.count - 1 {
+//            guard indexPath.section < self.messagesObserver?.count ?? 0,
+//                  let item = self.messagesObserver?[indexPath.section] else {
+//                return nil
+//            }
+//            if self.datasource[indexPath.section - 1].groupchatAuthorNickname != item.groupchatAuthorNickname || self.isDateChange(from: self.datasource[indexPath.section + 1].sentDate, to: self.datasource[indexPath.section].sentDate) {
+//                guard let path = messagesObserver?[indexPath.section].groupchatUserAvatarPath else { return nil }
+//                return URL(string: path)
+//            }
+//        } else {
+//            guard indexPath.section < self.messagesObserver?.count ?? 0,
+//                  let path = messagesObserver?[indexPath.section].groupchatUserAvatarPath else { return nil }
+//            return URL(string: path)
+//        }
         return nil
     }
     
     func metadataForAvatarView(at indexPath: IndexPath) -> MessageAvatarMetadata?  {
-        if !self.groupchat { return nil }
-        if indexPath.section > 1 && indexPath.section < self.datasource.count - 1 {
-            guard indexPath.section < self.messagesObserver?.count ?? 0,
-                  let item = self.messagesObserver?[indexPath.section] else {
-                return nil
-            }
-            if self.datasource[indexPath.section - 1].groupchatAuthorNickname != item.groupchatAuthorNickname || self.isDateChange(from: self.datasource[indexPath.section + 1].sentDate, to: self.datasource[indexPath.section].sentDate) {
-                guard let userId = messagesObserver?[indexPath.section].groupchatAuthorId else { return nil }
-                return MessageAvatarMetadata(jid: self.jid, owner: self.owner, userId: userId)
-            }
-        } else {
-            guard indexPath.section < self.messagesObserver?.count ?? 0,
-                  let userId = messagesObserver?[indexPath.section].groupchatAuthorId else { return nil }
-              return MessageAvatarMetadata(jid: self.jid, owner: self.owner, userId: userId)
-        }
+//        if !self.groupchat { return nil }
+//        if indexPath.section > 1 && indexPath.section < self.datasource.count - 1 {
+//            guard indexPath.section < self.messagesObserver?.count ?? 0,
+//                  let item = self.messagesObserver?[indexPath.section] else {
+//                return nil
+//            }
+//            if self.datasource[indexPath.section - 1].groupchatAuthorNickname != item.groupchatAuthorNickname || self.isDateChange(from: self.datasource[indexPath.section + 1].sentDate, to: self.datasource[indexPath.section].sentDate) {
+//                guard let userId = messagesObserver?[indexPath.section].groupchatAuthorId else { return nil }
+//                return MessageAvatarMetadata(jid: self.jid, owner: self.owner, userId: userId)
+//            }
+//        } else {
+//            guard indexPath.section < self.messagesObserver?.count ?? 0,
+//                  let userId = messagesObserver?[indexPath.section].groupchatAuthorId else { return nil }
+//              return MessageAvatarMetadata(jid: self.jid, owner: self.owner, userId: userId)
+//        }
         return nil
     }
     
@@ -181,59 +189,61 @@ extension ChatViewController: MessagesDisplayDelegate {
     }
     
     func initialMessageIcon() -> UIImage? {
-        switch self.conversationType {
-        
-        case .omemo, .omemo1, .axolotl:
-            return imageLiteral( "custom.lock.bubble.left.fill", dimension: 24)
-        case .saved:
-            return imageLiteral(XMPPFavoritesManagerStorageItem.imageName, dimension: 24)
-        default:
-            switch self.entity {
-                case .contact, .bot, .server, .issue:
-                return imageLiteral("bubble.left.fill", dimension: 24)
-            case .groupchat:
-                return imageLiteral("person.2.fill", dimension: 24)
-            case .incognitoChat:
-                return imageLiteral( "custom.person.2", dimension: 24)
-            case .privateChat:
-                return imageLiteral( "xabber.incognito.fill", dimension: 24)
-            case .encryptedChat:
-                return imageLiteral( "custom.lock.bubble.left.fill", dimension: 24)
-            }
-        }
-        
+//        switch self.conversationType {
+//        
+//        case .omemo, .omemo1, .axolotl:
+//            return imageLiteral( "custom.lock.bubble.left.fill", dimension: 24)
+//        case .saved:
+//            return imageLiteral(XMPPFavoritesManagerStorageItem.imageName, dimension: 24)
+//        default:
+//            switch self.entity {
+//                case .contact, .bot, .server, .issue:
+//                return imageLiteral("bubble.left.fill", dimension: 24)
+//            case .groupchat:
+//                return imageLiteral("person.2.fill", dimension: 24)
+//            case .incognitoChat:
+//                return imageLiteral( "custom.person.2", dimension: 24)
+//            case .privateChat:
+//                return imageLiteral( "xabber.incognito.fill", dimension: 24)
+//            case .encryptedChat:
+//                return imageLiteral( "custom.lock.bubble.left.fill", dimension: 24)
+//            }
+//        }
+        return imageLiteral("person.2.fill", dimension: 24)
     }
     
     func initialMessageTitle() -> String? {
         switch self.conversationType {
-        case .regular:
-            switch entity {
-            case .contact:
+            case .regular:
                 return "Regular chat".localizeString(id: "intro_regular_chat", arguments: [])
-            case .bot:
-                return "Bot".localizeString(id: "chat_resource_bot", arguments: [])
-            case .server:
-                return "Server".localizeString(id: "account_server_name", arguments: [])
-            case .issue:
-                return "Issue".localizeString(id: "issue", arguments: [])
-            default: return nil
-            }
-        case .group, .channel:
-            switch entity {
-            case .groupchat:
+    //            switch entity {
+    //            case .contact:
+    //                return "Regular chat".localizeString(id: "intro_regular_chat", arguments: [])
+    //            case .bot:
+    //                return "Bot".localizeString(id: "chat_resource_bot", arguments: [])
+    //            case .server:
+    //                return "Server".localizeString(id: "account_server_name", arguments: [])
+    //            case .issue:
+    //                return "Issue".localizeString(id: "issue", arguments: [])
+    //            default: return nil
+    //            }
+            case .group, .channel:
                 return "Public group".localizeString(id: "intro_public_group", arguments: [])
-            case .incognitoChat:
-                return "Incognito group".localizeString(id: "intro_incognito_group", arguments: [])
-            case .privateChat:
-                return "Private chat".localizeString(id: "intro_private_chat", arguments: [])
-            default: return nil
-            }
-        case .omemo, .omemo1, .axolotl:
-            return "Encrypted chat"
-        case .notifications:
-            return "Notificastions"
-        case .saved:
-            return "Saved messages"
+    //            switch entity {
+    //            case .groupchat:
+    //                return "Public group".localizeString(id: "intro_public_group", arguments: [])
+    //            case .incognitoChat:
+    //                return "Incognito group".localizeString(id: "intro_incognito_group", arguments: [])
+    //            case .privateChat:
+    //                return "Private chat".localizeString(id: "intro_private_chat", arguments: [])
+    //            default: return nil
+    //            }
+            case .omemo, .omemo1, .axolotl:
+                return "Encrypted chat"
+            case .notifications:
+                return "Notificastions"
+            case .saved:
+                return "Saved messages"
         }
         
         

@@ -72,7 +72,8 @@ class MessagesCollectionView: UICollectionView {
         register(QuoteMessageCell.self)
         register(InitialMessageCell.self)
         register(SkeletonMessageCell.self)
-        register(ActivityIndicatorHeaderMessageView.self, forSupplementaryViewOfKind: UICollectionView.elementKindSectionHeader)
+        register(AtivityIndicatorCell.self)
+        register(MessageReusableView.self, forSupplementaryViewOfKind: UICollectionView.elementKindSectionHeader)
         register(MessageReusableView.self, forSupplementaryViewOfKind: UICollectionView.elementKindSectionFooter)
     }
     
@@ -179,5 +180,7 @@ class MessagesCollectionView: UICollectionView {
         }
         return viewType
     }
+    
+    
 
 }

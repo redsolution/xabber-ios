@@ -57,55 +57,71 @@ extension ChatViewController: MessagesDataSource {
     }
     
     func cellTopLabelAttributedText(for message: MessageType, at indexPath: IndexPath) -> NSAttributedString? {
-        if let unreadId = self.lastReadMessageId {
-            if indexPath.section < ((self.messagesObserver?.count ?? 0) - 2) {
-                if self.messagesObserver?[indexPath.section + 1].archivedId == unreadId {
-                    return NSAttributedString(string: "New messages",
-                                              attributes: [
-                                                NSAttributedString.Key.font: UIFont.systemFont(ofSize: 13, weight: .semibold),
-                                                NSAttributedString.Key.foregroundColor: MDCPalette.grey.tint50 ])
-                }
-            }
-        }
+        // TODO: get from datasource item, all in /**/ working, all under // for additional
+        return nil
+//        if self.showSkeletonObserver.value {
+//            return nil
+//        }
+//        if let unreadId = self.lastReadMessageId {
+//            if indexPath.section < ((self.messagesObserver?.count ?? 0) - 2) {
+//                if self.messagesObserver?[indexPath.section + 1].archivedId == unreadId {
+//                    return NSAttributedString(string: "New messages",
+//                                              attributes: [
+//                                                NSAttributedString.Key.font: UIFont.systemFont(ofSize: 13, weight: .semibold),
+//                                                NSAttributedString.Key.foregroundColor: MDCPalette.grey.tint50 ])
+//                }
+//            }
+//        }
+        
+        /*
         var dateString: String = ""
-        
         var itemDate = self.datasource[indexPath.section].sentDate
-        if self.conversationType == .saved {
-            do {
-                let realm = try WRealm.safe()
-                if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: self.datasource[indexPath.section].primary) {
-                    itemDate = instance.date
-                }
-            } catch {
-                //
-            }
-        }
+        */
         
-        if indexPath.section < (self.datasource.count - 1) {
-            if self.conversationType == .saved {
-                do {
-                    let realm = try WRealm.safe()
-                    if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: self.datasource[indexPath.section].primary),
-                       let oldInstance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: self.datasource[indexPath.section + 1].primary) {
-                        
-                        if self.isDateChange(from: oldInstance.date, to: instance.date)  {
-                            dateString = sectionsDateFormatter.string(from: itemDate)
-                        }
-                    }
-                } catch {
-                    //
-                }
-            } else if self.isDateChange(from: self.datasource[indexPath.section + 1].sentDate, to: self.datasource[indexPath.section].sentDate)  {
+//        if self.conversationType == .saved {
+//            do {
+//                let realm = try WRealm.safe()
+//                if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: self.datasource[indexPath.section].primary) {
+//                    itemDate = instance.date
+//                }
+//            } catch {
+//                
+//            }
+//        }
+//
+        
+        /*
+        if indexPath.section < (self.datasource.count - 1) {*/
+            
+            
+//            if self.conversationType == .saved {
+//                do {
+//                    let realm = try WRealm.safe()
+//                    if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: self.datasource[indexPath.section].primary),
+//                       let oldInstance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: self.datasource[indexPath.section + 1].primary) {
+//                        
+//                        if self.isDateChange(from: oldInstance.date, to: instance.date)  {
+//                            dateString = sectionsDateFormatter.string(from: itemDate)
+//                        }
+//                    }
+//                } catch {
+//                    //
+//                }
+//            } else if self.isDateChange(from: self.datasource[indexPath.section + 1].sentDate, to: self.datasource[indexPath.section].sentDate)  {
+//            dateString = sectionsDateFormatter.string(from: itemDate)
+//        }
+//        } else if indexPath.section == (self.datasource.count - 1) {
+            
+            /*
+            if self.isDateChange(from: self.datasource[indexPath.section + 1].sentDate, to: self.datasource[indexPath.section].sentDate)  {
                 dateString = sectionsDateFormatter.string(from: itemDate)
             }
-        } else if indexPath.section == (self.datasource.count - 1) {
-            dateString = sectionsDateFormatter.string(from: itemDate)
         }
         if dateString.isEmpty { return nil }
         return NSAttributedString(string: dateString,
                                   attributes: [
                                     NSAttributedString.Key.font: UIFont.systemFont(ofSize: 13, weight: .semibold),
-                                    NSAttributedString.Key.foregroundColor: MDCPalette.grey.tint50 ])
+                                    NSAttributedString.Key.foregroundColor: MDCPalette.grey.tint50 ])*/
     }
     
     func messageTopLabelAttributedText(for message: MessageType, at indexPath: IndexPath) -> NSAttributedString? {
@@ -127,9 +143,9 @@ extension ChatViewController: MessagesDataSource {
         }
         let item = datasource[indexPath.section]
         switch item.kind {
-            case .initial(let value):
+            case .initial(_):
                 return nil
-            case .system(let value):
+            case .system(_):
                 return nil
             default:
                 break
@@ -179,21 +195,22 @@ extension ChatViewController: MessagesDataSource {
     }
     
     func showAvatar() -> Bool  {
-        return groupchat
+        return false
     }
 
     func audioMessageReference(at indexPath: IndexPath, messageId: String?, index: Int?) -> MessageReferenceStorageItem? {
-        let references: [MessageReferenceStorageItem]?
-        if let messageId = messageId {
-            references = messagesObserver?[indexPath.section].inlineForwards.first(where: { $0.messageId == messageId })?.references.toArray().filter({ $0.kind == .voice })
-        } else {
-            references = messagesObserver?[indexPath.section].references.toArray().filter({ $0.kind == .voice })
-        }
-        if let index = index {
-            return references?[index]
-        } else {
-            return references?.first
-        }
+//        let references: [MessageReferenceStorageItem]?
+//        if let messageId = messageId {
+//            references = messagesObserver?[indexPath.section].inlineForwards.first(where: { $0.messageId == messageId })?.references.toArray().filter({ $0.kind == .voice })
+//        } else {
+//            references = messagesObserver?[indexPath.section].references.toArray().filter({ $0.kind == .voice })
+//        }
+//        if let index = index {
+//            return references?[index]
+//        } else {
+//            return references?.first
+//        }
+        return nil
     }
     
     func audioMessageState(at indexPath: IndexPath, messageId: String?, index: Int?) -> InlineAudioGridView.AudioCellPlayingState {
@@ -204,9 +221,9 @@ extension ChatViewController: MessagesDataSource {
 //            OpusAudio.shared.player?.isPlaying ?? false {
 //            return .pause
 //        }
-        guard let item = messagesObserver?[indexPath.section] else {
-            return .play
-        }
+//        guard let item = messagesObserver?[indexPath.section] else {
+//            return .play
+//        }
 //        
 //        if let isDownloaded = audioMessageReference(at: indexPath,
 //                                                    messageId: messageId,
@@ -214,7 +231,8 @@ extension ChatViewController: MessagesDataSource {
 //            return isDownloaded ? .play : (item.state == .error ? .play : .loading)
 //        }
         
-        return item.state == .error ? .play : .loading
+        return .loading
+//        return item.state == .error ? .play : .loading
     }
     
     func audioMessageDurationString(at indexPath: IndexPath, messageId: String?, index: Int?) -> String? {
@@ -255,10 +273,11 @@ extension ChatViewController: MessagesDataSource {
 //            let duration = OpusAudio.shared.player?.duration {
 //            return duration
 //        }
-        return TimeInterval(audioMessageReference(at: indexPath,
-                                                  messageId: messageId,
-                                                  index: index)?
-            .metadata?["duration"] as? Double ?? 0)
+//        return TimeInterval(audioMessageReference(at: indexPath,
+//                                                  messageId: messageId,
+//                                                  index: index)?
+//            .metadata?["duration"] as? Double ?? 0)
+        return 0
     }
     
     func audioMessageCurrentDuration(at indexPath: IndexPath, messageId: String?, index: Int?) -> TimeInterval {

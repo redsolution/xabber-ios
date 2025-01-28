@@ -46,7 +46,7 @@ class MessageArchiveManager: AbstractXMPPManager {
     }
         
     struct MAMRequestItem: Equatable, Hashable {
-        let jid: String
+        let jid: String?
         let taskID: String
         let isGroupchat: Bool
         let messageId: String?
@@ -59,7 +59,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         let max: Int
         let start: Date?
         let end: Date?
-        let isInitialArchiveRequest: Bool
+        let isNormalSynchronousTask: Bool
     }
     
     struct CallbackQueueItem: Equatable, Hashable {
@@ -152,9 +152,11 @@ class MessageArchiveManager: AbstractXMPPManager {
         guard iq.iqType == .result,
               let elementId = iq.elementID,
               let fin = iq.element(forName: "fin", xmlns: getPrimaryNamespace()),
+              let queryId = fin.attributeStringValue(forName: "queryid"),
               let set = fin.element(forName: "set", xmlns: "http://jabber.org/protocol/rsm") else {
             return false
         }
+        let complete = fin.attributeBoolValue(forName: "complete")
         let first = set.element(forName: "first")?.stringValue ?? ""
         let last = set.element(forName: "last")?.stringValue ?? ""
 //        DispatchQueue.global().async {
@@ -167,24 +169,21 @@ class MessageArchiveManager: AbstractXMPPManager {
                             
                             if let instance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: item.jid, owner: self.owner, conversationType: item.task.conversationType)) {
                                 if count == 0 {
-                                    try self.makeInitialMessageVisible(jid: item.jid, conversationType: item.task.conversationType, queryId: elementId)
-                                    try realm.write {
-                                        if item.task.isInitialArchiveRequest {
-                                            instance.messagesCount = count
+                                    if item.task.isNormalSynchronousTask {
+                                        try realm.write {
+                                            instance.fullArchiveLoaded = complete
                                         }
-                                        instance.isSynced = true
                                     }
                                     self.temporaryMessageReceiverDelegate?.didReceiveEndPage(queryId: elementId, fin: true, first: first, last: last, count: count)
                                     self.callbacksQueue.remove(item)
                                     return true
                                 }
-                                if fin.attributeBoolValue(forName: "complete") {
-                                    try self.makeInitialMessageVisible(jid: item.jid, conversationType: item.task.conversationType, queryId: elementId)
+                                if complete {
+//                                    try self.makeInitialMessageVisible(jid: item.jid, conversationType: item.task.conversationType, queryId: elementId)
                                     try realm.write {
-                                        if item.task.isInitialArchiveRequest {
-                                            instance.messagesCount = count
+                                        if item.task.isNormalSynchronousTask {
+                                            instance.fullArchiveLoaded = complete
                                         }
-                                        instance.isSynced = true
                                         instance.lastLoadedMessageHistoryId = nextPage
                                     }
                                     self.temporaryMessageReceiverDelegate?.didReceiveEndPage(queryId: elementId, fin: true, first: first, last: last, count: count)
@@ -203,27 +202,29 @@ class MessageArchiveManager: AbstractXMPPManager {
                     }
                 } else {
                     let nextPage = set.element(forName: "last")?.stringValue
-                    item.callback?()
+                    DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
+                        item.callback?()
+                    }
                     if let count = set.element(forName: "count")?.stringValueAsNSInteger() {
                         do {
                             let realm = try Realm()
                             if let instance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: item.jid, owner: self.owner, conversationType: item.task.conversationType)) {
                                 try realm.write {
-                                    if item.task.isInitialArchiveRequest {
-                                        instance.messagesCount = count
+                                    if item.task.isNormalSynchronousTask {
+                                        instance.fullArchiveLoaded = complete
                                     }
                                     instance.isSynced = true
                                     instance.lastLoadedMessageHistoryId = nextPage
                                 }
                             }
                             if count == 0 {
-                                try self.makeInitialMessageVisible(jid: item.jid, conversationType: item.task.conversationType, queryId: elementId)
+//                                try self.makeInitialMessageVisible(jid: item.jid, conversationType: item.task.conversationType, queryId: elementId)
                                 self.callbacksQueue.remove(item)
                                 self.temporaryMessageReceiverDelegate?.didReceiveEndPage(queryId: elementId, fin: true, first: first, last: last, count: count)
                                 return true
                             }
                             if fin.attributeBoolValue(forName: "complete") {
-                                try self.makeInitialMessageVisible(jid: item.jid, conversationType: item.task.conversationType, queryId: elementId)
+//                                try self.makeInitialMessageVisible(jid: item.jid, conversationType: item.task.conversationType, queryId: elementId)
                                 self.callbacksQueue.remove(item)
                                 self.temporaryMessageReceiverDelegate?.didReceiveEndPage(queryId: elementId, fin: true, first: first, last: last, count: count)
                                 return true
@@ -243,59 +244,30 @@ class MessageArchiveManager: AbstractXMPPManager {
         return true
     }
     
-    public func getHistoryUntill(_ stream: XMPPStream, jid: String, conversationType: ClientSynchronizationManager.ConversationType, start: Date, archived: String) -> String {
-        let queryId = "MAM untill: \(NanoID.new(8))"
-        let taskId = [jid, conversationType.rawValue].prp()
-        if let continuesTaskID = continuesTaskID {
-            if taskId != continuesTaskID {
-                if let item = self.callbacksQueue.first(where: { $0.task.taskID == continuesTaskID }) {
-                    item.callback?()
-                    DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
-                        self.callbacksQueue.remove(item)
-                    }
-                }
-            }
-        }
-        do {
-            let realm = try WRealm.safe()
-            let lastMsgDate = realm.objects(MessageStorageItem.self)
-                .filter("owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@ AND messageType != %@",
-                        self.owner,
-                        jid,
-                        conversationType.rawValue,
-                        MessageStorageItem.MessageDisplayType.initial.rawValue
-                ).sorted(byKeyPath: "date", ascending: false)
-                .first?
-                .date
-            let modifiedDate = Date(timeIntervalSince1970: start.timeIntervalSince1970 - 3600)
-            print("SEARCHED ARCHIVE ID", archived)
-            self.requestArchive(
-                stream,
-                jid: jid,
-                isContinues: true,
-                conversationType: conversationType,
-                queryId: queryId,
-                searchText: nil,
-                flipPage: false,
-                before: nil,
-                beforeId: nil,
-                afterId: nil,
-                start: modifiedDate,
-                end: lastMsgDate,
-                nextPage: nil,
-                prevPage: nil,
-                max: 100,
-                callback: nil
-            )
-        } catch {
-            DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
-        }
-        self.continuesTaskID = taskId
-        return queryId
+    public func getHistoryByDate(_ stream: XMPPStream, jid: String, conversationType: ClientSynchronizationManager.ConversationType, start: Date? = nil, end: Date? = nil, callback: @escaping (() -> Void)) {
+        self.requestArchive(
+            stream,
+            jid: jid,
+            isContinues: false,
+            conversationType: conversationType,
+            queryId: "MAM untill history: \(NanoID.new(6))",
+            searchText: nil,
+            flipPage: true,
+            before: nil,
+            beforeId: nil,
+            afterId: nil,
+            start: start,
+            end: nil,//end,
+            nextPage: nil,//end == nil ? nil : "",
+            prevPage: nil,
+            max: 250,
+            isNormalSynchronousTask: true,
+            callback: callback
+        )
     }
     
-    public func searchText(_ stream: XMPPStream, jid: String, conversationType: ClientSynchronizationManager.ConversationType, text: String) -> String {
-        let taskId = [jid, conversationType.rawValue].prp()
+    public func searchText(_ stream: XMPPStream, jid: String? = nil, conversationType: ClientSynchronizationManager.ConversationType, text: String, max: Int = 250, loadFull: Bool = true) -> String {
+        let taskId = [jid ?? "global_search", conversationType.rawValue].prp()
         if let continuesTaskID = continuesTaskID {
             if taskId != continuesTaskID {
                 if let item = self.callbacksQueue.first(where: { $0.task.taskID == continuesTaskID }) {
@@ -310,19 +282,20 @@ class MessageArchiveManager: AbstractXMPPManager {
         self.requestArchive(
             stream,
             jid: jid,
-            isContinues: true,
+            isContinues: loadFull,
             conversationType: conversationType,
             queryId: queryId,
             searchText: text,
             flipPage: false,
             nextPage: "",
-            max: 250,
-            callback: nil)
+            max: max,
+            callback: nil
+        )
         self.continuesTaskID = taskId
         return queryId
     }
     
-    internal func requestArchive(_ stream: XMPPStream, jid: String, isContinues: Bool, conversationType: ClientSynchronizationManager.ConversationType, queryId: String? = nil, searchText: String? = nil, flipPage: Bool = true, before: String? = nil, beforeId: String? = nil, afterId: String? = nil, start: Date? = nil, end: Date? = nil, nextPage: String? = nil, prevPage: String? = nil, max: Int? = nil, isInitialArchiveRequest: Bool = false,callback: (() -> Void)? = nil) {
+    internal func requestArchive(_ stream: XMPPStream, jid: String?, isContinues: Bool, conversationType: ClientSynchronizationManager.ConversationType, queryId: String? = nil, searchText: String? = nil, flipPage: Bool = true, before: String? = nil, beforeId: String? = nil, afterId: String? = nil, start: Date? = nil, end: Date? = nil, nextPage: String? = nil, prevPage: String? = nil, max: Int? = nil, withCounter: Bool = false,isNormalSynchronousTask: Bool = false,callback: (() -> Void)? = nil) {
         let isGroupchat = [.group, .channel].contains(conversationType)
         let elementId = queryId ?? "MAM: \(NanoID.new(8))"
         let query = DDXMLElement(name: "query", xmlns: getPrimaryNamespace())
@@ -360,11 +333,19 @@ class MessageArchiveManager: AbstractXMPPManager {
             endElement.addChild(DDXMLElement(name: "value", stringValue: end.XMPPFormattedDate))
             x.addChild(endElement)
         }
+        if withCounter {
+            let counterElement = DDXMLElement(name: "field")
+            counterElement.addAttribute(withName: "var", stringValue: "rsm-counter")
+            counterElement.addChild(DDXMLElement(name: "value", numberValue: 1))
+            x.addChild(counterElement)
+        }
         if !isGroupchat {
-            let withElement = DDXMLElement(name: "field")
-            withElement.addAttribute(withName: "var", stringValue: "with")
-            withElement.addChild(DDXMLElement(name: "value", stringValue: jid))
-            x.addChild(withElement)
+            if let jid = jid {
+                let withElement = DDXMLElement(name: "field")
+                withElement.addAttribute(withName: "var", stringValue: "with")
+                withElement.addChild(DDXMLElement(name: "value", stringValue: jid))
+                x.addChild(withElement)
+            }
         }
         if !isGroupchat {
             let ctElement = DDXMLElement(name: "field")
@@ -398,7 +379,7 @@ class MessageArchiveManager: AbstractXMPPManager {
             query.addChild(DDXMLElement(name: "flip-page"))
         }
         if isGroupchat {
-            stream.send(XMPPIQ(iqType: .set, to: XMPPJID(string: jid), elementID: elementId, child: query))
+            stream.send(XMPPIQ(iqType: .set, to: jid == nil ? nil : XMPPJID(string: jid ?? ""), elementID: elementId, child: query))
         } else {
             stream.send(XMPPIQ(iqType: .set, to: nil, elementID: elementId, child: query))
         }
@@ -407,11 +388,11 @@ class MessageArchiveManager: AbstractXMPPManager {
                 self.queryIds.insert(elementId)
             }
         }
-        let taskId = [jid, conversationType.rawValue].prp()
+        let taskId = [jid ?? "global_search", conversationType.rawValue].prp()
         
         self.callbacksQueue.update(with:
             CallbackQueueItem(
-                jid: jid,
+                jid: jid ?? "",
                 elementId: elementId,
                 task: MAMRequestItem(
                     jid: jid,
@@ -427,7 +408,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                     max: max ?? pageSize,
                     start: start,
                     end: end,
-                    isInitialArchiveRequest: isInitialArchiveRequest
+                    isNormalSynchronousTask: isNormalSynchronousTask
                 ),
                 callback: callback
             )
@@ -465,93 +446,93 @@ class MessageArchiveManager: AbstractXMPPManager {
             if let lastChatInstance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: self.owner, conversationType: conversationType)) {
                 if lastChatInstance.isInitialArchiveLoaded,
                    lastChatInstance.isSynced {
-//                    let messages: Results<MessageStorageItem>
-//                    if conversationType == .saved {
-//                        messages = realm
-//                            .objects(MessageStorageItem.self)
-//                            .filter ("owner == %@ AND isDeleted == false AND conversationType_ == %@ AND messageType != %@", self.owner, conversationType.rawValue, MessageStorageItem.MessageDisplayType.initial.rawValue)
-//                            .sorted (byKeyPath: "date", ascending: false)
-//                    } else {
-//                        messages = realm
-//                            .objects(MessageStorageItem.self)
-//                            .filter ("owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@ AND messageType != %@", self.owner, jid, conversationType.rawValue, MessageStorageItem.MessageDisplayType.initial.rawValue)
-//                            .sorted (byKeyPath: "date", ascending: false)
-//                    }
-//                    var gaps: [HistoryGap] = []
-//                    messages.enumerated().forEach {
-//                        (offset, item) in
-//                        let newIndex = offset + 1
-//                        if newIndex < messages.count {
-//                            let currentQueryIds: Set<String> = Set((item.queryIds ?? "").split(separator: ",").compactMap { return String($0) })
-//                            let nextQueryIds: Set<String> = Set((messages[newIndex].queryIds ?? "").split(separator: ",").compactMap { return String($0) })
-//                            let intersection = currentQueryIds.intersection(nextQueryIds)
-//                            if intersection.isEmpty {
-//                                gaps.append(HistoryGap(
-//                                    newestMessageId: item.archivedId,
-//                                    oldestMessageId: messages[newIndex].archivedId,
-//                                    startDate: item.date,
-//                                    endDate: messages[newIndex].date)
-//                                )
-//                            }
-//                        }
-//                    }
-//                    var optimizationDone: Bool = false
-//                    var prevOptimizedGaps: [HistoryGap] = gaps
-//                    while !optimizationDone {
-//                        var excludedGaps: Set<Int> = Set()
-//                        var optimizedGaps: [HistoryGap] = []
-//                        prevOptimizedGaps.enumerated().forEach {
-//                            (offset, gap) in
-//                            let newIndex = offset + 1
-//                            if excludedGaps.contains(offset) {
-//                                return
-//                            }
-//                            if newIndex < prevOptimizedGaps.count {
-//                                if gap.oldestMessageId == prevOptimizedGaps[newIndex].newestMessageId {
-//                                    excludedGaps.insert(newIndex)
-//                                    optimizedGaps.append(HistoryGap(
-//                                        newestMessageId: gap.newestMessageId,
-//                                        oldestMessageId: prevOptimizedGaps[newIndex].oldestMessageId,
-//                                        startDate: gap.startDate,
-//                                        endDate: prevOptimizedGaps[newIndex].endDate)
-//                                    )
-//                                } else {
-//                                    optimizedGaps.append(gap)
-//                                }
-//                            } else {
-//                                optimizedGaps.append(gap)
-//                            }
-//                        }
-//                        
-//                        if optimizedGaps.count == prevOptimizedGaps.count {
-//                            optimizationDone = true
-//                            prevOptimizedGaps = optimizedGaps
-//                            break
-//                        }
-//                        prevOptimizedGaps = optimizedGaps
-//                                
-//                    }
-//                    prevOptimizedGaps.enumerated().forEach {
-//                        offset, gap in
-//                        self.requestArchive(
-//                            stream,
-//                            jid: jid,
-//                            isContinues: true,
-//                            conversationType: conversationType,
-//                            queryId: "MAM fix history \(offset): \(NanoID.new(6))",
-//                            searchText: nil,
-//                            flipPage: true,
-//                            before: nil,
-//                            beforeId: nil,
-//                            afterId: nil,
-//                            start: gap.endDate,
-//                            end: gap.startDate,
-//                            nextPage: nil,
-//                            prevPage: nil,
-//                            max: 250,
-//                            callback: nil
-//                        )
-//                    }
+                    let messages: Results<MessageStorageItem>
+                    if conversationType == .saved {
+                        messages = realm
+                            .objects(MessageStorageItem.self)
+                            .filter ("owner == %@ AND isDeleted == false AND conversationType_ == %@ AND messageType != %@", self.owner, conversationType.rawValue, MessageStorageItem.MessageDisplayType.initial.rawValue)
+                            .sorted (byKeyPath: "date", ascending: false)
+                    } else {
+                        messages = realm
+                            .objects(MessageStorageItem.self)
+                            .filter ("owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@ AND messageType != %@", self.owner, jid, conversationType.rawValue, MessageStorageItem.MessageDisplayType.initial.rawValue)
+                            .sorted (byKeyPath: "date", ascending: false)
+                    }
+                    var gaps: [HistoryGap] = []
+                    messages.enumerated().forEach {
+                        (offset, item) in
+                        let newIndex = offset + 1
+                        if newIndex < messages.count {
+                            let currentQueryIds: Set<String> = Set((item.queryIds ?? "").split(separator: ",").compactMap { return String($0) })
+                            let nextQueryIds: Set<String> = Set((messages[newIndex].queryIds ?? "").split(separator: ",").compactMap { return String($0) })
+                            let intersection = currentQueryIds.intersection(nextQueryIds)
+                            if intersection.isEmpty {
+                                gaps.append(HistoryGap(
+                                    newestMessageId: item.archivedId,
+                                    oldestMessageId: messages[newIndex].archivedId,
+                                    startDate: item.date,
+                                    endDate: messages[newIndex].date)
+                                )
+                            }
+                        }
+                    }
+                    var optimizationDone: Bool = false
+                    var prevOptimizedGaps: [HistoryGap] = gaps
+                    while !optimizationDone {
+                        var excludedGaps: Set<Int> = Set()
+                        var optimizedGaps: [HistoryGap] = []
+                        prevOptimizedGaps.enumerated().forEach {
+                            (offset, gap) in
+                            let newIndex = offset + 1
+                            if excludedGaps.contains(offset) {
+                                return
+                            }
+                            if newIndex < prevOptimizedGaps.count {
+                                if gap.oldestMessageId == prevOptimizedGaps[newIndex].newestMessageId {
+                                    excludedGaps.insert(newIndex)
+                                    optimizedGaps.append(HistoryGap(
+                                        newestMessageId: gap.newestMessageId,
+                                        oldestMessageId: prevOptimizedGaps[newIndex].oldestMessageId,
+                                        startDate: gap.startDate,
+                                        endDate: prevOptimizedGaps[newIndex].endDate)
+                                    )
+                                } else {
+                                    optimizedGaps.append(gap)
+                                }
+                            } else {
+                                optimizedGaps.append(gap)
+                            }
+                        }
+                        
+                        if optimizedGaps.count == prevOptimizedGaps.count {
+                            optimizationDone = true
+                            prevOptimizedGaps = optimizedGaps
+                            break
+                        }
+                        prevOptimizedGaps = optimizedGaps
+                                
+                    }
+                    prevOptimizedGaps.enumerated().forEach {
+                        offset, gap in
+                        self.requestArchive(
+                            stream,
+                            jid: jid,
+                            isContinues: true,
+                            conversationType: conversationType,
+                            queryId: "MAM fix history \(offset): \(NanoID.new(6))",
+                            searchText: nil,
+                            flipPage: false,
+                            before: nil,
+                            beforeId: nil,
+                            afterId: nil,
+                            start: gap.endDate,
+                            end: gap.startDate,
+                            nextPage: nil,
+                            prevPage: nil,
+                            max: 250,
+                            callback: nil
+                        )
+                    }
                     
                 } else {
                     var archiveStart: Date? = nil
@@ -566,7 +547,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                         conversationType: conversationType,
                         start: archiveStart,
                         nextPage: "",
-                        isInitialArchiveRequest: true
+                        isNormalSynchronousTask: true
                     ) {
                         callback?()
                         do {
@@ -602,7 +583,6 @@ class MessageArchiveManager: AbstractXMPPManager {
                     instance.conversationType = conversationType
                     instance.messageDate = Date()
                     instance.setPrimary(withOwner: owner)
-                    instance.messagesCount = 0
                     instance.isSynced = false
                     if let rosterItem = realm
                         .object(ofType: RosterStorageItem.self,
@@ -641,114 +621,19 @@ class MessageArchiveManager: AbstractXMPPManager {
             DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
         }
     }
-    public final func syncChatOld(_ stream: XMPPStream, jid: String, conversationType: ClientSynchronizationManager.ConversationType, retry: Bool = false) {
-        do {
-            let realm = try WRealm.safe()
-            var archiveStart: Date? = nil
-            if conversationType.isEncrypted {
-                if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: self.owner) {
-                    archiveStart = instance.createdAt
-                }
-            }
-            if let instance = realm.object(ofType: LastChatsStorageItem.self,
-                                           forPrimaryKey: LastChatsStorageItem.genPrimary(
-                                            jid: jid,
-                                            owner: owner,
-                                            conversationType: conversationType)) {
-                if instance.isSynced {
-                    return
-                }
-                self.requestArchive(
-                    stream, jid: jid,
-                    isContinues: false,
-                    conversationType: conversationType,
-                    start: archiveStart,
-                    nextPage: ""
-                ) {
-                    do {
-                        let realm = try WRealm.safe()
-                        if let instance = realm.object(ofType: LastChatsStorageItem.self,
-                                                       forPrimaryKey: LastChatsStorageItem.genPrimary(
-                                                        jid: jid,
-                                                        owner: self.owner,
-                                                        conversationType: conversationType)) {
-                            try realm.write {
-                                if instance.isInvalidated { return }
-                                instance.isSynced = true
-                            }
-                        }
-                    } catch {
-                        DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
-                    }
-                }
-            } else {
-                try realm.write {
-                    let instance = LastChatsStorageItem()
-                    instance.owner = owner
-                    instance.jid = jid
-                    instance.conversationType = conversationType
-                    instance.messageDate = Date()
-                    instance.setPrimary(withOwner: owner)
-                    instance.messagesCount = 0
-                    instance.isSynced = false
-                    if let rosterItem = realm
-                        .object(ofType: RosterStorageItem.self,
-                                forPrimaryKey: [jid, owner].prp()) {
-                        instance.rosterItem = rosterItem
-                        rosterItem.associatedLastChat = instance
-                    } else {
-                        let rosterItem = RosterStorageItem()
-                        rosterItem.owner = owner
-                        rosterItem.jid = jid
-                        rosterItem.primary = RosterStorageItem.genPrimary(jid: jid, owner: owner)
-                        rosterItem.groups.append(RosterUtils.ungroupped)
-                        rosterItem.associatedLastChat = instance
-                        realm.add(rosterItem)
-                        instance.rosterItem = rosterItem
-                    }
-                    instance.rosterItem = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: [jid, owner].prp())
-                    realm.add(instance, update: .modified)
-                    let initialMessage = MessageStorageItem()
-                    initialMessage.configureInitialMessage(
-                        self.owner,
-                        opponent: jid,
-                        conversationType: conversationType,
-                        text: "",
-                        date: Date(),
-                        isRead: instance.displayedId == "0"
-                    )
-                    if realm.object(ofType: MessageStorageItem.self, forPrimaryKey: initialMessage.primary) == nil {
-                        initialMessage.isDeleted = true
-                        _ = initialMessage.save(commitTransaction: false)
-                    }
-                }
-                if !retry {
-                    self.syncChatOld(stream, jid: jid, conversationType: conversationType, retry: true)
-                }
-            }
-//            else {
-//                if try self.checkShouldLoadFullHistory(for: jid, conversationType: conversationType) {
-//                    try self.startLoadHistory(stream, jid: jid, conversationType: conversationType)
-//                }
-//            }
-        } catch {
-            DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
-        }
-    }
     
     internal func getPrevHistory(_ stream: XMPPStream, for jid: String, conversationType: ClientSynchronizationManager.ConversationType, messageId: String, callback: (() -> Void)? = nil) {
         do {
             let realm = try WRealm.safe()
-            let lastMsgDate = realm.objects(MessageStorageItem.self)
-                .filter("owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@ AND (messageId == %@ OR archivedId == %@)",
+            let oldestArchivedId = realm.objects(MessageStorageItem.self)
+                .filter("owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@",
                         self.owner,
                         jid,
-                        conversationType.rawValue,
-                        messageId,
-                        messageId
-                ).first?
-                .date ?? Date()
-            let modifiedDate = Date(timeIntervalSince1970: lastMsgDate.timeIntervalSince1970 - 600)
+                        conversationType.rawValue
+                )
+                .sorted(byKeyPath: "date", ascending: false)
+                .first?
+                .archivedId ?? ""
             
             self.requestArchive(
                 stream,
@@ -761,12 +646,12 @@ class MessageArchiveManager: AbstractXMPPManager {
                 before: nil,
                 beforeId: nil,
                 afterId: nil,
-                start: modifiedDate,
+                start: nil,//lastMsgDate,//modifiedDate,
                 end: nil,
                 nextPage: nil,
-                prevPage: nil,
+                prevPage: messageId.isEmpty ? oldestArchivedId : messageId,
                 max: 250,
-                isInitialArchiveRequest: false,
+                isNormalSynchronousTask: false,
                 callback: callback
             )
         } catch {
@@ -774,19 +659,19 @@ class MessageArchiveManager: AbstractXMPPManager {
         }
     }
     
-    internal func getNextHistory(_ stream: XMPPStream, for jid: String, conversationType: ClientSynchronizationManager.ConversationType, messageId: String, callback: (() -> Void)? = nil) {
+    internal func getNextHistory(_ stream: XMPPStream, for jid: String, conversationType: ClientSynchronizationManager.ConversationType, messageId: String?, callback: (() -> Void)? = nil) {
         do {
             let realm = try WRealm.safe()
-            let lastMsgDate = realm.objects(MessageStorageItem.self)
-                .filter("owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@ AND (messageId == %@ OR archivedId == %@)",
+            let oldestArchivedId = realm.objects(MessageStorageItem.self)
+                .filter("owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@",
                         self.owner,
                         jid,
-                        conversationType.rawValue,
-                        messageId,
-                        messageId
-                ).first?
-                .date ?? Date()
-            let modifiedDate = Date(timeIntervalSince1970: lastMsgDate.timeIntervalSince1970 + 600)
+                        conversationType.rawValue
+                )
+                .sorted(byKeyPath: "date", ascending: true)
+                .first?
+                .archivedId ?? ""
+//            let modifiedDate = Date(timeIntervalSince1970: lastMsgDate.timeIntervalSince1970 + 600)
             
             self.requestArchive(
                 stream,
@@ -800,11 +685,11 @@ class MessageArchiveManager: AbstractXMPPManager {
                 beforeId: nil,
                 afterId: nil,
                 start: nil,
-                end: modifiedDate,
-                nextPage: "",
+                end: nil,//modifiedDate,
+                nextPage: messageId,
                 prevPage: nil,
                 max: 250,
-                isInitialArchiveRequest: false,
+                isNormalSynchronousTask: true,
                 callback: callback
             )
         } catch {
@@ -827,10 +712,8 @@ class MessageArchiveManager: AbstractXMPPManager {
                 return false
             }
             let msgCount = realm.objects(MessageStorageItem.self).filter("opponent == %@ AND owner == %@ AND conversationType_ == %@", jid, self.owner, conversationType.rawValue).count
-            if instance.messagesCount > msgCount {
-                return true
-            }
-            if instance.messagesCount < 2 {
+            
+            if !instance.fullArchiveLoaded {
                 return true
             }
         } else {
@@ -888,9 +771,9 @@ class MessageArchiveManager: AbstractXMPPManager {
             return
         }
         
-        if let item = self.callbacksQueue.first(where: { $0.task.taskID == continuesTaskID }) {
-            self.callbacksQueue.remove(item)
-        }
+//        if let item = self.callbacksQueue.first(where: { $0.task.taskID == continuesTaskID }) {
+//            self.callbacksQueue.remove(item)
+//        }
         
         self.requestArchive(
             stream,

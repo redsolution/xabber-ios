@@ -223,6 +223,7 @@ class MessageManager: AbstractXMPPManager {
                 if let instance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: conversationType)) {
                     try realm.write {
                         instance.unread = 0
+                        instance.lastReadId = nil
                     }
                     let messageId = instance.lastMessageId
                     AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, stream in
@@ -251,6 +252,7 @@ class MessageManager: AbstractXMPPManager {
                             if instance.isInvalidated { return }
                             if last {
                                 instance.unread = 0
+                                instance.lastReadId = nil
                             } else {
                                 instance.unread -= 1
                             }

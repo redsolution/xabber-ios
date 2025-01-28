@@ -23,7 +23,9 @@ import UIKit
 
 extension SearchResultsViewController: UISearchResultsUpdating {
     func updateSearchResults(for searchController: UISearchController) {
+        print("UPDATE")
         self.searchObserver.accept(searchController.searchBar.text)
     }
+    
 }
 

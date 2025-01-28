@@ -301,7 +301,7 @@ class PresenceManager: AbstractXMPPManager {
         case .chat:
             show = XMPPPresence.ShowType.chat
         }
-        let presence = XMPPPresence(type: (status.status == .offline) ? .unavailable : nil,
+        let presence = XMPPPresence(type: nil,
                                     show: show,
                                     status: status.statusMessage,
                                     to: jid)

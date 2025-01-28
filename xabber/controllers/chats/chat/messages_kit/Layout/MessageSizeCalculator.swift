@@ -405,3 +405,16 @@ class MessageSizeCalculator: CellSizeCalculator {
         return CGSize(width: rect.size.width + 4, height: rect.size.height + 4)
     }
 }
+
+class FixedSizeMessageCalculator: MessageSizeCalculator {
+    
+    override func messageContainerSize(for message: MessageType) -> CGSize {
+        switch message.kind {
+            case .activityIndicator:
+                return CGSize(square: 56)
+            default:
+                return .zero
+        }
+    }
+}
+

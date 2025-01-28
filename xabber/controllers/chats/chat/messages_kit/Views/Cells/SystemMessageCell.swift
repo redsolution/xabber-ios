@@ -67,15 +67,22 @@ class SystemMessageCell: MessageContentCell {
         messageContainerView.bubbleImage.isHidden = true
         messageContainerView.shadowImage.isHidden = true
         
-        messageLabel.backgroundColor = UIColor.black.withAlphaComponent(0.2)//MDCPalette.grey.tint800.withAlphaComponent(0.45)
         
 //        messageLabel.backgroundColor = displayDelegate.accountPalette().tint100.withAlphaComponent(0.45)// MDCPalette.grey.tint800.withAlphaComponent(0.45)
         messageLabel.textColor = .white
-        messageLabel.textAlignment = .center
+        messageLabel.isHidden = false
+        self.backgroundColor = .clear
         messageLabel.configure {
             switch message.kind {
-            case .system(let text):
-                messageLabel.attributedText = text
+                case .system(let text):
+                    messageLabel.attributedText = text
+//                    messageLabel.backgroundColor = UIColor.black.withAlphaComponent(0.2)
+                case .date(let text):
+                    messageLabel.attributedText = text
+                    messageLabel.isHidden = true
+                case .unread(let text):
+                    messageLabel.attributedText = text
+                    self.backgroundColor = UIColor.black.withAlphaComponent(0.2)
             default:
                 break
             }

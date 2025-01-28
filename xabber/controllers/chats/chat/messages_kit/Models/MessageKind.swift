@@ -63,7 +63,10 @@ enum MessageKind {
     ///   - `collectionView(_:cellForItemAt indexPath: IndexPath) -> UICollectionViewCell`
     ///   - `cellSizeCalculatorForItem(at indexPath: IndexPath) -> CellSizeCalculator`
     case custom(Any?)
-
+    
+    case date(NSAttributedString)
+    case unread(NSAttributedString)
+    case activityIndicator
     // MARK: - Not supported yet
 
 //    case audio(Data)

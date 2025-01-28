@@ -64,33 +64,33 @@ class TextMessageCell: CommonMessageCell {
 //            let additionalYOffset = attributes.audioInlineViewSize.height + attributes.filesInlineViewSize.height + attributes.imagesInlineViewSize.height + attributes.
             var messageLabelOffset: CGFloat = 0
             audiosInlineView.frame = CGRect(
-                x: messageContainerView.bounds.minX + 8,
+                x: messageContainerView.bounds.minX + attributes.messageLabelInsets.left,
                 y: messageContainerView.bounds.minY + messageLabelOffset,
-                width: messageContainerView.bounds.width - 16,
+                width: messageContainerView.bounds.width - attributes.messageLabelInsets.horizontal,
                 height: attributes.audioInlineViewSize.height
             )
             messageLabelOffset += attributes.audioInlineViewSize.height
             
             filesInlineView.frame = CGRect(
-                x: messageContainerView.bounds.minX + 8,
+                x: messageContainerView.bounds.minX + attributes.messageLabelInsets.left,
                 y: messageContainerView.bounds.minY + messageLabelOffset,
-                width: messageContainerView.bounds.width - 16,
+                width: messageContainerView.bounds.width - attributes.messageLabelInsets.horizontal,
                 height: attributes.filesInlineViewSize.height
             )
             messageLabelOffset += attributes.filesInlineViewSize.height
             
             imagesInlineView.frame = CGRect(
-                x: messageContainerView.bounds.minX + 8,
+                x: messageContainerView.bounds.minX + attributes.messageLabelInsets.left,
                 y: messageContainerView.bounds.minY + messageLabelOffset,
-                width: messageContainerView.bounds.width - 16,
+                width: messageContainerView.bounds.width - attributes.messageLabelInsets.horizontal,
                 height: attributes.imagesInlineViewSize.height
             )
             messageLabelOffset += attributes.imagesInlineViewSize.height
             
             videosInlineView.frame = CGRect(
-                x: messageContainerView.bounds.minX + 8,
+                x: messageContainerView.bounds.minX + attributes.messageLabelInsets.left,
                 y: messageContainerView.bounds.minY + messageLabelOffset,
-                width: messageContainerView.bounds.width - 16,
+                width: messageContainerView.bounds.width - attributes.messageLabelInsets.horizontal,
                 height: attributes.videosInlineViewSize.height
             )
             messageLabelOffset += attributes.videosInlineViewSize.height

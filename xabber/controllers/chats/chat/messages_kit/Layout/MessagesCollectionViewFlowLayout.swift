@@ -59,8 +59,9 @@ class MessagesCollectionViewFlowLayout: UICollectionViewFlowLayout {
     
     override init() {
         super.init()
-
-        sectionInset = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+        self.sectionFootersPinToVisibleBounds = true
+//        self.sectionHeadersPinToVisibleBounds = true
+//        sectionInset = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
 
         NotificationCenter.default.addObserver(self, selector: #selector(MessagesCollectionViewFlowLayout.handleOrientationChange(_:)), name: UIDevice.orientationDidChangeNotification, object: nil)
     }
@@ -82,9 +83,51 @@ class MessagesCollectionViewFlowLayout: UICollectionViewFlowLayout {
             let cellSizeCalculator = cellSizeCalculatorForItem(at: attributes.indexPath)
             cellSizeCalculator.configure(attributes: attributes)
         }
+//        guard let attributes = super.layoutAttributesForElements(in: rect) else {
+//            return attributesArray
+//        }
+//        for attribute in attributes {
+//            adjustAttributesIfNeeded(attribute)
+//        }
         return attributesArray
     }
 
+    func adjustAttributesIfNeeded(_ attributes: UICollectionViewLayoutAttributes) {
+        switch attributes.representedElementKind {
+            case UICollectionView.elementKindSectionHeader?:
+                adjustHeaderAttributesIfNeeded(attributes)
+            case UICollectionView.elementKindSectionFooter?:
+                adjustFooterAttributesIfNeeded(attributes)
+        default:
+            break
+        }
+    }
+    
+    override func layoutAttributesForSupplementaryView(ofKind elementKind: String, at indexPath: IndexPath) -> UICollectionViewLayoutAttributes? {
+        guard let attributes = super.layoutAttributesForSupplementaryView(ofKind: elementKind, at: indexPath) else { return nil }
+        adjustAttributesIfNeeded(attributes)
+        return attributes
+    }
+    
+    private func adjustHeaderAttributesIfNeeded(_ attributes: UICollectionViewLayoutAttributes) {
+        guard let collectionView = collectionView else { return }
+        guard attributes.indexPath.section == 0 else { return }
+        
+        
+        if collectionView.contentOffset.y < 0 {
+            attributes.frame.origin.y = collectionView.contentOffset.y
+        }
+    }
+
+    private func adjustFooterAttributesIfNeeded(_ attributes: UICollectionViewLayoutAttributes) {
+        guard let collectionView = collectionView else { return }
+        guard attributes.indexPath.section == collectionView.numberOfSections - 1 else { return }
+        
+        if collectionView.contentOffset.y + collectionView.bounds.size.height > collectionView.contentSize.height {
+            attributes.frame.origin.y = collectionView.contentOffset.y + collectionView.bounds.size.height - attributes.frame.size.height
+        }
+    }
+    
     override func layoutAttributesForItem(at indexPath: IndexPath) -> UICollectionViewLayoutAttributes? {
         guard let attributes = super.layoutAttributesForItem(at: indexPath) as? MessagesCollectionViewLayoutAttributes else {
             return nil
@@ -120,28 +163,31 @@ class MessagesCollectionViewFlowLayout: UICollectionViewFlowLayout {
     lazy var locationMessageSizeCalculator = LocationMessageSizeCalculator(layout: self)
     lazy var stickerMessageSizeCalculator = StickerMessageSizeCalculator(layout: self)
     lazy var initialMessageSizeCalculator = InitialMessageSizeCalculator(layout: self)
+    lazy var fixedSizeMessageCalculator = FixedSizeMessageCalculator(layout: self)
 
     
     
     func cellSizeCalculatorForItem(at indexPath: IndexPath) -> CellSizeCalculator {
         let message = messagesDataSource.messageForItem(at: indexPath, in: messagesCollectionView)
         switch message.kind {
-        case .text, .attributedText, .emoji, .skeleton(_):
-            return commonMessageSizeCalculator
-        case .quote:
-            return quoteMessageSizeCalculator
-        case .system:
-            return systemMessageSizeCalculator
-        case .location:
-            return locationMessageSizeCalculator
-        case .sticker(_):
-            return stickerMessageSizeCalculator
-        case .initial(_):
-            return initialMessageSizeCalculator
-        case .custom:
-            fatalError("Must return a CellSizeCalculator for MessageKind.custom(Any?)")
-        case .photos(_), .videos(_), .files(_), .audio(_), .call(_):
-            return mediaMessageSizeCalculator
+            case .text, .attributedText, .emoji, .skeleton(_):
+                return commonMessageSizeCalculator
+            case .quote:
+                return quoteMessageSizeCalculator
+            case .system, .date, .unread:
+                return systemMessageSizeCalculator
+            case .location:
+                return locationMessageSizeCalculator
+            case .sticker(_):
+                return stickerMessageSizeCalculator
+            case .initial(_):
+                return initialMessageSizeCalculator
+            case .custom:
+                fatalError("Must return a CellSizeCalculator for MessageKind.custom(Any?)")
+            case .photos(_), .videos(_), .files(_), .audio(_), .call(_):
+                return mediaMessageSizeCalculator
+            case .activityIndicator:
+                return fixedSizeMessageCalculator
         }
     }
 
@@ -152,22 +198,24 @@ class MessagesCollectionViewFlowLayout: UICollectionViewFlowLayout {
         } else {
             let calculator: CellSizeCalculator
             switch message.kind {
-            case .text, .attributedText, .emoji, .skeleton(_):
-                calculator = commonMessageSizeCalculator
-            case .quote:
-                calculator = quoteMessageSizeCalculator
-            case .system:
-                calculator = systemMessageSizeCalculator
-            case .location:
-                calculator = locationMessageSizeCalculator
-            case .sticker(_):
-                calculator = stickerMessageSizeCalculator
-            case .initial(_):
-                calculator = initialMessageSizeCalculator
-            case .custom:
-                fatalError("Must return a CellSizeCalculator for MessageKind.custom(Any?)")
-            case .photos(_), .videos(_), .files(_), .audio(_), .call(_):
-                calculator = mediaMessageSizeCalculator
+                case .text, .attributedText, .emoji, .skeleton(_):
+                    calculator = commonMessageSizeCalculator
+                case .quote:
+                    calculator = quoteMessageSizeCalculator
+                case .system, .date, .unread:
+                    calculator = systemMessageSizeCalculator
+                case .location:
+                    calculator = locationMessageSizeCalculator
+                case .sticker(_):
+                    calculator = stickerMessageSizeCalculator
+                case .initial(_):
+                    calculator = initialMessageSizeCalculator
+                case .custom:
+                    fatalError("Must return a CellSizeCalculator for MessageKind.custom(Any?)")
+                case .photos(_), .videos(_), .files(_), .audio(_), .call(_):
+                    calculator = mediaMessageSizeCalculator
+                case .activityIndicator:
+                    calculator = fixedSizeMessageCalculator
             }
             let size = calculator.sizeForItem(at: indexPath)
             cache.cache(for: message.primary, size: size)

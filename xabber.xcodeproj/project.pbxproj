@@ -314,6 +314,7 @@
 		666CF96D2348BAF600F007DB /* ShareDialogControllerDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 666CF96C2348BAF600F007DB /* ShareDialogControllerDelegate.swift */; };
 		666D80332439C4D500BD33B1 /* TemporaryMessageStanzaStorageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 666D80322439C4D500BD33B1 /* TemporaryMessageStanzaStorageItem.swift */; };
 		666D909B245C72A600978FD3 /* XabberUpdateIfNeededDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 666D909A245C72A600978FD3 /* XabberUpdateIfNeededDelegate.swift */; };
+		666E00A52D1EBFB8002F47C8 /* ChatViewController+DateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 666E00A42D1EBFAA002F47C8 /* ChatViewController+DateView.swift */; };
 		666E1F482204202B00172F55 /* ChatViewController+Datasource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 666E1F472204202B00172F55 /* ChatViewController+Datasource.swift */; };
 		666E1F4A2204203D00172F55 /* ChatViewController+CellDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 666E1F492204203D00172F55 /* ChatViewController+CellDelegate.swift */; };
 		666E1F4C2204205100172F55 /* ChatViewDisplayDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 666E1F4B2204205100172F55 /* ChatViewDisplayDelegate.swift */; };
@@ -479,6 +480,7 @@
 		66AD82A523869A030070C740 /* CreateNewGroupEditViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66AD82A423869A030070C740 /* CreateNewGroupEditViewController.swift */; };
 		66AD82A723869D130070C740 /* CreateNewGroupEditViewController+TextCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66AD82A623869D130070C740 /* CreateNewGroupEditViewController+TextCell.swift */; };
 		66AD82A92386D4C10070C740 /* CreateNewGroupViewController+Delegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66AD82A82386D4C10070C740 /* CreateNewGroupViewController+Delegate.swift */; };
+		66AE2D5F2D4126E5004C88E6 /* ActivityIndicatorCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66AE2D5E2D4126D1004C88E6 /* ActivityIndicatorCell.swift */; };
 		66AE4E7824E12F7C00FF11DC /* xabberTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66AE4E7724E12F7C00FF11DC /* xabberTests.swift */; };
 		66AE4E8024E189EF00FF11DC /* XabberXMPPTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66AE4E7F24E189EF00FF11DC /* XabberXMPPTests.swift */; };
 		66AEE5BF2338BC220085979B /* MessageManager+CommonSender.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66AEE5BE2338BC220085979B /* MessageManager+CommonSender.swift */; };
@@ -1290,6 +1292,7 @@
 		666CF96C2348BAF600F007DB /* ShareDialogControllerDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareDialogControllerDelegate.swift; sourceTree = "<group>"; };
 		666D80322439C4D500BD33B1 /* TemporaryMessageStanzaStorageItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TemporaryMessageStanzaStorageItem.swift; sourceTree = "<group>"; };
 		666D909A245C72A600978FD3 /* XabberUpdateIfNeededDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XabberUpdateIfNeededDelegate.swift; sourceTree = "<group>"; };
+		666E00A42D1EBFAA002F47C8 /* ChatViewController+DateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewController+DateView.swift"; sourceTree = "<group>"; };
 		666E1F472204202B00172F55 /* ChatViewController+Datasource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewController+Datasource.swift"; sourceTree = "<group>"; };
 		666E1F492204203D00172F55 /* ChatViewController+CellDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewController+CellDelegate.swift"; sourceTree = "<group>"; };
 		666E1F4B2204205100172F55 /* ChatViewDisplayDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatViewDisplayDelegate.swift; sourceTree = "<group>"; };
@@ -1453,6 +1456,7 @@
 		66AD82A423869A030070C740 /* CreateNewGroupEditViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateNewGroupEditViewController.swift; sourceTree = "<group>"; };
 		66AD82A623869D130070C740 /* CreateNewGroupEditViewController+TextCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CreateNewGroupEditViewController+TextCell.swift"; sourceTree = "<group>"; };
 		66AD82A82386D4C10070C740 /* CreateNewGroupViewController+Delegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CreateNewGroupViewController+Delegate.swift"; sourceTree = "<group>"; };
+		66AE2D5E2D4126D1004C88E6 /* ActivityIndicatorCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityIndicatorCell.swift; sourceTree = "<group>"; };
 		66AE4E7724E12F7C00FF11DC /* xabberTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = xabberTests.swift; sourceTree = "<group>"; };
 		66AE4E7924E12F7C00FF11DC /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		66AE4E7F24E189EF00FF11DC /* XabberXMPPTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XabberXMPPTests.swift; sourceTree = "<group>"; };
@@ -2461,6 +2465,7 @@
 		6643F2D521C2650D00333229 /* Cells */ = {
 			isa = PBXGroup;
 			children = (
+				66AE2D5E2D4126D1004C88E6 /* ActivityIndicatorCell.swift */,
 				66992534240687CE00AD9953 /* inline_views */,
 				6643F2D821C2650D00333229 /* MessageCollectionViewCell.swift */,
 				6643F2D921C2650D00333229 /* MessageContentCell.swift */,
@@ -2846,6 +2851,7 @@
 				66AFEFD02C32B379005D3A65 /* ChatViewController+AdditionalNavbarPanel.swift */,
 				66F034012C33D9ED00E4D40A /* ChatViewController+VerifyFlow.swift */,
 				66F034032C340EB600E4D40A /* ChatViewController+ContactSubscribtionsFlow.swift */,
+				666E00A42D1EBFAA002F47C8 /* ChatViewController+DateView.swift */,
 			);
 			path = extension;
 			sourceTree = "<group>";
@@ -4851,6 +4857,7 @@
 				66B41956222FDD7200E15D1D /* ChatMarkers.swift in Sources */,
 				661BBA3C238FF59A00BE4A80 /* GroupchatInviteViewController+HeaderView.swift in Sources */,
 				664CF1B522A7FF4D007987B0 /* QuitAccountPresenter.swift in Sources */,
+				66AE2D5F2D4126E5004C88E6 /* ActivityIndicatorCell.swift in Sources */,
 				6643F2BF21C2629000333229 /* ListExtension.swift in Sources */,
 				66022FA223E16AA500E88473 /* Chronometer.swift in Sources */,
 				4D3DD433285DACB000C2E429 /* DevicesListViewController+Flow.swift in Sources */,
@@ -5372,6 +5379,7 @@
 				666E1F512204239C00172F55 /* ChatViewController+DateExtension.swift in Sources */,
 				66B7992622E0847F001589A5 /* SearchResultsViewController+MessageCell.swift in Sources */,
 				660F27DF2202DBB600A11AAC /* ResourceInfoViewController+StatusCell.swift in Sources */,
+				666E00A52D1EBFB8002F47C8 /* ChatViewController+DateView.swift in Sources */,
 				66897812282E63D3004FB811 /* YubikeySetupViewController.swift in Sources */,
 				66ED0D462488CDA10053CBEF /* ContactInfoViewController- UITableViewDataSource.swift in Sources */,
 				849D262E2C4F8006000A19D2 /* ChatFilesViewController+CollectionViewDelegate.swift in Sources */,
@@ -5724,7 +5732,7 @@
 				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
-				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
 				CLANG_CXX_LIBRARY = "libc++";
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
@@ -5759,7 +5767,7 @@
 				ENABLE_BITCODE = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_OPTIMIZATION_LEVEL = 0;
@@ -5777,6 +5785,8 @@
 				MTL_ENABLE_DEBUG_INFO = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -5791,7 +5801,7 @@
 				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
-				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
 				CLANG_CXX_LIBRARY = "libc++";
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
@@ -5826,7 +5836,7 @@
 				ENABLE_BITCODE = NO;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_OPTIMIZATION_LEVEL = 3;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -5838,6 +5848,8 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = iphoneos;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
 				SWIFT_OPTIMIZATION_LEVEL = "-Owholemodule";
 				SWIFT_VERSION = 5.0;
 				VALIDATE_PRODUCT = YES;

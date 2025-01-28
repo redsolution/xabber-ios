@@ -68,7 +68,6 @@ extension ContactsViewController: UITableViewDelegate {
                 vc.owner = owner
                 vc.jid = jid
                 vc.conversationType = item.conversationType
-                vc.entity = item.entity ?? .contact
                 showStacked(vc, in: self)
             default: break
         }

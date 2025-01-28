@@ -72,22 +72,22 @@ extension ChatViewController: MessagesSelectionPanelActionDelegate {
     }
     
     func selectionPanel(onCopy panel: ModernXabberInputView.SelectionPanel) {
-        if let text = formatSelectedMessagesBodyForCopy() {
-            UIPasteboard.general.string = text
-        } else {
-            showToast(error: "Internal error".localizeString(id: "message_manager_error_internal", arguments: []))
-        }
+//        if let text = formatSelectedMessagesBodyForCopy() {
+//            UIPasteboard.general.string = text
+//        } else {
+//            showToast(error: "Internal error".localizeString(id: "message_manager_error_internal", arguments: []))
+//        }
         cancelSelection()
     }
     
     func selectionPanel(onShare panel: ModernXabberInputView.SelectionPanel) {
-        if let text = formatSelectedMessagesBodyForCopy() {
-            let vc = UIActivityViewController(activityItems: [text], applicationActivities: nil)
-            vc.popoverPresentationController?.sourceView = self.view
-            present(vc, animated: true, completion: nil)
-        } else {
-            showToast(error: "Internal error".localizeString(id: "message_manager_error_internal", arguments: []))
-        }
+//        if let text = formatSelectedMessagesBodyForCopy() {
+//            let vc = UIActivityViewController(activityItems: [text], applicationActivities: nil)
+//            vc.popoverPresentationController?.sourceView = self.view
+//            present(vc, animated: true, completion: nil)
+//        } else {
+//            showToast(error: "Internal error".localizeString(id: "message_manager_error_internal", arguments: []))
+//        }
         cancelSelection()
     }
     
@@ -106,39 +106,39 @@ extension ChatViewController: MessagesSelectionPanelActionDelegate {
     }
     
     internal func formatSelectedMessagesBodyForCopy() -> String? {
-        do {
-            let dateFormatter = DateFormatter()
-            dateFormatter.dateFormat = "EEEE, MMMM d, yyyy"
-            let timeFormatter = DateFormatter()
-            timeFormatter.dateFormat = "[HH:mm:ss]"
-            let realm = try WRealm.safe()
-            let collection = realm
-                .objects(MessageStorageItem.self)
-                .filter("primary IN %@", Array(self.forwardedIds.value))
-                .sorted(byKeyPath: "date", ascending: true)
-            return collection.compactMap {
-                (item) -> String? in
-                var body: String = ""
-                if item.legacyBody.trimmingCharacters(in: .whitespacesAndNewlines).isNotEmpty {
-                    body = item.legacyBody
-                } else {
-                    body = item.body
-                }
-                let timeString = timeFormatter.string(from: item.date)
-                var nickname: String = ""
-                if self.groupchat {
-                    if let gcNickname = realm.objects(GroupchatUserStorageItem.self)
-                        .filter("groupchatId == %@ AND jid == %@", [self.jid, self.owner].prp(), item.outgoing ? item.owner : item.opponent).first?.nickname {
-                        nickname = gcNickname
-                    }
-                } else {
-                    nickname = item.outgoing ? self.ownerSender.displayName : self.opponentSender.displayName
-                }
-                return [dateFormatter.string(from: item.date), [timeString, nickname].joined(separator: " "), body].joined(separator: "\n")
-            }.joined(separator: "\n")
-        } catch {
-            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-        }
+//        do {
+//            let dateFormatter = DateFormatter()
+//            dateFormatter.dateFormat = "EEEE, MMMM d, yyyy"
+//            let timeFormatter = DateFormatter()
+//            timeFormatter.dateFormat = "[HH:mm:ss]"
+//            let realm = try WRealm.safe()
+//            let collection = realm
+//                .objects(MessageStorageItem.self)
+//                .filter("primary IN %@", Array(self.forwardedIds.value))
+//                .sorted(byKeyPath: "date", ascending: true)
+//            return collection.compactMap {
+//                (item) -> String? in
+//                var body: String = ""
+//                if item.legacyBody.trimmingCharacters(in: .whitespacesAndNewlines).isNotEmpty {
+//                    body = item.legacyBody
+//                } else {
+//                    body = item.body
+//                }
+//                let timeString = timeFormatter.string(from: item.date)
+//                var nickname: String = ""
+//                if self.groupchat {
+//                    if let gcNickname = realm.objects(GroupchatUserStorageItem.self)
+//                        .filter("groupchatId == %@ AND jid == %@", [self.jid, self.owner].prp(), item.outgoing ? item.owner : item.opponent).first?.nickname {
+//                        nickname = gcNickname
+//                    }
+//                } else {
+//                    nickname = item.outgoing ? self.ownerSender.displayName : self.opponentSender.displayName
+//                }
+//                return [dateFormatter.string(from: item.date), [timeString, nickname].joined(separator: " "), body].joined(separator: "\n")
+//            }.joined(separator: "\n")
+//        } catch {
+//            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+//        }
         return nil
     }
     
@@ -159,41 +159,41 @@ extension ChatViewController: MessagesSelectionPanelActionDelegate {
     
     @objc
     internal func onClearChat() {
-        DispatchQueue.main.async {
-            DeleteMessagePresenter(username: self.opponentSender.displayName, groupchat: self.groupchat, sended: true)
-                .present(in: self, animated: true) { (result) in
-                    if let result = result {
-                        XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
-                            session.retract?.deleteAllMessages(
-                                stream,
-                                jid: self.jid,
-                                conversationType: self.conversationType,
-                                callback: { (error, success) in
-                                    DispatchQueue.main.async {
-                                        if let error = error {
-                                            self.view.makeToast(error)
-                                        }
-                                    }
-                                })
-                        }, fail: {
-                            AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                                user.msgDeleteManager
-                                    .deleteAllMessages(
-                                        stream,
-                                        jid: self.jid,
-                                        conversationType: self.conversationType
-                                    ) { (error, success) in
-                                        DispatchQueue.main.async {
-                                            if let error = error {
-                                                self.view.makeToast(error)
-                                            }
-                                        }
-                                    }
-                            })
-                        })
-                    }
-                }
-            }
+//        DispatchQueue.main.async {
+//            DeleteMessagePresenter(username: self.opponentSender.displayName, groupchat: self.groupchat, sended: true)
+//                .present(in: self, animated: true) { (result) in
+//                    if let result = result {
+//                        XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
+//                            session.retract?.deleteAllMessages(
+//                                stream,
+//                                jid: self.jid,
+//                                conversationType: self.conversationType,
+//                                callback: { (error, success) in
+//                                    DispatchQueue.main.async {
+//                                        if let error = error {
+//                                            self.view.makeToast(error)
+//                                        }
+//                                    }
+//                                })
+//                        }, fail: {
+//                            AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
+//                                user.msgDeleteManager
+//                                    .deleteAllMessages(
+//                                        stream,
+//                                        jid: self.jid,
+//                                        conversationType: self.conversationType
+//                                    ) { (error, success) in
+//                                        DispatchQueue.main.async {
+//                                            if let error = error {
+//                                                self.view.makeToast(error)
+//                                            }
+//                                        }
+//                                    }
+//                            })
+//                        })
+//                    }
+//                }
+//            }
         cancelSelection()
     }
     
@@ -203,127 +203,127 @@ extension ChatViewController: MessagesSelectionPanelActionDelegate {
     }
     
     internal func deleteAllMessages() {
-        ActionSheetPresenter().present(
-            in: self,
-            title: nil,
-            message: "Do you want to clear chat history",
-            cancel: "Cancel",
-            values: [ActionSheetPresenter.Item(destructive: true, title: "Clear", value: "delete")],
-            animated: true) { value in
-                switch value {
-                    case "delete":
-                        DispatchQueue.main.async {
-                            self.view.makeToastActivity(ToastPosition.center)
-                        }
-                        XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
-                            session.retract?.deleteAllMessages(
-                                stream,
-                                jid: self.jid,
-                                conversationType: self.conversationType,
-                                callback: { (errorMessage, success) in
-                                    LastChats.updateErrorState(for: self.jid, owner: self.owner, conversationType: self.conversationType)
-                                    DispatchQueue.main.async {
-                                        self.view.hideToastActivity()
-                                        if let error = errorMessage {
-                                            self.showToast(error: error)
-                                        }
-                                    }
-                                })
-                        }, fail: {
-                            AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                                user.msgDeleteManager
-                                    .deleteAllMessages(
-                                        stream,
-                                        jid: self.jid,
-                                        conversationType: self.conversationType,
-                                        callback: { (errorMessage, success) in
-                                            LastChats.updateErrorState(for: self.jid, owner: self.owner, conversationType: self.conversationType)
-                                            DispatchQueue.main.async {
-                                                self.view.hideToastActivity()
-                                                if let error = errorMessage {
-                                                    self.showToast(error: error)
-                                                }
-                                            }
-                                        })
-                            })
-                        })
-                    default: break
-                }
-            }
+//        ActionSheetPresenter().present(
+//            in: self,
+//            title: nil,
+//            message: "Do you want to clear chat history",
+//            cancel: "Cancel",
+//            values: [ActionSheetPresenter.Item(destructive: true, title: "Clear", value: "delete")],
+//            animated: true) { value in
+//                switch value {
+//                    case "delete":
+//                        DispatchQueue.main.async {
+//                            self.view.makeToastActivity(ToastPosition.center)
+//                        }
+//                        XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
+//                            session.retract?.deleteAllMessages(
+//                                stream,
+//                                jid: self.jid,
+//                                conversationType: self.conversationType,
+//                                callback: { (errorMessage, success) in
+//                                    LastChats.updateErrorState(for: self.jid, owner: self.owner, conversationType: self.conversationType)
+//                                    DispatchQueue.main.async {
+//                                        self.view.hideToastActivity()
+//                                        if let error = errorMessage {
+//                                            self.showToast(error: error)
+//                                        }
+//                                    }
+//                                })
+//                        }, fail: {
+//                            AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
+//                                user.msgDeleteManager
+//                                    .deleteAllMessages(
+//                                        stream,
+//                                        jid: self.jid,
+//                                        conversationType: self.conversationType,
+//                                        callback: { (errorMessage, success) in
+//                                            LastChats.updateErrorState(for: self.jid, owner: self.owner, conversationType: self.conversationType)
+//                                            DispatchQueue.main.async {
+//                                                self.view.hideToastActivity()
+//                                                if let error = errorMessage {
+//                                                    self.showToast(error: error)
+//                                                }
+//                                            }
+//                                        })
+//                            })
+//                        })
+//                    default: break
+//                }
+//            }
     }
     
     internal func deleteMessages(forIds toDeleteIds: Set<String>) {
-        DeleteMessagePresenter(username: self.opponentSender.displayName, groupchat: self.groupchat, sended: true)
-            .present(in: self, animated: true) { (result) in
-                if let result = result {
-                    var modifiedIds: Set<String> = Set<String>()
-                    do {
-                        let realm = try WRealm.safe()
-                        try toDeleteIds.forEach {
-                            primary in
-                            try realm.write {
-                                if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
-                                    if instance.state == .error {
-                                        if instance.isInvalidated { return }
-                                        realm.delete(instance)
-                                    } else {
-                                        instance.isDeleted = true
-                                        modifiedIds.insert(primary)
-                                    }
-                                }
-                            }
-                            (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
-                                .invalidateLastMessageCachedSize(primary: primary)
-                        }
-                        
-                        self.canUpdateDataset = true
-                        self.runDatasetUpdateTask()
-                    } catch {
-                        DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-                    }
-                    modifiedIds.forEach {
-                        primary in
-                        DispatchQueue.main.async {
-                            self.view.makeToastActivity(ToastPosition.center)
-                        }
-                        XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
-                            session.retract?.deleteMessage(
-                                stream,
-                                primary: primary,
-                                jid: self.groupchat ? self.jid : "",
-                                conversationType: self.conversationType,
-                                symmetric: result,
-                                callback: { (errorMessage, success) in
-                                    DispatchQueue.main.async {
-                                        self.view.hideToastActivity()
-                                        if let error = errorMessage {
-                                            self.showToast(error: error)
-                                        }
-                                    }
-                                })
-                        }, fail: {
-                            AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                                user.msgDeleteManager
-                                    .deleteMessage(stream,
-                                                   primary: primary,
-                                                   jid: self.groupchat ? self.jid : "",
-                                                   conversationType: self.conversationType,
-                                                   symmetric: result)
-                                {
-                                    (errorMessage, success) in
-                                    DispatchQueue.main.async {
-                                        self.view.hideToastActivity()
-                                        if let error = errorMessage {
-                                                self.showToast(error: error)
-                                        }
-                                    }
-                                }
-                            })
-                        })
-                    }
-                    LastChats.updateErrorState(for: self.jid, owner: self.owner, conversationType: self.conversationType)
-                }
-            }
+//        DeleteMessagePresenter(username: self.opponentSender.displayName, groupchat: self.groupchat, sended: true)
+//            .present(in: self, animated: true) { (result) in
+//                if let result = result {
+//                    var modifiedIds: Set<String> = Set<String>()
+//                    do {
+//                        let realm = try WRealm.safe()
+//                        try toDeleteIds.forEach {
+//                            primary in
+//                            try realm.write {
+//                                if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
+//                                    if instance.state == .error {
+//                                        if instance.isInvalidated { return }
+//                                        realm.delete(instance)
+//                                    } else {
+//                                        instance.isDeleted = true
+//                                        modifiedIds.insert(primary)
+//                                    }
+//                                }
+//                            }
+//                            (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
+//                                .invalidateLastMessageCachedSize(primary: primary)
+//                        }
+//                        
+//                        self.canUpdateDataset = true
+////                        self.runDatasetUpdateTask()
+//                    } catch {
+//                        DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+//                    }
+//                    modifiedIds.forEach {
+//                        primary in
+//                        DispatchQueue.main.async {
+//                            self.view.makeToastActivity(ToastPosition.center)
+//                        }
+//                        XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
+//                            session.retract?.deleteMessage(
+//                                stream,
+//                                primary: primary,
+//                                jid: self.groupchat ? self.jid : "",
+//                                conversationType: self.conversationType,
+//                                symmetric: result,
+//                                callback: { (errorMessage, success) in
+//                                    DispatchQueue.main.async {
+//                                        self.view.hideToastActivity()
+//                                        if let error = errorMessage {
+//                                            self.showToast(error: error)
+//                                        }
+//                                    }
+//                                })
+//                        }, fail: {
+//                            AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
+//                                user.msgDeleteManager
+//                                    .deleteMessage(stream,
+//                                                   primary: primary,
+//                                                   jid: self.groupchat ? self.jid : "",
+//                                                   conversationType: self.conversationType,
+//                                                   symmetric: result)
+//                                {
+//                                    (errorMessage, success) in
+//                                    DispatchQueue.main.async {
+//                                        self.view.hideToastActivity()
+//                                        if let error = errorMessage {
+//                                                self.showToast(error: error)
+//                                        }
+//                                    }
+//                                }
+//                            })
+//                        })
+//                    }
+//                    LastChats.updateErrorState(for: self.jid, owner: self.owner, conversationType: self.conversationType)
+//                }
+//            }
     }
     
 }

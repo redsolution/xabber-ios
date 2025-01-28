@@ -265,16 +265,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                         .element(forName: "query")?
                         .element(forName: "set")?
                         .element(forName: "last")?
-                        .stringValue,
-              let count = iq
-                        .element(forName: "query")?
-                        .element(forName: "set")?
-                        .element(forName: "count")?
-                        .stringValueAsNSInteger(),
-                  count > pageSize//,
-//            iq
-//                .element(forName: "synchronization")?
-//                .element(forName: "fin") == nil
+                        .stringValue
         else {
                 return false
         }
@@ -417,8 +408,8 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         }
         
         AccountManager.shared.changeNewUserState(for: self.owner, to: .dataLoaded)
-        let afterElement = query.element(forName: "set")?.element(forName: "last")
-        if !isPresenceSended {
+        let countElement = query.element(forName: "set")?.element(forName: "count")?.stringValueAsNSInteger() ?? 0
+        if !isPresenceSended && self.version.isNotEmpty {
             isPresenceSended = true
             AccountManager
                 .shared
@@ -431,7 +422,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                     _ = user.syncManager.sync(stream, customVer: self.temporaryVer)
                 }
         }
-        if afterElement == nil {
+        if countElement < self.pageSize {
             self.version = stamp
             SettingManager.shared.saveItem(for: owner, scope: .clientSynchronization, key: "version", value: version)
             

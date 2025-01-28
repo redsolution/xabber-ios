@@ -24,7 +24,7 @@ import UIKit
 extension ChatViewController: ImagePickerViewDelegate {
     func checkProgress(for messageId: String, total: Int, progress: Int) {
         let lastIndexPath = IndexPath(item: 0, section: self.messagesObserver!.count - 1)
-        self.tmpUploadString = "\(progress)/\(total)"
+        
         if self.messagesCollectionView.indexPathsForVisibleItems.contains(lastIndexPath) {
             self.messagesCollectionView.reloadItems(at: [lastIndexPath])
         }
@@ -40,7 +40,5 @@ extension ChatViewController: ImagePickerViewDelegate {
     
     func onDismissPicker() {
         self.inputAccessoryView?.isHidden = false
-        self.canUpdateDataset = true
-        self.runDatasetUpdateTask()
     }
 }

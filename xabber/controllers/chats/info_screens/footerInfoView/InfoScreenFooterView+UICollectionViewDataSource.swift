@@ -40,25 +40,25 @@ extension InfoScreenFooterView: UICollectionViewDataSource {
         if datasource.isNotEmpty {
             DispatchQueue.global(qos: .background).async {
                 if indexPath.item == (collectionView.numberOfItems(inSection: 0) - 1) {
-                    do {
-                        let realm = try WRealm.safe()
-                        let lastChatsMsgCount = realm
-                            .objects(LastChatsStorageItem.self)
-                            .filter("jid == %@ AND owner == %@ AND isSynced == true", self.jid, self.owner)
-                            .first?
-                            .messagesCount
-                        let messageStorageItemCount = realm
-                            .objects(MessageStorageItem.self)
-                            .count
-
-                        if (lastChatsMsgCount ?? 0) > messageStorageItemCount {
-                            DispatchQueue.main.async(flags: [.detached]) {
-                                self.archiveRequestWithFilter()
-                            }
-                        }
-                    } catch {
-                        DDLogDebug("InfoScreenFooterView: \(#function). \(error.localizedDescription)")
-                    }
+//                    do {
+//                        let realm = try WRealm.safe()
+//                        let lastChatsMsgCount = realm
+//                            .objects(LastChatsStorageItem.self)
+//                            .filter("jid == %@ AND owner == %@ AND isSynced == true", self.jid, self.owner)
+//                            .first?
+//                            .messagesCount
+//                        let messageStorageItemCount = realm
+//                            .objects(MessageStorageItem.self)
+//                            .count
+//
+//                        if (lastChatsMsgCount ?? 0) > messageStorageItemCount {
+//                            DispatchQueue.main.async(flags: [.detached]) {
+//                                self.archiveRequestWithFilter()
+//                            }
+//                        }
+//                    } catch {
+//                        DDLogDebug("InfoScreenFooterView: \(#function). \(error.localizedDescription)")
+//                    }
                 }
             }
             let data = datasource[indexPath.item]

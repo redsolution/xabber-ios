@@ -173,10 +173,9 @@ extension ChatViewController: XabberInputBarDelegate {
                         }
                     }
                     FeedbackManager.shared.generate(feedback: .success)
-                    self.canUpdateDataset = true
-                    self.messagesCount += 1
-                    self.shouldUpdatePreviousMessage = true
-                    self.runDatasetUpdateTask()
+//                    self.messagesCount += 1
+//                    self.shouldUpdatePreviousMessage = true
+//                    self.runDatasetUpdateTask()
                 }
             return
         }
@@ -285,10 +284,9 @@ extension ChatViewController: XabberInputBarDelegate {
                 }
             }
             FeedbackManager.shared.generate(feedback: .success)
-            self.canUpdateDataset = true
-            self.messagesCount += 1
-            self.shouldUpdatePreviousMessage = true
-            self.runDatasetUpdateTask()
+//            self.messagesCount += 1
+//            self.shouldUpdatePreviousMessage = true
+//            self.runDatasetUpdateTask()
             
         })
         
@@ -328,15 +326,15 @@ extension ChatViewController: XabberInputBarDelegate {
         if AccountManager.shared.find(for: self.owner)?.cloudStorage.isAvailable() ?? false {
             self.showImagePicker()
         } else {
-            if let domain = self.owner.split(separator: "@").last {
-                self.showToast(
-                    error: "We're still determining whether or not \(domain) server supports file transfer."
-                )
-            } else {
-                self.showToast(
-                    error: "We're still determining whether or not your server supports file transfer."
-                )
-            }
+//            if let domain = self.owner.split(separator: "@").last {
+//                self.showToast(
+//                    error: "We're still determining whether or not \(domain) server supports file transfer."
+//                )
+//            } else {
+//                self.showToast(
+//                    error: "We're still determining whether or not your server supports file transfer."
+//                )
+//            }
         }
     }
     
@@ -351,8 +349,8 @@ extension ChatViewController: XabberInputBarDelegate {
             self.xabberInputView.textViewDidChange()
             let forwarded: [String] = self.attachedMessagesIds.value
             self.draftMessageText.accept(nil)
-            canUpdateDataset = true
-            self.shouldChangeOffsetOnUpdate = false
+//            canUpdateDataset = true
+//            self.shouldChangeOffsetOnUpdate = false
             self.messagesCollectionView.scrollToTop(animated: true)
             if let editedMessage = editMessageId.value,
                 editedMessage.isNotEmpty {
@@ -362,13 +360,13 @@ extension ChatViewController: XabberInputBarDelegate {
                     user.messages.editSimpleMessage(text, primary: primary)
                     (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
                             .invalidateLastMessageCachedSize(primary: primary)
-                    self.canUpdateDataset = true
-                    self.runDatasetUpdateTask()
+//                    self.canUpdateDataset = true
+//                    self.runDatasetUpdateTask()
                 })
             } else {
                 AccountManager.shared.find(for: self.owner)?.unsafeAction({ (user, stream) in
                     user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
-                    self.newestMessageId = user.messages.sendSimpleMessage(
+                    _ = user.messages.sendSimpleMessage(
                         text,
                         to: self.jid,
                         forwarded: forwarded,
@@ -379,18 +377,6 @@ extension ChatViewController: XabberInputBarDelegate {
                             .invalidateLastMessageCachedSize(primary: primary)
                     }
                     FeedbackManager.shared.generate(feedback: .success)
-                    self.canUpdateDataset = true
-                    self.messagesCount += 1
-                    self.shouldUpdatePreviousMessage = true
-                    self.runDatasetUpdateTask()
-//                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-//                        self.messagesCollectionView.scrollToTop(animated: true)
-//                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-//                        self.canUpdateDataset = true
-                        self.shouldUpdatePreviousMessage = true
-                        self.runDatasetUpdateTask()
-                    }
                 })
             }
             self.clearAttachments()

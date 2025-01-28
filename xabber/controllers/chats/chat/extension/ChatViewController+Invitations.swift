@@ -59,66 +59,66 @@ extension ChatViewController {
     }
     
     private final func showInviteActionsMenu() {
-        let incognitoMessage: String = "You are invited to join this incognito group"
-            .localizeString(id: "incognito_group_invitation", arguments: [])
-        let publicMessage: String = "You are invited to join this public group"
-            .localizeString(id: "public_group_invitation", arguments: [])
-        let privateChatMessage: String = "You are invited to join private chat"
-            .localizeString(id: "private_chat_invitation", arguments: [])
-        var message: String = publicMessage
-        let values: [ActionSheetPresenter.Item] = [
-            ActionSheetPresenter.Item(destructive: false, title: self.entity == .privateChat ? "Join chat".localizeString(id: "join_chat", arguments: []) : "Join group".localizeString(id: "join_group", arguments: []), value: "accept"),
-            ActionSheetPresenter.Item(destructive: false,
-                                      title: "Decline".localizeString(id: "decline", arguments: []),
-                                      value: "decline"),
-            ActionSheetPresenter.Item(destructive: true,
-                                      title: "Block".localizeString(id: "contact_bar_block", arguments: []),
-                                      value: "block"),
-        ]
-        
-        switch self.entity {
-        case .groupchat: message = publicMessage
-        case .incognitoChat: message = incognitoMessage
-        case .privateChat: message = privateChatMessage
-        default: break
-        }
-        
-        self.view.tintAdjustmentMode = .normal
-//        UIView.performWithoutAnimation {
-//            self.xabberInputBar.alpha = true
-//            self.xabberInputBar.layoutIfNeeded()
+//        let incognitoMessage: String = "You are invited to join this incognito group"
+//            .localizeString(id: "incognito_group_invitation", arguments: [])
+//        let publicMessage: String = "You are invited to join this public group"
+//            .localizeString(id: "public_group_invitation", arguments: [])
+//        let privateChatMessage: String = "You are invited to join private chat"
+//            .localizeString(id: "private_chat_invitation", arguments: [])
+//        var message: String = publicMessage
+//        let values: [ActionSheetPresenter.Item] = [
+//            ActionSheetPresenter.Item(destructive: false, title: self.entity == .privateChat ? "Join chat".localizeString(id: "join_chat", arguments: []) : "Join group".localizeString(id: "join_group", arguments: []), value: "accept"),
+//            ActionSheetPresenter.Item(destructive: false,
+//                                      title: "Decline".localizeString(id: "decline", arguments: []),
+//                                      value: "decline"),
+//            ActionSheetPresenter.Item(destructive: true,
+//                                      title: "Block".localizeString(id: "contact_bar_block", arguments: []),
+//                                      value: "block"),
+//        ]
+//        
+//        switch self.entity {
+//        case .groupchat: message = publicMessage
+//        case .incognitoChat: message = incognitoMessage
+//        case .privateChat: message = privateChatMessage
+//        default: break
 //        }
-        let presenter = ActionSheetPresenter()
-        presenter.completion = self.onCompleteInvite
-//        self.initialtp[
-//        additionalTopInset = 274
-        self.messageCollectionViewLastKBPosition = 224
-//        self.messageCollectionViewTopInset = self.requiredInitialScrollViewBottomInset()
-        presenter.present(
-            in: self,
-            title: nil,
-            message: message,
-            cancel: "Cancel".localizeString(id: "cancel", arguments: []),
-            values: values,
-            animated: false,
-            cancelAction: onCancelInvite) { (value) in
-            self.onInviteActionSelected()
-            switch value {
-            case "accept":
-                self.onAcceptInvite()
-            case "decline":
-                self.onDeclineInvite()
-            case "block":
-                self.onBlockInvite()
-            default:
-                break
-            }
-            self.becomeFirstResponder()
-            UIView.animate(withDuration: 0.2) {
-                self.messageCollectionViewLastKBPosition = 0
-//                self.messageCollectionViewTopInset = self.requiredInitialScrollViewBottomInset()
-            }
-        }
+//        
+//        self.view.tintAdjustmentMode = .normal
+////        UIView.performWithoutAnimation {
+////            self.xabberInputBar.alpha = true
+////            self.xabberInputBar.layoutIfNeeded()
+////        }
+//        let presenter = ActionSheetPresenter()
+//        presenter.completion = self.onCompleteInvite
+////        self.initialtp[
+////        additionalTopInset = 274
+//        self.messageCollectionViewLastKBPosition = 224
+////        self.messageCollectionViewTopInset = self.requiredInitialScrollViewBottomInset()
+//        presenter.present(
+//            in: self,
+//            title: nil,
+//            message: message,
+//            cancel: "Cancel".localizeString(id: "cancel", arguments: []),
+//            values: values,
+//            animated: false,
+//            cancelAction: onCancelInvite) { (value) in
+//            self.onInviteActionSelected()
+//            switch value {
+//            case "accept":
+//                self.onAcceptInvite()
+//            case "decline":
+//                self.onDeclineInvite()
+//            case "block":
+//                self.onBlockInvite()
+//            default:
+//                break
+//            }
+//            self.becomeFirstResponder()
+//            UIView.animate(withDuration: 0.2) {
+//                self.messageCollectionViewLastKBPosition = 0
+////                self.messageCollectionViewTopInset = self.requiredInitialScrollViewBottomInset()
+//            }
+//        }
     }
     
     private final func onAcceptInvite() {

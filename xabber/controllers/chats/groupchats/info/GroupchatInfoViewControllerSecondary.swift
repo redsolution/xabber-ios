@@ -493,7 +493,7 @@ extension GroupchatInfoViewControllerSecondary {
         let chatVc = ChatViewController()
         chatVc.owner = self.owner
         chatVc.jid = self.jid
-        chatVc.entity = self.privacy == .incognito ? .privateChat : .groupchat
+//        chatVc.entity = self.privacy == .incognito ? .privateChat : .groupchat
         chatVc.conversationType = .group
         chatVc.inSearchMode.accept(true)
         navigationController?.navigationBar.setBackgroundImage(nil, for: .default)

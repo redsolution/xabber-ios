@@ -183,7 +183,7 @@ UICollectionViewDelegateFlowLayout, UICollectionViewDataSource {
             cell.configure(with: message, at: indexPath, and: messagesCollectionView)
             cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
             return cell
-        case .system(_):
+            case .system(_), .date, .unread:
             let cell = messagesCollectionView.dequeueReusableCell(SystemMessageCell.self, for: indexPath)
             cell.configure(with: message, at: indexPath, and: messagesCollectionView)
             cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
@@ -236,6 +236,11 @@ UICollectionViewDelegateFlowLayout, UICollectionViewDataSource {
             cell.configure(with: message, at: indexPath, and: messagesCollectionView)
             cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
             return cell
+        case .activityIndicator:
+            let cell = messagesCollectionView.dequeueReusableCell(AtivityIndicatorCell.self, for: indexPath)
+            cell.configure(with: message, at: indexPath, and: messagesCollectionView)
+            cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
+            return cell
         default:
             fatalError(MessageKitError.customDataUnresolvedCell)
         }
@@ -260,14 +265,13 @@ UICollectionViewDelegateFlowLayout, UICollectionViewDataSource {
             fatalError(MessageKitError.unrecognizedSectionKind)
         }
     }
-
+    
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
         guard let messagesFlowLayout = collectionViewLayout as? MessagesCollectionViewFlowLayout else { return .zero }
         return messagesFlowLayout.sizeForItem(at: indexPath)
     }
 
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, referenceSizeForHeaderInSection section: Int) -> CGSize {
-
         guard let messagesCollectionView = collectionView as? MessagesCollectionView else {
             fatalError(MessageKitError.notMessagesCollectionView)
         }

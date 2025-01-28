@@ -634,6 +634,7 @@ class MessageStorageItem: Object {
         self.isRead = true
         self.messageId = messageId
         self.state = .notSended
+        self.queryIds = "runtime_send"
         
         updatePrimary()
         updateDisplayMode()
@@ -962,7 +963,6 @@ class MessageStorageItem: Object {
                     instance.lastMessage = self
                     instance.isSynced = [.omemo, .omemo1, .axolotl].contains(self.conversationType)
                     instance.lastMessageId = self.messageId
-                    instance.messagesCount += 1
                     
                     
                     let initialMessage = MessageStorageItem()

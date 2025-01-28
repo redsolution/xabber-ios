@@ -349,6 +349,9 @@ class MessageContentCell: MessageCollectionViewCell {
     
     @objc
     func onPanGesture() {
+        if self.isSelected() {
+            return
+        }
         if panGesture.state == .changed {
             UIView.performWithoutAnimation {
                 var deltaX: CGFloat = 0

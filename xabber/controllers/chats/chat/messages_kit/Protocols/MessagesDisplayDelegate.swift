@@ -138,6 +138,7 @@ extension MessagesDisplayDelegate {
     }
 
     func messageFooterView(for indexPath: IndexPath, in messagesCollectionView: MessagesCollectionView) -> MessageReusableView {
+        print("FOOOTER")
         return messagesCollectionView.dequeueReusableFooterView(MessageReusableView.self, for: indexPath)
     }
     

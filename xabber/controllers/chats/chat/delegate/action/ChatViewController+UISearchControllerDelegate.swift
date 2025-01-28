@@ -39,8 +39,6 @@ extension ChatViewController: UISearchBarDelegate {
         if self.showSkeletonObserver.value {
             return
         }
-        self.selectedSearchResultId = nil
-        self.scrollToMessageTaskId = nil
         self.currentSearchQueryId = nil
         self.messagesCollectionView.reconfigureItems(at: self.messagesCollectionView.indexPathsForVisibleItems)
         searchBar.resignFirstResponder()

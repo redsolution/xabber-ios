@@ -30,7 +30,6 @@ import XMPPFramework.XMPPJID
 extension ChatViewController {
 
     public func updateSearchResults(value: String?) {
-//        print(searchTextObserver.value)
         if (value ?? "").isEmpty {
             self.xabberInputView.searchPanel.changeState(to: .empty)
             return
@@ -60,7 +59,6 @@ extension ChatViewController {
                             item in
                             self.searchMessagesQueue.append(item)
                         }
-//                    self.searchResultsFinObserver.accept(true)
                     self.showLoadingIndicator.accept(false)
                     self.applySearchResults()
                 } catch {
@@ -89,15 +87,28 @@ extension ChatViewController {
         NotifyManager.shared.currentDialog = [self.jid, self.owner].prp()
         self.bag = DisposeBag()
         let realm = try WRealm.safe()
-        if self.groupchat {
-            
-        }
+
+        Observable
+            .collection(from: self.messagesObserver, synchronousStart: true)
+            .skip(1)
+            .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
+            .subscribe {
+                (_) in
+                if self.currentPage.isUnlocked {
+                    if self.showSkeletonObserver.value {
+                        return
+                    }
+                    self.didReceiveChangeset()
+                }
+            }
+            .disposed(by: self.bag)
         
         self.showLoadingIndicator
             .asObservable()
-//            .debounce(.nanoseconds(10), scheduler: MainScheduler.asyncInstance)
             .subscribe { value in
-                self.chatViewLoadingOverlay.isHidden = !value
+                DispatchQueue.main.async {
+                    self.chatViewLoadingOverlay.isHidden = !value
+                }
             }
             .disposed(by: bag)
         
@@ -108,35 +119,72 @@ extension ChatViewController {
                 if value {
                     self.configureSearchBar()
                     self.xabberInputView.changeState(to: .search)
+                    self.shouldShowScrollDownButton.accept(false)
                 } else {
                     self.searchTextObserver.accept(nil)
                     self.configureNavbar()
                     self.xabberInputView.changeState(to: self.xabberInputView.state)
+                    self.messagesCollectionView.reloadData()
                 }
             })
             .disposed(by: bag)
         
-//        self.searchResultsFinObserver
-//            .asObservable()
-//            .debounce(.milliseconds(250), scheduler: MainScheduler.asyncInstance)
-//            .subscribe { value in
-//                self.selectedSearchResultId = self.searchMessagesQueue.first?.archivedId
-//                if value {
-//                    self.xabberInputView.searchPanel.updateResults(current: 0, total: self.searchMessagesQueue.count)
-//                }
-//            }
-//            .disposed(by: bag)
-
-        
         self.searchTextObserver
             .asObservable()
-            .skip(1) // may be fail
+            .skip(1)
             .subscribe(onNext: { (value) in
                 self.showLoadingIndicator.accept((value ?? "").isNotEmpty)
                 self.updateSearchResults(value: value)
             })
             .disposed(by: bag)
+
         
+        self.shouldShowScrollDownButton
+            .asObservable()
+            .debounce(.milliseconds(20), scheduler: MainScheduler.asyncInstance)
+            .subscribe { value in
+                if value {
+                    if self.inSearchMode.value {
+                        self.shouldShowScrollDownButton.accept(false)
+                    } else {
+                        UIView.animate(withDuration: 0.33, delay: 0.0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0.8, options: [.curveEaseIn]) {
+                            var inputHeight: CGFloat = 49
+                            if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
+                                inputHeight += bottomInset
+                            }
+                            self.scrollDownButton.center = CGPoint(x: self.view.frame.maxX - 32 , y: self.view.frame.maxY - (inputHeight + 34))
+                        } completion: { _ in
+                            
+                        }
+                    }
+                } else {
+                    UIView.animate(withDuration: 0.33, delay: 0.0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0.8, options: [.curveEaseIn]) {
+                        self.scrollDownButton.center = CGPoint(x:self.view.frame.maxX - 32, y: self.view.frame.maxY + 44)
+                    } completion: { _ in
+                        
+                    }
+                }
+            }
+            .disposed(by: bag)
+        
+        self.contentOffsetObserver
+            .asObservable()
+            .debounce(.milliseconds(20), scheduler: MainScheduler.asyncInstance)
+            .subscribe { value in
+                if value > 250 {
+                    if !self.shouldShowScrollDownButton.value {
+                        if !self.inSearchMode.value {
+                            self.shouldShowScrollDownButton.accept(true)
+                        }
+                    }
+                } else {
+                    if self.shouldShowScrollDownButton.value {
+                        self.shouldShowScrollDownButton.accept(false)
+                    }
+                }
+            }
+            .disposed(by: bag)
+
         self.topPanelState
             .asObservable()
             .debounce(.nanoseconds(1), scheduler: MainScheduler.asyncInstance)
@@ -172,37 +220,37 @@ extension ChatViewController {
             }.disposed(by: bag)
 
         
-        if !self.groupchat {
-            Observable
-                .collection(from: realm
-                                    .objects(ResourceStorageItem.self)
-                                    .filter("owner == %@ AND jid == %@", self.owner, self.jid)
-                                    .sorted(by: [SortDescriptor(keyPath: "timestamp", ascending: false),
-                                                 SortDescriptor(keyPath: "priority", ascending: false)]))
-                .observe(on: MainScheduler.asyncInstance)
-                .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
+//        if !self.groupchat {
+        Observable
+            .collection(from: realm
+                                .objects(ResourceStorageItem.self)
+                                .filter("owner == %@ AND jid == %@", self.owner, self.jid)
+                                .sorted(by: [SortDescriptor(keyPath: "timestamp", ascending: false),
+                                             SortDescriptor(keyPath: "priority", ascending: false)]))
+            .observe(on: MainScheduler.asyncInstance)
+            .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
 //                .skip(1)
-                .subscribe(onNext: { (results) in
-                    let nickname = self.opponentSender.displayName
-                    let offlineStatus = "last seen recently".localizeString(id: "last_seen_recently", arguments: [])
-                    let status = (results.first?.statusMessage.isEmpty ?? true) ? RosterUtils.shared.convertStatus(results.first?.status ?? .offline, customOfflineStatus: offlineStatus) : results.first?.statusMessage ?? RosterUtils.shared.convertStatus(results.first?.status ?? .offline, customOfflineStatus: offlineStatus)
-                    self.contactUsename = nickname
-                    self.titleLabel.attributedText = self.updateTitle()
-                    let statusStr = AccountManager.shared.connectingUsers.value.contains(self.owner) ? "Waiting for network...".localizeString(id: "waiting_for_network", arguments: []) : status
-                    if self.statusLabel.text == " " && self.conversationType != .saved {
-                        self.statusLabel.text = statusStr
-                    }
-                    if self.shouldShowNormalStatus {
-                        self.statusTextObserver.accept(statusStr)
-                        self.contactStatus = status
-                        self.statusLabel.layoutIfNeeded()
-                    }
-                    self.titleLabel.sizeToFit()
-                    self.titleLabel.layoutIfNeeded()
-                    
-                })
-                .disposed(by: bag)
-        }
+            .subscribe(onNext: { (results) in
+                let nickname = self.opponentSender.displayName
+                let offlineStatus = "last seen recently".localizeString(id: "last_seen_recently", arguments: [])
+                let status = (results.first?.statusMessage.isEmpty ?? true) ? RosterUtils.shared.convertStatus(results.first?.status ?? .offline, customOfflineStatus: offlineStatus) : results.first?.statusMessage ?? RosterUtils.shared.convertStatus(results.first?.status ?? .offline, customOfflineStatus: offlineStatus)
+//                    self.contactUsename = nickname
+                self.titleLabel.attributedText = self.updateTitle()
+                let statusStr = AccountManager.shared.connectingUsers.value.contains(self.owner) ? "Waiting for network...".localizeString(id: "waiting_for_network", arguments: []) : status
+                if self.statusLabel.text == " " && self.conversationType != .saved {
+                    self.statusLabel.text = statusStr
+                }
+                if self.shouldShowNormalStatus {
+                    self.statusTextObserver.accept(statusStr)
+                    self.contactStatus = status
+                    self.statusLabel.layoutIfNeeded()
+                }
+                self.titleLabel.sizeToFit()
+                self.titleLabel.layoutIfNeeded()
+                
+            })
+            .disposed(by: bag)
+//        }
         
         let lastChatsObservedCollection = realm
             .objects(LastChatsStorageItem.self)
@@ -212,6 +260,7 @@ extension ChatViewController {
             self.xabberInputView.textViewDidChange(force: true)
             
             self.updateContentByLastChatInstance(chat)
+            self.showSkeletonObserver.accept(!chat.isSynced)
         }
         Observable
             .collection(from: lastChatsObservedCollection)
@@ -233,7 +282,7 @@ extension ChatViewController {
                 .filter("owner == %@ AND jid == %@", owner, jid))
             .debounce(.milliseconds(200), scheduler: MainScheduler.asyncInstance)
             .subscribe(onNext: { (results) in
-                if self.groupchat { return }
+                if self.conversationType == .group { return }
                 
                 if self.conversationType == .saved {
                     let usersCount = AccountManager.shared.users.count
@@ -347,7 +396,7 @@ extension ChatViewController {
     }
     
     private final func updateContentByLastChatInstance(_ item: LastChatsStorageItem) {
-        self.lastReadMessageId = item.lastReadId
+//        self.lastReadMessageId = item.lastReadId
         if item.isInitialArchiveLoaded {
             if self.showSkeletonObserver.value != (!item.isSynced) {
                 
@@ -365,7 +414,6 @@ extension ChatViewController {
                 }
             }
         }
-        self.toolsButton.setUnreadBadge(item.unread)
         let id = self.opponentSender.id
         if !(item.rosterItem?.isInvalidated ?? false) {
             self.opponentSender = Sender(
@@ -373,7 +421,7 @@ extension ChatViewController {
                 displayName: item.rosterItem?.displayName ?? item.jid
             )
         }
-        self.contactUsename = self.opponentSender.displayName
+//        self.contactUsename = self.opponentSender.displayName
         self.titleLabel.attributedText = self.updateTitle()
         self.statusTextObserver.accept(AccountManager
             .shared
@@ -406,120 +454,120 @@ extension ChatViewController {
     }
     
     internal final func groupSubscribtions() throws {
-        let realm = try WRealm.safe()
-        
-        self.showMyNickname = realm
-            .objects(GroupchatUserStorageItem.self)
-            .filter("groupchatId == %@ AND isMe == true", [self.jid, self.owner].prp())
-            .first?
-            .nickname == AccountManager.shared.find(for: self.owner)?.username
-        Observable
-            .collection(from: realm
-                .objects(GroupchatInvitesStorageItem.self)
-                .filter("owner == %@ AND groupchat == %@ AND isProcessed == false", self.owner, self.jid))
-            .subscribe { (results) in
-                if let item = results.first {
-                    self.didReceiveInvite(item.primary)
-                }
-            } onError: { (error) in
-                DDLogDebug("ChatViewController: \(#function). Invite error \(error.localizedDescription)")
-            } onCompleted: {
-                DDLogDebug("ChatViewController: \(#function). Invite completed")
-            } onDisposed: {
-                DDLogDebug("ChatViewController: \(#function). Invite disposed")
-            }
-            .disposed(by: bag)
-        
-        Observable
-            .collection(from: realm
-                                .objects(GroupChatStorageItem.self)
-                                .filter("jid == %@ AND owner == %@", jid, owner))
-            .debounce(.milliseconds(50), scheduler: MainScheduler.asyncInstance)
-            .subscribe(onNext: { (results) in
-                
-                let nickname = self.opponentSender.displayName
-                if let item = results.first {
-                    if item.descr != self.groupchatDescr {
-                        self.groupchatDescr = item.descr
-                        do {
-                            let realm = try WRealm.safe()
-                            if let initialMessageInstance = realm.object(
-                                ofType: MessageStorageItem.self,
-                                forPrimaryKey: MessageStorageItem.genPrimary(
-                                    messageId: MessageStorageItem.messageIdForInitial(jid: self.jid, conversationType: self.conversationType),
-                                    owner: self.owner
-                                )
-                            ) {
-                                if initialMessageInstance.isDeleted {
-                                    try realm.write {
-                                        if initialMessageInstance.isInvalidated { return }
-                                        initialMessageInstance.owner = self.owner
-                                    }
-                                }
-                            }
-                        } catch {
-                            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-                        }
-                    }
-                    
-                    if item.isDeleted {
-                        if let value = self.isInitiallyDeletedGroup,
-                            value == false {
-                            self.navigationController?.popToRootViewController(animated: true)
-                        }
-                    } else {
-                        self.titleLabel.text = nickname
-                        let statusStr = self.isInviteViewControllerShowed ? (item.privacy == .incognito ? "Incognito group".localizeString(id: "intro_incognito_group", arguments: []) : "Public group".localizeString(id: "intro_public_group", arguments: [])) : item.statusString
-                        if self.statusLabel.text == " " {
-                            self.statusLabel.text = statusStr
-                        }
-                        
-                        self.statusTextObserver.accept(statusStr)
-                        
-                        self.contactStatus = self.isInviteViewControllerShowed ? (item.privacy == .incognito ?"Incognito group".localizeString(id: "intro_incognito_group", arguments: []) : "Public group".localizeString(id: "intro_public_group", arguments: [])) : item.statusString
-                    }
-                    self.isInitiallyDeletedGroup = item.isDeleted
-                } else {
-                    let status = "Unknown".localizeString(id: "unknown", arguments: [])
-//                            if self.entity != .incognitoChat || self.entity != .groupchat {
-//                                self.entity = .groupchat
+//        let realm = try WRealm.safe()
+//        
+//        self.showMyNickname = realm
+//            .objects(GroupchatUserStorageItem.self)
+//            .filter("groupchatId == %@ AND isMe == true", [self.jid, self.owner].prp())
+//            .first?
+//            .nickname == AccountManager.shared.find(for: self.owner)?.username
+//        Observable
+//            .collection(from: realm
+//                .objects(GroupchatInvitesStorageItem.self)
+//                .filter("owner == %@ AND groupchat == %@ AND isProcessed == false", self.owner, self.jid))
+//            .subscribe { (results) in
+//                if let item = results.first {
+//                    self.didReceiveInvite(item.primary)
+//                }
+//            } onError: { (error) in
+//                DDLogDebug("ChatViewController: \(#function). Invite error \(error.localizedDescription)")
+//            } onCompleted: {
+//                DDLogDebug("ChatViewController: \(#function). Invite completed")
+//            } onDisposed: {
+//                DDLogDebug("ChatViewController: \(#function). Invite disposed")
+//            }
+//            .disposed(by: bag)
+//        
+//        Observable
+//            .collection(from: realm
+//                                .objects(GroupChatStorageItem.self)
+//                                .filter("jid == %@ AND owner == %@", jid, owner))
+//            .debounce(.milliseconds(50), scheduler: MainScheduler.asyncInstance)
+//            .subscribe(onNext: { (results) in
+//                
+//                let nickname = self.opponentSender.displayName
+//                if let item = results.first {
+//                    if item.descr != self.groupchatDescr {
+//                        self.groupchatDescr = item.descr
+//                        do {
+//                            let realm = try WRealm.safe()
+//                            if let initialMessageInstance = realm.object(
+//                                ofType: MessageStorageItem.self,
+//                                forPrimaryKey: MessageStorageItem.genPrimary(
+//                                    messageId: MessageStorageItem.messageIdForInitial(jid: self.jid, conversationType: self.conversationType),
+//                                    owner: self.owner
+//                                )
+//                            ) {
+//                                if initialMessageInstance.isDeleted {
+//                                    try realm.write {
+//                                        if initialMessageInstance.isInvalidated { return }
+//                                        initialMessageInstance.owner = self.owner
+//                                    }
+//                                }
 //                            }
-                    if ![.incognitoChat, .groupchat].contains(self.entity) {
-                        self.entity = .groupchat
-                    }
-                    
-                    self.titleLabel.text = nickname
-                    self.statusTextObserver.accept(status)
-                    self.contactStatus = status
-                }
-                self.titleLabel.layoutIfNeeded()
-            })
-            .disposed(by: bag)
+//                        } catch {
+//                            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+//                        }
+//                    }
+//                    
+//                    if item.isDeleted {
+//                        if let value = self.isInitiallyDeletedGroup,
+//                            value == false {
+//                            self.navigationController?.popToRootViewController(animated: true)
+//                        }
+//                    } else {
+//                        self.titleLabel.text = nickname
+//                        let statusStr = self.isInviteViewControllerShowed ? (item.privacy == .incognito ? "Incognito group".localizeString(id: "intro_incognito_group", arguments: []) : "Public group".localizeString(id: "intro_public_group", arguments: [])) : item.statusString
+//                        if self.statusLabel.text == " " {
+//                            self.statusLabel.text = statusStr
+//                        }
+//                        
+//                        self.statusTextObserver.accept(statusStr)
+//                        
+//                        self.contactStatus = self.isInviteViewControllerShowed ? (item.privacy == .incognito ?"Incognito group".localizeString(id: "intro_incognito_group", arguments: []) : "Public group".localizeString(id: "intro_public_group", arguments: [])) : item.statusString
+//                    }
+//                    self.isInitiallyDeletedGroup = item.isDeleted
+//                } else {
+//                    let status = "Unknown".localizeString(id: "unknown", arguments: [])
+////                            if self.entity != .incognitoChat || self.entity != .groupchat {
+////                                self.entity = .groupchat
+////                            }
+//                    if ![.incognitoChat, .groupchat].contains(self.entity) {
+//                        self.entity = .groupchat
+//                    }
+//                    
+//                    self.titleLabel.text = nickname
+//                    self.statusTextObserver.accept(status)
+//                    self.contactStatus = status
+//                }
+//                self.titleLabel.layoutIfNeeded()
+//            })
+//            .disposed(by: bag)
 
 
-        Observable
-            .collection(from: realm
-                .objects(GroupchatUserStorageItem.self)
-                .filter("groupchatId == %@ AND isMe == true", [self.jid, self.owner].prp()))
-            .subscribe(onNext: { (results) in
-                if let item = results.first {
-                    if item.nickname != (AccountManager.shared.find(for: self.owner)?.username ?? "") {
-                        if !self.showMyNickname {
-                            self.showMyNickname = true
-                            UIView.performWithoutAnimation {
-                                self.messagesCollectionView.reloadData()
-                            }
-                        }
-                    } else {
-                        if self.showMyNickname {
-                            self.showMyNickname = false
-                            UIView.performWithoutAnimation {
-                                self.messagesCollectionView.reloadData()
-                            }
-                        }
-                    }
-                }
-            })
-            .disposed(by: bag)
+//        Observable
+//            .collection(from: realm
+//                .objects(GroupchatUserStorageItem.self)
+//                .filter("groupchatId == %@ AND isMe == true", [self.jid, self.owner].prp()))
+//            .subscribe(onNext: { (results) in
+//                if let item = results.first {
+//                    if item.nickname != (AccountManager.shared.find(for: self.owner)?.username ?? "") {
+//                        if !self.showMyNickname {
+//                            self.showMyNickname = true
+//                            UIView.performWithoutAnimation {
+//                                self.messagesCollectionView.reloadData()
+//                            }
+//                        }
+//                    } else {
+//                        if self.showMyNickname {
+//                            self.showMyNickname = false
+//                            UIView.performWithoutAnimation {
+//                                self.messagesCollectionView.reloadData()
+//                            }
+//                        }
+//                    }
+//                }
+//            })
+//            .disposed(by: bag)
     }
 }

@@ -23,7 +23,7 @@ import UIKit
 
 class SystemMessageSizeCalculator: MessageSizeCalculator {
     
-    var messageLabelInsets = UIEdgeInsets(top: 8, left: 16, bottom: 4, right: 16)
+    var messageLabelInsets = UIEdgeInsets(top: 4, left: 16, bottom: 2, right: 16)
     
     override internal func messageLabelInsets(for message: MessageType) -> UIEdgeInsets {
         return messageLabelInsets
@@ -40,8 +40,12 @@ class SystemMessageSizeCalculator: MessageSizeCalculator {
         var messageContainerSize: CGSize
         let attributedText: NSAttributedString
         switch message.kind {
-        case .system(let text):
-            attributedText = text
+            case .system(let text):
+                attributedText = text
+            case .date(let text):
+                attributedText = text
+            case .unread(let text):
+                attributedText = text
         default:
             fatalError("messageContainerSize text received unhandled MessageDataType: \(message.kind)")
         }

@@ -235,7 +235,7 @@ class ReliableMessageDeliveryManager: AbstractXMPPManager {
             }
         
         do {
-            let realm = try  WRealm.safe()
+            let realm = try WRealm.safe()
             if let instance = realm
                 .objects(MessageStorageItem.self)
                 .filter("owner == %@ AND messageId == %@ AND outgoing == %@", owner, elementId, true)

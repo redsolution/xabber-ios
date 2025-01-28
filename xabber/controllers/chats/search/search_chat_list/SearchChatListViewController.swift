@@ -82,20 +82,22 @@ class SearchChatListViewController: SimpleBaseViewController {
                     && a.hasErrorInChat == b.hasErrorInChat
                     && a.updateTS == b.updateTS
         }
-        
     }
     
     var datasource: [Datasource] = []
     
     internal var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
     
-    var searchTextObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)
-    var searchResultsObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)
+    internal var searchTextObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)
+    internal var searchResultsObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)
+    internal var currentQueryId: String? = nil
+    internal var messagesQueue: [MessageStorageItem] = []
     
     internal var isEmptyViewShowed: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     
     public var searchResultsIds: [String] = []
     public var selectedSearchResultId: String? = nil
+
     
     var chatController: ChatViewController? = nil
     
@@ -282,7 +284,6 @@ class SearchChatListViewController: SimpleBaseViewController {
             vc?.searchBar.text = nil
             vc?.searchTextObserver.accept(nil)
             vc?.updateSearchResults(value: nil)
-            
         }
         self.navigationController?.popViewController(animated: true)
     }
@@ -292,20 +293,13 @@ class SearchChatListViewController: SimpleBaseViewController {
         let vcs = self.navigationController?.viewControllers ?? []
         if vcs.count > 1 {
             let vc = vcs[vcs.count - 2] as? ChatViewController
-            vc?.canUpdateDataset = true
-//            vc?.searchResultsFinObserver.accept(true)
             vc?.searchMessagesQueue = self.messagesQueue.sorted(by: { $0.date > $1.date })
-            guard let index = self.messagesQueue.firstIndex(where: { $0.archivedId == self.selectedSearchResultId }) else {
+            guard let newIndex = self.messagesQueue.firstIndex(where: { $0.archivedId == self.selectedSearchResultId }) else {
                 return
             }
-            
-            var newIndex = index
             vc?.xabberInputView.searchPanel.updateResults(current: newIndex, total: self.messagesQueue.count)
-            vc?.selectedSearchResultId = self.messagesQueue[newIndex].archivedId
-            vc?.scrollToMessageArchivedId = self.messagesQueue[newIndex].archivedId
-//            vc?.inSearchMode.accept(true)
             vc?.searchBar.text = self.searchBar.text
-
+            vc?.scrollToMessageAtIndex(newIndex)
         }
         self.navigationController?.popViewController(animated: true)
     }
@@ -330,14 +324,6 @@ class SearchChatListViewController: SimpleBaseViewController {
     
     override func onAppear() {
         super.onAppear()
-//        var inputHeight: CGFloat = 49
-//        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
-//            inputHeight += bottomInset
-//        }
-        
-//        let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
-//        self.bottomBar.frame = frame
-        
     }
     
     internal func mapDatasource(_ results: Array<MessageStorageItem>) throws -> [Datasource] {
@@ -477,8 +463,6 @@ class SearchChatListViewController: SimpleBaseViewController {
         }
     }
     
-    var currentQueryId: String? = nil
-    var messagesQueue: [MessageStorageItem] = []
     
     override func subscribe() {
         super.subscribe()
@@ -615,12 +599,9 @@ extension SearchChatListViewController: UITableViewDelegate {
         let vcs = self.navigationController?.viewControllers ?? []
         if vcs.count > 1 {
             let vc = vcs[vcs.count - 2] as? ChatViewController
-            vc?.canUpdateDataset = true
             vc?.searchMessagesQueue = self.messagesQueue.sorted(by: { $0.date > $1.date })
             var newIndex = indexPath.row
             vc?.xabberInputView.searchPanel.updateResults(current: newIndex, total: self.messagesQueue.count)
-            vc?.selectedSearchResultId = self.messagesQueue[newIndex].archivedId
-            vc?.scrollToMessageArchivedId = self.messagesQueue[newIndex].archivedId
             vc?.searchBar.text = self.searchBar.text
             vc?.messagesCollectionView.reconfigureItems(at: vc?.messagesCollectionView.indexPathsForVisibleItems ?? [])
             vc?.scrollToMessageAtIndex(newIndex)
@@ -703,11 +684,5 @@ extension SearchChatListViewController: UISearchBarDelegate {
     
     func searchBarCancelButtonClicked(_ searchBar: UISearchBar) {
         searchBar.resignFirstResponder()
-//        searchBar.endEditing(true)
-//        self.becomeFirstResponder()
-    }
-    
-    func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
-//        print(searchText)
     }
 }

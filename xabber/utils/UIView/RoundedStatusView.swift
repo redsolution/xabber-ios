@@ -44,22 +44,22 @@ class RoundedStatusView: UIView {
         self.borderColor = .systemBackground
         switch status {
             case .online:
-                self.color = .systemGreen
+                self.color = MDCPalette.green.tint700 | .systemGreen
             case .offline:
                 if [.groupchat, .incognitoChat, .server, .privateChat, .issue].contains(entity) {
-                    self.color = .systemGray
+                    self.color = MDCPalette.grey.tint500 | .systemGray
                 } else {
                     self.color = .clear
                     self.borderColor = .clear
                 }
             case .away:
-                    self.color = .systemOrange
+                self.color = MDCPalette.amber.tint700 | .systemOrange
             case .chat:
                 self.color = MDCPalette.lightGreen.tint500
             case .dnd:
-                self.color = .systemGreen
+                self.color = MDCPalette.red.tint700 | .systemRed
             case .xa:
-                self.color = .systemBlue
+                self.color = MDCPalette.blue.tint500 | .systemBlue
         }
         subviews
             .forEach { $0.removeFromSuperview() }

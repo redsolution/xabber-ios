@@ -191,6 +191,7 @@ class LastChatsViewController: BaseViewController {
         controller.hidesNavigationBarDuringPresentation = true
         controller.hidesBottomBarWhenPushed = true
         controller.definesPresentationContext = true
+//        controller.
         
         return controller
     }()
@@ -244,6 +245,8 @@ class LastChatsViewController: BaseViewController {
     internal var isSkeletonShowed: Bool = false
     
     open var splitDelegate: SplitViewControllerDelegate? = nil
+    
+    open var currentChatVC: ChatViewController? = nil
     
     internal func updateTitle(_ value: Filter) {
         do {
@@ -546,10 +549,10 @@ class LastChatsViewController: BaseViewController {
             
             return collection.compactMap {
                 item in
-                
-                if (XMPPJID(string: item.jid)?.isServer ?? false) && item.conversationType != .saved {
-                    return nil
-                }
+                //TODO: fixme
+//                if (XMPPJID(string: item.jid)?.isServer ?? false) && item.conversationType != .saved {
+//                    return nil
+//                }
                 let blankMessageText: String = "Start messaging here".localizeString(id: "chat_message_start_messaging", arguments: [])
                 
                 let subscriptionRequest: Bool = item.rosterItem?.isThereSubscriptionRequest() ?? false
@@ -629,7 +632,7 @@ class LastChatsViewController: BaseViewController {
                     message = "Write your encrypted messages here"
                     isSystemMessage = true
                 }
-                if item.lastMessage == nil && item.messagesCount == 0 {
+                if item.lastMessage == nil {
                     isSystemMessage = true
                 }
                 
@@ -957,11 +960,7 @@ class LastChatsViewController: BaseViewController {
                 self.updateDatasource(value)
                 self.updateTitle(value)
                 self.bottomBar.leftButton.setImage(imageLiteral(self.filter.value == .unread ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate), for: .normal)
-                do {
-                    try self.updateBottomTitle()
-                } catch {
-                    DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
-                }
+                self.updateBottomTitle()
             })
             .disposed(by: bag)
         

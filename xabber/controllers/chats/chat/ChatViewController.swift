@@ -33,6 +33,112 @@ import XMPPFramework.XMPPJID
 
 class ChatViewController: MessagesViewController {
     
+    struct ChangesetItem: Hashable, Equatable {
+        let index: Int
+        let primary: String
+        
+    }
+    
+    class ChatPage {
+        var page: Int
+        var minIndex: Int
+        var maxIndex: Int
+        var lowArchivedId: String
+        var highArchivedId: String
+        var isLoading: Bool = false
+        var locked: Bool = false
+        
+        open var isUnlocked: Bool {
+            get {
+                return !self.locked
+            }
+        }
+        
+        init(page: Int = 0, minIndex: Int = 0, maxIndex: Int = 0, lowArchivedId: String = "", highArchivedId: String = "", isLoading: Bool = false) {
+            self.page = page
+            self.minIndex = minIndex
+            self.maxIndex = maxIndex
+            self.lowArchivedId = lowArchivedId
+            self.highArchivedId = highArchivedId
+            self.isLoading = isLoading
+        }
+        
+        public final func setPage(_ page: Int, in messages: Results<MessageStorageItem>) {
+            self.page = page
+            
+        }
+        
+        public final func nextPage(autoUnlock: Bool = true, callback: (() -> Void)? = nil) {
+            if self.locked {
+                return
+            }
+            self.locked = true
+            self.page += 1
+            callback?()
+            if autoUnlock {
+                self.unlock()
+            }
+        }
+        
+        public final func prevPage(autoUnlock: Bool = true, callback: (() -> Void)? = nil) {
+            if self.locked {
+                return
+            }
+            self.locked = true
+            self.page -= 1
+            if self.page < 0 {
+                self.page = 0
+                autoreleasepool {
+                    self.locked = false
+                }
+            } else {
+                callback?()
+            }
+            if autoUnlock {
+                self.unlock()
+            }
+        }
+        
+        public final func setCustomPage(_ newPage: Int, autoUnlock: Bool = true, callback: (() -> Void)? = nil) {
+//            if self.locked {
+//                return
+//            }
+            self.locked = true
+            self.page = newPage
+            callback?()
+            if autoUnlock {
+                self.unlock()
+            }
+        }
+        
+        public final func prevPage() {
+            self.page -= 1
+        }
+        
+        public final func indexInPage(_ index: Int) -> Bool {
+            return self.minIndex <= index && index <= self.maxIndex
+        }
+        
+        public final func unlock() {
+//            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                self.locked = false
+//            }
+        }
+        
+    }
+    
+    struct ChangesWithIndexSet {
+        let inserts: IndexSet
+        let deletes: IndexSet
+        var replaces: IndexSet
+        let moves: [(from: IndexPath, to: IndexPath)]
+    }
+    
+    enum ChatDirection {
+        case up
+        case down
+    }
+    
     enum TopPanelState: String {
         case none = "none"
         case pinnedMessage = "pinned"
@@ -68,20 +174,12 @@ class ChatViewController: MessagesViewController {
         case lightBlue = "lightBlue"
     }
     
-    class PlayingAudioCell {
-        var indexPath: IndexPath
-        var isForward: Bool
-        var index: Int?
-        var messageId: String?
-        var isPlaying: Bool
-        
-        init(indexPath: IndexPath, isForward: Bool, index: Int?, messageId: String?, isPlaying: Bool) {
-            self.indexPath = indexPath
-            self.isForward = isForward
-            self.index = index
-            self.messageId = messageId
-            self.isPlaying = isPlaying
-        }
+    struct PlayingAudioCell {
+        let indexPath: IndexPath
+        let isForward: Bool
+        let index: Int?
+        let messageId: String?
+        let isPlaying: Bool
     }
     
     struct Datasource: MessageType, DiffAware {
@@ -123,9 +221,11 @@ class ChatViewController: MessagesViewController {
         var burnDate: Double
         var afterburnInterval: Double
         var archivedId:  String?
+        var queryIds: String?
         var isRead: Bool
         var selectedSearchResultId: String? = nil
         var references: [MessageReferenceStorageItem.Model] = []
+        var isHadHistoryGap: Bool = false
         
         static func compareContent(_ a: ChatViewController.Datasource, _ b: ChatViewController.Datasource) -> Bool {
             return a.primary == b.primary &&
@@ -142,7 +242,8 @@ class ChatViewController: MessagesViewController {
                 a.archivedId == b.archivedId &&
                 a.isRead == b.isRead &&
                 ChatViewController.Datasource.iconForMetadata(for: a.errorMetadata) == ChatViewController.Datasource.iconForMetadata(for: b.errorMetadata) &&
-                a.selectedSearchResultId == b.selectedSearchResultId
+                a.selectedSearchResultId == b.selectedSearchResultId &&
+                a.queryIds == b.queryIds
         }
         
         static func iconForMetadata(for meta: [String: Any]?) -> String? {
@@ -170,160 +271,97 @@ class ChatViewController: MessagesViewController {
             }
         }
     }
+        
+    let datasourcePageSize: Int = 180
+        
+    var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
+
+    var currentPage: ChatPage = ChatPage()
     
-    var isFirstAppear: Bool = true
+    var chatScrollDirection: ChatDirection? = nil
+    var previousContentOffsetY: CGFloat = .zero
     
-    public static let datasourcePageSize: Int = 100
-    public static let datasourceInitialPageSize: Int = 40
-    public final var canUpdateDataset: Bool = true
+    var unreadMessagePositionId: Int? = nil
     
-    internal let gapLength: Int = 200
-    internal var currentGap: Int = 0
+// datasource
+    var messagesObserver: Results<MessageStorageItem>!
+    var datasource: [Datasource] = []
     
-    internal var groupchat: Bool {
-        get {
-            return self.conversationType == .group
-        }
-    }
+// rx
+    var bag: DisposeBag = DisposeBag()
     
-    
-    public var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
-    public var entity: RosterItemEntity = .contact
-    public var groupchatDescr: String = ""
-    
-    internal var messagesCount: Int = ChatViewController.datasourceInitialPageSize
-    internal var lastBottomIndex: Int = 0
-    internal var shouldChangeOffsetOnUpdate: Bool = false
-    
-    var oldestMessageId: String? = nil
-    var newestMessageId: String? = nil
-    
-    internal var bottomVisibleMessageId: BehaviorRelay<String?> = BehaviorRelay(value: nil)
-    
-    internal var messagesObserver: Results<MessageStorageItem>? = nil
-    
-    internal var datasource: [Datasource] = []
-    
-    internal var bag: DisposeBag = DisposeBag()
-    internal var pinBag: DisposeBag = DisposeBag()
-    internal var messagesBag: DisposeBag = DisposeBag()
-    internal var messagesUpdaterBag: DisposeBag = DisposeBag()
-    
+// senders
     var opponentSender: Sender = Sender(id: "", displayName: "")
     var ownerSender: Sender = Sender(id: "", displayName: "")
     
     var isInSelectionMode: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     
+// skeleton
     var showSkeletonObserver: BehaviorRelay<Bool> = BehaviorRelay(value: true)
-//    var isSkeletonHided: Bool = false
-    
+
     var showLoadingIndicator: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     
-    var canLoadPage: Bool = true
-    
     var accountPallete: MDCPalette = MDCPalette.blue
-    var tmpUploadString: String = ""
-    
+
     var contactStatus: String? = nil
     
-    var isChatSynced: Bool = false
-    
+// gallery
     var isAccessToPhotoGranted: Bool? = nil
     
 // Status
     var statusTextObserver: BehaviorRelay<String> = BehaviorRelay(value: " ")
     var shouldShowNormalStatus: Bool = false
-// Search mode
-    enum SearchSeekDirection {
-        case up
-        case down
-    }
-    public var inSearchMode: BehaviorRelay<Bool> = BehaviorRelay(value: false)
-    public var searchResultsFinObserver: BehaviorRelay<Bool> = BehaviorRelay(value: false)
-    internal var searchSeekDirection: SearchSeekDirection? = nil
-//    public var searchResultsIds: [String] = []
-    public var selectedSearchResultId: String? = nil
+
 // Pin message bar
     internal var pinnedMessageId: BehaviorRelay<String?> = BehaviorRelay(value: nil)
     internal var canUnpinMessage: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     internal var currentPinnedMessageId: String? = nil
     internal var settedPinnedMessageId: String? = nil
     internal var scrollItemIndexPath: IndexPath? = nil
-//    Audio messages
-    internal var recordedFileUrl: URL? = nil
-    internal var recordedFileDate: Date? = nil
-    internal var recordedFileReference: MessageReferenceStorageItem? = nil
-    internal var isAudioMessageSendProcess: Bool = false
-    internal var playingMessageIndexPath: PlayingAudioCell? = nil
-    internal var playingMessageUpdateTimer: Timer? = nil
-    internal var lastRecordingNotificationRequestDate: Date? = nil
-//    ForwardedMessages
+
+// draft
+    var draftMessageText: BehaviorRelay<String?> = BehaviorRelay<String?>(value: nil)
+    
+// ForwardedMessages
     var forwardedIds: BehaviorRelay<Set<String>> = BehaviorRelay(value: Set<String>())
     var attachedMessagesIds: BehaviorRelay<[String]> = BehaviorRelay(value: [])
-    
-    var draftMessageText: BehaviorRelay<String?> = BehaviorRelay<String?>(value: nil)
-//    var previousDraftMessageText: String? = nil
     var inTypingMode: BehaviorRelay<Bool?> = BehaviorRelay(value: nil)
     
-    var showMyNickname: Bool = false
-    
-    var contactUsename: String = ""
-    
+// edit messages
     var editMessageId: BehaviorRelay<String?> = BehaviorRelay(value: nil)
-//    ChatStates
+    
+// ChatStates
     var refreshChatStateTimer: Timer? = nil
-    
-    var toolsButtonStateObserver: BehaviorRelay<ToolsButton.ToolsState> = BehaviorRelay(value: .hidden)
-    
-//    var topMenuShowObserver: BehaviorRelay<Bool> = BehaviorRelay(value: false)
-    var searchTextObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)
-//    var searchTextBouncerObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)
-    
-    var messagesListDisposable: Disposable? = nil
-    
-    var isInitiallyDeletedGroup: Bool? = nil
-    
-//    var shouldUpdateMessagesCount: Bool = true
-    
-    var isInviteViewControllerShowed: Bool = false
-    
+
+// signature and encrypted
     var omemoDeviceListTimer: Timer? = nil
-    
     var watchSignatureTimer: Timer? = nil
-    
     var certificateUpdateTimer: Timer? = nil
     var contactWithSigningCertificate: Bool = false
-    
     var blockInputFieldByTimeSignature: BehaviorRelay<Bool> = BehaviorRelay<Bool>(value: false)
     var isTimeSignatureBlockingPanelopen: Bool = false
-    
     var isTrustedDevicesBlockingPanelopen: Bool = false
-    
-    var shouldUpdatePreviousMessage = false
-    
-    var appInBackground: Bool = false
-    
-    var lastReadMessageId: String? = nil
-    
+// burn
     var selectedAfterburnId: Int = 0
-    
-    
-    //// panel
+// panel
     var topPanelShowed: Bool = false
     var topPanelState: BehaviorRelay<TopPanelState> = BehaviorRelay(value: .none)
-    //MAM
-    var hasActiveMamArchiveRequest: Bool = false
-    var searchMessagesQueue: [MessageStorageItem] = [] {
-        didSet {
-            print("A")
-        }
-    }
+// search
+    var searchMessagesQueue: [MessageStorageItem] = []
+    var searchTextObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)
     var currentSearchQueryId: String? = nil
+    var inSearchMode: BehaviorRelay<Bool> = BehaviorRelay(value: false)
+    var searchSeekDirection: ChatDirection? = nil
+    var selectedSearchResultId: String? = nil
+// floating date
+    var indexPathOfPinnedDate: IndexPath? = nil
+    var dateViews: [FloatDateView] = []
+    var originalFrames: [CGRect] = []
+    var pinnedDateFrame: CGRect = .zero
+    var pinnedDateIndex: Int? = nil
+    var nextPinnedDateIndex: Int? = nil
     
-    var lastVelocityYSign = 0
-    var isLoadNextPage: Bool = false
-    
-    internal let skeletonMessages: [NSAttributedString] = {
+    internal lazy var skeletonMessages: [NSAttributedString] = {
         return (0..<30).compactMap {
             _ in
             return NSAttributedString(string: Lorem.words(Int.random(in: (4..<32))))
@@ -415,12 +453,6 @@ class ChatViewController: MessagesViewController {
         return view
     }()
     
-    internal let toolsButton: ToolsButton = {
-        let button = ToolsButton(frame: CGRect(square: 36))
-        
-        return button
-    }()
-    
     let cancelSelectionBarButton: UIBarButtonItem = {
         let button = UIBarButtonItem(barButtonSystemItem: .cancel, target: nil, action: nil)
         
@@ -488,6 +520,39 @@ class ChatViewController: MessagesViewController {
         return view
     }()
     
+    internal var shouldShowScrollDownButton: BehaviorRelay<Bool> = BehaviorRelay(value: false)
+    internal var contentOffsetObserver: BehaviorRelay<CGFloat> = BehaviorRelay(value: 0)
+    
+    internal let scrollDownButton: UIButton = {
+        let button = UIButton(frame: CGRect(square: 44))
+        
+        button.layer.cornerRadius = 22
+        button.layer.masksToBounds = true
+        
+        button.backgroundColor = .systemGroupedBackground
+        
+        button.setImage(imageLiteral("chevron.down"), for: .normal)
+        
+        return button
+    }()
+    
+    internal let dateListContainerView: UIView = {
+        let view = UIView()
+        
+        view.isUserInteractionEnabled = false
+        
+        return view
+    }()
+    
+    internal let navbarOverlayView: UIView = {
+        let view = UIView()
+        
+        view.backgroundColor = .systemBackground
+        view.isUserInteractionEnabled = false
+        
+        return view
+    }()
+    
     internal var xabberInputView: ModernXabberInputView!
     
     internal var shouldRequestChatInfo: Bool = false
@@ -495,7 +560,7 @@ class ChatViewController: MessagesViewController {
     @objc
     internal func showInfo() {
         let vc: BaseViewController
-        if groupchat {
+        if self.conversationType == .group {
             vc = GroupchatInfoViewController()
             (vc as! GroupchatInfoViewController).footerView.chatsDelegate = self
             (vc as! GroupchatInfoViewController).chatStateDelegate = self
@@ -508,6 +573,11 @@ class ChatViewController: MessagesViewController {
         vc.owner = self.owner
         vc.jid = self.jid
         showModal(vc)
+    }
+    
+    @objc
+    internal func onScrollDownChatButtonTouchUpInside(_ sender: UIButton) {
+        self.scrollToLastOrUnreadItem()
     }
         
     @objc
@@ -529,13 +599,7 @@ class ChatViewController: MessagesViewController {
         self.deleteSelectionBarButton.action = #selector(onDeleteAllMessagesButtonTouchDown)
     }
         
-    internal func configureRecordingPanel() {
-        self.recordingPanel.cancelCallback = onCancelRecord
-        self.recordingPanel.deleteCallback = onDeleteRecord
-        self.recordingPanel.onPlayCallback = onRecordingPanelWillPlay
-        self.recordingPanel.onPauseCallback = onRecordingPanelWillPause
-        self.recordingPanel.onEndPlayingCallback = onRecordingPanelWillEnd
-    }
+
     
     internal let cancelSearchBarButton: UIBarButtonItem = {
         let button = UIBarButtonItem(systemItem: .cancel, primaryAction: nil, menu: nil)
@@ -704,7 +768,6 @@ class ChatViewController: MessagesViewController {
             let nickname = self.opponentSender.displayName
             let offlineStatus = "last seen recently".localizeString(id: "last_seen_recently", arguments: [])
             let status = (results.first?.statusMessage.isEmpty ?? true) ? RosterUtils.shared.convertStatus(results.first?.status ?? .offline, customOfflineStatus: offlineStatus) : results.first?.statusMessage ?? RosterUtils.shared.convertStatus(results.first?.status ?? .offline, customOfflineStatus: offlineStatus)
-            self.contactUsename = nickname
             self.titleLabel.attributedText = self.updateTitle()
             let statusStr = AccountManager.shared.connectingUsers.value.contains(self.owner) ? "Waiting for network...".localizeString(id: "waiting_for_network", arguments: []) : status
             if self.statusLabel.text == " " {
@@ -736,15 +799,16 @@ class ChatViewController: MessagesViewController {
     internal let backgroundImage = UIImageView()
     internal let gradientView = UIView()
     
+    internal var floatingDateView: FloatDateView!
+    
     private func configure() {
         restorationIdentifier = "CHAT_VIEW_CONTROLLER_RID"
         self.initSender()
         
+        self.dateListContainerView.frame = self.view.bounds
+        
+        
         accountPallete = AccountColorManager.shared.palette(for: owner)
-//        
-        
-        
-        
         self.messagesCollectionView.prefetchDataSource = self
         self.messagesCollectionView.messagesDataSource = self
         self.messagesCollectionView.messageCellDelegate = self
@@ -752,24 +816,22 @@ class ChatViewController: MessagesViewController {
         self.messagesCollectionView.messagesLayoutDelegate = self
         
         self.messagesCollectionView.transform = CGAffineTransform(scaleX: 1, y: -1)
-        
-        
         self.messagesCollectionView.scrollsToTop = false
         self.scrollsToBottomOnKeybordBeginsEditing = false
         self.maintainPositionOnKeyboardFrameChanged = true
         
+        self.view.addSubview(self.dateListContainerView)
+        
         messagesCollectionView.accountPalette = accountPallete
-        
-        
         (self.navigationController as? NavBarController)?.cancelButton.addTarget(self, action: #selector(additionalNavBarPanelCancelButtonTouchUpInside), for: .touchUpInside)
         
-        
-        toolsButton.delegate = self
-        toolsButton.frame = CGRect(
-            x: self.view.bounds.width - 44,
-            y: self.view.bounds.height - 88 - (UIDevice.needBottomOffset ? 44 : 0),
-            width: 36,
-            height: 44
+        var navbarHeight: CGFloat = 50
+        if let topInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
+            navbarHeight += topInset
+        }
+        self.navbarOverlayView.frame = CGRect(
+            width: self.view.bounds.width,
+            height: navbarHeight
         )
         
         var inputHeight: CGFloat = 49
@@ -782,14 +844,17 @@ class ChatViewController: MessagesViewController {
         self.xabberInputView.delegate = self
         self.view.addSubview(xabberInputView)
         self.view.bringSubviewToFront(xabberInputView)
+        
         self.messagesCollectionView.keyboardDismissMode = .interactive
         self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 0, right: 0)
+        
         if self.inSearchMode.value {
             self.configureSearchBar()
         } else {
             self.searchTextObserver.accept(nil)
             self.configureNavbar()
         }
+        
         self.configureBackground()
         self.configureNavbar()
         self.configureInputBar()
@@ -800,13 +865,24 @@ class ChatViewController: MessagesViewController {
         self.previousFrame = self.view.bounds
         self.view.addSubview(self.chatViewLoadingOverlay)
         self.chatViewLoadingOverlay.fillSuperview()
+        self.view.addSubview(self.scrollDownButton)
+        self.view.addSubview(self.navbarOverlayView)
+        self.scrollDownButton.center = CGPoint(x: self.view.frame.maxX - 64, y: self.view.frame.maxY + 44)
+//        self.view.addSubview(floatingDateView)
+        self.scrollDownButton.addTarget(self, action: #selector(self.onScrollDownChatButtonTouchUpInside), for: .touchUpInside)
+        self.view.addSubview(self.messageLoadingActivityIndicator)
+        self.messageLoadingActivityIndicator.startAnimating()
+        self.messageLoadingActivityIndicator.isHidden = true
     }
+    
+//    @objc
+//    interna;
     
     var previousFrame: CGRect = .zero
     
     final func configureDataset() {
         do {
-            let realm = try  WRealm.safe()
+            let realm = try WRealm.safe()
             self.messagesObserver = realm
                 .objects(MessageStorageItem.self)
                 .filter("owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@", self.owner, self.jid, self.conversationType.rawValue)
@@ -821,13 +897,10 @@ class ChatViewController: MessagesViewController {
             origin: CGPoint(x: 0, y: ((UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top ?? 0) + (self.navigationController?.navigationBar.frame.height ?? 0)),
             size: self.view.bounds.size
         )
-//        backgroundView.frame = self.view.bounds
         backgroundImage.frame = self.view.bounds
         
         gradientView.frame = self.view.bounds
-        
         gradient.frame = self.view.bounds
-        
         gradient.startPoint = CGPoint(x: 0.0, y: 1.0)
         gradient.endPoint = CGPoint(x: 1.0, y: 0.0)
         
@@ -858,21 +931,12 @@ class ChatViewController: MessagesViewController {
         backgroundView.addSubview(gradientView)
         backgroundView.addSubview(backgroundImage)
         backgroundView.bringSubviewToFront(backgroundImage)
-//        messagesCollectionView.backgroundView =  backgroundView
         self.messagesCollectionView.backgroundColor = .clear
         self.view.addSubview(backgroundView)
         self.view.sendSubviewToBack(backgroundView)
-        
     }
     
     final func configureNavbar() {
-//        self.navigationController?.navigationBar.prefersLargeTitles = false
-//        self.navigationController?.navigationItem.largeTitleDisplayMode = .never
-//        self.navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
-//        self.navigationController?.navigationBar.shadowImage = UIImage()
-//        self.navigationController?.navigationBar.superview?.bringSubviewToFront(self.navigationController!.navigationBar)
-//        self.navigationController?.navigationBar.layoutIfNeeded()
-
         userBarButton.gradient.colors = [UIColor.white.cgColor,
                                          AccountColorManager.shared.palette(for: self.owner).tint700.cgColor]
         
@@ -887,7 +951,6 @@ class ChatViewController: MessagesViewController {
         self.userBarButton.addGestureRecognizer(gesture)
         self.navigationItem.setRightBarButton(UIBarButtonItem(customView: self.userBarButton), animated: true)
         self.navigationItem.backButtonDisplayMode = .minimal
-        self.title = ""
         self.navigationItem.leftItemsSupplementBackButton = true
         self.titleStack.isUserInteractionEnabled = false
         
@@ -909,9 +972,9 @@ class ChatViewController: MessagesViewController {
     
     final func configureInputBar() {
         if self.conversationType.isEncrypted {
+            self.xabberInputView.shouldHideTimer = false
             self.xabberInputView.timerButton.isHidden = self.xabberInputView.shouldHideTimer
             self.xabberInputView.timerButton.isEnabled = true
-            self.xabberInputView.shouldHideTimer = false
         } else {
             self.xabberInputView.shouldHideTimer = true
             self.xabberInputView.timerButton.isHidden = true
@@ -932,7 +995,6 @@ class ChatViewController: MessagesViewController {
         }
         self.topPanelState.accept(self.topPanelState.value)
         previousFrame = self.view.bounds
-//        backgroundView.frame = self.view.bounds
         backgroundView.frame = CGRect(
             origin: CGPoint(x: 0, y: ((UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top ?? 0) + (self.navigationController?.navigationBar.frame.height ?? 0)),
             size: self.view.bounds.size
@@ -942,12 +1004,37 @@ class ChatViewController: MessagesViewController {
         gradientView.frame = self.view.bounds
         
         gradient.frame = self.view.bounds
-        toolsButton.frame = CGRect(
-            x: self.view.bounds.width - 44,
-            y: self.view.bounds.height - 88 - (UIDevice.needBottomOffset ? 44 : 0),
-            width: 36,
-            height: 44
+        
+//        let dateString = NSAttributedString(
+//            string: sectionsDateFormatter.string(from: Date()),
+//            attributes: [
+//                .font: UIFont.preferredFont(forTextStyle: .caption1).italic(),
+//                .foregroundColor: UIColor.white,
+//            ]
+//        )
+//        let constraintBox = CGSize(width: UIScreen.main.bounds.width, height: .greatestFiniteMagnitude)
+//        let dateRect = dateString.boundingRect(with: constraintBox, options: [
+//            .usesLineFragmentOrigin,
+//            .usesFontLeading
+//        ], context: nil).integral
+//
+//        let dateSize = CGSize(width: dateRect.size.width + 4 + floatingDateView.messageLabelInsets.horizontal, height: dateRect.size.height + 4 + floatingDateView.messageLabelInsets.vertical)
+//
+//        floatingDateView.frame = CGRect(origin: .zero, size: dateSize)
+//        floatingDateView.center = CGPoint(x: self.view.center.x, y: 100)
+//        floatingDateView.configure(dateString)
+        
+        var navbarHeight: CGFloat = 50
+        if let topInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
+            navbarHeight += topInset
+        }
+        self.navbarOverlayView.frame = CGRect(
+            width: self.view.bounds.width,
+            height: navbarHeight
         )
+        
+        self.messageLoadingActivityIndicator.frame = CGRect(width: 64, height: 64)
+        self.messageLoadingActivityIndicator.center = CGPoint(x: self.view.center.x, y: navbarHeight + 38)
         
         var inputHeight: CGFloat = 49 + self.xabberInputView.keyboardHeight
         if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
@@ -959,13 +1046,13 @@ class ChatViewController: MessagesViewController {
         
         (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
             .cache.invalidate()
+        self.updateDateLabels(afterIndex: self.pinnedDateIndex ?? self.nextPinnedDateIndex ?? 0)
         self.messagesCollectionView.reloadData()
     }
     
     private func unsubscribe() {
         NotifyManager.shared.currentDialog = nil
         self.bag = DisposeBag()
-        self.messagesBag = DisposeBag()
     }
     
     override public func addObservers() {
@@ -980,12 +1067,6 @@ class ChatViewController: MessagesViewController {
             selector: #selector(self.didEnterBackground),
             name: UIApplication.didEnterBackgroundNotification,
             object: UIApplication.shared
-        )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(self.didReceiveEndOfFixHistoryTask),
-            name: XMPPBackgroundTask.endFixHistoryTask,
-            object: nil 
         )
         NotificationCenter.default.addObserver(
             self,
@@ -1014,33 +1095,13 @@ class ChatViewController: MessagesViewController {
     }
     
     @objc
-    private func didReceiveEndOfFixHistoryTask(_ notification: Notification) {
-//        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-//            self.userBarButton.stopAnimation()
-//        }
-    }
-    
-    @objc
     internal func willEnterForeground() {
         NotifyManager.shared.currentDialog = [self.jid, self.owner].prp()
-        appInBackground = false
         AccountManager.shared.find(for: self.owner)?.chatMarkers.updateDeleteEphemeralMessagesTimer()
-//        self.updateQueue
-//            .asyncAfter(deadline: .now() + 3) {
-//            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-//                user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
-//            })
-//                DispatchQueue.main.async {
-//                    self.canUpdateDataset = true
-//                    self.runDatasetUpdateTask()
-//                }
-//        }
     }
     
     @objc
     private func didEnterBackground() {
-//        self.unsubscribe()
-        appInBackground = true
         NotifyManager.shared.currentDialog = nil
         do {
             let realm = try WRealm.safe()
@@ -1059,12 +1120,12 @@ class ChatViewController: MessagesViewController {
         NotificationCenter.default.removeObserver(self)
     }
     
-    internal func addMeteringObservers() {
-        NotificationCenter.default.addObserver(self,
-                                               selector: #selector(didUpdateMeteringLevel),
-                                               name: .recorderDidUpdateMeteringLevelNotification,
-                                               object: AudioRecorder.shared)
-    }
+//    internal func addMeteringObservers() {
+//        NotificationCenter.default.addObserver(self,
+//                                               selector: #selector(didUpdateMeteringLevel),
+//                                               name: .recorderDidUpdateMeteringLevelNotification,
+//                                               object: AudioRecorder.shared)
+//    }
     
     internal func removeMeteringObservers() {
         NotificationCenter.default.removeObserver(self,
@@ -1075,25 +1136,19 @@ class ChatViewController: MessagesViewController {
     private final func initSender() {
         self.ownerSender = Sender(
             id: self.owner,
-            displayName: AccountManager.shared.find(for: owner)?.username ?? ""
+            displayName: self.owner//AccountManager.shared.find(for: owner)?.username ?? ""
         )
-        do {
-            let realm = try WRealm.safe()
-            if let instance = realm.object(ofType: RosterStorageItem.self,
-                                           forPrimaryKey: [jid, owner].prp()) {
-                self.opponentSender = Sender(id: jid, displayName: instance.displayName)
-            } else if let instance = realm.object(ofType: vCardStorageItem.self, forPrimaryKey: jid) {
-                self.opponentSender = Sender(id: jid, displayName: instance.generatedNickname)
-            } else {
-                self.opponentSender = Sender(id: jid, displayName: jid)
-            }
-        } catch {
-            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-        }
+        self.opponentSender = Sender(
+            id: jid,
+            displayName: jid
+        )
     }
     
-    var scrollToMessageTaskId: String? = nil
-    var scrollToMessageArchivedId: String? = nil
+    internal let messageLoadingActivityIndicator: UIActivityIndicatorView = {
+        let view = UIActivityIndicatorView(style: .medium)
+        
+        return view
+    }()
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -1110,7 +1165,6 @@ class ChatViewController: MessagesViewController {
             try self.subscribe()
             try self.groupSubscribtions()
             try self.encryptedSubscribtions()
-            try self.subscribeOnDatasetChanges()
             self.addObservers()
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
@@ -1121,11 +1175,19 @@ class ChatViewController: MessagesViewController {
             inputHeight += bottomInset
         }
         self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 40, right: 0)
-        
-//        (self.navigationController as? NavBarController)?.cancelButton.addTarget(self, action: #selector(additionalNavBarPanelCancelButtonTouchUpInside), for: .touchUpInside)
-        
-        self.initializeDataset()
         self.lowPrioritySubscribtions()
+        self.setupEncryptedChat()
+        self.showSkeletonObserver.accept(true)
+        self.loadDatasource(direction: .up) { array in
+            self.showSkeletonObserver.accept(false)
+            self.datasource = self.mapDataset(dataset: array)
+            self.messagesCollectionView.reloadData()
+            self.updateDateLabels()
+        }
+    }
+    
+    
+    internal func setupEncryptedChat() {
         if self.conversationType.isEncrypted {
             AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
                 if CommonConfigManager.shared.config.required_time_signature_for_messages {
@@ -1136,7 +1198,7 @@ class ChatViewController: MessagesViewController {
                 
             }, fail: {
                 DispatchQueue.main.async {
-                    self.showToast(error: "Can`t find any OMEMO device".localizeString(id: "message_manager_error_no_omemo", arguments: []))
+//                    self.showToast(error: "Can`t find any OMEMO device".localizeString(id: "message_manager_error_no_omemo", arguments: []))
                 }
             })
             self.startWatchingSignatureTimer()
@@ -1144,75 +1206,21 @@ class ChatViewController: MessagesViewController {
                 self.onUpdateTimeSignatureBlockState(!SignatureManager.shared.isSignatureValid())
             }
         }
-//        self.syncChat()
-    }
-    
-    final func syncChat() {
-        func callback() {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
-                self.showSkeletonObserver.accept(false)
-                self.oldestMessageId = self.getMessageIdAtPostionOrLast(index: self.messagesCount)
-                self.newestMessageId = self.getMessageIdAtPostionOrLast(index: self.lastBottomIndex)
-                self.runDatasetUpdateTask(shouldScrollToLastMessage: false)
-            }
-        }
-        XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { stream, session in
-            session.mam?.syncChat(stream, jid: self.jid, conversationType: self.conversationType, callback: callback)
-        }) {
-            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                user.mam.syncChat(stream, jid: self.jid, conversationType: self.conversationType, callback: callback)
-            })
-        }
     }
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        guard self.isFirstAppear else { return }
-        self.syncChat()
-        self.canLoadPage = true
-        do {
-            let realm = try WRealm.safe()
-            print(self.messagesCollectionView.contentOffset)
-            var inputHeight: CGFloat = 57
-            if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
-                inputHeight += bottomInset
-            }
-            if let offset = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid, owner: self.owner, conversationType: self.conversationType))?.lastChatOffset {
-                self.messagesCollectionView.setContentOffset(CGPoint(x: 0.0, y: offset == 0 ? -inputHeight : CGFloat(offset)), animated: false)
-            }
-        } catch {
-            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-        }
-
-        do {
-            let realm = try WRealm.safe()
-            let chat = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid, owner: self.owner, conversationType: self.conversationType))
-            
-            if (chat?.isFreshNotEmptyEncryptedChat ?? false) {
-                if (chat?.unread ?? 0) > 0 {
-                    let messageId = chat?.lastMessageId ?? ""
-                    AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                        user.chatMarkers.displayedById(stream, jid: self.jid, messageId: messageId)
-                    })
-                    try realm.write {
-                        chat?.unread = 0
-                    }
-                }
-            }
-        } catch {
-            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-        }
-        self.isFirstAppear = false
     }
+    
+    
     
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        self.navigationItem.backButtonDisplayMode = .minimal
-//        self.navigationItem.backButtonTitle = self.titleLabel.text
         omemoDeviceListTimer?.invalidate()
         omemoDeviceListTimer = nil
         AccountManager.shared.find(for: owner)?.mam.allowHistoryFixTask = false
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+            user.mam.allowHistoryFixTask = false
             user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
         })
         LastChats.updateErrorState(for: self.jid, owner: self.owner, conversationType: self.conversationType)
@@ -1247,26 +1255,26 @@ class ChatViewController: MessagesViewController {
         AccountManager.shared.find(for: self.owner)?.mam.endLoadHistory(jid: self.jid, conversationType: conversationType)
     }
     
-    internal final func scrollToLastUnreadMessage(select: Bool = false) {
-        do {
-            let realm = try WRealm.safe()
-            if let unreadId = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid, owner: self.owner, conversationType: self.conversationType))?.lastReadId {
-                if let primary = realm.objects(MessageStorageItem.self).filter("owner == %@ AND opponent == %@ AND archivedId == %@", self.owner, self.jid, unreadId).first?.primary {
-                    if let index = self.messagesObserver?.firstIndex(where: { $0.primary == primary }), index != 0 {
-                        if self.messagesCollectionView.indexPathsForVisibleItems.compactMap({ return $0.section }).contains(index) {
-                            return
-                        }
-                        let offset = (0...index).compactMap ({
-                            return (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?.sizeForItem(at: IndexPath(row: 0, section: $0)).height
-                        }).reduce(0, +) - ((self.view.bounds.height / 4) * 3)
-                        self.messagesCollectionView.setContentOffset(CGPoint(x: 0, y: offset), animated: false)
-                    }
-                }
-            }
-        } catch {
-            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-        }
-    }
+//    internal final func scrollToLastUnreadMessage(select: Bool = false) {
+//        do {
+//            let realm = try WRealm.safe()
+//            if let unreadId = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid, owner: self.owner, conversationType: self.conversationType))?.lastReadId {
+//                if let primary = realm.objects(MessageStorageItem.self).filter("owner == %@ AND opponent == %@ AND archivedId == %@", self.owner, self.jid, unreadId).first?.primary {
+//                    if let index = self.messagesObserver?.firstIndex(where: { $0.primary == primary }), index != 0 {
+//                        if self.messagesCollectionView.indexPathsForVisibleItems.compactMap({ return $0.section }).contains(index) {
+//                            return
+//                        }
+//                        let offset = (0...index).compactMap ({
+//                            return (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?.sizeForItem(at: IndexPath(row: 0, section: $0)).height
+//                        }).reduce(0, +) - ((self.view.bounds.height / 4) * 3)
+//                        self.messagesCollectionView.setContentOffset(CGPoint(x: 0, y: offset), animated: false)
+//                    }
+//                }
+//            }
+//        } catch {
+//            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+//        }
+//    }
     
     static func getColorsForGradient(forColor color: BackgroundColor) -> [CGColor] {
         switch color {
@@ -1317,9 +1325,6 @@ class ChatViewController: MessagesViewController {
                 CGColor(red: 0/255, green: 192/255, blue: 255/255, alpha: 0.5),
                 CGColor(red: 0/255, green: 192/255, blue: 255/255, alpha: 0.5)
             ]
-            
-        default:
-            break
         }
     }
     
@@ -1343,11 +1348,10 @@ extension ChatViewController: TappedPhotoInMediaGalleryDelegate {
     }
     
     func didTapPhotoFromChat(primary: String) {
-//        scrollToMessage(primary: primary)
+        
     }
     
     func didTapPhotoFromGallery(primary: String) {
-//        scrollToMessage(primary: primary)
         navigationController?.popViewController(animated: true)
     }
     

@@ -20,6 +20,8 @@
 
 import Foundation
 import UIKit
+import RealmSwift
+import CocoaLumberjack
 
 extension SearchResultsViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
@@ -27,33 +29,35 @@ extension SearchResultsViewController: UITableViewDelegate {
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-//        let section = isContactsHidden ? indexPath.section + 1 : indexPath.section
-//        switch sections[section].kind {
-//        case .contacts:
-//            guard let item = filteredContacts?[indexPath.row] else { return }
-//            delegate?.openChat(owner: item.owner, jid: item.jid, conversationType: ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular)
-//        case .messages:
-//            guard let item = filteredMessages?[indexPath.row] else { return }
-//            delegate?.openChat(owner: item.owner, jid: item.opponent, conversationType: item.conversationType)
+//        if self.chatsDatasource.count > 0 {
+//            
 //        }
+        let item: Datasource
         
-        switch sections[indexPath.section].kind {
-            case .messages:
-                let item = self.chatsDatasource[indexPath.row]
-                let vc = ChatViewController()
-                vc.owner = item.owner
-                vc.jid = item.jid
-                vc.conversationType = item.conversationType
-                vc.entity = item.entity ?? .contact
-                showStacked(vc, in: self.presenter ?? self)
-            case .contacts:
-                let item = self.contactsDatasource[indexPath.row]
-                let vc = ChatViewController()
-                vc.owner = item.owner
-                vc.jid = item.jid
-                vc.conversationType = item.conversationType
-                vc.entity = item.entity ?? .contact
-                showStacked(vc, in: self.presenter ?? self)
+        if self.chatsDatasource.count > 0 {
+            switch indexPath.section {
+                case 0: item = self.chatsDatasource[indexPath.row]
+                case 1: item = self.messagesDatasource[indexPath.row]
+                default: fatalError()
+            }
+        } else {
+            item = self.messagesDatasource[indexPath.row]
+        }
+        
+        let vc = ChatViewController()
+        vc.owner = item.owner
+        vc.jid = item.jid
+        vc.conversationType = item.conversationType
+//        vc.entity = item.entity ?? .contact
+//        
+//        vc.selectedSearchResultId = item.messageArchiveId
+//        vc.scrollToMessageArchivedId = item.messageArchiveId
+//        
+        showStacked(vc, in: self.presenter ?? self)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            if let archivedId = item.messageArchiveId {
+                vc.scrollToMessageAtIndex(archivedId: archivedId, date: item.date ?? Date())
+            }
         }
     }
 }

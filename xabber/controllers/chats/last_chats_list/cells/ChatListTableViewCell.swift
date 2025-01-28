@@ -201,7 +201,7 @@ class ChatListTableViewCell: UITableViewCell {
     let unreadLabel: UILabel = {
         let label = UILabel()
         
-        label.backgroundColor = UIColor(red:0.11, green:0.37, blue:0.13, alpha:1)
+        label.backgroundColor = MDCPalette.green.tint700 | .systemGreen//UIColor(red:0.11, green:0.37, blue:0.13, alpha:1)
         
         return label
     }()
@@ -209,8 +209,8 @@ class ChatListTableViewCell: UITableViewCell {
     let syncedIndicator: UIImageView = {
         let view = UIImageView()
         
-        view.image = imageLiteral( "circle4")?.withRenderingMode(.alwaysTemplate)
-        view.tintColor = MDCPalette.grey.tint300
+        view.image = imageLiteral( "smallcircle.filled.circle.fill")
+        view.tintColor = MDCPalette.grey.tint500 | .systemGray
         
         return view
     }()
@@ -218,8 +218,8 @@ class ChatListTableViewCell: UITableViewCell {
     let muteIndicator: UIImageView = {
         let view = UIImageView()
         
-        view.image = imageLiteral( "bell-off")?.withRenderingMode(.alwaysTemplate)
-        view.tintColor = MDCPalette.grey.tint400
+        view.image = imageLiteral( "speaker.slash.fill")
+        view.tintColor = MDCPalette.grey.tint500 | .systemGray
         
         return view
     }()
@@ -227,9 +227,8 @@ class ChatListTableViewCell: UITableViewCell {
     let encryptedIndicator: UIImageView = {
         let view = UIImageView()
         
-//        view.image = imageLiteral( "lock").withRenderingMode(.alwaysTemplate)
-        view.image = imageLiteral("lock.fill")?.withRenderingMode(.alwaysTemplate)
-        view.tintColor = MDCPalette.green.tint500
+        view.image = imageLiteral("lock.fill")
+        view.tintColor = MDCPalette.green.tint700 | .systemGreen
         view.isHidden = true
         
         return view
@@ -244,8 +243,8 @@ class ChatListTableViewCell: UITableViewCell {
     let pinnedIndicator: UIImageView = {
         let view = UIImageView()
         
-        view.image = imageLiteral( "pinned")?.withRenderingMode(.alwaysTemplate)
-        view.tintColor = .systemGray
+        view.image = imageLiteral("pin.circle")
+        view.tintColor = MDCPalette.grey.tint500 | .systemGray
         
         return view
     }()
@@ -254,7 +253,7 @@ class ChatListTableViewCell: UITableViewCell {
         let view = UIImageView()
         
         view.image = imageLiteral("exclamationmark.circle.fill")
-        view.tintColor = .systemRed
+        view.tintColor = MDCPalette.red.tint700 | .systemRed
         
         return view
     }()
@@ -422,19 +421,19 @@ class ChatListTableViewCell: UITableViewCell {
             switch deliveryState {
                 case .sending, .notSended, .uploading:
                     deliveryIndicator.image = imageLiteral("clock")
-                    deliveryIndicator.tintColor = .systemBlue
+                    deliveryIndicator.tintColor = MDCPalette.blue.tint500 | .systemBlue
                 case .sended:
                     deliveryIndicator.image = imageLiteral("xabber.checkmark")
-                    deliveryIndicator.tintColor = .systemGray
+                    deliveryIndicator.tintColor = MDCPalette.grey.tint500 | .systemGray
                 case .deliver:
                     deliveryIndicator.image = imageLiteral("xabber.checkmark")
-                    deliveryIndicator.tintColor = .systemGreen
+                    deliveryIndicator.tintColor = MDCPalette.green.tint700 | .systemGreen
                 case .read:
                     deliveryIndicator.image = imageLiteral("xabber.checkmark.double")
-                    deliveryIndicator.tintColor = .systemGreen
+                    deliveryIndicator.tintColor = MDCPalette.green.tint700 | .systemGreen
                 case .error:
                     deliveryIndicator.image = imageLiteral("xmark")
-                    deliveryIndicator.tintColor = .systemRed
+                    deliveryIndicator.tintColor = MDCPalette.red.tint700 | .systemRed
                 case .none:
                     deliveryIndicator.isHidden = true
                     break
@@ -597,15 +596,15 @@ class ChatListTableViewCell: UITableViewCell {
         NSLayoutConstraint.activate([
             bottomStack.heightAnchor.constraint(equalToConstant: 36),
             deliveryIndicator.widthAnchor.constraint(equalToConstant: 16),
-            deliveryIndicator.heightAnchor.constraint(equalToConstant: 16),
+//            deliveryIndicator.heightAnchor.constraint(equalToConstant: 16),
             pinnedIndicator.widthAnchor.constraint(equalToConstant: 24),
             pinnedIndicator.heightAnchor.constraint(equalToConstant: 24),
             muteIndicator.widthAnchor.constraint(equalToConstant: 16),
-            muteIndicator.heightAnchor.constraint(equalToConstant: 16),
+//            muteIndicator.heightAnchor.constraint(equalToConstant: 16),
             syncedIndicator.heightAnchor.constraint(equalToConstant: 4),
             syncedIndicator.widthAnchor.constraint(equalToConstant: 4),
             encryptedIndicator.widthAnchor.constraint(equalToConstant:  16),
-            encryptedIndicator.heightAnchor.constraint(equalToConstant: 16),
+//            encryptedIndicator.heightAnchor.constraint(equalToConstant: 16),
             
             badgeView.widthAnchor.constraint(greaterThanOrEqualToConstant: 20),
             badgeView.heightAnchor.constraint(equalToConstant: 20),
@@ -614,10 +613,10 @@ class ChatListTableViewCell: UITableViewCell {
             subBadgeView.heightAnchor.constraint(equalToConstant: 20),
             
             verificationBadgeView.widthAnchor.constraint(equalToConstant: 20),
-            verificationBadgeView.heightAnchor.constraint(equalToConstant: 20),
+//            verificationBadgeView.heightAnchor.constraint(equalToConstant: 20),
             
             errorIndicator.widthAnchor.constraint(equalToConstant: 24),
-            errorIndicator.heightAnchor.constraint(equalToConstant: 24),
+//            errorIndicator.heightAnchor.constraint(equalToConstant: 24),
         ])
     }
     
