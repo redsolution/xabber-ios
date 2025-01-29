@@ -46,7 +46,7 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
     
     func updateDateViews(contentOffsetY: CGFloat, prevScrollDirection: ChatDirection) {
         let diffY = contentOffsetY - self.previousContentOffsetY
-        print(diffY, contentOffsetY, self.chatScrollDirection , "DIFF")
+        print(diffY, contentOffsetY, "DIFF")
         self.previousContentOffsetY = contentOffsetY
         
         

@@ -27,6 +27,10 @@ extension SubforwardsViewController: MessageCellDelegate {
         
     }
     
+    func inSelectionMode() -> Bool {
+        return false
+    }
+    
     func onTapVoiceCall(cell: MessageCollectionViewCell) {
         
     }

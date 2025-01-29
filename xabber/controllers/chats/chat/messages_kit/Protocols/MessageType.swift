@@ -45,5 +45,5 @@ protocol MessageType {
     var isHasAttachedMessages: Bool { get }
     var afterburnInterval: Double { get }
     var references: [MessageReferenceStorageItem.Model] { get }
-//    var queryIds: String? { get }
+    var tailed: Bool { get }
 }

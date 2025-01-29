@@ -273,30 +273,10 @@ class MessageStorageItem: Object {
         }
     }
     
-    public final func displayedBody(entity: RosterItemEntity) -> String {
+    public final func displayedBody() -> String {
         switch displayAs {
         case .initial:
-            switch entity {
-            case .contact:
-                //return "Start messaging here".localizeString(id: "chat_message_start_messaging", arguments: [])
-                return ""
-            case .groupchat:
-                return "Invitation to public group".localizeString(id: "chat_message_public_invitation", arguments: [])
-            case .bot:
-                //return "Start messaging here".localizeString(id: "chat_message_start_messaging", arguments: [])
-                return ""
-            case .server:
-                //return "Start messaging here".localizeString(id: "chat_message_start_messaging", arguments: [])
-                return ""
-            case .incognitoChat:
-                return "Invitation to incognito group".localizeString(id: "chat_message_incognito_invitation", arguments: [])
-            case .privateChat:
-                return "Invitation to private chat".localizeString(id: "chat_message_private_invitation", arguments: [])
-            case .encryptedChat:
-                return "Start secret chat".localizeString(id: "chat_message_start_secret", arguments: [])
-            case .issue:
-                return "Start discussion about issue".localizeString(id: "chat_message_start_discussion", arguments: [])
-            }
+           return ""
         case .text, .quote:
             if self.inlineForwards.isNotEmpty {
                 return body
@@ -1035,7 +1015,7 @@ class MessageStorageItem: Object {
                         if notify && !self.isRead && !self.outgoing && self.archivedId.isNotEmpty && self.displayAs != .system {
                             let imageUrl: String? = self.displayAs == .images ? references.filter({ $0.kind == .media }).first?.metadata?["uri"] as? String : nil
                             NotifyManager.shared.update(
-                                withMessage: self.displayedBody(entity: .contact),
+                                withMessage: self.displayedBody(),
                                 messageId: self.archivedId,
                                 username: self.groupchatMetadata?["nickname"] as? String,
                                 opponent: self.opponent,

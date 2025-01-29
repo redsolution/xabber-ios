@@ -399,7 +399,7 @@ class SearchResultsViewController: SimpleBaseViewController {
                 var message: String
                 
                 if let lastMessage = item.lastMessage {
-                    message = lastMessage.displayedBody(entity: primaryResource?.entity ?? .contact)
+                    message = lastMessage.displayedBody()
                     if message.isEmpty {
                         message = blankMessageText
                     }

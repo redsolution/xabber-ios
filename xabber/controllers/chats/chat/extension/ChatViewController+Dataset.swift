@@ -32,71 +32,80 @@ import CocoaLumberjack
 extension ChatViewController {
 
     internal final func updateDateLabels(afterIndex: Int = 0) {
+        self.previousContentOffsetY = 0
         let layout = self.messagesCollectionView.collectionViewLayout as! MessagesCollectionViewFlowLayout
         self.nextPinnedDateIndex = nil
         self.pinnedDateIndex = nil
         self.pinnedDateFrame = .zero
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
-            var indexPaths: [IndexPath] = []
-            self.dateViews.forEach { $0.isHidden = true }
-            self.dateViews.forEach { $0.removeFromSuperview() }
-            autoreleasepool {
-                self.dateViews = []
-                self.originalFrames = []
-            }
-            let maxVisible = ([(self.messagesCollectionView.indexPathsForVisibleItems.compactMap { $0.section }.max() ?? 0), afterIndex - 1].max() ?? 0 ) - 1
-            let firstPinned: Int = self.datasource.enumerated().compactMap {
-                switch $1.kind {
-                    case .date(_):
-                        if maxVisible < $0 {
-                            return $0
-                        } else {
-                            return nil
-                        }
-                    default:
+//        DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
+        var indexPaths: [IndexPath] = []
+        self.dateViews.forEach { $0.isHidden = true }
+        self.dateViews.forEach { $0.removeFromSuperview() }
+        autoreleasepool {
+            self.dateViews = []
+            self.originalFrames = []
+        }
+        let maxVisible = ([(self.messagesCollectionView.indexPathsForVisibleItems.compactMap { $0.section }.max() ?? 0), afterIndex - 1].max() ?? 0 ) - 1
+        let firstPinned: Int = self.datasource.enumerated().compactMap {
+            switch $1.kind {
+                case .date(_):
+                    if maxVisible < $0 {
+                        return $0
+                    } else {
                         return nil
-                }
-            }.min() ?? 0
+                    }
+                default:
+                    return nil
+            }
+        }.min() ?? 0
 
-            print(firstPinned, "firstPinned")
-            var dateItemIndex: Int = 0
-            self.datasource.enumerated().forEach {
-                (offset, item) in
-                switch item.kind {
-                    case .date(let text):
-                        let path = IndexPath(row: 0, section: offset)
-                        indexPaths.append(path)
-                        let attrib = layout.layoutAttributesForItem(at: path)
-                        guard let frame = attrib?.frame else { return }
-                        var convertedPoint = self.messagesCollectionView.convert(frame.origin, to: self.view)
-                        convertedPoint.y = convertedPoint.y - frame.height
-//                        print(frame)
-                        var newFrame = CGRect(origin: convertedPoint, size: frame.size)
-                        self.originalFrames.append(newFrame)
-                        let view = FloatDateView(frame: newFrame)
-                        view.primary = item.primary
-                        view.configure(text)
-                        view.isPinned = firstPinned == offset
-                        view.naturalIndex = offset
-                        if firstPinned == offset {
-                            var center = view.center
-                            var offsetY: CGFloat = 54
-                            if let topInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
-                                offsetY += topInset
-                            }
-                            center.y = offsetY + view.frame.height / 2
-                            view.center = center
-                            self.pinnedDateFrame = view.frame
-                            self.pinnedDateIndex = dateItemIndex
+        print(firstPinned, "firstPinned")
+        var dateItemIndex: Int = 0
+        self.datasource.enumerated().forEach {
+            (offset, item) in
+            switch item.kind {
+                case .date(let text):
+                    let path = IndexPath(row: 0, section: offset)
+                    indexPaths.append(path)
+                    let attrib = layout.layoutAttributesForItem(at: path)
+                    guard let frame = attrib?.frame else { return }
+                    var convertedPoint = self.messagesCollectionView.convert(frame.origin, to: self.view)
+                    convertedPoint.y = convertedPoint.y - frame.height
+                    let newFrame = CGRect(origin: convertedPoint, size: frame.size)
+                    self.originalFrames.append(newFrame)
+                    let view = FloatDateView(frame: newFrame)
+                    view.primary = item.primary
+                    view.configure(text)
+                    view.isPinned = firstPinned == offset
+                    view.naturalIndex = offset
+                    if firstPinned == offset {
+                        var center = view.center
+                        var offsetY: CGFloat = 54
+                        if let topInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
+                            offsetY += topInset
                         }
-                        self.dateListContainerView.addSubview(view)
-                        self.dateViews.append(view)
-                        dateItemIndex += 1
-                    default:
-                        break
-                }
+                        center.y = offsetY + view.frame.height / 2
+                        view.center = center
+                        self.pinnedDateFrame = view.frame
+                        self.pinnedDateIndex = dateItemIndex
+                    }
+                    self.dateListContainerView.addSubview(view)
+                    self.dateViews.append(view)
+                    dateItemIndex += 1
+                default:
+                    break
             }
         }
+        let contentOffsetY = self.messagesCollectionView.contentOffset.y
+        let prevScrollDirection: ChatDirection = self.chatScrollDirection ?? .up
+        if contentOffsetY > self.previousContentOffsetY {
+            self.chatScrollDirection = .up
+        } else {
+            self.chatScrollDirection = .down
+        }
+        self.updateDateViews(contentOffsetY: contentOffsetY, prevScrollDirection: prevScrollDirection)
+        self.contentOffsetObserver.accept(contentOffsetY)
+//        }
     }
     
     internal final func mapDataset(dataset: Array<MessageStorageItem>) -> [Datasource] {
@@ -251,8 +260,20 @@ extension ChatViewController {
                     }
             }
             
-            let withAuthor: Bool
+            var withAuthor: Bool = false
+            var tailed: Bool = true
             var date = item.date
+            let prevMessage = offset - 1
+            if prevMessage >= 0 {
+                let prevItem = dataset[prevMessage]
+                if self.conversationType == .group {
+                    withAuthor = !(prevItem.groupchatCard?.userId == item.groupchatCard?.userId)
+                    tailed = !(item.outgoing == prevItem.outgoing)
+                } else {
+                    tailed = !(item.outgoing == prevItem.outgoing)
+                }
+            }
+            
 //            if conversationType == .saved {
 //                if item.groupchatCard != nil {
 //                    withAuthor = true
@@ -302,7 +323,7 @@ extension ChatViewController {
                 sentDate: date,
                 editDate: item.editDate,
                 kind: kind,
-                withAuthor: false,
+                withAuthor: withAuthor,
                 withAvatar: false,//self.groupchat ? !item.outgoing : false,
                 error: item.state == .error,
                 errorType: item.messageError ?? "",
@@ -328,7 +349,8 @@ extension ChatViewController {
                 isRead: item.isRead,
                 selectedSearchResultId: nil,//item.archivedId == self.selectedSearchResultId ? self.selectedSearchResultId : nil,
                 references: item.references.toArray().compactMap { $0.loadModel() },
-                isHadHistoryGap: false
+                isHadHistoryGap: false,
+                tailed: tailed
             ))
             if (dataset.count > 1 && (offset + 1) < dataset.count) || (offset + 1 == dataset.count) {
                 if item.archivedId == unreadId {
@@ -429,47 +451,6 @@ extension ChatViewController {
                         references: [],
                         isHadHistoryGap: false
                     ))
-//                    if offset + 1 == dataset.count {
-//                        let kind: MessageKind = .activityIndicator
-//                        out.append(Datasource(
-//                            primary: "\(item.primary) date changed",
-//                            jid: self.jid,
-//                            owner: self.owner,
-//                            outgoing: item.outgoing,
-//                            sender: item.outgoing ? self.ownerSender : self.opponentSender,
-//                            messageId: item.messageId,
-//                            sentDate: date,
-//                            editDate: nil,
-//                            kind: kind,
-//                            withAuthor: false,
-//                            withAvatar: false,//self.groupchat ? !item.outgoing : false,
-//                            error: item.state == .error,
-//                            errorType: "",
-//                            canPinMessage: false,
-//                            canEditMessage: false,
-//                            canDeleteMessage: false,
-//                            forwards: [],
-//                            isOutgoing: item.outgoing,
-//                            isEdited: false,
-//                            groupchatAuthorRole: "",
-//                            groupchatAuthorId: "",
-//                            groupchatAuthorNickname: "",
-//                            groupchatAuthorBadge: "",
-//                            isHasAttachedMessages: false,
-//                            isDownloaded: true,
-//                            state: .none,
-//                            searchString:  "",
-//                            errorMetadata: nil,
-//                            burnDate: 0,
-//                            afterburnInterval: 0,
-//                            archivedId: "\(item.archivedId) date changed",
-//                            queryIds: "\(item.queryIds ?? "") date changed",
-//                            isRead: item.isRead,
-//                            selectedSearchResultId: nil,//item.archivedId == self.selectedSearchResultId ? self.selectedSearchResultId : nil,
-//                            references: [],
-//                            isHadHistoryGap: false
-//                        ))
-//                    }
                 }
                 
             }
@@ -477,56 +458,6 @@ extension ChatViewController {
         return out
     }
     
-    private final func convertChangeset(changes: [Change<Datasource>]) -> ChangesWithIndexSet {
-        let inserts = IndexSet(changes.compactMap({ return $0.insert?.index }))
-        let deletes = IndexSet(changes.compactMap({ return $0.delete?.index }))
-        let replaces = IndexSet(changes.compactMap({ return $0.replace?.index }))
-        let moves = changes.compactMap({ $0.move }).map({
-          (
-            from: IndexPath(item: 0, section: $0.fromIndex),
-            to: IndexPath(item: 0, section: $0.toIndex)
-          )
-        })
-        
-        return ChangesWithIndexSet(
-            inserts: inserts,
-            deletes: deletes,
-            replaces: replaces,
-            moves: moves
-        )
-    }
-    
-    private final func apply(changes: ChangesWithIndexSet, shouldScrollToLastMessage: Bool = false, forceWithoutAnimations: Bool = false, addToEnd: Bool = false, addToStart: Bool = false, prepare: @escaping (() -> Void)) {
-        if changes.deletes.isEmpty &&
-            changes.inserts.isEmpty &&
-            changes.moves.isEmpty &&
-            changes.replaces.isEmpty {
-            return
-        }
-        
-        self.messagesCollectionView.performBatchUpdates({
-            prepare()
-            if !changes.deletes.isEmpty {
-               self.messagesCollectionView.deleteSections(changes.deletes)
-            }
-
-            if !changes.inserts.isEmpty {
-               self.messagesCollectionView.insertSections(changes.inserts)
-            }
-
-            if changes.moves.isNotEmpty {
-               changes.moves.forEach {
-                   (from, to) in
-                   self.messagesCollectionView.moveItem(at: from, to: to)
-               }
-            }
-            if !changes.replaces.isEmpty {
-                self.messagesCollectionView.reloadItems(at: changes.replaces.compactMap { return IndexPath(row: 0, section: $0) })
-            }
-        }, completion: {
-            result in
-        })
-    }
     
     func reloadDataWithFixedPosition() {
         let contentOffset = self.messagesCollectionView.contentOffset.y
@@ -540,14 +471,16 @@ extension ChatViewController {
     
     internal final func onTouchStartPage(direction: ChatDirection) {
         print(#function)
-        self.currentPage.prevPage {
+        self.currentPage.prevPage(autoUnlock: false) {
             self.loadDatasource(direction: direction) { addditional in
                 (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?.cache.invalidate()
-                print(self.datasource.count)
                 self.datasource.insert(contentsOf: self.mapDataset(dataset: addditional), at: 0)
-                print(self.datasource.count)
                 self.messagesCollectionView.reloadDataAndKeepOffset()
+                self.messagesCollectionView.layoutIfNeeded()
                 self.updateDateLabels(afterIndex: self.pinnedDateIndex ?? 0)
+                do {
+                    self.currentPage.unlock()
+                }
             }
         }
     }
@@ -558,7 +491,7 @@ extension ChatViewController {
         DispatchQueue.main.async {
             self.messageLoadingActivityIndicator.isHidden = false
         }
-        self.currentPage.nextPage {
+        self.currentPage.nextPage(autoUnlock: false) {
             self.loadDatasource(direction: direction) { addditional in
                 DispatchQueue.main.async {
                     self.messageLoadingActivityIndicator.isHidden = true
@@ -566,7 +499,11 @@ extension ChatViewController {
                 (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?.cache.invalidate()
                 self.datasource.append(contentsOf: self.mapDataset(dataset: addditional))
                 self.messagesCollectionView.reloadData()
+                self.messagesCollectionView.layoutIfNeeded()
                 self.updateDateLabels(afterIndex: self.pinnedDateIndex ?? 0)
+                do {
+                    self.currentPage.unlock()
+                }
             }
         }
     }
@@ -579,6 +516,7 @@ extension ChatViewController {
                 self.currentPage.minIndex = minIndex
                 self.currentPage.maxIndex = maxIndex
                 callback(slice)
+                
             }
         }
         
@@ -719,6 +657,9 @@ extension ChatViewController {
     
     
     func didReceiveChangeset() {
+        if self.currentPage.locked {
+            return
+        }
         self.loadDatasource(direction: self.chatScrollDirection ?? .up, ignoreGaps: true, samePage: true) { array in
             let newDatasource = self.mapDataset(dataset: array)
             let diff = diff(old: self.datasource, new: newDatasource)
@@ -741,7 +682,7 @@ extension ChatViewController {
                 self.messagesCollectionView.reconfigureItems(at: updated.compactMap { return IndexPath(row: 0, section: $0.index) })
                 
             } completion: { _ in
-                self.updateDateLabels()
+                self.updateDateLabels(afterIndex: self.pinnedDateIndex ?? 0)
             }
         }
         

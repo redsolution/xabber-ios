@@ -79,7 +79,7 @@ class ShareDialogSearchController: BaseViewController {
                 conversationType = .omemo
             }
             
-            var message: String = item.lastMessage?.displayedBody(entity: primaryResource?.entity ?? .contact) ?? blankMessageText
+            var message: String = item.lastMessage?.displayedBody() ?? blankMessageText
             
             var isDraft: Bool = false
             if let draft = item.draftMessage {

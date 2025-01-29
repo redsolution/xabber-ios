@@ -49,6 +49,10 @@ extension ChatViewController: ContextMenuDelegate {
 
 extension ChatViewController: MessageCellDelegate {
     
+    func inSelectionMode() -> Bool {
+        return self.isInSelectionMode.value
+    }
+    
     func didTapErrorButton(cell: MessageCollectionViewCell) {
         if self.showSkeletonObserver.value {
             return
@@ -246,6 +250,7 @@ extension ChatViewController: MessageCellDelegate {
                 return
         }
         let primary = item.primary
+        self.inSearchMode.accept(false)
         self.forwardedIds.accept(Set<String>())
         attachedMessagesIds.accept([primary])
     }

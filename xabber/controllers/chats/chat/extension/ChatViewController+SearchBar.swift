@@ -149,19 +149,10 @@ extension ChatViewController {
     internal func scrollToSearchedMessage(archivedId: String) {
         (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?.cache.invalidate()
         self.messagesCollectionView.reloadData()
-        self.messagesCollectionView.layoutIfNeeded()
         let scrollIndex = self.datasource.firstIndex(where: { $0.archivedId == archivedId }) ?? 0
         self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: scrollIndex), at: .centeredVertically, animated: false)
+        self.messagesCollectionView.layoutIfNeeded()
         self.updateDateLabels(afterIndex: scrollIndex)
-        let contentOffsetY = self.messagesCollectionView.contentOffset.y
-        let prevScrollDirection: ChatDirection = self.chatScrollDirection ?? .up
-        if contentOffsetY > self.previousContentOffsetY {
-            self.chatScrollDirection = .up
-        } else {
-            self.chatScrollDirection = .down
-        }
-        self.updateDateViews(contentOffsetY: contentOffsetY, prevScrollDirection: prevScrollDirection)
-        self.contentOffsetObserver.accept(contentOffsetY)
     }
 }
 

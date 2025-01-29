@@ -78,7 +78,7 @@ extension ChatViewController: MessagesDisplayDelegate {
 //        case .url:
 //            return MessageLabel.defaultURLAttributes
 //        }
-        return [:]
+        return MessageLabel.defaultAttributes//[:]
     }
     
     func isBurnedMessage(at indexPath: IndexPath) -> Bool {
@@ -90,42 +90,28 @@ extension ChatViewController: MessagesDisplayDelegate {
     }
     
     func backgroundColor(for message: MessageType, at indexPath: IndexPath, in messagesCollectionView: MessagesCollectionView) -> UIColor {
-        let item = self.datasource[indexPath.section]
-        if item.isHasAttachedMessages {
+        if message.isHasAttachedMessages {
             return .clear
         }
-        return item.outgoing ? UIColor.systemBackground : self.accountPallete.tint50 | self.accountPallete.tint900
+        return message.isOutgoing ? UIColor.systemBackground : self.accountPallete.tint50 | self.accountPallete.tint900
     }
     
     func deliveryState(at indexPath: IndexPath) -> MessageStorageItem.MessageSendingState {
-//        if (messagesObserver?.count ?? 0) < indexPath.section { return datasource[indexPath.section].state }
-//        guard let item = self.messagesObserver?[indexPath.section] else { return .none }
-//        let state = item.messageError == "Editing" ? .sending : item.state
-//        return item.outgoing ? state : .none
         let item = self.datasource[indexPath.section]
-//        let state = item.isEdited ? .sending : item.state
         return item.outgoing ? item.state : .none
     }
     
     func messageStyle(for message: MessageType, at indexPath: IndexPath, in messagesCollectionView: MessagesCollectionView) -> MessageStyle {
         let corner: MessageStyle.TailCorner = isFromCurrentSender(message: message) ? .bottomRight : .bottomLeft
-        let item = datasource[indexPath.section]
         switch message.kind {
-        case .text(_), .attributedText(_, _, _):
-//            if indexPath.section > 0 {
-//                if self.groupchat {
-//                    if self.datasource[indexPath.section - 1].groupchatAuthorId == item.groupchatAuthorId {
-//                        return .bubble(corner)
-//                    }
-//                } else {
-//                    if self.datasource[indexPath.section - 1].outgoing == item.outgoing {
-//                        return .bubble(corner)
-//                    }
-//                }
-//            }
-            return .bubbleTail(corner)
-        default:
-            return .bubble(corner)
+            case .text(_), .attributedText(_, _, _):
+                if message.tailed {
+                    return .bubbleTail(corner)
+                } else {
+                    return .bubble(corner)
+                }
+            default:
+                return .bubble(corner)
         }
     }
     

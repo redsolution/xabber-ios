@@ -28,6 +28,7 @@ class MessagesCollectionViewFlowLayout: UICollectionViewFlowLayout {
     internal final let cache: MessageSizeCache = MessageSizeCache()
     
     override class var layoutAttributesClass: AnyClass {
+        let lay = UICollectionViewLayout()
         return MessagesCollectionViewLayoutAttributes.self
     }
     

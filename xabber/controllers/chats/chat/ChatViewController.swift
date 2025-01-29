@@ -226,6 +226,7 @@ class ChatViewController: MessagesViewController {
         var selectedSearchResultId: String? = nil
         var references: [MessageReferenceStorageItem.Model] = []
         var isHadHistoryGap: Bool = false
+        var tailed: Bool = false
         
         static func compareContent(_ a: ChatViewController.Datasource, _ b: ChatViewController.Datasource) -> Bool {
             return a.primary == b.primary &&
@@ -243,7 +244,8 @@ class ChatViewController: MessagesViewController {
                 a.isRead == b.isRead &&
                 ChatViewController.Datasource.iconForMetadata(for: a.errorMetadata) == ChatViewController.Datasource.iconForMetadata(for: b.errorMetadata) &&
                 a.selectedSearchResultId == b.selectedSearchResultId &&
-                a.queryIds == b.queryIds
+                a.queryIds == b.queryIds &&
+                a.tailed == b.tailed
         }
         
         static func iconForMetadata(for meta: [String: Any]?) -> String? {
@@ -1046,8 +1048,8 @@ class ChatViewController: MessagesViewController {
         
         (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
             .cache.invalidate()
-        self.updateDateLabels(afterIndex: self.pinnedDateIndex ?? self.nextPinnedDateIndex ?? 0)
         self.messagesCollectionView.reloadData()
+        self.updateDateLabels(afterIndex: self.pinnedDateIndex ?? self.nextPinnedDateIndex ?? 0)
     }
     
     private func unsubscribe() {
@@ -1182,6 +1184,7 @@ class ChatViewController: MessagesViewController {
             self.showSkeletonObserver.accept(false)
             self.datasource = self.mapDataset(dataset: array)
             self.messagesCollectionView.reloadData()
+            self.messagesCollectionView.layoutIfNeeded()
             self.updateDateLabels()
         }
     }

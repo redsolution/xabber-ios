@@ -62,4 +62,6 @@ public protocol MessageCellDelegate: MessageLabelDelegate {
     func didTapErrorButton(cell: MessageCollectionViewCell)
     
     func didTapOnInitialFooterLabel(in cell: MessageCollectionViewCell)
+    
+    func inSelectionMode() -> Bool
 }
