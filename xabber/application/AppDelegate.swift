@@ -61,7 +61,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         _DEBUG = false
         DDLog.add(DDOSLogger.sharedInstance, with: DDLogLevel.off)
         #else
-        DDLog.add(DDOSLogger.sharedInstance, with: DDLogLevel.all)
+        DDLog.add(DDOSLogger.sharedInstance, with: DDLogLevel.off)
         #endif
         
         if SettingManager.logEnabled {

@@ -359,6 +359,7 @@ class ChatViewController: MessagesViewController {
     var indexPathOfPinnedDate: IndexPath? = nil
     var dateViews: [FloatDateView] = []
     var originalFrames: [CGRect] = []
+    var realDateFrames: [CGRect] = []
     var pinnedDateFrame: CGRect = .zero
     var pinnedDateIndex: Int? = nil
     var nextPinnedDateIndex: Int? = nil

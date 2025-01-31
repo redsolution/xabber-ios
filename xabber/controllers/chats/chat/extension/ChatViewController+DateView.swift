@@ -80,11 +80,11 @@ extension ChatViewController {
             fatalError("init(coder:) has not been implemented")
         }
         
-        func updateCenterIfNotAPinned(_ center: CGPoint) {
+        func updateFrameIfNotAPinned(_ frame: CGRect) {
             if self.isPinned {
                 return
             }
-            self.center = center
+            self.frame = frame
             self.layoutIfNeeded()
         }
     }

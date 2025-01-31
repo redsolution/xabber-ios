@@ -37,13 +37,12 @@ extension ChatViewController {
         self.nextPinnedDateIndex = nil
         self.pinnedDateIndex = nil
         self.pinnedDateFrame = .zero
-//        DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
         var indexPaths: [IndexPath] = []
-        self.dateViews.forEach { $0.isHidden = true }
         self.dateViews.forEach { $0.removeFromSuperview() }
         autoreleasepool {
             self.dateViews = []
             self.originalFrames = []
+            self.realDateFrames = []
         }
         let maxVisible = ([(self.messagesCollectionView.indexPathsForVisibleItems.compactMap { $0.section }.max() ?? 0), afterIndex - 1].max() ?? 0 ) - 1
         let firstPinned: Int = self.datasource.enumerated().compactMap {
@@ -58,37 +57,82 @@ extension ChatViewController {
                     return nil
             }
         }.min() ?? 0
-
-        print(firstPinned, "firstPinned")
-        var dateItemIndex: Int = 0
+        
+        
+        var largestDateFrame: CGRect = .zero
         self.datasource.enumerated().forEach {
             (offset, item) in
             switch item.kind {
-                case .date(let text):
+                case .date(_):
                     let path = IndexPath(row: 0, section: offset)
                     indexPaths.append(path)
                     let attrib = layout.layoutAttributesForItem(at: path)
                     guard let frame = attrib?.frame else { return }
                     var convertedPoint = self.messagesCollectionView.convert(frame.origin, to: self.view)
-                    convertedPoint.y = convertedPoint.y - frame.height
+                    var inset: CGFloat = 0
+                    if let topInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.vertical {
+                        inset += topInset
+                    }
+                    convertedPoint.y = convertedPoint.y + inset
                     let newFrame = CGRect(origin: convertedPoint, size: frame.size)
                     self.originalFrames.append(newFrame)
+                    if largestDateFrame.width < newFrame.width {
+                        largestDateFrame = newFrame
+                    }
+                default:
+                    break
+            }
+        }
+        
+        var pinnedFrame = CGRect(origin: .zero, size: largestDateFrame.size)
+        var offsetY: CGFloat = self.navbarOverlayView.frame.height
+        
+        
+        self.originalFrames.enumerated().forEach {
+            (offset, item) in
+            if item.maxY < pinnedFrame.maxY && self.pinnedDateIndex == nil {
+                self.realDateFrames.append(item)
+                self.pinnedDateIndex = offset
+            } else {
+                if let index = self.pinnedDateIndex {
+                    print("\(offset) - \(index) pos123")
+                    let frame = pinnedFrame.offsetBy(dx: 0, dy: -16 - (CGFloat(offset - index - 1) * (pinnedFrame.height)))
+                    self.realDateFrames.append(frame)
+                } else {
+                    self.realDateFrames.append(item)
+                }
+            }
+        }
+//        if let topInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
+//            offsetY += topInset
+//        }
+        pinnedFrame = pinnedFrame.offsetBy(dx: 0, dy: offsetY + 8)
+        self.pinnedDateIndex = nil
+        self.originalFrames.enumerated().forEach {
+            (offset, _) in
+            self.originalFrames[offset].size = largestDateFrame.size
+        }
+        
+        var dateItemIndex: Int = 0
+        print(pinnedFrame, "pinnedFrame")
+        self.datasource.enumerated().forEach {
+            (offset, item) in
+            switch item.kind {
+                case .date(let text):
+                    let newFrame = self.originalFrames[dateItemIndex]
                     let view = FloatDateView(frame: newFrame)
                     view.primary = item.primary
                     view.configure(text)
-                    view.isPinned = firstPinned == offset
+                    view.isPinned = false
                     view.naturalIndex = offset
-                    if firstPinned == offset {
-                        var center = view.center
-                        var offsetY: CGFloat = 54
-                        if let topInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
-                            offsetY += topInset
-                        }
-                        center.y = offsetY + view.frame.height / 2
-                        view.center = center
-                        self.pinnedDateFrame = view.frame
+                    if newFrame.maxY < pinnedFrame.maxY && self.pinnedDateIndex == nil{
+                        
+                        self.pinnedDateFrame = pinnedFrame
                         self.pinnedDateIndex = dateItemIndex
+                        view.frame = pinnedFrame
+                        view.isPinned = true
                     }
+                    
                     self.dateListContainerView.addSubview(view)
                     self.dateViews.append(view)
                     dateItemIndex += 1

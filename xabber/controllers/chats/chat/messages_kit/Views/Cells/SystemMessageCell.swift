@@ -80,6 +80,7 @@ class SystemMessageCell: MessageContentCell {
                 case .date(let text):
                     messageLabel.attributedText = text
                     messageLabel.isHidden = true
+                    backgroundColor = UIColor.systemBlue.withAlphaComponent(0.2)
                 case .unread(let text):
                     messageLabel.attributedText = text
                     self.backgroundColor = UIColor.black.withAlphaComponent(0.2)
