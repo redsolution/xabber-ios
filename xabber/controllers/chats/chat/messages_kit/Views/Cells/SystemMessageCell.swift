@@ -59,9 +59,9 @@ class SystemMessageCell: MessageContentCell {
     override func configure(with message: MessageType, at indexPath: IndexPath, and messagesCollectionView: MessagesCollectionView) {
         super.configure(with: message, at: indexPath, and: messagesCollectionView)
         
-        guard let displayDelegate = messagesCollectionView.messagesDisplayDelegate else {
-            fatalError(MessageKitError.nilMessagesDisplayDelegate)
-        }
+//        guard let displayDelegate = messagesCollectionView.messagesDisplayDelegate else {
+//            fatalError(MessageKitError.nilMessagesDisplayDelegate)
+//        }
         
 //        messageLabel.backgroundColor = .red
         messageContainerView.bubbleImage.isHidden = true
@@ -76,12 +76,15 @@ class SystemMessageCell: MessageContentCell {
             switch message.kind {
                 case .system(let text):
                     messageLabel.attributedText = text
-//                    messageLabel.backgroundColor = UIColor.black.withAlphaComponent(0.2)
+                    messageLabel.backgroundColor = .clear
                 case .date(let text):
                     messageLabel.attributedText = text
-                    messageLabel.isHidden = true
+                    messageLabel.isHidden = false
+                    self.backgroundColor = .clear
+                    messageLabel.backgroundColor = UIColor.black.withAlphaComponent(0.2)
                 case .unread(let text):
                     messageLabel.attributedText = text
+                    messageLabel.backgroundColor = .clear
                     self.backgroundColor = UIColor.black.withAlphaComponent(0.2)
             default:
                 break
@@ -121,5 +124,9 @@ class SystemMessageCell: MessageContentCell {
             NSSelectorFromString("copy:"),
         ]
         return out.contains(action)
+    }
+    
+    override func panGestureObserver() {
+        return
     }
 }

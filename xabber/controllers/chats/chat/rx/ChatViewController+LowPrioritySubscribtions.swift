@@ -57,6 +57,60 @@ extension ChatViewController {
             })
             .disposed(by: bag)
         
+        self.loadDatasourceObserver.asObservable().debounce(.seconds(1), scheduler: MainScheduler.asyncInstance).subscribe { value in
+            self.canLoadDatasource = value
+        }.disposed(by: self.bag)
+
+        
+        self.showFloatingDateObserver
+            .asObservable()
+            .skip(1)
+            .debounce(.milliseconds(400), scheduler: MainScheduler.asyncInstance)
+            .subscribe { value in
+                if self.showSkeletonObserver.value {
+                    return
+                }
+                if value {
+                    let visibleItems = self.messagesCollectionView.indexPathsForVisibleItems
+                    let layout = self.messagesCollectionView.collectionViewLayout as! MessagesCollectionViewFlowLayout
+                    let visibleDateFrames: [CGRect] = visibleItems.compactMap {
+                        path in
+                        switch self.datasource[path.section].kind {
+                            case .date, .unread:
+                                let attrib = layout.layoutAttributesForItem(at: path)
+                                guard let frame = attrib?.frame else { return nil }
+                                var convertedPoint = self.messagesCollectionView.convert(frame.origin, to: self.view)
+                                convertedPoint.y = convertedPoint.y - frame.height
+                                let newFrame = CGRect(origin: convertedPoint, size: frame.size)
+                                print(newFrame)
+                                return newFrame
+                            default:
+                                return nil
+                        }
+                    }.filter({
+                        $0.minY < 150
+                    })
+                    if visibleItems.isEmpty {
+                        self.showFloatingDateObserver.accept(value)
+                    } else if visibleItems.isNotEmpty && visibleDateFrames.isEmpty && ((visibleItems.compactMap({ $0.section }).max() ?? 0) != self.datasource.count - 1) {
+                        self.pinnedDateView.show()
+                        self.hideFloatingDateObserver.accept(true)
+                    } else {
+                        self.pinnedDateView.hide(fast: true)
+                    }
+                }
+            }.disposed(by: self.bag)
+        
+        self.hideFloatingDateObserver
+            .asObservable()
+            .debounce(.seconds(3), scheduler: MainScheduler.asyncInstance)
+            .subscribe { value in
+                if value {
+                    self.pinnedDateView.hide()
+                }
+            }.disposed(by: self.bag)
+
+        
         inTypingMode
             .asObservable()
             .window(timeSpan: .seconds(5), count: 22, scheduler: MainScheduler.asyncInstance)
@@ -281,33 +335,47 @@ extension ChatViewController {
 //            .skip(1)
             .subscribe { value in
 //                self.runDatasetUpdateTask(shouldScrollToLastMessage: true)
-                self.didReceiveChangeset()
-                if AccountManager.shared.connectingUsers.value.contains(self.owner) {
-                    self.xabberInputView.isSendButtonEnabled = false
-                } else {
-                    do {
-                        let realm = try WRealm.safe()
-                        let badMessageCollection = realm
-                            .objects(MessageStorageItem.self)
-                            .filter(
-                                "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND messageType != %@ AND (state_ == %@ OR state_ == %@)",
-                                self.owner,
-                                self.jid,
-                                self.conversationType.rawValue,
-                                MessageStorageItem.MessageDisplayType.system.rawValue,
-                                MessageStorageItem.MessageSendingState.sending.rawValue,
-                                MessageStorageItem.MessageSendingState.error.rawValue
-                            )
-                        if value {
-                            self.xabberInputView.isSendButtonEnabled = false
-                        } else {
-                            self.xabberInputView.isSendButtonEnabled = badMessageCollection.isEmpty
+                if !value {
+                    if AccountManager.shared.connectingUsers.value.contains(self.owner) {
+                        self.xabberInputView.isSendButtonEnabled = false
+                    } else {
+                        do {
+                            let realm = try WRealm.safe()
+                            let badMessageCollection = realm
+                                .objects(MessageStorageItem.self)
+                                .filter(
+                                    "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND messageType != %@ AND (state_ == %@ OR state_ == %@)",
+                                    self.owner,
+                                    self.jid,
+                                    self.conversationType.rawValue,
+                                    MessageStorageItem.MessageDisplayType.system.rawValue,
+                                    MessageStorageItem.MessageSendingState.sending.rawValue,
+                                    MessageStorageItem.MessageSendingState.error.rawValue
+                                )
+                            if value {
+                                self.xabberInputView.isSendButtonEnabled = false
+                            } else {
+                                self.xabberInputView.isSendButtonEnabled = badMessageCollection.isEmpty
+                            }
+                            if let chatInstance = realm.object(
+                                ofType: LastChatsStorageItem.self,
+                                forPrimaryKey: LastChatsStorageItem.genPrimary(
+                                    jid: self.jid,
+                                    owner: self.owner,
+                                    conversationType: self.conversationType
+                                )
+                            ) {
+                                if chatInstance.fullArchiveLoaded && self.messagesObserver.count < 3 {
+                                    self.shouldShowInitialMessage = true
+                                }
+                            }
+                        } catch {
+                            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
                         }
-                    } catch {
                         
                     }
-                    
                 }
+                self.didReceiveChangeset()
                 self.xabberInputView.updateSendButtonState()
             } onError: { _ in
                 

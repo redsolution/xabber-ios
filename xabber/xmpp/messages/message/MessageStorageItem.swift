@@ -276,7 +276,7 @@ class MessageStorageItem: Object {
     public final func displayedBody() -> String {
         switch displayAs {
         case .initial:
-           return ""
+            return ""
         case .text, .quote:
             if self.inlineForwards.isNotEmpty {
                 return body
@@ -489,20 +489,20 @@ class MessageStorageItem: Object {
     }
 
     
-    func configureInitialMessage(_ owner: String, opponent: String, conversationType: ClientSynchronizationManager.ConversationType, text: String?, date: Date, isRead: Bool) {
-        self.body = text ?? ""
-        self.owner = owner
-        self.opponent = opponent
-        self.date = date
-        self.isRead = isRead
-        self.outgoing = false
-        self.conversationType = conversationType
-        self.date = Date(timeIntervalSince1970: 0)
-        self.sentDate = date
-        self.messageId = MessageStorageItem.messageIdForInitial(jid: opponent, conversationType: conversationType)
-        self.displayAs = .initial
-        self.updatePrimary()
-    }
+//    func configureInitialMessage(_ owner: String, opponent: String, conversationType: ClientSynchronizationManager.ConversationType, text: String?, date: Date, isRead: Bool) {
+//        self.body = text ?? ""
+//        self.owner = owner
+//        self.opponent = opponent
+//        self.date = date
+//        self.isRead = isRead
+//        self.outgoing = false
+//        self.conversationType = conversationType
+//        self.date = Date(timeIntervalSince1970: 0)
+//        self.sentDate = date
+//        self.messageId = MessageStorageItem.messageIdForInitial(jid: opponent, conversationType: conversationType)
+//        self.displayAs = .initial
+//        self.updatePrimary()
+//    }
     
     func configureSystemMessage(_ messageContainer: XMPPMessage, owner: String, opponent: String, date: Date) {
         self.references.append(objectsIn: parseReferences(messageContainer, jid: opponent, owner: owner))
@@ -828,6 +828,8 @@ class MessageStorageItem: Object {
                         } else {
                             instance.queryIds = self.queryIds
                         }
+                    } else {
+                        print("as")
                     }
                 }
                 return false
@@ -944,17 +946,6 @@ class MessageStorageItem: Object {
                     instance.isSynced = [.omemo, .omemo1, .axolotl].contains(self.conversationType)
                     instance.lastMessageId = self.messageId
                     
-                    
-                    let initialMessage = MessageStorageItem()
-                    initialMessage.configureInitialMessage(
-                        self.owner,
-                        opponent: self.opponent,
-                        conversationType: self.conversationType,
-                        text: nil,
-                        date: Date(),
-                        isRead: true
-                    )
-                    
                     if let timer = self.references.first?.metadata?["ephemeral-timer"] as? Int {
                         instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
                         instance.afterburnInterval = Double(timer)
@@ -968,11 +959,7 @@ class MessageStorageItem: Object {
                     try transaction(commit: commitTransaction, callback: {
                         if instance.isInvalidated { return }
                         realm.add(instance, update: .modified)
-                        if realm.object(ofType: MessageStorageItem.self, forPrimaryKey: initialMessage.primary) == nil {
-                            realm.add(initialMessage)
-                        } else {
-                            realm.object(ofType: MessageStorageItem.self, forPrimaryKey: initialMessage.primary)?.isDeleted = false
-                        }
+
                         if let rosterItem = realm
                             .object(ofType: RosterStorageItem.self,
                                     forPrimaryKey: [self.opponent, owner].prp()) {

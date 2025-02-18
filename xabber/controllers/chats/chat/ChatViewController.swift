@@ -47,6 +47,7 @@ class ChatViewController: MessagesViewController {
         var highArchivedId: String
         var isLoading: Bool = false
         var locked: Bool = false
+        var longLock: Bool = false
         
         open var isUnlocked: Bool {
             get {
@@ -72,7 +73,7 @@ class ChatViewController: MessagesViewController {
             if self.locked {
                 return
             }
-            self.locked = true
+//            self.locked = true
             self.page += 1
             callback?()
             if autoUnlock {
@@ -84,7 +85,7 @@ class ChatViewController: MessagesViewController {
             if self.locked {
                 return
             }
-            self.locked = true
+//            self.locked = true
             self.page -= 1
             if self.page < 0 {
                 self.page = 0
@@ -103,7 +104,7 @@ class ChatViewController: MessagesViewController {
 //            if self.locked {
 //                return
 //            }
-            self.locked = true
+//            self.locked = true
             self.page = newPage
             callback?()
             if autoUnlock {
@@ -120,7 +121,7 @@ class ChatViewController: MessagesViewController {
         }
         
         public final func unlock() {
-//            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+//            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 self.locked = false
 //            }
         }
@@ -227,6 +228,7 @@ class ChatViewController: MessagesViewController {
         var references: [MessageReferenceStorageItem.Model] = []
         var isHadHistoryGap: Bool = false
         var tailed: Bool = false
+        var isFakeMessage: Bool = false
         
         static func compareContent(_ a: ChatViewController.Datasource, _ b: ChatViewController.Datasource) -> Bool {
             return a.primary == b.primary &&
@@ -287,7 +289,11 @@ class ChatViewController: MessagesViewController {
     
 // datasource
     var messagesObserver: Results<MessageStorageItem>!
-    var datasource: [Datasource] = []
+    var datasource: [Datasource] = [] {
+        didSet {
+            print("SETTED")
+        }
+    }
     
 // rx
     var bag: DisposeBag = DisposeBag()
@@ -356,12 +362,27 @@ class ChatViewController: MessagesViewController {
     var searchSeekDirection: ChatDirection? = nil
     var selectedSearchResultId: String? = nil
 // floating date
-    var indexPathOfPinnedDate: IndexPath? = nil
-    var dateViews: [FloatDateView] = []
-    var originalFrames: [CGRect] = []
-    var pinnedDateFrame: CGRect = .zero
-    var pinnedDateIndex: Int? = nil
-    var nextPinnedDateIndex: Int? = nil
+//    var indexPathOfPinnedDate: IndexPath? = nil
+//    var dateViews: [FloatDateView] = []
+//    var originalFrames: [CGRect] = []
+//    var pinnedDateFrame: CGRect = .zero
+//    var pinnedDateIndex: Int? = nil
+//    var nextPinnedDateIndex: Int? = nil
+    
+    internal var hideFloatingDateObserver: BehaviorRelay<Bool> = BehaviorRelay(value: false)
+    internal var showFloatingDateObserver: BehaviorRelay<Bool> = BehaviorRelay(value: false)
+    internal var preventHidingDate: Bool = false
+    
+    internal var shouldShowInitialMessage: Bool = false
+    
+    internal var canLoadDatasource: Bool = false
+    internal var loadDatasourceObserver: BehaviorRelay<Bool> = BehaviorRelay(value: true)
+    
+    internal let pinnedDateView: FloatDateView = {
+        let view = FloatDateView(frame: .zero)
+        
+        return view
+    }()
     
     internal lazy var skeletonMessages: [NSAttributedString] = {
         return (0..<30).compactMap {
@@ -493,6 +514,8 @@ class ChatViewController: MessagesViewController {
     
     internal let chatViewLoadingOverlay: UIView = {
         let view = UIView()
+        
+        view.backgroundColor = UIColor.black.withAlphaComponent(0.2)
         
         let indicator = UIActivityIndicatorView(style: .large)
         
@@ -801,8 +824,6 @@ class ChatViewController: MessagesViewController {
     internal let backgroundImage = UIImageView()
     internal let gradientView = UIView()
     
-    internal var floatingDateView: FloatDateView!
-    
     private func configure() {
         restorationIdentifier = "CHAT_VIEW_CONTROLLER_RID"
         self.initSender()
@@ -844,6 +865,7 @@ class ChatViewController: MessagesViewController {
         let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
         self.xabberInputView = ModernXabberInputView(frame: frame)
         self.xabberInputView.delegate = self
+        self.view.addSubview(self.scrollDownButton)
         self.view.addSubview(xabberInputView)
         self.view.bringSubviewToFront(xabberInputView)
         
@@ -867,7 +889,6 @@ class ChatViewController: MessagesViewController {
         self.previousFrame = self.view.bounds
         self.view.addSubview(self.chatViewLoadingOverlay)
         self.chatViewLoadingOverlay.fillSuperview()
-        self.view.addSubview(self.scrollDownButton)
         self.view.addSubview(self.navbarOverlayView)
         self.scrollDownButton.center = CGPoint(x: self.view.frame.maxX - 64, y: self.view.frame.maxY + 44)
 //        self.view.addSubview(floatingDateView)
@@ -875,6 +896,7 @@ class ChatViewController: MessagesViewController {
         self.view.addSubview(self.messageLoadingActivityIndicator)
         self.messageLoadingActivityIndicator.startAnimating()
         self.messageLoadingActivityIndicator.isHidden = true
+        self.view.addSubview(self.pinnedDateView)
     }
     
 //    @objc
@@ -1036,7 +1058,7 @@ class ChatViewController: MessagesViewController {
         )
         
         self.messageLoadingActivityIndicator.frame = CGRect(width: 64, height: 64)
-        self.messageLoadingActivityIndicator.center = CGPoint(x: self.view.center.x, y: navbarHeight + 38)
+        self.messageLoadingActivityIndicator.center = CGPoint(x: self.view.center.x, y: navbarHeight + 32)
         
         var inputHeight: CGFloat = 49 + self.xabberInputView.keyboardHeight
         if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
@@ -1049,7 +1071,6 @@ class ChatViewController: MessagesViewController {
         (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
             .cache.invalidate()
         self.messagesCollectionView.reloadData()
-        self.updateDateLabels(afterIndex: self.pinnedDateIndex ?? self.nextPinnedDateIndex ?? 0)
     }
     
     private func unsubscribe() {
@@ -1163,6 +1184,7 @@ class ChatViewController: MessagesViewController {
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        print(#function)
         do {
             try self.subscribe()
             try self.groupSubscribtions()
@@ -1179,13 +1201,13 @@ class ChatViewController: MessagesViewController {
         self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 40, right: 0)
         self.lowPrioritySubscribtions()
         self.setupEncryptedChat()
-        self.showSkeletonObserver.accept(true)
-        self.loadDatasource(direction: .up) { array in
-            self.showSkeletonObserver.accept(false)
-            self.datasource = self.mapDataset(dataset: array)
-            self.messagesCollectionView.reloadData()
-            self.messagesCollectionView.layoutIfNeeded()
-            self.updateDateLabels()
+        if self.datasource.isEmpty {
+            self.showFloatingDateObserver.accept(false)
+            self.loadInitialDatasource { array in
+                self.datasource = self.mapDataset(dataset: array)
+                self.messagesCollectionView.reloadData()
+            }
+            
         }
     }
     
@@ -1209,10 +1231,17 @@ class ChatViewController: MessagesViewController {
                 self.onUpdateTimeSignatureBlockState(!SignatureManager.shared.isSignatureValid())
             }
         }
+        self.showFloatingDateObserver.accept(false)
+        self.pinnedDateView.hide(withoutAnimation: true)
     }
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        self.shouldChangeFrame()
+        self.updateFloatingDate()
+        self.hideFloatingDateObserver.accept(true)
+        self.showFloatingDateObserver.accept(false)
+        self.pinnedDateView.hide(withoutAnimation: true)
     }
     
     

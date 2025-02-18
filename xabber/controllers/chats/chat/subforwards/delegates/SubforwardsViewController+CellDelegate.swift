@@ -23,6 +23,10 @@ import UIKit
 import AVKit
 
 extension SubforwardsViewController: MessageCellDelegate {
+    func isInSelection() -> Bool {
+        return true
+    }
+    
     func didTapOnInitialFooterLabel(in cell: MessageCollectionViewCell) {
         
     }

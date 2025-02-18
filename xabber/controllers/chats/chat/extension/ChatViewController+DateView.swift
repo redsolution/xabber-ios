@@ -12,8 +12,10 @@ import UIKit
 extension ChatViewController {
     class FloatDateView: UIView {
         var primary: String = ""
+        var text: NSAttributedString = NSAttributedString()
         var naturalIndex: Int = 0
         var isPinned: Bool = false
+        var hiddenDate: Bool = false
         let messageLabelInsets = UIEdgeInsets(top: 4, left: 16, bottom: 4, right: 16)
         let contentView: UIStackView = {
             let stack = UIStackView()
@@ -31,10 +33,10 @@ extension ChatViewController {
             return label
         }()
         
-        func configure(_ text: NSAttributedString) {
+        func updateContent() {
             self.messageLabel.backgroundColor = UIColor.black.withAlphaComponent(0.2)
             self.messageLabel.textInsets = messageLabelInsets
-            self.messageLabel.attributedText = text
+            self.messageLabel.attributedText = self.text
             self.messageLabel.textAlignment = .center
             let constraintBox = CGSize(width: UIScreen.main.bounds.width, height: .greatestFiniteMagnitude)
             let dateRect = text.boundingRect(with: constraintBox, options: [
@@ -53,22 +55,17 @@ extension ChatViewController {
             self.messageLabel.layer.cornerRadius = frame.height / 2
             self.messageLabel.layer.masksToBounds = true
             self.layoutSubviews()
-//            self.messageLabel.sizeToFit()
-//            NSLayoutConstraint.activate([
-//                messageLabel.widthAnchor.constraint(equalToConstant: dateRect.width),
-//                messageLabel.heightAnchor.constraint(equalToConstant: dateRect.height),
-//                messageLabel.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
-//                messageLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-//            ])
-//            messageLabel.frame = dateRect
-//            messageLabel.center = contentView.center
+        }
+        
+        func configure(_ text: NSAttributedString) {
+            if text != self.text {
+                self.text = text
+                self.updateContent()
+            }
         }
         
         func setupSubviews() {
             addSubview(messageLabel)
-//            contentView.fillSuperview()
-//            contentView.addArrangedSubview(messageLabel)
-//            messageLabel.fillSuperview()
         }
         
         override init(frame: CGRect) {
@@ -86,6 +83,45 @@ extension ChatViewController {
             }
             self.center = center
             self.layoutIfNeeded()
+        }
+        
+        func updateFrameIfNotAPinned(_ frame: CGRect) {
+            if self.isPinned {
+                return
+            }
+            self.frame = frame
+            self.messageLabel.center.x = self.center.x
+            self.layoutSubviews()
+//            self.updateContent()
+        }
+        
+        func show() {
+            if !hiddenDate {
+                return
+            }
+            self.hiddenDate = false
+            UIView.animate(withDuration: 0.6, delay: 0.0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0.1, options: [.curveEaseIn]) {
+                self.alpha = 1.0
+            } completion: { _ in
+            }
+        }
+        
+        func hide(fast: Bool = false, withoutAnimation: Bool = false) {
+            if hiddenDate {
+                return
+            }
+            self.hiddenDate = true
+            if withoutAnimation {
+                UIView.performWithoutAnimation {
+                    self.alpha = 0.0
+                }
+            } else {
+                UIView.animate(withDuration: fast ? 0.1 : 1.0, delay: 0.0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0.1, options: [.curveEaseIn]) {
+                    self.alpha = 0.0
+                } completion: { _ in
+                    
+                }
+            }
         }
     }
 }

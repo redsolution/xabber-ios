@@ -24,7 +24,7 @@ extension ShareDialogController: ShareDialogControllerDelegate {
     func onOpen(_ jid: String) {
         if let item = datasource.first(where: { $0.jid == jid }) {
             
-            self.dismiss(animated: false) {
+            self.dismiss(animated: true) {
                 self.delegate?
                     .open(
                         owner: item.owner,

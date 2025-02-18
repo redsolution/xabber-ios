@@ -236,7 +236,7 @@ class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISe
         
         navigationItem.searchController = searchController
         navigationItem.hidesSearchBarWhenScrolling = false
-        (searchController?.searchResultsUpdater as? ShareDialogSearchController)?.delegate = self
+        (searchController?.searchResultsUpdater as? ShareDialogSearchController)?.delegate = self.delegate
         
         definesPresentationContext = true
     }

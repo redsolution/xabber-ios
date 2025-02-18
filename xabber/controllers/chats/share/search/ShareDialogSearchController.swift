@@ -31,7 +31,7 @@ class ShareDialogSearchController: BaseViewController {
     
     internal var datasource: [ShareDialogController.Datasource] = []
     
-    internal var delegate: ShareDialogControllerDelegate? = nil
+    internal var delegate: OpenChatDelegate? = nil
     
     internal let tableView: UITableView = {
         let view = UITableView(frame: .zero, style: .plain)
@@ -284,7 +284,15 @@ extension ShareDialogSearchController: UITableViewDelegate {
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         let item = datasource[indexPath.row]
-        delegate?.onOpen(item.jid)
+        self.dismiss(animated: true) {
+            self.delegate?
+                .open(
+                    owner: item.owner,
+                    jid: item.jid,
+                    conversationType: item.conversationType,
+                    forwarded: self.forwardIds
+                )
+        }
     }
     
 }

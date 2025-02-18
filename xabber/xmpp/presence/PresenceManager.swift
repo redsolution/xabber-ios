@@ -188,25 +188,6 @@ class PresenceManager: AbstractXMPPManager {
                     realm.add(instance)
                 }
             }
-                        
-            let initialMessage = MessageStorageItem()
-            initialMessage.configureInitialMessage(
-                self.owner,
-                opponent: jid,
-                conversationType: ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular,
-                text: "",
-                date: Date(),
-                isRead: true
-            )
-            
-            try realm.write {
-                if let message = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: initialMessage.primary) {
-                    realm.delete(message)
-                    _ = initialMessage.save(commitTransaction: false)
-                } else {
-                    _ = initialMessage.save(commitTransaction: false)
-                }
-            }
         } catch {
             DDLogDebug("PresenceManager: \(#function). \(error.localizedDescription)")
         }
@@ -316,7 +297,9 @@ class PresenceManager: AbstractXMPPManager {
         caps.addAttribute(withName: "ver", stringValue: ver)
         presence.addChild(caps)
 //        xmppStream.send(DDXMLElement(name: "inactive", xmlns: "urn:xmpp:csi:0"))
-        xmppStream.send(presence)
+        if status.status != .offline {
+            xmppStream.send(presence)
+        }
     }
     
     final func probe(_ xmppStream: XMPPStream, jid: String) {
@@ -544,24 +527,6 @@ class PresenceManager: AbstractXMPPManager {
                 return true
             }
             
-            let initialMessage = MessageStorageItem()
-            initialMessage.configureInitialMessage(
-                self.owner,
-                opponent: jid,
-                conversationType: ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular,
-                text: "",
-                date: Date(),
-                isRead: true
-            )
-            
-            try realm.write {
-                if let message = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: initialMessage.primary) {
-                    realm.delete(message)
-                    _ = initialMessage.save(commitTransaction: false)
-                } else {
-                    _ = initialMessage.save(commitTransaction: false)
-                }
-            }
             AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, stream in
                 user.avatarManager.requestPubSubItem(stream, node: .metadata, jid: jid, by: "")
             })

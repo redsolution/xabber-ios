@@ -46,4 +46,5 @@ protocol MessageType {
     var afterburnInterval: Double { get }
     var references: [MessageReferenceStorageItem.Model] { get }
     var tailed: Bool { get }
+//    var queryIds: String? { get }
 }

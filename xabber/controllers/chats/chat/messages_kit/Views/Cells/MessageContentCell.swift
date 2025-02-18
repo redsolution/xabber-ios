@@ -108,7 +108,7 @@ class MessageContentCell: MessageCollectionViewCell {
     
     let replyIcon: UIImageView = {
         let view = UIImageView()
-        view.image = imageLiteral("arrowshape.turn.up.left.fill")?.withRenderingMode(.alwaysTemplate)
+        view.image = imageLiteral("reply")?.withRenderingMode(.alwaysTemplate)
         view.tintColor = .white
         view.alpha = 0
         
@@ -347,9 +347,11 @@ class MessageContentCell: MessageCollectionViewCell {
         }
     }
     
-    @objc
-    func onPanGesture() {
-        if (self.delegate?.inSelectionMode() ?? false) {
+    func panGestureObserver() {
+        if (self.delegate?.isInSelection() ?? false) {
+            return
+        }
+        if self.isSelected() {
             return
         }
         if panGesture.state == .changed {
@@ -394,6 +396,11 @@ class MessageContentCell: MessageCollectionViewCell {
                 self.replyIconBackground.alpha = 0
             }
         }
+    }
+    
+    @objc
+    func onPanGesture() {
+        panGestureObserver()
     }
 
     func setSelected(_ color: UIColor) {

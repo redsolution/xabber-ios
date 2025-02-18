@@ -136,7 +136,6 @@ class TextMessageCell: CommonMessageCell {
         self.imagesInlineView.configure(message.references, messageId: message.messageId, indexPath: indexPath)
         self.videosInlineView.configure(message.references, messageId: message.messageId, indexPath: indexPath)
         
-        
         messageLabel.configure {
             messageLabel.enabledDetectors = enabledDetectors
             for detector in enabledDetectors {

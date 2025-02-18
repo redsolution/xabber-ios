@@ -57,71 +57,7 @@ extension ChatViewController: MessagesDataSource {
     }
     
     func cellTopLabelAttributedText(for message: MessageType, at indexPath: IndexPath) -> NSAttributedString? {
-        // TODO: get from datasource item, all in /**/ working, all under // for additional
         return nil
-//        if self.showSkeletonObserver.value {
-//            return nil
-//        }
-//        if let unreadId = self.lastReadMessageId {
-//            if indexPath.section < ((self.messagesObserver?.count ?? 0) - 2) {
-//                if self.messagesObserver?[indexPath.section + 1].archivedId == unreadId {
-//                    return NSAttributedString(string: "New messages",
-//                                              attributes: [
-//                                                NSAttributedString.Key.font: UIFont.systemFont(ofSize: 13, weight: .semibold),
-//                                                NSAttributedString.Key.foregroundColor: MDCPalette.grey.tint50 ])
-//                }
-//            }
-//        }
-        
-        /*
-        var dateString: String = ""
-        var itemDate = self.datasource[indexPath.section].sentDate
-        */
-        
-//        if self.conversationType == .saved {
-//            do {
-//                let realm = try WRealm.safe()
-//                if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: self.datasource[indexPath.section].primary) {
-//                    itemDate = instance.date
-//                }
-//            } catch {
-//                
-//            }
-//        }
-//
-        
-        /*
-        if indexPath.section < (self.datasource.count - 1) {*/
-            
-            
-//            if self.conversationType == .saved {
-//                do {
-//                    let realm = try WRealm.safe()
-//                    if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: self.datasource[indexPath.section].primary),
-//                       let oldInstance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: self.datasource[indexPath.section + 1].primary) {
-//                        
-//                        if self.isDateChange(from: oldInstance.date, to: instance.date)  {
-//                            dateString = sectionsDateFormatter.string(from: itemDate)
-//                        }
-//                    }
-//                } catch {
-//                    //
-//                }
-//            } else if self.isDateChange(from: self.datasource[indexPath.section + 1].sentDate, to: self.datasource[indexPath.section].sentDate)  {
-//            dateString = sectionsDateFormatter.string(from: itemDate)
-//        }
-//        } else if indexPath.section == (self.datasource.count - 1) {
-            
-            /*
-            if self.isDateChange(from: self.datasource[indexPath.section + 1].sentDate, to: self.datasource[indexPath.section].sentDate)  {
-                dateString = sectionsDateFormatter.string(from: itemDate)
-            }
-        }
-        if dateString.isEmpty { return nil }
-        return NSAttributedString(string: dateString,
-                                  attributes: [
-                                    NSAttributedString.Key.font: UIFont.systemFont(ofSize: 13, weight: .semibold),
-                                    NSAttributedString.Key.foregroundColor: MDCPalette.grey.tint50 ])*/
     }
     
     func messageTopLabelAttributedText(for message: MessageType, at indexPath: IndexPath) -> NSAttributedString? {

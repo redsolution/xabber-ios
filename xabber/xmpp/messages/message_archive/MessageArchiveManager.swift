@@ -127,25 +127,6 @@ class MessageArchiveManager: AbstractXMPPManager {
                 instance.isAllHistoryLoaded = true
             }
         }
-        if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: MessageStorageItem.genPrimary(messageId: MessageStorageItem.messageIdForInitial(jid: jid, conversationType: conversationType), owner: self.owner)) {
-            try realm.write {
-                instance.isDeleted = false
-            }
-        } else {
-            let initialMessage = MessageStorageItem()
-            initialMessage.configureInitialMessage(
-                self.owner,
-                opponent: jid,
-                conversationType: conversationType,
-                text: "",
-                date: Date(),
-                isRead: true
-            )
-            if realm.object(ofType: MessageStorageItem.self, forPrimaryKey: initialMessage.primary) == nil {
-                initialMessage.isDeleted = true
-                _ = initialMessage.save(commitTransaction: true)
-            }
-        }
     }
     
     func read(_ stream: XMPPStream, withIQ iq: XMPPIQ) -> Bool {
@@ -244,21 +225,21 @@ class MessageArchiveManager: AbstractXMPPManager {
         return true
     }
     
-    public func getHistoryByDate(_ stream: XMPPStream, jid: String, conversationType: ClientSynchronizationManager.ConversationType, start: Date? = nil, end: Date? = nil, callback: @escaping (() -> Void)) {
+    public func getHistoryByDate(_ stream: XMPPStream, jid: String, conversationType: ClientSynchronizationManager.ConversationType, start: Date? = nil, end: Date? = nil, reversed: Bool = false, callback: @escaping (() -> Void)) {
         self.requestArchive(
             stream,
             jid: jid,
             isContinues: false,
             conversationType: conversationType,
-            queryId: "MAM untill history: \(NanoID.new(6))",
+            queryId: "MAM untill rev=\(reversed ? "true" : "false") history: \(NanoID.new(6))",
             searchText: nil,
             flipPage: true,
             before: nil,
             beforeId: nil,
             afterId: nil,
             start: start,
-            end: nil,//end,
-            nextPage: nil,//end == nil ? nil : "",
+            end: end,
+            nextPage: reversed ? "" : nil,//end == nil ? nil : "",
             prevPage: nil,
             max: 250,
             isNormalSynchronousTask: true,
@@ -601,19 +582,6 @@ class MessageArchiveManager: AbstractXMPPManager {
                     }
                     instance.rosterItem = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: [jid, owner].prp())
                     realm.add(instance, update: .modified)
-                    let initialMessage = MessageStorageItem()
-                    initialMessage.configureInitialMessage(
-                        self.owner,
-                        opponent: jid,
-                        conversationType: conversationType,
-                        text: "",
-                        date: Date(),
-                        isRead: instance.displayedId == "0"
-                    )
-                    if realm.object(ofType: MessageStorageItem.self, forPrimaryKey: initialMessage.primary) == nil {
-                        initialMessage.isDeleted = true
-                        _ = initialMessage.save(commitTransaction: false)
-                    }
                 }
             }
             
@@ -623,55 +591,42 @@ class MessageArchiveManager: AbstractXMPPManager {
     }
     
     internal func getPrevHistory(_ stream: XMPPStream, for jid: String, conversationType: ClientSynchronizationManager.ConversationType, messageId: String, callback: (() -> Void)? = nil) {
-        do {
-            let realm = try WRealm.safe()
-            let oldestArchivedId = realm.objects(MessageStorageItem.self)
-                .filter("owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@",
-                        self.owner,
-                        jid,
-                        conversationType.rawValue
-                )
-                .sorted(byKeyPath: "date", ascending: false)
-                .first?
-                .archivedId ?? ""
-            
-            self.requestArchive(
-                stream,
-                jid: jid,
-                isContinues: false,
-                conversationType: conversationType,
-                queryId: "MAM prev history: \(NanoID.new(6))",
-                searchText: nil,
-                flipPage: true,
-                before: nil,
-                beforeId: nil,
-                afterId: nil,
-                start: nil,//lastMsgDate,//modifiedDate,
-                end: nil,
-                nextPage: nil,
-                prevPage: messageId.isEmpty ? oldestArchivedId : messageId,
-                max: 250,
-                isNormalSynchronousTask: false,
-                callback: callback
-            )
-        } catch {
-            DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
-        }
+        self.requestArchive(
+            stream,
+            jid: jid,
+            isContinues: false,
+            conversationType: conversationType,
+            queryId: "MAM prev history: \(NanoID.new(6))",
+            searchText: nil,
+            flipPage: true,
+            before: nil,
+            beforeId: nil,
+            afterId: nil,
+            start: nil,//lastMsgDate,//modifiedDate,
+            end: nil,
+            nextPage: nil,
+            prevPage: messageId,
+            max: 250,
+            isNormalSynchronousTask: false,
+            callback: callback
+        )
     }
     
     internal func getNextHistory(_ stream: XMPPStream, for jid: String, conversationType: ClientSynchronizationManager.ConversationType, messageId: String?, callback: (() -> Void)? = nil) {
         do {
             let realm = try WRealm.safe()
-            let oldestArchivedId = realm.objects(MessageStorageItem.self)
-                .filter("owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@",
+            let messageDate = realm.objects(MessageStorageItem.self)
+                .filter("owner == %@ AND opponent == %@ AND archivedId == %@",
                         self.owner,
                         jid,
-                        conversationType.rawValue
+                        messageId ?? "not a really message id"
                 )
-                .sorted(byKeyPath: "date", ascending: true)
                 .first?
-                .archivedId ?? ""
-//            let modifiedDate = Date(timeIntervalSince1970: lastMsgDate.timeIntervalSince1970 + 600)
+                .date ?? Date()
+
+//            let modifiedDate = Date(timeIntervalSince1970: messageDate.timeIntervalSince1970 + 600)
+            
+            let modifiedDate = Calendar.current.date(byAdding: .minute, value: 20, to: messageDate)
             
             self.requestArchive(
                 stream,
@@ -685,8 +640,8 @@ class MessageArchiveManager: AbstractXMPPManager {
                 beforeId: nil,
                 afterId: nil,
                 start: nil,
-                end: nil,//modifiedDate,
-                nextPage: messageId,
+                end: modifiedDate,
+                nextPage: "",
                 prevPage: nil,
                 max: 250,
                 isNormalSynchronousTask: true,
@@ -711,7 +666,7 @@ class MessageArchiveManager: AbstractXMPPManager {
             if self.continuesTaskID == taskId {
                 return false
             }
-            let msgCount = realm.objects(MessageStorageItem.self).filter("opponent == %@ AND owner == %@ AND conversationType_ == %@", jid, self.owner, conversationType.rawValue).count
+//            let msgCount = realm.objects(MessageStorageItem.self).filter("opponent == %@ AND owner == %@ AND conversationType_ == %@", jid, self.owner, conversationType.rawValue).count
             
             if !instance.fullArchiveLoaded {
                 return true

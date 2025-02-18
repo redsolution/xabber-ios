@@ -23,15 +23,7 @@ import UIKit
 import MaterialComponents.MDCPalettes
 
 extension ChatViewController: MessagesDisplayDelegate {
-    
-//    func messageFooterView(for indexPath: IndexPath, in messagesCollectionView: MessagesCollectionView) -> MessageReusableView {
-//        let reusable = MessageReusableView(frame: CGRect(width: 200, height: 50))
-//        
-//        reusable.backgroundColor = .red
-//        
-//        return reusable
-//    }
-//    
+
     func messageErrorIcon(for message: MessageType, at indexPath: IndexPath, on messagesCollectionView: MessagesCollectionView) -> String? {
         guard let meta = self.datasource[indexPath.section].errorMetadata else {
             return nil

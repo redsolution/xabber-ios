@@ -31,131 +31,110 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
         
     }
     
-    func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
-
-        if self.currentPage.isUnlocked {
-            if let direction = self.chatScrollDirection {
-                if indexPath.section == 0 {
-                    self.onTouchStartPage(direction: direction)
-                } else if indexPath.section == self.datasource.count - 1 {
-                    self.onTouchEndPage(direction: direction)
-                }
-            }
-        }
+//    func showFloatingDate() {
+//        let visibleItems = self.messagesCollectionView.indexPathsForVisibleItems
+//        let layout = self.messagesCollectionView.collectionViewLayout as! MessagesCollectionViewFlowLayout
+//        let visibleDateFrames: [CGRect] = visibleItems.compactMap {
+//            path in
+//            switch self.datasource[path.section].kind {
+//                case .date, .unread:
+//                    let attrib = layout.layoutAttributesForItem(at: path)
+//                    guard let frame = attrib?.frame else { return nil }
+//                    var convertedPoint = self.messagesCollectionView.convert(frame.origin, to: self.view)
+//                    convertedPoint.y = convertedPoint.y - frame.height
+//                    let newFrame = CGRect(origin: convertedPoint, size: frame.size)
+//                    print(newFrame)
+//                    return newFrame
+//                default:
+//                    return nil
+//            }
+//        }.filter({
+//            $0.minY < 150
+//        })
+//        if visibleDateFrames.isEmpty && ((visibleItems.compactMap({ $0.section }).max() ?? 0) != self.datasource.count - 1) {
+//            self.showFloatingDateObserver.accept(true)
+//            self.hideFloatingDateObserver.accept(false)
+//            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+//                self.hideFloatingDateObserver.accept(true)
+//            }
+//        } else {
+//            self.showFloatingDateObserver.accept(false)
+//            self.hideFloatingDateObserver.accept(false)
+//        }
+//    }
+    
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+//        self.showFloatingDate()
     }
     
-    func updateDateViews(contentOffsetY: CGFloat, prevScrollDirection: ChatDirection) {
-        let diffY = contentOffsetY - self.previousContentOffsetY
-        print(diffY, contentOffsetY, "DIFF")
-        self.previousContentOffsetY = contentOffsetY
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+//        self.showFloatingDate()
         
-        
-        
-        if self.nextPinnedDateIndex != nil && self.chatScrollDirection == prevScrollDirection {
-            if let itemIndex = self.nextPinnedDateIndex {
-                let item = self.dateViews[itemIndex]
-                print("pin", item.frame.minY, item.frame.maxY, self.pinnedDateFrame.minY, self.pinnedDateFrame.maxY)
-                if self.chatScrollDirection == .up {
-                    if item.frame.maxY > self.pinnedDateFrame.maxY  {
-                        self.nextPinnedDateIndex = nil
-                        self.dateViews[itemIndex].isPinned = true
-                        self.dateViews[itemIndex].frame = self.pinnedDateFrame
-                        self.pinnedDateIndex = item.naturalIndex
-                    }
-                } else if self.chatScrollDirection == .down {
-                    if item.frame.minY < self.pinnedDateFrame.minY  {
-                        self.nextPinnedDateIndex = nil
-                        self.dateViews[itemIndex].isPinned = true
-                        self.dateViews[itemIndex].frame = self.pinnedDateFrame
-                        self.pinnedDateIndex = item.naturalIndex
-                    }
-                }
-            }
-        } else if self.nextPinnedDateIndex != nil && self.chatScrollDirection != prevScrollDirection {
-            if let newScrollDirection = self.chatScrollDirection {
-                switch prevScrollDirection {
-                    case .up:
-                        switch newScrollDirection {
-                            case .up: break
-                            case .down: self.nextPinnedDateIndex = self.nextPinnedDateIndex! - 1
-                        }
-                    case .down:
-                        switch newScrollDirection {
-                            case .up: self.nextPinnedDateIndex = self.nextPinnedDateIndex! + 1
-                            case .down: break
-                        }
-                }
-            }
-        } else {
-            self.dateViews.enumerated().forEach {
-                (offset, item) in
-                if item.isPinned {
-                    let modifiedFrame = self.originalFrames[offset]
-                    if self.chatScrollDirection == .up {
-                        print(modifiedFrame.maxY, pinnedDateFrame.minY)
-                        if modifiedFrame.maxY > pinnedDateFrame.maxY {
-                            let newIndex = offset + 1
-                            if newIndex < self.dateViews.count {
-                                item.isPinned = false
-                                item.frame = modifiedFrame
-                                self.nextPinnedDateIndex = newIndex
-                                if self.dateViews[newIndex].frame.maxY < 0 {
-                                    if self.dateViews.filter({ $0.isPinned }).isEmpty {
-                                        let oldFrame = self.dateViews[newIndex].frame
-                                        var offsetY: CGFloat = 20
-                                        if let topInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
-                                            offsetY += topInset
-                                        }
-                                        let newFrame = CGRect(
-                                            origin: CGPoint(
-                                                x: oldFrame.origin.x,
-                                                y: offsetY//40
-                                            ),
-                                            size: oldFrame.size
-                                        )
-                                        self.dateViews[newIndex].frame = newFrame
-                                    }
-                                }
-                            }
-                        }
-                    } else if self.chatScrollDirection == .down {
-                        let prevIndex = offset - 1
-                        
-                        if prevIndex >= 0 {
-                            let prevFrame = self.originalFrames[prevIndex]
-                            if prevFrame.maxY < self.pinnedDateFrame.maxY + 38 {
-                                item.isPinned = false
-                                item.frame = prevFrame.offsetBy(dx: 0, dy: -38)
-                                self.nextPinnedDateIndex = prevIndex
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        self.originalFrames.enumerated().forEach {
-            (offset, item) in
-            self.originalFrames[offset].origin.y += diffY
-        }
-        self.dateViews.forEach {
-            item in
-            var center = item.center
-            center.y = center.y + diffY
-            item.updateCenterIfNotAPinned(center)
-        }
+    }
+    
+    func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
+//        if self.canLoadDatasource {
+//            if (self.messagesCollectionView.contentSize.height - self.messagesCollectionView.contentOffset.y) < self.view.bounds.height {
+//                self.canLoadDatasource = false
+//                self.onTouchEndPage(direction: .up)
+//            }
+//        }
+//        if self.canLoadDatasource {
+//            if self.currentPage.minIndex > 0 {
+//                if let datasourcePrimary = self.datasource.first?.primary,
+//                   let observerPrimary = self.messagesObserver.first?.primary,
+//                   datasourcePrimary != observerPrimary {
+//                    if self.messagesCollectionView.contentOffset.y < 0 {
+//                        self.canLoadDatasource = false
+//                        self.onTouchStartPage(direction: .down)
+//                    }
+//                }
+//            }
+//        }
+        self.updateFloatingDate()
+    }
+    
+    func collectionView(_ collectionView: UICollectionView, didEndDisplaying cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
+        self.updateFloatingDate()
     }
     
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        let contentOffsetY = scrollView.contentOffset.y
+        let diffY = contentOffsetY - self.previousContentOffsetY
+        print(contentOffsetY)
+        
+        
+        
         if self.currentPage.isUnlocked {
+            
+            
             let contentOffsetY = scrollView.contentOffset.y
-            let prevScrollDirection: ChatDirection = self.chatScrollDirection ?? .up
             if contentOffsetY > self.previousContentOffsetY {
-                self.chatScrollDirection = .up
-            } else {
                 self.chatScrollDirection = .down
+            } else {
+                self.chatScrollDirection = .up
             }
-            self.updateDateViews(contentOffsetY: contentOffsetY, prevScrollDirection: prevScrollDirection)
+            
             self.contentOffsetObserver.accept(contentOffsetY)
         }
+        if !self.preventHidingDate {
+            self.pinnedDateView.hide()
+        }
+        self.previousContentOffsetY = contentOffsetY
+//        self.showFloatingDate()
+        self.showFloatingDateObserver.accept(true)
+//        if contentOffsetY > 250 {
+//            if !self.shouldShowScrollDownButton.value {
+//                if !self.inSearchMode.value {
+//                    self.shouldShowScrollDownButton.accept(true)
+//                }
+//            }
+//        } else {
+//            if self.shouldShowScrollDownButton.value {
+//                self.shouldShowScrollDownButton.accept(false)
+//            }
+//        }
     }
+    
+    
 }

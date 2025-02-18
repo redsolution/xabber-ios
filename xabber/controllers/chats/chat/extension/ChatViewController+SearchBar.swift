@@ -29,6 +29,8 @@ import CocoaLumberjack
 extension ChatViewController {
     
     internal final func scrollToMessage(archivedId: String, date: Date, direction: ChatDirection, callback: @escaping ((Array<MessageStorageItem>, Int) -> Void)) {
+        
+        
         func update() {
             self.showLoadingIndicator.accept(false)
             guard let index = self.messagesObserver.firstIndex(where: { $0.archivedId == archivedId }) else {
@@ -36,23 +38,30 @@ extension ChatViewController {
             }
             let page = index / self.datasourcePageSize
             self.currentPage.setCustomPage(page) {
+                guard let index = self.messagesObserver.firstIndex(where: { $0.archivedId == archivedId }) else {
+                    return
+                }
                 var maxIndex = index  + (self.datasourcePageSize / 2)
                 var minIndex =  index - (self.datasourcePageSize / 2)
-                if minIndex < 0 {
-                    minIndex = 0
-                    maxIndex = minIndex + self.datasourcePageSize
-                }
                 if maxIndex > self.messagesObserver.count {
                     maxIndex = self.messagesObserver.count
+                    minIndex = maxIndex - self.datasourcePageSize
                 }
-                let slice = Array(self.messagesObserver.prefix(maxIndex).suffix(maxIndex - minIndex))
+                if minIndex < 0 {
+                    minIndex = 0
+                    maxIndex = [minIndex + self.datasourcePageSize, self.messagesObserver.count].min() ?? 0
+                }
+                
+                let slice = Array(self.messagesObserver.prefix(upTo: maxIndex).suffix(from: minIndex))
                 self.currentPage.minIndex = minIndex
                 self.currentPage.maxIndex = maxIndex
                 callback(slice, index - minIndex)
+                self.currentPage.unlock()
+                self.showFloatingDateObserver.accept(true)
             }
         }
         func updateDatsource() {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                 update()
             }
         }
@@ -61,10 +70,10 @@ extension ChatViewController {
             let start: Date? = nil
             let end: Date? = date
             XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-                session.mam?.getHistoryByDate(stream, jid: self.jid, conversationType: self.conversationType, start: start, end: end, callback: loadHistoryBefore)
+                session.mam?.getHistoryByDate(stream, jid: self.jid, conversationType: self.conversationType, start: start, end: end, reversed: true, callback: loadHistoryBefore)
             } fail: {
                 AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                    user.mam.getHistoryByDate(stream, jid: self.jid, conversationType: self.conversationType, start: start, end: end, callback: loadHistoryBefore)
+                    user.mam.getHistoryByDate(stream, jid: self.jid, conversationType: self.conversationType, start: start, end: end, reversed: true, callback: loadHistoryBefore)
                 })
             }
         }
@@ -73,21 +82,26 @@ extension ChatViewController {
             let start: Date? = date
             let end: Date? = nil
             XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-                session.mam?.getHistoryByDate(stream, jid: self.jid, conversationType: self.conversationType, start: start, end: end, callback: updateDatsource)
+                session.mam?.getHistoryByDate(stream, jid: self.jid, conversationType: self.conversationType, start: start, end: end, reversed: false, callback: updateDatsource)
             } fail: {
                 AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                    user.mam.getHistoryByDate(stream, jid: self.jid, conversationType: self.conversationType, start: start, end: end, callback: updateDatsource)
+                    user.mam.getHistoryByDate(stream, jid: self.jid, conversationType: self.conversationType, start: start, end: end, reversed: false, callback: updateDatsource)
                 })
             }
         }
         
+        self.canLoadDatasource = false
         
+        self.showFloatingDateObserver.accept(false)
+        self.pinnedDateView.hide(withoutAnimation: true)
         if self.messagesObserver.firstIndex(where: { $0.archivedId == archivedId }) != nil {
             update()
+            self.loadDatasourceObserver.accept(true)
         } else {
             self.showLoadingIndicator.accept(true)
+            self.loadDatasourceObserver.accept(false)
+            self.canLoadDatasource = false
             loadHistoryAfter()
-            self.currentPage.locked = true
         }
     }
     
@@ -101,6 +115,7 @@ extension ChatViewController {
         if self.searchMessagesQueue.count == 1 {
             return
         }
+        FeedbackManager.shared.generate(feedback: .success)
         var newIndex = currentIndex + 1
         if newIndex >= self.searchMessagesQueue.count {
             newIndex = 0
@@ -126,6 +141,7 @@ extension ChatViewController {
         if self.searchMessagesQueue.count == 1 {
             return
         }
+        FeedbackManager.shared.generate(feedback: .success)
         var newIndex = currentIndex - 1
         self.chatScrollDirection = .down
         if newIndex < 0 {
@@ -147,12 +163,21 @@ extension ChatViewController {
     }
     
     internal func scrollToSearchedMessage(archivedId: String) {
+        self.preventHidingDate = true
         (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?.cache.invalidate()
         self.messagesCollectionView.reloadData()
+        self.messagesCollectionView.layoutIfNeeded()
         let scrollIndex = self.datasource.firstIndex(where: { $0.archivedId == archivedId }) ?? 0
         self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: scrollIndex), at: .centeredVertically, animated: false)
-        self.messagesCollectionView.layoutIfNeeded()
-        self.updateDateLabels(afterIndex: scrollIndex)
+//        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+        self.preventHidingDate = false
+        self.currentPage.unlock()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            self.showFloatingDateObserver.accept(true)
+            self.hideFloatingDateObserver.accept(true)
+            self.loadDatasourceObserver.accept(true)
+            self.currentPage.unlock()
+        }
     }
 }
 
@@ -167,6 +192,7 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
     }
     
     internal final func applySearchResults() {
+        self.preventHidingDate = true
         self.searchMessagesQueue = self.searchMessagesQueue.sorted(by: { $0.date > $1.date })
         let newIndex = 0
         self.xabberInputView.searchPanel.updateResults(current: newIndex, total: self.searchMessagesQueue.count)
@@ -179,9 +205,10 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
             self.scrollToMessage(archivedId: archivedId, date: date, direction: .up) { array, index in
                 self.datasource = self.mapDataset(dataset: array)
                 self.scrollToSearchedMessage(archivedId: archivedId)
+                self.preventHidingDate = false
             }
         }
-        self.showLoadingIndicator.accept(false)
+        self.showFloatingDateObserver.accept(true)
     }
     
     func didReceiveEndPage(queryId: String, fin: Bool, first: String, last: String, count: Int) {

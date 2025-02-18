@@ -48,6 +48,11 @@ extension ChatViewController: ContextMenuDelegate {
 }
 
 extension ChatViewController: MessageCellDelegate {
+    func isInSelection() -> Bool {
+        return self.isInSelectionMode.value
+    }
+    
+    
     
     func inSelectionMode() -> Bool {
         return self.isInSelectionMode.value
