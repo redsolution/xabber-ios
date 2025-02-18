@@ -31,71 +31,40 @@ import CocoaLumberjack
 
 extension ChatViewController {
 
-    internal final func updateDateLabels(afterIndex: Int = 0) {
-        let layout = self.messagesCollectionView.collectionViewLayout as! MessagesCollectionViewFlowLayout
-        self.nextPinnedDateIndex = nil
-        self.pinnedDateIndex = nil
-        self.pinnedDateFrame = .zero
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
-            var indexPaths: [IndexPath] = []
-            self.dateViews.forEach { $0.isHidden = true }
-            self.dateViews.forEach { $0.removeFromSuperview() }
-            autoreleasepool {
-                self.dateViews = []
-                self.originalFrames = []
-            }
-            let maxVisible = ([(self.messagesCollectionView.indexPathsForVisibleItems.compactMap { $0.section }.max() ?? 0), afterIndex - 1].max() ?? 0 ) - 1
-            let firstPinned: Int = self.datasource.enumerated().compactMap {
-                switch $1.kind {
-                    case .date(_):
-                        if maxVisible < $0 {
-                            return $0
-                        } else {
-                            return nil
-                        }
-                    default:
-                        return nil
-                }
-            }.min() ?? 0
-
-            print(firstPinned, "firstPinned")
-            var dateItemIndex: Int = 0
-            self.datasource.enumerated().forEach {
-                (offset, item) in
-                switch item.kind {
-                    case .date(let text):
-                        let path = IndexPath(row: 0, section: offset)
-                        indexPaths.append(path)
-                        let attrib = layout.layoutAttributesForItem(at: path)
-                        guard let frame = attrib?.frame else { return }
-                        var convertedPoint = self.messagesCollectionView.convert(frame.origin, to: self.view)
-                        convertedPoint.y = convertedPoint.y - frame.height
-//                        print(frame)
-                        var newFrame = CGRect(origin: convertedPoint, size: frame.size)
-                        self.originalFrames.append(newFrame)
-                        let view = FloatDateView(frame: newFrame)
-                        view.primary = item.primary
-                        view.configure(text)
-                        view.isPinned = firstPinned == offset
-                        view.naturalIndex = offset
-                        if firstPinned == offset {
-                            var center = view.center
-                            var offsetY: CGFloat = 54
-                            if let topInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
-                                offsetY += topInset
-                            }
-                            center.y = offsetY + view.frame.height / 2
-                            view.center = center
-                            self.pinnedDateFrame = view.frame
-                            self.pinnedDateIndex = dateItemIndex
-                        }
-                        self.dateListContainerView.addSubview(view)
-                        self.dateViews.append(view)
-                        dateItemIndex += 1
-                    default:
-                        break
-                }
-            }
+    internal func updateFloatingDate() {
+        guard let topVisibleReasonableMessageIndex = self.messagesCollectionView.indexPathsForVisibleItems.compactMap ({
+            return $0.section
+        }).max() else {
+            return
+        }
+        var pinnOffset: CGFloat = 54
+        if let topInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
+            pinnOffset += topInset
+        }
+        let frame = CGRect(
+            origin: CGPoint(
+                x: 0,
+                y: pinnOffset
+            ),
+            size: CGSize(
+                width: self.view.bounds.width,
+                height: 34
+            )
+        )
+        let index = [topVisibleReasonableMessageIndex, self.datasource.count - 1].min() ?? 0
+        if self.datasource.count < 5 {
+            self.pinnedDateView.isHidden = true
+        } else {
+            self.pinnedDateView.isHidden = false
+            let text = NSAttributedString(
+                string: sectionsDateFormatter.string(from: self.datasource[index].sentDate),
+                attributes: [
+                    .font: UIFont.preferredFont(forTextStyle: .caption1),
+                    .foregroundColor: UIColor.white,
+                ]
+            )
+            self.pinnedDateView.frame = frame
+            self.pinnedDateView.configure(text)
         }
     }
     
@@ -135,7 +104,8 @@ extension ChatViewController {
                     errorMetadata: [:],
                     burnDate: -1,
                     afterburnInterval: -1,
-                    isRead: true
+                    isRead: true,
+                    isFakeMessage: true
                 )
             }
         }
@@ -143,10 +113,13 @@ extension ChatViewController {
         var unreadId: String? = nil
         do {
             let realm = try WRealm.safe()
-            unreadId = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid, owner: self.owner, conversationType: self.conversationType))?.lastReadId
+            let lastChatInstance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid, owner: self.owner, conversationType: self.conversationType))
+            unreadId = lastChatInstance?.lastReadId
+            unreadId = (lastChatInstance?.unread ?? 0) == 0 ? nil : unreadId
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
+                
         dataset.enumerated().forEach {
             (offset, item) in
             let references = Array(item.references.toArray().compactMap { $0.loadModel() })
@@ -157,44 +130,7 @@ extension ChatViewController {
             switch item.displayAs {
                 case .initial:
                     
-                    var descriptionText: String = ""
-    //                var descriptionText: NSAttributedString = NSAttributedString()
-                    let aboutAttrs: [NSAttributedString.Key: Any] = [
-                        .font: UIFont.systemFont(ofSize: 15, weight: .regular)
-                    ]
-                   
-                    switch self.conversationType {
-                    case .regular:
-                        descriptionText = "Messages in this chat are not encrypted. Servers often store transient messages in an archive. This allows easy device synchronization and server-side history search, but adds privacy risks."
-                    case .group:
-//                        switch self.entity {
-//                        case .incognitoChat:
-//                            descriptionText = "Identities of users in this group are kept hidden from each other, only group admins can access your real XMPP ID. Be vigilant, do not disclose yourself by being careless."
-//                        case .privateChat:
-//                            descriptionText = "Private chat with incognito user. Messages are routed through group server and your identites are kept secret from each other. Be vigilant, do not disclose yourself by being careless."
-//                        default:
-                            descriptionText = "Identities of users in this group are public, so any member can contact you using your real XMPP ID."
-//                        }
-                    case .channel:
-                        descriptionText = "Identities of users in this group are public, so any member can contact you using your real XMPP ID."
-                    case .omemo, .omemo1, .axolotl:
-                        descriptionText = "Messages in this chat are encrypted with end-to-end encryption. You must always confirm the identity of your contact by verifying encryption keys fingerprints."
-                    case .notifications:
-                        descriptionText = "fdg"
-                    case .saved:
-                        break
-                    }
-                    let modifiedDesccription = NSMutableAttributedString(
-                        attributedString: NSAttributedString(string: descriptionText,
-                                                             attributes: aboutAttrs)
-                    )
-                    let allRange = NSRange(location: 0, length:  modifiedDesccription.string.count)
-                    let style = NSMutableParagraphStyle()
-                    style.lineSpacing = 1.5
-                    style.alignment = .center
-                    modifiedDesccription.addAttribute(NSAttributedString.Key.paragraphStyle, value: style, range: allRange)
-                    kind = .initial(modifiedDesccription)
-    //                kind = .initial(NSAttributedString(string: descriptionText))
+                    kind = .initial(NSAttributedString(string: ""))
                 case .quote:
                     kind = .quote(
                         item.createQuoteBody([NSAttributedString.Key.font: UIFont.preferredFont(forTextStyle: .body)]),
@@ -251,8 +187,22 @@ extension ChatViewController {
                     }
             }
             
-            let withAuthor: Bool
+            var withAuthor: Bool = false
+            var tailed: Bool = true
             var date = item.date
+            let prevMessage = offset - 1
+            if prevMessage >= 0 {
+                let prevItem = dataset[prevMessage]
+                if self.conversationType == .group {
+                    withAuthor = !(prevItem.groupchatCard?.userId == item.groupchatCard?.userId)
+                    tailed = !(item.outgoing == prevItem.outgoing)
+                } else {
+                    tailed = !(item.outgoing == prevItem.outgoing)
+                }
+                if isDateChange(from: item.date, to: prevItem.date) {
+                    tailed = true
+                }
+            }
 //            if conversationType == .saved {
 //                if item.groupchatCard != nil {
 //                    withAuthor = true
@@ -302,8 +252,8 @@ extension ChatViewController {
                 sentDate: date,
                 editDate: item.editDate,
                 kind: kind,
-                withAuthor: false,
-                withAvatar: false,//self.groupchat ? !item.outgoing : false,
+                withAuthor: withAuthor,
+                withAvatar: self.conversationType == .group ? !item.outgoing : false,
                 error: item.state == .error,
                 errorType: item.messageError ?? "",
                 canPinMessage: [.system, .sticker].contains(item.displayAs) ? false : self.canUnpinMessage.value,
@@ -328,7 +278,8 @@ extension ChatViewController {
                 isRead: item.isRead,
                 selectedSearchResultId: nil,//item.archivedId == self.selectedSearchResultId ? self.selectedSearchResultId : nil,
                 references: item.references.toArray().compactMap { $0.loadModel() },
-                isHadHistoryGap: false
+                isHadHistoryGap: false,
+                tailed: tailed
             ))
             if (dataset.count > 1 && (offset + 1) < dataset.count) || (offset + 1 == dataset.count) {
                 if item.archivedId == unreadId {
@@ -378,7 +329,8 @@ extension ChatViewController {
                         isRead: item.isRead,
                         selectedSearchResultId: nil,//item.archivedId == self.selectedSearchResultId ? self.selectedSearchResultId : nil,
                         references: [],
-                        isHadHistoryGap: false
+                        isHadHistoryGap: false,
+                        isFakeMessage: true
                     ))
                 }
                 if (offset + 1 == dataset.count) || self.isDateChange(from: item.sentDate, to: dataset[offset + 1].sentDate) {
@@ -427,52 +379,96 @@ extension ChatViewController {
                         isRead: item.isRead,
                         selectedSearchResultId: nil,//item.archivedId == self.selectedSearchResultId ? self.selectedSearchResultId : nil,
                         references: [],
-                        isHadHistoryGap: false
+                        isHadHistoryGap: false,
+                        isFakeMessage: true
                     ))
-//                    if offset + 1 == dataset.count {
-//                        let kind: MessageKind = .activityIndicator
-//                        out.append(Datasource(
-//                            primary: "\(item.primary) date changed",
-//                            jid: self.jid,
-//                            owner: self.owner,
-//                            outgoing: item.outgoing,
-//                            sender: item.outgoing ? self.ownerSender : self.opponentSender,
-//                            messageId: item.messageId,
-//                            sentDate: date,
-//                            editDate: nil,
-//                            kind: kind,
-//                            withAuthor: false,
-//                            withAvatar: false,//self.groupchat ? !item.outgoing : false,
-//                            error: item.state == .error,
-//                            errorType: "",
-//                            canPinMessage: false,
-//                            canEditMessage: false,
-//                            canDeleteMessage: false,
-//                            forwards: [],
-//                            isOutgoing: item.outgoing,
-//                            isEdited: false,
-//                            groupchatAuthorRole: "",
-//                            groupchatAuthorId: "",
-//                            groupchatAuthorNickname: "",
-//                            groupchatAuthorBadge: "",
-//                            isHasAttachedMessages: false,
-//                            isDownloaded: true,
-//                            state: .none,
-//                            searchString:  "",
-//                            errorMetadata: nil,
-//                            burnDate: 0,
-//                            afterburnInterval: 0,
-//                            archivedId: "\(item.archivedId) date changed",
-//                            queryIds: "\(item.queryIds ?? "") date changed",
-//                            isRead: item.isRead,
-//                            selectedSearchResultId: nil,//item.archivedId == self.selectedSearchResultId ? self.selectedSearchResultId : nil,
-//                            references: [],
-//                            isHadHistoryGap: false
-//                        ))
-//                    }
                 }
                 
             }
+        }
+        if self.shouldShowInitialMessage && !self.inSearchMode.value {
+            var descriptionText: String = ""
+            let aboutAttrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 15, weight: .regular)
+            ]
+            switch self.conversationType {
+            case .regular:
+                descriptionText = "Messages in this chat are not encrypted. Servers often store transient messages in an archive. This allows easy device synchronization and server-side history search, but adds privacy risks."
+            case .group:
+                    do {
+                        let realm = try WRealm.safe()
+                        if let group = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
+                            if group.peerToPeer {
+                                descriptionText = "Private chat with incognito user. Messages are routed through group server and your identites are kept secret from each other. Be vigilant, do not disclose yourself by being careless."
+                            } else if group.privacy == .incognito {
+                                descriptionText = "Identities of users in this group are kept hidden from each other, only group admins can access your real XMPP ID. Be vigilant, do not disclose yourself by being careless."
+                            } else {
+                                descriptionText = "Identities of users in this group are public, so any member can contact you using your real XMPP ID."
+                            }
+                        } else {
+                            descriptionText = "Identities of users in this group are public, so any member can contact you using your real XMPP ID."
+                        }
+                    } catch {
+                        DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+                    }
+            case .channel:
+                descriptionText = "Identities of users in this group are public, so any member can contact you using your real XMPP ID."
+            case .omemo, .omemo1, .axolotl:
+                descriptionText = "Messages in this chat are encrypted with end-to-end encryption. You must always confirm the identity of your contact by verifying encryption keys fingerprints."
+            case .notifications:
+                descriptionText = "fdg"
+            case .saved:
+                break
+            }
+            let modifiedDesccription = NSMutableAttributedString(
+                attributedString: NSAttributedString(string: descriptionText,
+                                                     attributes: aboutAttrs)
+            )
+            let allRange = NSRange(location: 0, length:  modifiedDesccription.string.count)
+            let style = NSMutableParagraphStyle()
+            style.lineSpacing = 1.5
+            style.alignment = .center
+            modifiedDesccription.addAttribute(NSAttributedString.Key.paragraphStyle, value: style, range: allRange)
+            let kind: MessageKind = .initial(modifiedDesccription)
+            out.append(Datasource(
+                primary: "initial",
+                jid: self.jid,
+                owner: self.owner,
+                outgoing: true,
+                sender: self.ownerSender,
+                messageId: "initial",
+                sentDate: Date(),
+                editDate: nil,
+                kind: kind,
+                withAuthor: false,
+                withAvatar: false,//self.groupchat ? !item.outgoing : false,
+                error: false,
+                errorType: "",
+                canPinMessage: false,
+                canEditMessage: false,
+                canDeleteMessage: false,
+                forwards: [],
+                isOutgoing: true,
+                isEdited: false,
+                groupchatAuthorRole: "",
+                groupchatAuthorId: "",
+                groupchatAuthorNickname: "",
+                groupchatAuthorBadge: "",
+                isHasAttachedMessages: false,
+                isDownloaded: true,
+                state: .none,
+                searchString:  "",
+                errorMetadata: nil,
+                burnDate: 0,
+                afterburnInterval: 0,
+                archivedId: "initial",
+                queryIds: "initial",
+                isRead: true,
+                selectedSearchResultId: nil,//item.archivedId == self.selectedSearchResultId ? self.selectedSearchResultId : nil,
+                references: [],
+                isHadHistoryGap: false,
+                isFakeMessage: true
+            ))
         }
         return out
     }
@@ -496,58 +492,22 @@ extension ChatViewController {
         )
     }
     
-    private final func apply(changes: ChangesWithIndexSet, shouldScrollToLastMessage: Bool = false, forceWithoutAnimations: Bool = false, addToEnd: Bool = false, addToStart: Bool = false, prepare: @escaping (() -> Void)) {
-        if changes.deletes.isEmpty &&
-            changes.inserts.isEmpty &&
-            changes.moves.isEmpty &&
-            changes.replaces.isEmpty {
-            return
-        }
-        
-        self.messagesCollectionView.performBatchUpdates({
-            prepare()
-            if !changes.deletes.isEmpty {
-               self.messagesCollectionView.deleteSections(changes.deletes)
-            }
-
-            if !changes.inserts.isEmpty {
-               self.messagesCollectionView.insertSections(changes.inserts)
-            }
-
-            if changes.moves.isNotEmpty {
-               changes.moves.forEach {
-                   (from, to) in
-                   self.messagesCollectionView.moveItem(at: from, to: to)
-               }
-            }
-            if !changes.replaces.isEmpty {
-                self.messagesCollectionView.reloadItems(at: changes.replaces.compactMap { return IndexPath(row: 0, section: $0) })
-            }
-        }, completion: {
-            result in
-        })
-    }
-    
-    func reloadDataWithFixedPosition() {
-        let contentOffset = self.messagesCollectionView.contentOffset.y
-        let contentHeight = self.messagesCollectionView.contentSize.height
-//        self.messagesCollectionView.setContentOffset(CGPoint(x: 0, y: contentOffset), animated: false)
-        self.messagesCollectionView.reloadData()
-        let newContentHeight = self.messagesCollectionView.contentSize.height
-        print(contentOffset, contentHeight, "cont HEIGHT")
-        self.messagesCollectionView.setContentOffset(CGPoint(x: 0, y: contentOffset + (newContentHeight - contentHeight)), animated: false)
-    }
-    
     internal final func onTouchStartPage(direction: ChatDirection) {
         print(#function)
+        FeedbackManager.shared.generate(feedback: .success)
+        self.showLoadingIndicator.accept(true)
+        self.messagesCollectionView.isUserInteractionEnabled = false
         self.currentPage.prevPage {
             self.loadDatasource(direction: direction) { addditional in
-                (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?.cache.invalidate()
-                print(self.datasource.count)
-                self.datasource.insert(contentsOf: self.mapDataset(dataset: addditional), at: 0)
-                print(self.datasource.count)
-                self.messagesCollectionView.reloadDataAndKeepOffset()
-                self.updateDateLabels(afterIndex: self.pinnedDateIndex ?? 0)
+                self.showLoadingIndicator.accept(false)
+                if addditional.isNotEmpty {
+                    (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?.cache.invalidate()
+                    self.datasource.insert(contentsOf: self.mapDataset(dataset: addditional), at: 0)
+                    self.messagesCollectionView.reloadDataAndKeepOffset()
+                }
+                self.messagesCollectionView.isUserInteractionEnabled = true
+                self.loadDatasourceObserver.accept(true)
+                self.currentPage.unlock()
             }
         }
     }
@@ -555,29 +515,134 @@ extension ChatViewController {
     internal final func onTouchEndPage(direction: ChatDirection) {
         print(#function)
         FeedbackManager.shared.generate(feedback: .success)
-        DispatchQueue.main.async {
-            self.messageLoadingActivityIndicator.isHidden = false
-        }
+//        DispatchQueue.main.async {
+//            self.messageLoadingActivityIndicator.isHidden = false
+//        }
+        self.showLoadingIndicator.accept(true)
         self.currentPage.nextPage {
             self.loadDatasource(direction: direction) { addditional in
-                DispatchQueue.main.async {
-                    self.messageLoadingActivityIndicator.isHidden = true
+//                DispatchQueue.main.async {
+//                    self.messageLoadingActivityIndicator.isHidden = true
+//                }
+                self.showLoadingIndicator.accept(false)
+                if addditional.isNotEmpty {
+                    let newDatasource = self.mapDataset(dataset: addditional)
+                    if newDatasource.isNotEmpty {
+                        let _ = self.datasource.popLast()
+                        self.datasource.append(contentsOf: newDatasource)
+                    }
+                    self.messagesCollectionView.reloadData()
                 }
-                (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?.cache.invalidate()
-                self.datasource.append(contentsOf: self.mapDataset(dataset: addditional))
-                self.messagesCollectionView.reloadData()
-                self.updateDateLabels(afterIndex: self.pinnedDateIndex ?? 0)
+                self.loadDatasourceObserver.accept(true)
+                self.currentPage.unlock()
             }
         }
     }
     
-    internal final func loadDatasource(direction: ChatDirection, ignoreGaps: Bool = false, samePage: Bool = false, callback: @escaping ((Array<MessageStorageItem>) -> Void)) {
+    internal final func loadInitialDatasource(_ callback: @escaping ((Array<MessageStorageItem>) -> Void)) {
+        func update() {
+            let minIndex: Int = 0
+            var maxIndex: Int = self.datasourcePageSize
+            if maxIndex >= self.messagesObserver.count {
+                maxIndex = self.messagesObserver.count - 1
+            }
+            if maxIndex <= 0 {
+                maxIndex = 0
+            }
+            self.currentPage.minIndex = minIndex
+            self.currentPage.maxIndex = maxIndex
+            let slice = self.messagesObserver.prefix(upTo: maxIndex)
+            callback(Array(slice))
+        }
+        
         func onLoadingDone() {
-            DispatchQueue.main.async {
-                let (minIndex, maxIndex) = getIndexes()
-                let slice = Array(self.messagesObserver.prefix(maxIndex).suffix(maxIndex - minIndex))
-                self.currentPage.minIndex = minIndex
-                self.currentPage.maxIndex = maxIndex
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                self.showSkeletonObserver.accept(false)
+                update()
+            }
+        }
+        
+        do {
+            let realm = try WRealm.safe()
+            guard let chatInstance = realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid,
+                                                               owner: self.owner,
+                                                               conversationType: self.conversationType)) else {
+                callback([])
+                return
+            }
+            if !chatInstance.isSynced {
+                self.showSkeletonObserver.accept(true)
+                self.datasource = self.mapDataset(dataset: [])
+                self.messagesCollectionView.reloadData()
+                var dateLimit: Date? = nil
+                if !self.messagesObserver.isEmpty {
+                    let slice = self.messagesObserver.prefix(self.datasourcePageSize)
+                    slice.enumerated().reversed().forEach {
+                        (offset, item) in
+                        if offset > 0 && dateLimit == nil {
+                            let prevQueryIDs = Set((slice[offset - 1].queryIds ?? "").split(separator: ","))
+                            if prevQueryIDs.intersection(Set((item.queryIds ?? "").split(separator: ","))).isEmpty {
+                                dateLimit = slice[offset -  1].date
+                                return
+                            }
+                        }
+                    }
+                }
+                XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+                    session.mam?.getHistoryByDate(
+                        stream,
+                        jid: self.jid,
+                        conversationType: self.conversationType,
+                        start: dateLimit,
+                        end: nil,
+                        reversed: true,
+                        callback: onLoadingDone
+                    )
+                } fail: {
+                    AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                        user.mam.getHistoryByDate(
+                            stream,
+                            jid: self.jid,
+                            conversationType: self.conversationType,
+                            start: dateLimit,
+                            end: nil,
+                            reversed: true,
+                            callback: onLoadingDone
+                        )
+                    })
+                }
+
+            } else {
+                update()
+            }
+            
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        }
+    }
+    
+    internal final func loadDatasource(direction: ChatDirection, first: Bool = false, ignoreGaps: Bool = false, samePage: Bool = false, callback: @escaping ((Array<MessageStorageItem>) -> Void)) {
+        func onLoadingDone() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                var (minIndex, maxIndex) = getIndexes()
+                if maxIndex > self.messagesObserver.count {
+                    maxIndex = self.messagesObserver.count
+                }
+                if maxIndex < 0 {
+                    maxIndex = 0
+                }
+                let slice = Array(self.messagesObserver.prefix(upTo: maxIndex).suffix(maxIndex - minIndex))
+//                self.currentPage.minIndex = minIndex
+//                self.currentPage.maxIndex = maxIndex
+                switch direction {
+                    case .down:
+                        self.currentPage.minIndex = minIndex
+                    case .up:
+                        self.currentPage.maxIndex = maxIndex
+                }
+                self.messageLoadingActivityIndicator.isHidden = true
                 callback(slice)
             }
         }
@@ -587,9 +652,11 @@ extension ChatViewController {
             let pageEndIndex: Int
             
             if samePage {
+//                guard let currentIndexMin = self.datasource.filter {  }
                 pageStartIndex = currentPage.minIndex
                 pageEndIndex = currentPage.maxIndex
             } else {
+                print(direction)
                 switch direction {
                     case .down:
                         pageStartIndex = currentPage.minIndex
@@ -606,13 +673,37 @@ extension ChatViewController {
         }
         
         guard self.messagesObserver != nil else {
+            self.loadDatasourceObserver.accept(true)
+            self.currentPage.unlock()
+            callback([])
             return
         }
         if direction == .down && self.currentPage.minIndex < 0 {
+            self.loadDatasourceObserver.accept(true)
+            self.currentPage.unlock()
+            callback([])
             return
         }
-        let (minIndex, maxIndex) = getIndexes()
-        print(minIndex, maxIndex)
+        if self.currentPage.minIndex == 0 && self.currentPage.maxIndex >= self.messagesObserver.count - 1 && !first{
+            self.loadDatasourceObserver.accept(true)
+            self.currentPage.unlock()
+            callback([])
+            return
+        }
+        if direction == .up && self.currentPage.maxIndex >= self.messagesObserver.count - 1 {
+            self.loadDatasourceObserver.accept(true)
+            self.currentPage.unlock()
+            callback([])
+            return
+        }
+        var (minIndex, maxIndex) = getIndexes()
+        if minIndex == 0 && maxIndex == 0 && !first {
+            self.loadDatasourceObserver.accept(true)
+            self.currentPage.unlock()
+            callback([])
+            return
+        }
+        print(minIndex, maxIndex, "INDEXES", self.messagesObserver.count, "count")
         print(1)
         var hasGap: Bool = false
         var archivedId: String = ""
@@ -634,13 +725,20 @@ extension ChatViewController {
             callback([])
             return
         } else if maxIndex > self.messagesObserver.count {
+            maxIndex = self.messagesObserver.count
             if !(isArchiveEnded) {
                 hasGap = !ignoreGaps
                 archivedId = self.messagesObserver.last?.archivedId ?? ""
             }
         }
         if !hasGap {
-            let slice = Array(self.messagesObserver!.prefix(maxIndex).suffix(maxIndex - minIndex))
+            if maxIndex > self.messagesObserver.count {
+                maxIndex = self.messagesObserver.count - 1
+            }
+            if minIndex < 0 {
+                minIndex = 0
+            }
+            let slice = Array(self.messagesObserver.prefix(upTo: maxIndex).suffix(maxIndex - minIndex))
             
             slice.enumerated().forEach {
                 (offset, item) in
@@ -657,18 +755,24 @@ extension ChatViewController {
                 }
             }
             if !hasGap {
-                self.currentPage.minIndex = minIndex
-                self.currentPage.maxIndex = maxIndex
+                switch direction {
+                    case .down:
+                        self.currentPage.minIndex = minIndex
+                    case .up:
+                        self.currentPage.maxIndex = maxIndex
+                }
+//                self.currentPage.minIndex = minIndex
+//                self.currentPage.maxIndex = maxIndex
                 callback(slice)
             }
             switch direction {
-                case .up:
+                case .down:
                     if minIndex == 0 {
                         archivedId = ""
                     } else {
                         archivedId = slice.first?.archivedId ?? ""
                     }
-                case .down: 
+                case .up: 
                     archivedId = slice.last?.archivedId ?? ""
             }
         }
@@ -719,7 +823,21 @@ extension ChatViewController {
     
     
     func didReceiveChangeset() {
-        self.loadDatasource(direction: self.chatScrollDirection ?? .up, ignoreGaps: true, samePage: true) { array in
+        if self.canLoadDatasource {
+//            self.loadDatasource(direction: self.chatScrollDirection ?? .up, ignoreGaps: true, samePage: true) { array in
+            guard let minPrimary = self.datasource.filter({ !$0.isFakeMessage }).first?.primary,
+                  let maxPrimary = self.datasource.filter({ !$0.isFakeMessage }).last?.primary,
+                  let maxIndexRaw = self.messagesObserver.firstIndex(where: { $0.primary == maxPrimary }) else {
+                return
+            }
+            var maxIndex = maxIndexRaw
+            if self.currentPage.minIndex == 0 {
+                if self.messagesObserver.count < self.datasourcePageSize {
+                    maxIndex = self.messagesObserver.count
+                }
+            }
+            let minIndex = self.currentPage.minIndex
+            let array = Array(self.messagesObserver.prefix(upTo: maxIndex).suffix(maxIndex - minIndex))
             let newDatasource = self.mapDataset(dataset: array)
             let diff = diff(old: self.datasource, new: newDatasource)
             let updated = diff.compactMap { $0.replace }
@@ -727,10 +845,6 @@ extension ChatViewController {
             let deleted = diff.compactMap { $0.delete }
             let moved = diff.compactMap { $0.move }
             if updated.isEmpty && inserted.isEmpty && deleted.isEmpty && moved.isEmpty { return }
-            print("updated",updated.compactMap { return $0.index })
-            print("inserted", inserted.compactMap { return $0.index })
-            print("deleted", deleted.compactMap { return $0.index })
-//            print("moved", moved.compactMap { return $0.index })
             self.messagesCollectionView.performBatchUpdates {
                 self.datasource = newDatasource
                 self.messagesCollectionView.deleteSections(IndexSet(deleted.compactMap { return $0.index }) )
@@ -738,16 +852,46 @@ extension ChatViewController {
                 moved.forEach {
                     self.messagesCollectionView.moveItem(at: IndexPath(row: 0, section: $0.fromIndex), to: IndexPath(row: 0, section: $0.toIndex))
                 }
-                self.messagesCollectionView.reconfigureItems(at: updated.compactMap { return IndexPath(row: 0, section: $0.index) })
                 
             } completion: { _ in
-                self.updateDateLabels()
+                
+            }
+            UIView.performWithoutAnimation {
+                self.messagesCollectionView.reconfigureItems(at: updated.compactMap { return IndexPath(row: 0, section: $0.index) })
             }
         }
         
     }
     
     internal func scrollToLastOrUnreadItem() {
+        if self.currentPage.minIndex > 0 {
+            self.currentPage.setCustomPage(0) {
+                var maxIndex = self.datasourcePageSize / 2
+                let minIndex =  0
+                if maxIndex > self.messagesObserver.count {
+                    maxIndex = self.messagesObserver.count
+                }
+                
+                let slice = Array(self.messagesObserver.prefix(upTo: maxIndex).suffix(from: minIndex))
+                self.currentPage.minIndex = minIndex
+                self.currentPage.maxIndex = maxIndex
+                
+                self.currentPage.unlock()
+                self.datasource = self.mapDataset(dataset: slice)
+                self.messagesCollectionView.reloadData()
+                self.messagesCollectionView.layoutIfNeeded()
+                if let index = self.unreadMessagePositionId {
+                    if Set(self.messagesCollectionView.indexPathsForVisibleItems.compactMap({ return $0.section })).contains(index) {
+                        self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: 0), at: .top, animated: false)
+                    } else {
+                        self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: index), at: .centeredVertically, animated: false)
+                    }
+                } else {
+                    self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: 0), at: .top, animated: false)
+                }
+                self.showFloatingDateObserver.accept(true)
+            }
+        }
         if let index = self.unreadMessagePositionId {
             if Set(self.messagesCollectionView.indexPathsForVisibleItems.compactMap({ return $0.section })).contains(index) {
                 self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: 0), at: .top, animated: true)

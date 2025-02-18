@@ -81,13 +81,13 @@ extension ChatViewController: MessagesSelectionPanelActionDelegate {
     }
     
     func selectionPanel(onShare panel: ModernXabberInputView.SelectionPanel) {
-//        if let text = formatSelectedMessagesBodyForCopy() {
-//            let vc = UIActivityViewController(activityItems: [text], applicationActivities: nil)
-//            vc.popoverPresentationController?.sourceView = self.view
-//            present(vc, animated: true, completion: nil)
-//        } else {
-//            showToast(error: "Internal error".localizeString(id: "message_manager_error_internal", arguments: []))
-//        }
+        if let text = formatSelectedMessagesBodyForCopy() {
+            let vc = UIActivityViewController(activityItems: [text], applicationActivities: nil)
+            vc.popoverPresentationController?.sourceView = self.view
+            present(vc, animated: true, completion: nil)
+        } else {
+            //showToast(error: "Internal error".localizeString(id: "message_manager_error_internal", arguments: []))
+        }
         cancelSelection()
     }
     

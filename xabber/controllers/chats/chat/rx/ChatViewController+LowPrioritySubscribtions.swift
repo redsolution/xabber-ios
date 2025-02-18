@@ -57,6 +57,60 @@ extension ChatViewController {
             })
             .disposed(by: bag)
         
+        self.loadDatasourceObserver.asObservable().debounce(.seconds(1), scheduler: MainScheduler.asyncInstance).subscribe { value in
+            self.canLoadDatasource = value
+        }.disposed(by: self.bag)
+
+        
+        self.showFloatingDateObserver
+            .asObservable()
+            .skip(1)
+            .debounce(.milliseconds(400), scheduler: MainScheduler.asyncInstance)
+            .subscribe { value in
+                if self.showSkeletonObserver.value {
+                    return
+                }
+                if value {
+                    let visibleItems = self.messagesCollectionView.indexPathsForVisibleItems
+                    let layout = self.messagesCollectionView.collectionViewLayout as! MessagesCollectionViewFlowLayout
+                    let visibleDateFrames: [CGRect] = visibleItems.compactMap {
+                        path in
+                        switch self.datasource[path.section].kind {
+                            case .date, .unread:
+                                let attrib = layout.layoutAttributesForItem(at: path)
+                                guard let frame = attrib?.frame else { return nil }
+                                var convertedPoint = self.messagesCollectionView.convert(frame.origin, to: self.view)
+                                convertedPoint.y = convertedPoint.y - frame.height
+                                let newFrame = CGRect(origin: convertedPoint, size: frame.size)
+                                print(newFrame)
+                                return newFrame
+                            default:
+                                return nil
+                        }
+                    }.filter({
+                        $0.minY < 150
+                    })
+                    if visibleItems.isEmpty {
+                        self.showFloatingDateObserver.accept(value)
+                    } else if visibleItems.isNotEmpty && visibleDateFrames.isEmpty && ((visibleItems.compactMap({ $0.section }).max() ?? 0) != self.datasource.count - 1) {
+                        self.pinnedDateView.show()
+                        self.hideFloatingDateObserver.accept(true)
+                    } else {
+                        self.pinnedDateView.hide(fast: true)
+                    }
+                }
+            }.disposed(by: self.bag)
+        
+        self.hideFloatingDateObserver
+            .asObservable()
+            .debounce(.seconds(3), scheduler: MainScheduler.asyncInstance)
+            .subscribe { value in
+                if value {
+                    self.pinnedDateView.hide()
+                }
+            }.disposed(by: self.bag)
+
+        
         inTypingMode
             .asObservable()
             .window(timeSpan: .seconds(5), count: 22, scheduler: MainScheduler.asyncInstance)
@@ -143,78 +197,78 @@ extension ChatViewController {
             })
             .disposed(by: bag)
         
-//        attachedMessagesIds
-//            .asObservable()
-//            .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
-//            .subscribe(onNext: { (results) in
-//                do {
-//                    if results.isEmpty {
-//                        self.xabberInputView.hideForwardPanel()
-//                    } else if results.count == 1 {
-//                        let realm = try WRealm.safe()
-//                        if let primary = results.first,
-//                            let item = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
-//                            let message = NSAttributedString(
-//                                string: item.displayedBody(entity: self.entity),
-//                                attributes: [
-//                                    .font: UIFont.systemFont(ofSize: 14, weight: .regular),
-//                                    .foregroundColor: UIColor.secondaryLabel
-//                                ])
-//                            var title = item.outgoing ? self.ownerSender.displayName : self.opponentSender.displayName
-//                            if item.opponent != self.jid && !item.outgoing {
-//                                if let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: item.opponent, owner: item.owner)) {
-//                                    title = instance.displayName
-//                                } else {
-//                                    title = item.opponent
-//                                }
-//                            }
-//                            self.xabberInputView.forwardPanel.update(
-//                                title: title,
-//                                attributed: message
-//                            )
-//                            self.xabberInputView.showForwardPanel()
-//                        } else {
-//                            return
-//                        }
-//                    } else {
-//                        var nicknames: Set<String> = Set<String>()
-//                        var jids: Set<String> = Set<String>()
-//                        let realm = try WRealm.safe()
-//                        let items = realm.objects(MessageStorageItem.self).filter("primary IN %@", results)
-//                        items.forEach { jids.insert($0.outgoing ? $0.owner : $0.opponent) }
-//                        jids.forEach {
-//                            if $0 == self.owner {
-//                                if let displayName = AccountManager.shared.find(for: $0)?.username {
-//                                    nicknames.insert(displayName)
-//                                }
-//                            } else {
-//                                if let displayName = realm
-//                                    .object(ofType: RosterStorageItem.self,
-//                                            forPrimaryKey: [$0, self.owner].prp())?
-//                                    .displayName {
-//                                    nicknames.insert(displayName)
-//                                }
-//                            }
-//                        }
-//                        let message = NSAttributedString(
-//                            string: "\(results.count) forwarded messages".localizeString(id: "counted_forwarded_messages", arguments: ["\(results.count)"]),
-//                            attributes: [
-//                                .font: UIFont.systemFont(ofSize: 14, weight: .regular),
-//                                .foregroundColor: UIColor.secondaryLabel
-//                            ]
-//                        )
-//                        self.xabberInputView.forwardPanel.update(
-//                            title: nicknames.joined(separator: ", "),
-//                            attributed: message
-//                        )
-//                        self.xabberInputView.showForwardPanel()
-//                    }
-//                } catch {
-//                    DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-//                }
-//                
-//            })
-//            .disposed(by: bag)
+        attachedMessagesIds
+            .asObservable()
+            .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
+            .subscribe(onNext: { (results) in
+                do {
+                    if results.isEmpty {
+                        self.xabberInputView.hideForwardPanel()
+                    } else if results.count == 1 {
+                        let realm = try WRealm.safe()
+                        if let primary = results.first,
+                            let item = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
+                            let message = NSAttributedString(
+                                string: item.displayedBody(),
+                                attributes: [
+                                    .font: UIFont.systemFont(ofSize: 14, weight: .regular),
+                                    .foregroundColor: UIColor.secondaryLabel
+                                ])
+                            var title = item.outgoing ? self.ownerSender.displayName : self.opponentSender.displayName
+                            if item.opponent != self.jid && !item.outgoing {
+                                if let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: item.opponent, owner: item.owner)) {
+                                    title = instance.displayName
+                                } else {
+                                    title = item.opponent
+                                }
+                            }
+                            self.xabberInputView.forwardPanel.update(
+                                title: title,
+                                attributed: message
+                            )
+                            self.xabberInputView.showForwardPanel()
+                        } else {
+                            return
+                        }
+                    } else {
+                        var nicknames: Set<String> = Set<String>()
+                        var jids: Set<String> = Set<String>()
+                        let realm = try WRealm.safe()
+                        let items = realm.objects(MessageStorageItem.self).filter("primary IN %@", results)
+                        items.forEach { jids.insert($0.outgoing ? $0.owner : $0.opponent) }
+                        jids.forEach {
+                            if $0 == self.owner {
+                                if let displayName = AccountManager.shared.find(for: $0)?.username {
+                                    nicknames.insert(displayName)
+                                }
+                            } else {
+                                if let displayName = realm
+                                    .object(ofType: RosterStorageItem.self,
+                                            forPrimaryKey: [$0, self.owner].prp())?
+                                    .displayName {
+                                    nicknames.insert(displayName)
+                                }
+                            }
+                        }
+                        let message = NSAttributedString(
+                            string: "\(results.count) forwarded messages".localizeString(id: "counted_forwarded_messages", arguments: ["\(results.count)"]),
+                            attributes: [
+                                .font: UIFont.systemFont(ofSize: 14, weight: .regular),
+                                .foregroundColor: UIColor.secondaryLabel
+                            ]
+                        )
+                        self.xabberInputView.forwardPanel.update(
+                            title: nicknames.joined(separator: ", "),
+                            attributed: message
+                        )
+                        self.xabberInputView.showForwardPanel()
+                    }
+                } catch {
+                    DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+                }
+                
+            })
+            .disposed(by: bag)
         
         forwardedIds
             .asObservable()
@@ -281,33 +335,47 @@ extension ChatViewController {
 //            .skip(1)
             .subscribe { value in
 //                self.runDatasetUpdateTask(shouldScrollToLastMessage: true)
-                self.didReceiveChangeset()
-                if AccountManager.shared.connectingUsers.value.contains(self.owner) {
-                    self.xabberInputView.isSendButtonEnabled = false
-                } else {
-                    do {
-                        let realm = try WRealm.safe()
-                        let badMessageCollection = realm
-                            .objects(MessageStorageItem.self)
-                            .filter(
-                                "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND messageType != %@ AND (state_ == %@ OR state_ == %@)",
-                                self.owner,
-                                self.jid,
-                                self.conversationType.rawValue,
-                                MessageStorageItem.MessageDisplayType.system.rawValue,
-                                MessageStorageItem.MessageSendingState.sending.rawValue,
-                                MessageStorageItem.MessageSendingState.error.rawValue
-                            )
-                        if value {
-                            self.xabberInputView.isSendButtonEnabled = false
-                        } else {
-                            self.xabberInputView.isSendButtonEnabled = badMessageCollection.isEmpty
+                if !value {
+                    if AccountManager.shared.connectingUsers.value.contains(self.owner) {
+                        self.xabberInputView.isSendButtonEnabled = false
+                    } else {
+                        do {
+                            let realm = try WRealm.safe()
+                            let badMessageCollection = realm
+                                .objects(MessageStorageItem.self)
+                                .filter(
+                                    "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND messageType != %@ AND (state_ == %@ OR state_ == %@)",
+                                    self.owner,
+                                    self.jid,
+                                    self.conversationType.rawValue,
+                                    MessageStorageItem.MessageDisplayType.system.rawValue,
+                                    MessageStorageItem.MessageSendingState.sending.rawValue,
+                                    MessageStorageItem.MessageSendingState.error.rawValue
+                                )
+                            if value {
+                                self.xabberInputView.isSendButtonEnabled = false
+                            } else {
+                                self.xabberInputView.isSendButtonEnabled = badMessageCollection.isEmpty
+                            }
+                            if let chatInstance = realm.object(
+                                ofType: LastChatsStorageItem.self,
+                                forPrimaryKey: LastChatsStorageItem.genPrimary(
+                                    jid: self.jid,
+                                    owner: self.owner,
+                                    conversationType: self.conversationType
+                                )
+                            ) {
+                                if chatInstance.fullArchiveLoaded && self.messagesObserver.count < 3 {
+                                    self.shouldShowInitialMessage = true
+                                }
+                            }
+                        } catch {
+                            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
                         }
-                    } catch {
                         
                     }
-                    
                 }
+                self.didReceiveChangeset()
                 self.xabberInputView.updateSendButtonState()
             } onError: { _ in
                 

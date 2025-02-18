@@ -793,19 +793,6 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             }
 
             if isNewChatInstance {
-                let initialMessage = MessageStorageItem()
-                initialMessage.configureInitialMessage(
-                    self.owner,
-                    opponent: jid,
-                    conversationType: conversationType,
-                    text: "",
-                    date: conversationDate,
-                    isRead: instance.displayedId == "0"
-                )
-                if realm.object(ofType: MessageStorageItem.self, forPrimaryKey: initialMessage.primary) == nil {
-                    initialMessage.isDeleted = true
-                    _ = initialMessage.save(commitTransaction: false)
-                }
                 if conversationType == .group {
                     let resource = ResourceStorageItem()
                     resource.owner = owner
@@ -827,21 +814,22 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                         groupchatStorageItem.members = 1
                         realm.add(groupchatStorageItem, update: .modified)
                     }
-                }
-                if jid == XMPPJID(string: owner)?.domain {
-                    let resourceInstance = ResourceStorageItem()
-                    resourceInstance.jid = jid
-                    resourceInstance.owner = owner
-                    resourceInstance.resource = "server"
-                    resourceInstance.status = .online
-                    resourceInstance.statusMessage = ""
-                    resourceInstance.priority = -5
-                    resourceInstance.entity = .server
-                    resourceInstance.client = ""
-                    resourceInstance.isTemporary = false
-                    resourceInstance.timestamp = Date()
-                    resourceInstance.primary = ResourceStorageItem.genPrimary(jid: jid, owner: owner, resource: "server")
-                    realm.add(resourceInstance, update: .modified)
+                } else {
+                    if jid == XMPPJID(string: owner)?.domain {
+                        let resourceInstance = ResourceStorageItem()
+                        resourceInstance.jid = jid
+                        resourceInstance.owner = owner
+                        resourceInstance.resource = "server"
+                        resourceInstance.status = .online
+                        resourceInstance.statusMessage = ""
+                        resourceInstance.priority = -5
+                        resourceInstance.entity = .server
+                        resourceInstance.client = ""
+                        resourceInstance.isTemporary = false
+                        resourceInstance.timestamp = Date()
+                        resourceInstance.primary = ResourceStorageItem.genPrimary(jid: jid, owner: owner, resource: "server")
+                        realm.add(resourceInstance, update: .modified)
+                    }
                 }
             }
             let userCard = conversation

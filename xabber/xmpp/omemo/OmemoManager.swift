@@ -136,18 +136,7 @@ open class OmemoManager: AbstractXMPPManager {
         do {
             let realm = try WRealm.safe()
             if realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: self.owner, conversationType: .omemo)) == nil {
-                let initialMessageInstance = MessageStorageItem()
 
-                initialMessageInstance.configureInitialMessage(
-                    owner,
-                    opponent: jid,
-                    conversationType: .omemo,
-                    text: "Encrypted chat created".localizeString(id: "encrypted_chat_created", arguments: []),
-                    date: Date(),
-                    isRead: true
-                )
-
-                initialMessageInstance.isDeleted = false
                 let instance = LastChatsStorageItem()
                 instance.owner = self.owner
                 instance.jid = jid
@@ -159,11 +148,6 @@ open class OmemoManager: AbstractXMPPManager {
                 
                 try realm.write {
                     realm.add(instance, update: .modified)
-                    if let messageInstance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: initialMessageInstance.primary) {
-                        instance.lastMessage = messageInstance
-                    } else {
-                        instance.lastMessage = initialMessageInstance
-                    }
                 }
             }
             XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, _ in

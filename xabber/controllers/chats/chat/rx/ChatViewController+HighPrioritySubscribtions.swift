@@ -88,27 +88,27 @@ extension ChatViewController {
         self.bag = DisposeBag()
         let realm = try WRealm.safe()
 
+        self.configureDataset()
         Observable
             .collection(from: self.messagesObserver, synchronousStart: true)
             .skip(1)
-            .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
+            .debounce(.milliseconds(20), scheduler: MainScheduler.asyncInstance)
             .subscribe {
                 (_) in
-                if self.currentPage.isUnlocked {
-                    if self.showSkeletonObserver.value {
-                        return
-                    }
-                    self.didReceiveChangeset()
+                if self.showSkeletonObserver.value {
+                    return
                 }
+                self.didReceiveChangeset()
             }
             .disposed(by: self.bag)
         
         self.showLoadingIndicator
             .asObservable()
+            .debounce(.microseconds(100), scheduler: MainScheduler.asyncInstance)
             .subscribe { value in
-                DispatchQueue.main.async {
-                    self.chatViewLoadingOverlay.isHidden = !value
-                }
+//                DispatchQueue.main.async {
+                self.chatViewLoadingOverlay.isHidden = !value
+//                }
             }
             .disposed(by: bag)
         
@@ -141,7 +141,7 @@ extension ChatViewController {
         
         self.shouldShowScrollDownButton
             .asObservable()
-            .debounce(.milliseconds(20), scheduler: MainScheduler.asyncInstance)
+            .debounce(.milliseconds(5), scheduler: MainScheduler.asyncInstance)
             .subscribe { value in
                 if value {
                     if self.inSearchMode.value {
@@ -169,9 +169,10 @@ extension ChatViewController {
         
         self.contentOffsetObserver
             .asObservable()
-            .debounce(.milliseconds(20), scheduler: MainScheduler.asyncInstance)
+//            .debounce(.milliseconds(40), scheduler: MainScheduler.asyncInstance)
             .subscribe { value in
-                if value > 250 {
+                self.showFloatingDateObserver.accept(false)
+                if value > 64 {
                     if !self.shouldShowScrollDownButton.value {
                         if !self.inSearchMode.value {
                             self.shouldShowScrollDownButton.accept(true)
@@ -180,6 +181,24 @@ extension ChatViewController {
                 } else {
                     if self.shouldShowScrollDownButton.value {
                         self.shouldShowScrollDownButton.accept(false)
+                    }
+                }
+                if self.canLoadDatasource {
+                    if (self.messagesCollectionView.contentSize.height - self.messagesCollectionView.contentOffset.y) < self.view.bounds.height {
+                        self.canLoadDatasource = false
+                        self.onTouchEndPage(direction: .up)
+                    }
+                }
+                if self.canLoadDatasource {
+                    if self.currentPage.minIndex > 0 {
+                        if let datasourcePrimary = self.datasource.first?.primary,
+                           let observerPrimary = self.messagesObserver.first?.primary,
+                           datasourcePrimary != observerPrimary {
+                            if self.messagesCollectionView.contentOffset.y < 0 {
+                                self.canLoadDatasource = false
+                                self.onTouchStartPage(direction: .down)
+                            }
+                        }
                     }
                 }
             }

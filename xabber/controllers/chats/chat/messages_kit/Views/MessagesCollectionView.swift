@@ -129,11 +129,13 @@ class MessagesCollectionView: UICollectionView {
     func reloadDataAndKeepOffset() {
         // stop scrolling
         setContentOffset(contentOffset, animated: false)
-        
+        let offset = contentOffset.y
         // calculate the offset and reloadData
         let beforeContentSize = contentSize
         reloadData()
+        reloadData()
         layoutIfNeeded()
+        setNeedsLayout()
         let afterContentSize = contentSize
         
         // reset the contentOffset after data is updated

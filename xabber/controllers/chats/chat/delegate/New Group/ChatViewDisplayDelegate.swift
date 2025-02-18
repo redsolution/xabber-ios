@@ -23,15 +23,7 @@ import UIKit
 import MaterialComponents.MDCPalettes
 
 extension ChatViewController: MessagesDisplayDelegate {
-    
-//    func messageFooterView(for indexPath: IndexPath, in messagesCollectionView: MessagesCollectionView) -> MessageReusableView {
-//        let reusable = MessageReusableView(frame: CGRect(width: 200, height: 50))
-//        
-//        reusable.backgroundColor = .red
-//        
-//        return reusable
-//    }
-//    
+
     func messageErrorIcon(for message: MessageType, at indexPath: IndexPath, on messagesCollectionView: MessagesCollectionView) -> String? {
         guard let meta = self.datasource[indexPath.section].errorMetadata else {
             return nil
@@ -109,23 +101,15 @@ extension ChatViewController: MessagesDisplayDelegate {
     
     func messageStyle(for message: MessageType, at indexPath: IndexPath, in messagesCollectionView: MessagesCollectionView) -> MessageStyle {
         let corner: MessageStyle.TailCorner = isFromCurrentSender(message: message) ? .bottomRight : .bottomLeft
-        let item = datasource[indexPath.section]
         switch message.kind {
-        case .text(_), .attributedText(_, _, _):
-//            if indexPath.section > 0 {
-//                if self.groupchat {
-//                    if self.datasource[indexPath.section - 1].groupchatAuthorId == item.groupchatAuthorId {
-//                        return .bubble(corner)
-//                    }
-//                } else {
-//                    if self.datasource[indexPath.section - 1].outgoing == item.outgoing {
-//                        return .bubble(corner)
-//                    }
-//                }
-//            }
-            return .bubbleTail(corner)
-        default:
-            return .bubble(corner)
+            case .text(_), .attributedText(_, _, _):
+                if message.tailed {
+                    return .bubbleTail(corner)
+                } else {
+                    return .bubble(corner)
+                }
+            default:
+                return .bubble(corner)
         }
     }
     

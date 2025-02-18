@@ -380,6 +380,8 @@ extension ChatViewController: XabberInputBarDelegate {
                 })
             }
             self.clearAttachments()
+            self.unreadMessagePositionId = nil
+            self.scrollToLastOrUnreadItem()
         }
         if showSkeletonObserver.value {
             return

@@ -99,7 +99,7 @@ class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISe
             
             let primaryResource = item.rosterItem?.getPrimaryResource()
             
-            var message: String = item.lastMessage?.displayedBody(entity: primaryResource?.entity ?? .contact) ?? blankMessageText
+            var message: String = item.lastMessage?.displayedBody() ?? blankMessageText
             
             var isDraft: Bool = false
             if let draft = item.draftMessage {
@@ -236,7 +236,7 @@ class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISe
         
         navigationItem.searchController = searchController
         navigationItem.hidesSearchBarWhenScrolling = false
-        (searchController?.searchResultsUpdater as? ShareDialogSearchController)?.delegate = self
+        (searchController?.searchResultsUpdater as? ShareDialogSearchController)?.delegate = self.delegate
         
         definesPresentationContext = true
     }

@@ -347,8 +347,10 @@ class MessageContentCell: MessageCollectionViewCell {
         }
     }
     
-    @objc
-    func onPanGesture() {
+    func panGestureObserver() {
+        if (self.delegate?.isInSelection() ?? false) {
+            return
+        }
         if self.isSelected() {
             return
         }
@@ -394,6 +396,11 @@ class MessageContentCell: MessageCollectionViewCell {
                 self.replyIconBackground.alpha = 0
             }
         }
+    }
+    
+    @objc
+    func onPanGesture() {
+        panGestureObserver()
     }
 
     func setSelected(_ color: UIColor) {

@@ -1380,35 +1380,9 @@ class GroupchatManager: AbstractXMPPManager {
                 if let descr = query.element(forName: "description")?.stringValue {
                     instance.descr = descr
                 }
-                
-                let initialMessageInstance = MessageStorageItem()
-                initialMessageInstance.configureInitialMessage(
-                    owner,
-                    opponent: jid,
-                    conversationType: .group,
-                    text: "",
-                    date: Date(),
-                    isRead: true
-                )
-                switch instance.privacy {
-                case .publicChat:
-                    initialMessageInstance.legacyBody = "Group \(instance.name) created".localizeString(id: "chat_group_created", arguments: ["\(instance.name)"])
-                case .incognito:
-                    initialMessageInstance.legacyBody = "Incognito group \(instance.name) created".localizeString(id: "chat_incognito_group_created", arguments: ["\(instance.name)"])
-                default: break
+                try realm.write {
+                    realm.add(instance, update: .modified)
                 }
-                initialMessageInstance.isDeleted = false
-                if realm.object(ofType: MessageStorageItem.self, forPrimaryKey: initialMessageInstance.primary) != nil {
-                    try realm.write {
-                        realm.add(instance, update: .modified)
-                    }
-                } else {
-                    try realm.write {
-                        realm.add(instance, update: .modified)
-                        _ = initialMessageInstance.save(commitTransaction: false)
-                    }
-                }
-                
             }
         } catch {
             DDLogDebug("GroupchatManager: \(#function). \(error.localizedDescription)")
@@ -2076,21 +2050,7 @@ class GroupchatManager: AbstractXMPPManager {
                 }
                 
                 let entity: RosterItemEntity = item.entity
-                let instance = MessageStorageItem()
-                instance.configureInitialMessage(
-                    item.owner,
-                    opponent: item.groupchat,
-                    conversationType: .group,
-                    text: item.reason,
-                    date: item.date,
-                    isRead: item.isRead
-                )
                 
-                if realm.object(ofType: MessageStorageItem.self, forPrimaryKey: instance.primary) != nil {
-                    continue
-                }
-                
-                query.append(instance)
                 
                 if item.isRead { continue }
                 
@@ -2431,24 +2391,6 @@ class GroupchatManager: AbstractXMPPManager {
                         instance.descr = descr
                     }
                     
-                    let initialMessageInstance = MessageStorageItem()
-
-                    initialMessageInstance.configureInitialMessage(
-                        owner,
-                        opponent: groupchat,
-                        conversationType: .group,
-                        text: "",
-                        date: Date(),
-                        isRead: true
-                    )
-                    switch instance.privacy {
-                    case .publicChat:
-                        initialMessageInstance.legacyBody = "Group \(instance.name) created".localizeString(id: "chat_group_created", arguments: ["\(instance.name)"])
-                    case .incognito:
-                        initialMessageInstance.legacyBody = "Incognito group \(instance.name) created".localizeString(id: "chat_incognito_group_created", arguments: ["\(instance.name)"])
-                    default: break
-                    }
-                    initialMessageInstance.isDeleted = false
                     let resource = ResourceStorageItem()
                     resource.owner = owner
                     resource.jid = groupchat
@@ -2458,17 +2400,9 @@ class GroupchatManager: AbstractXMPPManager {
                     resource.priority = -5
                     resource.isTemporary = true
                     resource.primary = ResourceStorageItem.genPrimary(jid: groupchat, owner: owner, resource: owner)
-                    if realm.object(ofType: MessageStorageItem.self, forPrimaryKey: initialMessageInstance.primary) != nil {
-                        transaction(commitTransaction) {
-                            realm.add(resource, update: .modified)
-                            realm.add(instance, update: .modified)
-                        }
-                    } else {
-                        transaction(commitTransaction) {
-                            realm.add(resource, update: .modified)
-                            realm.add(instance, update: .modified)
-                            _ = initialMessageInstance.save(commitTransaction: false)
-                        }
+                    transaction(commitTransaction) {
+                        realm.add(resource, update: .modified)
+                        realm.add(instance, update: .modified)
                     }
                     
                 }

@@ -218,7 +218,7 @@ class LastCallsViewController: BaseViewController {
                             owner: item.owner,
                             jid: item.opponent,
                             username: name,
-                            body: item.displayedBody(entity: .contact),
+                            body: item.displayedBody(),
                             date: item.date,
                             outgoing: item.outgoing,
                             state: MessageStorageItem.VoIPCallState(rawValue: stateUnwr) ?? .none,

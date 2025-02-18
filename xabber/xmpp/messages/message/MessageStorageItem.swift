@@ -273,30 +273,10 @@ class MessageStorageItem: Object {
         }
     }
     
-    public final func displayedBody(entity: RosterItemEntity) -> String {
+    public final func displayedBody() -> String {
         switch displayAs {
         case .initial:
-            switch entity {
-            case .contact:
-                //return "Start messaging here".localizeString(id: "chat_message_start_messaging", arguments: [])
-                return ""
-            case .groupchat:
-                return "Invitation to public group".localizeString(id: "chat_message_public_invitation", arguments: [])
-            case .bot:
-                //return "Start messaging here".localizeString(id: "chat_message_start_messaging", arguments: [])
-                return ""
-            case .server:
-                //return "Start messaging here".localizeString(id: "chat_message_start_messaging", arguments: [])
-                return ""
-            case .incognitoChat:
-                return "Invitation to incognito group".localizeString(id: "chat_message_incognito_invitation", arguments: [])
-            case .privateChat:
-                return "Invitation to private chat".localizeString(id: "chat_message_private_invitation", arguments: [])
-            case .encryptedChat:
-                return "Start secret chat".localizeString(id: "chat_message_start_secret", arguments: [])
-            case .issue:
-                return "Start discussion about issue".localizeString(id: "chat_message_start_discussion", arguments: [])
-            }
+            return ""
         case .text, .quote:
             if self.inlineForwards.isNotEmpty {
                 return body
@@ -509,20 +489,20 @@ class MessageStorageItem: Object {
     }
 
     
-    func configureInitialMessage(_ owner: String, opponent: String, conversationType: ClientSynchronizationManager.ConversationType, text: String?, date: Date, isRead: Bool) {
-        self.body = text ?? ""
-        self.owner = owner
-        self.opponent = opponent
-        self.date = date
-        self.isRead = isRead
-        self.outgoing = false
-        self.conversationType = conversationType
-        self.date = Date(timeIntervalSince1970: 0)
-        self.sentDate = date
-        self.messageId = MessageStorageItem.messageIdForInitial(jid: opponent, conversationType: conversationType)
-        self.displayAs = .initial
-        self.updatePrimary()
-    }
+//    func configureInitialMessage(_ owner: String, opponent: String, conversationType: ClientSynchronizationManager.ConversationType, text: String?, date: Date, isRead: Bool) {
+//        self.body = text ?? ""
+//        self.owner = owner
+//        self.opponent = opponent
+//        self.date = date
+//        self.isRead = isRead
+//        self.outgoing = false
+//        self.conversationType = conversationType
+//        self.date = Date(timeIntervalSince1970: 0)
+//        self.sentDate = date
+//        self.messageId = MessageStorageItem.messageIdForInitial(jid: opponent, conversationType: conversationType)
+//        self.displayAs = .initial
+//        self.updatePrimary()
+//    }
     
     func configureSystemMessage(_ messageContainer: XMPPMessage, owner: String, opponent: String, date: Date) {
         self.references.append(objectsIn: parseReferences(messageContainer, jid: opponent, owner: owner))
@@ -848,6 +828,8 @@ class MessageStorageItem: Object {
                         } else {
                             instance.queryIds = self.queryIds
                         }
+                    } else {
+                        print("as")
                     }
                 }
                 return false
@@ -964,17 +946,6 @@ class MessageStorageItem: Object {
                     instance.isSynced = [.omemo, .omemo1, .axolotl].contains(self.conversationType)
                     instance.lastMessageId = self.messageId
                     
-                    
-                    let initialMessage = MessageStorageItem()
-                    initialMessage.configureInitialMessage(
-                        self.owner,
-                        opponent: self.opponent,
-                        conversationType: self.conversationType,
-                        text: nil,
-                        date: Date(),
-                        isRead: true
-                    )
-                    
                     if let timer = self.references.first?.metadata?["ephemeral-timer"] as? Int {
                         instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
                         instance.afterburnInterval = Double(timer)
@@ -988,11 +959,7 @@ class MessageStorageItem: Object {
                     try transaction(commit: commitTransaction, callback: {
                         if instance.isInvalidated { return }
                         realm.add(instance, update: .modified)
-                        if realm.object(ofType: MessageStorageItem.self, forPrimaryKey: initialMessage.primary) == nil {
-                            realm.add(initialMessage)
-                        } else {
-                            realm.object(ofType: MessageStorageItem.self, forPrimaryKey: initialMessage.primary)?.isDeleted = false
-                        }
+
                         if let rosterItem = realm
                             .object(ofType: RosterStorageItem.self,
                                     forPrimaryKey: [self.opponent, owner].prp()) {
@@ -1035,7 +1002,7 @@ class MessageStorageItem: Object {
                         if notify && !self.isRead && !self.outgoing && self.archivedId.isNotEmpty && self.displayAs != .system {
                             let imageUrl: String? = self.displayAs == .images ? references.filter({ $0.kind == .media }).first?.metadata?["uri"] as? String : nil
                             NotifyManager.shared.update(
-                                withMessage: self.displayedBody(entity: .contact),
+                                withMessage: self.displayedBody(),
                                 messageId: self.archivedId,
                                 username: self.groupchatMetadata?["nickname"] as? String,
                                 opponent: self.opponent,

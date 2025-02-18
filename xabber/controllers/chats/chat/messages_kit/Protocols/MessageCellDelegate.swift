@@ -35,22 +35,6 @@ public protocol MessageCellDelegate: MessageLabelDelegate {
 
     func didTapMessageBottomLabel(in cell: MessageCollectionViewCell)
     
-//    func onCopyMessage(cell: MessageCollectionViewCell) 
-//    
-//    func onReplyMessage(cell: MessageCollectionViewCell)
-//    
-//    func onShareMessage(cell: MessageCollectionViewCell)
-//    
-//    func onDeleteMessage(cell: MessageCollectionViewCell)
-//    
-//    func onMoreAction(cell: MessageCollectionViewCell)
-//    
-//    func onPinMessage(cell: MessageCollectionViewCell)
-//    
-//    func onRetrySending(cell: MessageCollectionViewCell)
-//    
-//    func onEdit(cell: MessageCollectionViewCell)
-    
     func onTapAttachment(cell: MessageCollectionViewCell, inlineItem: Bool, messageId: String?, index: Int, isSubforward: Bool)
     
     func onTapVoiceCall(cell: MessageCollectionViewCell)
@@ -62,4 +46,6 @@ public protocol MessageCellDelegate: MessageLabelDelegate {
     func didTapErrorButton(cell: MessageCollectionViewCell)
     
     func didTapOnInitialFooterLabel(in cell: MessageCollectionViewCell)
+    
+    func isInSelection() -> Bool
 }

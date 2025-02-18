@@ -35,6 +35,8 @@ extension ChatViewController: ImagePickerViewDelegate {
         DispatchQueue.main.async {
             self.forwardedIds.accept(Set<String>())
             self.attachedMessagesIds.accept([])
+            self.unreadMessagePositionId = nil
+            self.scrollToLastOrUnreadItem()
         }
     }
     

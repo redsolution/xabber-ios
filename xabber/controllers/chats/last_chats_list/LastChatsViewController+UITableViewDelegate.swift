@@ -39,11 +39,14 @@ extension LastChatsViewController: UITableViewDelegate {
             oldVc.scrollToLastOrUnreadItem()
             return
         }
+        self.currentChatVC = nil
         let vc = ChatViewController()
         vc.owner = item.owner
         vc.jid = item.jid
         vc.conversationType = item.conversationType
-        self.currentChatVC = vc
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            self.currentChatVC = vc
+        }
         showStacked(vc, in: self)
     }
 }

@@ -147,7 +147,8 @@ class XabberUploadManager: AbstractXMPPManager {
                     
                 case .success(request: let request, streamingFromDisk: let streamingFromDisk, streamFileURL: let streamFileURL):
                     request.responseJSON(queue: nil, options: []) { response in
-                        if (response.response?.statusCode ?? 404) < 400 {
+                        guard let code = response.response?.statusCode else { return }
+                        if code >= 200 && code < 300 {
                             guard let json = response.result.value as? NSDictionary,
                                   let fileUrl = json["file"] as? String,
                                   let name = json["name"] as? String,
@@ -168,7 +169,15 @@ class XabberUploadManager: AbstractXMPPManager {
 
                             successCallback(fileUrl, thumbnailUrl, fileID, name, hash, url, quota, used)
                             self.getStats()
-                        } else {
+                        } else if code == 401 {
+                            self.tokenWasExpired()
+                            guard let json = response.result.value as? NSDictionary,
+                                  let statusCode = json["status"] as? Int else {
+                                      errorCallback(response.response?.statusCode)
+                                      return
+                                  }
+                            errorCallback(statusCode)
+                        } else if code > 401 {
                             guard let json = response.result.value as? NSDictionary,
                                   let statusCode = json["status"] as? Int else {
                                       errorCallback(response.response?.statusCode)
@@ -499,12 +508,31 @@ class XabberUploadManager: AbstractXMPPManager {
                 ).responseJSON { response in
                     switch response.result {
                     case .success(let value):
-                        guard let json = value as? NSDictionary else { return }
-                        
-                        do {
-                            let realm = try WRealm.safe()
-                            if let instance = realm.object(ofType: AccountQuotaStorageItem.self, forPrimaryKey: AccountQuotaStorageItem.genPrimary(jid: self.owner)) {
-                                try realm.write {
+                        guard let json = value as? NSDictionary,
+                              let code = response.response?.statusCode else { return }
+                        if code >= 200 && code < 300 {
+                            do {
+                                let realm = try WRealm.safe()
+                                if let instance = realm.object(ofType: AccountQuotaStorageItem.self, forPrimaryKey: AccountQuotaStorageItem.genPrimary(jid: self.owner)) {
+                                    try realm.write {
+                                        instance.quotaBytes = (json["quota"] as? Int) ?? 0
+                                        instance.totalBytes = ((json["total"] as? NSDictionary)?["used"] as? Int) ?? 0
+                                        instance.totalCount = ((json["total"] as? NSDictionary)?["count"] as? Int) ?? 0
+                                        instance.imagesBytes = ((json["images"] as? NSDictionary)?["used"] as? Int) ?? 0
+                                        instance.imagesCount = ((json["images"] as? NSDictionary)?["count"] as? Int) ?? 0
+                                        instance.filesBytes = ((json["files"] as? NSDictionary)?["used"] as? Int) ?? 0
+                                        instance.filesCount = ((json["files"] as? NSDictionary)?["count"] as? Int) ?? 0
+                                        instance.audioBytes = ((json["audio"] as? NSDictionary)?["used"] as? Int) ?? 0
+                                        instance.audioCount = ((json["audio"] as? NSDictionary)?["count"] as? Int) ?? 0
+                                        instance.voicesBytes = ((json["voices"] as? NSDictionary)?["used"] as? Int) ?? 0
+                                        instance.voicesCount = ((json["voices"] as? NSDictionary)?["count"] as? Int) ?? 0
+                                        instance.videosBytes = ((json["videos"] as? NSDictionary)?["used"] as? Int) ?? 0
+                                        instance.videosCount = ((json["videos"] as? NSDictionary)?["count"] as? Int) ?? 0
+                                        instance.avatarsBytes = ((json["avatars"] as? NSDictionary)?["used"] as? Int) ?? 0
+                                        instance.avatarsCount = ((json["avatars"] as? NSDictionary)?["count"] as? Int) ?? 0
+                                    }
+                                } else {
+                                    let instance = AccountQuotaStorageItem()
                                     instance.quotaBytes = (json["quota"] as? Int) ?? 0
                                     instance.totalBytes = ((json["total"] as? NSDictionary)?["used"] as? Int) ?? 0
                                     instance.totalCount = ((json["total"] as? NSDictionary)?["count"] as? Int) ?? 0
@@ -520,35 +548,23 @@ class XabberUploadManager: AbstractXMPPManager {
                                     instance.videosCount = ((json["videos"] as? NSDictionary)?["count"] as? Int) ?? 0
                                     instance.avatarsBytes = ((json["avatars"] as? NSDictionary)?["used"] as? Int) ?? 0
                                     instance.avatarsCount = ((json["avatars"] as? NSDictionary)?["count"] as? Int) ?? 0
+                                    instance.jid = self.owner
+                                    instance.primary = AccountQuotaStorageItem.genPrimary(jid: self.owner)
+                                    
+                                    try realm.write {
+                                        realm.add(instance)
+                                    }
                                 }
-                            } else {
-                                let instance = AccountQuotaStorageItem()
-                                instance.quotaBytes = (json["quota"] as? Int) ?? 0
-                                instance.totalBytes = ((json["total"] as? NSDictionary)?["used"] as? Int) ?? 0
-                                instance.totalCount = ((json["total"] as? NSDictionary)?["count"] as? Int) ?? 0
-                                instance.imagesBytes = ((json["images"] as? NSDictionary)?["used"] as? Int) ?? 0
-                                instance.imagesCount = ((json["images"] as? NSDictionary)?["count"] as? Int) ?? 0
-                                instance.filesBytes = ((json["files"] as? NSDictionary)?["used"] as? Int) ?? 0
-                                instance.filesCount = ((json["files"] as? NSDictionary)?["count"] as? Int) ?? 0
-                                instance.audioBytes = ((json["audio"] as? NSDictionary)?["used"] as? Int) ?? 0
-                                instance.audioCount = ((json["audio"] as? NSDictionary)?["count"] as? Int) ?? 0
-                                instance.voicesBytes = ((json["voices"] as? NSDictionary)?["used"] as? Int) ?? 0
-                                instance.voicesCount = ((json["voices"] as? NSDictionary)?["count"] as? Int) ?? 0
-                                instance.videosBytes = ((json["videos"] as? NSDictionary)?["used"] as? Int) ?? 0
-                                instance.videosCount = ((json["videos"] as? NSDictionary)?["count"] as? Int) ?? 0
-                                instance.avatarsBytes = ((json["avatars"] as? NSDictionary)?["used"] as? Int) ?? 0
-                                instance.avatarsCount = ((json["avatars"] as? NSDictionary)?["count"] as? Int) ?? 0
-                                instance.jid = self.owner
-                                instance.primary = AccountQuotaStorageItem.genPrimary(jid: self.owner)
-                                
-                                try realm.write {
-                                    realm.add(instance)
-                                }
+                            } catch {
+                                DDLogDebug("XabberUploadManager: \(#function). \(error.localizedDescription)")
                             }
-                        } catch {
-                            DDLogDebug("XabberUploadManager: \(#function). \(error.localizedDescription)")
+                            callback?()
+                        } else if code == 401 {
+                            self.tokenWasExpired()
+                        } else if code > 401 {
+                            //fail
                         }
-                        callback?()
+                        
                     case .failure(let error):
                         DDLogDebug("XabberUploadManager: \(#function). \(error.localizedDescription)")
                         callback?()
@@ -646,7 +662,7 @@ class XabberUploadManager: AbstractXMPPManager {
 
     private final func tokenWasExpired() {
         AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, stream in
-            self.getCode(fullJID: stream.myJID!.full)
+            user.cloudStorage.getCode(fullJID: stream.myJID!.full)
         })
     }
 

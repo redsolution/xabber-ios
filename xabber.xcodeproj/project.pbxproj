@@ -283,6 +283,7 @@
 		6658A3DD2371B1A300642020 /* ChatViewController+Navbar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6658A3DC2371B1A300642020 /* ChatViewController+Navbar.swift */; };
 		665935892114325000C60EDA /* AvatarStorageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 665935882114325000C60EDA /* AvatarStorageItem.swift */; };
 		66595D6E2844AB760099223C /* X509StorageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66595D6D2844AB760099223C /* X509StorageItem.swift */; };
+		665AEE002D64928E00FC1E6C /* ModernMessageCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 665AEDFF2D64927900FC1E6C /* ModernMessageCell.swift */; };
 		665CF70C2731183000F39FD8 /* TextEditBaseCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 665CF70B2731183000F39FD8 /* TextEditBaseCell.swift */; };
 		665D33CB22D887C00034F74E /* LastCallsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 665D33CA22D887C00034F74E /* LastCallsViewController.swift */; };
 		665D33CD22D890B20034F74E /* LastCallsViewController+UITableViewDatasource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 665D33CC22D890B20034F74E /* LastCallsViewController+UITableViewDatasource.swift */; };
@@ -1260,6 +1261,7 @@
 		665935882114325000C60EDA /* AvatarStorageItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarStorageItem.swift; sourceTree = "<group>"; };
 		66595D6D2844AB760099223C /* X509StorageItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = X509StorageItem.swift; sourceTree = "<group>"; };
 		6659F35D2032E95A007F7FCF /* xabber.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = xabber.entitlements; sourceTree = "<group>"; };
+		665AEDFF2D64927900FC1E6C /* ModernMessageCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModernMessageCell.swift; sourceTree = "<group>"; };
 		665CF70B2731183000F39FD8 /* TextEditBaseCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextEditBaseCell.swift; sourceTree = "<group>"; };
 		665D33CA22D887C00034F74E /* LastCallsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastCallsViewController.swift; sourceTree = "<group>"; };
 		665D33CC22D890B20034F74E /* LastCallsViewController+UITableViewDatasource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LastCallsViewController+UITableViewDatasource.swift"; sourceTree = "<group>"; };
@@ -2465,6 +2467,7 @@
 		6643F2D521C2650D00333229 /* Cells */ = {
 			isa = PBXGroup;
 			children = (
+				665AEDFF2D64927900FC1E6C /* ModernMessageCell.swift */,
 				66AE2D5E2D4126D1004C88E6 /* ActivityIndicatorCell.swift */,
 				66992534240687CE00AD9953 /* inline_views */,
 				6643F2D821C2650D00333229 /* MessageCollectionViewCell.swift */,
@@ -5141,6 +5144,7 @@
 				AFC32A8F2AC3FAE2007A019D /* CloudStorageGalleryViewController.swift in Sources */,
 				66999CB827DA0B520046CED3 /* AccountEncryptionInfoViewController.swift in Sources */,
 				4DC843C528A9FAD200F61AEE /* PasscodeEdtitView.swift in Sources */,
+				665AEE002D64928E00FC1E6C /* ModernMessageCell.swift in Sources */,
 				661D8E122ACADD2700990FDF /* DevicePrivacyViewController.swift in Sources */,
 				66CDFFEE2C63942500BF5DCC /* NotificationsControllerFilterProtocol.swift in Sources */,
 				66CB16C321F9C9D100CB03C2 /* ChatViewController.swift in Sources */,
