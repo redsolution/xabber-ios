@@ -37,18 +37,18 @@ extension GroupchatInfoViewController: InfoVCDelegate {
     }
     
     func presentPhotoGallery(urls: [URL], senders: [String], dates: [String], times: [String], messageIds: [String], page: Int) {
-        let gallery = PhotoGallery(urls: urls,
-                                   senders: senders,
-                                   dates: dates,
-                                   times: times,
-                                   messageIds: messageIds)
-        gallery.setPage(page: page)
-        gallery.setupDelegate(photoGalleryDelegate: self.footerView)
-        
-        let nvc = UINavigationController(rootViewController: gallery)
-        nvc.modalPresentationStyle = .overFullScreen
-        
-        present(nvc, animated: true, completion: nil)
+//        let gallery = PhotoGallery(urls: urls,
+//                                   senders: senders,
+//                                   dates: dates,
+//                                   times: times,
+//                                   messageIds: messageIds)
+//        gallery.setPage(page: page)
+//        gallery.setupDelegate(photoGalleryDelegate: self.footerView)
+//        
+//        let nvc = UINavigationController(rootViewController: gallery)
+//        nvc.modalPresentationStyle = .overFullScreen
+//        
+//        present(nvc, animated: true, completion: nil)
     }
 
     func scrollToMediaGallery() {

@@ -21,29 +21,46 @@
 import Foundation
 import UIKit
 
-class InlineMediaBaseView: UIView {
+//class InlineMediaBaseView: UIView {
+//    struct GridItem {
+//        let cell: CGRect
+//        let url: URL?
+//    }
+//    
+//    var contentViews: [UIView] = []
+//    
+//    var grid: [GridItem] = []
+//    var messageId: String? = nil
+//    
+//    internal func prepareGrid(_ references: [MessageReferenceStorageItem.Model]) -> [CGRect] {
+//        return []
+//    }
+//    
+//    func configure(_ references: [MessageReferenceStorageItem.Model], messageId: String?, indexPath: IndexPath) {
+//        self.grid = []
+//        self.messageId = nil
+//    }
+//    
+//    func handleTouch(at point: CGPoint, callback: ((String?, Int, Bool) -> Void)?) {
+//        
+//    }
+//}
+
+public class InlineAttachmentView: ModernContainerView {
     struct GridItem {
         let cell: CGRect
         let url: URL?
     }
     
-    open var datasource: MessagesDataSource? = nil
-    
     var contentViews: [UIView] = []
     
     var grid: [GridItem] = []
-    var messageId: String? = nil
     
-    internal func prepareGrid(_ references: [MessageReferenceStorageItem.Model]) -> [CGRect] {
-        return []
+    override init(frame: CGRect) {
+        super.init(frame: frame)
     }
     
-    func configure(_ references: [MessageReferenceStorageItem.Model], messageId: String?, indexPath: IndexPath) {
-        self.grid = []
-        self.messageId = nil
-    }
-    
-    func handleTouch(at point: CGPoint, callback: ((String?, Int, Bool) -> Void)?) {
-        
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 }

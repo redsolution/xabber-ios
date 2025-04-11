@@ -178,92 +178,59 @@ UICollectionViewDelegateFlowLayout, UICollectionViewDataSource {
         
         
         switch message.kind {
-        case .text, .attributedText, .emoji:
-            let cell = messagesCollectionView.dequeueReusableCell(TextMessageCell.self, for: indexPath)
-            cell.configure(with: message, at: indexPath, and: messagesCollectionView)
-            cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
-            return cell
+            case.attributedText, .emoji:
+                let cell = messagesCollectionView.dequeueReusableCell(TextMessageCell.self, for: indexPath)
+                cell.configure(with: message, at: indexPath, and: messagesCollectionView)
+                cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
+                return cell
             case .system(_), .date, .unread:
-            let cell = messagesCollectionView.dequeueReusableCell(SystemMessageCell.self, for: indexPath)
-            cell.configure(with: message, at: indexPath, and: messagesCollectionView)
-            cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
-            return cell
-        case .photos(_):
-            let cell = messagesCollectionView.dequeueReusableCell(ImageMessageCell.self, for: indexPath)
-            cell.configure(with: message, at: indexPath, and: messagesCollectionView)
-            cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
-            return cell
-        case .files(let files), .videos(let files):
-            if files[0].mimeType == "video" {
-                let cell = messagesCollectionView.dequeueReusableCell(VideoMessageCell.self, for: indexPath)
+                let cell = messagesCollectionView.dequeueReusableCell(SystemMessageCell.self, for: indexPath)
                 cell.configure(with: message, at: indexPath, and: messagesCollectionView)
                 cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
                 return cell
-            } else {
-                let cell = messagesCollectionView.dequeueReusableCell(FileMessageCell.self, for: indexPath)
+            case .call(_):
+                let cell = messagesCollectionView.dequeueReusableCell(VoIPCallMessageCell.self, for: indexPath)
                 cell.configure(with: message, at: indexPath, and: messagesCollectionView)
                 cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
                 return cell
-            }
-        case .audio(_):
-            let cell = messagesCollectionView.dequeueReusableCell(AudioMessageCell.self, for: indexPath)
-            cell.configure(with: message, at: indexPath, and: messagesCollectionView)
-            cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
-            return cell
-        case .call(_):
-            let cell = messagesCollectionView.dequeueReusableCell(VoIPCallMessageCell.self, for: indexPath)
-            cell.configure(with: message, at: indexPath, and: messagesCollectionView)
-            cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
-            return cell
-        case .sticker(_):
-            
-            let cell = messagesCollectionView.dequeueReusableCell(StickerMessageCell.self, for: indexPath)
-            cell.configure(with: message, at: indexPath, and: messagesCollectionView)
-            cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
-            return cell
-        case .quote(_,_):
-            let cell = messagesCollectionView.dequeueReusableCell(QuoteMessageCell.self, for: indexPath)
-            cell.configure(with: message, at: indexPath, and: messagesCollectionView)
-            cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
-            return cell
-        case .initial(_):
-            let cell = messagesCollectionView.dequeueReusableCell(InitialMessageCell.self, for: indexPath)
-            cell.configure(with: message, at: indexPath, and: messagesCollectionView)
-            cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
-            return cell
-        case .skeleton(_):
-            let cell = messagesCollectionView.dequeueReusableCell(SkeletonMessageCell.self, for: indexPath)
-            cell.configure(with: message, at: indexPath, and: messagesCollectionView)
-            cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
-            return cell
-        case .activityIndicator:
-            let cell = messagesCollectionView.dequeueReusableCell(AtivityIndicatorCell.self, for: indexPath)
-            cell.configure(with: message, at: indexPath, and: messagesCollectionView)
-            cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
-            return cell
-        default:
-            fatalError(MessageKitError.customDataUnresolvedCell)
+            case .sticker(_):
+                let cell = messagesCollectionView.dequeueReusableCell(StickerMessageCell.self, for: indexPath)
+                cell.configure(with: message, at: indexPath, and: messagesCollectionView)
+                cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
+                return cell
+            case .initial(_):
+                let cell = messagesCollectionView.dequeueReusableCell(InitialMessageCell.self, for: indexPath)
+                cell.configure(with: message, at: indexPath, and: messagesCollectionView)
+                cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
+                return cell
+            case .skeleton(_):
+                let cell = messagesCollectionView.dequeueReusableCell(SkeletonMessageCell.self, for: indexPath)
+                cell.configure(with: message, at: indexPath, and: messagesCollectionView)
+                cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
+                return cell
         }
     }
 
     func collectionView(_ collectionView: UICollectionView, viewForSupplementaryElementOfKind kind: String, at indexPath: IndexPath) -> UICollectionReusableView {
 
-        guard let messagesCollectionView = collectionView as? MessagesCollectionView else {
-            fatalError(MessageKitError.notMessagesCollectionView)
-        }
+        return MessageReusableView()
+        
+//        guard let messagesCollectionView = collectionView as? MessagesCollectionView else {
+//            fatalError(MessageKitError.notMessagesCollectionView)
+//        }
 
-        guard let displayDelegate = messagesCollectionView.messagesDisplayDelegate else {
-            fatalError(MessageKitError.nilMessagesDisplayDelegate)
-        }
-
-        switch kind {
-        case UICollectionView.elementKindSectionHeader:
-            return displayDelegate.messageHeaderView(for: indexPath, in: messagesCollectionView)
-        case UICollectionView.elementKindSectionFooter:
-            return displayDelegate.messageFooterView(for: indexPath, in: messagesCollectionView)
-        default:
-            fatalError(MessageKitError.unrecognizedSectionKind)
-        }
+//        guard let displayDelegate = messagesCollectionView.messagesDisplayDelegate else {
+//            fatalError(MessageKitError.nilMessagesDisplayDelegate)
+//        }
+//
+//        switch kind {
+//        case UICollectionView.elementKindSectionHeader:
+//            return displayDelegate.messageHeaderView(for: indexPath, in: messagesCollectionView)
+//        case UICollectionView.elementKindSectionFooter:
+//            return displayDelegate.messageFooterView(for: indexPath, in: messagesCollectionView)
+//        default:
+//            fatalError(MessageKitError.unrecognizedSectionKind)
+//        }
     }
     
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {

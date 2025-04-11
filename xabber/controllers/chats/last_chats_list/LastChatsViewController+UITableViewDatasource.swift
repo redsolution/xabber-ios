@@ -115,4 +115,12 @@ extension LastChatsViewController: UITableViewDataSource {
         }
     }
     
+    func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
+        if AudioManager.shared.player == nil {
+            return nil
+        } else {
+            return self.playerViewToolbar
+        }
+    }
+    
 }

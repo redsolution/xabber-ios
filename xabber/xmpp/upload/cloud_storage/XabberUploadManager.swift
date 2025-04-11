@@ -222,7 +222,7 @@ class XabberUploadManager: AbstractXMPPManager {
                         [MessageReferenceStorageItem.Kind.voice.rawValue, MessageReferenceStorageItem.Kind.media.rawValue])
                 .forEach {
                     reference in
-                    if reference.localFileUrl != nil {
+                    if reference.localFileUrl != nil || reference.decodedUrl != nil {
                         do {
                             var metadata: [String: String]? = nil
                             var mimeType: String? = nil
@@ -232,27 +232,35 @@ class XabberUploadManager: AbstractXMPPManager {
                                 guard let mediaType = reference.metadata?["media-type"] else { return }
                                 mimeType = mediaType as? String
                                 switch reference.mimeType {
-                                case "image":
-                                    break
-                                case "video":
-                                    let videoDuration = reference.loadModel()?.duration
-                                    let videoPreviewKey = reference.videoPreviewKey
-                                    metadata = [:]
-                                    metadata!["duration"] = videoDuration
-                                    metadata!["video_preview_key"] = videoPreviewKey
-                                    break
-                                case "voice":
-                                    let meteringLevels = reference.metadata?["meters"]
-                                    let audioDuration = reference.metadata?["duration"]
-                                    metadata = [:]
-                                    metadata!["meters"] = meteringLevels as? String
-                                    metadata!["duration"] = audioDuration as? String
-                                    break
-                                default:
-                                    break
+                                    case "image":
+                                        break
+                                    case "video":
+    //                                    let videoDuration = reference.loadModel()?.duration
+                                        let videoPreviewKey = reference.videoPreviewKey
+                                        metadata = [:]
+    //                                    metadata!["duration"] = videoDuration
+                                        metadata!["video_preview_key"] = videoPreviewKey
+                                        break
+                                    case "voice", "audio":
+                                        let meteringLevels = reference.metadata?["meters"]
+                                        let audioDuration = reference.metadata?["duration"]
+                                        metadata = [:]
+                                        metadata!["meters"] = meteringLevels as? String
+                                        metadata!["duration"] = audioDuration as? String
+                                        if reference.localFileUrl == nil,
+                                           let url = reference.decodedUrl {
+                                            let unwrUrl = URL(fileURLWithPath: url.absoluteString)
+                                            
+                                            try realm.write {
+                                                reference.localFileUrl = try? AudioMessageReceiver.shared.encode(url: unwrUrl)
+                                            }
+                                            
+                                        }
+                                    default:
+                                        break
                                 }
                             }
-                            
+                            guard reference.localFileUrl != nil else { return }
                             var data = try Data(contentsOf: reference.localFileUrl! as URL)
                             let encryptionKeyb64 = reference.metadata?["encryption-key"] as? String
                             let ivb64 = reference.metadata?["iv"] as? String
@@ -992,14 +1000,14 @@ class XabberUploadManager: AbstractXMPPManager {
                 print("ResponseJSON (from getKey): \(response)")
                 
                 switch response.result {
-                case .success(let value):
-                    DDLogDebug(value)
-                case .failure(let error):
-                    DispatchQueue.main.async {
-                        ToastPresenter(message: "Cloud storage is inactive").present(animated: true)
-                    }
-                    failCallback?(error.localizedDescription ?? "Unexpected error")
-                    DDLogDebug(error.localizedDescription)
+                    case .success(let value):
+                        DDLogDebug(value)
+                    case .failure(let error):
+                        DispatchQueue.main.async {
+                            ToastPresenter().presentError(message: "Cloud storage is inactive")
+                        }
+                        failCallback?(error.localizedDescription)
+                        DDLogDebug(error.localizedDescription)
                 }
             }
     }

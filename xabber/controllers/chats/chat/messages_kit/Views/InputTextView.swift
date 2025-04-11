@@ -95,7 +95,7 @@ final class InputTextView: UITextView {
     }
     
     /// The UIEdgeInsets the placeholderLabel has within the InputTextView
-    final var placeholderLabelInsets: UIEdgeInsets = UIEdgeInsets(top: 7, left: 13, bottom: 9, right: 13) {
+    final var placeholderLabelInsets: UIEdgeInsets = UIEdgeInsets(top: 7, left: 8, bottom: 9, right: 13) {
         didSet {
             updateConstraintsForPlaceholderLabel()
         }
@@ -157,7 +157,8 @@ final class InputTextView: UITextView {
     final func setup() {
         
         font = UIFont.preferredFont(forTextStyle: .body)
-        textContainerInset = UIEdgeInsets(top: 7, left: 8, bottom: 9, right: 13)
+//        textContainerInset = UIEdgeInsets(top: 7, left: 8, bottom: 9, right: 13)
+        textContainerInset = UIEdgeInsets(top: 7, left: 4, bottom: 9, right: 8)
         scrollIndicatorInsets = UIEdgeInsets(top: .leastNonzeroMagnitude,
                                              left: .leastNonzeroMagnitude,
                                              bottom: .leastNonzeroMagnitude,

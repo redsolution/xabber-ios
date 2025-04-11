@@ -44,13 +44,11 @@ extension ChatViewController {
                     realm
                         .objects(MessageStorageItem.self)
                         .filter(
-                            "owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@ AND messageType != %@ AND messageType != %@ AND messageType != %@ AND body CONTAINS[cd] %@",
+                            "owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@ AND messageType != %@ AND body CONTAINS[cd] %@",
                             self.owner,
                             self.jid,
                             self.conversationType.rawValue,
-                            MessageStorageItem.MessageDisplayType.initial.rawValue,
                             MessageStorageItem.MessageDisplayType.system.rawValue,
-                            MessageStorageItem.MessageDisplayType.voice.rawValue,
                             value
                         )
                         .sorted(byKeyPath: "date", ascending: false)
@@ -112,6 +110,22 @@ extension ChatViewController {
             }
             .disposed(by: bag)
         
+        self.shouldShowInitialMessage.asObservable().subscribe { value in
+            if value {
+                let width: CGFloat = 340
+                let height: CGFloat = 340
+                let frame = CGRect(
+                    origin: CGPoint(x: (self.view.frame.width - width) / 2, y: (self.view.frame.height - height) / 2),
+                    size: CGSize(width: width, height: height)
+                )
+                self.initialMessageOverlayView.update(frame: frame, conversationType: self.conversationType)
+                self.initialMessageOverlayView.isHidden = false
+            } else {
+                self.initialMessageOverlayView.isHidden = true
+            }
+        }.disposed(by: bag)
+
+        
         self.inSearchMode
             .asObservable()
             .skip(1)
@@ -152,14 +166,23 @@ extension ChatViewController {
                             if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
                                 inputHeight += bottomInset
                             }
-                            self.scrollDownButton.center = CGPoint(x: self.view.frame.maxX - 32 , y: self.view.frame.maxY - (inputHeight + 34))
+                            if self.recordLockIndicator.isHidden == false {
+                                inputHeight += 52
+                            }
+                            self.scrollDownButton.frame = CGRect(
+                                origin: CGPoint(x: self.view.frame.width - 42, y: self.view.frame.height - 52 - inputHeight),
+                                size: CGSize(square: 38)
+                            )
                         } completion: { _ in
                             
                         }
                     }
                 } else {
                     UIView.animate(withDuration: 0.33, delay: 0.0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0.8, options: [.curveEaseIn]) {
-                        self.scrollDownButton.center = CGPoint(x:self.view.frame.maxX - 32, y: self.view.frame.maxY + 44)
+                        self.scrollDownButton.frame = CGRect(
+                            origin: CGPoint(x: self.view.frame.width - 42, y: self.view.frame.height + 52),
+                            size: CGSize(square: 38)
+                        )
                     } completion: { _ in
                         
                     }
@@ -229,6 +252,8 @@ extension ChatViewController {
                         self.applyShouldRequestVerificationPanel()
                     case .acceptedVerification:
                         self.applyAcceptedVerification()
+                    case .audioPlayer:
+                        self.applyAudioPlayerPanel()
                 }
                 switch state {
                     case .none:

@@ -162,6 +162,24 @@ extension ChatViewController {
 
     }
     
+    internal func scrollToSearchedMessage(primary: String) {
+        self.preventHidingDate = true
+        (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?.cache.invalidate()
+        self.messagesCollectionView.reloadData()
+        self.messagesCollectionView.layoutIfNeeded()
+        let scrollIndex = self.datasource.firstIndex(where: { $0.primary == primary }) ?? 0
+        self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: scrollIndex), at: .centeredVertically, animated: false)
+//        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+        self.preventHidingDate = false
+        self.currentPage.unlock()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            self.showFloatingDateObserver.accept(true)
+            self.hideFloatingDateObserver.accept(true)
+            self.loadDatasourceObserver.accept(true)
+            self.currentPage.unlock()
+        }
+    }
+    
     internal func scrollToSearchedMessage(archivedId: String) {
         self.preventHidingDate = true
         (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?.cache.invalidate()

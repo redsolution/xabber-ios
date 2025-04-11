@@ -20,7 +20,7 @@
 
 import UIKit
 
-public class AudioVisualizationView: BaseNibView {
+public class AudioVisualizationView: UIView {
 	public enum AudioVisualizationMode {
 		case read
 		case write
@@ -78,8 +78,13 @@ public class AudioVisualizationView: BaseNibView {
 
 	public var playChronometer: Chronometer?
 
+    public var drawCallback: (() -> Void)? = nil
+    
 	public var meteringLevels: [Float]? {
 		didSet {
+            if let meteringLevels = self.meteringLevels {
+                self.meteringLevels = self.scaleOuterArrayToFitScreen(meteringLevels)
+            }
 			if let meteringLevels = self.meteringLevels {
 				self.meteringLevelsClusteredArray = meteringLevels
                 self.setNeedsDisplay()
@@ -122,11 +127,11 @@ public class AudioVisualizationView: BaseNibView {
 	}
 
 	public func reset() {
-		self.meteringLevels = nil
+//		self.meteringLevels = nil
         self.startFrom = 0.0
 		self.currentGradientPercentage = nil
-		self.meteringLevelsClusteredArray.removeAll()
-		self.meteringLevelsArray.removeAll()
+//		self.meteringLevelsClusteredArray.removeAll()
+//		self.meteringLevelsArray.removeAll()
 //		self.setNeedsDisplay()
 //        self.layoutSubviews()
 	}
@@ -219,6 +224,8 @@ public class AudioVisualizationView: BaseNibView {
     
 	// PRAGMA: - Play Mode Handling
 
+    var isPlayed: Bool = false
+    
 	public func play(for duration: TimeInterval) {
 		guard self.audioVisualizationMode == .read else {
 			fatalError("trying to read audio visualization in write mode")
@@ -227,7 +234,7 @@ public class AudioVisualizationView: BaseNibView {
 		guard self.meteringLevels != nil else {
 			fatalError("trying to read audio visualization of non initialized sound record")
 		}
-
+        isPlayed = true
 		if let currentChronometer = self.playChronometer {
 			currentChronometer.start() // resume current
 			return
@@ -248,18 +255,21 @@ public class AudioVisualizationView: BaseNibView {
 			
             this.currentGradientPercentage = Float(this.startFrom + timerDuration) / Float(this.startFrom + duration)
 			this.setNeedsDisplay()
+            this.drawCallback?()
 		}
 	}
 
 	public func pause() {
-		guard let chronometer = self.playChronometer, chronometer.isPlaying else {
+		guard let chronometer = self.playChronometer else { //, chronometer.isPlaying
             self.stop()
             return
 		}
+        isPlayed = false
 		self.playChronometer?.pause()
 	}
 
 	public func stop() {
+        isPlayed = false
 		self.playChronometer?.stop()
 		self.playChronometer = nil
 
@@ -283,9 +293,9 @@ public class AudioVisualizationView: BaseNibView {
 		UIColor.black.set()
 
 		self.drawMeteringLevelBars(inContext: maskContext!)
-        if let offset = self.progressBarMiddleOffset {
-            self.drawProcessIndicator(setOffset: offset, height: self.progressBarLineHeight, context: maskContext!)
-        }
+//        if let offset = self.progressBarMiddleOffset {
+//            self.drawProcessIndicator(setOffset: offset, height: self.progressBarLineHeight, context: maskContext!)
+//        }
 
 		let mask = UIGraphicsGetCurrentContext()?.makeImage()
 		UIGraphicsEndImageContext()
@@ -367,7 +377,7 @@ public class AudioVisualizationView: BaseNibView {
                 self.drawBar(index - offset, meteringLevelIndex: index, isUpperBar: true, context: context)
             case .both:
                 self.drawBar(index - offset, meteringLevelIndex: index, isUpperBar: true, context: context)
-                self.drawBar(index - offset, meteringLevelIndex: index, isUpperBar: false, context: context)
+//                self.drawBar(index - offset, meteringLevelIndex: index, isUpperBar: false, context: context)
             }
 		}
 	}
@@ -378,13 +388,13 @@ public class AudioVisualizationView: BaseNibView {
 		var barPath: UIBezierPath!
 
 		let xPointForMeteringLevel = self.xPointForMeteringLevel(barIndex)
-		let heightForMeteringLevel = self.heightForMeteringLevel(self.currentMeteringLevelsArray[meteringLevelIndex])
+		let heightForMeteringLevel = self.heightForMeteringLevel(self.currentMeteringLevelsArray[meteringLevelIndex]) * 2
 
 		if isUpperBar {
-			barPath = UIBezierPath(roundedRect: CGRect(x: xPointForMeteringLevel, y: self.centerY - heightForMeteringLevel,
+            barPath = UIBezierPath(roundedRect: CGRect(x: xPointForMeteringLevel, y: self.centerY - (heightForMeteringLevel / 2),
 				width: self.meteringLevelBarWidth, height: heightForMeteringLevel), cornerRadius: self.meteringLevelBarCornerRadius)
 		} else {
-			barPath = UIBezierPath(roundedRect: CGRect(x: xPointForMeteringLevel, y: self.centerY, width: self.meteringLevelBarWidth,
+            barPath = UIBezierPath(roundedRect: CGRect(x: xPointForMeteringLevel, y: self.centerY - 1, width: self.meteringLevelBarWidth,
 				height: heightForMeteringLevel), cornerRadius: self.meteringLevelBarCornerRadius)
 		}
 
@@ -417,7 +427,7 @@ public class AudioVisualizationView: BaseNibView {
 	// MARK: - Points Helpers
 
 	private var centerY: CGFloat {
-        return 2//self.frame.size.height / 2.5
+        return self.frame.size.height / 2
 	}
 
 	private var maximumBarHeight: CGFloat {

@@ -208,7 +208,7 @@ class ChatListTableViewCell: UITableViewCell {
     
     let syncedIndicator: UIImageView = {
         let view = UIImageView()
-        
+        view.contentMode = .scaleAspectFit
         view.image = imageLiteral( "smallcircle.filled.circle.fill")
         view.tintColor = MDCPalette.grey.tint500 | .systemGray
         
@@ -217,7 +217,7 @@ class ChatListTableViewCell: UITableViewCell {
     
     let muteIndicator: UIImageView = {
         let view = UIImageView()
-        
+        view.contentMode = .scaleAspectFit
         view.image = imageLiteral( "speaker.slash.fill")
         view.tintColor = MDCPalette.grey.tint500 | .systemGray
         
@@ -226,7 +226,7 @@ class ChatListTableViewCell: UITableViewCell {
     
     let encryptedIndicator: UIImageView = {
         let view = UIImageView()
-        
+        view.contentMode = .scaleAspectFit
         view.image = imageLiteral("lock.fill")
         view.tintColor = MDCPalette.green.tint700 | .systemGreen
         view.isHidden = true
@@ -236,13 +236,13 @@ class ChatListTableViewCell: UITableViewCell {
     
     let deliveryIndicator: UIImageView = {
         let view = UIImageView()
-        
+        view.contentMode = .scaleAspectFit
         return view
     }()
     
     let pinnedIndicator: UIImageView = {
         let view = UIImageView()
-        
+        view.contentMode = .scaleAspectFit
         view.image = imageLiteral("pin.circle")
         view.tintColor = MDCPalette.grey.tint500 | .systemGray
         
@@ -251,7 +251,7 @@ class ChatListTableViewCell: UITableViewCell {
     
     let errorIndicator: UIImageView = {
         let view = UIImageView()
-        
+        view.contentMode = .scaleAspectFit
         view.image = imageLiteral("exclamationmark.circle.fill")
         view.tintColor = MDCPalette.red.tint700 | .systemRed
         

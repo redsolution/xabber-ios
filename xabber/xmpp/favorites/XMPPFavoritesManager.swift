@@ -89,9 +89,9 @@ class XMPPFavoritesManager: AbstractXMPPManager {
         rosterItem.primary = RosterStorageItem.genPrimary(jid: node, owner: owner)
         rosterItem.username = "Saved messages"
         
-        try realm.write {
-            realm.add(rosterItem)
-        }
+//        try realm.write {
+//            realm.add(rosterItem)
+//        }
     }
     
     func createLastChatsStorageItem(commitTransaction: Bool = true) throws {

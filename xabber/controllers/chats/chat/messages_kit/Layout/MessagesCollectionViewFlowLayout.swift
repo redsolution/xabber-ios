@@ -158,98 +158,84 @@ class MessagesCollectionViewFlowLayout: UICollectionViewFlowLayout {
     }
 
     lazy var commonMessageSizeCalculator = CommonMessageSizeCalculator(layout: self)
-    lazy var quoteMessageSizeCalculator = QuoteMessageSizeCalculator(layout: self)
+//    lazy var quoteMessageSizeCalculator = QuoteMessageSizeCalculator(layout: self)
     lazy var systemMessageSizeCalculator = SystemMessageSizeCalculator(layout: self)
-    lazy var mediaMessageSizeCalculator = MediaMessageSizeCalculator(layout: self)
-    lazy var locationMessageSizeCalculator = LocationMessageSizeCalculator(layout: self)
-    lazy var stickerMessageSizeCalculator = StickerMessageSizeCalculator(layout: self)
+//    lazy var mediaMessageSizeCalculator = MediaMessageSizeCalculator(layout: self)
+//    lazy var locationMessageSizeCalculator = LocationMessageSizeCalculator(layout: self)
+//    lazy var stickerMessageSizeCalculator = StickerMessageSizeCalculator(layout: self)
     lazy var initialMessageSizeCalculator = InitialMessageSizeCalculator(layout: self)
-    lazy var fixedSizeMessageCalculator = FixedSizeMessageCalculator(layout: self)
+//    lazy var fixedSizeMessageCalculator = FixedSizeMessageCalculator(layout: self)
+    lazy var callMessageSizeCalculator = CallMessageSizeCalculator(layout: self)
 
     
     
     func cellSizeCalculatorForItem(at indexPath: IndexPath) -> CellSizeCalculator {
         let message = messagesDataSource.messageForItem(at: indexPath, in: messagesCollectionView)
         switch message.kind {
-            case .text, .attributedText, .emoji, .skeleton(_):
+            case .attributedText, .emoji, .skeleton(_):
                 return commonMessageSizeCalculator
-            case .quote:
-                return quoteMessageSizeCalculator
             case .system, .date, .unread:
                 return systemMessageSizeCalculator
-            case .location:
-                return locationMessageSizeCalculator
             case .sticker(_):
-                return stickerMessageSizeCalculator
+                return callMessageSizeCalculator//stickerMessageSizeCalculator
             case .initial(_):
                 return initialMessageSizeCalculator
-            case .custom:
-                fatalError("Must return a CellSizeCalculator for MessageKind.custom(Any?)")
-            case .photos(_), .videos(_), .files(_), .audio(_), .call(_):
-                return mediaMessageSizeCalculator
-            case .activityIndicator:
-                return fixedSizeMessageCalculator
+            case .call(_):
+                return callMessageSizeCalculator
         }
     }
 
     func sizeForItem(at indexPath: IndexPath) -> CGSize {
         let message = messagesDataSource.messageForItem(at: indexPath, in: messagesCollectionView)
-        if let size = cache.get(for: message.primary) {
-            return size
-        } else {
+//        if let size = cache.get(for: message.primary) {
+//            return size
+//        } else {
             let calculator: CellSizeCalculator
             switch message.kind {
-                case .text, .attributedText, .emoji, .skeleton(_):
+                case .attributedText, .emoji, .skeleton(_):
                     calculator = commonMessageSizeCalculator
-                case .quote:
-                    calculator = quoteMessageSizeCalculator
                 case .system, .date, .unread:
                     calculator = systemMessageSizeCalculator
-                case .location:
-                    calculator = locationMessageSizeCalculator
                 case .sticker(_):
-                    calculator = stickerMessageSizeCalculator
+                    calculator = callMessageSizeCalculator
                 case .initial(_):
                     calculator = initialMessageSizeCalculator
-                case .custom:
-                    fatalError("Must return a CellSizeCalculator for MessageKind.custom(Any?)")
-                case .photos(_), .videos(_), .files(_), .audio(_), .call(_):
-                    calculator = mediaMessageSizeCalculator
-                case .activityIndicator:
-                    calculator = fixedSizeMessageCalculator
+                case .call(_):
+                    calculator = callMessageSizeCalculator
             }
             let size = calculator.sizeForItem(at: indexPath)
-            cache.cache(for: message.primary, size: size)
+//            cache.cache(for: message.primary, size: size)
             return size
-        }
+//        }
     }
     
-    func setMessageIncomingMessagePadding(_ newPadding: UIEdgeInsets) {
-        messageSizeCalculators().forEach { $0.incomingMessagePadding = newPadding }
-    }
+//    func setMessageIncomingMessagePadding(_ newPadding: UIEdgeInsets) {
+//        messageSizeCalculators().forEach { $0.incomingMessagePadding = newPadding }
+//    }
+//    
+//    func setMessageOutgoingMessagePadding(_ newPadding: UIEdgeInsets) {
+//        messageSizeCalculators().forEach { $0.outgoingMessagePadding = newPadding }
+//    }
+//    
+//    func setMessageIncomingMessageTopLabelAlignment(_ newAlignment: LabelAlignment) {
+//        messageSizeCalculators().forEach { $0.incomingMessageTopLabelAlignment = newAlignment }
+//    }
+//    
+//    func setMessageOutgoingMessageTopLabelAlignment(_ newAlignment: LabelAlignment) {
+//        messageSizeCalculators().forEach { $0.outgoingMessageTopLabelAlignment = newAlignment }
+//    }
+//    
+//    func setMessageIncomingMessageBottomLabelAlignment(_ newAlignment: LabelAlignment) {
+//        messageSizeCalculators().forEach { $0.incomingMessageBottomLabelAlignment = newAlignment }
+//    }
+//    
+//    func setMessageOutgoingMessageBottomLabelAlignment(_ newAlignment: LabelAlignment) {
+//        messageSizeCalculators().forEach { $0.outgoingMessageBottomLabelAlignment = newAlignment }
+//    }
     
-    func setMessageOutgoingMessagePadding(_ newPadding: UIEdgeInsets) {
-        messageSizeCalculators().forEach { $0.outgoingMessagePadding = newPadding }
-    }
-    
-    func setMessageIncomingMessageTopLabelAlignment(_ newAlignment: LabelAlignment) {
-        messageSizeCalculators().forEach { $0.incomingMessageTopLabelAlignment = newAlignment }
-    }
-    
-    func setMessageOutgoingMessageTopLabelAlignment(_ newAlignment: LabelAlignment) {
-        messageSizeCalculators().forEach { $0.outgoingMessageTopLabelAlignment = newAlignment }
-    }
-    
-    func setMessageIncomingMessageBottomLabelAlignment(_ newAlignment: LabelAlignment) {
-        messageSizeCalculators().forEach { $0.incomingMessageBottomLabelAlignment = newAlignment }
-    }
-    
-    func setMessageOutgoingMessageBottomLabelAlignment(_ newAlignment: LabelAlignment) {
-        messageSizeCalculators().forEach { $0.outgoingMessageBottomLabelAlignment = newAlignment }
-    }
-    
-    func messageSizeCalculators() -> [MessageSizeCalculator] {
-        return [commonMessageSizeCalculator, mediaMessageSizeCalculator, locationMessageSizeCalculator]
+    func messageSizeCalculators() -> [CellSizeCalculator] {
+//        return [commonMessageSizeCalculator, mediaMessageSizeCalculator, locationMessageSizeCalculator]
+        return []
     }
     
     public final func invalidateLastMessageCachedSize(primary: String?) {

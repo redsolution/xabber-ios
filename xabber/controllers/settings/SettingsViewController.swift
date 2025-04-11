@@ -62,6 +62,9 @@ class SettingsViewController: BaseViewController {
             case notificationInAppAlertLastChats = "notification_in_app_alert_last_chats"
             case notificationInAppSound = "notification_in_app_sound"
             case avatarMasksCurrentAvatarMask = "avatar_masks_current_avatar_mask_"
+            case avatarChatPosition = "avatar_chat_vertical_position"
+            case messageCornerStyle = "message_corner_style"
+            case messageCornerRadius = "message_corner_radius"
             case afterburnTimer = "afterburn_timer"
             case afterburnEnabled = "burn_messages_enabled"
 //            case privacy
@@ -663,7 +666,19 @@ class SettingsViewController: BaseViewController {
                 Datasource(section: .chat, title: "Background image", itemType: .selector,
                            values: ["None", "Honeycomb", "Aliens", "Summer", "Cats", "Flowers", "Flowers-daisy", "Hearts"],
                            current: (dict[Datasource.Keys.chatChooseBackground.rawValue] as? String) ?? "None",
-                           key: .chatChooseBackground)
+                           key: .chatChooseBackground),
+                Datasource(section: .contactList, title: "Corner style", itemType: .selector,
+                           values: MessageStyleConfig.MessageBubbleContainer.verboseNames(),
+                           current: (dict[Datasource.Keys.messageCornerStyle.rawValue] as? String) ?? "No tail",
+                           key: .messageCornerStyle),
+                Datasource(section: .contactList, title: "Corner radius", itemType: .selector,
+                           values: MessageStyleConfig.MessageRadius.getRadiusList(),
+                           current: (dict[Datasource.Keys.messageCornerRadius.rawValue] as? String) ?? "16",
+                           key: .messageCornerRadius),
+                Datasource(section: .contactList, title: "Avatar position", itemType: .selector,
+                           values: ["Top", "Bottom"],
+                           current: (dict[Datasource.Keys.avatarChatPosition.rawValue] as? String) ?? "Bottom",
+                           key: .avatarChatPosition)
             ]),
             Datasource(section: .contactList, title: Datasource.Section.contactList.description(), childs: [
                 Datasource(section: .contactList, title: "Avatars", itemType: .selector,

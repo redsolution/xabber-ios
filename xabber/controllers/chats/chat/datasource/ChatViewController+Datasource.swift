@@ -149,27 +149,27 @@ extension ChatViewController: MessagesDataSource {
         return nil
     }
     
-    func audioMessageState(at indexPath: IndexPath, messageId: String?, index: Int?) -> InlineAudioGridView.AudioCellPlayingState {
-//        if let path = playingMessageIndexPath,
-//            path.indexPath == indexPath,
-//            path.messageId == messageId,
-//            path.index == index,
-//            OpusAudio.shared.player?.isPlaying ?? false {
-//            return .pause
-//        }
-//        guard let item = messagesObserver?[indexPath.section] else {
-//            return .play
-//        }
+//    func audioMessageState(at indexPath: IndexPath, messageId: String?, index: Int?) -> InlineAudioGridView.AudioCellPlayingState {
+////        if let path = playingMessageIndexPath,
+////            path.indexPath == indexPath,
+////            path.messageId == messageId,
+////            path.index == index,
+////            OpusAudio.shared.player?.isPlaying ?? false {
+////            return .pause
+////        }
+////        guard let item = messagesObserver?[indexPath.section] else {
+////            return .play
+////        }
+////        
+////        if let isDownloaded = audioMessageReference(at: indexPath,
+////                                                    messageId: messageId,
+////                                                    index: index)?.isDownloaded {
+////            return isDownloaded ? .play : (item.state == .error ? .play : .loading)
+////        }
 //        
-//        if let isDownloaded = audioMessageReference(at: indexPath,
-//                                                    messageId: messageId,
-//                                                    index: index)?.isDownloaded {
-//            return isDownloaded ? .play : (item.state == .error ? .play : .loading)
-//        }
-        
-        return .loading
-//        return item.state == .error ? .play : .loading
-    }
+//        return .loading
+////        return item.state == .error ? .play : .loading
+//    }
     
     func audioMessageDurationString(at indexPath: IndexPath, messageId: String?, index: Int?) -> String? {
 //        let currentDuration: TimeInterval

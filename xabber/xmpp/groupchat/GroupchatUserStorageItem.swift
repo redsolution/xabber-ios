@@ -86,6 +86,7 @@ class GroupchatUserStorageItem: Object {
     @objc dynamic var sortedRole: Int = IntegerRole.member.rawValue
     
     @objc dynamic var updateTimestamp: Date = Date(timeIntervalSinceReferenceDate: 0)
+    @objc dynamic var updatedTS: Double = 0
     
     override static func indexedProperties() -> [String] {
         return ["owner", "groupchatId"]

@@ -13,7 +13,7 @@ import RxSwift
 import CocoaLumberjack
 
 class ChatFilesViewController: SimpleBaseViewController {
-    class Datasource {
+    struct Datasource {
         let primary: String
         let jid: String
         let owner: String
@@ -22,7 +22,7 @@ class ChatFilesViewController: SimpleBaseViewController {
         let thumbnail: String?
         let videoPreviewKey: String?
         let videoOrientation: String?
-        let voiceModel: MessageReferenceStorageItem.Model?
+        let voiceModel: AudioAttachment
         let senderName: String
         let date: String
         let send_time: String?
@@ -32,25 +32,25 @@ class ChatFilesViewController: SimpleBaseViewController {
         let filename: String
         let referencePrimary: String
         
-        init(primary: String, jid: String, owner: String, messageId: String, uri: String, thumbnail: String? = nil, videoPreviewKey: String? = nil, videoOrientation: String? = nil, voiceModel: MessageReferenceStorageItem.Model? = nil, senderName: String, date: String, send_time: String? = nil, sizeInBytes: String? = nil, video_duration: String? = nil, mimeType: String, filename: String, referencePrimary: String) {
-            self.primary = primary
-            self.jid = jid
-            self.owner = owner
-            self.messageId = messageId
-            self.uri = uri
-            self.thumbnail = thumbnail
-            self.videoPreviewKey = videoPreviewKey
-            self.videoOrientation = videoOrientation
-            self.voiceModel = voiceModel
-            self.senderName = senderName
-            self.date = date
-            self.send_time = send_time
-            self.sizeInBytes = sizeInBytes
-            self.video_duration = video_duration
-            self.mimeType = mimeType
-            self.filename = filename
-            self.referencePrimary = referencePrimary
-        }
+//        init(primary: String, jid: String, owner: String, messageId: String, uri: String, thumbnail: String? = nil, videoPreviewKey: String? = nil, videoOrientation: String? = nil, voiceModel: MessageReferenceStorageItem.Model? = nil, senderName: String, date: String, send_time: String? = nil, sizeInBytes: String? = nil, video_duration: String? = nil, mimeType: String, filename: String, referencePrimary: String) {
+//            self.primary = primary
+//            self.jid = jid
+//            self.owner = owner
+//            self.messageId = messageId
+//            self.uri = uri
+//            self.thumbnail = thumbnail
+//            self.videoPreviewKey = videoPreviewKey
+//            self.videoOrientation = videoOrientation
+//            self.voiceModel = voiceModel
+//            self.senderName = senderName
+//            self.date = date
+//            self.send_time = send_time
+//            self.sizeInBytes = sizeInBytes
+//            self.video_duration = video_duration
+//            self.mimeType = mimeType
+//            self.filename = filename
+//            self.referencePrimary = referencePrimary
+//        }
     }
     
     enum Kind: String {
@@ -143,10 +143,10 @@ class ChatFilesViewController: SimpleBaseViewController {
                     return nil
                 }
                 
-                var voiceModel: MessageReferenceStorageItem.Model? = nil
-                if item.kind_ == "voice" {
-                    voiceModel = item.loadModel()
-                }
+//                var voiceModel: MessageReferenceStorageItem.Model? = nil
+//                if item.kind_ == "voice" {
+//                    voiceModel = item.loadModel()
+//                }
                 
                 let senderData = PhotoGallery.getSenderName(messageId: item.messageId)
                 
@@ -159,7 +159,7 @@ class ChatFilesViewController: SimpleBaseViewController {
                     thumbnail: item.metadata?["thumbnail"] as? String,
                     videoPreviewKey: item.videoPreviewKey,
                     videoOrientation: item.videoOrientation,
-                    voiceModel: voiceModel,
+                    voiceModel: AudioAttachment(primary: "", url: nil, size: 0, name: "", duration: 0, downloaded: false, pcm: []),
                     senderName: senderData.senderName,
                     date: senderData.date,
                     send_time: senderData.time,

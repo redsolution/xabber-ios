@@ -17,6 +17,184 @@
 ////
 ////
 ////
+///
+import Foundation
+import AVFAudio
+import AVFoundation
+import SwiftOGG
+import CocoaLumberjack
+import Cache
+
+public class CommonCacheStorage: NSObject {
+    open class var shared: CommonCacheStorage {
+        struct CommonCacheStorageSingleton {
+            static let instance = CommonCacheStorage()
+        }
+        return CommonCacheStorageSingleton.instance
+    }
+    
+    let diskConfig = DiskConfig(
+        name: "xabber.ios.storage",
+        expiry: .never,
+        maxSize: 65353,
+        directory: nil,
+        protectionType: .completeUnlessOpen
+    )
+    
+    let memoryConfig = MemoryConfig(
+        expiry: .seconds(360),
+        countLimit: 20,
+        totalCostLimit: 0
+    )
+    
+    lazy var storage: Storage? = try? Storage<String, Data>(
+        diskConfig: self.diskConfig,
+        memoryConfig: self.memoryConfig,
+        fileManager: FileManager.default,
+        transformer: TransformerFactory.forData()
+    )
+    
+
+    
+    public func store(data: Data, url: URL) {
+        
+    }
+}
+
+enum DecodeError: Error {
+    case fileNotFound
+}
+
+enum AudioMessageReceiverError: Error {
+    case referenceNotFound
+    case referenceAlreadyPrepared
+    case urlNotFound
+}
+
+public class AudioMessageReceiver: NSObject {
+    open class var shared: AudioMessageReceiver {
+        struct AudioMessageReceiverSingleton {
+            static let instance = AudioMessageReceiver()
+        }
+        return AudioMessageReceiverSingleton.instance
+    }
+    
+    public func decode(url: URL) throws -> URL {
+        guard let filepath = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first,
+              let fullUrl = URL(string: "\(filepath.absoluteString)\(NanoID.new(10))") else {
+            throw DecodeError.fileNotFound
+        }
+        try OGGConverter.convertOpusOGGToM4aFile(src: url, dest: fullUrl)
+        let data = try Data(contentsOf: fullUrl)
+        AudioManager.shared.cache(fullUrl, data: data)
+        return fullUrl
+    }
+    
+    public func encode(url: URL) throws -> URL {
+        guard let filepath = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first,
+              let fullUrl = URL(string: "\(filepath.absoluteString)\(NanoID.new(10)).ogg") else {
+            throw DecodeError.fileNotFound
+        }
+        try OGGConverter.convertM4aFileToOpusOGG(src: url, dest: fullUrl)
+        return fullUrl
+    }
+    
+    public func receive(primary: String) throws -> URL {
+        let realm = try WRealm.safe()
+        guard let instance = realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: primary) else {
+            throw AudioMessageReceiverError.referenceNotFound
+        }
+        guard !instance.isDownloaded  else {
+            throw AudioMessageReceiverError.referenceAlreadyPrepared
+        }
+        guard let uri = instance.url,
+              let url = URL(string: uri) else {
+            throw AudioMessageReceiverError.urlNotFound
+        }
+        let decodedUrl = try self.decode(url: url)
+        let pcm = try self.getPCM(decoded: decodedUrl)
+        
+        
+        print(pcm)
+        print(1)
+        
+        try realm.write {
+            instance.decodedUrl = decodedUrl
+            instance.meteringLevels = pcm
+        }
+        return decodedUrl
+    }
+    
+    public func getDuration(decoded urlDecoded: URL) throws -> Int {
+        return Int(try OGGConverter.getDuration(src: urlDecoded))
+    }
+    
+    public func getPCM(decoded urlDecoded: URL) throws -> [Float] {
+        return try OGGConverter.getPCM(src: urlDecoded)
+//        let data = try Data(contentsOf: urlEncoded)
+//        let file = try AVAudioFile(forReading: urlDecoded)
+//        let decoder = try OGGDecoder(audioData: data)
+//        
+//        
+//        let format = file.fileFormat
+//        guard let buffer = decoder.pcmData.toPCMBuffer(format: format) else { throw OGGConverterError.failedToCreatePCMBuffer }
+//        
+//        
+//        var buffer: AVAudioPCMBuffer = AVAudioPCMBuffer(pcmFormat: file.fileFormat., frameCapacity: UInt32(data.count))!
+//        try file.read(into: buffer)
+//        
+////        buffer.
+//        
+//        let rawdBFS: [Int]
+//        switch true {
+//            case buffer.int16ChannelData?[0] != nil:
+//                rawdBFS = Array(UnsafeBufferPointer(start:buffer.int16ChannelData![0], count: data.count / MemoryLayout<Int16>.size - MemoryLayout<Int16>.size)).map({ return Int($0) })
+//                break
+//            case buffer.int32ChannelData?[0] != nil:
+//                rawdBFS = Array(UnsafeBufferPointer(start:buffer.int32ChannelData![0], count: data.count / MemoryLayout<Int32>.size - MemoryLayout<Int32>.size)).map({ return Int($0) })
+//                break
+//            default: return []
+//        }
+//        print(rawdBFS)
+//        print(1)
+//        
+//        return []
+//
+//        
+//        let samplesCount = 54
+//        let duration: Int = rawdBFS.count / sampleRate
+//        let floatData = rawdBFS
+//            .filter({$0 >= 0})
+////            .map({ return Float(Float($0) / Float(maxSample))})
+//        
+//        let sampleSize = floatData.count / samplesCount
+//        
+//        var approximated: [Int] = []
+//        
+//        func filter(_ value: Float) -> Float {
+//            if value < 0.075 { return 0}
+//            return value
+//        }
+//        
+//        var offset = 0
+//        (0...samplesCount).forEach { sampleId in
+//            if offset < floatData.count {
+//                if offset + sampleSize >= floatData.count {
+//                    approximated.append(Int(floatData.suffix(from: offset).max() ?? 0))
+//                } else {
+//                    approximated.append(Int(floatData.prefix(offset + sampleSize).suffix(from: offset).max() ?? 0))
+//                }
+//                offset += sampleSize
+//            }
+//        }
+//        let maxSample = approximated.max() ?? Int.max
+//        return (approximated.map({ return filter(Float(Float($0) / Float(maxSample)))}), duration)
+////        
+//        return []
+    }
+}
+
+
 //
 //import Foundation
 //import AVFoundation

@@ -20,7 +20,6 @@
 
 import Foundation
 import UIKit
-import Toast_Swift
 
 class QRCodeViewController: UIViewController {
     

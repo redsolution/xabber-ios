@@ -24,6 +24,8 @@ import KissXML
 import RealmSwift
 import RxSwift
 
+/// TODO: fix wrong message count when response missed
+
 protocol TemporaryMessageReceiverProtocol {
     func didReceiveMessage(_ item: MessageStorageItem, queryId: String)
     func didReceiveEndPage(queryId: String, fin: Bool, first: String, last: String, count: Int)
@@ -79,7 +81,7 @@ class MessageArchiveManager: AbstractXMPPManager {
     
     var callbacksQueue: Set<CallbackQueueItem> = Set<CallbackQueueItem>()
     
-    var delegate: MessageArchiveManagerDelegate? = nil
+//    var delegate: MessageArchiveManagerDelegate? = nil
     var backgroundTaskDelegate: XMPPBackgroundTaskDelegate? = nil
     
     var interactiveQueue: SynchronizedArray<String> = SynchronizedArray<String>()
@@ -431,12 +433,12 @@ class MessageArchiveManager: AbstractXMPPManager {
                     if conversationType == .saved {
                         messages = realm
                             .objects(MessageStorageItem.self)
-                            .filter ("owner == %@ AND isDeleted == false AND conversationType_ == %@ AND messageType != %@", self.owner, conversationType.rawValue, MessageStorageItem.MessageDisplayType.initial.rawValue)
+                            .filter ("owner == %@ AND isDeleted == false AND conversationType_ == %@", self.owner, conversationType.rawValue)
                             .sorted (byKeyPath: "date", ascending: false)
                     } else {
                         messages = realm
                             .objects(MessageStorageItem.self)
-                            .filter ("owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@ AND messageType != %@", self.owner, jid, conversationType.rawValue, MessageStorageItem.MessageDisplayType.initial.rawValue)
+                            .filter ("owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@", self.owner, jid, conversationType.rawValue)
                             .sorted (byKeyPath: "date", ascending: false)
                     }
                     var gaps: [HistoryGap] = []

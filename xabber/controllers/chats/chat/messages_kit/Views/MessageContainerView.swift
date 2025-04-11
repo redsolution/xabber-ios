@@ -59,8 +59,8 @@ open class MessageContainerView: UIView {
     open var isSelected: Bool = false
     
     public func setup() {
-        addSubview(shadowImage)
-        addSubview(bubbleImage)
+//        addSubview(shadowImage)
+//        addSubview(bubbleImage)
     }
     
     private func applyMessageStyle() {

@@ -133,6 +133,7 @@ extension ChatBackgroundColorSelectionCell: UICollectionViewDelegate {
             cell.contentView.layer.borderWidth = 1
             
             SettingManager.shared.saveItem(key: "chat_chooseBackgroundColor", string: currentColor?.rawValue ?? ChatViewController.BackgroundColor.purple.rawValue)
+            NotificationCenter.default.post(name: .chatBackgroundChanged, object: self, userInfo: [:])
         }
     }
     

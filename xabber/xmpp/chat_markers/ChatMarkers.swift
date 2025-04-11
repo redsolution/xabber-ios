@@ -374,9 +374,6 @@ class ChatMarkersManager: AbstractXMPPManager {
         do {
             let realm = try WRealm.safe()
             if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primaryKey) {
-                if instance.displayAs == .initial {
-                    return
-                }
                 if instance.outgoing {
                     return
                 }

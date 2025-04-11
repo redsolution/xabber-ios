@@ -27,7 +27,6 @@ class MessagesCollectionView: UICollectionView {
 
     weak var messagesDataSource: MessagesDataSource?
 
-    weak var messagesDisplayDelegate: MessagesDisplayDelegate?
 
     weak var messagesLayoutDelegate: MessagesLayoutDelegate?
 
@@ -62,14 +61,14 @@ class MessagesCollectionView: UICollectionView {
     
     private func registerReusableViews() {
         register(TextMessageCell.self)
-        register(ImageMessageCell.self)
-        register(VideoMessageCell.self)
-        register(FileMessageCell.self)
-        register(AudioMessageCell.self)
+//        register(ImageMessageCell.self)
+//        register(VideoMessageCell.self)
+//        register(FileMessageCell.self)
+//        register(AudioMessageCell.self)
         register(VoIPCallMessageCell.self)
         register(SystemMessageCell.self)
         register(StickerMessageCell.self)
-        register(QuoteMessageCell.self)
+//        register(QuoteMessageCell.self)
         register(InitialMessageCell.self)
         register(SkeletonMessageCell.self)
         register(AtivityIndicatorCell.self)
@@ -133,7 +132,7 @@ class MessagesCollectionView: UICollectionView {
         // calculate the offset and reloadData
         let beforeContentSize = contentSize
         reloadData()
-        reloadData()
+//        reloadData()
         layoutIfNeeded()
         setNeedsLayout()
         let afterContentSize = contentSize

@@ -91,21 +91,22 @@ extension InfoScreenFooterView: UICollectionViewDataSource {
                 return cell
                 
             case .voice:
-                if let voiceModel = datasource[indexPath.item].voiceModel {
-                    let cell = collectionView.dequeueReusableCell(withReuseIdentifier: VoiceMediaCollectionCell.cellName, for: indexPath) as! VoiceMediaCollectionCell
-                    cell.setup(withReference: voiceModel,
-                               date: data.date,
-                               send_time: data.send_time ?? "",
-                               senderName: data.senderName,
-                               owner: owner,
-                               sizeInBytes: data.sizeInBytes ?? "")
-                    if indexPath.item == datasource.count - 1 {
-                        cell.audioView.separatorLine.removeFromSuperview()
-                    }
-                    return cell
-                } else {
-                    fallthrough
-                }
+                    fatalError()
+//                if let voiceModel = datasource[indexPath.item].voiceModel {
+//                    let cell = collectionView.dequeueReusableCell(withReuseIdentifier: VoiceMediaCollectionCell.cellName, for: indexPath) as! VoiceMediaCollectionCell
+//                    cell.setup(withReference: voiceModel,
+//                               date: data.date,
+//                               send_time: data.send_time ?? "",
+//                               senderName: data.senderName,
+//                               owner: owner,
+//                               sizeInBytes: data.sizeInBytes ?? "")
+//                    if indexPath.item == datasource.count - 1 {
+//                        cell.audioView.separatorLine.removeFromSuperview()
+//                    }
+//                    return cell
+//                } else {
+//                    fallthrough
+//                }
                 
             default:
                 let cell = collectionView.dequeueReusableCell(withReuseIdentifier: NoFilesMediaCollectionCell.cellName, for: indexPath) as! NoFilesMediaCollectionCell

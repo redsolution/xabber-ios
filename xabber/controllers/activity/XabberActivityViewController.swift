@@ -222,7 +222,7 @@ class XabberActivityViewController: SimpleBaseViewController {
                 isDraft: item.draftMessage != nil,
                 hasAttachment: item.lastMessage?.isHasAttachedMessages ?? false,
                 userNickname: item.lastMessage?.groupchatDisplayedNickname,
-                isSystemMessage: [.system, .initial].contains(item.lastMessage?.displayAs),
+                isSystemMessage: [.system].contains(item.lastMessage?.displayAs),
                 isPinned: item.isPinned,
                 subRequest: false,
                 isEncrypted: item.conversationType.isEncrypted,

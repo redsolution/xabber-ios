@@ -189,12 +189,10 @@ class SearchResultsViewController: SimpleBaseViewController {
             realm
                 .objects(MessageStorageItem.self)
                 .filter(
-                    "owner == %@ AND isDeleted == false AND conversationType_ == %@ AND messageType != %@ AND messageType != %@ AND messageType != %@ AND body CONTAINS[cd] %@",
+                    "owner == %@ AND isDeleted == false AND conversationType_ == %@ AND messageType != %@ AND body CONTAINS[cd] %@",
                     owner,
                     ClientSynchronizationManager.ConversationType.omemo.rawValue,
-                    MessageStorageItem.MessageDisplayType.initial.rawValue,
                     MessageStorageItem.MessageDisplayType.system.rawValue,
-                    MessageStorageItem.MessageDisplayType.voice.rawValue,
                     text
                 )
                 .sorted(byKeyPath: "date", ascending: false)
@@ -246,9 +244,6 @@ class SearchResultsViewController: SimpleBaseViewController {
             
             var isAttachment: Bool = [
                 MessageStorageItem.MessageDisplayType.sticker,
-                MessageStorageItem.MessageDisplayType.files,
-                MessageStorageItem.MessageDisplayType.images,
-                MessageStorageItem.MessageDisplayType.voice,
                 MessageStorageItem.MessageDisplayType.call].contains(messageItem.displayAs)
             if !isAttachment,
                let authMessageMetadata = messageItem.systemMetadata?["auth_message"] as? Bool,
@@ -256,34 +251,34 @@ class SearchResultsViewController: SimpleBaseViewController {
                 isAttachment = true
             }
             
-            let isInvite = item.unread > 0 ? (messageItem.displayAs  == .initial ? true : false) : false
+            let isInvite = false//item.unread > 0 ? (messageItem.displayAs  == .initial ? true : false) : false
             
             var nickname: String? = nil//messageItem.groupchatDisplayedNickname
-            if messageItem.inlineForwards.isNotEmpty {
-                let sender = messageItem.inlineForwards.first
-                var nick = sender?.forwardNickname
-                if nick == "" || nick == nil {
-                    nick = String(JidManager.shared.prepareJid(jid: sender?.forwardJid ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])))
-                }
-                switch messageItem.inlineForwards.first?.kind {
-                case .text:
-                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])): \(messageItem.inlineForwards.first?.body ?? "")"
-                case .images:
-                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " image".localizeString(id: "forward_image", arguments: [])
-                case .videos:
-                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " video".localizeString(id: "forward_video", arguments: [])
-                case .files:
-                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " file".localizeString(id: "forward_file", arguments: [])
-                case .voice:
-                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " voice message".localizeString(id: "forward_voice", arguments: [])
-                case .quote:
-                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])): \(messageItem.inlineForwards.first?.body ?? "")"
-                case .none:
-                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: []))"
-                }
-            }
+//            if messageItem.inlineForwards.isNotEmpty {
+//                let sender = messageItem.inlineForwards.first
+//                var nick = sender?.forwardNickname
+//                if nick == "" || nick == nil {
+//                    nick = String(JidManager.shared.prepareJid(jid: sender?.forwardJid ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])))
+//                }
+//                switch messageItem.inlineForwards.first?.kind {
+//                case .text:
+//                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])): \(messageItem.inlineForwards.first?.body ?? "")"
+//                case .images:
+//                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " image".localizeString(id: "forward_image", arguments: [])
+//                case .videos:
+//                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " video".localizeString(id: "forward_video", arguments: [])
+//                case .files:
+//                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " file".localizeString(id: "forward_file", arguments: [])
+//                case .voice:
+//                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " voice message".localizeString(id: "forward_voice", arguments: [])
+//                case .quote:
+//                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])): \(messageItem.inlineForwards.first?.body ?? "")"
+//                case .none:
+//                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: []))"
+//                }
+//            }
             
-            var isSystemMessage: Bool = [.system, .initial].contains(messageItem.displayAs)
+            var isSystemMessage: Bool = [.system].contains(messageItem.displayAs)
             if item.isFreshNotEmptyEncryptedChat {
                 message = "Write your encrypted messages here"
                 isSystemMessage = true
@@ -425,9 +420,6 @@ class SearchResultsViewController: SimpleBaseViewController {
                 }
                 var isAttachment: Bool = [
                     MessageStorageItem.MessageDisplayType.sticker,
-                    MessageStorageItem.MessageDisplayType.files,
-                    MessageStorageItem.MessageDisplayType.images,
-                    MessageStorageItem.MessageDisplayType.voice,
                     MessageStorageItem.MessageDisplayType.call].contains(item.lastMessage?.displayAs ?? .text)
                 if !isAttachment,
                    let authMessageMetadata = item.lastMessage?.systemMetadata?["auth_message"] as? Bool,
@@ -435,34 +427,34 @@ class SearchResultsViewController: SimpleBaseViewController {
                     isAttachment = true
                 }
                 
-                let isInvite = item.unread > 0 ? ((item.lastMessage?.displayAs ?? .text) == .initial ? true : false) : false
+                let isInvite = false//item.unread > 0 ? ((item.lastMessage?.displayAs ?? .text) == .initial ? true : false) : false
                 
                 var nickname: String? = item.lastMessage?.groupchatDisplayedNickname
-                if item.lastMessage?.inlineForwards.isNotEmpty ?? false {
-                    let sender = item.lastMessage?.inlineForwards.first
-                    var nick = sender?.forwardNickname
-                    if nick == "" || nick == nil {
-                        nick = String(JidManager.shared.prepareJid(jid: sender?.forwardJid ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])))
-                    }
-                    switch item.lastMessage?.inlineForwards.first?.kind {
-                    case .text:
-                        nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])): \(item.lastMessage?.inlineForwards.first?.body ?? "")"
-                    case .images:
-                        nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " image".localizeString(id: "forward_image", arguments: [])
-                    case .videos:
-                        nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " video".localizeString(id: "forward_video", arguments: [])
-                    case .files:
-                        nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " file".localizeString(id: "forward_file", arguments: [])
-                    case .voice:
-                        nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " voice message".localizeString(id: "forward_voice", arguments: [])
-                    case .quote:
-                        nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])): \(item.lastMessage?.inlineForwards.first?.body ?? "")"
-                    case .none:
-                        nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: []))"
-                    }
-                }
+//                if item.lastMessage?.inlineForwards.isNotEmpty ?? false {
+//                    let sender = item.lastMessage?.inlineForwards.first
+//                    var nick = sender?.forwardNickname
+//                    if nick == "" || nick == nil {
+//                        nick = String(JidManager.shared.prepareJid(jid: sender?.forwardJid ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])))
+//                    }
+//                    switch item.lastMessage?.inlineForwards.first?.kind {
+//                    case .text:
+//                        nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])): \(item.lastMessage?.inlineForwards.first?.body ?? "")"
+//                    case .images:
+//                        nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " image".localizeString(id: "forward_image", arguments: [])
+//                    case .videos:
+//                        nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " video".localizeString(id: "forward_video", arguments: [])
+//                    case .files:
+//                        nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " file".localizeString(id: "forward_file", arguments: [])
+//                    case .voice:
+//                        nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " voice message".localizeString(id: "forward_voice", arguments: [])
+//                    case .quote:
+//                        nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])): \(item.lastMessage?.inlineForwards.first?.body ?? "")"
+//                    case .none:
+//                        nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: []))"
+//                    }
+//                }
                 
-                var isSystemMessage: Bool = [.system, .initial].contains(item.lastMessage?.displayAs ?? .text)
+                var isSystemMessage: Bool = [.system].contains(item.lastMessage?.displayAs ?? .text)
                 if item.isFreshNotEmptyEncryptedChat {
                     message = "Write your encrypted messages here"
                     isSystemMessage = true

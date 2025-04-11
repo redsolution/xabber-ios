@@ -147,7 +147,7 @@ class MessageManager: AbstractXMPPManager {
                 var toResend: Set<String> = Set<String>()
                 sendingMessages.forEach {
                     message in
-                    if [.quote, .text].contains(message.displayAs) {
+                    if [.text].contains(message.displayAs) {
                         if Date().timeIntervalSince(message.date) > 10 {
                             let primary = message.primary
                             toResend.insert(primary)

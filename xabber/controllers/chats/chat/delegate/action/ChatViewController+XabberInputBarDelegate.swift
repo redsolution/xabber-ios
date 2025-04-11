@@ -24,6 +24,7 @@ import Kingfisher
 import Realm
 import YubiKit
 import CocoaLumberjack
+import AVFoundation
 
 
 extension ChatViewController: UIPickerViewDelegate {
@@ -32,6 +33,7 @@ extension ChatViewController: UIPickerViewDelegate {
         self.selectedAfterburnId = row
     }
 }
+
 
 extension ChatViewController: UIPickerViewDataSource {
     func numberOfComponents(in pickerView: UIPickerView) -> Int {
@@ -51,6 +53,429 @@ extension ChatViewController: UIPickerViewDataSource {
 }
 
 extension ChatViewController: XabberInputBarDelegate {
+    
+    
+    func didReceiveRecordButtonPositionChange(to point: CGPoint) {
+        print(#function, point)
+        var inputHeight: CGFloat = 49 + self.xabberInputView.keyboardHeight
+        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
+            inputHeight += bottomInset
+        }
+        var pos: CGFloat = point.y
+        if pos > 24.0 {
+            pos = 0
+        }
+        
+        self.recordLockIndicator.frame = CGRect(
+            origin: CGPoint(x: self.view.frame.width - 42, y: self.view.frame.height - 100 - inputHeight + pos),
+            size: CGSize(square: 38)
+        )
+    }
+    
+    func lockIndicatorShouldLock() {
+        self.recordLockIndicator.removeTarget(self, action: #selector(onRecordLockIndicatorPauseActionTapped), for: .touchUpInside)
+//        UIView.animate(withDuration: 0.33) {
+        self.recordLockIndicator.setImage(imageLiteral("lock.fill"), for: .normal)
+//        }
+//        FeedbackManager.shared.tap()
+    }
+    
+    func lockIndicatorShouldStop() {
+        self.recordLockIndicator.addTarget(self, action: #selector(onRecordLockIndicatorPauseActionTapped), for: .touchUpInside)
+        UIView.animate(
+            withDuration: 0.3,
+            delay: 0.0,
+            usingSpringWithDamping: 0.6,
+            initialSpringVelocity: 0.3,
+            options: [.curveEaseInOut]) {
+                self.recordLockIndicator.setImage(imageLiteral("stop.fill"), for: .normal)
+                var inputHeight: CGFloat = 49 + self.xabberInputView.keyboardHeight
+                if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
+                    inputHeight += bottomInset
+                }
+                self.recordLockIndicator.frame = CGRect(
+                    origin: CGPoint(x: self.view.frame.width - 42, y: self.view.frame.height - 100 - inputHeight),//52
+                    size: CGSize(square: 38)
+                )
+            } completion: { _ in
+                
+            }
+    }
+    
+    func onSendButtonTouchUpInsideWhenAudioWasRecorded() {
+        self.shouldSendAudioMessage() {
+            self.xabberInputView.resetStateAfterRecord()
+            self.xabberInputView.changeSendButtonState(to: .record)
+            self.xabberInputView.changeState(to: .normal)
+            self.recordedReferenceObject = nil
+        }
+    }
+    
+    func lockIndicatorShouldUnlock() {
+        self.recordLockIndicator.removeTarget(self, action: #selector(onRecordLockIndicatorPauseActionTapped), for: .touchUpInside)
+//        UIView.animate(withDuration: 0.33) {
+        self.recordLockIndicator.setImage(imageLiteral("lock.open.fill"), for: .normal)
+//        }
+        
+//        FeedbackManager.shared.tap()
+    }
+    
+    @objc
+    func onMeteringLevelDidUpdate(_ notification: Notification) {
+        guard let percentage: Float = notification.userInfo?[AudioRecorder.audioPercentageUserInfoKey] as? Float else {
+            return
+        }
+//        print("PERCENTAGE", percentage)
+        self.recordedPCM.append(percentage)
+    }
+    
+    func recordAndPlayPanelDeleteButtonTouchUp() {
+        self.recordedReferenceObject = nil
+        AudioManager.shared.player?.stop()
+        AudioManager.shared.player = nil
+        self.xabberInputView.resetStateAfterRecord()
+        self.hideSharedAudioPanel()
+        self.sharedPlayerPaneldelegae?.shouldHide()
+        self.recordLockIndicator.isHidden = true
+        var inputHeight: CGFloat = 49 + self.xabberInputView.keyboardHeight
+        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
+            inputHeight += bottomInset
+        }
+        self.recordLockIndicator.frame = CGRect(
+            origin: CGPoint(x: self.view.frame.width - 42, y: self.view.frame.height - 100 - inputHeight),
+            size: CGSize(square: 38)
+        )
+        self.xabberInputView.resetStateAfterRecord()
+//        self.xabberInputView.isSendButtonEnabled = false
+        self.xabberInputView.changeSendButtonState(to: .record)
+        self.xabberInputView.changeState(to: .normal)
+        self.recordedReferenceObject = nil
+        do {
+            try AudioRecorder.shared.stopRecording(cancel: true, shouldSend: false)
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        }
+        FeedbackManager.shared.generate(feedback: .success)
+    }
+    
+    func didStopPlayingAudio() {
+        AudioManager.shared.player = nil
+        self.currentPlayingUrl = nil
+        self.hideSharedAudioPanel()
+        try? AVAudioSession.sharedInstance().setActive(false)
+    }
+    
+    func recordAndPlayPanelPlayButtonTouchUp() {
+        func play(url: URL?) throws {
+            AudioManager.shared.player?.stop()
+            self.currentPlayingView?.resetState()
+            self.currentPlayingView?.waveform.reset()
+            if let url = url, let data = try AudioManager.shared.load(url) {
+                AudioManager.shared.player = try AVAudioPlayer(data: data, fileTypeHint: AVFileType.m4a.rawValue)
+                AudioManager.shared.currentPlayingTitle = self.ownerSender.displayName
+                AudioManager.shared.currentPlayingSubtitle = "Voice Message"
+                self.xabberInputView.recordAndPlayPanel.play(for: AudioManager.shared.player?.duration ?? 0)
+                AudioManager.shared.addMulticastDelegate(self.xabberInputView)
+                AudioManager.shared.addMulticastDelegate(self.sharedAudioPlayerPanel)
+                self.currentPlayingUrl = url
+                self.xabberInputView.recordAndPlayPanel.playButton.setImage(imageLiteral("pause.fill"), for: .normal)
+            } else {
+                throw AudioManager.AudioManagerError.fileNotFound
+            }
+            AudioManager.shared.player?.play()
+            self.configureSharedAudioPanel()
+            self.sharedAudioPlayerPanel?.swapState(to: .playing)
+        }
+        let url = self.recordedReferenceObject?.decodedUrl
+        do {
+            if AudioManager.shared.player == nil {
+                try play(url: url)
+            } else {
+                if (AudioManager.shared.player?.isPlaying ?? false) {
+                    if self.currentPlayingUrl == url {
+                        AudioManager.shared.player?.pause()
+                        self.xabberInputView.recordAndPlayPanel.pause()
+                        self.sharedAudioPlayerPanel?.swapState(to: .paused)
+                    } else {
+                        try play(url: url)
+                    }
+                    
+                } else {
+                    if self.currentPlayingUrl == url {
+                        AudioManager.shared.player?.play()
+                        self.xabberInputView.recordAndPlayPanel.continuePlay()
+                        self.sharedAudioPlayerPanel?.swapState(to: .playing)
+                    } else {
+                        try play(url: url)
+                    }
+                }
+            }
+        } catch {
+            self.view.makeToast("Unable to play sound at the moment, please try again".localizeString(id: "audio_error_play_failed", arguments: []))
+        }
+    }
+    
+    @objc
+    func onRecordLockIndicatorPauseActionTapped(_ sender: UIButton) {
+        self.onAudioMessageDidStop()
+    }
+    
+    func onAudioMessageDidStop() {
+        self.recordLockIndicator.isHidden = true
+        var inputHeight: CGFloat = 49 + self.xabberInputView.keyboardHeight
+        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
+            inputHeight += bottomInset
+        }
+        self.recordLockIndicator.frame = CGRect(
+            origin: CGPoint(x: self.view.frame.width - 42, y: self.view.frame.height - 100 - inputHeight),
+            size: CGSize(square: 38)
+        )
+        do {
+            try AudioRecorder.shared.stopRecording(cancel: false, shouldSend: false)
+            FeedbackManager.shared.generate(feedback: .success)
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        }
+    }
+    
+    func resetRecordState() {
+        do { try AudioRecorder.shared.stopRecording(cancel: true, shouldSend: false) } catch {  }
+        self.xabberInputView.cancelRecord()
+        self.recordLockIndicator.isHidden = true
+        var inputHeight: CGFloat = 49 + self.xabberInputView.keyboardHeight
+        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
+            inputHeight += bottomInset
+        }
+        self.recordLockIndicator.frame = CGRect(
+            origin: CGPoint(x: self.view.frame.width - 42, y: self.view.frame.height - 100 - inputHeight),
+            size: CGSize(square: 38)
+        )
+        self.recordedReferenceObject = nil
+        self.recordedPCM = []
+    }
+    
+    func didSetAudioPositionBar(percentage: Float) -> TimeInterval {
+        guard let duration = AudioManager.shared.player?.duration else {
+            return 0
+        }
+//        AudioManager.shared.removeMulticastDelegate(self.currentPlayingView)
+        let position: TimeInterval = TimeInterval(Float(duration) * percentage)
+        AudioManager.shared.player?.currentTime = position
+//        AudioManager.shared.addMulticastDelegate(self.currentPlayingView)
+        let newDuration = position
+        return newDuration
+    }
+    
+    func onAudioMessageStartRecord() {
+        func fail(message: String?) {
+            if let message = message {
+                DispatchQueue.main.async {
+                    self.view.makeToast(message)
+                }
+            }
+            self.resetRecordState()
+        }
+        func updateRecordLockFrame() {
+            var inputHeight: CGFloat = 49 + self.xabberInputView.keyboardHeight
+            if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
+                inputHeight += bottomInset
+            }
+            self.recordLockIndicator.frame = CGRect(
+                origin: CGPoint(x: self.view.frame.width - 42, y: self.view.frame.height - 100 - inputHeight),
+                size: CGSize(square: 38)
+            )
+        }
+        FeedbackManager.shared.generate(feedback: .success)
+        self.recordLockIndicator.isHidden = false
+        updateRecordLockFrame()
+        
+        
+        print("panGestureRecognizerSelector", #function)
+        self.recordedPCM = []
+        AudioRecorder.shared.askPermission { granted, requested in
+            if granted {
+//                self.xabberInputView.changeState(to: .record)
+//                self.xabberInputView.sendButton.showPulse()
+                self.xabberInputView.recordPanel.resetAndStart()
+            
+                AudioRecorder.shared.startRecording(visualNotificationFreq: 0.01) { url, error, shouldSend in
+                    do {
+                        if let rawUrl = url {
+                            let unwrUrl = URL(fileURLWithPath: rawUrl.absoluteString)
+//                            let encodedUrl = try AudioMessageReceiver.shared.encode(url: rawUrl)
+//                            let decodedUrl = try AudioMessageReceiver.shared.decode(url: encodedUrl)
+                            
+                            let data = try Data(contentsOf: unwrUrl)
+                            AudioManager.shared.cache(rawUrl, data: data)
+                            let pcm = self.recordedPCM//try AudioMessageReceiver.shared.getPCM(decoded: decodedUrl)
+                            let duration = try AudioMessageReceiver.shared.getDuration(decoded: rawUrl)
+                            self.xabberInputView.cancelRecord()
+                            if shouldSend {
+                                self.shouldSendAudioMessage(rawUrl: rawUrl, duration: duration, pcm: pcm) {
+                                    self.recordLockIndicator.isHidden = true
+                                    updateRecordLockFrame()
+                                    self.xabberInputView.resetStateAfterRecord()
+                                    self.xabberInputView.changeSendButtonState(to: .record)
+                                    self.xabberInputView.changeState(to: .normal)
+                                    self.recordedReferenceObject = nil
+                                }
+                            } else {
+                                self.recordedReferenceObject = try self.willSendAudioMessage(rawUrl: rawUrl, duration: duration, pcm: pcm)
+                                self.xabberInputView.recordAndPlayPanel.configure(pcm: pcm, duration: TimeInterval(duration))
+                                self.xabberInputView.changeState(to: .recordAndPlay)
+                                self.xabberInputView.isSendButtonEnabled = true
+                                self.xabberInputView.changeSendButtonState(to: .send)
+                                self.lockIndicatorShouldStop()
+                                self.recordLockIndicator.isHidden = true
+                                updateRecordLockFrame()
+                            }
+                        } else {
+                            fail(message: "Unable to record sound at the moment, please try again".localizeString(id: "audio_error_record_failed", arguments: []))
+                        }
+                    } catch {
+                        fail(message: "Unable to record sound at the moment, please try again".localizeString(id: "audio_error_record_failed", arguments: []))
+                    }
+                    
+                } failure: {
+                    fail(message: "Unable to record sound at the moment, please try again".localizeString(id: "audio_error_record_failed", arguments: []))
+                }
+            } else {
+                fail(message: nil)
+                YesNoPresenter().present(
+                    in: self,
+                    style: .actionSheet,
+                    title: nil,
+                    message: "Unable to record sound because the permission has not been granted. This can be changed in your settings.".localizeString(id: "audio_error_no_permission", arguments: []),
+                    yesText: "Open application settings",
+                    dangerYes: false,
+                    showCancelAction: true,
+                    noText: "Cancel",
+                    animated: true) { value in
+                        if value {
+                            guard let url = URL(string: UIApplication.openSettingsURLString),
+                                UIApplication.shared.canOpenURL(url) else {
+                                    return
+                            }
+                            let optionsKeyDictionary = [UIApplication.OpenExternalURLOptionsKey(rawValue: "universalLinksOnly"): NSNumber(value: true)]
+                            
+                            UIApplication.shared.open(url, options: optionsKeyDictionary, completionHandler: nil)
+                        }
+                    }
+            }
+        }
+        
+        
+    }
+    
+    func willSendAudioMessage(rawUrl: URL, duration: Int, pcm: [Float]) throws -> MessageReferenceStorageItem {
+        let reference = MessageReferenceStorageItem()
+        reference.kind = .voice
+        reference.owner = self.owner
+        reference.jid = self.jid
+        reference.mimeType = "audio"
+        reference.conversationType = self.conversationType
+        reference.metadata = [
+            "name": "Voice message",
+            "media-type": "audio/ogg",
+            "desc": "Voice message",
+            "uri": rawUrl.absoluteString,
+            "filename": "Voice message",
+        ]
+        reference.duration = duration
+        reference.meteringLevels = pcm
+        reference.primary = UUID().uuidString
+        reference.url = rawUrl.absoluteString
+        reference.decodedUrl = rawUrl
+        return reference
+    }
+    
+    func shouldSendAudioMessage(rawUrl: URL? = nil, duration: Int? = nil, pcm: [Float]? = nil, callback: (() -> Void)?) {
+        DispatchQueue.main.async {
+            do {
+                if let reference = self.recordedReferenceObject {
+                    self.sendAudioMessage(reference)
+                    callback?()
+                } else {
+                    if let rawUrl = rawUrl,
+                       let duration = duration,
+                       let pcm = pcm {
+                        let reference = try self.willSendAudioMessage(rawUrl: rawUrl, duration: duration, pcm: pcm)
+                        self.sendAudioMessage(reference)
+                        callback?()
+                    }
+                }
+            } catch {
+                DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    func sendAudioMessage(_ reference: MessageReferenceStorageItem) {
+        let forwarded: [String] = self.attachedMessagesIds.value
+        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+            user.messages.sendMediaMessage([reference], to: self.jid, forwarded: forwarded, conversationType: self.conversationType)
+            self.recordedReferenceObject = nil
+            DispatchQueue.main.async {
+                if let primary = self.messagesObserver?.first?.primary {
+                    (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
+                        .invalidateLastMessageCachedSize(primary: primary)
+                }
+                FeedbackManager.shared.generate(feedback: .success)
+                self.clearAttachments()
+                self.unreadMessagePositionId = nil
+                self.scrollToLastOrUnreadItem()
+            }
+        })
+    }
+    
+//    func
+    
+    func onAudioMessageDidCancel() {
+        print("panGestureRecognizerSelector", #function)
+        self.xabberInputView.resetStateAfterRecord()
+        self.recordLockIndicator.isHidden = true
+        var inputHeight: CGFloat = 49 + self.xabberInputView.keyboardHeight
+        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
+            inputHeight += bottomInset
+        }
+        self.recordLockIndicator.frame = CGRect(
+            origin: CGPoint(x: self.view.frame.width - 42, y: self.view.frame.height - 48 - inputHeight),
+            size: CGSize(square: 38)
+        )
+        do {
+            try AudioRecorder.shared.stopRecording(cancel: true, shouldSend: false)
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        }
+    }
+    
+    func onAudioMessageDidSet() {
+        print("panGestureRecognizerSelector", #function)
+        
+
+    }
+    
+    func onAudioMessageShouldSend() {
+        print("panGestureRecognizerSelector", #function)
+        self.xabberInputView.recordPanel.done()
+        self.recordLockIndicator.isHidden = true
+        var inputHeight: CGFloat = 49 + self.xabberInputView.keyboardHeight
+        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
+            inputHeight += bottomInset
+        }
+        self.recordLockIndicator.frame = CGRect(
+            origin: CGPoint(x: self.view.frame.width - 42, y: self.view.frame.height - 48 - inputHeight),
+            size: CGSize(square: 38)
+        )
+        self.xabberInputView.sendButton.hidePulse()
+        self.xabberInputView.changeState(to: self.xabberInputView.state)
+        do {
+            try AudioRecorder.shared.stopRecording(cancel: false, shouldSend: true)
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        }
+    }
+    
     
     func onIdentityVerification() {
         let vc = TrustedDevicesViewController()
@@ -344,44 +769,50 @@ extension ChatViewController: XabberInputBarDelegate {
     
     func sendButtonTouchUp( with text: String) {
         func sendMessage(_ text: String) {
-            
-            self.xabberInputView.textField.text = ""
-            self.xabberInputView.textViewDidChange()
-            let forwarded: [String] = self.attachedMessagesIds.value
-            self.draftMessageText.accept(nil)
-//            canUpdateDataset = true
-//            self.shouldChangeOffsetOnUpdate = false
-            self.messagesCollectionView.scrollToTop(animated: true)
-            if let editedMessage = editMessageId.value,
-                editedMessage.isNotEmpty {
-                let primary = editedMessage
-                AccountManager.shared.find(for: self.owner)?.unsafeAction({ (user, stream) in
-                    user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
-                    user.messages.editSimpleMessage(text, primary: primary)
-                    (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
-                            .invalidateLastMessageCachedSize(primary: primary)
-//                    self.canUpdateDataset = true
-//                    self.runDatasetUpdateTask()
-                })
+            if self.recordedReferenceObject != nil {
+                self.onSendButtonTouchUpInsideWhenAudioWasRecorded()
             } else {
-                AccountManager.shared.find(for: self.owner)?.unsafeAction({ (user, stream) in
-                    user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
-                    _ = user.messages.sendSimpleMessage(
-                        text,
-                        to: self.jid,
-                        forwarded: forwarded,
-                        conversationType: self.conversationType
-                    )
-                    if let primary = self.messagesObserver?.first?.primary {
+                self.xabberInputView.textField.text = ""
+                self.xabberInputView.textViewDidChange()
+                let forwarded: [String] = self.attachedMessagesIds.value
+                self.draftMessageText.accept(nil)
+    //            canUpdateDataset = true
+    //            self.shouldChangeOffsetOnUpdate = false
+                self.messagesCollectionView.scrollToTop(animated: true)
+                if let editedMessage = editMessageId.value,
+                    editedMessage.isNotEmpty {
+                    let primary = editedMessage
+                    AccountManager.shared.find(for: self.owner)?.unsafeAction({ (user, stream) in
+                        user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
+                        user.messages.editSimpleMessage(text, primary: primary)
                         (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
-                            .invalidateLastMessageCachedSize(primary: primary)
-                    }
-                    FeedbackManager.shared.generate(feedback: .success)
-                })
+                                .invalidateLastMessageCachedSize(primary: primary)
+                        if let index = self.datasource.firstIndex(where: { $0.primary == primary }) {
+                            self.messagesCollectionView.reloadSections(IndexSet([index]))//(at: [IndexPath(item: 0, section: index)])
+                        }
+    //                    self.canUpdateDataset = true
+    //                    self.runDatasetUpdateTask()
+                    })
+                } else {
+                    AccountManager.shared.find(for: self.owner)?.unsafeAction({ (user, stream) in
+                        user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
+                        _ = user.messages.sendSimpleMessage(
+                            text,
+                            to: self.jid,
+                            forwarded: forwarded,
+                            conversationType: self.conversationType
+                        )
+                        if let primary = self.messagesObserver?.first?.primary {
+                            (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
+                                .invalidateLastMessageCachedSize(primary: primary)
+                        }
+                        FeedbackManager.shared.generate(feedback: .success)
+                    })
+                }
+                self.clearAttachments()
+                self.unreadMessagePositionId = nil
+                self.scrollToLastOrUnreadItem()
             }
-            self.clearAttachments()
-            self.unreadMessagePositionId = nil
-            self.scrollToLastOrUnreadItem()
         }
         if showSkeletonObserver.value {
             return

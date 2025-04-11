@@ -52,7 +52,6 @@ class InfoScreenFooterView: UIView {
         let thumbnail: String?
         let videoPreviewKey: String?
         let videoOrientation: String?
-        let voiceModel: MessageReferenceStorageItem.Model?
         let senderName: String
         let date: String
         let send_time: String?
@@ -520,14 +519,14 @@ class InfoScreenFooterView: UIView {
 //                } catch {
 //                    
 //                }
-                if item.isMissed == true {
-                    return nil
-                }
+//                if item.isMissed == true {
+//                    return nil
+//                }
                 if let uri = item.metadata?["uri"] as? String {
-                    var voiceModel: MessageReferenceStorageItem.Model?
-                    if item.kind_ == "voice" {
-                        voiceModel = item.loadModel()
-                    }
+//                    var voiceModel: MessageReferenceStorageItem.Model?
+//                    if item.kind_ == "voice" {
+//                        voiceModel = item.loadModel()
+//                    }
                     let senderData = PhotoGallery.getSenderName(messageId: item.messageId)
                     
                     var kind: InfoScreenFooterView.Datasource.Kind = .image
@@ -553,7 +552,7 @@ class InfoScreenFooterView: UIView {
                         thumbnail: item.metadata?["thumbnail"] as? String,
                         videoPreviewKey: item.videoPreviewKey,
                         videoOrientation: item.videoOrientation,
-                        voiceModel: (voiceModel != nil) ? voiceModel : nil,
+//                        voiceModel: nil//(voiceModel != nil) ? voiceModel : nil,
                         senderName: senderData.senderName,
                         date: senderData.date,
                         send_time: senderData.time,

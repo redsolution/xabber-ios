@@ -123,7 +123,7 @@ class MessageDeleteManager: AbstractXMPPManager {
             let realm = try  WRealm.safe()
             let messages = realm
                 .objects(MessageStorageItem.self)
-                .filter("owner == %@ AND opponent == %@ AND messageType != %@ AND conversationType_ == %@", owner, jid, MessageStorageItem.MessageDisplayType.initial.rawValue, conversationTypeRaw)
+                .filter("owner == %@ AND opponent == %@ AND conversationType_ == %@", owner, jid, conversationTypeRaw)
             let instance = realm
                 .object(
                     ofType: LastChatsStorageItem.self,
@@ -391,7 +391,7 @@ class MessageDeleteManager: AbstractXMPPManager {
             try realm.write {
                 realm
                     .objects(MessageStorageItem.self)
-                    .filter("owner == %@ AND opponent == %@ AND conversationType_ == %@ AND messageType != %@", owner, jid, conversationType.rawValue, MessageStorageItem.MessageDisplayType.initial.rawValue)
+                    .filter("owner == %@ AND opponent == %@ AND conversationType_ == %@", owner, jid, conversationType.rawValue)
                     .forEach { $0.isDeleted = true }
             }
             LastChats.updateErrorState(for: jid, owner: self.owner, conversationType: conversationType)

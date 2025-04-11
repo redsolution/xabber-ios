@@ -52,7 +52,7 @@ func parseSystemMessageMetadata(_ message: XMPPMessage) -> [String: Any]? {
     return nil
 }
 
-func parseInlineMessages(_ message: XMPPMessage, parentId: String, jid: String, owner: String, canAccessRealm: Bool = true) -> [MessageForwardsInlineStorageItem] {
+func parseInlineMessages(_ message: XMPPMessage, parentId: String, jid: String, owner: String) -> [MessageForwardsInlineStorageItem] {
        
     func delayedDate(delay dateString: String) -> Date? {
         var date: Date? = nil
@@ -89,17 +89,17 @@ func parseInlineMessages(_ message: XMPPMessage, parentId: String, jid: String, 
                              parentId: parentId,
                              owner: owner,
                              jid: jid,
+                             opponent: (outgoing ? messageContainer.to?.bare : messageContainer.from?.bare) ?? jid,
                              outgoing: outgoing,
                              date: messageDate,
                              forwardJid: from)
-        if canAccessRealm {
-            if let opponent = (outgoing ? messageContainer.to?.bare : messageContainer.from?.bare) {
-                do {
-                    let realm = try WRealm.safe()
-                    item.rosterItem = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: [opponent, owner].prp())
-                } catch {
-                    DDLogDebug("\(#function). \(error.localizedDescription)")
-                }
+        
+        if let opponent = (outgoing ? messageContainer.to?.bare : messageContainer.from?.bare) {
+            do {
+                let realm = try WRealm.safe()
+                item.rosterItem = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: [opponent, owner].prp())
+            } catch {
+                DDLogDebug("\(#function). \(error.localizedDescription)")
             }
         }
         out.append(item)
@@ -170,98 +170,98 @@ func parseReferences(_ message: XMPPMessage, jid: String, owner: String, echo: B
         reference.sentDate = messageDate
         var metadata: [String: Any] = [:]
         switch reference.kind {
-        case .voice:
-            guard let voice = ref.element(forName: "voice-message",
-                                          xmlns: "https://xabber.com/protocol/voice-messages"),
-                let fileSharing = voice.element(forName: "file-sharing",
-                                              xmlns: "https://xabber.com/protocol/files"),
-                let file = fileSharing.element(forName: "file"),
-                let sources = fileSharing.element(forName: "sources"),
-                  let uri = sources.elements(forName: "uri").compactMap({ return $0.stringValue }).first(where: { URL(string: $0.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? $0) != nil }) else {
-                    return nil
+            case .voice:
+                guard let voice = ref.element(forName: "voice-message",
+                                              xmlns: "https://xabber.com/protocol/voice-messages"),
+                    let fileSharing = voice.element(forName: "file-sharing",
+                                                  xmlns: "https://xabber.com/protocol/files"),
+                    let file = fileSharing.element(forName: "file"),
+                    let sources = fileSharing.element(forName: "sources"),
+                      let uri = sources.elements(forName: "uri").compactMap({ return $0.stringValue }).first(where: { URL(string: $0.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? $0) != nil }) else {
+                        return nil
+                    }
+                if let encryptedElement = file.element(forName: "encrypted", xmlns: "urn:xmpp:esfs:0"),
+                   let encryptionKey = encryptedElement.element(forName: "key")?.stringValue,
+                   let iv = encryptedElement.element(forName: "iv")?.stringValue {
+                    metadata["encryption-key"] = encryptionKey
+                    metadata["iv"] = iv
                 }
-            if let encryptedElement = file.element(forName: "encrypted", xmlns: "urn:xmpp:esfs:0"),
-               let encryptionKey = encryptedElement.element(forName: "key")?.stringValue,
-               let iv = encryptedElement.element(forName: "iv")?.stringValue {
-                metadata["encryption-key"] = encryptionKey
-                metadata["iv"] = iv
-            }
-            let mediaType = file.element(forName: "media-type")?.stringValue ?? ""
-            metadata["media-type"] = mediaType
-            reference.mimeType = MimeIcon(mediaType).value.rawValue
-            metadata["name"] = file.element(forName: "name")?.stringValue ?? ""
-            metadata["duration"] = file.element(forName: "duration")?.stringValueAsNSInteger() ?? 0
-            metadata["size"] = file.element(forName: "size")?.stringValueAsNSInteger() ?? 0
-            metadata["hash"] = file.element(forName: "hash")?.stringValue ?? ""
-            metadata["uri"] = uri
-            reference.url = uri
-        case .media:
-            guard let fileSharing = ref.element(forName: "file-sharing",
-                                                xmlns: "https://xabber.com/protocol/files"),
-                let file = fileSharing.element(forName: "file"),
-                let sources = fileSharing.element(forName: "sources"),
-                  let uri = sources.elements(forName: "uri").compactMap({ return $0.stringValue }).first(where: { URL(string: $0.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? "") != nil }) else {
-                    return nil
+                let mediaType = file.element(forName: "media-type")?.stringValue ?? ""
+                metadata["media-type"] = mediaType
+                reference.mimeType = "audio"//MimeIcon(mediaType).value.rawValue
+                metadata["name"] = file.element(forName: "name")?.stringValue ?? ""
+                metadata["duration"] = file.element(forName: "duration")?.stringValueAsNSInteger() ?? 0
+                metadata["size"] = file.element(forName: "size")?.stringValueAsNSInteger() ?? 0
+                metadata["hash"] = file.element(forName: "hash")?.stringValue ?? ""
+                let pcmRaw = file.element(forName: "meters")?.stringValue ?? ""
+                if pcmRaw.isNotEmpty {
+                    metadata["pcm"] = pcmRaw
                 }
-            
-            /*<encrypted xmlns='urn:xmpp:esfs:0' cipher='urn:xmpp:ciphers:aes-256-gcm-nopadding:0'>
-             <key>SuRJ2agVm/pQbJQlPq/B23Xt1YOOJCcEGJA5HrcYOGQ=</key>
-             <iv>T8RDMBaiqn6Ci4Nw</iv>*/
-            
-            if let encryptedElement = file.element(forName: "encrypted", xmlns: "urn:xmpp:esfs:0"),
-               let encryptionKey = encryptedElement.element(forName: "key")?.stringValue,
-               let iv = encryptedElement.element(forName: "iv")?.stringValue {
-                metadata["encryption-key"] = encryptionKey
-                metadata["iv"] = iv
-            }
-            
-            let mediaType = file.element(forName: "media-type")?.stringValue ?? ""
-            metadata["media-type"] = mediaType
-            reference.mimeType = MimeIcon(mediaType).value.rawValue
-            metadata["name"] = file.element(forName: "name")?.stringValue ?? ""
-            metadata["height"] = file.element(forName: "height")?.stringValueAsNSInteger() ?? 0
-            metadata["width"] = file.element(forName: "width")?.stringValueAsNSInteger() ?? 0
-            metadata["size"] = file.element(forName: "size")?.stringValueAsNSInteger() ?? 0
-            metadata["desc"] = file.element(forName: "desc")?.stringValue ?? ""
-            metadata["hash"] = file.element(forName: "hash")?.stringValue ?? ""
-            metadata["orientation"] = file.element(forName: "orientation")?.stringValue ?? ""
-            metadata["video_duration"] = file.element(forName: "video_duration")?.stringValue ?? ""
-            metadata["uri"] = uri
-            reference.url = uri
-        case .markup:
-            var styles: [String] = []
-            if ref.element(forName: "bold") != nil { styles.append("bold") }
-            if ref.element(forName: "underline") != nil { styles.append("underline") }
-            if ref.element(forName: "strike") != nil { styles.append("strike") }
-            if ref.element(forName: "italic") != nil { styles.append("italic") }
-            if let uri = ref.element(forName: "link")?.stringValue {
-                styles.append("uri")
                 metadata["uri"] = uri
                 reference.url = uri
-            }
-            if styles.isNotEmpty {
-                metadata["styles"] = styles
-            } else {
-                return nil
-            }
-        case .quote:
-            metadata["marker"] = ">".xmlEscaping(reverse: false)
-        case .systemMessage:
-            if let timer = ref.element(forName: "system-message", xmlns: "https://xabber.com/protocol/system-message")?.element(forName: "ephemeral", xmlns: "urn:xmpp:ephemeral:0")?.attributeIntegerValue(forName: "timer") {
-                metadata["ephemeral-timer"] = timer
-            }
-        case .groupchat:
-            guard let user = ref.element(forName: "user") else { return nil }
-            metadata["id"] = user.attributeStringValue(forName: "id", withDefaultValue: "")
-            metadata["jid"] = user.element(forName: "jid")?.stringValue ?? ""
-            metadata["nickname"] = user.element(forName: "nickname")?.stringValue ?? ""
-            metadata["role"] = user.element(forName: "role")?.stringValue ?? ""
-            metadata["badge"] = user.element(forName: "badge")?.stringValue ?? ""
-            if let avatarInfo = user.element(forName: "metadata", xmlns: "urn:xmpp:avatar:metadata")?.element(forName: "info") {
-                metadata["avatar_uri"] = avatarInfo.attributeStringValue(forName: "url", withDefaultValue: "")
-                metadata["avatar_id"] = avatarInfo.attributeStringValue(forName: "id", withDefaultValue: "")
-            }
-        default: break
+            case .media:
+                guard let fileSharing = ref.element(forName: "file-sharing",
+                                                    xmlns: "https://xabber.com/protocol/files"),
+                    let file = fileSharing.element(forName: "file"),
+                    let sources = fileSharing.element(forName: "sources"),
+                      let uri = sources.elements(forName: "uri").compactMap({ return $0.stringValue }).first(where: { URL(string: $0.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? "") != nil }) else {
+                        return nil
+                    }
+                
+                if let encryptedElement = file.element(forName: "encrypted", xmlns: "urn:xmpp:esfs:0"),
+                   let encryptionKey = encryptedElement.element(forName: "key")?.stringValue,
+                   let iv = encryptedElement.element(forName: "iv")?.stringValue {
+                    metadata["encryption-key"] = encryptionKey
+                    metadata["iv"] = iv
+                }
+                
+                let mediaType = file.element(forName: "media-type")?.stringValue ?? ""
+                metadata["media-type"] = mediaType
+                reference.mimeType = MimeIcon(mediaType).value.rawValue
+                metadata["name"] = file.element(forName: "name")?.stringValue ?? ""
+                metadata["height"] = file.element(forName: "height")?.stringValueAsNSInteger() ?? 0
+                metadata["width"] = file.element(forName: "width")?.stringValueAsNSInteger() ?? 0
+                metadata["size"] = file.element(forName: "size")?.stringValueAsNSInteger() ?? 0
+                metadata["desc"] = file.element(forName: "desc")?.stringValue ?? ""
+                metadata["hash"] = file.element(forName: "hash")?.stringValue ?? ""
+                metadata["orientation"] = file.element(forName: "orientation")?.stringValue ?? ""
+                metadata["video_duration"] = file.element(forName: "video_duration")?.stringValue ?? ""
+                metadata["uri"] = uri
+                reference.url = uri
+            case .markup:
+                var styles: [String] = []
+                if ref.element(forName: "bold") != nil { styles.append("bold") }
+                if ref.element(forName: "underline") != nil { styles.append("underline") }
+                if ref.element(forName: "strike") != nil { styles.append("strike") }
+                if ref.element(forName: "italic") != nil { styles.append("italic") }
+                if let uri = ref.element(forName: "link")?.stringValue {
+                    styles.append("uri")
+                    metadata["uri"] = uri
+                    reference.url = uri
+                }
+                if styles.isNotEmpty {
+                    metadata["styles"] = styles
+                } else {
+                    return nil
+                }
+            case .quote:
+                metadata["marker"] = ">".xmlEscaping(reverse: false)
+            case .systemMessage:
+                if let timer = ref.element(forName: "system-message", xmlns: "https://xabber.com/protocol/system-message")?.element(forName: "ephemeral", xmlns: "urn:xmpp:ephemeral:0")?.attributeIntegerValue(forName: "timer") {
+                    metadata["ephemeral-timer"] = timer
+                }
+            case .groupchat:
+                guard let user = ref.element(forName: "user") else { return nil }
+                metadata["id"] = user.attributeStringValue(forName: "id", withDefaultValue: "")
+                metadata["jid"] = user.element(forName: "jid")?.stringValue ?? ""
+                metadata["nickname"] = user.element(forName: "nickname")?.stringValue ?? ""
+                metadata["role"] = user.element(forName: "role")?.stringValue ?? ""
+                metadata["badge"] = user.element(forName: "badge")?.stringValue ?? ""
+                if let avatarInfo = user.element(forName: "metadata", xmlns: "urn:xmpp:avatar:metadata")?.element(forName: "info") {
+                    metadata["avatar_uri"] = avatarInfo.attributeStringValue(forName: "url", withDefaultValue: "")
+                    metadata["avatar_id"] = avatarInfo.attributeStringValue(forName: "id", withDefaultValue: "")
+                }
+            default: break
         }
         reference.metadata = metadata
 //        print("Reference received: ", reference, ref.prettyXMLString ?? "")

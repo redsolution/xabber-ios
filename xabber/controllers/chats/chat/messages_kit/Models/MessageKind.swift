@@ -22,22 +22,13 @@ import Foundation
 
 /// An enum representing the kind of message and its underlying kind.
 enum MessageKind {
-    case text(String)
-    case attributedText(NSAttributedString, Bool, NSAttributedString)
-    case quote([MessageStorageItem.QuoteBodyItem], NSAttributedString)
-    case photos([MessageReferenceStorageItem.Model])
-    case files([MessageReferenceStorageItem.Model])
-    case audio([MessageReferenceStorageItem.Model])
-    case videos([MessageReferenceStorageItem.Model])
-    case location(LocationItem)
+    case attributedText(NSAttributedString)
     case emoji(String)
-    case sticker(MessageReferenceStorageItem.Model)
-    case call([MessageReferenceStorageItem.Model])
+    case sticker(ImageAttachment)
+    case call(CallAttachment)
     case system(NSAttributedString)
     case initial(NSAttributedString)
     case skeleton(NSAttributedString)
-    case custom(Any?)
     case date(NSAttributedString)
     case unread(NSAttributedString)
-    case activityIndicator
 }

@@ -24,7 +24,6 @@ import UIKit
 import RealmSwift
 import MaterialComponents.MDCPalettes
 import XMPPFramework.XMPPJID
-import Toast_Swift
 import Kingfisher
 
 

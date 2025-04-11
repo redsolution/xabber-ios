@@ -24,7 +24,6 @@ import RxCocoa
 import RealmSwift
 import MaterialComponents.MDCPalettes
 import CocoaLumberjack
-import Toast_Swift
 
 extension ChatViewController {
     internal func updateStatusText() {
@@ -139,61 +138,60 @@ extension ChatViewController {
             .asObservable()
             .debounce(.microseconds(5), scheduler: MainScheduler.asyncInstance)
             .subscribe(onNext: { (result) in
-//                if (result?.isNotEmpty ?? false) {
-//                    do {
-//                        let realm = try WRealm.safe()
-//                        if let primary = result,
-//                            let item = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
-//                            var nickname = item.outgoing ? self.ownerSender.displayName : ""
-//                            if self.groupchat {
-//                                if let instance = realm
-//                                    .objects(GroupchatUserStorageItem.self)
-//                                    .filter("groupchatId == %@ AND isMe == true", [self.jid, self.owner].prp())
-//                                    .first {
-//                                    nickname = instance.nickname
-//                                }
-//                            } else if !item.outgoing,
-//                               let displayName = realm
-//                                   .object(ofType: RosterStorageItem.self,
-//                                           forPrimaryKey: [item.opponent,
-//                                                           item.owner].prp())?
-//                                   .displayName {
-//                               nickname = displayName
-//                           }
-//                           if nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-//                               self.messagesPanelValidationError("Database error"
-//                                    .localizeString(id: "chat_database_error", arguments: []))
-//                               return
-//                           } else {
-//                               self.messagesPanel
-//                                   .update(title: nickname,
-//                                           message: item
-//                                               .createRefBody([
-//                                                .font: UIFont.systemFont(ofSize: 14, weight: .regular),
-//                                                   .foregroundColor: MDCPalette.grey.tint800
-//                                               ]),
-//                                           color: self.accountPallete)
-//                                self.messagesPanel.show()
-//                                self.xabberInputBar.setStackViewItems([self.messagesPanel], forStack: .top, animated: false, forceHeight: 48)
-//                           }
-//
-//                       } else {
-//                           self.messagesPanelValidationError("Database error"
-//                                    .localizeString(id: "chat_database_error", arguments: []))
-//                           return
-//                       }
-//                   } catch {
-//                       DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-//                       self.messagesPanelValidationError("Database error"
-//                                    .localizeString(id: "chat_database_error", arguments: []))
-//                       return
-//                   }
-//                } else {
-//                    self.messagesPanel.hide()
-//                    if self.xabberInputBar.topStackView.arrangedSubviews.isNotEmpty {
-//                        self.xabberInputBar.setStackViewItems([], forStack: .top, animated: false, forceHeight: 0)
-//                    }
-//                }
+                if (result?.isNotEmpty ?? false) {
+                    do {
+                        let realm = try WRealm.safe()
+                        if let primary = result,
+                            let item = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
+                            var nickname = item.outgoing ? self.ownerSender.displayName : ""
+                            if self.conversationType == .group {
+                                if let instance = realm
+                                    .objects(GroupchatUserStorageItem.self)
+                                    .filter("groupchatId == %@ AND isMe == true", [self.jid, self.owner].prp())
+                                    .first {
+                                    nickname = instance.nickname
+                                }
+                            } else if !item.outgoing,
+                               let displayName = realm
+                                   .object(ofType: RosterStorageItem.self,
+                                           forPrimaryKey: [item.opponent,
+                                                           item.owner].prp())?
+                                   .displayName {
+                               nickname = displayName
+                           }
+                           if nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                               ToastPresenter().presentError(message: "Database error"
+                                .localizeString(id: "chat_database_error", arguments: []))
+                               return
+                           } else {
+                               let text = item
+                                   .createRefBody([
+                                    .font: UIFont.systemFont(ofSize: 14, weight: .regular),
+                                       .foregroundColor: MDCPalette.grey.tint800
+                                   ])
+                               self.xabberInputView.editPanel.update(
+                                title: nickname,
+                                attributed: text
+                               )
+                               self.xabberInputView.textField.text = text.string
+                               self.xabberInputView.textViewDidChange(force: true)
+                               self.xabberInputView.showEditPanel()
+                           }
+
+                       } else {
+                           ToastPresenter().presentError(message: "Database error"
+                            .localizeString(id: "chat_database_error", arguments: []))
+                           return
+                       }
+                   } catch {
+                       DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+                       ToastPresenter().presentError(message: "Database error"
+                        .localizeString(id: "chat_database_error", arguments: []))
+                       return
+                   }
+                } else {
+                    self.xabberInputView.hideEditPanel()
+                }
             })
             .disposed(by: bag)
         
@@ -223,7 +221,7 @@ extension ChatViewController {
                                 }
                             }
                             self.xabberInputView.forwardPanel.update(
-                                title: title,
+                                title: "Reply to \(title)",
                                 attributed: message
                             )
                             self.xabberInputView.showForwardPanel()
@@ -365,9 +363,9 @@ extension ChatViewController {
                                     conversationType: self.conversationType
                                 )
                             ) {
-                                if chatInstance.fullArchiveLoaded && self.messagesObserver.count < 3 {
-                                    self.shouldShowInitialMessage = true
-                                }
+                                self.shouldShowInitialMessage.accept(self.messagesObserver.isEmpty && chatInstance.isSynced)
+                            } else {
+                                self.shouldShowInitialMessage.accept(self.messagesObserver.isEmpty)
                             }
                         } catch {
                             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")

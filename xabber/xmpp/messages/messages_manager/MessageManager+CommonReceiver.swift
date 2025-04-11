@@ -527,12 +527,19 @@ extension MessageManager {
         do {
             let realm = try  WRealm.safe()
             try realm.write {
-                    messages.forEach {
-                        if $0.save(commitTransaction: false, silentNotifications: silentNotifications) {
-                            $0.storeStanza()
-                        }
+                messages.forEach {
+                    if $0.save(commitTransaction: false, silentNotifications: silentNotifications) {
+                        $0.storeStanza()
                     }
                 }
+            }
+            messages.forEach {
+                message in
+                message.references.forEach {
+                    reference in
+                    reference.prepare()
+                }
+            }
             AccountManager.shared.find(for: self.owner)?.chatMarkers.deleteEphemeralMessages()
         } catch {
             DDLogDebug("cant save messages colelction")

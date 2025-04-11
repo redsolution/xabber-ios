@@ -49,22 +49,22 @@ extension ChatFilesViewController: UICollectionViewDataSource {
             return cell
             
         case .voice:
-            if let voiceModel = datasource[indexPath.item].voiceModel {
-                let cell = collectionView.dequeueReusableCell(withReuseIdentifier: VoiceMediaCollectionCell.cellName, for: indexPath) as! VoiceMediaCollectionCell
-                cell.setup(withReference: voiceModel,
-                           date: item.date,
-                           send_time: item.send_time ?? "",
-                           senderName: item.senderName,
-                           owner: owner,
-                           sizeInBytes: item.sizeInBytes ?? "")
-                if indexPath.item == datasource.count - 1 {
-                    cell.audioView.separatorLine.removeFromSuperview()
-                }
-                return cell
-            } else {
-                fallthrough
-            }
-            
+//            if let voiceModel = datasource[indexPath.item].voiceModel {
+//                let cell = collectionView.dequeueReusableCell(withReuseIdentifier: VoiceMediaCollectionCell.cellName, for: indexPath) as! VoiceMediaCollectionCell
+//                cell.setup(withReference: voiceModel,
+//                           date: item.date,
+//                           send_time: item.send_time ?? "",
+//                           senderName: item.senderName,
+//                           owner: owner,
+//                           sizeInBytes: item.sizeInBytes ?? "")
+//                if indexPath.item == datasource.count - 1 {
+//                    cell.audioView.separatorLine.removeFromSuperview()
+//                }
+//                return cell
+//            } else {
+//                fallthrough
+//            }
+            break
         default:
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: FilesMediaCollectionCell.cellName, for: indexPath) as! FilesMediaCollectionCell
             cell.setup(mimeType: item.mimeType,
@@ -78,6 +78,7 @@ extension ChatFilesViewController: UICollectionViewDataSource {
             }
             return cell
         }
+        fatalError()
     }
     
     

@@ -21,7 +21,6 @@
 import Foundation
 import UIKit
 import MaterialComponents.MDCPalettes
-import Toast_Swift
 
 protocol AvatarPickerViewControllerDelegate {
     func onReceiveAvatar(image: UIImage, emoji: String?, currentPalette: MDCPalette?)

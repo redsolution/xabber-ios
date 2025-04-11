@@ -25,22 +25,18 @@ import RealmSwift
 import UIKit
 import MaterialComponents.MDCPalettes
 import CryptoSwift
+import CryptoKit
 
 
 class MessageStorageItem: Object {
     
     static let addContactLocalArchivedId: String = "add-contact-local-archived-id"
     
-    enum MessageDisplayType: Int {
-        case text
-        case files
-        case images
-        case voice
-        case call
-        case system
-        case sticker
-        case quote
-        case initial
+    enum MessageDisplayType: String {
+        case text = "text"
+        case call = "call"
+        case system = "system"
+        case sticker = "sticker"
     }
     
     public enum MessageSendingState: Int {
@@ -76,7 +72,7 @@ class MessageStorageItem: Object {
     @objc dynamic var outgoing: Bool = false
     @objc dynamic var isRead: Bool = false
     
-    @objc dynamic var messageType: Int = MessageDisplayType.text.rawValue
+    @objc dynamic var messageType: String = MessageDisplayType.text.rawValue
     
     @objc dynamic var messageId: String = ""
     
@@ -235,18 +231,7 @@ class MessageStorageItem: Object {
     
     var displayAs: MessageDisplayType {
         get {
-            switch messageType {
-            case MessageDisplayType.text.rawValue: return .text
-            case MessageDisplayType.files.rawValue: return .files
-            case MessageDisplayType.images.rawValue: return .images
-            case MessageDisplayType.voice.rawValue: return .voice
-            case MessageDisplayType.call.rawValue: return .call
-            case MessageDisplayType.system.rawValue: return .system
-            case MessageDisplayType.sticker.rawValue: return .sticker
-            case MessageDisplayType.quote.rawValue: return .quote
-            case MessageDisplayType.initial.rawValue: return .initial
-            default: return .text
-            }
+            return MessageDisplayType(rawValue: self.messageType) ?? .text
         } set {
             messageType = newValue.rawValue
         }
@@ -257,17 +242,7 @@ class MessageStorageItem: Object {
             if displayAs == .system {
                 return .none
             }
-            switch self.state_ {
-            case MessageSendingState.sending.rawValue: return .sending
-            case MessageSendingState.sended.rawValue: return .sended
-            case MessageSendingState.deliver.rawValue: return .deliver
-            case MessageSendingState.read.rawValue: return .read
-            case MessageSendingState.error.rawValue: return .error
-            case MessageSendingState.none.rawValue: return .none
-            case MessageSendingState.notSended.rawValue: return .notSended
-            case MessageSendingState.uploading.rawValue: return .uploading
-            default: return .none
-            }
+            return MessageSendingState(rawValue: self.state_) ?? .none
         } set {
             self.state_ = newValue.rawValue
         }
@@ -275,91 +250,16 @@ class MessageStorageItem: Object {
     
     public final func displayedBody() -> String {
         switch displayAs {
-        case .initial:
-            return ""
-        case .text, .quote:
-            if self.inlineForwards.isNotEmpty {
-                return body
-//                if self.inlineForwards.count == 1 {
-//                    return "Forwarded message\n\(body.trimmingCharacters(in: .whitespacesAndNewlines))"
-//                } else {
-//                    return "\(self.inlineForwards.count) forwarded messages\n\(body)"
-//                }
-            }
+            case .text, .system:
             return body.trimmingCharacters(in: .whitespacesAndNewlines)
-        case .files:
-            let count = references.filter{ $0.kind != .groupchat }.count
-            if count == 1 {
-                if let sizeInBytes = references.filter({ $0.kind != .groupchat }).first?.sizeInBytes {
-                    return "File, \(sizeInBytes)".localizeString(id: "chat_message_file_count", arguments: ["\(sizeInBytes)"])
-                }
-                return "File".localizeString(id: "chat_message_file", arguments: [])
-            } else {
-                return "\(count) attached files".localizeString(id: "chat_message_attached_files", arguments: ["\(count)"])
-            }
-        case .images:
-            let count = references.filter{ $0.kind != .groupchat }.count
-            if count == 1 {
-                if let sizeInBytes = references.filter({ $0.kind != .groupchat }).first?.sizeInBytes {
-                    return "Image, \(sizeInBytes)".localizeString(id: "chat_message_image_count", arguments: ["\(sizeInBytes)"])
-                }
-                return "Image".localizeString(id: "chat_message_image", arguments: [])
-            } else {
-                return "\(count) attached images".localizeString(id: "chat_message_attached_images", arguments: ["\(count)"])
-            }
-        case .voice:
-            if let duration = references.first(where: { $0.kind == .voice })?.metadata?["duration"] as? Double,
-                let durationInterval = TimeInterval(exactly: duration) {
-                return "Voice message, \(durationInterval.minuteFormatedString)".localizeString(id: "chat_message_voice_duration", arguments: ["\(durationInterval.minuteFormatedString)"])
-            }
-            return "Voice message".localizeString(id: "chat_message_voice", arguments: [])
         case .call:
-            if let item = references.first(where: { $0.kind == .call })?.metadata,
-                let outgoing = item["outgoing"] as? Bool {
-                
-                let state = VoIPCallState(rawValue: item["callState"] as? String ?? "none") ?? .none
-                if let duration = item["duration"] as? TimeInterval,
-                   duration > 0 {
-                    switch state {
-                    case .made:
-                        if outgoing {
-                            return "Outgoing call, \(duration.minuteFormatedString)".localizeString(id: "chat_message_outgoing_call", arguments: ["\(duration.minuteFormatedString)"])
-                        } else {
-                            return "Incoming call, \(duration.minuteFormatedString)".localizeString(id: "chat_message_incoming_call", arguments: ["\(duration.minuteFormatedString)"])
-                        }
-                    default: break
-                    }
-                    
-                }
-                switch state {
-                case .missed:
-                    return "Missed call".localizeString(id: "chat_message_missed_call", arguments: [])
-                case .noanswer:
-                    return "Cancelled call".localizeString(id: "chat_message_cancelled_call", arguments: [])
-                case .busy:
-                    if outgoing {
-                        return "Cancelled call".localizeString(id: "chat_message_cancelled_call", arguments: [])
-                    } else {
-                        return "Missing call".localizeString(id: "chat_message_missing_call", arguments: [])
-                    }
-                case .received:
-                    return "Incoming call".localizeString(id: "chat_message_incoming", arguments: [])
-                case .none, .made:
-                    if outgoing {
-                        return "Outgoing call".localizeString(id: "chat_message_outgoing", arguments: [])
-                    } else {
-                        return "Incoming call".localizeString(id: "chat_message_incoming", arguments: [])
-                    }
-                }
-            }
             return "Call".localizeString(id: "chat_message_call", arguments: []) // TODO change text
-        case .system:
-            return body.trimmingCharacters(in: .whitespacesAndNewlines)
         case .sticker:
             return "Sticker".localizeString(id: "chat_message_sticker", arguments: []) // TODO: fix to sticker
         }
     }
     
+    //TODO: foreignKey to CallStorageItem
     var callMetadata: [String: Any]? {
         get {
             return references.first(where: { $0.kind == .call })?.metadata
@@ -437,55 +337,52 @@ class MessageStorageItem: Object {
     }
     
     internal func updateDisplayMode() {
+        displayAs = .text
 //        print(#function, self.references.toArray(), self.legacyBody, self.createReferences())
-        if !references.filter({ $0.kind == .call }).isEmpty {
-            displayAs = .call
-        } else if !references.filter({ $0.kind == .voice }).isEmpty {
-            if self.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                if references.filter({ [.voice, .media].contains($0.kind) }).count == 1 {
-                    displayAs = .voice
-                } else {
-                    displayAs = .files
-                }
-            } else {
-                displayAs = .text
-            }
-            
-        } else if !references.filter({ [MimeIconTypes.file,
-                                        MimeIconTypes.archive,
-                                        MimeIconTypes.document,
-                                        MimeIconTypes.pdf,
-                                        MimeIconTypes.presentation,
-                                        MimeIconTypes.video,
-                                        MimeIconTypes.audio]
-            .map { return $0.rawValue}
-            .contains($0.mimeType) })
-            .isEmpty {
-            if self.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                displayAs = .files
-            } else {
-                displayAs = .text
-            }
-        } else if !references.filter({ $0.mimeType == MimeIconTypes.image.rawValue }).isEmpty {
-            if references.filter({ $0.kind != .groupchat }).count == 1,
-                (references.filter({ $0.kind != .groupchat }).first?.metadata?["name"] as? String) == "Memoji" {
-                displayAs = .sticker
-            } else if self.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                displayAs = .images
-            } else {
-                displayAs = .text
-            }
-        } else if !references.filter({ $0.mimeType == MimeIconTypes.file.rawValue }).isEmpty {
-            if references.filter({ $0.kind == .quote }).isEmpty {
-                displayAs = .text
-            } else {
-                displayAs = .quote
-            }
-        } else if !references.filter({ $0.kind == .quote }).isEmpty {
-            displayAs = .quote
-        } else if !references.filter({ $0.kind == .systemMessage }).isEmpty {
-            displayAs = .system
-        }
+//        if !references.filter({ $0.kind == .call }).isEmpty {
+//            displayAs = .call
+//        } else if !references.filter({ $0.kind == .voice }).isEmpty {
+//            if self.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+//                if references.filter({ [.voice, .media].contains($0.kind) }).count == 1 {
+//                    displayAs = .voice
+//                } else {
+//                    displayAs = .files
+//                }
+//            } else {
+//                displayAs = .text
+//            }
+//            
+//        } else if !references.filter({ [MimeIconTypes.file,
+//                                        MimeIconTypes.archive,
+//                                        MimeIconTypes.document,
+//                                        MimeIconTypes.pdf,
+//                                        MimeIconTypes.presentation,
+//                                        MimeIconTypes.video,
+//                                        MimeIconTypes.audio]
+//            .map { return $0.rawValue}
+//            .contains($0.mimeType) })
+//            .isEmpty {
+//            if self.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+//                displayAs = .files
+//            } else {
+//                displayAs = .text
+//            }
+//        } else if !references.filter({ $0.mimeType == MimeIconTypes.image.rawValue }).isEmpty {
+//            if references.filter({ $0.kind != .groupchat }).count == 1,
+//                (references.filter({ $0.kind != .groupchat }).first?.metadata?["name"] as? String) == "Memoji" {
+//                displayAs = .sticker
+//            } else {
+//                displayAs = .text
+//            }
+//        } else if !references.filter({ $0.mimeType == MimeIconTypes.file.rawValue }).isEmpty {
+//            if references.filter({ $0.kind == .quote }).isEmpty {
+//                displayAs = .text
+//            }
+//        } else if !references.filter({ $0.kind == .quote }).isEmpty {
+//            displayAs = .quote
+//        } else if !references.filter({ $0.kind == .systemMessage }).isEmpty {
+//            displayAs = .system
+//        }
     }
 
     
@@ -773,8 +670,7 @@ class MessageStorageItem: Object {
             return false
         }
         if CommonConfigManager.shared.config.auto_delete_messages_interval > 0 {
-            if self.displayAs != .initial,
-               self.date < Date(timeIntervalSince1970: Date().timeIntervalSince1970 - Double(CommonConfigManager.shared.config.auto_delete_messages_interval)) {
+            if self.date < Date(timeIntervalSince1970: Date().timeIntervalSince1970 - Double(CommonConfigManager.shared.config.auto_delete_messages_interval)) {
                 return false
             }
         }
@@ -828,8 +724,6 @@ class MessageStorageItem: Object {
                         } else {
                             instance.queryIds = self.queryIds
                         }
-                    } else {
-                        print("as")
                     }
                 }
                 return false
@@ -953,9 +847,6 @@ class MessageStorageItem: Object {
                         instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
                         instance.afterburnInterval = self.afterburnInterval
                     }
-                    if self.displayAs == .initial && self.conversationType.isEncrypted {
-                        instance.isFreshNotEmptyEncryptedChat = true
-                    }
                     try transaction(commit: commitTransaction, callback: {
                         if instance.isInvalidated { return }
                         realm.add(instance, update: .modified)
@@ -1000,7 +891,7 @@ class MessageStorageItem: Object {
                 if !silentNotifications {
                     if self.date.timeIntervalSince1970 > (Date().timeIntervalSince1970 - 10) {
                         if notify && !self.isRead && !self.outgoing && self.archivedId.isNotEmpty && self.displayAs != .system {
-                            let imageUrl: String? = self.displayAs == .images ? references.filter({ $0.kind == .media }).first?.metadata?["uri"] as? String : nil
+//                            let imageUrl: String? = self.displayAs == .images ? references.filter({ $0.kind == .media }).first?.metadata?["uri"] as? String : nil
                             NotifyManager.shared.update(
                                 withMessage: self.displayedBody(),
                                 messageId: self.archivedId,
@@ -1012,7 +903,7 @@ class MessageStorageItem: Object {
                                     .object(ofType: RosterStorageItem.self,
                                             forPrimaryKey: [self.opponent, owner].prp())?
                                     .displayName ?? self.opponent,
-                                imageUrl: imageUrl,
+                                imageUrl: nil,//imageUrl,
                                 conversationType: self.conversationType
                             )
                         }
@@ -1038,100 +929,116 @@ class MessageStorageItem: Object {
             referenceElement.addAttribute(withName: "begin", integerValue: reference.begin)
             referenceElement.addAttribute(withName: "end", integerValue: reference.end)
             switch reference.kind {
-            case .media:
-                let fileSharing = DDXMLElement(name: "file-sharing",
-                                               xmlns: "https://xabber.com/protocol/files")
-                if let uri = reference.metadata?["uri"] as? String {
-                    let sources = DDXMLElement(name: "sources")
-                    sources.addChild(DDXMLElement(name: "uri", stringValue: uri))
-                    fileSharing.addChild(sources)
-                }
-                let file = DDXMLElement(name: "file")
-                reference.metadata?.forEach {
-                    if !["media-type", "name", "height", "width", "size", "desc", "duration", "hash", "orientation"].contains($0.key) { return }
-                    if let value = $0.value as? String {
-                        file.addChild(DDXMLElement(name: $0.key, stringValue: value))
-                    } else if let value = $0.value as? Int {
-                        file.addChild(DDXMLElement(name: $0.key, stringValue: "\(value)"))
+                case .media:
+                    let fileSharing = DDXMLElement(name: "file-sharing",
+                                                   xmlns: "https://xabber.com/protocol/files")
+                    if let uri = reference.metadata?["uri"] as? String {
+                        let sources = DDXMLElement(name: "sources")
+                        sources.addChild(DDXMLElement(name: "uri", stringValue: uri))
+                        fileSharing.addChild(sources)
                     }
-                }
-                if let iv = reference.metadata?["iv"] as? String,
-                   let encryptionKey = reference.metadata?["encryption-key"] as? String {
-                    let encryptedElement = DDXMLElement(name: "encrypted", xmlns: "urn:xmpp:esfs:0")
-                    let keyElement = DDXMLElement(name: "key")
-                    keyElement.stringValue = encryptionKey
-                    let ivElement = DDXMLElement(name: "iv")
-                    ivElement.stringValue = iv
-                    encryptedElement.addChild(keyElement)
-                    encryptedElement.addChild(ivElement)
-                    file.addChild(encryptedElement)
-                }
-                
-                fileSharing.addChild(file)
-                referenceElement.addChild(fileSharing)
-            case .systemMessage:
-                let systemMessage = DDXMLElement(
-                    name: "system-message",
-                    xmlns: "https://xabber.com/protocol/system-message"
-                )
-                if let timer = reference.metadata?["ephemeral-timer"] as? Int {
-                    let ephemeralElement = DDXMLElement(name: "ephemeral", xmlns: "urn:xmpp:ephemeral:0")
-                    ephemeralElement.addAttribute(withName: "timer", doubleValue: Double(timer))
-                    systemMessage.addChild(ephemeralElement)
-                }
-                referenceElement.addChild(systemMessage)
-            case .voice:
-                let voiceMessage = DDXMLElement(name: "voice-message",
-                                                xmlns: "https://xabber.com/protocol/voice-messages")
-                let fileSharing = DDXMLElement(name: "file-sharing",
-                                               xmlns: "https://xabber.com/protocol/files")
-                
-                if let uri = reference.metadata?["uri"] as? String {
-                    let sources = DDXMLElement(name: "sources")
-                    sources.addChild(DDXMLElement(name: "uri", stringValue: uri))
-                    fileSharing.addChild(sources)
-                }
-                let file = DDXMLElement(name: "file")
-                
-                if let iv = reference.metadata?["iv"] as? String,
-                   let encryptionKey = reference.metadata?["encryption-key"] as? String {
-                    let encryptedElement = DDXMLElement(name: "encrypted", xmlns: "urn:xmpp:esfs:0")
-                    let keyElement = DDXMLElement(name: "key")
-                    keyElement.stringValue = encryptionKey
-                    let ivElement = DDXMLElement(name: "iv")
-                    ivElement.stringValue = iv
-                    encryptedElement.addChild(keyElement)
-                    encryptedElement.addChild(ivElement)
-                    file.addChild(encryptedElement)
-                }
-                
-                reference.metadata?.forEach {
-                    if ["uriEmbded"].contains($0.key) { return }
-                    if let value = $0.value as? String {
-                        file.addChild(DDXMLElement(name: $0.key, stringValue: value))
-                    } else if let value = $0.value as? Int {
-                        file.addChild(DDXMLElement(name: $0.key, stringValue: "\(value)"))
+                    let file = DDXMLElement(name: "file")
+                    reference.metadata?.forEach {
+                        if !["media-type", "name", "height", "width", "size", "desc", "duration", "hash", "orientation"].contains($0.key) { return }
+                        if let value = $0.value as? String {
+                            file.addChild(DDXMLElement(name: $0.key, stringValue: value))
+                        } else if let value = $0.value as? Int {
+                            file.addChild(DDXMLElement(name: $0.key, stringValue: "\(value)"))
+                        }
                     }
-                }
-                
-                fileSharing.addChild(file)
-                voiceMessage.addChild(fileSharing)
-                referenceElement.addChild(voiceMessage)
-                
-            case .forward:
-                break
-            case .markup:
-                break
-            case .mention:
-                break
-            case .quote:
-                break
-            case .groupchat:
-                break
-            case .call:
-                break
-            case .none:
-                break
+                    if let iv = reference.metadata?["iv"] as? String,
+                       let encryptionKey = reference.metadata?["encryption-key"] as? String {
+                        let encryptedElement = DDXMLElement(name: "encrypted", xmlns: "urn:xmpp:esfs:0")
+                        let keyElement = DDXMLElement(name: "key")
+                        keyElement.stringValue = encryptionKey
+                        let ivElement = DDXMLElement(name: "iv")
+                        ivElement.stringValue = iv
+                        encryptedElement.addChild(keyElement)
+                        encryptedElement.addChild(ivElement)
+                        file.addChild(encryptedElement)
+                    }
+                    
+                    fileSharing.addChild(file)
+                    referenceElement.addChild(fileSharing)
+                case .systemMessage:
+                    let systemMessage = DDXMLElement(
+                        name: "system-message",
+                        xmlns: "https://xabber.com/protocol/system-message"
+                    )
+                    if let timer = reference.metadata?["ephemeral-timer"] as? Int {
+                        let ephemeralElement = DDXMLElement(name: "ephemeral", xmlns: "urn:xmpp:ephemeral:0")
+                        ephemeralElement.addAttribute(withName: "timer", doubleValue: Double(timer))
+                        systemMessage.addChild(ephemeralElement)
+                    }
+                    referenceElement.addChild(systemMessage)
+                case .voice:
+                    let voiceMessage = DDXMLElement(name: "voice-message",
+                                                    xmlns: "https://xabber.com/protocol/voice-messages")
+                    let fileSharing = DDXMLElement(name: "file-sharing",
+                                                   xmlns: "https://xabber.com/protocol/files")
+                    
+                    if let uri = reference.metadata?["uri"] as? String {
+                        let sources = DDXMLElement(name: "sources")
+                        sources.addChild(DDXMLElement(name: "uri", stringValue: uri))
+                        fileSharing.addChild(sources)
+                    }
+                    let file = DDXMLElement(name: "file")
+                    
+                    if let iv = reference.metadata?["iv"] as? String,
+                       let encryptionKey = reference.metadata?["encryption-key"] as? String {
+                        let encryptedElement = DDXMLElement(name: "encrypted", xmlns: "urn:xmpp:esfs:0")
+                        let keyElement = DDXMLElement(name: "key")
+                        keyElement.stringValue = encryptionKey
+                        let ivElement = DDXMLElement(name: "iv")
+                        ivElement.stringValue = iv
+                        encryptedElement.addChild(keyElement)
+                        encryptedElement.addChild(ivElement)
+                        file.addChild(encryptedElement)
+                    }
+                    
+                    file.addChild(DDXMLElement(name: "media-type", stringValue: "audio/ogg"))
+                    file.addChild(DDXMLElement(name: "name", stringValue: "Voice message"))
+                    file.addChild(DDXMLElement(name: "desc", stringValue: "Voice message"))
+                    file.addChild(DDXMLElement(name: "duration", stringValue: "\(reference.duration ?? 0)"))
+                    
+                    if let url = reference.localFileUrl,
+                       let data = try? Data(contentsOf: url) {
+                        file.addChild(DDXMLElement(name: "size", stringValue: "\(data.bytes.count)"))
+                        let hashed = SHA256.hash(data: data).compactMap { String(format: "%02x", $0) }.joined()
+                        let hash = DDXMLElement(name: "hash", stringValue: hashed)
+                        hash.setXmlns("urn:xmpp:hashes:2")
+                        hash.addAttribute(withName: "algo", stringValue: "sha-256")
+                        file.addChild(hash)
+                    }
+                    
+                    file.addChild(DDXMLElement(name: "meters", stringValue: (reference.meteringLevels ?? []).compactMap({String($0)}).joined(separator: " ")))
+    //                reference.metadata?.forEach {
+    //                    if ["uriEmbded"].contains($0.key) { return }
+    //                    if let value = $0.value as? String {
+    //                        file.addChild(DDXMLElement(name: $0.key, stringValue: value))
+    //                    } else if let value = $0.value as? Int {
+    //                        file.addChild(DDXMLElement(name: $0.key, stringValue: "\(value)"))
+    //                    }
+    //                }
+                    
+                    fileSharing.addChild(file)
+                    voiceMessage.addChild(fileSharing)
+                    referenceElement.addChild(voiceMessage)
+                    
+                case .forward:
+                    break
+                case .markup:
+                    break
+                case .mention:
+                    break
+                case .quote:
+                    break
+                case .groupchat:
+                    break
+                case .call:
+                    break
+                case .none:
+                    break
             }
             out.append(referenceElement)
         }
@@ -1193,7 +1100,7 @@ class MessageStorageItem: Object {
     }
     
     public final func createRefBody(_ attrs: [NSAttributedString.Key: Any], searchedText: String? = nil, searchedTextColor: UIColor? = nil) -> NSAttributedString {
-        let string = NSMutableAttributedString(string: body)
+        let string = NSMutableAttributedString(string: body.trimmingCharacters(in: .newlines))
 //        let string = NSMutableAttributedString(string: "\(self.body), \(self.isRead), \(Date(timeIntervalSince1970: self.burnDate))")
         string.addAttributes(attrs, range: NSRange(location: 0, length: string.length))
         let paragraph = NSMutableParagraphStyle()

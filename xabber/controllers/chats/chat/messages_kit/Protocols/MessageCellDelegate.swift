@@ -41,6 +41,8 @@ public protocol MessageCellDelegate: MessageLabelDelegate {
     
     func onLongTap(cell: MessageCollectionViewCell)
     
+    func onLongTapMessage(cell: MessageCollectionViewCell)
+    
     func onSwipe(cell: MessageCollectionViewCell)
     
     func didTapErrorButton(cell: MessageCollectionViewCell)
@@ -48,4 +50,18 @@ public protocol MessageCellDelegate: MessageLabelDelegate {
     func didTapOnInitialFooterLabel(in cell: MessageCollectionViewCell)
     
     func isInSelection() -> Bool
+    
+    func didTapOnFile(url: URL)
+    
+    func didTapOnPhoto(urls: [URL], url: URL)
+    
+    func didTapOnAudio(_ audioView: InlineAudiosGridView.AudioView?, url: URL?)
+    
+    func didStopPlayingAudioCell()
+    
+    func canChangeAudioPosition(for referencePrimary: String) -> Bool
+    
+    func didSetAudioPosition(_ audioView: InlineAudiosGridView.AudioView?, percentage: Float) -> TimeInterval
+    
+    func isSelected(primary: String) -> Bool
 }

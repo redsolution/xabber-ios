@@ -25,6 +25,8 @@
 import Foundation
 import UIKit
 import AudioToolbox
+import CoreHaptics
+import CocoaLumberjack
 
 class FeedbackManager: NSObject {
     
@@ -41,30 +43,84 @@ class FeedbackManager: NSObject {
     }
     
     internal var hasHapticEngine: Bool = false
+    var engine: CHHapticEngine?
+    
+    let hapticDict = [
+        CHHapticPattern.Key.pattern: [
+            [CHHapticPattern.Key.event: [
+                CHHapticPattern.Key.eventType: CHHapticEvent.EventType.hapticTransient,
+                CHHapticPattern.Key.time: CHHapticTimeImmediate,
+                CHHapticPattern.Key.eventDuration: 1]
+            ]
+        ]
+    ]
     
     override init() {
-        self.hasHapticEngine = UIDevice.isOldIPhonesFamily
+//        self.hasHapticEngine = UIDevice.isOldIPhonesFamily
+        do {
+            self.engine = try CHHapticEngine()
+        } catch  {
+            DDLogDebug("FeedbackManager: \(#function). \(error.localizedDescription)")
+        }
+        super.init()
+        self.engine?.resetHandler = {
+            do {
+                try self.engine?.start()
+            } catch {
+                DDLogDebug("FeedbackManager: \(#function). \(error.localizedDescription)")
+            }
+        }
+        self.engine?.stoppedHandler = { reason in
+            print("Stop Handler: The engine stopped for reason: \(reason.rawValue)")
+            switch reason {
+                case .audioSessionInterrupt: print("Audio session interrupt")
+                case .applicationSuspended: print("Application suspended")
+                case .idleTimeout: print("Idle timeout")
+                case .systemError: print("System error")
+                case .notifyWhenFinished: print("notifyWhenFinished")
+                case .engineDestroyed: print("engineDestroyed")
+                case .gameControllerDisconnect: print("gameControllerDisconnect")
+                @unknown default:
+                    print("Unknown error")
+            }
+        }
     }
+    
+
     
     open func generate(feedback: Feedback) {
         DispatchQueue.main.async {
             switch feedback {
             case .success:
-                let generator = UIImpactFeedbackGenerator(style: .medium)
-                generator.impactOccurred()
+                    let generator = UIImpactFeedbackGenerator(style: .light)
+                    generator.impactOccurred()
             case .error:
-                let generator = UIImpactFeedbackGenerator(style: .heavy)
-                generator.impactOccurred()
+                    let generator = UIImpactFeedbackGenerator(style: .rigid)
+                    generator.impactOccurred()
             }
         }
     }
     
     public final func tap() {
-        if hasHapticEngine {
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
-        } else {
-            AudioServicesPlaySystemSound(1519)
+        do {
+            let pattern = try CHHapticPattern(dictionary: hapticDict)
+            let player = try engine?.makePlayer(with: pattern)
+            engine?.notifyWhenPlayersFinished { error in
+                return .stopEngine
+            }
+
+
+            try engine?.start()
+            try player?.start(atTime: 0)
+        } catch {
+            print(error.localizedDescription)
         }
+        
+//        if hasHapticEngine {
+//            UINotificationFeedbackGenerator().notificationOccurred(.success)
+//        } else {
+//            AudioServicesPlaySystemSound(1519)
+//        }
     }
     
     public func successFeedback() {

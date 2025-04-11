@@ -22,7 +22,7 @@ import Foundation
 import UIKit
 import MaterialComponents.MDCPalettes
 
-class InlineFilesGridView: InlineMediaBaseView {
+class InlineFilesGridView: InlineAttachmentView {
     
     class FileView: UIView {
                 
@@ -34,19 +34,18 @@ class InlineFilesGridView: InlineMediaBaseView {
             stack.distribution = .fill
             stack.spacing = 8
             stack.isLayoutMarginsRelativeArrangement = true
-            stack.layoutMargins = UIEdgeInsets(top: 0, bottom: 0, left: 6, right: 6)
+            stack.layoutMargins = UIEdgeInsets(top: 0, bottom: 0, left: 4, right: 4)
             
             return stack
         }()
         
         let iconButton: UIButton = {
-            let button = UIButton(frame: CGRect(square: 44))
+            let button = UIButton(frame: CGRect(square: 36))
             
-            button.backgroundColor = MDCPalette.grey.tint300
-            button.tintColor = MDCPalette.grey.tint700
+            button.backgroundColor = MDCPalette.blue.tint500
+            button.tintColor = UIColor.white
             button.layer.cornerRadius = button.frame.width / 2
             button.layer.masksToBounds = true
-            button.imageEdgeInsets = UIEdgeInsets(square: 10)
             
             return button
         }()
@@ -57,7 +56,9 @@ class InlineFilesGridView: InlineMediaBaseView {
             stack.axis = .vertical
             stack.alignment = .leading
             stack.distribution = .fill
-//            stack.spacing = 0
+            stack.spacing = 0
+            stack.isLayoutMarginsRelativeArrangement = true
+            stack.layoutMargins = UIEdgeInsets(top: 2, bottom: 2, left: 0, right: 0)
             
             return stack
         }()
@@ -65,8 +66,8 @@ class InlineFilesGridView: InlineMediaBaseView {
         let filenameLabel: UILabel = {
             let label = UILabel()
             
-            label.font = UIFont.preferredFont(forTextStyle: .body)
-            label.textColor = MDCPalette.grey.tint700
+            label.font = UIFont.systemFont(ofSize: 14, weight: .medium)
+            label.textColor = UIColor.label
             label.numberOfLines = 1
             label.lineBreakMode = .byTruncatingMiddle
             
@@ -76,21 +77,25 @@ class InlineFilesGridView: InlineMediaBaseView {
         let sizeLabel: UILabel = {
             let label = UILabel()
             
-            label.font = UIFont.preferredFont(forTextStyle: .caption1)
+            label.font = UIFont.systemFont(ofSize: 13, weight: .regular)
             label.textColor = MDCPalette.grey.tint500
             
             return label
         }()
         
-        override init(frame: CGRect) {
+        var url: URL
+        
+        init(frame: CGRect, url: URL) {
+            self.url = url
             super.init(frame: frame)
             setup()
         }
         
         required init?(coder: NSCoder) {
-            super.init(coder: coder)
-            setup()
+            fatalError("init(coder:) has not been implemented")
         }
+        
+        var palette: MDCPalette = .amber
         
         internal func setup() {
             addSubview(stack)
@@ -100,48 +105,54 @@ class InlineFilesGridView: InlineMediaBaseView {
             contentStack.addArrangedSubview(filenameLabel)
             contentStack.addArrangedSubview(sizeLabel)
             NSLayoutConstraint.activate([
-                iconButton.widthAnchor.constraint(equalToConstant: 44),
-                iconButton.heightAnchor.constraint(equalToConstant: 44)
+                iconButton.widthAnchor.constraint(equalToConstant: 36),
+                iconButton.heightAnchor.constraint(equalToConstant: 36),
+                filenameLabel.heightAnchor.constraint(equalToConstant: 20),
+                sizeLabel.heightAnchor.constraint(equalToConstant: 20)
             ])
         }
         
-        public func configure(file mimeType: String, filename: String, size: String) {
+        public func configure(filename: String, size: String) {
+            iconButton.setImage(imageLiteral("doc.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
+            let mimeType = url.absoluteString
             switch MimeIconTypes(rawValue: mimeType) {
-            case .image:
-                iconButton.setImage(imageLiteral("image")?.withRenderingMode(.alwaysTemplate), for: .normal)
-            case .audio:
-                iconButton.setImage(imageLiteral("file-audio")?.withRenderingMode(.alwaysTemplate), for: .normal)
-            case .video:
-                iconButton.setImage(imageLiteral("file-video")?.withRenderingMode(.alwaysTemplate), for: .normal)
-            case .document:
-                iconButton.setImage(imageLiteral("file-document")?.withRenderingMode(.alwaysTemplate), for: .normal)
-            case .pdf:
-                iconButton.setImage(imageLiteral("file-pdf")?.withRenderingMode(.alwaysTemplate), for: .normal)
-            case .table:
-                iconButton.setImage(imageLiteral("file-table")?.withRenderingMode(.alwaysTemplate), for: .normal)
-            case .presentation:
-                iconButton.setImage(imageLiteral("file-presentation")?.withRenderingMode(.alwaysTemplate), for: .normal)
-            case .archive:
-                iconButton.setImage(imageLiteral("file-zip")?.withRenderingMode(.alwaysTemplate), for: .normal)
-            case .file:
-                iconButton.setImage(imageLiteral("file")?.withRenderingMode(.alwaysTemplate), for: .normal)
-            case .none:
-                iconButton.setImage(imageLiteral("file")?.withRenderingMode(.alwaysTemplate), for: .normal)
-            default:
-                iconButton.setImage(imageLiteral("file")?.withRenderingMode(.alwaysTemplate), for: .normal)
+                case .image:
+                    iconButton.setImage(imageLiteral("doc.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
+                case .audio:
+                    iconButton.setImage(imageLiteral("doc.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
+                case .video:
+                    iconButton.setImage(imageLiteral("doc.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
+                case .document:
+                    iconButton.setImage(imageLiteral("doc.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
+                case .pdf:
+                    iconButton.setImage(imageLiteral("doc.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
+                case .table:
+                    iconButton.setImage(imageLiteral("doc.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
+                case .presentation:
+                    iconButton.setImage(imageLiteral("doc.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
+                case .archive:
+                    iconButton.setImage(imageLiteral("doc.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
+                case .file:
+                    iconButton.setImage(imageLiteral("doc.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
+                case .none:
+                    iconButton.setImage(imageLiteral("doc.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
+                default:
+                    iconButton.setImage(imageLiteral("doc.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
             }
-            filenameLabel.text = filename
-            sizeLabel.text = size
+            self.iconButton.backgroundColor = palette.tint500
+            self.filenameLabel.text = filename
+            self.sizeLabel.text = size
         }
     }
     
-    override internal func prepareGrid(_ references: [MessageReferenceStorageItem.Model]) -> [CGRect] {
+    var views: [FileView] = []
+    
+    func prepareGrid(_ attachments: [FileAttachment]) -> [CGRect] {
         let frame = self.frame
         let padding: CGFloat = 0
-        let height: CGFloat = MessageSizeCalculator.fileViewHeight
+        let height: CGFloat = CommonMessageSizeCalculator.inlineFileViewHeight//MessageSizeCalculator.fileViewHeight
         var offset: CGFloat = padding
-        return references
-            .filter { [.media, .voice].contains($0.kind) }
+        return attachments
             .compactMap { _ in
                 let rect = CGRect(x: 0, y: offset, width: frame.width, height: height)
                 offset += height + padding
@@ -149,36 +160,37 @@ class InlineFilesGridView: InlineMediaBaseView {
             }
     }
     
-    override func configure(_ references: [MessageReferenceStorageItem.Model], messageId: String?, indexPath: IndexPath) {
-        super.configure(references, messageId: messageId, indexPath: indexPath)
-        self.messageId = messageId
+    var palette: MDCPalette = .amber
+    
+    func configure(_ attachments: [FileAttachment], palette: MDCPalette) {
+        self.palette = palette
         subviews.forEach { $0.removeFromSuperview() }
-        let items = references
-            .filter { [.media, .voice].contains($0.kind) }
-        if items.isEmpty { return }
+        if attachments.isEmpty { return }
         grid.removeAll()
-        prepareGrid(references).enumerated().forEach {
-            index, cell in
-//            print(cell)
-            if let name = items[index].metadata?["name"] as? String,
-                let uri = items[index].metadata?["uri"] as? String,
-                let url = URL(string: uri) {
-                let view = FileView(frame: cell)
-                view.configure(file: items[index].mimeType,
-                               filename: name,
-                               size: items[index].sizeInBytes ?? "")
-                addSubview(view)
-                grid.append(GridItem(cell: cell, url: url))
+        self.views.forEach { $0.removeFromSuperview() }
+        self.views = []
+        prepareGrid(attachments).enumerated().forEach {
+            index, rect in
+            let item = attachments[index]
+            if let url = item.url {
+                let view = FileView(frame: rect, url: url)
+                view.palette = palette
+                view.configure(filename: item.name, size: item.prettySize)
+                self.addSubview(view)
+                self.views.append(view)
             }
         }
     }
     
-    override func handleTouch(at point: CGPoint, callback: ((String?, Int, Bool) -> Void)?) {
-        for (index, item) in grid.enumerated() {
-            if item.cell.contains(point) {
-                callback?(messageId, index, false)
+    func handleTouch(at point: CGPoint, callback: ((URL) -> Void)?) -> Bool {
+        var isMyTouch: Bool = false
+        for (index, item) in views.enumerated() {
+            if item.frame.contains(point) {
+                callback?(item.url)
+                isMyTouch = true
             }
         }
+        return isMyTouch
     }
     
 }

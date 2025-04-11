@@ -116,7 +116,7 @@ extension SettingsViewController: UITableViewDelegate {
                     }
                 }
                 return
-                
+            
             case .passcode:
                 if !CredentialsManager.shared.isPincodeSetted() {
                     let vc = PasscodeViewController()

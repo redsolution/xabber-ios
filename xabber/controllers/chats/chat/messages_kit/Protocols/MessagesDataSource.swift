@@ -45,7 +45,7 @@ protocol MessagesDataSource: AnyObject {
     
     func showAvatar() -> Bool
     
-    func audioMessageState(at indexPath: IndexPath, messageId: String?, index: Int?) -> InlineAudioGridView.AudioCellPlayingState
+//    func audioMessageState(at indexPath: IndexPath, messageId: String?, index: Int?) -> InlineAudioGridView.AudioCellPlayingState
     
     func audioMessageDurationString(at indexPath: IndexPath, messageId: String?, index: Int?) -> String?
     

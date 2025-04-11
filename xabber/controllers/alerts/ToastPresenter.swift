@@ -8,22 +8,43 @@
 
 import Foundation
 import UIKit
-import Toast_Swift
-//import SPIndicator
-
 struct ToastPresenter {
+       
+    func present(message: String, image: UIImage? = nil, danger: Bool = false) {
+        UIApplication.shared.keyWindow?.rootViewController?.view.makeToast(
+            message,
+            duration: 2.0,
+            title: nil,
+            image: image,
+            danger: danger) { tap in
+                if tap {
+                    UIApplication.shared.keyWindow?.rootViewController?.view.hideToast()
+                }
+            }
+    }
     
-    let message: String
+    func presentSuccess(message: String) {
+        UIApplication.shared.keyWindow?.rootViewController?.view.makeToast(
+            message,
+            duration: 2.0,
+            title: nil,
+            image: imageLiteral("checkmark")) { tap in
+                if tap {
+                    UIApplication.shared.keyWindow?.rootViewController?.view.hideToast()
+                }
+            }
+    }
     
-    func present(animated: Bool) {
-//        let indicatorView = SPIndicatorView(title: "Debug", message: message, preset: .done)
-//
-//        indicatorView.presentSide = .bottom
-//        indicatorView.dismissByDrag = true
-//
-//
-//        indicatorView.present(duration: 5)
-        
-        UIApplication.shared.keyWindow?.rootViewController?.view.makeToast(message)
+    func presentError(message: String) {
+        UIApplication.shared.keyWindow?.rootViewController?.view.makeToast(
+            message,
+            duration: 2.0,
+            title: nil,
+            image: imageLiteral("exclamationmark.circle"),
+            danger: true) { tap in
+                if tap {
+                    UIApplication.shared.keyWindow?.rootViewController?.view.hideToast()
+                }
+            }
     }
 }

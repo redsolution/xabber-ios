@@ -422,11 +422,10 @@ class ApplicationStateManager: NSObject {
                 let oldMessagesCollection = realm
                     .objects(MessageStorageItem.self)
                     .filter(
-                        "owner == %@ and opponent != %@ AND date < %@ AND messageType != %@ AND isDeleted == false",
+                        "owner == %@ and opponent != %@ AND date < %@ AND isDeleted == false",
                         owner,
                         XMPPJID(string: owner)?.domain ?? "",
-                        Date(timeIntervalSince1970: Date().timeIntervalSince1970 - Double(CommonConfigManager.shared.config.auto_delete_messages_interval)),
-                        MessageStorageItem.MessageDisplayType.initial.rawValue
+                        Date(timeIntervalSince1970: Date().timeIntervalSince1970 - Double(CommonConfigManager.shared.config.auto_delete_messages_interval))
                     )
                 if oldMessagesCollection.isEmpty {
                     return

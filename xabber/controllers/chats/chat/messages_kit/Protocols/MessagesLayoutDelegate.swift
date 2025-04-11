@@ -78,6 +78,12 @@ protocol MessagesLayoutDelegate: AnyObject {
     ///   The default value returned by this method is zero.
     func messageBottomLabelHeight(for message: MessageType, at indexPath: IndexPath, in messagesCollectionView: MessagesCollectionView) -> CGFloat
 
+    
+    func messageCornerStyle() -> String
+    
+    func messageAvatarVerticalPosition() -> String
+    
+    func messageCornerRadius() -> String
 }
 
 extension MessagesLayoutDelegate {
@@ -100,5 +106,17 @@ extension MessagesLayoutDelegate {
 
     func messageBottomLabelHeight(for message: MessageType, at indexPath: IndexPath, in messagesCollectionView: MessagesCollectionView) -> CGFloat {
         return 0
+    }
+    
+    func messageCornerStyle() -> String {
+        return "no_tail"
+    }
+    
+    func messageAvatarVerticalPosition() -> String {
+        return "bottom"
+    }
+    
+    func messageCornerRadius() -> String {
+        return "16"
     }
 }

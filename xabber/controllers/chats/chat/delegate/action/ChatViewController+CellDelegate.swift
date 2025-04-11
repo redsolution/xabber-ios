@@ -24,38 +24,310 @@ import WebKit
 import RealmSwift
 import CocoaLumberjack
 import AVKit
+import AVFoundation
 import Alamofire
-import ContextMenuSwift
 
 extension ChatViewController: ContextMenuDelegate {
-    func contextMenuDidSelect(_ contextMenu: ContextMenuSwift.ContextMenu, cell: ContextMenuSwift.ContextMenuCell, targetedView: UIView, didSelect item: ContextMenuSwift.ContextMenuItem, forRowAt index: Int) -> Bool {
-        return false
+    func contextMenuDidSelect(_ contextMenu: ContextMenu, cell: ContextMenuCell, targetedView: UIView, didSelect value: String, primary: String?) -> Bool {
+        guard let primary = primary else { return false }
+        guard let index = self.datasource.firstIndex(where: { $0.primary == primary }),
+                let cell = self.messagesCollectionView.cellForItem(at: IndexPath(row: 0, section: index)) as? MessageCollectionViewCell else {
+            return false
+        }
+        switch value {
+            case "reply":
+                self.inSearchMode.accept(false)
+                self.forwardedIds.accept(Set<String>())
+                self.attachedMessagesIds.accept([primary])
+                self.editMessageId.accept(nil)
+            case "forward":
+                self.showShareViewController([primary])
+            case "copy":
+                if let text = formatSelectedMessagesBodyForCopy(forwardedIdsManual: [primary]) {
+                    UIPasteboard.general.string = text
+                    
+                    ToastPresenter().presentSuccess(message: "Text was copied to clipboard")
+                } else {
+                    ToastPresenter().presentError(message: "Internal error".localizeString(id: "message_manager_error_internal", arguments: []))
+                }
+            case "edit":
+                self.inSearchMode.accept(false)
+                self.forwardedIds.accept(Set<String>())
+                self.attachedMessagesIds.accept([])
+                self.editMessageId.accept(primary)
+            case "delete":
+                self.deleteMessages(forIds: Set([primary]))
+            case "select":
+                self.selectMessage(in: cell)
+            default: break
+        }
+        return true
     }
     
-    func contextMenuDidDeselect(_ contextMenu: ContextMenuSwift.ContextMenu, cell: ContextMenuSwift.ContextMenuCell, targetedView: UIView, didSelect item: ContextMenuSwift.ContextMenuItem, forRowAt index: Int) {
+    func contextMenuDidDeselect(_ contextMenu: ContextMenu, cell: ContextMenuCell, targetedView: UIView, didDeselect value: String, primary: String?) {
+        
+    }
+        
+    func contextMenuDidAppear(_ contextMenu: ContextMenu) {
         
     }
     
-    func contextMenuDidAppear(_ contextMenu: ContextMenuSwift.ContextMenu) {
-        
-    }
-    
-    func contextMenuDidDisappear(_ contextMenu: ContextMenuSwift.ContextMenu) {
+    func contextMenuDidDisappear(_ contextMenu: ContextMenu) {
         
     }
     
     
 }
 
+//extension ChatViewController: AVAudioPlayerDelegate {
+//    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+//        print("finish")
+//        if self.currentPlayingUrl == self.recordedReferenceObject?.decodedUrl {
+//            self.xabberInputView.recordAndPlayPanel.waveform.stop()
+//            self.xabberInputView.recordAndPlayPanel.playButton.setImage(imageLiteral("play.fill"), for: .normal)
+//            self.audioPlayer = nil
+//            self.currentPlayingUrl = nil
+//            try? AVAudioSession.sharedInstance().setActive(false)
+//        } else {
+//            self.currentPlayingView?.waveform.stop()
+//            self.currentPlayingView?.iconButton.setImage(imageLiteral("play.fill"), for: .normal)
+//            self.currentPlayingView = nil
+//            self.audioPlayer = nil
+//            try? AVAudioSession.sharedInstance().setActive(false)
+//        }
+//    }
+//}
+
 extension ChatViewController: MessageCellDelegate {
     func isInSelection() -> Bool {
         return self.isInSelectionMode.value
     }
     
+    func didTapOnFile(url: URL) {
+        self.openFile(url)
+    }
     
+    func didTapOnPhoto(urls: [URL], url: URL) {
+        self.showGallery(urls: urls, from: url)
+    }
     
-    func inSelectionMode() -> Bool {
-        return self.isInSelectionMode.value
+    func didStopPlayingAudioCell() {
+        func resetState() {
+            self.currentPlayingView?.resetState()
+            self.sharedPlayerPaneldelegae?.shouldHide()
+            AudioManager.shared.player = nil
+            self.currentPlayingView = nil
+            self.currentPlayingUrl = nil
+            self.hideSharedAudioPanel()
+        }
+        AudioManager.shared.removeMulticastDelegate(self.currentPlayingView)
+        if let lastPrimary = self.currentPlayingView?.primary {
+            do {
+                let realm = try WRealm.safe()
+                if let instance = realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: lastPrimary) {
+                    
+                    let primary = instance.messageId
+                    guard let lastIndex = self.datasource.firstIndex(where: { $0.primary == primary }) else {
+                        resetState()
+                        return
+                    }
+                    if lastIndex > 0 {
+                        var nextIndex = -1
+                        self.datasource.prefix(lastIndex).enumerated().forEach {
+                            (offset, item) in
+                            if item.audios.isNotEmpty {
+                                nextIndex = offset
+                            }
+                        }
+                        if nextIndex < 0 {
+                            resetState()
+                        } else {
+                            guard let cell = self.messagesCollectionView.cellForItem(at: IndexPath(item: 0, section: nextIndex)) as? TextMessageCell else {
+                                resetState()
+                                return
+                            }
+                            let view = cell.audiosView.views.first
+                            let url = self.datasource[nextIndex].audios.first?.url
+                            self.currentPlayingView = view
+                            self.didTapOnAudio(view, url: url)
+                        }
+                    } else {
+                        resetState()
+                    }
+                } else {
+                    resetState()
+                }
+            } catch {
+                resetState()
+            }
+        } else {
+            resetState()
+        }
+    }
+    
+    func canChangeAudioPosition(for referencePrimary: String) -> Bool {
+        if AudioManager.shared.player?.isPlaying ?? false {
+            return self.currentPlayingView?.primary == referencePrimary
+        }
+        return false
+    }
+    
+    func didSetAudioPosition(_ audioView: InlineAudiosGridView.AudioView?, percentage: Float) -> TimeInterval {
+        guard let duration = AudioManager.shared.player?.duration else {
+            return 0
+        }
+        if audioView?.primary == self.currentPlayingView?.primary {
+            //        AudioManager.shared.removeMulticastDelegate(self.currentPlayingView)
+            let position: TimeInterval = TimeInterval(Float(duration) * percentage)
+            AudioManager.shared.player?.currentTime = position
+            //        AudioManager.shared.addMulticastDelegate(self.currentPlayingView)
+            let newDuration = position
+            return newDuration
+        } else {
+            return 0
+        }
+    }
+    
+    func didTapOnAudio(_ audioView: InlineAudiosGridView.AudioView?, url: URL?) {
+//        self.audioPlayer.
+        if self.audioIsInLoading {
+            return
+        }
+        if self.recordedReferenceObject != nil {
+            return
+        }
+        if AudioRecorder.shared.isRunning {
+            return
+        }
+        self.currentPlayingUrl = nil
+        AudioManager.shared.removeMulticastDelegate(self.xabberInputView)
+        func play(url: URL) throws {
+            AudioManager.shared.removeMulticastDelegate(self.currentPlayingView)
+            self.currentPlayingView?.resetState()
+            if let data = try AudioManager.shared.load(url) {
+                AudioManager.shared.player = try AVAudioPlayer(data: data, fileTypeHint: AVFileType.m4a.rawValue)
+                audioView?.resetWaveform()
+                audioView?.play(for: AudioManager.shared.player?.duration ?? audioView?.duration ?? 0)
+//                            AudioManager.shared.player?.delegate = audioView
+                AudioManager.shared.addMulticastDelegate(audioView)
+                self.currentPlayingView = audioView
+//                self.currentPlayingUrl = url
+            } else {
+                if let primary = audioView?.primary {
+                    audioView?.displayDownload()
+                    self.audioIsInLoading = true
+                    let url = try AudioMessageReceiver.shared.receive(primary: primary)
+                    if let data = try AudioManager.shared.load(url) {
+                        AudioManager.shared.player = try AVAudioPlayer(data: data, fileTypeHint: AVFileType.m4a.rawValue)
+                        audioView?.resetWaveform()
+                        audioView?.play(for: AudioManager.shared.player?.duration ?? audioView?.duration ?? 0)
+//                                    AudioManager.shared.player?.delegate = audioView
+                        AudioManager.shared.addMulticastDelegate(audioView)
+                        self.currentPlayingView = audioView
+//                        self.currentPlayingUrl = url
+                    } else {
+                        self.view.makeToast("Unable to play sound at the moment, please try again".localizeString(id: "audio_error_play_failed", arguments: []))
+                    }
+                }
+            }
+            AudioManager.shared.loadMetadata(reference: audioView?.primary)
+            self.configureSharedAudioPanel()
+            AudioManager.shared.player?.play()
+            self.sharedPlayerPaneldelegae?.shouldShow()
+            self.audioIsInLoading = false
+        }
+        
+        do {
+            if AudioManager.shared.player == nil {
+                if let url = url {
+                    try play(url: url)
+                } else {
+                    if let primary = audioView?.primary {
+                        let url = try AudioMessageReceiver.shared.receive(primary: primary)
+                        try play(url: url)
+                    } else {
+                        self.view.makeToast("Unable to play sound at the moment, please try again".localizeString(id: "audio_error_play_failed", arguments: []))
+                    }
+                }
+            } else {
+                if (AudioManager.shared.player?.isPlaying ?? false) {
+                    if let url = url {
+                        if self.currentPlayingView?.url == url {
+                            AudioManager.shared.player?.pause()
+                            audioView?.pause()
+                            self.sharedAudioPlayerPanel?.swapState(to: .paused)
+                            self.sharedPlayerPaneldelegae?.shouldPause()
+                        } else {
+                            self.sharedPlayerPaneldelegae?.shouldHide()
+                            if AudioManager.shared.player != nil {
+                                AudioManager.shared.audioPlayerDidFinishPlaying(AudioManager.shared.player!, successfully: false)
+                            }
+                            AudioManager.shared.player?.stop()
+                            try play(url: url)
+                        }
+                    } else {
+                        if let primary = audioView?.primary {
+                            let url = try AudioMessageReceiver.shared.receive(primary: primary)
+//                            try play(url: url)
+                            if self.currentPlayingView?.url == url {
+                                AudioManager.shared.player?.pause()
+                                audioView?.pause()
+                                self.sharedAudioPlayerPanel?.swapState(to: .paused)
+                                self.sharedPlayerPaneldelegae?.shouldPause()
+                            } else {
+                                self.sharedPlayerPaneldelegae?.shouldHide()
+                                if AudioManager.shared.player != nil {
+                                    AudioManager.shared.audioPlayerDidFinishPlaying(AudioManager.shared.player!, successfully: false)
+                                }
+                                AudioManager.shared.player?.stop()
+                                try play(url: url)
+                            }
+                        } else {
+                            self.view.makeToast("Unable to play sound at the moment, please try again".localizeString(id: "audio_error_play_failed", arguments: []))
+                        }
+                    }
+                } else {
+                    self.currentPlayingView?.resetState()
+                    if let url = url {
+                        if self.currentPlayingView?.url == url {
+                            AudioManager.shared.player?.play()
+                            audioView?.continuePlay()
+                            self.sharedAudioPlayerPanel?.swapState(to: .playing)
+                            self.sharedPlayerPaneldelegae?.shouldPlay()
+                        } else {
+//                            self.sharedPlayerPaneldelegae?.shouldHide()
+                            if AudioManager.shared.player != nil {
+                                AudioManager.shared.audioPlayerDidFinishPlaying(AudioManager.shared.player!, successfully: false)
+                            }
+                            AudioManager.shared.player?.stop()
+                            try play(url: url)
+                        }
+                    } else {
+                        if let primary = audioView?.primary {
+                            let url = try AudioMessageReceiver.shared.receive(primary: primary)
+//                            try play(url: url)
+                            if self.currentPlayingView?.url == url {
+                                AudioManager.shared.player?.play()
+                                audioView?.continuePlay()
+                                self.sharedAudioPlayerPanel?.swapState(to: .playing)
+                                self.sharedPlayerPaneldelegae?.shouldPlay()
+                            } else {
+    //                            self.sharedPlayerPaneldelegae?.shouldHide()
+                                if AudioManager.shared.player != nil {
+                                    AudioManager.shared.audioPlayerDidFinishPlaying(AudioManager.shared.player!, successfully: false)
+                                }
+                                AudioManager.shared.player?.stop()
+                                try play(url: url)
+                            }
+                        } else {
+                            self.view.makeToast("Unable to play sound at the moment, please try again".localizeString(id: "audio_error_play_failed", arguments: []))
+                        }
+                    }
+                }
+            }
+        } catch {
+            self.view.makeToast("Unable to play sound at the moment, please try again".localizeString(id: "audio_error_play_failed", arguments: []))
+        }
     }
     
     func didTapErrorButton(cell: MessageCollectionViewCell) {
@@ -243,6 +515,41 @@ extension ChatViewController: MessageCellDelegate {
         selectMessage(in: cell)
     }
     
+    func onLongTapMessage(cell: MessageCollectionViewCell) {
+        if self.showSkeletonObserver.value {
+            return
+        }
+        if self.isInSelectionMode.value {
+            return
+        }
+        guard let indexPath = indexPathFor(cell) else {
+                return
+        }
+        let item = datasource[indexPath.section]
+        let primary = item.primary
+//        CM.updateWindow(window: self.view)
+        
+        CM.currentMessagePrimary = primary
+        if item.isOutgoing {
+            CM.items = [[
+                ContextMenuItemWithImage(title: "Reply", image: imageLiteral("arrowshape.turn.up.backward")!, value: "reply", danger: false),
+                ContextMenuItemWithImage(title: "Copy", image: imageLiteral("doc.on.doc")!, value: "copy", danger: false),
+                ContextMenuItemWithImage(title: "Forward", image: imageLiteral("arrowshape.turn.up.right")!, value: "forward", danger: false),
+                ContextMenuItemWithImage(title: "Edit", image: imageLiteral("xabber.pencil.cap")!, value: "edit", danger: false),
+                ContextMenuItemWithImage(title: "Delete", image: imageLiteral("trash")!, value: "delete", danger: true)
+            ],[ContextMenuItemWithImage(title: "Select", image: imageLiteral("checkmark.circle")!, value: "select", danger: false)]]
+        } else {
+            CM.items = [[
+                ContextMenuItemWithImage(title: "Reply", image: imageLiteral("arrowshape.turn.up.backward")!, value: "reply", danger: false),
+                ContextMenuItemWithImage(title: "Copy", image: imageLiteral("doc.on.doc")!, value: "copy", danger: false),
+                ContextMenuItemWithImage(title: "Forward", image: imageLiteral("arrowshape.turn.up.right")!, value: "forward", danger: false),
+                ContextMenuItemWithImage(title: "Delete", image: imageLiteral("trash")!, value: "delete", danger: true)
+            ],[ContextMenuItemWithImage(title: "Select", image: imageLiteral("checkmark.circle")!, value: "select", danger: false)]]
+        }
+        dismissKeyboard()
+        CM.showMenu(viewTargeted: cell.contentView, delegate: self, animated: true)
+    }
+    
     func onSwipe(cell: MessageCollectionViewCell) {
         if self.showSkeletonObserver.value {
             return
@@ -250,10 +557,10 @@ extension ChatViewController: MessageCellDelegate {
         if isInSelectionMode.value {
             return
         }
-        guard let indexPath = indexPathFor(cell),
-            let item = messagesObserver?[indexPath.section] else {
+        guard let indexPath = indexPathFor(cell) else {
                 return
         }
+        let item = datasource[indexPath.section]
         let primary = item.primary
         self.inSearchMode.accept(false)
         self.forwardedIds.accept(Set<String>())
@@ -267,13 +574,14 @@ extension ChatViewController: MessageCellDelegate {
         if self.inSearchMode.value {
             self.inSearchMode.accept(false)
         }
+        
         if attachedMessagesIds.value.isNotEmpty || (editMessageId.value?.isNotEmpty ?? false) { return }
         if let contentCell = cell as? MessageContentCell {
             guard let indexPath = self.messagesCollectionView.indexPath(for: cell) else { return }
             let item = self.messagesObserver![indexPath.section]
             if item.displayAs == .system { return }
-            contentCell.setSelected(UIColor.blue.withAlphaComponent(0.2))
             if forwardedIds.value.contains(item.primary) {
+                contentCell.setSelected(state: false)
                 var value = self.forwardedIds.value
                 value.remove(item.primary)
                 self.forwardedIds.accept(value)
@@ -282,6 +590,7 @@ extension ChatViewController: MessageCellDelegate {
                     self.disableSelectMode()
                 }
             } else {
+                contentCell.setSelected(state: true)
                 self.enableSelectMode()
                 var value = self.forwardedIds.value
                 value.insert(item.primary)
@@ -292,6 +601,13 @@ extension ChatViewController: MessageCellDelegate {
         if forwardedIds.value.isEmpty {
             self.disableSelectMode()
         }
+    }
+    
+    func isSelected(primary: String) -> Bool {
+        if !self.isInSelectionMode.value {
+            return false
+        }
+        return self.forwardedIds.value.contains(primary)
     }
     
     func enableSelectMode() {
@@ -322,9 +638,7 @@ extension ChatViewController: MessageCellDelegate {
             self.messagesCollectionView.visibleCells.forEach {
                 cell in
                 guard let contentCell = cell as? MessageContentCell else { return }
-                if contentCell.isSelected() {
-                    contentCell.setSelected(UIColor.blue.withAlphaComponent(0.2))
-                }
+                contentCell.setSelected(state: false)
             }
         }
         self.disableSelectMode()
@@ -358,39 +672,14 @@ extension ChatViewController: MessageCellDelegate {
         }
     }
     
-    func showGallery(from array: [MessageReferenceStorageItem.Model], start image: Int, messageId: String) {
-//        if array[0].isOriginalMissed
-        if self.showSkeletonObserver.value {
-            return
-        }
-        var urls: [URL] = array.compactMap {
-            item in
-            guard let urlUnwr = item.metadata?["uri"] as? String,
-                let url = URL(string: urlUnwr) else { return nil}
-            return url
-        }
-        
-        let senderInfo = PhotoGallery.getSenderName(messageId: messageId)
-        
-        if image > 0 {
-            let prefix = urls.prefix(upTo: image < urls.count ? image : 0)
-            let suffix = urls.suffix(from: image < urls.count ? image : 0)
-            urls = Array(suffix)
-            urls.append(contentsOf: prefix)
-        }
-        
-        let gallery = PhotoGallery(urls: urls,
-                                   senders: [senderInfo.senderName],
-                                   dates: [senderInfo.date],
-                                   times: [senderInfo.time],
-                                   messageIds: [messageId],
-                                   calledFromChat: true)
+    func showGallery(urls: [URL], from url: URL) {
+        let gallery = PhotoGallery(urls: urls, from: url)
         gallery.chatVCDelegate = self
         
         let nvc = UINavigationController(rootViewController: gallery)
         nvc.modalPresentationStyle = .fullScreen
 
-        gallery.initialPage = image
+        gallery.initialPage = urls.firstIndex(of: url) ?? 0
         present(nvc, animated: true, completion: nil)
         
     }
@@ -568,75 +857,75 @@ extension ChatViewController: MessageCellDelegate {
     }
     
     func onTapAttachment(cell: MessageCollectionViewCell, inlineItem: Bool, messageId: String?, index: Int, isSubforward: Bool) {
-        if self.showSkeletonObserver.value {
-            return
-        }
-
-        guard let indexPath = indexPathFor(cell) else {
-                return
-        }
-        let primary = self.datasource[indexPath.section].primary
-        let item = datasource[indexPath.section]
-        if inlineItem {
-            if let inline = item.forwards.first(where: { $0.messageId == messageId }) {
-                if isSubforward {
-                    self.showSubforwards(inline.subforwards.sorted(by: { ($0.originalDate ?? Date()) > ($1.originalDate ?? Date()) }))
-                } else {
-                    switch inline.kind {
-                    case .text, .quote:
-                        break
-                    case .images:
-                        showGallery(from: inline
-                                            .references
-                                            .filter({ $0.mimeType == MimeIconTypes.image.rawValue }),
-                                    start: index,
-                                    messageId: primary)
-                    case .videos:
-                        if inline.references[index].isDownloaded {
-                            playVideo(withURL: inline.references[index].localFileUrl)
-                        } else {
-                            downloadVideo(inline.references[index].primary)
-                        }
-                        
-                    case .files:
-                        if let uri = inline
-                            .references
-                            .filter({ $0.kind == .media })[index]
-                            .metadata?["uri"] as? String {
-                            openFile(URL(string: uri))
-                        }
-                    case .voice:
-                        didTapAudioCell(cell: cell, messageId: messageId, at: nil)
-                    }
-                }
-            }
-        } else {
-            switch item.kind {
-            case .photos(let photos):
-                showGallery(from: photos, start: index, messageId: primary)
-                
-            case .files(let files): //Videos go as files with mimeType == "video"
-                let _ = files.map {
-                    if $0.mimeType == "video" {
-                        playVideo(withURL: $0.downloadUrl)
-                        
-                    } else {
-                        openFile($0.downloadUrl)
-                    }
-                }
-            case .audio(_):
-                didTapAudioCell(cell: cell, messageId: nil, at: nil)
-            default: break
-            }
-        }
+//        if self.showSkeletonObserver.value {
+//            return
+//        }
+//
+//        guard let indexPath = indexPathFor(cell) else {
+//                return
+//        }
+//        let primary = self.datasource[indexPath.section].primary
+//        let item = datasource[indexPath.section]
+//        if inlineItem {
+//            if let inline = item.forwards.first(where: { $0.messageId == messageId }) {
+//                if isSubforward {
+//                    self.showSubforwards(inline.subforwards.sorted(by: { ($0.originalDate ?? Date()) > ($1.originalDate ?? Date()) }))
+//                } else {
+//                    switch inline.kind {
+//                    case .text, .quote:
+//                        break
+//                    case .images:
+//                        showGallery(from: inline
+//                                            .references
+//                                            .filter({ $0.mimeType == MimeIconTypes.image.rawValue }),
+//                                    start: index,
+//                                    messageId: primary)
+//                    case .videos:
+//                        if inline.references[index].isDownloaded {
+//                            playVideo(withURL: inline.references[index].localFileUrl)
+//                        } else {
+//                            downloadVideo(inline.references[index].primary)
+//                        }
+//                        
+//                    case .files:
+//                        if let uri = inline
+//                            .references
+//                            .filter({ $0.kind == .media })[index]
+//                            .metadata?["uri"] as? String {
+//                            openFile(URL(string: uri))
+//                        }
+//                    case .voice:
+//                        didTapAudioCell(cell: cell, messageId: messageId, at: nil)
+//                    }
+//                }
+//            }
+//        } else {
+//            switch item.kind {
+//            case .photos(let photos):
+//                showGallery(from: photos, start: index, messageId: primary)
+//                
+//            case .files(let files): //Videos go as files with mimeType == "video"
+//                let _ = files.map {
+//                    if $0.mimeType == "video" {
+//                        playVideo(withURL: $0.downloadUrl)
+//                        
+//                    } else {
+//                        openFile($0.downloadUrl)
+//                    }
+//                }
+//            case .audio(_):
+//                didTapAudioCell(cell: cell, messageId: nil, at: nil)
+//            default: break
+//            }
+//        }
     }
     
-    internal func showSubforwards(_ items: [MessageForwardsInlineStorageItem.Model]) {
-        let vc = SubforwardsViewController()
-        vc.configure(owner, jid: jid, items: items)
-        showModal(vc)
-    }
-    
+//    internal func showSubforwards(_ items: [MessageForwardsInlineStorageItem.Model]) {
+//        let vc = SubforwardsViewController()
+//        vc.configure(owner, jid: jid, items: items)
+//        showModal(vc)
+//    }
+//    
     internal func openFile(_ url: URL?) {
         guard let url = url,
             UIApplication.shared.canOpenURL(url) else {
@@ -807,5 +1096,52 @@ extension ChatViewController: MessageCellDelegate {
         }
         VoIPManager.shared.startCall(owner: self.owner, jid: self.jid)
     }
+    
+}
+
+extension ChatViewController: SharedPlayerViewDelegate {
+    func sharedPlayerViewShouldClose(_ view: SharedPlayerView) {
+        if self.currentPlayingView != nil {
+            self.sharedAudioPlayerPanel?.stopTimer()
+            self.currentPlayingView?.pause()
+            self.currentPlayingView?.resetState()
+            self.currentPlayingUrl = nil
+            self.currentPlayingView = nil
+            AudioManager.shared.player?.stop()
+            AudioManager.shared.player = nil
+            self.hideSharedAudioPanel()
+            self.sharedPlayerPaneldelegae?.shouldHide()
+        } else {
+            self.hideSharedAudioPanel()
+            self.sharedPlayerPaneldelegae?.shouldHide()
+            self.xabberInputView.recordAndPlayPanel.pause()
+            AudioManager.shared.player?.pause()
+        }
+    }
+    
+    func sharedPlayerViewPlay(_ view: SharedPlayerView) {
+        if self.currentPlayingView != nil {
+            self.currentPlayingView?.continuePlay()
+        } else {
+            self.xabberInputView.recordAndPlayPanel.continuePlay()
+        }
+        AudioManager.shared.player?.play()
+    }
+    
+    func sharedPlayerViewPause(_ view: SharedPlayerView) {
+        if self.currentPlayingView != nil {
+            self.currentPlayingView?.pause()
+        } else {
+            self.xabberInputView.recordAndPlayPanel.pause()
+        }
+        AudioManager.shared.player?.pause()
+    }
+    
+    func sharedPlayerViewTapOnTitle(_ view: SharedPlayerView) {
+        if let primary = AudioManager.shared.messagePrimary {
+            self.scrollToSearchedMessage(primary: primary)
+        }
+    }
+    
     
 }

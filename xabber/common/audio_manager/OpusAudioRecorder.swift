@@ -59,7 +59,7 @@ extension AudioErrorType: LocalizedError {
 class AudioRecorder: NSObject {
     static let audioPercentageUserInfoKey = "com.xabber.audio.percentage"
     
-    let audioFileNamePrefix = "com.xabber.voice_messages"
+    let audioFileNamePrefix = "\(CommonConfigManager.shared.config.bundle_id).voice_messages"
     let numberOfChannels: Int = 1
     let sampleRate: Double = 48000.0
     let depthInBits: Int = 16
@@ -72,12 +72,7 @@ class AudioRecorder: NSObject {
     }
     
     var isPermissionGranted = false
-    var isRunning: Bool {
-        guard let recorder = self.recorder, recorder.isRecording else {
-            return false
-        }
-        return true
-    }
+    var isRunning: Bool = false
     
     var currentRecordPath: URL?
     
@@ -105,24 +100,25 @@ class AudioRecorder: NSObject {
         }
 //        return false
     }
-    
-    func startRecording(visualNotificationFreq timeInterval: TimeInterval = 0.05, completion: @escaping (URL?, Error?) -> Void, failure: @escaping(() -> Void)) {
+    var onEndRecordCallback: ((URL?, Error?, Bool) -> Void)? = nil
+    var currentRecordedFileUrl: URL? = nil
+    func startRecording(visualNotificationFreq timeInterval: TimeInterval = 0.05, completion: @escaping (URL?, Error?, Bool) -> Void, failure: @escaping(() -> Void)) {
         func startRecordingReturn() {
             do {
                 let result = try internalStartRecording(with: timeInterval)
-                DispatchQueue.main.async {
-                    completion(result, nil)
-                }
+                self.currentRecordedFileUrl = result
+                self.onEndRecordCallback = completion
+                self.isRunning = true
             } catch {
-//                print(error.localizedDescription)
-                DispatchQueue.main.async {
-                    completion(nil, error)
-                }
+                DDLogDebug("AudioRecorder: \(#function). \(error.localizedDescription)")
+                self.isRunning = false
+                failure()
             }
         }
         
         if !self.isPermissionGranted {
             self.askPermission { _, _ in
+                self.isRunning = false
                 failure()
             }
         } else {
@@ -160,6 +156,7 @@ class AudioRecorder: NSObject {
             prepared != false,
             let started = self.recorder?.record(atTime: self.recorder!.deviceCurrentTime + 0.4),
             started != false else {
+            self.isRunning = false
             throw AudioErrorType.recordFailed
         }
         
@@ -171,7 +168,7 @@ class AudioRecorder: NSObject {
 //            repeats: true
 //        )
         
-        DispatchQueue.main.async {
+//        DispatchQueue.main.async {
             self.audioMeteringLevelTimer = Timer.scheduledTimer(
                 withTimeInterval: timeInterval,
                 repeats: true,
@@ -179,7 +176,7 @@ class AudioRecorder: NSObject {
                     if !self.isRunning { return }
                     self.recorder?.updateMeters()
                     let averagePower = self.recorder?.averagePower(forChannel: 0) ?? 0
-                    let percentage: Float = pow(10, (0.05 * averagePower))
+                    let percentage: Float = pow(10, (0.012 * averagePower)) // 0.05
                     NotificationCenter
                         .default
                         .post(
@@ -188,15 +185,15 @@ class AudioRecorder: NSObject {
                             userInfo: [AudioRecorder.audioPercentageUserInfoKey: percentage])
                 })
             RunLoop.main.add(self.audioMeteringLevelTimer!, forMode: .default)
-        }
+//        }
         
-        DDLogDebug("Audio Recorder did start - creating file at index: \(path.absoluteString)")
+        DDLogDebug("Audio Recorder did start - creating file at path: \(path.absoluteString)")
         
         self.currentRecordPath = path
         return path
     }
     
-    func stopRecording() throws {
+    func stopRecording(cancel: Bool, shouldSend: Bool) throws {
         self.audioMeteringLevelTimer?.invalidate()
         self.audioMeteringLevelTimer = nil
         
@@ -204,9 +201,14 @@ class AudioRecorder: NSObject {
             DDLogDebug("Audio Recorder did fail to stop")
             throw AudioErrorType.notCurrentlyPlaying
         }
+        self.isRunning = false
         self.recorder?.stop()
         try AVAudioSession.sharedInstance().setActive(false)
         self.recorder = nil
+        if !cancel {
+            self.onEndRecordCallback?(self.currentRecordedFileUrl, nil, shouldSend)
+            self.onEndRecordCallback = nil
+        }
         DDLogDebug("Audio Recorder did stop successfully")
     }
     

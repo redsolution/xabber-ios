@@ -491,7 +491,7 @@ class CallScreenViewController: BaseViewController {
             remoteRenderer.restorationIdentifier = "videoRenderer"
             VoIPManager.shared.enableRemoteVideo(remoteRenderer)
             self.view.insertSubview(remoteRenderer, aboveSubview: backgroundView)
-            remoteRenderer.delegate = self
+//            remoteRenderer.delegate = self
             self.remoteRenderer = remoteRenderer
         } else {
             if self.remoteRenderer != nil {

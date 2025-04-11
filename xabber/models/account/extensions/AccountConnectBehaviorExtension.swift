@@ -46,12 +46,12 @@ extension Account {
             AccountManager.shared.markAsConnected(jid: self.jid)
 //            self.presence()
             DispatchQueue.main.async {
-                ToastPresenter(message: "SM did resume").present(animated: true)
+                ToastPresenter().presentSuccess(message: "SM did resume")
             }
             _ = self.syncManager.sync(self.xmppStream)
         } else {
             DispatchQueue.main.async {
-                ToastPresenter(message: "Synchronization").present(animated: true)
+                ToastPresenter().present(message: "Synchronization", image: imageLiteral("cloud"))
             }
             self.configureExtensions()
             self.disco.configure(self.xmppStream)

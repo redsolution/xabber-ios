@@ -103,7 +103,7 @@ extension ChatViewController {
                 case let (.some(duration), .some(curve)):
                         let inputHeight: CGFloat = self.xabberInputView.barHeight + keyboardVisibleHeight
                     
-                    let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
+//                    let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
                     let options = UIView.AnimationOptions(rawValue: curve.uintValue)
 //                    print("duration, options", duration, options)
                     UIView.animate(

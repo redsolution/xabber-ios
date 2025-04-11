@@ -666,7 +666,7 @@ extension SubscribtionsListViewController {
                                 self.canShowCloseButton = false
                                 self.updateCloseButton()
                                 self.tableView.reloadData()
-                                ToastPresenter(message: "Error: confirmation").present(animated: true)
+                                ToastPresenter().presentError(message: "Error: confirmation")
                             }
                         }
                     }
@@ -682,7 +682,7 @@ extension SubscribtionsListViewController {
                         self.canShowCloseButton = false
                         self.updateCloseButton()
                         self.tableView.reloadData()
-                        ToastPresenter(message: "Error: fail purchaise").present(animated: true)
+                        ToastPresenter().presentError(message: "Error: fail purchaise")
                     }
                 }
             }

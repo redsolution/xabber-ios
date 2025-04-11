@@ -21,7 +21,6 @@
 import Foundation
 import UIKit
 import LocalAuthentication
-import Toast_Swift
 import RxCocoa
 import RxSwift
 import CocoaLumberjack

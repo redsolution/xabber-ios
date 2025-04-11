@@ -80,9 +80,9 @@ class DefaultAvatarManager: NSObject {
     }
     
     
-    public final func getGroupAvatar(user: String, jid: String, owner: String, size: CGFloat = 0, callback: ((UIImage?) -> Void)?) {
-        callback?(nil)
-    }
+//    public final func getGroupAvatar(user: String, jid: String, owner: String, size: CGFloat = 0, callback: ((UIImage?) -> Void)?) {
+//        callback?(nil)
+//    }
     
     public final func storeImage(for key: String, image: UIImage) {
         ImageCache.default.store(image, forKey: key, options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory]))
@@ -94,7 +94,6 @@ class DefaultAvatarManager: NSObject {
                 ImageCache.default.retrieveImage(forKey: url, options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory]), callbackQueue: .mainAsync) { result in
                     switch result {
                         case .success(let image):
-//                            print("rgthio", image.image == nil)
                             callback?(image.image)
                         default:
                             callback?(nil)
@@ -112,21 +111,11 @@ class DefaultAvatarManager: NSObject {
                             DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
                                 do {
                                     let realm = try WRealm.safe()
-                                    let collectionChats = realm.objects(LastChatsStorageItem.self).filter("jid == %@ AND owner == %@", jid, owner)
-                                    if let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner)) {
+                                    if let instance = realm.object(ofType: GroupchatUserStorageItem.self, forPrimaryKey: GroupchatUserStorageItem.genPrimary(id: userId, groupchat: jid, owner: owner)) {
                                         try realm.write {
                                             instance.updatedTS = Date().timeIntervalSince1970
-                                            collectionChats.forEach { $0.updateTS = Date().timeIntervalSince1970 }
                                         }
                                     }
-                                    if jid == owner {
-                                        if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid) {
-                                            try realm.write {
-                                                instance.avatarUpdatedTS = Double(Date().timeIntervalSince1970)
-                                            }
-                                        }
-                                    }
-                                    
                                 } catch {
                                     DDLogDebug("DefaultAvatarManager: \(#function). \(error.localizedDescription)")
                                 }

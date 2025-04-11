@@ -21,7 +21,6 @@
 import Foundation
 import UIKit
 import Kingfisher
-import Toast_Swift
 import simd
 import RealmSwift
 import CocoaLumberjack
@@ -199,14 +198,9 @@ public class PhotoGallery: UIViewController {
     internal var pageControlCenterXConstraint: NSLayoutConstraint?
     internal var needsLayout = true
     
-    public init(urls: [URL], senders: [String], dates: [String], times: [String], messageIds: [String], calledFromChat: Bool = false) {
+    public init(urls: [URL], from url: URL) {
         super.init(nibName: nil, bundle: nil)
         self.imageUrls = urls
-        self.senders = senders
-        self.dates = dates
-        self.times = times
-        self.messageIds = messageIds
-        self.calledFromChatViewController = calledFromChat
     }
     
     func setupDelegate(photoGalleryDelegate: InfoScreenFooterView) {

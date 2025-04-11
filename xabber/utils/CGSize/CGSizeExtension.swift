@@ -41,4 +41,35 @@ extension CGSize {
     func swapCoords() -> CGSize {
         return CGSize(width: self.height, height: self.width)
     }
+    
+    // if one of side of current size less than args size - return true, else return false
+    func lessThan(_ size: CGSize) -> Bool{
+        if size.width > self.width {
+            return true
+        }
+        if size.height > self.height {
+            return true
+        }
+        return false
+    }
+    
+    func margin(width: CGFloat, height: CGFloat) -> CGSize {
+        if self == .zero {
+            return .zero
+        }
+        return CGSize(
+            width: self.width + width,
+            height: self.height + height
+        )
+    }
+    
+    func padding(width: CGFloat, height: CGFloat) -> CGSize {
+        if self == .zero {
+            return .zero
+        }
+        return CGSize(
+            width: self.width - width,
+            height: self.height - height
+        )
+    }
 }

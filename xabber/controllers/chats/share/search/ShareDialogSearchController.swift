@@ -93,9 +93,6 @@ class ShareDialogSearchController: BaseViewController {
             }
             var isAttachment: Bool = [
                 MessageStorageItem.MessageDisplayType.sticker,
-                MessageStorageItem.MessageDisplayType.files,
-                MessageStorageItem.MessageDisplayType.images,
-                MessageStorageItem.MessageDisplayType.voice,
                 MessageStorageItem.MessageDisplayType.call].contains(item.lastMessage?.displayAs ?? .text)
             if !isAttachment,
                let authMessageMetadata = item.lastMessage?.systemMetadata?["auth_message"] as? Bool,
@@ -103,7 +100,7 @@ class ShareDialogSearchController: BaseViewController {
                 isAttachment = true
             }
             
-            let isInvite = item.unread > 0 ? ((item.lastMessage?.displayAs ?? .text) == .initial ? true : false) : false
+            let isInvite = false//item.unread > 0 ? ((item.lastMessage?.displayAs ?? .text) == .initial ? true : false) : false
             
             var nickname: String? = item.lastMessage?.groupchatDisplayedNickname
             if item.lastMessage?.inlineForwards.isNotEmpty ?? false {
@@ -129,7 +126,7 @@ class ShareDialogSearchController: BaseViewController {
                 isDraft: isDraft,
                 isAttachment: isAttachment,
                 groupchatNickname: nickname,
-                isSystem: [.system, .initial].contains(item.lastMessage?.displayAs ?? .text)
+                isSystem: [.system].contains(item.lastMessage?.displayAs ?? .text)
             )
             
         } ?? []

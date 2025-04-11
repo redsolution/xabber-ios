@@ -20,7 +20,7 @@
 
 import Foundation
 
-protocol MessageArchiveManagerDelegate {
-    func didReceiveMessage(_ message: MessageForwardsInlineStorageItem.Model)
-    func didReceiveEnd(count: Int?, first: String?, last: String?)
-}
+//protocol MessageArchiveManagerDelegate {
+//    func didReceiveMessage(_ message: MessageForwardsInlineStorageItem.Model)
+//    func didReceiveEnd(count: Int?, first: String?, last: String?)
+//}

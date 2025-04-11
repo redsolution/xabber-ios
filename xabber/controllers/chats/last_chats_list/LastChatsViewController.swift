@@ -28,6 +28,7 @@ import DeepDiff
 import CocoaLumberjack
 import MaterialComponents.MDCPalettes
 import XMPPFramework.XMPPJID
+import AVFoundation
 
 public final class ChangesWithIndexPath {
     public let inserts: [IndexPath]
@@ -41,6 +42,296 @@ public final class ChangesWithIndexPath {
         self.replaces = replaces
         self.moves = moves
     }
+}
+
+protocol SharedAudioPlayerPanelDelegate {
+    func shouldShow()
+    func shouldHide()
+    func shouldPlay()
+    func shouldPause()
+}
+
+protocol SharedPlayerViewDelegate {
+    func sharedPlayerViewShouldClose(_ view: SharedPlayerView)
+    func sharedPlayerViewPlay( _ view: SharedPlayerView)
+    func sharedPlayerViewPause(_ view: SharedPlayerView)
+    func sharedPlayerViewTapOnTitle(_ view: SharedPlayerView)
+}
+
+class SharedPlayerView: UIView {
+    
+    internal let playButton: UIButton = {
+        let button = UIButton(frame: .zero)
+        
+        button.setImage(imageLiteral("play.fill"), for: .normal)
+        button.tintColor = .tintColor
+        
+        return button
+    }()
+    
+    let blurredEffectView: UIVisualEffectView = {
+        let blurEffect = UIBlurEffect(style: .extraLight)//.systemMaterial)
+        let blurredEffectView = UIVisualEffectView(effect: blurEffect)
+        
+        return blurredEffectView
+    }()
+    
+    internal let titleButton: UIButton = {
+        let button = UIButton(frame: .zero)
+        
+        button.setTitleColor(.secondaryLabel, for: .normal)
+        button.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .regular)
+        
+        return button
+    }()
+    
+    internal let closeButton: UIButton = {
+        let button = UIButton(frame: .zero)
+        
+        button.setImage(imageLiteral("xmark"), for: .normal)
+        button.tintColor = .tintColor
+        
+        return button
+    }()
+    
+    internal let titleStack: UIStackView = {
+        let stack = UIStackView(frame: .zero)
+        
+        stack.axis = .vertical
+        stack.distribution = .fill
+        stack.alignment = .center
+        
+        return stack
+    }()
+    
+    let titleLabel: UILabel = {
+        let label = UILabel(frame: .zero)
+        
+        label.font = UIFont.systemFont(ofSize: 15, weight: .regular)
+        label.textColor = .label
+        
+        return label
+    }()
+    
+    let subtitleLabel: UILabel = {
+        let label = UILabel(frame: .zero)
+        
+        label.font = UIFont.systemFont(ofSize: 12, weight: .regular)
+        label.textColor = .secondaryLabel
+        
+        return label
+    }()
+    
+    let progressView: UIView = {
+        let view = UIView(frame: .zero)
+        
+        view.backgroundColor = .tintColor
+        
+        return view
+    }()
+    
+    let separatorLine: UIView = {
+        let view = UIView(frame: .zero)
+        
+        view.backgroundColor = UIColor.black.withAlphaComponent(0.4)
+        
+        return view
+    }()
+    
+    var timer: Timer? = nil
+    
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        self.setup()
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    private func calcCurrentProgress(currentTime: TimeInterval, duration: TimeInterval) -> CGFloat {
+        let k: CGFloat = CGFloat(currentTime / duration)
+        let resultWidth = self.frame.width * k
+        return resultWidth
+    }
+    
+    @objc
+    private final func updateProgressBar() {
+        guard AudioManager.shared.player != nil else {
+            return
+        }
+        let newWidth = self.calcCurrentProgress(currentTime: AudioManager.shared.player?.currentTime ?? 0, duration: AudioManager.shared.player?.duration ?? 0)
+        if newWidth >= self.frame.width {
+            self.stopTimer()
+            return
+        }
+//        UIView.animate(withDuration: 0.01) {
+            self.progressView.frame = CGRect(
+                origin: CGPoint(x: 0, y: 42),
+                size: CGSize(width: newWidth, height: 2)
+            )
+//        }
+        
+    }
+    
+    private final func startTimer() {
+        self.stopTimer()
+        self.timer = Timer.scheduledTimer(
+            timeInterval: 0.01,
+            target: self,
+            selector: #selector(updateProgressBar),
+            userInfo: nil,
+            repeats: true
+        )
+        RunLoop.current.add(self.timer!, forMode: .default)
+    }
+    
+    public final func stopTimer() {
+        self.timer?.invalidate()
+        self.timer = nil
+    }
+    
+    func setup() {
+        
+        self.titleStack.addArrangedSubview(self.titleLabel)
+        self.titleStack.addArrangedSubview(self.subtitleLabel)
+        
+        self.addSubview(self.blurredEffectView)
+        self.addSubview(self.playButton)
+        self.addSubview(self.titleStack)
+        self.addSubview(self.closeButton)
+        self.addSubview(self.separatorLine)
+        self.addSubview(self.progressView)
+        self.closeButton.addTarget(self, action: #selector(self.onCloseButtonTouchUp), for: .touchUpInside)
+        self.playButton.addTarget(self, action: #selector(self.onPlayButtonTouchUp), for: .touchUpInside)
+        let titleGesture = UITapGestureRecognizer(target: self, action: #selector(self.onTitleStackTapRecognize))
+        self.titleStack.addGestureRecognizer(titleGesture)
+    }
+    
+    func update(frame: CGRect, isHidden: Bool) {
+        let height: CGFloat = 44
+        self.frame = frame
+        self.blurredEffectView.isHidden = isHidden
+        self.playButton.isHidden = isHidden
+        self.titleStack.isHidden = isHidden
+        self.closeButton.isHidden = isHidden
+        self.separatorLine.isHidden = isHidden
+        self.progressView.isHidden = isHidden
+        self.blurredEffectView.frame = CGRect(origin: .zero, size: frame.size)
+        let buttonSize = CGSize(width: 44, height: height)
+        self.playButton.frame = CGRect(
+            origin: CGPoint(x: 4, y: 0),
+            size: buttonSize
+        )
+        self.closeButton.frame = CGRect(
+            origin: CGPoint(x: frame.width - 44 - 6, y: 0),
+            size: buttonSize
+        )
+        self.titleStack.frame = CGRect(
+            origin: CGPoint(x: 56, y: 5),
+            size: CGSize(width: frame.width - 114, height: height - 10)
+        )
+        self.progressView.frame = CGRect(
+            origin: CGPoint(x: 0, y: 42),
+            size: CGSize(width: 0, height: 2)
+        )
+        self.separatorLine.frame = CGRect(
+            origin: CGPoint(x: 0, y: height - 1.0 / UIScreen.main.scale),
+            size: CGSize(width: frame.width, height: 1.0 / UIScreen.main.scale)
+        )
+        self.layoutIfNeeded()
+    }
+    
+    func configure(title: String?, subtitle: String?) {
+        self.playButton.setImage(imageLiteral("pause.fill"), for: .normal)
+//        self.titleButton.setTitle(title, for: .normal)
+        self.titleLabel.text = title
+        self.subtitleLabel.text = subtitle
+        self.layoutSubviews()
+    }
+    
+    open var delegate: SharedPlayerViewDelegate? = nil
+    enum PlayState {
+        case playing
+        case paused
+    }
+    
+    var state: PlayState = .playing
+    
+    @objc
+    private final func onCloseButtonTouchUp(_ sender: UIButton) {
+        AudioManager.shared.player?.stop()
+        AudioManager.shared.player = nil
+        self.stopTimer()
+        self.delegate?.sharedPlayerViewShouldClose(self)
+    }
+    
+    public final func swapState(to newState: PlayState? = nil) {
+        if let newState = newState {
+            self.state = newState
+            switch newState {
+                case .playing:
+                    self.startTimer()
+                    self.playButton.setImage(imageLiteral("pause.fill"), for: .normal)
+                case .paused:
+                    self.stopTimer()
+                    self.playButton.setImage(imageLiteral("play.fill"), for: .normal)
+            }
+        } else {
+            switch state {
+                case .playing:
+                    self.state = .paused
+                    self.stopTimer()
+                    self.playButton.setImage(imageLiteral("play.fill"), for: .normal)
+                case .paused:
+                    self.state = .playing
+                    self.startTimer()
+                    self.playButton.setImage(imageLiteral("pause.fill"), for: .normal)
+            }
+        }
+    }
+    
+    @objc
+    private final func onPlayButtonTouchUp(_ sender: UIButton) {
+        self.swapState()
+        switch state {
+            case .playing:
+                self.delegate?.sharedPlayerViewPlay(self)
+            case .paused:
+                self.delegate?.sharedPlayerViewPause(self)
+        }
+        
+    }
+    
+    @objc
+    private final func onTitleStackTapRecognize(_ sender: UIGestureRecognizer) {
+        self.delegate?.sharedPlayerViewTapOnTitle(self)
+    }
+}
+
+extension SharedPlayerView: MulticastAVAudioPlayerDelegate {
+    func staticMulticastId() -> String {
+        return "shared_player_view_smid"
+    }
+    
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        print(self.staticMulticastId(), #function)
+        self.stopTimer()
+    }
+    
+    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: (any Error)?) {
+        print(self.staticMulticastId(), #function)
+    }
+    
+    func audioPlayerBeginInterruption(_ player: AVAudioPlayer) {
+        print(self.staticMulticastId(), #function)
+    }
+    
+    func audioPlayerEndInterruption(_ player: AVAudioPlayer, withOptions flags: Int) {
+        print(self.staticMulticastId(), #function)
+    }
+    
+    
 }
 
 class LastChatsViewController: BaseViewController {
@@ -129,8 +420,10 @@ class LastChatsViewController: BaseViewController {
         view.register(ChatListTableViewCell.self, forCellReuseIdentifier: ChatListTableViewCell.cellName)
         view.register(ArchivedCell.self, forCellReuseIdentifier: ArchivedCell.cellName)
         view.register(SkeletonCell.self, forCellReuseIdentifier: SkeletonCell.cellName)
-        
+        view.contentInsetAdjustmentBehavior = .scrollableAxes
+        view.tableHeaderView = UIView(frame: .zero)
         view.tableFooterView = UIView(frame: .zero)
+        view.sectionHeaderTopPadding = 0
 //        view.allowsMultipleSelection = false
 //        view.allowsMultipleSelectionDuringEditing = false
 //        view.cellLayoutMarginsFollowReadableWidth = false
@@ -247,6 +540,32 @@ class LastChatsViewController: BaseViewController {
     open var splitDelegate: SplitViewControllerDelegate? = nil
     
     open var currentChatVC: ChatViewController? = nil
+    
+    
+    let playerViewToolbar: SharedPlayerView = {
+        let view = SharedPlayerView(frame: .zero)
+        
+        view.isHidden = false
+        
+        return view
+    }()
+    
+    internal func configurePlayerView() {
+        self.playerViewToolbar.update(frame: CGRect(0, 0, self.view.frame.width, 44), isHidden: false)
+        self.playerViewToolbar.configure(title: "Natalia Barabanschikova", subtitle: "Voice message")
+        self.playerViewToolbar.delegate = self
+    }
+    
+    
+    internal func showPlayerViewIfNeeded() {
+        AudioManager.shared.addMulticastDelegate(self)
+        if self.playerViewToolbar.state == .playing {
+        } else if AudioManager.shared.player != nil {
+            self.playerViewToolbar.swapState(to: .playing)
+            self.playerViewToolbar.configure(title: AudioManager.shared.currentPlayingTitle, subtitle: AudioManager.shared.currentPlayingSubtitle)
+        }
+        self.tableView.reloadData()
+    }
     
     internal func updateTitle(_ value: Filter) {
         do {
@@ -590,9 +909,6 @@ class LastChatsViewController: BaseViewController {
                 }
                 var isAttachment: Bool = [
                     MessageStorageItem.MessageDisplayType.sticker,
-                    MessageStorageItem.MessageDisplayType.files,
-                    MessageStorageItem.MessageDisplayType.images,
-                    MessageStorageItem.MessageDisplayType.voice,
                     MessageStorageItem.MessageDisplayType.call].contains(item.lastMessage?.displayAs ?? .text)
                 if !isAttachment,
                    let authMessageMetadata = item.lastMessage?.systemMetadata?["auth_message"] as? Bool,
@@ -600,7 +916,7 @@ class LastChatsViewController: BaseViewController {
                     isAttachment = true
                 }
                 
-                let isInvite = item.unread > 0 ? ((item.lastMessage?.displayAs ?? .text) == .initial ? true : false) : false
+                let isInvite = false//item.unread > 0 ? ((item.lastMessage?.displayAs ?? .text) == .initial ? true : false) : false
                 
                 var nickname: String? = item.lastMessage?.groupchatDisplayedNickname
                 if item.lastMessage?.inlineForwards.isNotEmpty ?? false {
@@ -609,25 +925,25 @@ class LastChatsViewController: BaseViewController {
                     if nick == "" || nick == nil {
                         nick = String(JidManager.shared.prepareJid(jid: sender?.forwardJid ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])))
                     }
-                    switch item.lastMessage?.inlineForwards.first?.kind {
-                    case .text:
-                        nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])): \(item.lastMessage?.inlineForwards.first?.body ?? "")"
-                    case .images:
-                        nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " image".localizeString(id: "forward_image", arguments: [])
-                    case .videos:
-                        nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " video".localizeString(id: "forward_video", arguments: [])
-                    case .files:
-                        nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " file".localizeString(id: "forward_file", arguments: [])
-                    case .voice:
-                        nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " voice message".localizeString(id: "forward_voice", arguments: [])
-                    case .quote:
-                        nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])): \(item.lastMessage?.inlineForwards.first?.body ?? "")"
-                    case .none:
-                        nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: []))"
-                    }
+//                    switch item.lastMessage?.inlineForwards.first?.kind {
+//                    case .text:
+//                        nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])): \(item.lastMessage?.inlineForwards.first?.body ?? "")"
+//                    case .images:
+//                        nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " image".localizeString(id: "forward_image", arguments: [])
+//                    case .videos:
+//                        nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " video".localizeString(id: "forward_video", arguments: [])
+//                    case .files:
+//                        nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " file".localizeString(id: "forward_file", arguments: [])
+//                    case .voice:
+//                        nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " voice message".localizeString(id: "forward_voice", arguments: [])
+//                    case .quote:
+//                        nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])): \(item.lastMessage?.inlineForwards.first?.body ?? "")"
+//                    case .none:
+//                        nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: []))"
+//                    }
                 }
                 
-                var isSystemMessage: Bool = [.system, .initial].contains(item.lastMessage?.displayAs ?? .text)
+                var isSystemMessage: Bool = [.system].contains(item.lastMessage?.displayAs ?? .text)
                 if item.isFreshNotEmptyEncryptedChat {
                     message = "Write your encrypted messages here"
                     isSystemMessage = true
@@ -1102,6 +1418,7 @@ class LastChatsViewController: BaseViewController {
         } catch {
             DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
         }
+        self.configurePlayerView()
 //        configureNavbar()
     }
     
@@ -1158,6 +1475,8 @@ class LastChatsViewController: BaseViewController {
                 }
                 
                 let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
+                
+                self.playerViewToolbar.update(frame: CGRect(0, 0, self.view.frame.width, 44), isHidden: false)
                 bottomBar.updateFrame(to: frame)
                 self.splitViewController?.navigationItem.setLeftBarButtonItems([], animated: true)
                 
@@ -1285,6 +1604,33 @@ class LastChatsViewController: BaseViewController {
                                                selector: #selector(reloadDatasource),
                                                name: .newMaskSelected,
                                                object: nil)
+        
+//        let customBar = UIView()
+//            customBar.backgroundColor = .systemGray6
+//            customBar.translatesAutoresizingMaskIntoConstraints = false
+//        navigationController!.navigationBar.addSubview(customBar)
+//            
+//            // Constraints
+//            NSLayoutConstraint.activate([
+////                customBar.topAnchor.constraint(equalTo: navigationController?.navigationBar.bottomAnchor ?? view.safeAreaLayoutGuide.topAnchor),
+//                customBar.topAnchor.constraint(equalTo: navigationController!.navigationBar.bottomAnchor),
+//                customBar.leadingAnchor.constraint(equalTo: navigationController!.navigationBar.leadingAnchor),
+//                customBar.trailingAnchor.constraint(equalTo: navigationController!.navigationBar.trailingAnchor),
+//                customBar.heightAnchor.constraint(equalToConstant: 44)
+//            ])
+//            
+//            // Add content to custom bar (e.g., buttons)
+//            let button = UIButton(type: .system)
+//            button.setTitle("Tap Me", for: .normal)
+////            button.addTarget(self, action: #selector(buttonTapped), for: .touchUpInside)
+//            button.translatesAutoresizingMaskIntoConstraints = false
+//            customBar.addSubview(button)
+//            
+//            NSLayoutConstraint.activate([
+//                button.centerXAnchor.constraint(equalTo: customBar.centerXAnchor),
+//                button.centerYAnchor.constraint(equalTo: customBar.centerYAnchor)
+//            ])
+        
     }
     
     override func reloadDatasource() {
@@ -1311,6 +1657,11 @@ class LastChatsViewController: BaseViewController {
             self.securityButton.tintColor = .systemRed
         }
         configureBars()
+        self.showPlayerViewIfNeeded()
+//        navigationController?.setToolbarItems([UIBarButtonItem(systemItem: .camera), UIBarButtonItem(systemItem: .play)], animated: true)
+//        navigationController?.setToolbarHidden(false, animated: false)
+//        navigationController?.toolbar.tintColor = .systemBlue
+//        navigationController?.toolbar.barTintColor = .systemGray6
 //        self.navigationController?.navigationBar.prefersLargeTitles = true
     }
     
@@ -1349,5 +1700,106 @@ class LastChatsViewController: BaseViewController {
     
     deinit {
         unsubscribe()
+    }
+}
+
+extension LastChatsViewController: MulticastAVAudioPlayerDelegate {
+    func staticMulticastId() -> String {
+        return "last_chats_smid"
+    }
+    
+    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: (any Error)?) {
+        
+    }
+    
+    func audioPlayerBeginInterruption(_ player: AVAudioPlayer) {
+        
+    }
+    
+    func audioPlayerEndInterruption(_ player: AVAudioPlayer, withOptions flags: Int) {
+        
+    }
+    
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        print("finish")
+        self.playerViewToolbar.swapState(to: .paused)
+        AudioManager.shared.player = nil
+        self.tableView.reloadData()
+    }
+}
+
+extension LastChatsViewController: SharedPlayerViewDelegate {
+    func sharedPlayerViewShouldClose(_ view: SharedPlayerView) {
+        print(#function)
+        self.playerViewToolbar.swapState(to: .paused)
+        AudioManager.shared.player?.stop()
+        AudioManager.shared.player = nil
+        self.tableView.reloadData()
+    }
+    
+    func sharedPlayerViewPlay(_ view: SharedPlayerView) {
+        print(#function)
+//        self.playerViewToolbar.swapState(to: .playing)
+        AudioManager.shared.player?.play()
+    }
+    
+    func sharedPlayerViewPause(_ view: SharedPlayerView) {
+        print(#function)
+//        self.playerViewToolbar.swapState(to: .paused)
+        AudioManager.shared.player?.pause()
+    }
+    
+    func sharedPlayerViewTapOnTitle(_ view: SharedPlayerView) {
+        print(#function)
+        guard let primary = AudioManager.shared.messagePrimary else {
+            return
+        }
+        do {
+            let realm = try WRealm.safe()
+            guard let message = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) else {
+                return
+            }
+            let vc = ChatViewController()
+            vc.owner = message.owner
+            vc.jid = message.opponent
+            vc.conversationType = message.conversationType
+            vc.sharedPlayerPaneldelegae = self
+            showStacked(vc, in: self)
+            let archivedId = message.archivedId
+            let date = message.date
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                vc.scrollToMessageAtIndex(archivedId: archivedId, date: date)
+            }
+        } catch {
+            
+        }
+    }
+    
+    
+}
+
+extension LastChatsViewController: SharedAudioPlayerPanelDelegate {
+    func shouldPlay() {
+        self.playerViewToolbar.swapState(to: .playing)
+    }
+    
+    func shouldPause() {
+        self.playerViewToolbar.swapState(to: .paused)
+    }
+    
+    func shouldShow() {
+//        if AudioManager.shared.player != nil {
+        self.playerViewToolbar.swapState(to: .playing)
+        self.playerViewToolbar.configure(title: AudioManager.shared.currentPlayingTitle, subtitle: AudioManager.shared.currentPlayingSubtitle)
+//        }
+        self.tableView.reloadData()
+    }
+    
+    func shouldHide() {
+        self.playerViewToolbar.stopTimer()
+        self.playerViewToolbar.swapState(to: .paused)
+        AudioManager.shared.player = nil
+        self.tableView.reloadData()
     }
 }

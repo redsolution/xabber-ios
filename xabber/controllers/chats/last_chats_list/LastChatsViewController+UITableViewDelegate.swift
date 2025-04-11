@@ -25,6 +25,14 @@ import CocoaLumberjack
 
 extension LastChatsViewController: UITableViewDelegate {
     
+    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+        if AudioManager.shared.player == nil {
+            return 0
+        } else {
+            return 44
+        }
+    }
+    
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         return 84
     }
@@ -44,8 +52,10 @@ extension LastChatsViewController: UITableViewDelegate {
         vc.owner = item.owner
         vc.jid = item.jid
         vc.conversationType = item.conversationType
+        vc.sharedPlayerPaneldelegae = self
         if UIDevice.current.userInterfaceIdiom == .pad {
             self.currentChatVC = vc
+            self.playerViewToolbar.delegate = vc
         }
         showStacked(vc, in: self)
     }

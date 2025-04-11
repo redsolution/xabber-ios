@@ -18,6 +18,14 @@ extension ChatViewController {
         })
     }
     
+    internal func applyAudioPlayerPanel() {
+        (self.navigationController as? NavBarController)?.configureAdditionalPanel({ barVc, stack in
+            let panel = SharedPlayerView(frame: CGRect(origin: .zero, size: barVc.view.frame.size))
+            panel.configure(title: AudioManager.shared.currentPlayingTitle, subtitle: AudioManager.shared.currentPlayingSubtitle)
+            stack.addArrangedSubview(panel)
+        })
+    }
+    
     internal func applyAddContactPanel() {
         (self.navigationController as? NavBarController)?.configureAdditionalPanel({ barVc, stack in
             barVc.indicatorIcon.setImage(UIImage(systemName: "person.fill.badge.plus")?.withRenderingMode(.alwaysTemplate), for: .normal)
@@ -193,6 +201,8 @@ extension ChatViewController {
             case .shouldRequestVerification:
                 break
             case .acceptedVerification:
+                break
+            case .audioPlayer:
                 break
         }
         (self.navigationController as? NavBarController)?.hideAdditionalPanel(animated: true)

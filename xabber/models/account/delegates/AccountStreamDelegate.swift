@@ -553,11 +553,11 @@ extension Account: XMPPStreamManagementDelegate {
         self.presence()
         if failed.element(forName: "item-not-found") != nil {
             DispatchQueue.main.async {
-                ToastPresenter(message: "SM session not found").present(animated: true)
+                ToastPresenter().presentError(message: "SM session not found")
             }
         } else {
             DispatchQueue.main.async {
-                ToastPresenter(message: "SM session error. \(failed.children?.compactMap({ return $0.name }).reduce(" ", +) ?? "" )").present(animated: true)
+                ToastPresenter().presentError(message: "SM session error. \(failed.children?.compactMap({ return $0.name }).reduce(" ", +) ?? "" )")
             }
         }
         

@@ -24,7 +24,7 @@ import MaterialComponents.MDCPalettes
 import Kingfisher
 
 /// A subclass of `MessageCollectionViewCell` used to display text, media, and location messages.
-class MessageContentCell: MessageCollectionViewCell {
+public class MessageContentCell: MessageCollectionViewCell {
 
     let deliveryIndicatorSize: CGSize = CGSize(square: 16)
     
@@ -34,12 +34,27 @@ class MessageContentCell: MessageCollectionViewCell {
     open var avatarView = AvatarView()
     var panGesture = UIPanGestureRecognizer()
 
-    var messageContainerView: MessageContainerView = {
-        let containerView = MessageContainerView()
+
+    var messageContainerView: ModernMessageContainerView = {
+        let containerView = ModernMessageContainerView()
         containerView.setup()
         return containerView
     }()
-
+    
+    var containerView: ModernContainerView = {
+        let view = ModernContainerView()
+        
+//        stack.axis = .vertical
+//        stack.spacing = 0
+//        stack.alignment = .leading
+//        stack.distribution = .fill
+//        stack.backgroundColor = .systemMint
+        
+//        view.backgroundColor = .systemMint
+        
+        return view
+    }()
+    
     var cellTopLabelBackplateView: UIView = {
         let view = UIView()
         
@@ -108,7 +123,8 @@ class MessageContentCell: MessageCollectionViewCell {
     
     let replyIcon: UIImageView = {
         let view = UIImageView()
-        view.image = imageLiteral("reply")?.withRenderingMode(.alwaysTemplate)
+        view.contentMode = .scaleAspectFit
+        view.image = imageLiteral("arrowshape.turn.up.left.fill")
         view.tintColor = .white
         view.alpha = 0
         
@@ -135,7 +151,7 @@ class MessageContentCell: MessageCollectionViewCell {
         panGesture = UIPanGestureRecognizer(target: self, action: #selector(onPanGesture))
         panGesture.delegate = self
         
-        contentView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+//        contentView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         setupSubviews()
     }
 
@@ -145,24 +161,17 @@ class MessageContentCell: MessageCollectionViewCell {
 
     func setupSubviews() {
         contentView.addSubview(backgroundContentView)
-        
-        backgroundContentView.addSubview(errorButtonBackgroundView)
-        backgroundContentView.addSubview(messageErrorButton)
         backgroundContentView.addSubview(avatarView)
-        contentView.addSubview(cellTopLabelBackplateView)
-        contentView.addSubview(cellTopLabel)
         backgroundContentView.addSubview(messageContainerView)
-        backgroundContentView.addSubview(messageTopLabel)
-        backgroundContentView.addSubview(messageBottomLabel)
-        backgroundContentView.addSubview(messageDeliveryIndicator)
-        
         backgroundContentView.addSubview(replyIconBackground)
         backgroundContentView.addSubview(replyIcon)
+        
+        messageContainerView.addSubview(containerView)
         
         self.contentView.addGestureRecognizer(panGesture)
     }
 
-    override func prepareForReuse() {
+    public override func prepareForReuse() {
         super.prepareForReuse()
         cellTopLabel.text = nil
         messageTopLabel.text = nil
@@ -180,23 +189,18 @@ class MessageContentCell: MessageCollectionViewCell {
     var canEditMessage: Bool = false
     var canDeleteMessage: Bool = false
 
-    // MARK: - Configuration
-
-    override func apply(_ layoutAttributes: UICollectionViewLayoutAttributes) {
+    var isBurnedMessage: Bool = false
+    
+    public override func apply(_ layoutAttributes: UICollectionViewLayoutAttributes) {
         super.apply(layoutAttributes)
         backgroundContentView.frame = contentView.frame
         
         guard let attributes = layoutAttributes as? MessagesCollectionViewLayoutAttributes else { return }
-        // Call this before other laying out other subviews
-//        layoutForwardBackground(with: attributes)
+        
         layoutMessageContainerView(with: attributes)
-        layoutBottomLabel(with: attributes)
-        layoutCellTopLabel(with: attributes)
-        layoutMessageTopLabel(with: attributes)
-        layoutDeliveryIndicator(with: attributes)
-        layoutAvatarView(with: attributes)
-        layoutErrorButton(with: attributes)
+        layoutContainerView(with: attributes)
         layoutReplyIcon()
+        layoutAvatarView(with: attributes)
         
         self.initialFrame = self.contentView.frame
     }
@@ -205,103 +209,97 @@ class MessageContentCell: MessageCollectionViewCell {
     func onMessageErrorButtonTouchUp(_ sender: UIButton) {
         self.delegate?.didTapErrorButton(cell: self)
     }
-    
-    /// Used to configure the cell.
-    ///
-    /// - Parameters:
-    ///   - message: The `MessageType` this cell displays.
-    ///   - indexPath: The `IndexPath` for this cell.
-    ///   - messagesCollectionView: The `MessagesCollectionView` in which this cell is contained.
-    ///
-    var isBurnedMessage: Bool = false
+
     override func configure(with message: MessageType, at indexPath: IndexPath, and messagesCollectionView: MessagesCollectionView) {
         guard let dataSource = messagesCollectionView.messagesDataSource else {
             fatalError(MessageKitError.nilMessagesDataSource)
         }
-        guard let displayDelegate = messagesCollectionView.messagesDisplayDelegate else {
-            fatalError(MessageKitError.nilMessagesDisplayDelegate)
-        }
-        self.layer.shouldRasterize = true
-        self.layer.rasterizationScale = UIScreen.main.scale
-        error = message.error
-        if error {
-            if message.errorType == "omemo" {
-                messageErrorButton.setImage(imageLiteral( "alert")?.withRenderingMode(.alwaysTemplate), for: .normal)
-                messageErrorButton.tintColor = .systemRed
-                messageErrorButton.backgroundColor = .clear
-            } else if message.errorType == "cert_error" {
-                let icon = displayDelegate.messageErrorIcon(for: message, at: indexPath, on: messagesCollectionView) ?? "exclamationmark.triangle.fill"
-                messageErrorButton.setImage(imageLiteral( icon), for: .normal)
-                if icon != "exclamationmark.triangle.fill" {
-                    messageErrorButton.tintColor = .systemGreen
-                } else {
-                    messageErrorButton.tintColor = .systemRed
-                }
-                messageErrorButton.backgroundColor = .clear
-            } else {
-                messageErrorButton.setImage(imageLiteral("exclamationmark.circle.fill"), for: .normal)
-                messageErrorButton.tintColor = MDCPalette.red.tint700
-                messageErrorButton.backgroundColor = .clear
-            }
-            self.errorButtonBackgroundView.isHidden = false
-            self.messageErrorButton.isHidden = false
-        } else {
-            if message.errorType == "omemo" {
-                self.messageContainerView.alpha = 0.35
-                self.errorButtonBackgroundView.isHidden = true
-                self.messageErrorButton.isHidden = true
-            } else if message.errorType == "cert_error" {
-                self.messageContainerView.alpha = 1.0
-                self.errorButtonBackgroundView.isHidden = false
-                self.messageErrorButton.isHidden = false
-                let icon = displayDelegate.messageErrorIcon(for: message, at: indexPath, on: messagesCollectionView) ?? "exclamationmark.triangle.fill"
-                messageErrorButton.setImage(imageLiteral( icon)?.withRenderingMode(.alwaysTemplate), for: .normal)
-                if icon != "exclamationmark.triangle.fill" {
-                    messageErrorButton.tintColor = .systemGreen
-                } else {
-                    messageErrorButton.tintColor = .systemRed
-                }
-                messageErrorButton.backgroundColor = .clear
-            } else {
-                self.messageContainerView.alpha = 1.0
-                self.errorButtonBackgroundView.isHidden = true
-                self.messageErrorButton.isHidden = true
-            }
-            
-        }
+        self.isSelectedMessage = self.delegate?.isSelected(primary: message.primary) ?? false
         
-        messageErrorButton.setNeedsLayout()
+//        guard let displayDelegate = messagesCollectionView.messagesDisplayDelegate else {
+//            fatalError(MessageKitError.nilMessagesDisplayDelegate)
+//        }
+//        self.layer.shouldRasterize = true
+//        self.layer.rasterizationScale = UIScreen.main.scale
+//        error = message.error
+//        if error {
+////            if message.errorType == "omemo" {
+////                messageErrorButton.setImage(imageLiteral( "alert")?.withRenderingMode(.alwaysTemplate), for: .normal)
+////                messageErrorButton.tintColor = .systemRed
+////                messageErrorButton.backgroundColor = .clear
+////            } else if message.errorType == "cert_error" {
+////                let icon = displayDelegate.messageErrorIcon(for: message, at: indexPath, on: messagesCollectionView) ?? "exclamationmark.triangle.fill"
+////                messageErrorButton.setImage(imageLiteral( icon), for: .normal)
+////                if icon != "exclamationmark.triangle.fill" {
+////                    messageErrorButton.tintColor = .systemGreen
+////                } else {
+////                    messageErrorButton.tintColor = .systemRed
+////                }
+////                messageErrorButton.backgroundColor = .clear
+////            } else {
+////                messageErrorButton.setImage(imageLiteral("exclamationmark.circle.fill"), for: .normal)
+////                messageErrorButton.tintColor = MDCPalette.red.tint700
+////                messageErrorButton.backgroundColor = .clear
+////            }
+//            self.errorButtonBackgroundView.isHidden = false
+//            self.messageErrorButton.isHidden = false
+//        } else {
+//            if message.errorType == "omemo" {
+//                self.messageContainerView.alpha = 0.35
+//                self.errorButtonBackgroundView.isHidden = true
+//                self.messageErrorButton.isHidden = true
+//            } else if message.errorType == "cert_error" {
+//                self.messageContainerView.alpha = 1.0
+//                self.errorButtonBackgroundView.isHidden = false
+//                self.messageErrorButton.isHidden = false
+////                let icon = displayDelegate.messageErrorIcon(for: message, at: indexPath, on: messagesCollectionView) ?? "exclamationmark.triangle.fill"
+////                messageErrorButton.setImage(imageLiteral( icon)?.withRenderingMode(.alwaysTemplate), for: .normal)
+////                if icon != "exclamationmark.triangle.fill" {
+////                    messageErrorButton.tintColor = .systemGreen
+////                } else {
+////                    messageErrorButton.tintColor = .systemRed
+////                }
+//                messageErrorButton.backgroundColor = .clear
+//            } else {
+//                self.messageContainerView.alpha = 1.0
+//                self.errorButtonBackgroundView.isHidden = true
+//                self.messageErrorButton.isHidden = true
+//            }
+//            
+//        }
         
-        self.messageErrorButton.addTarget(self, action: #selector(onMessageErrorButtonTouchUp), for: .touchUpInside)
+//        messageErrorButton.setNeedsLayout()
         
-        canPinMessages = message.canPinMessage
-        canEditMessage = message.canEditMessage
-        canDeleteMessage = message.canDeleteMessage
+//        self.messageErrorButton.addTarget(self, action: #selector(onMessageErrorButtonTouchUp), for: .touchUpInside)
+        
+//        canPinMessages = message.canPinMessage
+//        canEditMessage = message.canEditMessage
+//        canDeleteMessage = message.canDeleteMessage
         delegate = messagesCollectionView.messageCellDelegate
 
-        if message.withAvatar {
-            if let url = displayDelegate.urlForAvatarView(at: indexPath) {
-                DefaultAvatarManager.shared.getGroupAvatar(url: url.absoluteString, userId: "", jid: message.jid, owner: message.owner, size: 32) { image in
-                    if let image = image {
-                        self.avatarView.image = image
-                    }
-//                    else {
-//                        self.avatarView.setDefaultAvatar(for: username, owner: owner)
+//        if message.withAvatar {
+//            if let url = displayDelegate.urlForAvatarView(at: indexPath) {
+//                DefaultAvatarManager.shared.getGroupAvatar(url: url.absoluteString, userId: "", jid: message.jid, owner: message.owner, size: 32) { image in
+//                    if let image = image {
+//                        self.avatarView.image = image
 //                    }
-                }
-            }
-        }
+////                    else {
+////                        self.avatarView.setDefaultAvatar(for: username, owner: owner)
+////                    }
+//                }
+//            }
+//        }
 
-        self.isBurnedMessage = displayDelegate.isBurnedMessage(at: indexPath)
-        let messageColor = displayDelegate.backgroundColor(for: message, at: indexPath, in: messagesCollectionView)
-        let messageStyle = displayDelegate.messageStyle(for: message, at: indexPath, in: messagesCollectionView)
-        let isSelected = displayDelegate.isSelected(for: message, at: indexPath, in: messagesCollectionView)
+//        self.isBurnedMessage = displayDelegate.isBurnedMessage(at: indexPath)
+//        let messageColor = displayDelegate.backgroundColor(for: message, at: indexPath, in: messagesCollectionView)
+//        let messageStyle = displayDelegate.messageStyle(for: message, at: indexPath, in: messagesCollectionView)
+//        let isSelected = displayDelegate.isSelected(for: message, at: indexPath, in: messagesCollectionView)
 
         canPerformAction = dataSource.canPerformAction()
         
-        messageContainerView.bubbleImage.tintColor = messageColor
-        messageContainerView.style = messageStyle
-        messageContainerView.isSelected = isSelected
+//        messageContainerView.bubbleImage.tintColor = messageColor
+//        messageContainerView.style = messageStyle
+//        messageContainerView.isSelected = isSelected
         
         let topCellLabelText: NSAttributedString? = dataSource.cellTopLabelAttributedText(for: message, at: indexPath)
         let topMessageLabelText = dataSource.messageTopLabelAttributedText(for: message, at: indexPath)
@@ -312,7 +310,7 @@ class MessageContentCell: MessageCollectionViewCell {
         messageBottomLabel.attributedText = bottomText 
 
         self.contentView.backgroundColor = .clear
-        drawDeliveryIndicator(at: indexPath, in: messagesCollectionView)
+//        drawDeliveryIndicator(at: indexPath, in: messagesCollectionView)
         drawSelectionMode()
     }
 
@@ -357,15 +355,15 @@ class MessageContentCell: MessageCollectionViewCell {
         if panGesture.state == .changed {
             UIView.performWithoutAnimation {
                 var deltaX: CGFloat = 0
-                
+                let max: CGFloat = -60
                 let rawDelta = self.panGesture.translation(in: self.panGesture.view).x
                 switch true {
-                case (rawDelta < -60):
-                    deltaX = -60
-                case (rawDelta > 0):
-                    deltaX = 0
-                default:
-                    deltaX = rawDelta
+                    case (rawDelta < max):
+                        deltaX = max
+                    case (rawDelta > 0):
+                        deltaX = 0
+                    default:
+                        deltaX = rawDelta
                 }
                 
                 let origin = CGPoint(x: self.initialFrame.minX +
@@ -374,14 +372,17 @@ class MessageContentCell: MessageCollectionViewCell {
                 self.backgroundContentView.frame = CGRect(origin: origin, size: messageContainerView.frame.size)
                 self.setNeedsLayout()
                 self.layoutIfNeeded()
+                let alpha = abs(deltaX) / abs(max)
+                self.replyIcon.alpha = alpha
+                self.replyIconBackground.alpha = alpha
             }
             if abs(self.backgroundContentView.frame.minX - self.initialFrame.minX) >= 45 {
                 if self.reachedReplyState == false {
                     FeedbackManager.shared.generate(feedback: .success)
-                    UIView.animate(withDuration: 0.3) {
-                        self.replyIcon.alpha = 1
-                        self.replyIconBackground.alpha = 1
-                    }
+//                    UIView.animate(withDuration: 0.3) {
+//                        self.replyIcon.alpha = 1
+//                        self.replyIconBackground.alpha = 1
+//                    }
                     self.reachedReplyState = true
                 }
             }
@@ -403,13 +404,16 @@ class MessageContentCell: MessageCollectionViewCell {
         panGestureObserver()
     }
 
-    func setSelected(_ color: UIColor) {
-        messageContainerView.isSelected = !messageContainerView.isSelected
+    func setSelected(state: Bool) {
+//        messageContainerView.isSelected = !messageContainerView.isSelected
+        self.isSelectedMessage = state
         drawSelectionMode()
     }
     
+    var isSelectedMessage: Bool = false
+    
     internal func drawSelectionMode() {
-        if messageContainerView.isSelected {
+        if self.isSelectedMessage {
             self.contentView.backgroundColor = UIColor.blue.withAlphaComponent(0.2)
         } else {
             self.contentView.backgroundColor = .clear
@@ -417,11 +421,11 @@ class MessageContentCell: MessageCollectionViewCell {
     }
     
     func isSelected() -> Bool {
-        return messageContainerView.isSelected
+        return self.isSelectedMessage
     }
     
     /// Handle long press gesture, return true when gestureRecognizer's touch point in `messageContainerView`'s frame
-    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+    public override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         let touchPoint = gestureRecognizer.location(in: self)
         if gestureRecognizer.isKind(of: UILongPressGestureRecognizer.self) {
             return messageContainerView.frame.contains(touchPoint)
@@ -439,35 +443,35 @@ class MessageContentCell: MessageCollectionViewCell {
 
     // MARK: - Origin Calculations
 
-    func drawDeliveryIndicator(at indexPath: IndexPath, in messageCollectionView: MessagesCollectionView) {
-        let state = messageCollectionView.messagesDisplayDelegate?.deliveryState(at: indexPath) ?? .none
-        switch state {
-            case .none:
-                self.messageDeliveryIndicator.isHidden = true
-            default:
-                self.messageDeliveryIndicator.isHidden = false
-                switch state {
-                    case .sending, .notSended, .uploading:
-                        self.messageDeliveryIndicator.image = imageLiteral("clock", dimension: 12)
-                        self.messageDeliveryIndicator.tintColor = .systemBlue
-                    case .sended:
-                        self.messageDeliveryIndicator.image = imageLiteral("xabber.checkmark", dimension: 12)
-                        self.messageDeliveryIndicator.tintColor = .systemGray
-                    case .deliver:
-                        self.messageDeliveryIndicator.image = imageLiteral("xabber.checkmark", dimension: 12)
-                        self.messageDeliveryIndicator.tintColor = .systemGreen
-                    case .read:
-                        self.messageDeliveryIndicator.image = imageLiteral("xabber.checkmark.double", dimension: 12)
-                        self.messageDeliveryIndicator.tintColor = .systemGreen
-                    case .error:
-                        error = true
-                        self.messageDeliveryIndicator.image = imageLiteral("info.circle", dimension: 12)
-                        self.messageDeliveryIndicator.tintColor = .systemRed
-                    case .none:
-                        break
-                }
-        }
-    }
+//    func drawDeliveryIndicator(at indexPath: IndexPath, in messageCollectionView: MessagesCollectionView) {
+//        let state = messageCollectionView.messagesDisplayDelegate?.deliveryState(at: indexPath) ?? .none
+//        switch state {
+//            case .none:
+//                self.messageDeliveryIndicator.isHidden = true
+//            default:
+//                self.messageDeliveryIndicator.isHidden = false
+//                switch state {
+//                    case .sending, .notSended, .uploading:
+//                        self.messageDeliveryIndicator.image = imageLiteral("clock", dimension: 12)
+//                        self.messageDeliveryIndicator.tintColor = .systemBlue
+//                    case .sended:
+//                        self.messageDeliveryIndicator.image = imageLiteral("xabber.checkmark", dimension: 12)
+//                        self.messageDeliveryIndicator.tintColor = .systemGray
+//                    case .deliver:
+//                        self.messageDeliveryIndicator.image = imageLiteral("xabber.checkmark", dimension: 12)
+//                        self.messageDeliveryIndicator.tintColor = .systemGreen
+//                    case .read:
+//                        self.messageDeliveryIndicator.image = imageLiteral("xabber.checkmark.double", dimension: 12)
+//                        self.messageDeliveryIndicator.tintColor = .systemGreen
+//                    case .error:
+//                        error = true
+//                        self.messageDeliveryIndicator.image = imageLiteral("info.circle", dimension: 12)
+//                        self.messageDeliveryIndicator.tintColor = .systemRed
+//                    case .none:
+//                        break
+//                }
+//        }
+//    }
     
     func layoutDeliveryIndicator(with attributes: MessagesCollectionViewLayoutAttributes) {
         self.messageDeliveryIndicator.frame = CGRect(origin: CGPoint(x: self.messageBottomLabel.frame.maxX + 4,
@@ -480,24 +484,24 @@ class MessageContentCell: MessageCollectionViewCell {
 
         switch attributes.avatarPosition.horizontal {
         case .cellLeading:
-            origin.x = 6
+            origin.x = 4
         case .cellTrailing:
             origin.x = attributes.frame.width - attributes.avatarSize.width
         case .natural:
-            fatalError(MessageKitError.avatarPositionUnresolved)
+            break//fatalError(MessageKitError.avatarPositionUnresolved)
         }
 
         switch attributes.avatarPosition.vertical {
         case .messageLabelTop:
             origin.y = messageTopLabel.frame.minY
         case .messageTop: // Needs messageContainerView frame to be set
-            origin.y = messageContainerView.frame.minY
+            origin.y = messageContainerView.frame.minY - 2
         case .messageBottom: // Needs messageContainerView frame to be set
             origin.y = messageContainerView.frame.maxY - attributes.avatarSize.height
         case .messageCenter: // Needs messageContainerView frame to be set
             origin.y = messageContainerView.frame.midY - (attributes.avatarSize.height/2)
         case .cellBottom:
-            origin.y = attributes.frame.height - attributes.avatarSize.height - 4
+            origin.y = attributes.frame.height - attributes.avatarSize.height - 2
         default:
             break
         }
@@ -507,94 +511,84 @@ class MessageContentCell: MessageCollectionViewCell {
 
     func layoutMessageContainerView(with attributes: MessagesCollectionViewLayoutAttributes) {
         var origin: CGPoint = .zero
-        origin.y = attributes.cellTopLabelSize.height + attributes.messageTopLabelSize.height + attributes.messageContainerPadding.top
-        switch attributes.avatarPosition.horizontal {
-        case .cellLeading:
-            origin.x = attributes.avatarSize.width + attributes.messageContainerPadding.left
-            
-        case .cellTrailing:
-            origin.x = attributes.frame.width - attributes.avatarSize.width - attributes.messageContainerSize.width - attributes.messageContainerPadding.right - 4
-            
-        case .natural:
-            fatalError(MessageKitError.avatarPositionUnresolved)
+        origin.y = attributes.messageContainerMargin.top
+        switch attributes.side {
+            case .left:
+                origin.x = attributes.avatarSize.width + attributes.messageContainerMargin.left
+            case .right:
+                origin.x = attributes.frame.width - attributes.avatarSize.width - attributes.messageContainerSize.width - attributes.messageContainerMargin.right
         }
-        messageContainerView.frame = CGRect(origin: origin, size: attributes.messageContainerSize)
-    }
-
-    func layoutCellTopLabel(with attributes: MessagesCollectionViewLayoutAttributes) {
         
-        let size = attributes.cellTopLabelSize
-        let origin = CGPoint(x: (contentView.frame.width - size.width) / 2, y: 0)
-        cellTopLabel.frame = CGRect(origin: origin, size: CGSize(width: size.width, height: size.height - 4))
-        cellTopLabelBackplateView.frame = CGRect(
-            origin: CGPoint(x: (contentView.frame.width - size.width) / 2 - 8 , y: 0),
-            size: CGSize(width: size.width + 16, height: size.height - 4)
+        messageContainerView.frame = CGRect(
+            origin: origin,
+            size: attributes.messageContainerSize.padding(width: 0, height: attributes.messageContainerMargin.vertical)
+        )
+        
+        var radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.noTail.message.bubble.getRadiusFor(index: attributes.cornerRadius)
+        switch attributes.tail {
+            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.noTail.rawValue:
+                radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.noTail.message.bubble.getRadiusFor(index: attributes.cornerRadius)
+            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.smooth.rawValue:
+                radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.smooth.message.bubble.getRadiusFor(index: attributes.cornerRadius)
+            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.bubble.rawValue:
+                radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.bubble.message.bubble.getRadiusFor(index: attributes.cornerRadius)
+            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.bubbles.rawValue:
+                radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.bubbles.message.bubble.getRadiusFor(index: attributes.cornerRadius)
+            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.curvy.rawValue:
+                radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.curvy.message.bubble.getRadiusFor(index: attributes.cornerRadius)
+            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.stripes.rawValue:
+                radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.stripes.message.bubble.getRadiusFor(index: attributes.cornerRadius)
+            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.transparent.rawValue:
+                radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.transparent.message.bubble.getRadiusFor(index: attributes.cornerRadius)
+            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.wedge.rawValue:
+                radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.wedge.message.bubble.getRadiusFor(index: attributes.cornerRadius)
+            default:
+                break
+        }
+//        if attributes.tail == "none" {
+//            radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.noTail.message.bubble.getRadiusFor(index: "16")
+//        }
+        self.messageContainerView.configure(
+            tail: attributes.tail,
+            side: attributes.side,
+            radiusLU: radius.leftUpper,
+            radiusRU: radius.rightUpper,
+            radiusRB: radius.rightBottom,
+            radiusLB: radius.leftBottom,
+            padding: 8,
+            topCorner: attributes.avatarPosition.vertical == .messageTop
         )
     }
     
-    func layoutMessageTopLabel(with attributes: MessagesCollectionViewLayoutAttributes) {
-        messageTopLabel.textAlignment = .left
-        messageTopLabel.textInsets = UIEdgeInsets(left: 8)
-        messageTopLabel.lineBreakMode = .byTruncatingTail
+    func layoutContainerView(with attributes: MessagesCollectionViewLayoutAttributes) {
+        self.containerView.frame = CGRect(
+            origin: CGPoint(
+                x: attributes.messageContainerPadding.left + (attributes.side == .left ? CommonMessageSizeCalculator.tailWidth : 0),
+                y: attributes.messageContainerPadding.top
+            ),
+            size: CGSize(
+                width: attributes.messageContainerSize.width - attributes.messageContainerPadding.horizontal - CommonMessageSizeCalculator.tailWidth,
+                height: attributes.messageContainerSize.height - attributes.messageContainerPadding.vertical - attributes.messageContainerMargin.vertical
+            )
+        )
+//        self.containerView.configure(side: attributes.side)
+//        self.containerView.layer.
+    }
+    
+
+    func layoutCellTopLabel(with attributes: MessagesCollectionViewLayoutAttributes) {
         
-        let y = messageContainerView.frame.minY
-        var origin = CGPoint(x: attributes.avatarSize.width, y: y + 4)
-        switch attributes.avatarPosition.horizontal {
-        case .cellLeading:
-            origin.x += 12
-        case .cellTrailing:
-            origin.x = attributes.frame.width - attributes.avatarSize.width - attributes.messageContainerSize.width - attributes.messageContainerPadding.right - 4
-        case .natural:
-            break
-        }
-        messageTopLabel.frame = CGRect(origin: origin,
-                                       size: CGSize(width: attributes.messageContainerSize.width - 10,
-                                                    height: attributes.shouldShowTopLabel ? 20 : 0))
+    }
+    
+    func layoutMessageTopLabel(with attributes: MessagesCollectionViewLayoutAttributes) {
+        
     }
 
     func layoutErrorButton(with attributes: MessagesCollectionViewLayoutAttributes) {
-        switch attributes.avatarPosition.horizontal {
-            case .cellLeading:
-                let origin = CGPoint(
-                    x: attributes.messageContainerSize.width + 16,
-                    y: attributes.frame.height - 32//32
-                )
-                messageErrorButton.frame = CGRect(origin: origin, size: CGSize(square: 24))//24
-            case .cellTrailing:
-                let origin = CGPoint(
-                    x: attributes.frame.width - attributes.avatarSize.width - attributes.messageContainerSize.width - attributes.messageContainerPadding.right - 24 - 16,
-                    y: attributes.frame.height - 32//32
-                )
-                messageErrorButton.frame = CGRect(origin: origin, size: CGSize(square: 24))//20
-            case .natural:
-                break
-        }
-        
-        errorButtonBackgroundView.center = messageErrorButton.center
     }
     
     func layoutBottomLabel(with attributes: MessagesCollectionViewLayoutAttributes) {
-        
-        // check is our bottom label from income message
-        
-//        attributes.
-        
-        var origin: CGPoint = .zero
-        origin.y = messageContainerView.frame.maxY - 20
-        switch attributes.avatarPosition.horizontal {
-            case .cellLeading, .natural:
-                origin.x = messageContainerView.frame.width + attributes.avatarSize.width - attributes.messageBottomLabelSize.width - 4 - 20
-            case .cellTrailing:
-                origin.x = attributes.frame.width - attributes.messageBottomLabelSize.width - deliveryIndicatorSize.width - attributes.messageContainerPadding.right - 18 - 4 - 20
-                if !attributes.showMessageStateIndicator {
-                    origin.x += 18
-                }
-        }
-        
-        let size = CGSize(width: attributes.messageBottomLabelSize.width + 20, height: attributes.messageBottomLabelSize.height)
-        
-        messageBottomLabel.textAlignment = .right
-        messageBottomLabel.frame = CGRect(origin: origin, size: size)
+
     }
     
     func layoutReplyIcon() {
@@ -608,101 +602,15 @@ class MessageContentCell: MessageCollectionViewCell {
                                            height: 36)
     }
 
-    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+    public override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         return false
-//        var out: [Selector] = []
-//        if !canPerformAction { return false }
-//        if error {
-//            out = [
-//                NSSelectorFromString("retrySendingMessage:"),
-//                NSSelectorFromString("copy:"),
-//                NSSelectorFromString("deleteMessage:")
-//                ]
-//        } else {
-//            out = [
-//                NSSelectorFromString("replyMessage:"),
-//                NSSelectorFromString("shareMessage:"),
-//                NSSelectorFromString("copy:"),
-//            ]
-//            if canDeleteMessage {
-//                out.append(NSSelectorFromString("deleteMessage:"))
-//            }
-//            if canEditMessage {
-//                out.append(NSSelectorFromString("editMessage:"))
-//            }
-//            if canPinMessages {
-//                out.append(NSSelectorFromString("pinMessage:"))
-//            }
-//        }
-//        return out.contains(action)
     }
     
-    
-//    @objc
-//    internal func editMessage(_ sender: Any) {
-//        delegate?.onEdit(cell: self)
-//    }
-//    
-//    @objc
-//    internal func copyMessage(_ sender: Any) {
-//        delegate?.onCopyMessage(cell: self)
-//    }
-//    
-//    @objc
-//    internal func shareMessage(_ sender: Any) {
-//        delegate?.onShareMessage(cell: self)
-//    }
-//    
-//    @objc
-//    internal func replyMessage(_ sender: Any) {
-//        delegate?.onReplyMessage(cell: self)
-//    }
-//    
-//    @objc
-//    internal func deleteMessage(_ sender: Any) {
-//        delegate?.onDeleteMessage(cell: self)
-//    }
-//    
-//    @objc
-//    internal func pinMessage(_ sender: Any) {
-//        delegate?.onPinMessage(cell: self)
-//    }
-//    
-//    @objc
-//    internal func moreAction(_ sender: Any) {
-//        delegate?.onMoreAction(cell: self)
-//    }
-//    
-//    @objc
-//    internal func retrySendingMessage(_ sender: Any) {
-//        delegate?.onRetrySending(cell: self)
-//    }
 }
 
 
 extension MessageContentCell: UIGestureRecognizerDelegate {
-    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-//        if gestureRecognizer.isKind(of: UIPanGestureRecognizer.self) {
-//            return false
-//        } else {
-            return false
-//        }
+    public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        return false
     }
-    
-//    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-//        let touchPoint = gestureRecognizer.location(in: self)
-//        if gestureRecognizer.isKind(of: UILongPressGestureRecognizer.self) {
-//            return messageContainerView.frame.contains(touchPoint)
-//        }
-//        if gestureRecognizer.isKind(of: UIPanGestureRecognizer.self) {
-//            return abs(panGesture.velocity(in: panGesture.view).x) > abs(panGesture.velocity(in: panGesture.view).y)
-//        }
-//        return false
-        
-//        guard gestureRecognizer.isKind(of: UILongPressGestureRecognizer.self) else {
-//            return abs(panGesture.velocity(in: panGesture.view).x) > abs(panGesture.velocity(in: panGesture.view).y)
-//            return false
-//        }
-        
-//    }
 }

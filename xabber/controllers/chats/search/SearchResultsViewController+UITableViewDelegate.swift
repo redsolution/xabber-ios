@@ -48,11 +48,6 @@ extension SearchResultsViewController: UITableViewDelegate {
         vc.owner = item.owner
         vc.jid = item.jid
         vc.conversationType = item.conversationType
-//        vc.entity = item.entity ?? .contact
-//        
-//        vc.selectedSearchResultId = item.messageArchiveId
-//        vc.scrollToMessageArchivedId = item.messageArchiveId
-//        
         showStacked(vc, in: self.presenter ?? self)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             if let archivedId = item.messageArchiveId {

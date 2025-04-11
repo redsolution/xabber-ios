@@ -37,5 +37,17 @@ extension ChatViewController: MessagesLayoutDelegate {
     func forwardIndicatorPadding(at indexPath: IndexPath) -> CGFloat {
         return 0
     }
-
+    
+    func messageCornerStyle() -> String {
+        return self.messageCorner.rawValue
+    }
+    
+    func messageAvatarVerticalPosition() -> String {
+        return self.avatarVerticalPosition
+    }
+    
+    func messageCornerRadius() -> String {
+        return self.cornerRadius
+    }
+    
 }

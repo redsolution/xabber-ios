@@ -24,89 +24,97 @@ import UIKit
 open class MessagesCollectionViewLayoutAttributes: UICollectionViewLayoutAttributes {
 
     // MARK: - Properties
-
+    
     public var avatarSize: CGSize = .zero
     public var avatarPosition = AvatarPosition(vertical: .cellBottom)
-
+    public var side: MessageSide = .right
     public var messageContainerSize: CGSize = .zero
+    public var messageContainerMargin: UIEdgeInsets = .zero
     public var messageContainerPadding: UIEdgeInsets = .zero
-    public var messageLabelFont: UIFont = UIFont.preferredFont(forTextStyle: .body)
     public var messageLabelInsets: UIEdgeInsets = .zero
-    public var inlineForwardsOffset: CGFloat = 0.0
-    public var inlineForwardsSizes: [CGSize] = []
-
-    public var cellTopLabelAlignment = LabelAlignment(textAlignment: .center, textInsets: .zero)
-    public var cellTopLabelSize: CGSize = .zero
-    
-    public var messageTopLabelAlignment = LabelAlignment(textAlignment: .center, textInsets: .zero)
-    public var messageTopLabelSize: CGSize = .zero
-
-    public var messageBottomLabelAlignment = LabelAlignment(textAlignment: .center, textInsets: .zero)
-    public var messageBottomLabelSize: CGSize = CGSize(width: 42, height: 16)
-    public var messageBottomPadding: CGFloat = 4
-    
-    public var inlineMessageMargin: UIEdgeInsets = UIEdgeInsets(top: 4, bottom: 4, left: 4, right: 4)
-    
-    public var showMessageStateIndicator: Bool = true
-    
-    public var shouldShowTopLabel: Bool = false
-    
+    public var forwardsContainerViewSize: CGSize = .zero
+    public var forwardsInlineViewSize: [MessageAttachmentSizes] = []
     public var audioInlineViewSize: CGSize = .zero
     public var imagesInlineViewSize: CGSize = .zero
     public var videosInlineViewSize: CGSize = .zero
     public var filesInlineViewSize: CGSize = .zero
+    public var textInlineViewSize: CGSize = .zero
+    public var authorInlineSize: CGSize = .zero
+    public var tail: String = "none"
+    public var cornerRadius: String = "16"
+    public var tailWidth: CGFloat = 0
+    public var timeMarkerSize: CGSize = .zero
+    public var timeMarkerIndicator: IndicatorType = .none
+    public var timeMarkerRadius: CGFloat = 2
+    public var timeMarkerInsets: UIEdgeInsets = UIEdgeInsets(top: 0, left: 0, bottom: 4, right: 0)
+    public var timeMarkerWithBackplate: Bool = false
+    
+    public var inlineContainerSizeInsets = UIEdgeInsets(top: 4, left: 4, bottom: 4, right: 2)
+    public var inlineContainerSizePadding = UIEdgeInsets(top: 2, left: 2, bottom: 2, right: 2)
 
     // MARK: - Methods
 
     open override func copy(with zone: NSZone? = nil) -> Any {
         // swiftlint:disable force_cast
         let copy = super.copy(with: zone) as! MessagesCollectionViewLayoutAttributes
+        
         copy.avatarSize = avatarSize
         copy.avatarPosition = avatarPosition
+        copy.side = side
         copy.messageContainerSize = messageContainerSize
+        copy.messageContainerMargin = messageContainerMargin
         copy.messageContainerPadding = messageContainerPadding
-        copy.messageLabelFont = messageLabelFont
         copy.messageLabelInsets = messageLabelInsets
-        copy.cellTopLabelAlignment = cellTopLabelAlignment
-        copy.cellTopLabelSize = cellTopLabelSize
-        copy.messageTopLabelAlignment = messageTopLabelAlignment
-        copy.messageTopLabelSize = messageTopLabelSize
-        copy.messageBottomLabelAlignment = messageBottomLabelAlignment
-        copy.messageBottomLabelSize = messageBottomLabelSize
-        
-        copy.messageBottomPadding = messageBottomPadding
-        
-        copy.shouldShowTopLabel = shouldShowTopLabel
-        copy.inlineForwardsOffset = inlineForwardsOffset
-        copy.inlineForwardsSizes = inlineForwardsSizes
-        copy.inlineMessageMargin = inlineMessageMargin
-        copy.showMessageStateIndicator = showMessageStateIndicator
+        copy.forwardsContainerViewSize = forwardsContainerViewSize
+        copy.forwardsInlineViewSize = forwardsInlineViewSize
+        copy.audioInlineViewSize = audioInlineViewSize
+        copy.imagesInlineViewSize = imagesInlineViewSize
+        copy.videosInlineViewSize = videosInlineViewSize
+        copy.filesInlineViewSize = filesInlineViewSize
+        copy.textInlineViewSize = textInlineViewSize
+        copy.authorInlineSize = authorInlineSize
+        copy.tail = tail
+        copy.tailWidth = tailWidth
+        copy.timeMarkerSize = timeMarkerSize
+        copy.timeMarkerIndicator = timeMarkerIndicator
+        copy.timeMarkerRadius = timeMarkerRadius
+        copy.timeMarkerInsets = timeMarkerInsets
+        copy.timeMarkerWithBackplate = timeMarkerWithBackplate
+        copy.inlineContainerSizeInsets = inlineContainerSizeInsets
+        copy.inlineContainerSizePadding = inlineContainerSizePadding
+        copy.cornerRadius = cornerRadius
         
         return copy
-        // swiftlint:enable force_cast
     }
 
     open override func isEqual(_ object: Any?) -> Bool {
         // MARK: - LEAVE this as is
         if let attributes = object as? MessagesCollectionViewLayoutAttributes {
             return super.isEqual(object) && attributes.avatarSize == avatarSize
-                && attributes.avatarPosition == attributes.avatarPosition
-                && attributes.messageContainerSize == messageContainerSize
-                && attributes.messageContainerPadding == messageContainerPadding
-                && attributes.messageLabelFont == messageLabelFont
-                && attributes.messageLabelInsets == messageLabelInsets
-                && attributes.cellTopLabelAlignment == cellTopLabelAlignment
-                && attributes.cellTopLabelSize == cellTopLabelSize
-                && attributes.messageTopLabelAlignment == messageTopLabelAlignment
-                && attributes.messageTopLabelSize == messageTopLabelSize
-                && attributes.messageBottomLabelAlignment == messageBottomLabelAlignment
-                && attributes.messageBottomLabelSize == messageBottomLabelSize
-                && attributes.messageBottomPadding == messageBottomPadding
-                && attributes.shouldShowTopLabel == shouldShowTopLabel
-                && attributes.inlineForwardsOffset == inlineForwardsOffset
-                && attributes.inlineForwardsSizes == inlineForwardsSizes
-                && attributes.inlineMessageMargin == inlineMessageMargin
-                && attributes.showMessageStateIndicator == showMessageStateIndicator
+            && attributes.avatarPosition == avatarPosition
+            && attributes.side == side
+            && attributes.messageContainerSize == messageContainerSize
+            && attributes.messageContainerMargin == messageContainerMargin
+            && attributes.messageContainerPadding == messageContainerPadding
+            && attributes.messageLabelInsets == messageLabelInsets
+            && attributes.forwardsContainerViewSize == forwardsContainerViewSize
+            && attributes.audioInlineViewSize == audioInlineViewSize
+            && attributes.imagesInlineViewSize == imagesInlineViewSize
+            && attributes.videosInlineViewSize == videosInlineViewSize
+            && attributes.filesInlineViewSize == filesInlineViewSize
+            && attributes.textInlineViewSize == textInlineViewSize
+            && attributes.tail == tail
+            && attributes.tailWidth == tailWidth
+            && attributes.timeMarkerSize == timeMarkerSize
+            && attributes.timeMarkerIndicator == timeMarkerIndicator
+            && attributes.timeMarkerRadius == timeMarkerRadius
+            && attributes.timeMarkerInsets == timeMarkerInsets
+            && attributes.timeMarkerWithBackplate == timeMarkerWithBackplate
+            && attributes.inlineContainerSizeInsets == inlineContainerSizeInsets
+            && attributes.inlineContainerSizePadding == inlineContainerSizePadding
+            && attributes.authorInlineSize == authorInlineSize
+            && attributes.cornerRadius == cornerRadius
+            
         } else {
             return false
         }

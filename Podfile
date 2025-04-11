@@ -30,7 +30,7 @@ def main_pods
     pod 'CryptoSwift', :git => 'https://github.com/krzyzanowskim/CryptoSwift.git', :tag => '1.8.1'#'1.3.8'#, '~> 0.12.0'#, '~> 0.12.0' # SHA-1 hashå
     pod 'SwiftKeychainWrapper' # keychain
     pod 'Kingfisher', :git => 'https://github.com/whspr/Klingfisher.git'
-    pod 'Cache', :git => 'https://github.com/hyperoslo/Cache.git', :branch => 'master', :tag => '5.2.0' # data cache for video and audio messages
+    pod 'Cache', :git => 'https://github.com/hyperoslo/Cache.git', :branch => 'master', :tag => '7.4.0'#'5.2.0' # data cache for video and audio messages
     pod 'MaterialComponents/Palettes'#, '~> 59.1.1' # material design palette
     pod 'SwipeTransition'#, '~> 0.4.0'
     pod 'SwipeTransitionAutoSwipeBack'#, '~> 0.4.    0'
@@ -38,13 +38,13 @@ def main_pods
     pod 'LetterAvatarKit', '=1.2.3'
     pod 'DeepDiff'#, '=2.0.1'
     pod 'Punycode'
-    pod 'Toast-Swift', '~> 5.0.1'
+#    pod 'Toast-Swift', '~> 5.0.1'
     pod 'XMPPFramework/Swift', :path => '/Users/igor.boldin/projects/xabber/deps/XMPPFramework/'
 #    pod 'XMPPFramework/Swift', :git => 'https://github.com/whspr/XMPPFramework', :branch => 'light'
     pod 'CocoaAsyncSocket', :git => 'https://github.com/robbiehanson/CocoaAsyncSocket', :branch => 'master'
     pod 'KYCircularProgress'
     pod 'TOInsetGroupedTableView'
-    pod 'ContextMenuSwift'
+#    pod 'ContextMenuSwift'
     pod 'OpenSSL-Universal'
     pod 'Curve25519Kit', :git => 'https://github.com/whspr/Curve25519Kit.git', :branch => 'mkirk/framework-friendly'
     pod 'SignalProtocolObjC', :git => 'https://github.com/redsolution/SignalProtocol-ObjC.git', :branch => 'master'

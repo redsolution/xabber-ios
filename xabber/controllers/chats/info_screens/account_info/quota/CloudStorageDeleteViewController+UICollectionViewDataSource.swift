@@ -65,7 +65,7 @@ extension CloudStorageDeleteViewController: UICollectionViewDataSource {
             return cell
         case .voice:
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: VoiceMediaCollectionCell.cellName, for: indexPath) as! VoiceMediaCollectionCell
-            cell.setup(withReference: item.voiceModel, date: item.date!, send_time: item.time!, sizeInBytes: item.size!, url: item.uri)
+//            cell.setup(withReference: item.voiceModel, date: item.date!, send_time: item.time!, sizeInBytes: item.size!, url: item.uri)
             if item.meters == nil {
                 cell.audioView.configure(.paused, meters: [0.0, 0.0], loading: false, duration: item.audioDuration ?? "", senderName: item.fileName ?? "Audio message", date: item.date!, send_time: item.time!, sizeInBytes: item.size ?? "? КБ")
             }

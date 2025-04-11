@@ -113,9 +113,6 @@ class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISe
             }
             var isAttachment: Bool = [
                 MessageStorageItem.MessageDisplayType.sticker,
-                MessageStorageItem.MessageDisplayType.files,
-                MessageStorageItem.MessageDisplayType.images,
-                MessageStorageItem.MessageDisplayType.voice,
                 MessageStorageItem.MessageDisplayType.call].contains(item.lastMessage?.displayAs ?? .text)
             if !isAttachment,
                let authMessageMetadata = item.lastMessage?.systemMetadata?["auth_message"] as? Bool,
@@ -123,7 +120,7 @@ class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISe
                 isAttachment = true
             }
             
-            let isInvite = item.unread > 0 ? ((item.lastMessage?.displayAs ?? .text) == .initial ? true : false) : false
+            let isInvite = false//item.unread > 0 ? ((item.lastMessage?.displayAs ?? .text) == .initial ? true : false) : false
             
             var nickname: String? = item.lastMessage?.groupchatDisplayedNickname
             if item.lastMessage?.inlineForwards.isNotEmpty ?? false {
@@ -132,22 +129,22 @@ class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISe
                 if nick == "" || nick == nil {
                     nick = String(JidManager.shared.prepareJid(jid: sender?.forwardJid ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])))
                 }
-                switch item.lastMessage?.inlineForwards.first?.kind {
-                case .text:
-                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])): \(item.lastMessage?.inlineForwards.first?.body ?? "")"
-                case .images:
-                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " image".localizeString(id: "forward_image", arguments: [])
-                case .videos:
-                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " video".localizeString(id: "forward_video", arguments: [])
-                case .files:
-                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " file".localizeString(id: "forward_file", arguments: [])
-                case .voice:
-                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " voice message".localizeString(id: "forward_voice", arguments: [])
-                case .quote:
-                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])): \(item.lastMessage?.inlineForwards.first?.body ?? "")"
-                case .none:
-                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: []))"
-                }
+//                switch item.lastMessage?.inlineForwards.first?.kind {
+//                case .text:
+//                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])): \(item.lastMessage?.inlineForwards.first?.body ?? "")"
+//                case .images:
+//                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " image".localizeString(id: "forward_image", arguments: [])
+//                case .videos:
+//                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " video".localizeString(id: "forward_video", arguments: [])
+//                case .files:
+//                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " file".localizeString(id: "forward_file", arguments: [])
+//                case .voice:
+//                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " voice message".localizeString(id: "forward_voice", arguments: [])
+//                case .quote:
+//                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])): \(item.lastMessage?.inlineForwards.first?.body ?? "")"
+//                case .none:
+//                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: []))"
+//                }
 //                nickname = "Forwarded message"
             }
             
@@ -170,7 +167,7 @@ class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISe
                 isDraft: isDraft,
                 isAttachment: isAttachment,
                 groupchatNickname: nickname,
-                isSystem: [.system, .initial].contains(item.lastMessage?.displayAs ?? .text)
+                isSystem: [.system].contains(item.lastMessage?.displayAs ?? .text)
             )
         } ?? []
         

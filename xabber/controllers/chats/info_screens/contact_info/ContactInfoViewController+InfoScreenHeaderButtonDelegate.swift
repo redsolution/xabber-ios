@@ -22,7 +22,6 @@ import Foundation
 import UIKit
 import RealmSwift
 import LetterAvatarKit
-import Toast_Swift
 import CocoaLumberjack
 import XMPPFramework
 

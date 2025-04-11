@@ -26,6 +26,7 @@ import RxCocoa
 import RxRealm
 import DeepDiff
 import CocoaLumberjack
+import MaterialComponents.MDCPalettes
 
 
 
@@ -77,7 +78,7 @@ extension ChatViewController {
                     primary: UUID().uuidString,
                     jid: self.jid,
                     owner: self.owner,
-                    outgoing: false,
+                    outgoing: ((offset % 3) == 0),
                     sender: self.opponentSender,
                     messageId: UUID().uuidString,
                     sentDate: date,
@@ -91,7 +92,7 @@ extension ChatViewController {
                     canEditMessage: false,
                     canDeleteMessage: false,
                     forwards: [],
-                    isOutgoing: false,
+                    isOutgoing: ((offset % 3) == 0),
                     isEdited: false,
                     groupchatAuthorRole: "",
                     groupchatAuthorId: "",
@@ -105,7 +106,13 @@ extension ChatViewController {
                     burnDate: -1,
                     afterburnInterval: -1,
                     isRead: true,
-                    isFakeMessage: true
+                    isFakeMessage: true,
+                    images: [],
+                    videos: [],
+                    files: [],
+                    audios: [],
+                    timeMarkerText: NSAttributedString(),
+                    indicator: .none
                 )
             }
         }
@@ -122,26 +129,12 @@ extension ChatViewController {
                 
         dataset.enumerated().forEach {
             (offset, item) in
-            let references = Array(item.references.toArray().compactMap { $0.loadModel() })
-            let inlineForwards = Array(item.inlineForwards.sorted(byKeyPath: "originalDate", ascending: true).toArray().compactMap { $0.loadModel() })
+//            let references = Array(item.references.toArray().compactMap { $0.loadModel() })
+//            let inlineForwards = Array(item.inlineForwards.sorted(byKeyPath: "originalDate", ascending: true).toArray().compactMap { $0.loadModel() })
             
             let isDownloaded = !item.references.filter { $0.isDownloaded }.isEmpty
             let kind: MessageKind
             switch item.displayAs {
-                case .initial:
-                    
-                    kind = .initial(NSAttributedString(string: ""))
-                case .quote:
-                    kind = .quote(
-                        item.createQuoteBody([NSAttributedString.Key.font: UIFont.preferredFont(forTextStyle: .body)]),
-                        ContactChatMetadataManager
-                            .shared
-                            .get(item.groupchatAuthorNickname ?? "",
-                                 for: self.owner,
-                                 badge: item.groupchatAuthorBadge ?? "",
-                                 role: item.groupchatMetadata?["role"] as? String ?? "member")
-                            .getAttributedNickname([.font: UIFont.preferredFont(forTextStyle: .caption1)])
-                    )
                 case .text:
                     kind = .attributedText(
                         item.createRefBody(
@@ -150,25 +143,12 @@ extension ChatViewController {
                                 NSAttributedString.Key.font: UIFont.preferredFont(forTextStyle: .body)//UIFont.systemFont(ofSize: 16, weight: .regular),
                             ],
                             searchedText: self.searchTextObserver.value,
-                            searchedTextColor: .systemGreen//item.archivedId == self.selectedSearchResultId ? AccountColorManager.shared.palette(for: self.owner).tint400.withAlphaComponent(0.5) :  AccountColorManager.shared.palette(for: self.owner).tint200.withAlphaComponent(0.5)
-                        ),
-                        false,
-                        ContactChatMetadataManager
-                            .shared
-                            .get(item.groupchatAuthorNickname ?? "",
-                                 for: self.owner,
-                                 badge: item.groupchatAuthorBadge ?? "",
-                                 role: item.groupchatMetadata?["role"] as? String ?? "member")
-                            .getAttributedNickname([.font: UIFont.preferredFont(forTextStyle: .caption1)])
+                            searchedTextColor: .systemGreen
+                        )
                     )
-                case .files:
-                    kind = .files(Array(references.filter { [.media, .voice].contains($0.kind) }))
-                case .images:
-                    kind = .photos(Array(references.filter({ $0.kind == .media })))
-                case .voice:
-                    kind = .audio(Array(references))
                 case .call:
-                    kind = .call(Array(references))
+//                    kind = .call(CallAttachment(primary: ""))
+                    kind = .attributedText(NSAttributedString())
                 case .system:
                     kind = .system(
                         NSAttributedString(
@@ -180,52 +160,73 @@ extension ChatViewController {
                         )
                     )
                 case .sticker:
-                    if let reference = references.filter({ $0.kind == .media }).first {
-                        kind = .sticker(reference)
-                    } else {
-                        kind = .photos(Array(references.filter({ $0.kind == .media })))
-                    }
+//                    if let reference = references.filter({ $0.kind == .media }).first {
+//                        kind = .sticker(reference)
+//                    } else {
+                        kind = .attributedText(NSAttributedString())
+//                    }
             }
             
             var withAuthor: Bool = false
+            var withAvatar: Bool = false
             var tailed: Bool = true
-            var date = item.date
+            let date = item.date
             let prevMessage = offset - 1
-            if prevMessage >= 0 {
-                let prevItem = dataset[prevMessage]
-                if self.conversationType == .group {
-                    withAuthor = !(prevItem.groupchatCard?.userId == item.groupchatCard?.userId)
-                    tailed = !(item.outgoing == prevItem.outgoing)
-                } else {
-                    tailed = !(item.outgoing == prevItem.outgoing)
-                }
-                if isDateChange(from: item.date, to: prevItem.date) {
-                    tailed = true
+            let nextMessage = offset + 1
+            
+            if self.avatarVerticalPosition == "bottom" {
+                if prevMessage >= 0 {
+                    let prevItem = dataset[prevMessage]
+                    if self.conversationType == .group {
+                        withAvatar = !(prevItem.groupchatCard?.userId == item.groupchatCard?.userId)
+                        tailed = !(prevItem.groupchatCard?.userId == item.groupchatCard?.userId)
+                        
+                    } else {
+                        tailed = !(item.outgoing == prevItem.outgoing)
+                    }
+                    if isDateChange(from: item.date, to: prevItem.date) {
+                        tailed = true
+                        if self.conversationType == .group {
+                            withAvatar = true
+                        }
+                    }
                 }
             }
-//            if conversationType == .saved {
-//                if item.groupchatCard != nil {
-//                    withAuthor = true
-//                } else {
-//                    withAuthor = false
-//                }
-//                
-//                date = item.sentDate
-//                
-//            } else if !self.groupchat {
-//                withAuthor = false
-//            } else if dataset.count > 1 && (offset + 1) < dataset.count {
-//                print(dataset.count, offset, dataset.count > 1, (offset + 1) < dataset.count, dataset.count > 1 && (offset + 1) < dataset.count)
-//                if dataset[offset + 1].groupchatAuthorNickname != item.groupchatAuthorNickname || self.isDateChange(from: dataset[offset + 1].sentDate, to: item.sentDate) {
-//                    withAuthor = self.groupchat ? (item.displayAs == .sticker ? false : (self.showMyNickname ? true : !item.outgoing)) : false
-//                } else {
-//                    withAuthor = false
-//                }
-//            } else {
-//                withAuthor = self.groupchat ? (item.displayAs == .sticker ? false : (self.showMyNickname ? true : !item.outgoing)) : false
-//            }
-            
-            
+            if nextMessage < dataset.count {
+                let nextItem = dataset[nextMessage]
+                if self.conversationType == .group {
+                    withAuthor = !(nextItem.groupchatCard?.userId == item.groupchatCard?.userId)
+                    if isDateChange(from: item.date, to: nextItem.date) {
+                        withAuthor = true
+                    }
+                }
+                
+                if self.avatarVerticalPosition == "top" {
+                    if self.conversationType == .group {
+                        withAvatar = !(nextItem.groupchatCard?.userId == item.groupchatCard?.userId)
+                        tailed = !(nextItem.groupchatCard?.userId == item.groupchatCard?.userId)
+                        
+                    } else {
+                        tailed = !(item.outgoing == nextItem.outgoing)
+                    }
+                    if isDateChange(from: item.date, to: nextItem.date) {
+                        tailed = true
+                        if self.conversationType == .group {
+                            withAvatar = true
+                        }
+                    }
+                }
+            }
+            var attributedAuthor: NSAttributedString? = nil
+            if withAuthor && !item.outgoing {
+                if let nickname = item.groupchatCard?.nickname, let uuid = item.groupchatCard?.jid ?? item.groupchatCard?.userId {
+                    attributedAuthor = NSAttributedString(string: nickname, attributes: [
+                        .font: UIFont.systemFont(ofSize: 14, weight: .medium),
+                        .foregroundColor: getUsernamePalette(for: uuid).tint500
+                    ])
+                }
+            }
+          
             if item.editDate != nil {
                 let primary = item.primary
                 DispatchQueue.main.async {
@@ -242,6 +243,159 @@ extension ChatViewController {
                 searchString = str
             }
             
+            
+            let images: [ImageAttachment] = item.references.toArray().filter {
+                item in
+                item.mimeType == MimeIconTypes.image.rawValue
+            }.compactMap {
+                item in
+                guard let url = item.downloadUrl else {
+                    return nil
+                }
+                return ImageAttachment(primary: item.primary, url: url, size: item.sizeInPx ?? CGSize(square: 128))
+            }
+            
+            let videos: [VideoAttachment] = item.references.toArray().filter {
+                $0.mimeType == MimeIconTypes.video.rawValue
+            } .compactMap {
+                item in
+                guard let url = item.downloadUrl else {
+                    return nil
+                }
+                return VideoAttachment(primary: item.primary, url: url, size: item.sizeInPx ?? CGSize(square: 128), previewUrl: nil, duration: 0, downloaded: item.isDownloaded)
+            }
+            
+            let audio: [AudioAttachment] = item.references.toArray().filter {
+                $0.kind_ == "voice"
+            } .compactMap {
+                item in
+                return AudioAttachment(primary: item.primary, url: item.decodedUrl, size: 10, name: "name", duration: Double(item.duration ?? 0), downloaded: item.isDownloaded, pcm: item.meteringLevels ?? [])
+            }
+            
+            let files: [FileAttachment] = item.references.toArray().filter {
+                return $0.kind == .media && ![MimeIconTypes.image.rawValue, MimeIconTypes.video.rawValue, MimeIconTypes.audio.rawValue].contains($0.mimeType)
+            } .compactMap {
+                item in
+                if item.kind_ == "groupchat" {
+                    return nil
+                }
+                guard let url = item.downloadUrl else {
+                    return nil
+                }
+                return FileAttachment(primary: item.primary, url: url, size: Double(item.sizeInBytesRaw), name: item.filename ?? item.name ?? "file", downloaded: item.isDownloaded)
+            }
+            
+            
+            
+            
+            let formatter = DateFormatter()
+            formatter.dateStyle = .none
+            formatter.timeStyle = .short
+            let forwards: [MessageAttachment] = item.inlineForwards.toArray().compactMap({
+                attachment in
+                let images: [ImageAttachment] = attachment.references.toArray().filter {
+                    item in
+                    item.mimeType == MimeIconTypes.image.rawValue
+                }.compactMap {
+                    item in
+                    guard let url = item.downloadUrl else {
+                        return nil
+                    }
+                    return ImageAttachment(primary: item.primary, url: url, size: item.sizeInPx ?? CGSize(square: 128))
+                }
+                
+                let videos: [VideoAttachment] = attachment.references.toArray().filter {
+                    $0.mimeType == MimeIconTypes.video.rawValue
+                } .compactMap {
+                    item in
+                    guard let url = item.downloadUrl else {
+                        return nil
+                    }
+                    return VideoAttachment(primary: item.primary, url: url, size: item.sizeInPx ?? CGSize(square: 128), previewUrl: nil, duration: 0, downloaded: item.isDownloaded)
+                }
+                
+                let audio: [AudioAttachment] = attachment.references.toArray().filter {
+                    $0.kind_ == "voice"
+                } .compactMap {
+                    item in
+                    guard let url = item.decodedUrl else {
+                        return nil
+                    }
+                    return AudioAttachment(primary: item.primary, url: url, size: 10, name: "name", duration: 0, downloaded: item.isDownloaded, pcm: item.meteringLevels ?? [])
+                }
+                
+                let files: [FileAttachment] = attachment.references.toArray().filter {
+                    return $0.kind == .media && ![MimeIconTypes.image.rawValue, MimeIconTypes.video.rawValue, MimeIconTypes.audio.rawValue].contains($0.mimeType)
+                } .compactMap {
+                    item in
+                    guard let url = item.downloadUrl else {
+                        return nil
+                    }
+                    return FileAttachment(primary: item.primary, url: url, size: Double(item.sizeInBytesRaw), name: item.filename ?? item.name ?? "file", downloaded: item.isDownloaded)
+                }
+                let timeString = formatter.string(from: attachment.originalDate ?? Date())
+                let timeMarkerString = NSAttributedString(
+                    string: timeString,
+                    attributes: [
+                        NSAttributedString.Key.foregroundColor: UIColor(red: 158.0 / 255.0, green: 158.0 / 255.0, blue: 158.0 / 255.0, alpha: 1),
+                        NSAttributedString.Key.font: UIFont.systemFont(ofSize: 10, weight: .regular)
+                    ]
+                )
+                return MessageAttachment(
+                    primary: attachment.primary,
+                    author: attachment.jid,
+                    textMessage: attachment.createRefBody(
+                        [
+                            NSAttributedString.Key.foregroundColor: UIColor.label,
+                            NSAttributedString.Key.font: UIFont.preferredFont(forTextStyle: .body)//UIFont.systemFont(ofSize: 16, weight: .regular),
+                        ],
+                        searchedText: self.searchTextObserver.value,
+                        searchedTextColor: .systemGreen
+                    ),
+                    images: images,
+                    videos: videos,
+                    files: files,
+                    audios: audio,
+                    timeMarker: timeMarkerString
+                )
+            })
+            var indicator: IndicatorType = .none
+            if item.outgoing {
+                switch item.state {
+                        
+                    case .sended:
+                        indicator = .sended
+                    case .deliver:
+                        indicator = .received
+                    case .read:
+                        indicator = .read
+                    case .error:
+                        indicator = .error
+                    case .none:
+                        indicator = .none
+                    case .notSended:
+                        indicator = .error
+                    case .sending:
+                        indicator = .sending
+                    case .uploading:
+                        indicator = .sending
+                }
+            }
+            
+            var timeString = formatter.string(from: item.date)
+            if item.editDate != nil {
+                timeString = "\(timeString) (edited)"
+            }
+            let timeMarkerString = NSAttributedString(
+                string: timeString,
+                attributes: [
+                    NSAttributedString.Key.foregroundColor: UIColor(red: 158.0 / 255.0, green: 158.0 / 255.0, blue: 158.0 / 255.0, alpha: 1),
+                    NSAttributedString.Key.font: UIFont.systemFont(ofSize: 10, weight: .regular)
+                ]
+            )
+            if item.outgoing {
+                withAuthor = false
+            }
             out.append(Datasource(
                 primary: item.primary,
                 jid: self.jid,
@@ -253,13 +407,13 @@ extension ChatViewController {
                 editDate: item.editDate,
                 kind: kind,
                 withAuthor: withAuthor,
-                withAvatar: self.conversationType == .group ? !item.outgoing : false,
+                withAvatar: self.conversationType == .group && !item.outgoing,
                 error: item.state == .error,
                 errorType: item.messageError ?? "",
                 canPinMessage: [.system, .sticker].contains(item.displayAs) ? false : self.canUnpinMessage.value,
                 canEditMessage: item.archivedId.isNotEmpty ? item.displayAs == .text && item.outgoing : false,
                 canDeleteMessage: [MessageStorageItem.MessageSendingState.deliver, MessageStorageItem.MessageSendingState.read].contains(item.state),
-                forwards: inlineForwards,
+                forwards: forwards,
                 isOutgoing: item.outgoing,
                 isEdited: item.editDate != nil,
                 groupchatAuthorRole: item.groupchatMetadata?["role"] as? String ?? "member",
@@ -277,9 +431,16 @@ extension ChatViewController {
                 queryIds: item.queryIds,
                 isRead: item.isRead,
                 selectedSearchResultId: nil,//item.archivedId == self.selectedSearchResultId ? self.selectedSearchResultId : nil,
-                references: item.references.toArray().compactMap { $0.loadModel() },
                 isHadHistoryGap: false,
-                tailed: tailed
+                tailed: tailed,
+                images: images,
+                videos: videos,
+                files: files,
+                audios: audio,
+                timeMarkerText: timeMarkerString,
+                indicator: indicator,
+                avatarUrl: withAvatar ? item.groupchatCard?.avatarURI : nil,
+                attributedAuthor: attributedAuthor
             ))
             if (dataset.count > 1 && (offset + 1) < dataset.count) || (offset + 1 == dataset.count) {
                 if item.archivedId == unreadId {
@@ -328,9 +489,15 @@ extension ChatViewController {
                         queryIds: "\(item.queryIds ?? "") unread",
                         isRead: item.isRead,
                         selectedSearchResultId: nil,//item.archivedId == self.selectedSearchResultId ? self.selectedSearchResultId : nil,
-                        references: [],
                         isHadHistoryGap: false,
-                        isFakeMessage: true
+                        isFakeMessage: true,
+                        images: [],
+                        videos: [],
+                        files: [],
+                        audios: [],
+                        timeMarkerText: NSAttributedString(),
+                        indicator: .none,
+                        avatarUrl: nil
                     ))
                 }
                 if (offset + 1 == dataset.count) || self.isDateChange(from: item.sentDate, to: dataset[offset + 1].sentDate) {
@@ -378,98 +545,110 @@ extension ChatViewController {
                         queryIds: "\(item.queryIds ?? "") date changed",
                         isRead: item.isRead,
                         selectedSearchResultId: nil,//item.archivedId == self.selectedSearchResultId ? self.selectedSearchResultId : nil,
-                        references: [],
                         isHadHistoryGap: false,
-                        isFakeMessage: true
+                        isFakeMessage: true,
+                        images: [],
+                        videos: [],
+                        files: [],
+                        audios: [],
+                        timeMarkerText: NSAttributedString(),
+                        indicator: .none,
+                        avatarUrl: nil
                     ))
                 }
                 
             }
         }
-        if self.shouldShowInitialMessage && !self.inSearchMode.value {
-            var descriptionText: String = ""
-            let aboutAttrs: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 15, weight: .regular)
-            ]
-            switch self.conversationType {
-            case .regular:
-                descriptionText = "Messages in this chat are not encrypted. Servers often store transient messages in an archive. This allows easy device synchronization and server-side history search, but adds privacy risks."
-            case .group:
-                    do {
-                        let realm = try WRealm.safe()
-                        if let group = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
-                            if group.peerToPeer {
-                                descriptionText = "Private chat with incognito user. Messages are routed through group server and your identites are kept secret from each other. Be vigilant, do not disclose yourself by being careless."
-                            } else if group.privacy == .incognito {
-                                descriptionText = "Identities of users in this group are kept hidden from each other, only group admins can access your real XMPP ID. Be vigilant, do not disclose yourself by being careless."
-                            } else {
-                                descriptionText = "Identities of users in this group are public, so any member can contact you using your real XMPP ID."
-                            }
-                        } else {
-                            descriptionText = "Identities of users in this group are public, so any member can contact you using your real XMPP ID."
-                        }
-                    } catch {
-                        DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-                    }
-            case .channel:
-                descriptionText = "Identities of users in this group are public, so any member can contact you using your real XMPP ID."
-            case .omemo, .omemo1, .axolotl:
-                descriptionText = "Messages in this chat are encrypted with end-to-end encryption. You must always confirm the identity of your contact by verifying encryption keys fingerprints."
-            case .notifications:
-                descriptionText = "fdg"
-            case .saved:
-                break
-            }
-            let modifiedDesccription = NSMutableAttributedString(
-                attributedString: NSAttributedString(string: descriptionText,
-                                                     attributes: aboutAttrs)
-            )
-            let allRange = NSRange(location: 0, length:  modifiedDesccription.string.count)
-            let style = NSMutableParagraphStyle()
-            style.lineSpacing = 1.5
-            style.alignment = .center
-            modifiedDesccription.addAttribute(NSAttributedString.Key.paragraphStyle, value: style, range: allRange)
-            let kind: MessageKind = .initial(modifiedDesccription)
-            out.append(Datasource(
-                primary: "initial",
-                jid: self.jid,
-                owner: self.owner,
-                outgoing: true,
-                sender: self.ownerSender,
-                messageId: "initial",
-                sentDate: Date(),
-                editDate: nil,
-                kind: kind,
-                withAuthor: false,
-                withAvatar: false,//self.groupchat ? !item.outgoing : false,
-                error: false,
-                errorType: "",
-                canPinMessage: false,
-                canEditMessage: false,
-                canDeleteMessage: false,
-                forwards: [],
-                isOutgoing: true,
-                isEdited: false,
-                groupchatAuthorRole: "",
-                groupchatAuthorId: "",
-                groupchatAuthorNickname: "",
-                groupchatAuthorBadge: "",
-                isHasAttachedMessages: false,
-                isDownloaded: true,
-                state: .none,
-                searchString:  "",
-                errorMetadata: nil,
-                burnDate: 0,
-                afterburnInterval: 0,
-                archivedId: "initial",
-                queryIds: "initial",
-                isRead: true,
-                selectedSearchResultId: nil,//item.archivedId == self.selectedSearchResultId ? self.selectedSearchResultId : nil,
-                references: [],
-                isHadHistoryGap: false,
-                isFakeMessage: true
-            ))
-        }
+//        if self.shouldShowInitialMessage && !self.inSearchMode.value {
+//            var descriptionText: String = ""
+//            let aboutAttrs: [NSAttributedString.Key: Any] = [
+//                .font: UIFont.systemFont(ofSize: 15, weight: .regular)
+//            ]
+//            switch self.conversationType {
+//            case .regular:
+//                descriptionText = "Messages in this chat are not encrypted. Servers often store transient messages in an archive. This allows easy device synchronization and server-side history search, but adds privacy risks."
+//            case .group:
+//                    do {
+//                        let realm = try WRealm.safe()
+//                        if let group = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
+//                            if group.peerToPeer {
+//                                descriptionText = "Private chat with incognito user. Messages are routed through group server and your identites are kept secret from each other. Be vigilant, do not disclose yourself by being careless."
+//                            } else if group.privacy == .incognito {
+//                                descriptionText = "Identities of users in this group are kept hidden from each other, only group admins can access your real XMPP ID. Be vigilant, do not disclose yourself by being careless."
+//                            } else {
+//                                descriptionText = "Identities of users in this group are public, so any member can contact you using your real XMPP ID."
+//                            }
+//                        } else {
+//                            descriptionText = "Identities of users in this group are public, so any member can contact you using your real XMPP ID."
+//                        }
+//                    } catch {
+//                        DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+//                    }
+//            case .channel:
+//                descriptionText = "Identities of users in this group are public, so any member can contact you using your real XMPP ID."
+//            case .omemo, .omemo1, .axolotl:
+//                descriptionText = "Messages in this chat are encrypted with end-to-end encryption. You must always confirm the identity of your contact by verifying encryption keys fingerprints."
+//            case .notifications:
+//                descriptionText = "fdg"
+//            case .saved:
+//                break
+//            }
+//            let modifiedDesccription = NSMutableAttributedString(
+//                attributedString: NSAttributedString(string: descriptionText,
+//                                                     attributes: aboutAttrs)
+//            )
+//            let allRange = NSRange(location: 0, length:  modifiedDesccription.string.count)
+//            let style = NSMutableParagraphStyle()
+//            style.lineSpacing = 1.5
+//            style.alignment = .center
+//            modifiedDesccription.addAttribute(NSAttributedString.Key.paragraphStyle, value: style, range: allRange)
+//            let kind: MessageKind = .initial(modifiedDesccription)
+//            out.append(Datasource(
+//                primary: "initial",
+//                jid: self.jid,
+//                owner: self.owner,
+//                outgoing: true,
+//                sender: self.ownerSender,
+//                messageId: "initial",
+//                sentDate: Date(),
+//                editDate: nil,
+//                kind: kind,
+//                withAuthor: false,
+//                withAvatar: false,//self.groupchat ? !item.outgoing : false,
+//                error: false,
+//                errorType: "",
+//                canPinMessage: false,
+//                canEditMessage: false,
+//                canDeleteMessage: false,
+//                forwards: [],
+//                isOutgoing: true,
+//                isEdited: false,
+//                groupchatAuthorRole: "",
+//                groupchatAuthorId: "",
+//                groupchatAuthorNickname: "",
+//                groupchatAuthorBadge: "",
+//                isHasAttachedMessages: false,
+//                isDownloaded: true,
+//                state: .none,
+//                searchString:  "",
+//                errorMetadata: nil,
+//                burnDate: 0,
+//                afterburnInterval: 0,
+//                archivedId: "initial",
+//                queryIds: "initial",
+//                isRead: true,
+//                selectedSearchResultId: nil,//item.archivedId == self.selectedSearchResultId ? self.selectedSearchResultId : nil,
+//                isHadHistoryGap: false,
+//                isFakeMessage: true,
+//                images: [],
+//                videos: [],
+//                files: [],
+//                audios: [],
+//                timeMarkerText: NSAttributedString(),
+//                indicator: .none,
+//                avatarUrl: nil
+//            ))
+//        }
         return out
     }
     
@@ -544,7 +723,7 @@ extension ChatViewController {
             let minIndex: Int = 0
             var maxIndex: Int = self.datasourcePageSize
             if maxIndex >= self.messagesObserver.count {
-                maxIndex = self.messagesObserver.count - 1
+                maxIndex = self.messagesObserver.count //- 1
             }
             if maxIndex <= 0 {
                 maxIndex = 0
@@ -564,15 +743,20 @@ extension ChatViewController {
         
         do {
             let realm = try WRealm.safe()
-            guard let chatInstance = realm.object(
+//            guard let chatInstance = realm.object(
+//                ofType: LastChatsStorageItem.self,
+//                forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid,
+//                                                               owner: self.owner,
+//                                                               conversationType: self.conversationType)) else {
+//                callback([])
+//                return
+//            }
+            let chatInstance = realm.object(
                 ofType: LastChatsStorageItem.self,
                 forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid,
                                                                owner: self.owner,
-                                                               conversationType: self.conversationType)) else {
-                callback([])
-                return
-            }
-            if !chatInstance.isSynced {
+                                                               conversationType: self.conversationType))
+            if !(chatInstance?.isSynced ?? false) {
                 self.showSkeletonObserver.accept(true)
                 self.datasource = self.mapDataset(dataset: [])
                 self.messagesCollectionView.reloadData()
@@ -899,7 +1083,9 @@ extension ChatViewController {
                 self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: index), at: .centeredVertically, animated: true)
             }
         } else {
-            self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: 0), at: .top, animated: true)
+            if self.datasource.isNotEmpty {
+                self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: 0), at: .top, animated: true)
+            }
         }
     }
 }

@@ -96,16 +96,22 @@ extension SelectorViewController: UITableViewDelegate {
         if let key = datasource.key {
             
             switch key {
-            case .chatChooseMessageSound, .chatChooseSubscriptionSound:
-                MusicBox.shared.playSound(path: item)
-                if let fileName = URL(string: item)?.pathComponents.last {
-                    SettingManager.shared.saveItem(key: key.rawValue, string: fileName)
-                }
-            case .avatarMasksCurrentAvatarMask:
-                AccountMasksManager.shared.save(mask: item)
-                NotificationCenter.default.post(name: .newMaskSelected, object: self, userInfo: [:])
-            default:
-                SettingManager.shared.saveItem(key: key.rawValue, string: item)
+                case .chatChooseMessageSound, .chatChooseSubscriptionSound:
+                    MusicBox.shared.playSound(path: item)
+                    if let fileName = URL(string: item)?.pathComponents.last {
+                        SettingManager.shared.saveItem(key: key.rawValue, string: fileName)
+                    }
+                case .avatarMasksCurrentAvatarMask:
+                    AccountMasksManager.shared.save(mask: item)
+                    NotificationCenter.default.post(name: .newMaskSelected, object: self, userInfo: [:])
+                case .avatarChatPosition, .messageCornerStyle, .messageCornerRadius:
+                    SettingManager.shared.saveItem(key: key.rawValue, string: item)
+                    NotificationCenter.default.post(name: .chatInterfaceChanged, object: self, userInfo: [:])
+                case .chatChooseBackground, .chatChooseBackgroundColor:
+                    SettingManager.shared.saveItem(key: key.rawValue, string: item)
+                    NotificationCenter.default.post(name: .chatBackgroundChanged, object: self, userInfo: [:])
+                default:
+                    SettingManager.shared.saveItem(key: key.rawValue, string: item)
             }
         }
         tableView.reloadData()

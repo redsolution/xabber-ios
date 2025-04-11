@@ -21,34 +21,79 @@
 import UIKit
 import MaterialComponents.MDCPalettes
 
-class TextMessageCell: CommonMessageCell {
+public class TextMessageCell: MessageContentCell {
     
-    var messageLabel = MessageLabel()
+    let offsetBetweenForwards: CGFloat = 2
     
-    var audiosInlineView: InlineAudioGridView = {
-        let view = InlineAudioGridView()
+    let timeMarker: TimeMarkerView = {
+        let marker = TimeMarkerView(frame: .zero)
+        
+        marker.setupSubviews()
+        
+        return marker
+    }()
+    
+    let authorView: MessageLabel = {
+        let view = MessageLabel()
         
         return view
     }()
     
-    var filesInlineView: InlineFilesGridView = {
+    let forwardsContainer: InlineForwardsContainerView = {
+        let view = InlineForwardsContainerView(frame: .zero)
+//        view.backgroundColor = .orange
+        return view
+    }()
+    
+    let filesView: InlineFilesGridView = {
         let view = InlineFilesGridView()
+                
+//        view.backgroundColor = .brown
         
         return view
     }()
     
-    var imagesInlineView: InlineImagesGridView = {
+    let audiosView: InlineAudiosGridView = {
+        let view = InlineAudiosGridView()
+        
+//        view.backgroundColor = .yellow
+        
+        return view
+    }()
+    
+    let videosView: UIView = {
+        let view = UIView()
+        
+        view.backgroundColor = .clear
+        
+        view.layer.borderColor = UIColor.black.withAlphaComponent(0.1).cgColor
+        view.layer.borderWidth = 1
+        view.layer.cornerRadius = 8
+        view.layer.masksToBounds = true
+        
+        return view
+    }()
+    
+    let imagesView: InlineImagesGridView = {
         let view = InlineImagesGridView()
+                
+        return view
+    }()
+    
+    let labelContainer: UIView = {
+        let view = UIView()
         
         return view
     }()
     
-    var videosInlineView: InlineVideosGridView = {
-        let view = InlineVideosGridView()
-        
-        return view
+    let messageLabel: MessageLabel = {
+        let label = MessageLabel()
+                
+        return label
     }()
     
+    
+        
     override weak var delegate: MessageCellDelegate? {
         didSet {
             messageLabel.delegate = delegate
@@ -56,108 +101,264 @@ class TextMessageCell: CommonMessageCell {
     }
     
     
-    override func apply(_ layoutAttributes: UICollectionViewLayoutAttributes) {
-        super.apply(layoutAttributes)
+    public override func apply(_ layoutAttributes: UICollectionViewLayoutAttributes) {
         if let attributes = layoutAttributes as? MessagesCollectionViewLayoutAttributes {
-            messageLabel.textInsets = attributes.messageLabelInsets
-            messageLabel.messageLabelFont = attributes.messageLabelFont
-//            let additionalYOffset = attributes.audioInlineViewSize.height + attributes.filesInlineViewSize.height + attributes.imagesInlineViewSize.height + attributes.
-            var messageLabelOffset: CGFloat = 0
-            audiosInlineView.frame = CGRect(
-                x: messageContainerView.bounds.minX + attributes.messageLabelInsets.left,
-                y: messageContainerView.bounds.minY + messageLabelOffset,
-                width: messageContainerView.bounds.width - attributes.messageLabelInsets.horizontal,
-                height: attributes.audioInlineViewSize.height
-            )
-            messageLabelOffset += attributes.audioInlineViewSize.height
-            
-            filesInlineView.frame = CGRect(
-                x: messageContainerView.bounds.minX + attributes.messageLabelInsets.left,
-                y: messageContainerView.bounds.minY + messageLabelOffset,
-                width: messageContainerView.bounds.width - attributes.messageLabelInsets.horizontal,
-                height: attributes.filesInlineViewSize.height
-            )
-            messageLabelOffset += attributes.filesInlineViewSize.height
-            
-            imagesInlineView.frame = CGRect(
-                x: messageContainerView.bounds.minX + attributes.messageLabelInsets.left,
-                y: messageContainerView.bounds.minY + messageLabelOffset,
-                width: messageContainerView.bounds.width - attributes.messageLabelInsets.horizontal,
-                height: attributes.imagesInlineViewSize.height
-            )
-            messageLabelOffset += attributes.imagesInlineViewSize.height
-            
-            videosInlineView.frame = CGRect(
-                x: messageContainerView.bounds.minX + attributes.messageLabelInsets.left,
-                y: messageContainerView.bounds.minY + messageLabelOffset,
-                width: messageContainerView.bounds.width - attributes.messageLabelInsets.horizontal,
-                height: attributes.videosInlineViewSize.height
-            )
-            messageLabelOffset += attributes.videosInlineViewSize.height
-            if messageLabelOffset > 0 {
-                messageLabelOffset += 8
-            }
-            
-            messageLabel.frame = CGRect(x: messageContainerView.bounds.minX + attributes.messageLabelInsets.left,
-                                        y: messageContainerView.bounds.minY + attributes.inlineForwardsOffset + messageLabelOffset + attributes.messageLabelInsets.top,
-                                        width: messageContainerView.bounds.width - attributes.messageLabelInsets.horizontal,
-                                        height: messageContainerView.bounds.height - attributes.inlineForwardsOffset)
+            layoutAuthorView(with: attributes)
+            layoutForwardsContainer(with: attributes)
+            layoutImagesView(with: attributes)
+            layoutVideosView(with: attributes)
+            layoutAudiosView(with: attributes)
+            layoutFilesView(with: attributes)
+            layoutLabelView(with: attributes)
+            layoutTimeMarker(with: attributes)
         }
+        super.apply(layoutAttributes)
     }
     
-    override func prepareForReuse() {
+    func layoutAuthorView(with attributes: MessagesCollectionViewLayoutAttributes) {
+        let offset: CGFloat = 0
+        self.authorView.frame = CGRect(
+            origin: CGPoint(
+                x: attributes.messageLabelInsets.left,
+                y: offset
+            ),
+            size: attributes.authorInlineSize
+        )
+    }
+    
+    func layoutTimeMarker(with attributes: MessagesCollectionViewLayoutAttributes) {
+        var frame = CGRect(
+            origin: CGPoint(
+                x: attributes.messageContainerSize.width - attributes.timeMarkerSize.width - attributes.timeMarkerInsets.right - attributes.tailWidth - attributes.messageContainerPadding.right - attributes.messageContainerMargin.right,
+                y: attributes.messageContainerSize.height - attributes.timeMarkerSize.height - attributes.timeMarkerInsets.bottom - attributes.messageContainerPadding.bottom - attributes.messageContainerMargin.bottom - 2
+            ),
+            size: attributes.timeMarkerSize
+        )
+        if attributes.timeMarkerWithBackplate {
+            frame = CGRect(
+                origin: CGPoint(
+                    x: attributes.messageContainerSize.width - attributes.timeMarkerSize.width - attributes.timeMarkerInsets.right - attributes.tailWidth - attributes.messageContainerPadding.right - attributes.messageContainerMargin.right - 3,
+                    y: attributes.messageContainerSize.height - attributes.timeMarkerSize.height - attributes.timeMarkerInsets.bottom - attributes.messageContainerPadding.bottom - attributes.messageContainerMargin.bottom - 7
+                ),
+                size: attributes.timeMarkerSize
+            )
+        }
+        self.timeMarker.update(frame: frame, indicator: attributes.timeMarkerIndicator, radius: attributes.timeMarkerRadius)
+    }
+    
+    func layoutForwardsContainer(with attributes: MessagesCollectionViewLayoutAttributes) {
+        let offsetItems = [
+            attributes.authorInlineSize
+        ]
+        let offset = offsetItems.compactMap { $0.height }.reduce(0, +)
+        self.forwardsContainer.frame = CGRect(
+            origin: CGPoint(x: 0, y: offset).padding(x: 0, y:0),
+            size: attributes.forwardsContainerViewSize.padding(width: 0, height: 4)
+        )
+        self.forwardsContainer.layout(with: attributes)
+    }
+    
+    func layoutImagesView(with attributes: MessagesCollectionViewLayoutAttributes) {
+        let offsetItems = [
+            attributes.authorInlineSize,
+            attributes.forwardsContainerViewSize
+        ]
+        let offset = offsetItems.compactMap { $0.height }.reduce(0, +)
+        self.imagesView.frame = CGRect(
+            origin: CGPoint(x: 0, y: offset).padding(x: 2, y: 2),
+            size: attributes.imagesInlineViewSize.padding(width: 4, height: 4)
+        )
+        let radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.smooth.image.image.getRadiusFor(index: "16")
+        self.imagesView.configure(
+            side: .right,
+            radiusLU: radius.leftUpper,
+            radiusRU: radius.rightUpper,
+            radiusRB: radius.rightBottom,
+            radiusLB: radius.leftBottom
+        )
+    }
+    
+    func layoutVideosView(with attributes: MessagesCollectionViewLayoutAttributes) {
+        let offsetItems = [
+            attributes.authorInlineSize,
+            attributes.forwardsContainerViewSize,
+            attributes.imagesInlineViewSize
+        ]
+        let offset = offsetItems.compactMap { $0.height }.reduce(0, +)
+        self.videosView.frame = CGRect(
+            origin: CGPoint(x: 0, y: offset).padding(x: 0, y: 2),
+            size: attributes.videosInlineViewSize.padding(width: 0, height: 4)
+        )
+    }
+    
+    func layoutAudiosView(with attributes: MessagesCollectionViewLayoutAttributes) {
+        let offsetItems = [
+            attributes.authorInlineSize,
+            attributes.forwardsContainerViewSize,
+            attributes.imagesInlineViewSize,
+            attributes.videosInlineViewSize
+        ]
+        let offset = offsetItems.compactMap { $0.height }.reduce(0, +)
+        self.audiosView.frame = CGRect(
+            origin: CGPoint(x: 0, y: offset),
+            size: attributes.audioInlineViewSize
+        )
+    }
+    
+    func layoutFilesView(with attributes: MessagesCollectionViewLayoutAttributes) {
+        let offsetItems = [
+            attributes.authorInlineSize,
+            attributes.forwardsContainerViewSize,
+            attributes.imagesInlineViewSize,
+            attributes.videosInlineViewSize,
+            attributes.audioInlineViewSize
+        ]
+        let offset = offsetItems.compactMap { $0.height }.reduce(0, +)
+        self.filesView.frame = CGRect(
+            origin: CGPoint(x: 0, y: offset),
+            size: attributes.filesInlineViewSize
+        )
+    }
+    
+    func layoutLabelView(with attributes: MessagesCollectionViewLayoutAttributes) {
+        let offsetItems = [
+            attributes.authorInlineSize,
+            attributes.forwardsContainerViewSize,
+            attributes.imagesInlineViewSize,
+            attributes.videosInlineViewSize,
+            attributes.audioInlineViewSize,
+            attributes.filesInlineViewSize
+        ]
+        let offset = offsetItems.compactMap { $0.height }.reduce(0, +)
+        labelContainer.frame = CGRect(
+            origin: CGPoint(x: 0, y: offset),
+            size: CGSize(
+                width: attributes.textInlineViewSize.width + attributes.messageLabelInsets.horizontal,
+                height: attributes.textInlineViewSize.width + attributes.messageLabelInsets.vertical
+            )
+        )
+        messageLabel.frame = CGRect(
+            origin: CGPoint(
+                x: attributes.messageLabelInsets.left,
+                y: attributes.messageLabelInsets.top
+            ),
+            size: attributes.textInlineViewSize
+        )
+    }
+    
+    public override func prepareForReuse() {
         
         super.prepareForReuse()
         messageLabel.attributedText = nil
         messageLabel.text = nil
+        forwardsContainer.subviews.forEach { $0.removeFromSuperview() }
+        imagesView.subviews.forEach { $0.removeFromSuperview() }
+        videosView.subviews.forEach { $0.removeFromSuperview() }
+        audiosView.subviews.forEach { $0.removeFromSuperview() }
+        filesView.subviews.forEach { $0.removeFromSuperview() }
+        authorView.text = nil
     }
     
     
     override func setupSubviews() {
         super.setupSubviews()
-        messageContainerView.addSubview(messageLabel)
-        messageContainerView.addSubview(audiosInlineView)
-        messageContainerView.addSubview(filesInlineView)
-        messageContainerView.addSubview(imagesInlineView)
-        messageContainerView.addSubview(videosInlineView)
+        containerView.addSubview(authorView)
+        containerView.addSubview(forwardsContainer)
+        containerView.addSubview(imagesView)
+        containerView.addSubview(videosView)
+        containerView.addSubview(audiosView)
+        containerView.addSubview(filesView)
+        
+        containerView.addSubview(labelContainer)
+        containerView.addSubview(timeMarker)
+        labelContainer.addSubview(messageLabel)
     }
     
     override func configure(with message: MessageType, at indexPath: IndexPath, and messagesCollectionView: MessagesCollectionView) {
         super.configure(with: message, at: indexPath, and: messagesCollectionView)
-
-        guard let displayDelegate = messagesCollectionView.messagesDisplayDelegate else {
-            fatalError(MessageKitError.nilMessagesDisplayDelegate)
-        }
-
-        let enabledDetectors = displayDelegate.enabledDetectors(for: message, at: indexPath, in: messagesCollectionView)
-        
-        self.audiosInlineView.configure(message.references, messageId: message.messageId, indexPath: indexPath)
-        self.filesInlineView.configure(message.references, messageId: message.messageId, indexPath: indexPath)
-        self.imagesInlineView.configure(message.references, messageId: message.messageId, indexPath: indexPath)
-        self.videosInlineView.configure(message.references, messageId: message.messageId, indexPath: indexPath)
-        
         messageLabel.configure {
-            messageLabel.enabledDetectors = enabledDetectors
-            for detector in enabledDetectors {
-                let attributes = displayDelegate.detectorAttributes(for: detector, and: message, at: indexPath)
-                messageLabel.setAttributes(attributes, detector: detector)
-            }
             switch message.kind {
-            case .text(let text), .emoji(let text):
-                messageLabel.text = text
-                messageLabel.textColor = UIColor.label
-                if let font = messageLabel.messageLabelFont {
-                    messageLabel.font = font
-                }
-            case .attributedText(let text, _, _):
-                messageLabel.attributedText = text
-            default:
-                break
+                case .attributedText(let text):
+                    messageLabel.attributedText = text
+                default:
+                    break
             }
+        }
+        authorView.attributedText = message.attributedAuthor
+        var timeMarkerWithBackplate: Bool = false
+        if message.images.isNotEmpty || message.videos.isNotEmpty,
+           message.files.isEmpty,
+           message.audios.isEmpty {
+            switch message.kind {
+                case .attributedText(let text):
+                    if text.string.isEmpty {
+                        timeMarkerWithBackplate = true
+                    }
+                default:
+                    break
+            }
+        }
+        let palette = AccountColorManager.shared.palette(for: message.owner)
+        self.timeMarker.configure(text: message.timeMarkerText, indicator: message.indicator, withBackplate: timeMarkerWithBackplate)
+        self.imagesView.configure(message.images)
+        self.filesView.configure(message.files, palette: palette)
+        self.audiosView.delegate = delegate
+        self.audiosView.configure(message.audios, palette: palette)
+        self.forwardsContainer.configure(message.forwards, palette: palette, delegate: delegate)
+//        self.videosView.configure(message.videos)
+        self.imagesView.layer.backgroundColor = MDCPalette.grey.tint100.cgColor
+        
+        
+        let longPressGesture = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPressGesture(_:)))
+//        tapGesture.require(toFail: longPressGesture)
+        longPressGesture.delaysTouchesBegan = true
+        self.containerView.addGestureRecognizer(longPressGesture)
+        if message.withAvatar {
+            if let avatarUrl = message.avatarUrl {
+                let userId = message.groupchatAuthorId
+                DefaultAvatarManager.shared.getGroupAvatar(url: avatarUrl, userId: userId, jid: message.jid, owner: message.owner, size: 32) { image in
+                    if let image = image {
+                        self.avatarView.image = image
+                    } else {
+                        self.avatarView.image = UIImageView.getDefaultAvatar(for: message.groupchatAuthorNickname, owner: message.owner, size: 32)
+                    }
+                }
+            } else {
+                avatarView.isHidden = true
+            }
+        } else {
+            avatarView.isHidden = true
         }
     }
     
+    @objc
+    private func handleLongPressGesture(_ sender: UILongPressGestureRecognizer) {
+        print("press")
+        guard sender.state == .began else { return }
+        self.delegate?.onLongTapMessage(cell: self)
+    }
+    
     override func cellContentView(canHandle touchPoint: CGPoint) -> Bool {
+        if self.filesView.frame.contains(touchPoint) {
+            let translatedPoint = touchPoint.translate(x: -self.filesView.frame.minX, y: -self.filesView.frame.minY)
+            if self.filesView.handleTouch(at: translatedPoint, callback: { url in
+                self.delegate?.didTapOnFile(url: url)
+            }) {
+                return true
+            }
+        }
+        if self.imagesView.frame.contains(touchPoint) {
+            let translatedPoint = touchPoint.translate(x: -self.imagesView.frame.minX, y: -self.imagesView.frame.minY)
+            if self.imagesView.handleTouch(at: translatedPoint, callback: { (urls, url) in
+                self.delegate?.didTapOnPhoto(urls: urls, url: url)
+            }) {
+                return true
+            }
+        }
+        if self.forwardsContainer.frame.contains(touchPoint) {
+            let translatedPoint = touchPoint.translate(x: -self.forwardsContainer.frame.minX, y: -self.forwardsContainer.frame.minY)
+            self.forwardsContainer.handleTouch(at: translatedPoint)
+        }
         return messageLabel.handleGesture(touchPoint)
     }
     

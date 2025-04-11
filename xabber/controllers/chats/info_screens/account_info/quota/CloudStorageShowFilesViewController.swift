@@ -32,7 +32,7 @@ class CloudStorageShowFilesViewController: BaseViewController {
         var meters: String? = nil
         var mimeType: String? = nil
         var fileName: String? = nil
-        var voiceModel: MessageReferenceStorageItem.Model? = nil
+        var voiceModel: AudioAttachment? = nil
         var dateFormatted: Date? = nil
         var date: String? = nil
         var time: String? = nil

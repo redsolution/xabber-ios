@@ -125,7 +125,6 @@ class ChatViewController: MessagesViewController {
                 self.locked = false
 //            }
         }
-        
     }
     
     struct ChangesWithIndexSet {
@@ -151,6 +150,7 @@ class ChatViewController: MessagesViewController {
         case requestingVerification = "requesting_verification"
         case shouldRequestVerification = "should_request_verification"
         case acceptedVerification = "accepted_verification"
+        case audioPlayer = "audio_player"
     }
     
     enum InputBarState {
@@ -207,7 +207,7 @@ class ChatViewController: MessagesViewController {
         var canPinMessage: Bool
         var canEditMessage: Bool
         var canDeleteMessage: Bool
-        var forwards: [MessageForwardsInlineStorageItem.Model]
+        var forwards: [MessageAttachment]
         var isOutgoing: Bool
         var isEdited: Bool
         var groupchatAuthorRole: String
@@ -225,10 +225,21 @@ class ChatViewController: MessagesViewController {
         var queryIds: String?
         var isRead: Bool
         var selectedSearchResultId: String? = nil
-        var references: [MessageReferenceStorageItem.Model] = []
         var isHadHistoryGap: Bool = false
         var tailed: Bool = false
         var isFakeMessage: Bool = false
+        
+        var images: [ImageAttachment]
+        var videos: [VideoAttachment]
+        var files:  [FileAttachment]
+        var audios: [AudioAttachment]
+        
+        var timeMarkerText: NSAttributedString
+        
+        var indicator: IndicatorType
+        
+        var avatarUrl: String?
+        var attributedAuthor: NSAttributedString? = nil
         
         static func compareContent(_ a: ChatViewController.Datasource, _ b: ChatViewController.Datasource) -> Bool {
             return a.primary == b.primary &&
@@ -247,7 +258,10 @@ class ChatViewController: MessagesViewController {
                 ChatViewController.Datasource.iconForMetadata(for: a.errorMetadata) == ChatViewController.Datasource.iconForMetadata(for: b.errorMetadata) &&
                 a.selectedSearchResultId == b.selectedSearchResultId &&
                 a.queryIds == b.queryIds &&
-                a.tailed == b.tailed
+                a.tailed == b.tailed &&
+                a.indicator == b.indicator &&
+                a.editDate == b.editDate &&
+                a.avatarUrl == b.avatarUrl
         }
         
         static func iconForMetadata(for meta: [String: Any]?) -> String? {
@@ -287,6 +301,10 @@ class ChatViewController: MessagesViewController {
     
     var unreadMessagePositionId: Int? = nil
     
+    var messageCorner: MessageStyleConfig.MessageBubbleContainer.CodingKeys = .noTail
+    var avatarVerticalPosition: String = "bottom"
+    var cornerRadius: String = "16"
+    
 // datasource
     var messagesObserver: Results<MessageStorageItem>!
     var datasource: [Datasource] = [] {
@@ -295,6 +313,8 @@ class ChatViewController: MessagesViewController {
         }
     }
     
+    
+    var sharedPlayerPaneldelegae: SharedAudioPlayerPanelDelegate? = nil
 // rx
     var bag: DisposeBag = DisposeBag()
     
@@ -373,7 +393,7 @@ class ChatViewController: MessagesViewController {
     internal var showFloatingDateObserver: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     internal var preventHidingDate: Bool = false
     
-    internal var shouldShowInitialMessage: Bool = false
+    internal var shouldShowInitialMessage: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     
     internal var canLoadDatasource: Bool = false
     internal var loadDatasourceObserver: BehaviorRelay<Bool> = BehaviorRelay(value: true)
@@ -387,7 +407,7 @@ class ChatViewController: MessagesViewController {
     internal lazy var skeletonMessages: [NSAttributedString] = {
         return (0..<30).compactMap {
             _ in
-            return NSAttributedString(string: Lorem.words(Int.random(in: (4..<32))))
+            return NSAttributedString(string: Lorem.words(Int.random(in: (18..<84))))
         }
     }()
     
@@ -419,6 +439,14 @@ class ChatViewController: MessagesViewController {
         return formatter
     }()
 
+    internal let initialMessageOverlayView: InitialMessageOverlayView = {
+        let view = InitialMessageOverlayView(frame: .zero)
+        
+        view.isHidden = true
+        
+        return view
+    }()
+    
     var titleButton: UIButton = {
         let button = UIButton(frame: .zero)
         
@@ -467,14 +495,14 @@ class ChatViewController: MessagesViewController {
 //        return bar
 //    }()
     
-    let recordingPanel: RecordingPanel = {
-        let view = RecordingPanel(frame: .zero)
-        
-        view.isHidden = true
-        view.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        
-        return view
-    }()
+//    let recordingPanel: RecordingPanel = {
+//        let view = RecordingPanel(frame: .zero)
+//        
+//        view.isHidden = true
+//        view.setContentHuggingPriority(.defaultLow, for: .horizontal)
+//        
+//        return view
+//    }()
     
     let cancelSelectionBarButton: UIBarButtonItem = {
         let button = UIBarButtonItem(barButtonSystemItem: .cancel, target: nil, action: nil)
@@ -548,10 +576,12 @@ class ChatViewController: MessagesViewController {
     internal var shouldShowScrollDownButton: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     internal var contentOffsetObserver: BehaviorRelay<CGFloat> = BehaviorRelay(value: 0)
     
+    internal var currentPlayingView: InlineAudiosGridView.AudioView? = nil
+    
     internal let scrollDownButton: UIButton = {
-        let button = UIButton(frame: CGRect(square: 44))
+        let button = UIButton(frame: CGRect(square: 38))
         
-        button.layer.cornerRadius = 22
+        button.layer.cornerRadius = 19
         button.layer.masksToBounds = true
         
         button.backgroundColor = .systemGroupedBackground
@@ -578,9 +608,39 @@ class ChatViewController: MessagesViewController {
         return view
     }()
     
+    let recordLockIndicator: UIButton = {
+        let button = UIButton(frame: CGRect(square: 38))
+        
+        button.setImage(imageLiteral("lock.open.fill"), for: .normal)
+        button.backgroundColor = .systemGroupedBackground
+        button.layer.cornerRadius = 19
+        button.layer.masksToBounds = true
+//        button.layer.borderWidth = 0
+//        button.layer.borderColor = UIColor.secondarySystemBackground.cgColor
+        
+        if #available(iOS 17.0, *) {
+            button.isSymbolAnimationEnabled = true
+        }
+        
+        button.isHidden = true
+        
+        return button
+    }()
+    
+    
+    
     internal var xabberInputView: ModernXabberInputView!
     
     internal var shouldRequestChatInfo: Bool = false
+    
+    internal let sharedAudioPlayerPanel: SharedPlayerView? = {
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            return nil
+        }
+        let view = SharedPlayerView(frame: .zero)
+        
+        return view
+    }()
     
     @objc
     internal func showInfo() {
@@ -614,6 +674,7 @@ class ChatViewController: MessagesViewController {
     
     internal func configureMessagesPanel() {
         self.xabberInputView.forwardPanel.delegate = self
+        self.xabberInputView.editPanel.delegate = self
     }
     
     internal func configureSelectionPanel() {
@@ -631,6 +692,38 @@ class ChatViewController: MessagesViewController {
         
         return button
     }()
+    
+    func getUsernamePalette(for jid: String) -> MDCPalette {
+        let palettes: [MDCPalette] = [
+            .red,
+            .pink,
+            .purple,
+            .deepPurple,
+            .indigo,
+            .blue,
+            .lightBlue,
+            .cyan,
+            .teal,
+            .green,
+            .lightGreen,
+            .lime,
+            .yellow,
+            .amber,
+            .orange,
+            .deepOrange,
+            .brown,
+            .grey,
+            .blueGrey
+        ]
+        
+        let hash = jid.utf8.reduce(0) { (result, char) in
+            return ((result << 5) &+ result) ^ Int(char)
+        }
+        
+        let index = abs(hash) % palettes.count
+        
+        return palettes[index]
+    }
     
     func configureSearchBar() {
         self.cancelSearchBarButton.action = #selector(self.pnCancelButtonTouchUp)
@@ -824,18 +917,79 @@ class ChatViewController: MessagesViewController {
     internal let backgroundImage = UIImageView()
     internal let gradientView = UIView()
     
+    var audioIsInLoading: Bool = false
+    
+    
+    internal var recordedReferenceObject: MessageReferenceStorageItem? = nil {
+        didSet {
+            if recordedReferenceObject == nil {
+                print(1)
+            }
+        }
+    }
+    internal var currentPlayingUrl: URL? = nil
+    
+    internal func showSharedAudioPanel() {
+        var navbarHeight: CGFloat = 50
+        if let topInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
+            navbarHeight += topInset
+        }
+        UIView.animate(withDuration: 0.1) {
+            self.sharedAudioPlayerPanel?.update(frame: CGRect(
+                origin: CGPoint(
+                    x: 0,
+                    y: navbarHeight
+                ),
+                size: CGSize(
+                    width: self.view.frame.width,
+                    height: 44
+                )
+            ), isHidden: false)
+        }
+        
+    }
+    
+    internal func hideSharedAudioPanel() {
+        var navbarHeight: CGFloat = 50
+        if let topInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
+            navbarHeight += topInset
+        }
+        UIView.animate(withDuration: 0.1) {
+            self.sharedAudioPlayerPanel?.update(frame: CGRect(
+                origin: CGPoint(
+                    x: 0,
+                    y: navbarHeight
+                ),
+                size: CGSize(
+                    width: self.view.frame.width,
+                    height: 0
+                )
+            ), isHidden: true)
+        }
+        
+    }
+    
+    internal func configureSharedAudioPanel() {
+        self.sharedAudioPlayerPanel?.configure(
+            title: AudioManager.shared.currentPlayingTitle,
+            subtitle: AudioManager.shared.currentPlayingSubtitle
+        )
+        self.sharedAudioPlayerPanel?.delegate = self
+        self.sharedAudioPlayerPanel?.swapState(to: .playing)
+        self.showSharedAudioPanel()
+    }
+    
     private func configure() {
-        restorationIdentifier = "CHAT_VIEW_CONTROLLER_RID"
+        restorationIdentifier = "CHAT_VIEW_CONTROLLER_RID_\(self.jid)\(self.owner)"
         self.initSender()
         
         self.dateListContainerView.frame = self.view.bounds
-        
-        
+                
         accountPallete = AccountColorManager.shared.palette(for: owner)
         self.messagesCollectionView.prefetchDataSource = self
         self.messagesCollectionView.messagesDataSource = self
         self.messagesCollectionView.messageCellDelegate = self
-        self.messagesCollectionView.messagesDisplayDelegate = self
+//        self.messagesCollectionView.messagesDisplayDelegate = self
         self.messagesCollectionView.messagesLayoutDelegate = self
         
         self.messagesCollectionView.transform = CGAffineTransform(scaleX: 1, y: -1)
@@ -864,6 +1018,7 @@ class ChatViewController: MessagesViewController {
         
         let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
         self.xabberInputView = ModernXabberInputView(frame: frame)
+        self.xabberInputView.accountPalette = accountPallete
         self.xabberInputView.delegate = self
         self.view.addSubview(self.scrollDownButton)
         self.view.addSubview(xabberInputView)
@@ -890,19 +1045,36 @@ class ChatViewController: MessagesViewController {
         self.view.addSubview(self.chatViewLoadingOverlay)
         self.chatViewLoadingOverlay.fillSuperview()
         self.view.addSubview(self.navbarOverlayView)
-        self.scrollDownButton.center = CGPoint(x: self.view.frame.maxX - 64, y: self.view.frame.maxY + 44)
 //        self.view.addSubview(floatingDateView)
         self.scrollDownButton.addTarget(self, action: #selector(self.onScrollDownChatButtonTouchUpInside), for: .touchUpInside)
         self.view.addSubview(self.messageLoadingActivityIndicator)
         self.messageLoadingActivityIndicator.startAnimating()
         self.messageLoadingActivityIndicator.isHidden = true
         self.view.addSubview(self.pinnedDateView)
+        self.view.addSubview(self.initialMessageOverlayView)
+        if self.sharedAudioPlayerPanel != nil {
+            self.view.addSubview(self.sharedAudioPlayerPanel!)
+            AudioManager.shared.addMulticastDelegate(self.sharedAudioPlayerPanel)
+        }
+//    case avatarChatPosition = "avatar_chat_vertical_position"
+//    case avatarCornerStyle = "avatar_corner_style"
+        self.updateCornerStyle()
+    }
+    
+    @objc
+    internal func updateCornerStyle() {
+        let cornerRaw = SettingManager.shared.getString(for: "message_corner_style") ?? "no_tail"
+        self.cornerRadius = SettingManager.shared.getString(for: "message_corner_radius") ?? "16"
+        self.messageCorner = MessageStyleConfig.MessageBubbleContainer.nameFromVerbose(cornerRaw)
+        self.avatarVerticalPosition = SettingManager.shared.getString(for: "avatar_chat_vertical_position")?.lowercased() ?? "bottom"
     }
     
 //    @objc
 //    interna;
     
     var previousFrame: CGRect = .zero
+    
+    
     
     final func configureDataset() {
         do {
@@ -928,28 +1100,7 @@ class ChatViewController: MessagesViewController {
         gradient.startPoint = CGPoint(x: 0.0, y: 1.0)
         gradient.endPoint = CGPoint(x: 1.0, y: 0.0)
         
-        let backgroundResourceName = SettingManager.shared.getString(for: "chat_chooseBackground") ?? "None"
-        if backgroundResourceName != "None" {
-            backgroundImage.image = UIImage(named: backgroundResourceName.lowercased())?
-                .withRenderingMode(.alwaysTemplate)
-                .resizableImage(withCapInsets: UIEdgeInsets.zero,
-                                resizingMode: .tile)
-            backgroundImage.tintColor = .systemBackground
-            backgroundImage.alpha = 0.1
-            backgroundImage.contentMode = .scaleAspectFill
-        } else {
-            backgroundImage.image = nil
-        }
-        
-        if conversationType.isEncrypted {
-            gradient.colors = [
-                CGColor(red: 253/255, green: 216/255, blue: 25/255, alpha: 1.0),
-                CGColor(red: 232/255, green: 5/255, blue: 5/255, alpha: 1.0)
-            ]
-        } else {
-            let backgroundResourceColor = SettingManager.shared.getString(for: "chat_chooseBackgroundColor") ?? "None"
-            gradient.colors = ChatViewController.getColorsForGradient(forColor: BackgroundColor(rawValue: backgroundResourceColor) ?? .purple)
-        }
+        updateBackground()
         
         gradientView.layer.addSublayer(gradient)
         backgroundView.addSubview(gradientView)
@@ -1010,10 +1161,22 @@ class ChatViewController: MessagesViewController {
         self.xabberInputView.searchPanel.onSeekUpCallback = self.onSearchPanelSeekUp
         self.xabberInputView.searchPanel.onSeekDownCallback = self.onSearchPanelSeekDown
         self.xabberInputView.searchPanel.onChangeViewStateCallback = self.onSearchPanelChangeChatViewState
+        self.view.addSubview(self.recordLockIndicator)
+        self.recordLockIndicator.tintColor = self.accountPallete.tint500
+        
     }
     
     override func shouldChangeFrame() {
         super.shouldChangeFrame()
+        var navbarHeight: CGFloat = 50
+        if let topInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
+            navbarHeight += topInset
+        }
+        if AudioManager.shared.player != nil {
+            self.configureSharedAudioPanel()
+        } else {
+            self.hideSharedAudioPanel()
+        }
         if previousFrame == self.view.bounds {
             return
         }
@@ -1029,29 +1192,7 @@ class ChatViewController: MessagesViewController {
         
         gradient.frame = self.view.bounds
         
-//        let dateString = NSAttributedString(
-//            string: sectionsDateFormatter.string(from: Date()),
-//            attributes: [
-//                .font: UIFont.preferredFont(forTextStyle: .caption1).italic(),
-//                .foregroundColor: UIColor.white,
-//            ]
-//        )
-//        let constraintBox = CGSize(width: UIScreen.main.bounds.width, height: .greatestFiniteMagnitude)
-//        let dateRect = dateString.boundingRect(with: constraintBox, options: [
-//            .usesLineFragmentOrigin,
-//            .usesFontLeading
-//        ], context: nil).integral
-//
-//        let dateSize = CGSize(width: dateRect.size.width + 4 + floatingDateView.messageLabelInsets.horizontal, height: dateRect.size.height + 4 + floatingDateView.messageLabelInsets.vertical)
-//
-//        floatingDateView.frame = CGRect(origin: .zero, size: dateSize)
-//        floatingDateView.center = CGPoint(x: self.view.center.x, y: 100)
-//        floatingDateView.configure(dateString)
         
-        var navbarHeight: CGFloat = 50
-        if let topInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
-            navbarHeight += topInset
-        }
         self.navbarOverlayView.frame = CGRect(
             width: self.view.bounds.width,
             height: navbarHeight
@@ -1067,6 +1208,16 @@ class ChatViewController: MessagesViewController {
         
         let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
         self.xabberInputView.setupFrames(frame)
+        
+        self.recordLockIndicator.frame = CGRect(
+            origin: CGPoint(x: self.view.frame.width - 42, y: self.view.frame.height - 48 - inputHeight),
+            size: CGSize(square: 38)
+        )
+        
+        self.scrollDownButton.frame = CGRect(
+            origin: CGPoint(x: self.view.frame.width - 42, y: self.view.frame.height - 48 - inputHeight),
+            size: CGSize(square: 38)
+        )
         
         (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
             .cache.invalidate()
@@ -1099,6 +1250,18 @@ class ChatViewController: MessagesViewController {
         )
         NotificationCenter.default.addObserver(
             self,
+            selector: #selector(reloadDatasource),
+            name: .chatInterfaceChanged,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(updateBackground),
+            name: .chatBackgroundChanged,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
             selector: #selector(self.keyboardWillShowNotification(_:)),
             name: UIWindow.keyboardWillShowNotification,
             object: nil
@@ -1115,7 +1278,15 @@ class ChatViewController: MessagesViewController {
             name: UIWindow.keyboardWillChangeFrameNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(self.onMeteringLevelDidUpdate(_:)),
+            name: .recorderDidUpdateMeteringLevelNotification,
+            object: nil
+        )
     }
+    
+    var recordedPCM: [Float] = []
     
     @objc
     internal func willEnterForeground() {
@@ -1178,8 +1349,35 @@ class ChatViewController: MessagesViewController {
         self.configure()
     }
     
+    @objc func updateBackground() {
+        let backgroundResourceName = SettingManager.shared.getString(for: "chat_chooseBackground") ?? "None"
+        if backgroundResourceName != "None" {
+            backgroundImage.image = UIImage(named: backgroundResourceName.lowercased())?
+                .withRenderingMode(.alwaysTemplate)
+                .resizableImage(withCapInsets: UIEdgeInsets.zero,
+                                resizingMode: .tile)
+            backgroundImage.tintColor = .systemBackground
+            backgroundImage.alpha = 0.1
+            backgroundImage.contentMode = .scaleAspectFill
+        } else {
+            backgroundImage.image = nil
+        }
+        
+        if conversationType.isEncrypted {
+            gradient.colors = [
+                CGColor(red: 253/255, green: 216/255, blue: 25/255, alpha: 1.0),
+                CGColor(red: 232/255, green: 5/255, blue: 5/255, alpha: 1.0)
+            ]
+        } else {
+            let backgroundResourceColor = SettingManager.shared.getString(for: "chat_chooseBackgroundColor") ?? "None"
+            gradient.colors = ChatViewController.getColorsForGradient(forColor: BackgroundColor(rawValue: backgroundResourceColor) ?? .purple)
+        }
+    }
+    
     override func reloadDatasource() {
+        updateCornerStyle()
         userBarButton.setMask()
+        self.messagesCollectionView.reloadData()
     }
     
     override func viewWillAppear(_ animated: Bool) {
@@ -1199,6 +1397,12 @@ class ChatViewController: MessagesViewController {
             inputHeight += bottomInset
         }
         self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 40, right: 0)
+        
+        self.recordLockIndicator.frame = CGRect(
+            origin: CGPoint(x: self.view.frame.width - 42, y: self.view.frame.height - 52 - inputHeight),
+            size: CGSize(square: 38)
+        )
+        
         self.lowPrioritySubscribtions()
         self.setupEncryptedChat()
         if self.datasource.isEmpty {
@@ -1242,6 +1446,7 @@ class ChatViewController: MessagesViewController {
         self.hideFloatingDateObserver.accept(true)
         self.showFloatingDateObserver.accept(false)
         self.pinnedDateView.hide(withoutAnimation: true)
+        self.topPanelState.accept(.audioPlayer)
     }
     
     

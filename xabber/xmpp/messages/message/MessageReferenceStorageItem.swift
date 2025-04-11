@@ -27,153 +27,6 @@ import CryptoSwift
 
 class MessageReferenceStorageItem: Object {
     
-    struct Model {
-        let primary: String
-        let messageId: String
-        let owner: String
-        let jid: String
-        let kind_: String
-        let mimeType: String
-        let begin: Int
-        let end: Int
-        let metadata_: String
-        let isDownloaded: Bool
-        let isOriginalMissed: Bool
-        
-        var kind: Kind {
-            get {
-                return Kind(rawValue: kind_) ?? .none
-            }
-        }
-        var range: NSRange {
-            get {
-                return NSRange(begin..<end)
-            }
-        }
-        var metadata: [String: Any]? {
-            get {
-                if let data = metadata_.data(using: .utf8) {
-                    do {
-                        return try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
-                    } catch {
-                        DDLogDebug("cant create json object from reference metadata with id: \(messageId)")
-                    }
-                }
-                return nil
-            }
-        }
-        var sizeInBytesRaw: Int {
-            get {
-                return metadata?["size"] as? Int ?? 0
-            }
-        }
-        
-        var sizeInBytes: String? {
-            get {
-                guard let size = metadata?["size"] as? Int else { return nil}
-                let formatter = ByteCountFormatter()
-                formatter.allowedUnits = [.useKB, .useMB]
-                formatter.countStyle = .binary
-                return formatter
-                    .string(fromByteCount: Int64(size))
-                    .replacingOccurrences(of: ",", with: ".")
-                    .replacingOccurrences(of: "MB", with: "MiB")
-                    .replacingOccurrences(of: "KB", with: "KiB")
-            }
-        }
-        
-        var sizeInPx: CGSize? {
-            get {
-                guard let height = metadata?["height"] as? Int,
-                    let width = metadata?["width"] as? Int else {
-                        return nil
-                }
-                return CGSize(width: width, height: height)
-            }
-        }
-        
-//        var sizeInPxThumb: CGSize? {
-//            get {
-//                guard let height = metadata?["height_thumb"] as? Int,
-//                    let width = metadata?["width_thumb"] as? Int else {
-//                        return nil
-//                }
-//                return CGSize(width: width, height: height)
-//            }
-//        }
-        
-        var meteringLevels: [Float]? {
-            get {
-                if let metersString = self.metadata?["meters"] as? String {
-                    return metersString.split(separator: " ").compactMap { return Float($0) }
-                }
-                return nil
-            }
-        }
-        var uploadUrl: URL? {
-            get {
-                guard let uri = self.metadata?["putUri"] as? String else { return nil }
-                return URL(string: uri.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? "")
-            }
-        }
-        
-        var localFileUrl: URL? {
-            get {
-                guard let uri = self.metadata?["localFileUri"] as? String else { return nil }
-                return URL(string: uri.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? "")
-            }
-        }
-        
-        var downloadUrl: URL? {
-            get {
-                guard let uri = self.metadata?["uri"] as? String else { return nil }
-                return URL(string: uri.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? "")
-            }
-        }
-        
-        var videoPreviewKey: String? {
-            get {
-                guard let key = self.metadata?["thumbnail"] as? String else { return nil }
-                return key
-            }
-        }
-        
-        var videoOrientation: String? {
-            get {
-                guard let orientation = self.metadata?["orientation"] as? String else { return nil }
-                return orientation
-            }
-        }
-        
-        var audioDuration: CGFloat? {
-            get {
-                guard let duration = self.metadata?["duration"] as? CGFloat else { return nil }
-                return duration
-            }
-        }
-        
-        var date: String? {
-            get {
-                guard let date = self.metadata?["date"] as? String else { return nil }
-                return date
-            }
-        }
-        
-        var sender_name: String? {
-            get {
-                guard let sender = self.metadata?["sender_name"] as? String else { return nil }
-                return sender
-            }
-        }
-        
-        var duration: String? {
-            get {
-                guard let duration = self.metadata?["video_duration"] as? String else { return nil }
-                return duration
-            }
-        }
-    }
-    
     enum Kind: String {
         case media = "media"
         case voice = "voice"
@@ -217,9 +70,7 @@ class MessageReferenceStorageItem: Object {
     override static func ignoredProperties() -> [String] {
         return ["temporaryData", "cachedMetadata", "model", "conversationType"]
     }
-    
-    var model: Model?
-    
+        
     public var temporaryData: Data? = nil
     
     var kind: Kind {
@@ -282,6 +133,18 @@ class MessageReferenceStorageItem: Object {
         }
     }
     
+    var decodedUrl: URL? {
+        get {
+            guard let uri = self.metadata?["decodedUrl"] as? String else { return nil }
+            return URL(string: uri.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? "")
+        }
+        set {
+            if let uri = newValue?.absoluteString {
+                self.metadata?["decodedUrl"] = uri
+            }
+        }
+    }
+    
     var videoPreviewKey: String? {
         get {
             guard let key = self.metadata?["thumbnail"] as? String else { return nil }
@@ -319,6 +182,16 @@ class MessageReferenceStorageItem: Object {
         }
         set {
             self.metadata?["sender_name"] = newValue
+        }
+    }
+    
+    var duration: Int? {
+        get {
+            guard let duration = self.metadata?["duration"] as? Int else { return nil }
+            return duration
+        }
+        set {
+            self.metadata?["duration"] = newValue
         }
     }
     
@@ -380,23 +253,6 @@ class MessageReferenceStorageItem: Object {
         }
     }
     
-    public final func loadModel() -> Model? {
-        self.model = Model(
-            primary: self.primary,
-            messageId: self.messageId,
-            owner: self.owner,
-            jid: self.jid,
-            kind_: self.kind_,
-            mimeType: self.mimeType,
-            begin: self.begin,
-            end: self.end,
-            metadata_: self.metadata_,
-            isDownloaded: self.isDownloaded,
-            isOriginalMissed: self.isMissed
-        )
-        return self.model
-    }
-    
     var metadata: [String: Any]? {
         get {
             if self.isInvalidated { return nil }
@@ -454,13 +310,13 @@ class MessageReferenceStorageItem: Object {
     
     var meteringLevels: [Float]? {
         get {
-            if let metersString = self.metadata?["meters"] as? String {
+            if let metersString = self.metadata?["pcm"] as? String {
                 return metersString.split(separator: " ").compactMap { return Float($0) }
             }
             return nil
         } set {
             if let value = newValue {
-                self.metadata?["meters"] = value.compactMap{ return "\($0)"}.joined(separator: " ")
+                self.metadata?["pcm"] = value.compactMap{ return "\($0)"}.joined(separator: " ")
             }
         }
     }
@@ -483,44 +339,44 @@ class MessageReferenceStorageItem: Object {
         }
     }
     
-    static public func prepareVoice(message primary: String) {
-        do {
-            let realm = try  WRealm.safe()
-            if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
-                instance.references.forEach{ $0.prepare() }
-                instance.inlineForwards.forEach { $0.references.forEach { $0.prepare() } }
-            }
-        } catch {
-            DDLogDebug("MessageReferenceStorageItem: \(#function). \(error.localizedDescription)")
-        }
-    }
+//    static public func prepareVoice(message primary: String) {
+//        do {
+//            let realm = try  WRealm.safe()
+//            if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
+//                instance.references.forEach{ $0.prepare() }
+//                instance.inlineForwards.forEach { $0.references.forEach { $0.prepare() } }
+//            }
+//        } catch {
+//            DDLogDebug("MessageReferenceStorageItem: \(#function). \(error.localizedDescription)")
+//        }
+//    }
+//    
+//    static public func prepareVoice(inline messageId: String) {
+//        do {
+//            let realm = try  WRealm.safe()
+//            realm.objects(MessageForwardsInlineStorageItem.self).filter("messageId == %@", messageId).forEach {
+//                instance in
+//                instance.references.forEach { $0.prepare() }
+//                instance.subforwards.forEach { $0.references.forEach { $0.prepare() } }
+//            }
+//        } catch {
+//            DDLogDebug("MessageReferenceStorageItem: \(#function). \(error.localizedDescription)")
+//        }
+//    }
     
-    static public func prepareVoice(inline messageId: String) {
-        do {
-            let realm = try  WRealm.safe()
-            realm.objects(MessageForwardsInlineStorageItem.self).filter("messageId == %@", messageId).forEach {
-                instance in
-                instance.references.forEach { $0.prepare() }
-                instance.subforwards.forEach { $0.references.forEach { $0.prepare() } }
-            }
-        } catch {
-            DDLogDebug("MessageReferenceStorageItem: \(#function). \(error.localizedDescription)")
-        }
-    }
-    
-    static public func prepareVoice(for messageId: String, jid: String, metadata: String) {
-        do {
-            let realm = try  WRealm.safe()
-            realm
-                .objects(MessageReferenceStorageItem.self)
-                .filter("messageId == %@ AND jid == %@ AND metadata_ == %@", messageId, jid, metadata)
-                .forEach {
-                $0.prepare()
-            }
-        } catch {
-            DDLogDebug("MessageReferenceStorageItem: \(#function). \(error.localizedDescription)")
-        }
-    }
+//    static public func prepareVoice(for messageId: String, jid: String, metadata: String) {
+//        do {
+//            let realm = try  WRealm.safe()
+//            realm
+//                .objects(MessageReferenceStorageItem.self)
+//                .filter("messageId == %@ AND jid == %@ AND metadata_ == %@", messageId, jid, metadata)
+//                .forEach {
+//                $0.prepare()
+//            }
+//        } catch {
+//            DDLogDebug("MessageReferenceStorageItem: \(#function). \(error.localizedDescription)")
+//        }
+//    }
     
     static public func prepareVideo(message primary: String) {
         do {
@@ -565,15 +421,23 @@ class MessageReferenceStorageItem: Object {
             return
         }
         switch kind {
-        case .voice:
-            guard let uri = metadata?["uri"] as? String,
-                  let url = URL(string: uri.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? "") else {
-                    return
-            }
-//            if OpusAudio.shared.isCached(url) && self.isDownloaded { return }
-            let messageId = self.messageId
-            let jid = self.jid
-            let metadata_ = self.metadata_
+            case .voice:
+                break
+//                guard let uri = metadata?["uri"] as? String,
+//                      let url = URL(string: uri.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? "") else {
+//                        return
+//                }
+    //            if OpusAudio.shared.isCached(url) && self.isDownloaded { return }
+//                let messageId = self.messageId
+//                let jid = self.jid
+//                let metadata_ = self.metadata_
+                
+//                do {
+//                    try AudioMessageReceiver.shared.receive(primary: self.primary)
+//                } catch {
+//                    DDLogDebug("MessageReferenceStorageItem: \(#function). \(error.localizedDescription)")
+//                }
+                
 //            OpusAudio.shared.add(url) { (result, meters, duration) in
 //                guard result else { return }
 //                do {
@@ -593,55 +457,85 @@ class MessageReferenceStorageItem: Object {
 //                    DDLogDebug(error.localizedDescription)
 //                }
 //            }
-        case .media:
-            if mimeType == "video" {
-                
-                if CommonConfigManager.shared.config.use_file_enryption_by_default {
-                    let primary = self.primary
-                    do {
-                        let realm = try WRealm.safe()
-                        try realm.write {
-                            realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: primary)?.isDownloading = true
-                        }
-                    } catch {
-                        DDLogDebug("MessageReferenceStorageItem: \(#function). \(error.localizedDescription)")
-                    }
-                    do {
-                        guard let url = self.downloadUrl else { return }
-                        let encryptedData = try Data(contentsOf: url)
-                        guard let keyb64 = self.metadata?["encryption-key"] as? String,
-                              let ivb64 =  self.metadata?["iv"] as? String else { return }
-                        let encryptionKeyRaw = Array<UInt8>(base64: keyb64)
-                        let ivRaw = Array<UInt8>(base64: ivb64)
-                        let gcm = GCM(iv: ivRaw, mode: .combined)
-                        let aes = try AES(key: encryptionKeyRaw, blockMode: gcm, padding: .noPadding)
-                        let decrypted = try aes.decrypt(Array(encryptedData))
-                        let data = Data(decrypted)
-                        var path = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-                        path?.appendPathComponent(url.lastPathComponent)
-                        guard let resultFilePath = path else { return }
-                        try data.write(to: resultFilePath, options: Data.WritingOptions.completeFileProtection)
+            case .media:
+                if mimeType == "video" {
+                    
+                    if CommonConfigManager.shared.config.use_file_enryption_by_default {
                         let primary = self.primary
-                            
-                        let realm = try WRealm.safe()
-                        let instance = realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: primary)
-                        try realm.write {
-                            instance?.isDownloaded = true
-                            instance?.localFileUrl = resultFilePath
+                        do {
+                            let realm = try WRealm.safe()
+                            try realm.write {
+                                realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: primary)?.isDownloading = true
+                            }
+                        } catch {
+                            DDLogDebug("MessageReferenceStorageItem: \(#function). \(error.localizedDescription)")
                         }
-                        
-                        guard let key = self.videoPreviewKey else {
-                            guard let url = self.downloadUrl?.absoluteString else { return }
-                            let key = [self.jid, self.owner, url].prp()
-                            let result = self.extractFrameFromVideo(forKey: key)
+                        do {
+                            guard let url = self.downloadUrl else { return }
+                            let encryptedData = try Data(contentsOf: url)
+                            guard let keyb64 = self.metadata?["encryption-key"] as? String,
+                                  let ivb64 =  self.metadata?["iv"] as? String else { return }
+                            let encryptionKeyRaw = Array<UInt8>(base64: keyb64)
+                            let ivRaw = Array<UInt8>(base64: ivb64)
+                            let gcm = GCM(iv: ivRaw, mode: .combined)
+                            let aes = try AES(key: encryptionKeyRaw, blockMode: gcm, padding: .noPadding)
+                            let decrypted = try aes.decrypt(Array(encryptedData))
+                            let data = Data(decrypted)
+                            var path = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+                            path?.appendPathComponent(url.lastPathComponent)
+                            guard let resultFilePath = path else { return }
+                            try data.write(to: resultFilePath, options: Data.WritingOptions.completeFileProtection)
+                            let primary = self.primary
+                                
+                            let realm = try WRealm.safe()
+                            let instance = realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: primary)
+                            try realm.write {
+                                instance?.isDownloaded = true
+                                instance?.localFileUrl = resultFilePath
+                            }
+                            
+                            guard let key = self.videoPreviewKey else {
+                                guard let url = self.downloadUrl?.absoluteString else { return }
+                                let key = [self.jid, self.owner, url].prp()
+                                let result = self.extractFrameFromVideo(forKey: key)
+                                do {
+                                    let realm = try WRealm.safe()
+                                    let primary = self.primary
+                                    let instance = realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: primary)
+                                    try realm.write {
+                                        instance?.isDownloaded = true
+                                        instance?.videoPreviewKey = key
+                                        instance?.video_duration = result.video_duration ?? ""
+                                    }
+                                    
+                                } catch {
+                                    DDLogDebug("MessageReferenceStorageItem: \(#function). \(error.localizedDescription)")
+                                }
+                                
+                                
+                                return
+                            }
+                            _ = self.extractFrameFromVideo(forKey: key)
+                            
+                        } catch {
+                            DDLogDebug("MessageReferenceStorageItem: \(#function). \(error.localizedDescription)")
+                        }
+                    } else {
+                        guard let key = videoPreviewKey else {
+                            guard let url = downloadUrl?.absoluteString else { return }
+                            let key = [jid, owner, url].prp()
+                            let result = extractFrameFromVideo(forKey: key)
                             do {
                                 let realm = try WRealm.safe()
-                                let primary = self.primary
-                                let instance = realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: primary)
+                                let instances = realm
+                                    .objects(MessageReferenceStorageItem.self)
+                                    .filter("messageId == %@ AND jid == %@ AND metadata_ == %@", messageId, jid, metadata_)
                                 try realm.write {
-                                    instance?.isDownloaded = true
-                                    instance?.videoPreviewKey = key
-                                    instance?.video_duration = result.video_duration ?? ""
+                                    for instance in instances {
+                                        instance.isDownloaded = true
+                                        instance.videoPreviewKey = key
+                                        instance.video_duration = result.video_duration ?? ""
+                                    }
                                 }
                                 
                             } catch {
@@ -651,41 +545,11 @@ class MessageReferenceStorageItem: Object {
                             
                             return
                         }
-                        _ = self.extractFrameFromVideo(forKey: key)
-                        
-                    } catch {
-                        DDLogDebug("MessageReferenceStorageItem: \(#function). \(error.localizedDescription)")
+                        _ = extractFrameFromVideo(forKey: key)
                     }
-                } else {
-                    guard let key = videoPreviewKey else {
-                        guard let url = downloadUrl?.absoluteString else { return }
-                        let key = [jid, owner, url].prp()
-                        let result = extractFrameFromVideo(forKey: key)
-                        do {
-                            let realm = try WRealm.safe()
-                            let instances = realm
-                                .objects(MessageReferenceStorageItem.self)
-                                .filter("messageId == %@ AND jid == %@ AND metadata_ == %@", messageId, jid, metadata_)
-                            try realm.write {
-                                for instance in instances {
-                                    instance.isDownloaded = true
-                                    instance.videoPreviewKey = key
-                                    instance.video_duration = result.video_duration ?? ""
-                                }
-                            }
-                            
-                        } catch {
-                            DDLogDebug("MessageReferenceStorageItem: \(#function). \(error.localizedDescription)")
-                        }
-                        
-                        
-                        return
-                    }
-                    _ = extractFrameFromVideo(forKey: key)
+                    
                 }
-                
-            }
-        default: break
+            default: break
         }
     }
     

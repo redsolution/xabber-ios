@@ -450,7 +450,7 @@ extension CloudStorageGalleryViewController: UICollectionViewDataSource {
             return cell
         case .audio:
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: VoiceMediaCollectionCell.cellName, for: indexPath) as! VoiceMediaCollectionCell
-            cell.setup(withReference: item.voiceModel, date: item.date!, send_time: item.time!, sizeInBytes: item.size!, url: item.uri)
+//            cell.setup(withReference: item.voiceModel, date: item.date!, send_time: item.time!, sizeInBytes: item.size!, url: item.uri)
             if item.meters == nil {
                 cell.audioView.configure(.paused, meters: [0.0, 0.0], loading: false, duration: item.audioDuration ?? "", senderName: item.fileName ?? "Audio message", date: item.date!, send_time: item.time!, sizeInBytes: item.size ?? "? КБ")
             }
@@ -668,14 +668,14 @@ extension CloudStorageGalleryViewController: InfoVCDelegate {
     }
     
     func presentPhotoGallery(urls: [URL], senders: [String], dates: [String], times: [String], messageIds: [String], page: Int) {
-        let gallery = CloudPhotoGallery(urls: urls, senders: senders, dates: dates, times: times, messageIds: messageIds)
-        gallery.setPage(page: page)
-        gallery.setupDelegate(photoGalleryDelegate: self)
-        
-        let navigationViewController = UINavigationController(rootViewController: gallery)
-        navigationViewController.modalPresentationStyle = .overFullScreen
-        
-        present(navigationViewController, animated: true)
+//        let gallery = CloudPhotoGallery(urls: urls, senders: senders, dates: dates, times: times, messageIds: messageIds)
+//        gallery.setPage(page: page)
+//        gallery.setupDelegate(photoGalleryDelegate: self)
+//        
+//        let navigationViewController = UINavigationController(rootViewController: gallery)
+//        navigationViewController.modalPresentationStyle = .overFullScreen
+//        
+//        present(navigationViewController, animated: true)
     }
     
     func scrollToMediaGallery() {
