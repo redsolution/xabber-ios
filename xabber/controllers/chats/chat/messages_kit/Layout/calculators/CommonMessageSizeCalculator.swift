@@ -385,7 +385,7 @@ class CommonMessageSizeCalculator: CellSizeCalculator {
         let dataSource = messagesLayout.messagesDataSource
         let indexPath = attributes.indexPath
         let message = dataSource.messageForItem(at: indexPath, in: messagesLayout.messagesCollectionView)
-        
+        attributes.messagePrimary = message.primary
         messageContainerSizes(for: message, attributes: attributes)
     }
 }

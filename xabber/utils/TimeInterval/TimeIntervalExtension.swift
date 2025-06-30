@@ -34,9 +34,10 @@ extension TimeInterval {
     var prettyMinuteFormatedString: String {
         get {
             let formatter = DateFormatter()
-            let date = Date(timeIntervalSince1970: self)
             let today = Date()
-            if (NSCalendar.current.dateComponents([.second], from: date, to: today).day ?? 0) <= 59 {
+            let date = Date(timeIntervalSince1970: today.timeIntervalSince1970 - self)
+            let seconds = NSCalendar.current.dateComponents([.second], from: date, to: today)
+            if (NSCalendar.current.dateComponents([.second], from: date, to: today).second ?? 0) <= 61 {
                 formatter.dateFormat = "s \'sec\'"
             } else {
                 formatter.dateFormat = "m \'min\'"

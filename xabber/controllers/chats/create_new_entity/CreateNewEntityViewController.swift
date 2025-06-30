@@ -74,7 +74,12 @@ class CreateNewEntityViewController: UIViewController {
     }
         
     public func configure() {
-        navigationController?.navigationBar.prefersLargeTitles = false
+        if CommonConfigManager.shared.config.use_large_title {
+            self.navigationItem.largeTitleDisplayMode = .automatic
+        } else {
+            self.navigationItem.largeTitleDisplayMode = .never
+        }
+        navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
         navigationItem.backButtonDisplayMode = .minimal
         
         view.addSubview(tableView)

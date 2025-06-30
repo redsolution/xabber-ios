@@ -490,6 +490,7 @@ extension MessageManager {
                                               inlineForwards: [])
 
             instance.updatePrimary()
+            instance.displayAs = .system
             try realm.write {
                 _ = instance.save(commitTransaction: false)
                 realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: self.owner, conversationType: conversationType))?.lastReadId = nil

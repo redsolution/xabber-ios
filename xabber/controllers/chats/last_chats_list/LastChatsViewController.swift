@@ -381,7 +381,7 @@ class LastChatsViewController: BaseViewController {
             return a.jid == b.jid
                     && a.owner == b.owner
                     && a.username == b.username
-                    && a.attributedUsername == b.attributedUsername
+                    && a.attributedUsername?.string == b.attributedUsername?.string
                     && a.message == b.message
                     && a.date == b.date
                     && a.state == b.state
@@ -1243,7 +1243,7 @@ class LastChatsViewController: BaseViewController {
         
         filter
             .asObservable()
-            .debounce(.milliseconds(1), scheduler: MainScheduler.asyncInstance)
+            .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
             .subscribe(onNext: { (value) in
                 switch value {
                 case .chats:
@@ -1337,16 +1337,19 @@ class LastChatsViewController: BaseViewController {
             DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
         }
         
-        addObservers()
     }
     
     internal func unsubscribe() {
         bag = DisposeBag()
         datasetBag = DisposeBag()
-        removeObservers()
     }
     
-    private func addObservers() {
+    override func observer() {
+        super.observer()
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(reloadDatasource),
+                                               name: .newMaskSelected,
+                                               object: nil)
         NotificationCenter
             .default
             .addObserver(self,
@@ -1362,9 +1365,6 @@ class LastChatsViewController: BaseViewController {
         NotifyManager.shared.clearAllNotifications()
     }
     
-    private func removeObservers() {
-        NotificationCenter.default.removeObserver(self)
-    }
     
     internal func activateConstraints() {
         
@@ -1387,7 +1387,7 @@ class LastChatsViewController: BaseViewController {
                             subtitle: "Try to start a new chat".localizeString(id: "try_to_start_new_chat", arguments: []),
                             buttonTitle: "Start new chat".localizeString(id: "start_new_chat", arguments: [])) {
             let vc = CreateNewEntityViewController()
-            showModal(vc)
+            showModal(vc, parent: self)
         }
         
         emptyView.isHidden = true
@@ -1431,7 +1431,13 @@ class LastChatsViewController: BaseViewController {
     
     internal func configureBars() {
         self.title = "Chats"
-        self.navigationController?.navigationBar.prefersLargeTitles = true
+        if CommonConfigManager.shared.config.use_large_title {
+            self.navigationItem.largeTitleDisplayMode = .automatic
+        } else {
+            self.navigationItem.largeTitleDisplayMode = .never
+        }
+        self.navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
+
         if #available(iOS 16.0, *) {
             self.navigationItem.preferredSearchBarPlacement = .stacked
         }
@@ -1545,13 +1551,13 @@ class LastChatsViewController: BaseViewController {
         let vc = SettingsViewController()
         vc.jid = AccountManager.shared.users.first?.jid ?? ""
         vc.owner = AccountManager.shared.users.first?.jid ?? ""
-        showModal(vc)
+        showModal(vc, parent: self)
     }
     
     @objc
     func onAddButtonTouchUpInside(_ sender: AnyObject) {
         let vc = CreateNewEntityViewController()
-        showModal(vc)
+        showModal(vc, parent: self)
     }
     
     @objc
@@ -1600,10 +1606,7 @@ class LastChatsViewController: BaseViewController {
         title = " "
         configure()
         configureSearchBar()
-        NotificationCenter.default.addObserver(self,
-                                               selector: #selector(reloadDatasource),
-                                               name: .newMaskSelected,
-                                               object: nil)
+        
         
 //        let customBar = UIView()
 //            customBar.backgroundColor = .systemGray6
@@ -1640,12 +1643,6 @@ class LastChatsViewController: BaseViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         searchController.isActive = false
-        self.navigationItem.backButtonDisplayMode = .minimal
-        self.navigationController?.navigationBar.prefersLargeTitles = true
-        self.navigationController?.navigationItem.largeTitleDisplayMode = .always
-//        navigationController?.setNavigationBarHidden(false, animated: true)
-//        navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
-//        navigationController?.navigationBar.shadowImage = nil
         NotifyManager.shared.setLastChats(displayed: true)
         isAppeared = true
         self.tabBarController?.tabBar.isHidden = false
@@ -1658,11 +1655,6 @@ class LastChatsViewController: BaseViewController {
         }
         configureBars()
         self.showPlayerViewIfNeeded()
-//        navigationController?.setToolbarItems([UIBarButtonItem(systemItem: .camera), UIBarButtonItem(systemItem: .play)], animated: true)
-//        navigationController?.setToolbarHidden(false, animated: false)
-//        navigationController?.toolbar.tintColor = .systemBlue
-//        navigationController?.toolbar.barTintColor = .systemGray6
-//        self.navigationController?.navigationBar.prefersLargeTitles = true
     }
     
     override func viewDidAppear(_ animated: Bool) {

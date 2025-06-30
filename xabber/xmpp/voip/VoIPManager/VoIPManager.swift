@@ -70,11 +70,8 @@ class VoIPManager: NSObject {
     internal var hasActiveCall: Bool = false
     
     internal var inCallingProcess: Bool = false
-    internal var isCallAccepted: Bool = false {
-        didSet {
-            print("isCallAccepted: ", isCallAccepted)
-        }
-    }
+    internal var isCallAccepted: Bool = false
+    
     internal var isCallEnded: Bool = false
     
     internal var currentCall: VoIPCall? = nil

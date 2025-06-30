@@ -270,7 +270,12 @@ class OnboardingViewController: SimpleBaseViewController {
         self.signInButton.alpha = 1.0
         title = " "
         self.navigationController?.title = " "
-        self.navigationController?.navigationBar.prefersLargeTitles = false
+        if CommonConfigManager.shared.config.use_large_title {
+            self.navigationItem.largeTitleDisplayMode = .automatic
+        } else {
+            self.navigationItem.largeTitleDisplayMode = .never
+        }
+        self.navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
         self.navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
         self.navigationController?.navigationBar.shadowImage = UIImage()
         self.navigationController?.navigationBar.setNeedsLayout()

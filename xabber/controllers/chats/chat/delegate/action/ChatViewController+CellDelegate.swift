@@ -349,7 +349,7 @@ extension ChatViewController: MessageCellDelegate {
             vc.messagePrimary = primary
             vc.jid = self.jid
             vc.owner = self.owner
-            showModal(vc)
+            showModal(vc, parent: self)
         } else {
             let errorMessage = "Unable to send file: \(item.messageError ?? "Unexpected error")"//
             let items = [
@@ -376,7 +376,7 @@ extension ChatViewController: MessageCellDelegate {
                         case "quota":
                             let vc = CloudStorageViewController()
                             vc.configure(jid: self.owner)
-                            showModal(vc)
+                            showModal(vc, parent: self)
                         default:
                             break
                     }

@@ -72,8 +72,6 @@ class InlineMessageAttachmentView: ModernContainerView {
     let messageLabel: MessageLabel = {
         let label = MessageLabel()
         
-//        label.backgroundColor = .white
-        
         return label
     }()
     
@@ -255,14 +253,14 @@ class InlineMessageAttachmentView: ModernContainerView {
     
     func setupSubviews() {
         self.setup()
-        containerView.removeFromSuperview()
-        audiosView.removeFromSuperview()
-        imagesView.removeFromSuperview()
-        videosView.removeFromSuperview()
-        audiosView.removeFromSuperview()
-        filesView.removeFromSuperview()
-        timeMarker.removeFromSuperview()
-        labelContainer.removeFromSuperview()
+//        containerView.removeFromSuperview()
+//        audiosView.removeFromSuperview()
+//        imagesView.removeFromSuperview()
+//        videosView.removeFromSuperview()
+//        audiosView.removeFromSuperview()
+//        filesView.removeFromSuperview()
+//        timeMarker.removeFromSuperview()
+//        labelContainer.removeFromSuperview()
         addSubview(containerView)
         containerView.addSubview(authorLabel)
         containerView.addSubview(imagesView)
@@ -296,6 +294,7 @@ class InlineMessageAttachmentView: ModernContainerView {
         )
         self.timeMarker.configure(text: message.timeMarker, indicator: .none, withBackplate: false)
         self.layer.backgroundColor = MDCPalette.blue.tint100.cgColor
+        self.layoutSubviews()
 //        configure(tail: "none", side: .left, radiusLU: 12, radiusRU: 12, radiusRB: 10, radiusLB: 12, padding: 0)
 //        self.bubble.layer.backgroundColor = MDCPalette.green.tint100.cgColor
         
@@ -335,12 +334,14 @@ class InlineForwardsContainerView: InlineAttachmentView {
     
     func layout(with attributes: MessagesCollectionViewLayoutAttributes) {
         subviews.forEach { $0.removeFromSuperview() }
+        self.inlineViews.removeAll()
         if attributes.forwardsInlineViewSize.isEmpty {
             return
         }
         var offset: CGFloat = 0
         attributes.forwardsInlineViewSize.enumerated().forEach {
             (index, sizeItem) in
+//            let view = inlineViews[index]
             let view = InlineMessageAttachmentView(frame: CGRect(
                 origin: CGPoint(x: 0, y: offset).padding(
                     x: attributes.inlineContainerSizePadding.left,
@@ -351,6 +352,16 @@ class InlineForwardsContainerView: InlineAttachmentView {
                     height: attributes.inlineContainerSizePadding.vertical
                 )
             ))
+            view.frame = CGRect(
+                origin: CGPoint(x: 0, y: offset).padding(
+                    x: attributes.inlineContainerSizePadding.left,
+                    y: attributes.inlineContainerSizePadding.top
+                ),
+                size: sizeItem.messageContainer.padding(
+                    width: attributes.inlineContainerSizePadding.horizontal,
+                    height: attributes.inlineContainerSizePadding.vertical
+                )
+            )
             view.setupSubviews()
             view.layoutContainerView(with: sizeItem, attributes: attributes)
             view.layoutAuthorLabel(with: sizeItem, attributes: attributes)
@@ -362,19 +373,23 @@ class InlineForwardsContainerView: InlineAttachmentView {
             view.layoutTimeMarker(with: sizeItem, attributes: attributes)
 //            view.backgroundColor = MDCPalette.green.tint100
             
+            
             addSubview(view)
             inlineViews.append(view)
-            
             offset += sizeItem.messageContainer.height
         }
     }
     
     func configure(_ messages: [MessageAttachment], palette: MDCPalette, delegate: MessageCellDelegate?) {
         if messages.isEmpty { return }
+        
         messages.enumerated().forEach {
             (index, message) in
-            self.inlineViews[index].delegate = delegate
-            self.inlineViews[index].configure(message, palette: palette)
+//            let view = InlineMessageAttachmentView(frame: .zero)
+            if inlineViews.count > index {
+                inlineViews[index].delegate = delegate
+                inlineViews[index].configure(message, palette: palette)
+            }
         }
     }
     

@@ -370,7 +370,12 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         
-        self.navigationController?.navigationBar.prefersLargeTitles = true
+        if CommonConfigManager.shared.config.use_large_title {
+            self.navigationItem.largeTitleDisplayMode = .automatic
+        } else {
+            self.navigationItem.largeTitleDisplayMode = .never
+        }
+        self.navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
         view.backgroundColor = .systemGroupedBackground
         spinner.startAnimating()
         view.addSubview(spinner)

@@ -170,7 +170,12 @@ class AddNewContactViewController: UIViewController {
     }()
     
     public func configure() {
-        navigationController?.navigationBar.prefersLargeTitles = false
+        if CommonConfigManager.shared.config.use_large_title {
+            self.navigationItem.largeTitleDisplayMode = .automatic
+        } else {
+            self.navigationItem.largeTitleDisplayMode = .never
+        }
+        navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
         
         view.addSubview(tableView)
         tableView.fillSuperview()

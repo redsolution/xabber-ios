@@ -53,7 +53,7 @@ extension LastChatsViewController: UITableViewDelegate {
         vc.jid = item.jid
         vc.conversationType = item.conversationType
         vc.sharedPlayerPaneldelegae = self
-        if UIDevice.current.userInterfaceIdiom == .pad {
+        if UIDevice.current.userInterfaceIdiom == .pad && CommonConfigManager.shared.config.interface_type == "split" {
             self.currentChatVC = vc
             self.playerViewToolbar.delegate = vc
         }

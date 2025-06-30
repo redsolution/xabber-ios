@@ -394,7 +394,12 @@ class LeftMenuViewController: UIViewController {
     
     public func configure() {
         self.title = CommonConfigManager.shared.config.app_name.capitalized
-        navigationController?.navigationBar.prefersLargeTitles = true
+        if CommonConfigManager.shared.config.use_large_title {
+            navigationItem.largeTitleDisplayMode = .automatic
+        } else {
+            navigationItem.largeTitleDisplayMode = .never
+        }
+        navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
         
         view.addSubview(tableView)
         tableView.fillSuperview()
@@ -452,7 +457,7 @@ class LeftMenuViewController: UIViewController {
         let vc = SettingsViewController()
         vc.jid = AccountManager.shared.users.first?.jid ?? ""
         vc.owner = AccountManager.shared.users.first?.jid ?? ""
-        showModal(vc)
+        showModal(vc, parent: self)
         self.splitViewController?.show(.supplementary)
         self.splitViewController?.hide(.primary)
     }

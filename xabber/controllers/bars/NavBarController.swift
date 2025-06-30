@@ -21,6 +21,17 @@
 import UIKit
 import MaterialComponents.MDCPalettes
 
+class SplitTabBarViewController: UISplitViewController {
+    init(_ viewControllers: [UIViewController]) {
+        super.init(style: .doubleColumn)
+        self.viewControllers = viewControllers
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
 class NavBarController: UINavigationController, UINavigationControllerDelegate {
 
     internal let topToolbar: UIToolbar = {
@@ -56,10 +67,13 @@ class NavBarController: UINavigationController, UINavigationControllerDelegate {
     func setupSubviews() {
         self.delegate = self
 //        self.
-        let appearance = UINavigationBarAppearance()
-        appearance.configureWithDefaultBackground()
+        
+        
 //        appearance.backgroundColor = UIColor.systemRed
 //        appearance.titleTextAttributes = [.foregroundColor: UIColor.lightText] // With a red background, make the title more readable.
+        
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithDefaultBackground()
         navigationItem.standardAppearance = appearance
         navigationItem.scrollEdgeAppearance = appearance
         navigationItem.compactAppearance = appearance
@@ -152,17 +166,19 @@ class NavBarController: UINavigationController, UINavigationControllerDelegate {
     
     func showAdditionalPanel(animated: Bool) {
         func transaction(animated: Bool, block: @escaping (() -> Void)) {
-            self.panelShowd = true
-            if animated {
-                UIView.animate(
-                    withDuration: 0.33,
-                    delay: 0.0,
-                    usingSpringWithDamping: 0.6,
-                    initialSpringVelocity: 0.1,
-                    animations: block
-                )
-            } else {
-                block()
+            if !self.panelShowd {
+                self.panelShowd = true
+                if animated {
+                    UIView.animate(
+                        withDuration: 0.33,
+                        delay: 0.0,
+                        usingSpringWithDamping: 0.6,
+                        initialSpringVelocity: 0.1,
+                        animations: block
+                    )
+                } else {
+                    block()
+                }
             }
         }
         self.additionalPanelStack.isHidden = false
@@ -175,7 +191,7 @@ class NavBarController: UINavigationController, UINavigationControllerDelegate {
                 ),
                 size: CGSize(
                     width: self.navigationBar.frame.width,
-                    height: 44 + self.navigationBar.frame.height
+                    height: self.navigationBar.frame.height
                 )
             )
 //            self.navigationBar.frame = CGRect(
@@ -213,17 +229,19 @@ class NavBarController: UINavigationController, UINavigationControllerDelegate {
     
     func hideAdditionalPanel(animated: Bool) {
         func transaction(animated: Bool, block: @escaping (() -> Void)) {
-            self.panelShowd = false
-            if animated {
-                UIView.animate(
-                    withDuration: 0.16,
-                    delay: 0.0,
-                    usingSpringWithDamping: 0.2,
-                    initialSpringVelocity: 0.5,
-                    animations: block
-                )
-            } else {
-                block()
+            if self.panelShowd {
+                self.panelShowd = false
+                if animated {
+                    UIView.animate(
+                        withDuration: 0.16,
+                        delay: 0.0,
+                        usingSpringWithDamping: 0.2,
+                        initialSpringVelocity: 0.5,
+                        animations: block
+                    )
+                } else {
+                    block()
+                }
             }
         }
         transaction(animated: animated) {

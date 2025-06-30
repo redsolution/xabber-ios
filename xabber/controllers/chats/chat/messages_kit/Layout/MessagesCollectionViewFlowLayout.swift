@@ -158,13 +158,8 @@ class MessagesCollectionViewFlowLayout: UICollectionViewFlowLayout {
     }
 
     lazy var commonMessageSizeCalculator = CommonMessageSizeCalculator(layout: self)
-//    lazy var quoteMessageSizeCalculator = QuoteMessageSizeCalculator(layout: self)
     lazy var systemMessageSizeCalculator = SystemMessageSizeCalculator(layout: self)
-//    lazy var mediaMessageSizeCalculator = MediaMessageSizeCalculator(layout: self)
-//    lazy var locationMessageSizeCalculator = LocationMessageSizeCalculator(layout: self)
-//    lazy var stickerMessageSizeCalculator = StickerMessageSizeCalculator(layout: self)
     lazy var initialMessageSizeCalculator = InitialMessageSizeCalculator(layout: self)
-//    lazy var fixedSizeMessageCalculator = FixedSizeMessageCalculator(layout: self)
     lazy var callMessageSizeCalculator = CallMessageSizeCalculator(layout: self)
 
     

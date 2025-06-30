@@ -383,6 +383,9 @@ extension ChatViewController {
             }
             
             var timeString = formatter.string(from: item.date)
+            if item.afterburnInterval > 0 {
+                timeString = "\(timeString) ⦁ \(item.afterburnInterval.prettyMinuteFormatedString)"
+            }
             if item.editDate != nil {
                 timeString = "\(timeString) (edited)"
             }
@@ -693,6 +696,9 @@ extension ChatViewController {
     
     internal final func onTouchEndPage(direction: ChatDirection) {
         print(#function)
+        if self.messagesObserver.count < self.datasourcePageSize {
+            return
+        }
         FeedbackManager.shared.generate(feedback: .success)
 //        DispatchQueue.main.async {
 //            self.messageLoadingActivityIndicator.isHidden = false
@@ -1007,10 +1013,12 @@ extension ChatViewController {
     
     
     func didReceiveChangeset() {
-        if self.canLoadDatasource {
+//        if self.canLoadDatasource {
+            if self.datasource.isNotEmpty {
+                self.shouldShowInitialMessage.accept(false)
+            }
 //            self.loadDatasource(direction: self.chatScrollDirection ?? .up, ignoreGaps: true, samePage: true) { array in
-            guard let minPrimary = self.datasource.filter({ !$0.isFakeMessage }).first?.primary,
-                  let maxPrimary = self.datasource.filter({ !$0.isFakeMessage }).last?.primary,
+            guard let maxPrimary = self.datasource.filter({ !$0.isFakeMessage }).last?.primary,
                   let maxIndexRaw = self.messagesObserver.firstIndex(where: { $0.primary == maxPrimary }) else {
                 return
             }
@@ -1043,7 +1051,7 @@ extension ChatViewController {
             UIView.performWithoutAnimation {
                 self.messagesCollectionView.reconfigureItems(at: updated.compactMap { return IndexPath(row: 0, section: $0.index) })
             }
-        }
+//        }
         
     }
     

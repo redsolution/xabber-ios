@@ -39,13 +39,13 @@ public class TextMessageCell: MessageContentCell {
         return view
     }()
     
-    let forwardsContainer: InlineForwardsContainerView = {
+    var forwardsContainer: InlineForwardsContainerView = {
         let view = InlineForwardsContainerView(frame: .zero)
 //        view.backgroundColor = .orange
         return view
     }()
     
-    let filesView: InlineFilesGridView = {
+    var filesView: InlineFilesGridView = {
         let view = InlineFilesGridView()
                 
 //        view.backgroundColor = .brown
@@ -53,7 +53,7 @@ public class TextMessageCell: MessageContentCell {
         return view
     }()
     
-    let audiosView: InlineAudiosGridView = {
+    var audiosView: InlineAudiosGridView = {
         let view = InlineAudiosGridView()
         
 //        view.backgroundColor = .yellow
@@ -61,7 +61,7 @@ public class TextMessageCell: MessageContentCell {
         return view
     }()
     
-    let videosView: UIView = {
+    var videosView: UIView = {
         let view = UIView()
         
         view.backgroundColor = .clear
@@ -74,7 +74,7 @@ public class TextMessageCell: MessageContentCell {
         return view
     }()
     
-    let imagesView: InlineImagesGridView = {
+    var imagesView: InlineImagesGridView = {
         let view = InlineImagesGridView()
                 
         return view
@@ -251,11 +251,13 @@ public class TextMessageCell: MessageContentCell {
         super.prepareForReuse()
         messageLabel.attributedText = nil
         messageLabel.text = nil
-        forwardsContainer.subviews.forEach { $0.removeFromSuperview() }
-        imagesView.subviews.forEach { $0.removeFromSuperview() }
-        videosView.subviews.forEach { $0.removeFromSuperview() }
-        audiosView.subviews.forEach { $0.removeFromSuperview() }
-        filesView.subviews.forEach { $0.removeFromSuperview() }
+//        forwardsContainer.subviews.forEach { $0.removeFromSuperview() }
+//        forwardsContainer.inlineViews.removeAll()
+//        forwardsContainer = InlineForwardsContainerView(frame: .zero)
+//        imagesView = InlineImagesGridView(frame: .zero)
+////        videosView = UIVi
+//        audiosView = InlineAudiosGridView(frame: .zero)
+//        filesView = InlineFilesGridView(frame: .zero)
         authorView.text = nil
     }
     

@@ -105,7 +105,12 @@ class NotificationsCategoriesViewController: UIViewController {
     
     public func configure() {
         self.title = "Notifications"
-        navigationController?.navigationBar.prefersLargeTitles = true
+        if CommonConfigManager.shared.config.use_large_title {
+            navigationItem.largeTitleDisplayMode = .automatic
+        } else {
+            navigationItem.largeTitleDisplayMode = .never
+        }
+        navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
         
         view.addSubview(tableView)
         tableView.fillSuperview()

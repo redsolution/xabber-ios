@@ -25,12 +25,14 @@ class SignUpEnableNotificationsViewController: SignUpBaseViewController {
         
     override func configure() {
         self.navigationItem.hidesBackButton = true
-        if #available(iOS 13.0, *) {
-            view.backgroundColor = .systemBackground
+        
+        view.backgroundColor = .systemBackground
+        if CommonConfigManager.shared.config.use_large_title {
+            navigationItem.largeTitleDisplayMode = .automatic
         } else {
-            view.backgroundColor = .white
+            navigationItem.largeTitleDisplayMode = .never
         }
-        navigationController?.navigationBar.prefersLargeTitles = false
+        navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
         navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
         navigationController?.navigationBar.shadowImage = UIImage()
         navigationController?.navigationBar.setNeedsLayout()

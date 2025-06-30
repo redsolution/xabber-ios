@@ -228,7 +228,7 @@ class XabberUploadManager: AbstractXMPPManager {
                             var mimeType: String? = nil
                             let referencePrimary = reference.primary
                             guard let filename = reference.filename else { return }
-                            if reference.conversationType_ != ClientSynchronizationManager.ConversationType.omemo.rawValue && reference.conversationType_ != ClientSynchronizationManager.ConversationType.omemo1.rawValue && reference.conversationType_ != ClientSynchronizationManager.ConversationType.axolotl.rawValue {
+//                            if reference.conversationType_ != ClientSynchronizationManager.ConversationType.omemo.rawValue && reference.conversationType_ != ClientSynchronizationManager.ConversationType.omemo1.rawValue && reference.conversationType_ != ClientSynchronizationManager.ConversationType.axolotl.rawValue {
                                 guard let mediaType = reference.metadata?["media-type"] else { return }
                                 mimeType = mediaType as? String
                                 switch reference.mimeType {
@@ -259,7 +259,7 @@ class XabberUploadManager: AbstractXMPPManager {
                                     default:
                                         break
                                 }
-                            }
+//                            }
                             guard reference.localFileUrl != nil else { return }
                             var data = try Data(contentsOf: reference.localFileUrl! as URL)
                             let encryptionKeyb64 = reference.metadata?["encryption-key"] as? String

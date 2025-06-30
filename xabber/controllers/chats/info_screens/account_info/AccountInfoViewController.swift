@@ -371,7 +371,7 @@ class AccountInfoViewController: BaseViewController {
         let vc = AccountColorViewController()
         vc.isModal = true
         vc.configure(for: jid)
-        showModal(vc)
+        showModal(vc, parent: self)
     }
     
     private func getQuota() {

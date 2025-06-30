@@ -525,16 +525,16 @@ class NotificationsListViewController: SimpleBaseViewController {
                 .asObservable()
                 .debounce(.milliseconds(5), scheduler: MainScheduler.asyncInstance)
                 .subscribe { value in
-                    switch value {
-                        case .all:
-                            self.title = "All"
-                        case .security:
-                            self.title = "Security"
-                        case .mentions:
-                            self.title = "Mentions"
-                        case .info:
-                            self.title = "Information"
-                    }
+//                    switch value {
+//                        case .all:
+//                            self.title = "All"
+//                        case .security:
+//                            self.title = "Security"
+//                        case .mentions:
+//                            self.title = "Mentions"
+//                        case .info:
+//                            self.title = "Information"
+//                    }
                     self.loadDatasource()
                     self.tableView.reloadData()
                 } onError: { _ in
@@ -700,13 +700,13 @@ extension NotificationsListViewController: UITableViewDelegate {
                 vc.conversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
                 vc.owner = item.owner
                 vc.jid = item.jid
-                showModal(vc)
+                showModal(vc, parent: self)
             case "notifications":
                 switch item.category {
                     case .device:
                         let vc = DevicesListViewController()
                         vc.configure(for: item.owner)
-                        showModal(vc)
+                        showModal(vc, parent: self)
                     default:
                         break
                 }

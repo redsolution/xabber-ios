@@ -164,7 +164,7 @@ class InlineFilesGridView: InlineAttachmentView {
     
     func configure(_ attachments: [FileAttachment], palette: MDCPalette) {
         self.palette = palette
-        subviews.forEach { $0.removeFromSuperview() }
+//        subviews.forEach { $0.removeFromSuperview() }
         if attachments.isEmpty { return }
         grid.removeAll()
         self.views.forEach { $0.removeFromSuperview() }

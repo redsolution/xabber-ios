@@ -115,7 +115,7 @@ extension AccountEditViewController {
         vc.delegate = self
         vc.palette = nil
         vc.lastSettedEmoji = nil
-        showModal(vc)
+        showModal(vc, parent: self)
     }
 
     

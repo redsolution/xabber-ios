@@ -620,7 +620,7 @@ extension PhotoGallery {
         
         let activityVC = UIActivityViewController(activityItems: objectsToShare, applicationActivities: [xabberActivity])
         activityVC.excludedActivityTypes = []
-        showModal(activityVC)
+        showModal(activityVC, parent: self)
     }
 }
 

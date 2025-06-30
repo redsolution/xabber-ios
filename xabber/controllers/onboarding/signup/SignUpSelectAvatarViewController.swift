@@ -84,7 +84,12 @@ class SignUpSelectAvatarViewController: SignUpBaseViewController {
         } else {
             view.backgroundColor = .white
         }
-        navigationController?.navigationBar.prefersLargeTitles = false
+        if CommonConfigManager.shared.config.use_large_title {
+            navigationItem.largeTitleDisplayMode = .automatic
+        } else {
+            navigationItem.largeTitleDisplayMode = .never
+        }
+        navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
         navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
         navigationController?.navigationBar.shadowImage = UIImage()
         navigationController?.navigationBar.setNeedsLayout()
@@ -311,7 +316,7 @@ class SignUpSelectAvatarViewController: SignUpBaseViewController {
         vc.delegate = self
         vc.palette = avatarPalette
         vc.lastSettedEmoji = avatarEmoji
-        showModal(vc)
+        showModal(vc, parent: self)
     }
     
     private final func onEmojiSelected() {

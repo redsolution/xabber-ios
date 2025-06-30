@@ -178,9 +178,9 @@ extension ChatViewController {
                 case .omemo, .omemo1, .axolotl:
                     self.iconButton.setImage(imageLiteral("person.badge.shield.checkmark.fill", dimension: 28), for: .normal)
                     self.titleLabel.text = "Encrypted chat".localizeString(id: "intro_encrypted_chat", arguments: [])
-                    self.descriptionLabel.text = "".localizeString(id: "", arguments: [])
-                    self.learnmoreButton.setAttributedTitle(NSAttributedString(string: "".localizeString(id: "", arguments: []), attributes: [
-                        .foregroundColor: UIColor.tintColor.cgColor,
+                    self.descriptionLabel.text = "Messages in this chat are encrypted with end-to-end encryption. You must always confirm the identity of your contact by verifying encryption keys fingerprints.".localizeString(id: "intro_encrypted_chat_text", arguments: [])
+                    self.learnmoreButton.setAttributedTitle(NSAttributedString(string: "Learn more about encrypted chats".localizeString(id: "intro_encrypted_chat_learn", arguments: []), attributes: [
+                        .foregroundColor: UIColor.tintColor,
                         .font: UIFont.systemFont(ofSize: 14, weight: .regular)
                     ]), for: .normal)
                 case .notifications:

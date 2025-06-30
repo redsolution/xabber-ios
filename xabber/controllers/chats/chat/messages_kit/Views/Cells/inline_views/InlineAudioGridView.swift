@@ -617,7 +617,7 @@ public class InlineAudiosGridView: InlineAttachmentView {
     
     func configure(_ attachments: [AudioAttachment], palette: MDCPalette) {
         self.palette = palette
-        subviews.forEach { $0.removeFromSuperview() }
+//        subviews.forEach { $0.removeFromSuperview() }
         if attachments.isEmpty { return }
         grid.removeAll()
         

@@ -631,7 +631,7 @@ class SettingsViewController: BaseViewController {
                                        key: .accountDelete)
                         ])
                     ]),
-                    Datasource(section: .accountSettings, title: "Devices", icon: "xabber.devices.square.fill", color: UIColor.systemBlue, key: .accountSessions),
+                    Datasource(section: .accountSettings, title: "Devices", icon: "custom.desktopcomputer.square.fill", color: UIColor.systemBlue, key: .accountSessions),
                     Datasource(section: .accountSettings, title: "Subscriptions", icon: "xabber.lightbulb.square.fill", color: UIColor.systemBlue, key: .subscriptions)
                 ]))
             } else {
@@ -647,7 +647,7 @@ class SettingsViewController: BaseViewController {
                                        key: .accountDelete)
                         ])
                     ]),
-                    Datasource(section: .accountSettings, title: "Devices", icon: "xabber.devices.square.fill", color: UIColor.systemBlue, key: .accountSessions)
+                    Datasource(section: .accountSettings, title: "Devices", icon: "custom.desktopcomputer.square.fill", color: UIColor.systemBlue, key: .accountSessions)
                 ]))
             }
             
@@ -689,6 +689,20 @@ class SettingsViewController: BaseViewController {
         ]
         if CommonConfigManager.shared.config.locked_background.isNotEmpty {
             interfaceChilds = [
+                Datasource(section: .chat, title: Datasource.Section.chat.description(), childs: [
+                    Datasource(section: .contactList, title: "Corner style", itemType: .selector,
+                               values: MessageStyleConfig.MessageBubbleContainer.verboseNames(),
+                               current: (dict[Datasource.Keys.messageCornerStyle.rawValue] as? String) ?? "No tail",
+                               key: .messageCornerStyle),
+                    Datasource(section: .contactList, title: "Corner radius", itemType: .selector,
+                               values: MessageStyleConfig.MessageRadius.getRadiusList(),
+                               current: (dict[Datasource.Keys.messageCornerRadius.rawValue] as? String) ?? "16",
+                               key: .messageCornerRadius),
+                    Datasource(section: .contactList, title: "Avatar position", itemType: .selector,
+                               values: ["Top", "Bottom"],
+                               current: (dict[Datasource.Keys.avatarChatPosition.rawValue] as? String) ?? "Bottom",
+                               key: .avatarChatPosition)
+                ]),
                 Datasource(section: .contactList, title: Datasource.Section.contactList.description(), childs: [
                     Datasource(section: .contactList, title: "Avatars", itemType: .selector,
                                values: AccountMasksManager.shared.masksList(),

@@ -201,7 +201,12 @@ class CloudStorageDeleteViewController: CloudStorageShowFilesViewController {
         view.backgroundColor = .systemGroupedBackground
         
         self.navigationItem.title = "Delete files"
-        self.navigationController?.navigationBar.prefersLargeTitles = true
+        if CommonConfigManager.shared.config.use_large_title {
+            self.navigationItem.largeTitleDisplayMode = .automatic
+        } else {
+            self.navigationItem.largeTitleDisplayMode = .never
+        }
+        self.navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
     }
     
     override func viewDidAppear(_ animated: Bool) {

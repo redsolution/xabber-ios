@@ -949,7 +949,7 @@ extension GroupchatInfoViewControllerSecondary {
         vc.delegate = self
         vc.palette = nil
         vc.lastSettedEmoji = nil
-        showModal(vc)
+        showModal(vc, parent: self)
     }
     
     internal final func onOpenEmojiPicker() {

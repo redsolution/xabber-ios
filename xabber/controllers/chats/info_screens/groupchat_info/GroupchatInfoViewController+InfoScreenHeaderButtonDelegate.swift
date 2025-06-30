@@ -78,7 +78,7 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
         vc.owner = self.owner
         vc.isGroupchat = true
         vc.isCircleSelectView = true
-        showModal(vc)
+        showModal(vc, parent: self)
     }
     
     internal func openChat() {
@@ -99,7 +99,7 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
         shouldResetNavbar = false
         let vc = GroupchatInviteViewController()
         vc.configure(jid: self.jid, owner: self.owner)
-        showModal(vc)
+        showModal(vc, parent: self)
     }
     
     internal func onChangeNotifications() {
@@ -212,7 +212,7 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
         let vc = GroupchatSettingsViewController()
         vc.isStatus = false
         vc.configure(self.owner, jid: self.jid)
-        showModal(vc)
+        showModal(vc, parent: self)
 //        self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
 //        self.navigationController?.navigationBar.shadowImage = nil
 //        navigationController?.pushViewController(vc, animated: true)
@@ -250,7 +250,7 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
         vc.isStatus = true
         vc.entity = self.isIncognitoChat ? .incognitoChat : .groupchat
         vc.configure(self.owner, jid: self.jid)
-        showModal(vc)
+        showModal(vc, parent: self)
 //        self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
 //        self.navigationController?.navigationBar.shadowImage = nil
 //        navigationController?.pushViewController(vc, animated: true)
@@ -281,7 +281,7 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
             DDLogDebug("GroupchatInfoViewController: \(#function). \(error.localizedDescription)")
         }
         
-        showModal(vc)
+        showModal(vc, parent: self)
     }
     
     func clearHistory() {
@@ -508,7 +508,7 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
         vc.delegate = self
         vc.palette = nil
         vc.lastSettedEmoji = nil
-        showModal(vc)
+        showModal(vc, parent: self)
     }
     
     internal final func onOpenEmojiPicker() {

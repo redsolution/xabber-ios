@@ -842,13 +842,13 @@ class ContactsViewController: BaseViewController {
         let vc = SettingsViewController()
         vc.jid = AccountManager.shared.users.first?.jid ?? ""
         vc.owner = AccountManager.shared.users.first?.jid ?? ""
-        showModal(vc)
+        showModal(vc, parent: self)
     }
     
     @objc
     func onAddButtonTouchUpInside(_ sender: AnyObject) {
         let vc = CreateNewEntityViewController()
-        showModal(vc)
+        showModal(vc, parent: self)
     }
     
     internal final func showRegisterYubikeyDialog() {
@@ -879,7 +879,12 @@ class ContactsViewController: BaseViewController {
     
     internal func configureBars() {
         self.title = "Contacts"
-        self.navigationController?.navigationBar.prefersLargeTitles = true
+        if CommonConfigManager.shared.config.use_large_title {
+            self.navigationItem.largeTitleDisplayMode = .automatic
+        } else {
+            self.navigationItem.largeTitleDisplayMode = .never
+        }
+        self.navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
         if #available(iOS 16.0, *) {
             self.navigationItem.preferredSearchBarPlacement = .stacked
         }
@@ -980,7 +985,7 @@ class ContactsViewController: BaseViewController {
                             subtitle: "Try to add a contact".localizeString(id: "try_to_add_a_contact", arguments: []),
                             buttonTitle: "Add contact".localizeString(id: "application_action_no_contacts", arguments: [])) {
             let vc = CreateNewEntityViewController()
-            showModal(vc)
+            showModal(vc, parent: self)
         }
         
         emptyView.isHidden = true

@@ -1,0 +1,224 @@
+PODS:
+  - Alamofire (4.9.1)
+  - Cache (7.0.0)
+  - CocoaAsyncSocket (7.6.5)
+  - CocoaLumberjack (3.7.4):
+    - CocoaLumberjack/Core (= 3.7.4)
+  - CocoaLumberjack/Core (3.7.4)
+  - CocoaLumberjack/Swift (3.7.4):
+    - CocoaLumberjack/Core
+  - ContextMenuSwift (1.0.0)
+  - CryptoSwift (1.8.1)
+  - Curve25519Kit (2.1.0)
+  - DeepDiff (2.3.1)
+  - GoogleWebRTC (1.1.32000)
+  - Kingfisher (7.9.1):
+    - CryptoSwift
+  - KissXML (5.3.1):
+    - KissXML/All (= 5.3.1)
+  - KissXML/Additions (5.3.1):
+    - KissXML/Core
+  - KissXML/All (5.3.1):
+    - KissXML/Additions
+    - KissXML/Core
+  - KissXML/Core (5.3.1)
+  - KYCircularProgress (1.2.1)
+  - LetterAvatarKit (1.2.3)
+  - libidn (1.35)
+  - MaterialComponents/Palettes (124.2.0)
+  - OpenSSL-Universal (1.1.2200)
+  - Punycode (2.1.0)
+  - Realm (10.46.0):
+    - Realm/Headers (= 10.46.0)
+  - Realm/Headers (10.46.0)
+  - RealmSwift (10.46.0):
+    - Realm (= 10.46.0)
+  - RxCocoa (6.6.0):
+    - RxRelay (= 6.6.0)
+    - RxSwift (= 6.6.0)
+  - RxRealm (5.0.5.5):
+    - RealmSwift (~> 10.46.0)
+    - RxCocoa (~> 6.5)
+    - RxSwift (~> 6.5)
+  - RxRelay (6.6.0):
+    - RxSwift (= 6.6.0)
+  - RxSwift (6.6.0)
+  - SignalProtocolC (2.3.2)
+  - SignalProtocolObjC (1.1.0):
+    - SignalProtocolC (~> 2.3.2)
+  - Starscream (4.0.4)
+  - SwiftKeychainWrapper (4.0.1)
+  - SwipeTransition (0.5.0)
+  - SwipeTransitionAutoSwipeBack (0.5.0):
+    - SwipeTransition (~> 0.5.0)
+  - Toast-Swift (5.0.1)
+  - TOInsetGroupedTableView (1.1.0)
+  - XMPPFramework/default (5.0.0):
+    - CocoaAsyncSocket (~> 7.6.5)
+    - CocoaLumberjack (~> 3.7.2)
+    - KissXML (~> 5.3.1)
+    - libidn (~> 1.35)
+  - XMPPFramework/Swift (5.0.0):
+    - CocoaLumberjack/Swift
+    - XMPPFramework/default
+  - YubiKit (4.4.0)
+
+DEPENDENCIES:
+  - Alamofire (~> 4.9.1)
+  - Cache (from `https://github.com/hyperoslo/Cache.git`, branch `master`, tag `5.2.0`)
+  - CocoaAsyncSocket (from `https://github.com/robbiehanson/CocoaAsyncSocket`, branch `master`)
+  - ContextMenuSwift
+  - CryptoSwift (from `https://github.com/krzyzanowskim/CryptoSwift.git`, tag `1.8.1`)
+  - Curve25519Kit (from `https://github.com/whspr/Curve25519Kit.git`, branch `mkirk/framework-friendly`)
+  - DeepDiff
+  - GoogleWebRTC
+  - Kingfisher (from `https://github.com/whspr/Klingfisher.git`)
+  - KissXML
+  - KYCircularProgress
+  - LetterAvatarKit (= 1.2.3)
+  - MaterialComponents/Palettes
+  - OpenSSL-Universal
+  - Punycode
+  - RealmSwift (from `https://github.com/realm/realm-swift.git`, tag `v10.46.0`)
+  - RxCocoa
+  - RxRealm (from `https://github.com/whspr/RxRealm.git`, branch `update_podspec`)
+  - RxSwift
+  - SignalProtocolObjC (from `https://github.com/redsolution/SignalProtocol-ObjC.git`, branch `master`)
+  - Starscream (from `https://github.com/daltoniam/Starscream.git`, tag `4.0.4`)
+  - SwiftKeychainWrapper
+  - SwipeTransition
+  - SwipeTransitionAutoSwipeBack
+  - Toast-Swift (~> 5.0.1)
+  - TOInsetGroupedTableView
+  - XMPPFramework/Swift (from `/Users/igor.boldin/projects/xabber/deps/XMPPFramework/`)
+  - YubiKit (from `https://github.com/Yubico/yubikit-ios.git`)
+
+SPEC REPOS:
+  trunk:
+    - Alamofire
+    - CocoaLumberjack
+    - ContextMenuSwift
+    - DeepDiff
+    - GoogleWebRTC
+    - KissXML
+    - KYCircularProgress
+    - LetterAvatarKit
+    - libidn
+    - MaterialComponents
+    - OpenSSL-Universal
+    - Punycode
+    - Realm
+    - RxCocoa
+    - RxRelay
+    - RxSwift
+    - SignalProtocolC
+    - SwiftKeychainWrapper
+    - SwipeTransition
+    - SwipeTransitionAutoSwipeBack
+    - Toast-Swift
+    - TOInsetGroupedTableView
+
+EXTERNAL SOURCES:
+  Cache:
+    :branch: master
+    :git: https://github.com/hyperoslo/Cache.git
+    :tag: 5.2.0
+  CocoaAsyncSocket:
+    :branch: master
+    :git: https://github.com/robbiehanson/CocoaAsyncSocket
+  CryptoSwift:
+    :git: https://github.com/krzyzanowskim/CryptoSwift.git
+    :tag: 1.8.1
+  Curve25519Kit:
+    :branch: mkirk/framework-friendly
+    :git: https://github.com/whspr/Curve25519Kit.git
+  Kingfisher:
+    :git: https://github.com/whspr/Klingfisher.git
+  RealmSwift:
+    :git: https://github.com/realm/realm-swift.git
+    :tag: v10.46.0
+  RxRealm:
+    :branch: update_podspec
+    :git: https://github.com/whspr/RxRealm.git
+  SignalProtocolObjC:
+    :branch: master
+    :git: https://github.com/redsolution/SignalProtocol-ObjC.git
+  Starscream:
+    :git: https://github.com/daltoniam/Starscream.git
+    :tag: 4.0.4
+  XMPPFramework:
+    :path: "/Users/igor.boldin/projects/xabber/deps/XMPPFramework/"
+  YubiKit:
+    :git: https://github.com/Yubico/yubikit-ios.git
+
+CHECKOUT OPTIONS:
+  Cache:
+    :commit: d048bf404a5c8362c6cf840c2096d5777975cd27
+    :git: https://github.com/hyperoslo/Cache.git
+    :tag: 5.2.0
+  CocoaAsyncSocket:
+    :commit: 5ddba5e72f38e56010dbfac08b44478ee5000c0c
+    :git: https://github.com/robbiehanson/CocoaAsyncSocket
+  CryptoSwift:
+    :git: https://github.com/krzyzanowskim/CryptoSwift.git
+    :tag: 1.8.1
+  Curve25519Kit:
+    :commit: 412b1f9e209cb97a2fa092ac5ac9443274d5e0f4
+    :git: https://github.com/whspr/Curve25519Kit.git
+  Kingfisher:
+    :commit: b49a6a3174f5fb3cc58eaa67c69072a54d73ffc9
+    :git: https://github.com/whspr/Klingfisher.git
+  RealmSwift:
+    :git: https://github.com/realm/realm-swift.git
+    :tag: v10.46.0
+  RxRealm:
+    :commit: ba2e5b0ef96244632ec6ded6b30c878d424eee6b
+    :git: https://github.com/whspr/RxRealm.git
+  SignalProtocolObjC:
+    :commit: 597bb713d9cadda855f150f6066c50521481213f
+    :git: https://github.com/redsolution/SignalProtocol-ObjC.git
+  Starscream:
+    :git: https://github.com/daltoniam/Starscream.git
+    :tag: 4.0.4
+  YubiKit:
+    :commit: 1dc0872d17f141f03a995b2d238b1fab1eba4865
+    :git: https://github.com/Yubico/yubikit-ios.git
+
+SPEC CHECKSUMS:
+  Alamofire: 85e8a02c69d6020a0d734f6054870d7ecb75cf18
+  Cache: 2332ebd6ee2155c9acd27a87de0153552f81875c
+  CocoaAsyncSocket: 065fd1e645c7abab64f7a6a2007a48038fdc6a99
+  CocoaLumberjack: 543c79c114dadc3b1aba95641d8738b06b05b646
+  ContextMenuSwift: c89068a89ccd9210dfcaee3bdc558e65aa74899b
+  CryptoSwift: b9c701d6f5011df23794dbf7f2e480a77835d83d
+  Curve25519Kit: 76d0859ecb34704f7732847812363f83b23a6a59
+  DeepDiff: e5ae6c50d0321568e4508cec5930b9f10bb293fc
+  GoogleWebRTC: 4d261187b30512efdb711d21fa961a6adf138717
+  Kingfisher: 48e8c367ff95985b1acae38c4942329190e39004
+  KissXML: 5c8e0f2e8b9f071d3e1ae123dec3eb5da615c10c
+  KYCircularProgress: caa1a8d1defa2acf05d2f84ea681467fbdb6d353
+  LetterAvatarKit: f1c77efaae125a6f39e15210847eeefed57ad204
+  libidn: e4576a956b797c584c77aaedfc6e3dd639b61bdc
+  MaterialComponents: 1a9b2d9d45b1601ae544de85089adc4c464306d4
+  OpenSSL-Universal: 6e1ae0555546e604dbc632a2b9a24a9c46c41ef6
+  Punycode: efcc033c34024be90475b2b4fc74cbb8e9bc0b1e
+  Realm: 699b80d8e5fc66acafd2d530199e77781a2d69d3
+  RealmSwift: 3230b8fc63759433a6938a0dd2a5dc0dc2b15760
+  RxCocoa: 44a80de90e25b739b5aeaae3c8c371a32e3343cc
+  RxRealm: 428bc7a9f7171dc0d0afc6dcd3b8f0eeafe0e75e
+  RxRelay: 45eaa5db8ee4fb50e5ebd57deec0159e97fa51e6
+  RxSwift: a4b44f7d24599f674deebd1818eab82e58410632
+  SignalProtocolC: 051512e9f3abfeb4120c5e9673af9ae0ee370070
+  SignalProtocolObjC: b992ed29c3b7b453510ff0102ed16ef143f7efd2
+  Starscream: 5178aed56b316f13fa3bc55694e583d35dd414d9
+  SwiftKeychainWrapper: 807ba1d63c33a7d0613288512399cd1eda1e470c
+  SwipeTransition: 2d35c95dcb4c47a6a1cc530235a3cbf7114b5670
+  SwipeTransitionAutoSwipeBack: 3d6f744757e86d69ea46fd8b3018bcfb6d81cb00
+  Toast-Swift: 9b6a70f28b3bf0b96c40d46c0c4b9d6639846711
+  TOInsetGroupedTableView: 4da3c3f22fe53c474f133bdb1fcc2f25b094aff6
+  XMPPFramework: 31741d8412731d26eb3ec339329d319f126077ed
+  YubiKit: 390e7733942f9518f9b3f5890c60914f7b8d74c8
+
+PODFILE CHECKSUM: 43517eeb7053e598c26e36931e0b316c6dbdedc1
+
+COCOAPODS: 1.12.1

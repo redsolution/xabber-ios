@@ -94,7 +94,6 @@ class ContactListTableViewCell: BaseTableCell {
         stack.addArrangedSubview(labelsStack)
         labelsStack.addArrangedSubview(titleLabel)
         labelsStack.addArrangedSubview(subtitileLabel)
-        
     }
     
     override func prepareForReuse() {

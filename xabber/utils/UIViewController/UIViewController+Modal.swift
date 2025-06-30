@@ -9,17 +9,18 @@
 import Foundation
 import UIKit
 
-func showModal(_ vc: UIViewController, replaceParent: Bool = true) {
-    let parent: UIViewController?
+func showModal(_ vc: UIViewController, parent parentVc: UIViewController? = nil, replaceParent: Bool = true) {
+    var parent: UIViewController? = parentVc
 //    if (UIApplication.shared.delegate as? AppDelegate)?.currentPresentedVc != nil {
 //        parent = (UIApplication.shared.delegate as? AppDelegate)?.currentPresentedVc
 //    } else {
     switch CommonConfigManager.shared.interfaceType {
-    case .tabs:
-        parent = (UIApplication.shared.delegate as? AppDelegate)?.tabController
-    case .split:
-        parent = (UIApplication.shared.delegate as? AppDelegate)?.splitController
+        case .tabs:
+            parent = (UIApplication.shared.delegate as? AppDelegate)?.tabController
+        case .split:
+            parent = (UIApplication.shared.delegate as? AppDelegate)?.splitController
     }
+    
     if replaceParent {
         (UIApplication.shared.delegate as? AppDelegate)?.currentPresentedVc = vc
     }
@@ -46,6 +47,7 @@ func showModal(_ vc: UIViewController, replaceParent: Bool = true) {
 public func showStacked(_ vc: UIViewController, in presenter: UIViewController) {
     switch CommonConfigManager.shared.interfaceType {
         case .tabs:
+//            presenter.splitViewController?.showDetailViewController(NavBarController(rootViewController: vc), sender: presenter)
             presenter.navigationController?.pushViewController(vc, animated: true)
         case .split:
 //            presenter.splitViewController?.showDetailViewController(UINavigationController(rootViewController: vc), sender: presenter)

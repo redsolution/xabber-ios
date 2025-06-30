@@ -455,7 +455,7 @@ class ContactInfoViewController: BaseViewController {
             call.isEnabled = false
             
             let write = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
-            write.configure(icon: "bubble", title: "Chat")
+            write.configure(icon: "message", title: "Chat")
             write.addTarget(self, action: #selector(onWriteButtonTouchUpInside), for: .touchUpInside)
                         
             let mute = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
@@ -464,44 +464,71 @@ class ContactInfoViewController: BaseViewController {
             
             let more = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
             more.configure(icon: "ellipsis", title: "More", forceStrong: false)
-            
-            let childs: [UIMenuElement] = [
-                UIAction(
-                    title: "Edit",
-                    image: imageLiteral("xabber.pencil.cap"),
-                    identifier: .none,
-                    discoverabilityTitle: "Edit",
-                    attributes: [],
-                    state: .off,//filter.value == .all ? .on : .off,
-                    handler: { action in
-                        self.editContact()
-                    }
-                ),
-                
-                UIAction(
-                    title: "Secret chat",
-                    image: imageLiteral("lock"),
-                    identifier: .none,
-                    discoverabilityTitle: "Secret chat",
-                    attributes: [],
-                    state: .off,//filter.value == .all ? .on : .off,
-                    handler: { action in
-                        self.openChat(conversationType: .omemo)
-                    }
-                ),
-            
-                UIAction(
-                    title: "Block",
-                    image: imageLiteral("nosign"),
-                    identifier: .none,
-                    discoverabilityTitle: "Block",
-                    attributes: [],
-                    state: .off,//filter.value == .all ? .on : .off,
-                    handler: { action in
-                        self.onBlock()
-                    }
-                ),
-            ]
+            var childs: [UIMenuElement] = []
+            if self.conversationType.isEncrypted {
+                childs = [
+                    UIAction(
+                        title: "Edit",
+                        image: imageLiteral("xabber.pencil.cap"),
+                        identifier: .none,
+                        discoverabilityTitle: "Edit",
+                        attributes: [],
+                        state: .off,//filter.value == .all ? .on : .off,
+                        handler: { action in
+                            self.editContact()
+                        }
+                    ),
+                    UIAction(
+                        title: "Block",
+                        image: imageLiteral("nosign"),
+                        identifier: .none,
+                        discoverabilityTitle: "Block",
+                        attributes: [],
+                        state: .off,//filter.value == .all ? .on : .off,
+                        handler: { action in
+                            self.onBlock()
+                        }
+                    ),
+                ]
+            } else {
+                childs = [
+                    UIAction(
+                        title: "Edit",
+                        image: imageLiteral("xabber.pencil.cap"),
+                        identifier: .none,
+                        discoverabilityTitle: "Edit",
+                        attributes: [],
+                        state: .off,//filter.value == .all ? .on : .off,
+                        handler: { action in
+                            self.editContact()
+                        }
+                    ),
+                    
+                    UIAction(
+                        title: "Secret chat",
+                        image: imageLiteral("lock"),
+                        identifier: .none,
+                        discoverabilityTitle: "Secret chat",
+                        attributes: [],
+                        state: .off,//filter.value == .all ? .on : .off,
+                        handler: { action in
+                            self.openChat(conversationType: .omemo)
+                        }
+                    ),
+                    
+                    UIAction(
+                        title: "Block",
+                        image: imageLiteral("nosign"),
+                        identifier: .none,
+                        discoverabilityTitle: "Block",
+                        attributes: [],
+                        state: .off,//filter.value == .all ? .on : .off,
+                        handler: { action in
+                            self.onBlock()
+                        }
+                    ),
+                ]
+            }
             more.menu = UIMenu(options: [.singleSelection], children: childs)
             more.showsMenuAsPrimaryAction = true
             return [write, call, mute, more]
@@ -652,7 +679,7 @@ class ContactInfoViewController: BaseViewController {
                 vc.sid = sid
                 vc.deviceId = deviceId
 
-                showModal(vc)
+                showModal(vc, parent: self)
             }
         }
     }

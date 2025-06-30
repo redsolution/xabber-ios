@@ -51,7 +51,7 @@ extension ContactInfoViewController: InfoScreenHeaderDelegate {
         vc.jid = self.jid
         vc.owner = self.owner
         vc.isCircleSelectView = true
-        showModal(vc)
+        showModal(vc, parent: self)
     }
     
     func onQRCode() {
@@ -78,7 +78,7 @@ extension ContactInfoViewController: InfoScreenHeaderDelegate {
             DDLogDebug("GroupchatInfoViewController: \(#function). \(error.localizedDescription)")
         }
         
-        showModal(vc)
+        showModal(vc, parent: self)
         
     }
     
@@ -341,7 +341,7 @@ extension ContactInfoViewController: InfoScreenHeaderDelegate {
             DDLogDebug("GroupchatInfoViewController: \(#function). \(error.localizedDescription)")
         }
         
-        showModal(vc)
+        showModal(vc, parent: self)
         
     }
     

@@ -35,7 +35,7 @@ extension ChatViewController {
             vc.state = .receivedRequestAccept
             vc.deviceId = deviceId
             
-            showModal(vc)
+            showModal(vc, parent: self)
             
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
@@ -61,7 +61,7 @@ extension ChatViewController {
             vc.sid = sid
             vc.deviceId = deviceId
             
-            showModal(vc)
+            showModal(vc, parent: self)
             
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
@@ -97,7 +97,7 @@ extension ChatViewController {
             vc.state = .acceptedRequest
             vc.code = code
             
-            showModal(vc)
+            showModal(vc, parent: self)
             
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")

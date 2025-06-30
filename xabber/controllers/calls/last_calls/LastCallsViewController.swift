@@ -283,7 +283,7 @@ class LastCallsViewController: BaseViewController {
     
     private final func showAddDialog() {
         let vc = NewCallViewController()
-        showModal(vc)
+        showModal(vc, parent: self)
     }
     
     @objc
@@ -295,7 +295,7 @@ class LastCallsViewController: BaseViewController {
     internal func onAccountNavButtonPress(_ sender: UIButton) {
         let vc = SettingsViewController() //AccountInfoViewController()
         vc.jid = self.topAccountJid
-        showModal(vc)
+        showModal(vc, parent: self)
     }
     
 //    private final func configureNavbar() {
@@ -350,7 +350,12 @@ class LastCallsViewController: BaseViewController {
     
     internal func configureBars() {
         self.title = "Calls"
-        self.navigationController?.navigationBar.prefersLargeTitles = true
+        if CommonConfigManager.shared.config.use_large_title {
+            self.navigationItem.largeTitleDisplayMode = .automatic
+        } else {
+            self.navigationItem.largeTitleDisplayMode = .never
+        }
+        self.navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
         if #available(iOS 16.0, *) {
             self.navigationItem.preferredSearchBarPlacement = .stacked
         }
@@ -410,13 +415,13 @@ class LastCallsViewController: BaseViewController {
         let vc = SettingsViewController()
         vc.jid = AccountManager.shared.users.first?.jid ?? ""
         vc.owner = AccountManager.shared.users.first?.jid ?? ""
-        showModal(vc)
+        showModal(vc, parent: self)
     }
     
     @objc
     func onAddButtonTouchUpInside(_ sender: AnyObject) {
         let vc = CreateNewEntityViewController()
-        showModal(vc)
+        showModal(vc, parent: self)
     }
     
     override func shouldChangeFrame() {

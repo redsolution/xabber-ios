@@ -513,7 +513,12 @@ class SignInServerFeaturesViewController: UIViewController {
             }
         }
         navigationController?.isNavigationBarHidden = false
-        navigationController?.navigationBar.prefersLargeTitles = false
+        if CommonConfigManager.shared.config.use_large_title {
+            navigationItem.largeTitleDisplayMode = .automatic
+        } else {
+            navigationItem.largeTitleDisplayMode = .never
+        }
+        navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
         navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
         navigationController?.navigationBar.shadowImage = UIImage()
         navigationController?.navigationBar.setNeedsLayout()

@@ -149,7 +149,7 @@ extension ChatViewController: MessagesSelectionPanelActionDelegate {
         vc.owner = self.owner
         vc.forwardIds = messages
         vc.delegate = self
-        showModal(vc)
+        showModal(vc, parent: self)
     }
     
     internal func cancelSelection() {

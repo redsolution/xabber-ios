@@ -130,7 +130,7 @@ class InlineImagesGridView: InlineAttachmentView {
     }
     
     func configure(_ attachments: [ImageAttachment]) {
-        subviews.forEach { $0.removeFromSuperview() }
+//        subviews.forEach { $0.removeFromSuperview() }
         self.views.forEach { $0.removeFromSuperview() }
         self.views = []
         prepareGrid(attachments).enumerated().forEach {

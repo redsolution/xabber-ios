@@ -481,7 +481,7 @@ extension ChatViewController: XabberInputBarDelegate {
         let vc = TrustedDevicesViewController()
         vc.jid = self.jid
         vc.owner = self.owner
-        showModal(vc)
+        showModal(vc, parent: self)
     }
     
     func onUpdateSignature() {
@@ -498,7 +498,7 @@ extension ChatViewController: XabberInputBarDelegate {
     func onCheckDevices() {
         let vc = DevicesListViewController()
         vc.configure(for: self.owner)
-        showModal(vc)
+        showModal(vc, parent: self)
     }
     
     func onHeightChanged(to height: CGFloat, bar barHeight: CGFloat) {
@@ -790,10 +790,11 @@ extension ChatViewController: XabberInputBarDelegate {
                         if let index = self.datasource.firstIndex(where: { $0.primary == primary }) {
                             self.messagesCollectionView.reloadSections(IndexSet([index]))//(at: [IndexPath(item: 0, section: index)])
                         }
-    //                    self.canUpdateDataset = true
+                        //self.canUpdateDataset = true
     //                    self.runDatasetUpdateTask()
                     })
                 } else {
+                    FeedbackManager.shared.generate(feedback: .success)
                     AccountManager.shared.find(for: self.owner)?.unsafeAction({ (user, stream) in
                         user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
                         _ = user.messages.sendSimpleMessage(
@@ -806,7 +807,6 @@ extension ChatViewController: XabberInputBarDelegate {
                             (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
                                 .invalidateLastMessageCachedSize(primary: primary)
                         }
-                        FeedbackManager.shared.generate(feedback: .success)
                     })
                 }
                 self.clearAttachments()
@@ -854,7 +854,7 @@ extension ChatViewController: XabberInputBarDelegate {
                                     let vc = TrustedDevicesViewController()
                                     vc.jid = self.jid
                                     vc.owner = self.owner
-                                    showModal(vc)
+                                    showModal(vc, parent: self)
                                 case "send":
                                     sendMessage(text)
                                 default:

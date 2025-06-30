@@ -140,9 +140,11 @@ class DeviceInfoTableCell: UITableViewCell {
             descriptionLabel.text = "\(ip)"
         }
         
-        if client == "XabberIOS" {
-            self.imageView?.image = imageLiteral("smartphone")?.withTintColor(.systemBlue).withRenderingMode(.alwaysOriginal)
-        } else if client == "Xabber for Web" {
+        if device.lowercased().contains("iphone") {
+            self.imageView?.image = imageLiteral("iphone.gen1")?.withTintColor(.systemBlue)
+        } else if device.lowercased().contains("ipad") {
+            self.imageView?.image = imageLiteral("ipad.gen1")?.withTintColor(.systemBlue).withRenderingMode(.alwaysOriginal)
+        } else if device.lowercased().contains("pc,") {
             self.imageView?.image = imageLiteral("display")?.withTintColor(.systemBlue).withRenderingMode(.alwaysOriginal)
         } else {
             self.imageView?.image = imageLiteral("questionmark.app.dashed")?.withTintColor(.systemBlue).withRenderingMode(.alwaysOriginal)

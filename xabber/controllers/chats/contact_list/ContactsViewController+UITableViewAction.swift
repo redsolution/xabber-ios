@@ -55,7 +55,7 @@ extension ContactsViewController {
             
             vc.owner = item.owner
             vc.jid = item.jid!
-            showModal(vc)
+            showModal(vc, parent: self)
             
             handler(true)
         }

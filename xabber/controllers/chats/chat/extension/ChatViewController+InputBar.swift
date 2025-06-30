@@ -118,6 +118,19 @@ extension ChatViewController {
                                 self.messagesCollectionView.contentOffset.y = -inputHeight - 8
 //                                print("-inputHeight - 8", -inputHeight - 8)
                             }
+                            if self.shouldShowInitialMessage.value {
+                                let width: CGFloat = 340
+                                let height: CGFloat = 300
+                                var y = (self.view.frame.height - height) / 2
+                                if y + height > self.view.frame.height - inputHeight {
+                                    y = self.view.frame.height - inputHeight - height
+                                }
+                                let frame = CGRect(
+                                    origin: CGPoint(x: (self.view.frame.width - width) / 2, y: y),
+                                    size: CGSize(width: width, height: height)
+                                )
+                                self.initialMessageOverlayView.update(frame: frame, conversationType: self.conversationType)
+                            }
                             return
                         }, completion: { finished in
                     })
@@ -152,6 +165,19 @@ extension ChatViewController {
                     animations: {
                         self.xabberInputView.update(screenHeight: self.view.bounds.height, keyboardHeight: 0)
                         self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 0, right: 0)
+                        if self.shouldShowInitialMessage.value {
+                            let width: CGFloat = 340
+                            let height: CGFloat = 300
+                            var y = (self.view.frame.height - height) / 2
+                            if y + height > self.view.frame.height - inputHeight {
+                                y = self.view.frame.height - inputHeight - height
+                            }
+                            let frame = CGRect(
+                                origin: CGPoint(x: (self.view.frame.width - width) / 2, y: y),
+                                size: CGSize(width: width, height: height)
+                            )
+                            self.initialMessageOverlayView.update(frame: frame, conversationType: self.conversationType)
+                        }
                         return
                     }, completion: { finished in
                 })

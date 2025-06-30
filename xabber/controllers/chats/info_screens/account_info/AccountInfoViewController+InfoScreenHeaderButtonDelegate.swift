@@ -78,7 +78,7 @@ extension AccountInfoViewController: InfoScreenHeaderDelegate {
             DDLogDebug("GroupchatInfoViewController: \(#function). \(error.localizedDescription)")
         }
         
-        showModal(vc)
+        showModal(vc, parent: self)
         
     }
     
@@ -160,7 +160,7 @@ extension AccountInfoViewController: InfoScreenHeaderDelegate {
         vc.delegate = self
         vc.palette = nil
         vc.lastSettedEmoji = nil
-        showModal(vc)
+        showModal(vc, parent: self)
     }
     
     internal final func onOpenEmojiPicker() {

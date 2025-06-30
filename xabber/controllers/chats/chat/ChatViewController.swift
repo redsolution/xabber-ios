@@ -657,7 +657,7 @@ class ChatViewController: MessagesViewController {
         }
         vc.owner = self.owner
         vc.jid = self.jid
-        showModal(vc)
+        showModal(vc, parent: self)
     }
     
     @objc
@@ -934,6 +934,9 @@ class ChatViewController: MessagesViewController {
         if let topInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
             navbarHeight += topInset
         }
+        if UIDevice.current.userInterfaceIdiom == .pad && CommonConfigManager.shared.config.interface_type == "tabs" {
+            navbarHeight += 55
+        }
         UIView.animate(withDuration: 0.1) {
             self.sharedAudioPlayerPanel?.update(frame: CGRect(
                 origin: CGPoint(
@@ -953,6 +956,9 @@ class ChatViewController: MessagesViewController {
         var navbarHeight: CGFloat = 50
         if let topInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
             navbarHeight += topInset
+        }
+        if UIDevice.current.userInterfaceIdiom == .pad && CommonConfigManager.shared.config.interface_type == "tabs" {
+            navbarHeight += 55
         }
         UIView.animate(withDuration: 0.1) {
             self.sharedAudioPlayerPanel?.update(frame: CGRect(
@@ -996,7 +1002,6 @@ class ChatViewController: MessagesViewController {
         self.messagesCollectionView.scrollsToTop = false
         self.scrollsToBottomOnKeybordBeginsEditing = false
         self.maintainPositionOnKeyboardFrameChanged = true
-        
         self.view.addSubview(self.dateListContainerView)
         
         messagesCollectionView.accountPalette = accountPallete
@@ -1005,6 +1010,9 @@ class ChatViewController: MessagesViewController {
         var navbarHeight: CGFloat = 50
         if let topInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
             navbarHeight += topInset
+        }
+        if UIDevice.current.userInterfaceIdiom == .pad && CommonConfigManager.shared.config.interface_type == "tabs" {
+            navbarHeight += 55
         }
         self.navbarOverlayView.frame = CGRect(
             width: self.view.bounds.width,
@@ -1031,7 +1039,7 @@ class ChatViewController: MessagesViewController {
             self.configureSearchBar()
         } else {
             self.searchTextObserver.accept(nil)
-            self.configureNavbar()
+//            self.configureNavbar()
         }
         
         self.configureBackground()
@@ -1090,7 +1098,7 @@ class ChatViewController: MessagesViewController {
     
     final func configureBackground() {
         backgroundView.frame = CGRect(
-            origin: CGPoint(x: 0, y: ((UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top ?? 0) + (self.navigationController?.navigationBar.frame.height ?? 0)),
+            origin: CGPoint(x: 0, y: 0),//((UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top ?? 0) + (self.navigationController?.navigationBar.frame.height ?? 0)),
             size: self.view.bounds.size
         )
         backgroundImage.frame = self.view.bounds
@@ -1101,6 +1109,8 @@ class ChatViewController: MessagesViewController {
         gradient.endPoint = CGPoint(x: 1.0, y: 0.0)
         
         updateBackground()
+        
+//        self.navigationController?.navigationBar
         
         gradientView.layer.addSublayer(gradient)
         backgroundView.addSubview(gradientView)
@@ -1172,6 +1182,10 @@ class ChatViewController: MessagesViewController {
         if let topInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
             navbarHeight += topInset
         }
+        if UIDevice.current.userInterfaceIdiom == .pad && CommonConfigManager.shared.config.interface_type == "tabs" {
+            navbarHeight += 55
+        }
+        
         if AudioManager.shared.player != nil {
             self.configureSharedAudioPanel()
         } else {
@@ -1183,7 +1197,7 @@ class ChatViewController: MessagesViewController {
         self.topPanelState.accept(self.topPanelState.value)
         previousFrame = self.view.bounds
         backgroundView.frame = CGRect(
-            origin: CGPoint(x: 0, y: ((UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top ?? 0) + (self.navigationController?.navigationBar.frame.height ?? 0)),
+            origin: CGPoint(x: 0, y: 0),//((UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top ?? 0) + (self.navigationController?.navigationBar.frame.height ?? 0)),
             size: self.view.bounds.size
         )
         backgroundImage.frame = self.view.bounds
@@ -1446,7 +1460,7 @@ class ChatViewController: MessagesViewController {
         self.hideFloatingDateObserver.accept(true)
         self.showFloatingDateObserver.accept(false)
         self.pinnedDateView.hide(withoutAnimation: true)
-        self.topPanelState.accept(.audioPlayer)
+//        self.topPanelState.accept(.audioPlayer)
     }
     
     

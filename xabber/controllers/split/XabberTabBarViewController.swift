@@ -19,16 +19,16 @@ class XabberTabBarViewController: UITabBarController {
 //    UINavigationController(rootViewController: callsVc),
     private func configure() {
         self.tabBar.itemPositioning = .automatic
-        self.tabBar.items?[0].image = UIImage(named: "chat-outline")
+        self.tabBar.items?[0].image = imageLiteral("message")
         self.tabBar.items?[0].title = "Chats"
-        self.tabBar.items?[1].image = UIImage(named: "contacts")
+        self.tabBar.items?[1].image = imageLiteral("person.2")
         self.tabBar.items?[1].title = "Contacts"
-        self.tabBar.items?[2].image = UIImage(named: "bell-outline")
+        self.tabBar.items?[2].image = imageLiteral("bell")
         self.tabBar.items?[2].title = "Notifications"
-        self.tabBar.items?[3].image = UIImage(named: "archive-outline-variant")
+        self.tabBar.items?[3].image = imageLiteral("archivebox")
         self.tabBar.items?[3].title = "Archive"
         if CommonConfigManager.shared.config.support_calls {
-            self.tabBar.items?[4].image = UIImage(named: "call-outline")
+            self.tabBar.items?[4].image = imageLiteral("phone")
             self.tabBar.items?[4].title = "Calls"
         }
     }

@@ -241,7 +241,7 @@ class ApplicationStateManager: NSObject {
                 vc.sid = sid ?? ""
                 vc.deviceId = String(deviceId)
 
-                showModal(vc, replaceParent: false)
+//                showModal(vc, replaceParent: false)
                 
             } catch {
                 DDLogDebug("ApplicationStateManager: \(#function). \(error.localizedDescription)")
@@ -274,7 +274,7 @@ class ApplicationStateManager: NSObject {
                 vc.deviceId = String(deviceId)
                 vc.code = code
                 
-                showModal(vc, replaceParent: false)
+//                showModal(vc, replaceParent: false)
                 
             } catch {
                 DDLogDebug("ApplicationStateManager: \(#function). \(error.localizedDescription)")
@@ -305,7 +305,7 @@ class ApplicationStateManager: NSObject {
                 vc.sid = sid ?? ""
                 vc.deviceId = String(deviceId)
                 
-                showModal(vc, replaceParent: false)
+//                showModal(vc, replaceParent: false)
                 
             } catch {
                 DDLogDebug("ApplicationStateManager: \(#function). \(error.localizedDescription)")
@@ -349,7 +349,7 @@ class ApplicationStateManager: NSObject {
                     
                     // so that a second window of successful verification does not open when it is already open
                     if (parent?.presentedViewController as? UINavigationController)?.topViewController as? VerificationViewController == nil {
-                        showModal(vc, replaceParent: false)
+//                        showModal(vc, replaceParent: false)
                     }
                 }
                 

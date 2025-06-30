@@ -70,7 +70,9 @@ class DefaultAvatarManager: NSObject {
     override init() {
         super.init()
         ImageCache.default.memoryStorage.config.expiration = .seconds(60*60*1)
-        ImageCache.default.memoryStorage.config.countLimit = 1000
+        ImageCache.default.memoryStorage.config.countLimit = 3000
+        ImageCache.default.memoryStorage.config.keepWhenEnteringBackground = true
+        ImageCache.default.memoryStorage.config.totalCostLimit = 300 * 1024 * 1024
         ImageCache.default.diskStorage.config.expiration = .never
         ImageCache.default.diskStorage.config.sizeLimit = 0
     }
@@ -132,11 +134,11 @@ class DefaultAvatarManager: NSObject {
     public final func getAvatar(url: String?, jid: String, owner: String, size requiredSize: CGFloat = 0, callback: ((UIImage?) -> Void)?) {
         if let url = url {
             if ImageCache.default.isCached(forKey: url) {
-                ImageCache.default.retrieveImage(forKey: url, options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory]), callbackQueue: .mainAsync) { result in
+                ImageCache.default.retrieveImage(forKey: url, options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory, .loadDiskFileSynchronously]), callbackQueue: .mainAsync) { result in
                     switch result {
                         case .success(let image):
 //                            print("rgthio", image.image == nil)
-                            callback?(image.image)
+                            callback!(image.image!)
                         default:
                             callback?(nil)
                     }
@@ -146,7 +148,7 @@ class DefaultAvatarManager: NSObject {
                 guard let urlUnwr = URL(string: url) else {
                     return
                 }
-                ImageDownloader.default.downloadImage(with: urlUnwr, options: KingfisherParsedOptionsInfo([.cacheOriginalImage, .alsoPrefetchToMemory, .callbackQueue(.untouch)])) { result in
+                ImageDownloader.default.downloadImage(with: urlUnwr, options: KingfisherParsedOptionsInfo([.cacheOriginalImage, .keepCurrentImageWhileLoading, .alsoPrefetchToMemory, .callbackQueue(.untouch)])) { result in
                     switch result {
                         case .success(let image):
                             ImageCache.default.store(image.image, forKey: url, options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory]))

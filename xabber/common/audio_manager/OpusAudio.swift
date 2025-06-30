@@ -34,7 +34,7 @@ public class CommonCacheStorage: NSObject {
     }
     
     let diskConfig = DiskConfig(
-        name: "xabber.ios.storage",
+        name: "\(CommonConfigManager.shared.config.bundle_id).storage",
         expiry: .never,
         maxSize: 65353,
         directory: nil,

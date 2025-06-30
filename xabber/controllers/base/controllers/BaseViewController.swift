@@ -32,13 +32,14 @@ class BaseViewController: UIViewController {
         super.viewDidLoad()
         self.tabBarController?.tabBar.isHidden = true
         self.tabBarController?.tabBar.layoutIfNeeded()
+        self.navigationItem.backButtonDisplayMode = .minimal
         
         
         observer()
 //        getAppTabBar()?.hide()
     }
     
-    private func observer() {
+    public func observer() {
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(languageChanged),
                                                name: .newLanguageSelected,
