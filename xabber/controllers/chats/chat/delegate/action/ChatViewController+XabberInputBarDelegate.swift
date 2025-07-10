@@ -778,7 +778,7 @@ extension ChatViewController: XabberInputBarDelegate {
                 self.draftMessageText.accept(nil)
     //            canUpdateDataset = true
     //            self.shouldChangeOffsetOnUpdate = false
-                self.messagesCollectionView.scrollToTop(animated: true)
+//                self.messagesCollectionView.scrollToTop(animated: true)
                 if let editedMessage = editMessageId.value,
                     editedMessage.isNotEmpty {
                     let primary = editedMessage

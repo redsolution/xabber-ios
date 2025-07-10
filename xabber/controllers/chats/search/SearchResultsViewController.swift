@@ -152,6 +152,8 @@ class SearchResultsViewController: SimpleBaseViewController {
     
     internal var messagesQueue: [MessageStorageItem] = []
     
+    internal var currentVc: ChatViewController? = nil
+    
     internal lazy var enabledAccounts: [String] = {
         do {
             let realm = try WRealm.safe()

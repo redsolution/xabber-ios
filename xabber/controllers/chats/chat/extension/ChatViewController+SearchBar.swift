@@ -105,6 +105,14 @@ extension ChatViewController {
         }
     }
     
+    public final func showSearchResultFromExternalSource(message archivedId: String, date: Date) {
+        self.chatScrollDirection = .up
+        self.scrollToMessage(archivedId: archivedId, date: date, direction: .up) { array, index in
+            self.datasource = self.mapDataset(dataset: array)
+            self.scrollToSearchedMessage(archivedId: archivedId)
+        }
+    }
+    
     internal func onSearchPanelSeekUp() {
         if self.currentPage.locked {
             return
@@ -168,6 +176,8 @@ extension ChatViewController {
         self.messagesCollectionView.reloadData()
         self.messagesCollectionView.layoutIfNeeded()
         let scrollIndex = self.datasource.firstIndex(where: { $0.primary == primary }) ?? 0
+        let cell = self.messagesCollectionView.cellForItem(at: IndexPath(row: 0, section: scrollIndex)) as? MessageContentCell
+        cell?.setSelected(state: true)
         self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: scrollIndex), at: .centeredVertically, animated: false)
 //        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
         self.preventHidingDate = false
@@ -186,6 +196,7 @@ extension ChatViewController {
         self.messagesCollectionView.reloadData()
         self.messagesCollectionView.layoutIfNeeded()
         let scrollIndex = self.datasource.firstIndex(where: { $0.archivedId == archivedId }) ?? 0
+        
         self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: scrollIndex), at: .centeredVertically, animated: false)
 //        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
         self.preventHidingDate = false
@@ -195,6 +206,8 @@ extension ChatViewController {
             self.hideFloatingDateObserver.accept(true)
             self.loadDatasourceObserver.accept(true)
             self.currentPage.unlock()
+            let cell = self.messagesCollectionView.cellForItem(at: IndexPath(row: 0, section: scrollIndex)) as? MessageContentCell
+            cell?.setSelected(state: true)
         }
     }
 }
@@ -209,7 +222,7 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
         
     }
     
-    internal final func applySearchResults() {
+    internal final func applySearchResults(emptyList: Bool = false) {
         self.preventHidingDate = true
         self.searchMessagesQueue = self.searchMessagesQueue.sorted(by: { $0.date > $1.date })
         let newIndex = 0
@@ -226,13 +239,16 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
                 self.preventHidingDate = false
             }
         }
+        if emptyList {
+            self.showLoadingIndicator.accept(false)
+        }
         self.showFloatingDateObserver.accept(true)
     }
     
     func didReceiveEndPage(queryId: String, fin: Bool, first: String, last: String, count: Int) {
         if queryId == self.currentSearchQueryId {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                self.applySearchResults()
+                self.applySearchResults(emptyList: first == last)
             }
         }
     }

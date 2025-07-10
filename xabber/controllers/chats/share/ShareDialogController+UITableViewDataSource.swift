@@ -31,29 +31,35 @@ extension ShareDialogController: UITableViewDataSource {
             item.jid,
             owner: item.owner,
             username: item.username,
-            attributedUsername: nil,
+            attributedUsername: item.attributedUsername,
             message: item.message,
             date: item.date,
-            deliveryState: item.deliveryState,
+            deliveryState: item.state,
             isMute: item.isMute,
             isSynced: item.isSynced,
-            isGroupchat: item.isGroupchat,
+            isGroupchat: [.groupchat, .incognitoChat].contains(item.entity),
             status: item.status,
             entity: item.entity,
             conversationType: item.conversationType,
             unread: item.unread,
             unreadString: item.unreadString,
-            indicator: item.indicator,
+            indicator: item.color,
             isDraft: item.isDraft,
-            isAttachment: item.isAttachment,
-            groupchatNickname: item.groupchatNickname,
-            isSystem: item.isSystem,
-            subRequest: false,
-            avatarUrl: nil,
-            hasErrorInChat: false,
-            verAction: false
+            isAttachment: item.hasAttachment,
+            groupchatNickname: item.userNickname,
+            isSystem: item.isSystemMessage,
+            isPinned: item.isPinned,
+            subRequest: item.subRequest,
+            avatarUrl: item.avatarUrl,
+            hasErrorInChat: item.hasErrorInChat,
+            verAction: item.isVerificationActionRequired
         )
         cell.setMask()
+        
+        let view = UIView()
+        view.backgroundColor = AccountColorManager.shared.palette(for: item.owner).tint50 | AccountColorManager.shared.palette(for: item.owner).tint900
+        cell.selectedBackgroundView = view
+        
         return cell
     }
     

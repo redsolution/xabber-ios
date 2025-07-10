@@ -111,6 +111,10 @@ extension ChatViewController: MessageCellDelegate {
         self.showGallery(urls: urls, from: url)
     }
     
+    func didTapOnVideo(url: URL?) {
+        self.playVideo(withURL: url)
+    }
+    
     func didStopPlayingAudioCell() {
         func resetState() {
             self.currentPlayingView?.resetState()
@@ -217,6 +221,7 @@ extension ChatViewController: MessageCellDelegate {
                     audioView?.displayDownload()
                     self.audioIsInLoading = true
                     let url = try AudioMessageReceiver.shared.receive(primary: primary)
+                    audioView?.url = url
                     if let data = try AudioManager.shared.load(url) {
                         AudioManager.shared.player = try AVAudioPlayer(data: data, fileTypeHint: AVFileType.m4a.rawValue)
                         audioView?.resetWaveform()
@@ -244,6 +249,7 @@ extension ChatViewController: MessageCellDelegate {
                 } else {
                     if let primary = audioView?.primary {
                         let url = try AudioMessageReceiver.shared.receive(primary: primary)
+                        audioView?.url = url
                         try play(url: url)
                     } else {
                         self.view.makeToast("Unable to play sound at the moment, please try again".localizeString(id: "audio_error_play_failed", arguments: []))
@@ -578,7 +584,8 @@ extension ChatViewController: MessageCellDelegate {
         if attachedMessagesIds.value.isNotEmpty || (editMessageId.value?.isNotEmpty ?? false) { return }
         if let contentCell = cell as? MessageContentCell {
             guard let indexPath = self.messagesCollectionView.indexPath(for: cell) else { return }
-            let item = self.messagesObserver![indexPath.section]
+            let datasourceItemPrimary = self.datasource[indexPath.section].primary
+            guard let item = self.messagesObserver?.first(where: {$0.primary == datasourceItemPrimary}) else { return }
             if item.displayAs == .system { return }
             if forwardedIds.value.contains(item.primary) {
                 contentCell.setSelected(state: false)
@@ -604,6 +611,12 @@ extension ChatViewController: MessageCellDelegate {
     }
     
     func isSelected(primary: String) -> Bool {
+        if self.inSearchMode.value {
+            if self.searchMessagesQueue.contains(where: { $0.primary == primary }) {
+                return true
+            }
+            return false
+        }
         if !self.isInSelectionMode.value {
             return false
         }

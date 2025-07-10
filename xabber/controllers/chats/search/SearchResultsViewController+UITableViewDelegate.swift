@@ -43,15 +43,22 @@ extension SearchResultsViewController: UITableViewDelegate {
         } else {
             item = self.messagesDatasource[indexPath.row]
         }
-        
-        let vc = ChatViewController()
-        vc.owner = item.owner
-        vc.jid = item.jid
-        vc.conversationType = item.conversationType
-        showStacked(vc, in: self.presenter ?? self)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        if let vc = currentVc, vc.jid == item.jid, vc.owner == item.owner, vc.conversationType == item.conversationType {
             if let archivedId = item.messageArchiveId {
-                vc.scrollToMessageAtIndex(archivedId: archivedId, date: item.date ?? Date())
+                vc.showSearchResultFromExternalSource(message: archivedId, date: item.date ?? Date())
+            }
+        } else {
+            self.currentVc = nil
+            let vc = ChatViewController()
+            vc.owner = item.owner
+            vc.jid = item.jid
+            vc.conversationType = item.conversationType
+            showStacked(vc, in: self.presenter ?? self)
+            self.currentVc = vc
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                if let archivedId = item.messageArchiveId {
+                    vc.showSearchResultFromExternalSource(message: archivedId, date: item.date ?? Date())
+                }
             }
         }
     }

@@ -61,16 +61,9 @@ public class TextMessageCell: MessageContentCell {
         return view
     }()
     
-    var videosView: UIView = {
-        let view = UIView()
-        
-        view.backgroundColor = .clear
-        
-        view.layer.borderColor = UIColor.black.withAlphaComponent(0.1).cgColor
-        view.layer.borderWidth = 1
-        view.layer.cornerRadius = 8
-        view.layer.masksToBounds = true
-        
+    var videosView: InlineVideosGridView = {
+        let view = InlineVideosGridView()
+                
         return view
     }()
     
@@ -143,7 +136,68 @@ public class TextMessageCell: MessageContentCell {
                 size: attributes.timeMarkerSize
             )
         }
-        self.timeMarker.update(frame: frame, indicator: attributes.timeMarkerIndicator, radius: attributes.timeMarkerRadius)
+        var radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.noTail.image.timestamp.getRadiusFor(index: attributes.cornerRadius)
+        switch attributes.tail {
+            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.noTail.rawValue:
+//                if attributes.isImageMessage {
+                    //radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.noTail.image.timestamp.getRadiusFor(index: attributes.cornerRadius)
+//                } else {
+                    radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.noTail.image.timestamp.getRadiusFor(index: attributes.cornerRadius)
+//                }
+                
+            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.smooth.rawValue:
+//                if attributes.isImageMessage {
+//                    
+//                } else {
+                    radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.smooth.image.timestamp.getRadiusFor(index: attributes.cornerRadius)
+//                }
+                
+            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.bubble.rawValue:
+//                if attributes.isImageMessage {
+//                    
+//                } else {
+                    radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.bubble.image.timestamp.getRadiusFor(index: attributes.cornerRadius)
+//                }
+                
+            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.bubbles.rawValue:
+//                if attributes.isImageMessage {
+//                    
+//                } else {
+                    radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.bubbles.image.timestamp.getRadiusFor(index: attributes.cornerRadius)
+//                }
+                
+            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.curvy.rawValue:
+//                if attributes.isImageMessage {
+//                    
+//                } else {
+                    radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.curvy.image.timestamp.getRadiusFor(index: attributes.cornerRadius)
+//                }
+                
+            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.stripes.rawValue:
+//                if attributes.isImageMessage {
+//                    
+//                } else {
+                    radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.stripes.image.timestamp.getRadiusFor(index: attributes.cornerRadius)
+//                }
+                
+            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.transparent.rawValue:
+//                if attributes.isImageMessage {
+//                    
+//                } else {
+                    radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.transparent.image.timestamp.getRadiusFor(index: attributes.cornerRadius)
+//                }
+                
+            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.wedge.rawValue:
+//                if attributes.isImageMessage {
+//                    
+//                } else {
+                    radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.wedge.image.timestamp.getRadiusFor(index: attributes.cornerRadius)
+//                }
+                
+            default:
+                break
+        }
+        self.timeMarker.update(frame: frame, indicator: attributes.timeMarkerIndicator, radius: radius.leftBottom)
     }
     
     func layoutForwardsContainer(with attributes: MessagesCollectionViewLayoutAttributes) {
@@ -168,7 +222,68 @@ public class TextMessageCell: MessageContentCell {
             origin: CGPoint(x: 0, y: offset).padding(x: 2, y: 2),
             size: attributes.imagesInlineViewSize.padding(width: 4, height: 4)
         )
-        let radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.smooth.image.image.getRadiusFor(index: "16")
+//        let radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.smooth.image.image.getRadiusFor(index: "16")
+        var radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.noTail.image.image.getRadiusFor(index: attributes.cornerRadius)
+        switch attributes.tail {
+            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.noTail.rawValue:
+//                if attributes.isImageMessage {
+//                    
+//                } else {
+//                    
+//                }
+                radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.noTail.image.image.getRadiusFor(index: attributes.cornerRadius)
+            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.smooth.rawValue:
+//                if attributes.isImageMessage {
+//                    
+//                } else {
+//                    
+//                }
+                radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.smooth.image.image.getRadiusFor(index: attributes.cornerRadius)
+            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.bubble.rawValue:
+//                if attributes.isImageMessage {
+//                    
+//                } else {
+//                    
+//                }
+                radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.bubble.image.image.getRadiusFor(index: attributes.cornerRadius)
+            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.bubbles.rawValue:
+//                if attributes.isImageMessage {
+//                    
+//                } else {
+//                    
+//                }
+                radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.bubbles.image.image.getRadiusFor(index: attributes.cornerRadius)
+            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.curvy.rawValue:
+//                if attributes.isImageMessage {
+//                    
+//                } else {
+//                    
+//                }
+                radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.curvy.image.image.getRadiusFor(index: attributes.cornerRadius)
+            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.stripes.rawValue:
+//                if attributes.isImageMessage {
+//                    
+//                } else {
+//                    
+//                }
+                radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.stripes.image.image.getRadiusFor(index: attributes.cornerRadius)
+            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.transparent.rawValue:
+//                if attributes.isImageMessage {
+//                    
+//                } else {
+//                    
+//                }
+                radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.transparent.image.image.getRadiusFor(index: attributes.cornerRadius)
+            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.wedge.rawValue:
+//                if attributes.isImageMessage {
+//                    
+//                } else {
+//                    
+//                }
+                radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.wedge.image.image.getRadiusFor(index: attributes.cornerRadius)
+            default:
+                break
+        }
         self.imagesView.configure(
             side: .right,
             radiusLU: radius.leftUpper,
@@ -186,8 +301,36 @@ public class TextMessageCell: MessageContentCell {
         ]
         let offset = offsetItems.compactMap { $0.height }.reduce(0, +)
         self.videosView.frame = CGRect(
-            origin: CGPoint(x: 0, y: offset).padding(x: 0, y: 2),
-            size: attributes.videosInlineViewSize.padding(width: 0, height: 4)
+            origin: CGPoint(x: 0, y: offset).padding(x: 2, y: 2),
+            size: attributes.videosInlineViewSize.padding(width: 4, height: 4)
+        )
+        var radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.noTail.image.bubble.getRadiusFor(index: attributes.cornerRadius)
+        switch attributes.tail {
+            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.noTail.rawValue:
+                radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.noTail.image.image.getRadiusFor(index: attributes.cornerRadius)
+            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.smooth.rawValue:
+                radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.smooth.image.image.getRadiusFor(index: attributes.cornerRadius)
+            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.bubble.rawValue:
+                radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.bubble.image.image.getRadiusFor(index: attributes.cornerRadius)
+            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.bubbles.rawValue:
+                radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.bubbles.image.image.getRadiusFor(index: attributes.cornerRadius)
+            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.curvy.rawValue:
+                radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.curvy.image.image.getRadiusFor(index: attributes.cornerRadius)
+            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.stripes.rawValue:
+                radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.stripes.image.image.getRadiusFor(index: attributes.cornerRadius)
+            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.transparent.rawValue:
+                radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.transparent.image.image.getRadiusFor(index: attributes.cornerRadius)
+            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.wedge.rawValue:
+                radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.wedge.image.bubble.getRadiusFor(index: attributes.cornerRadius)
+            default:
+                break
+        }
+        self.videosView.configure(
+            side: .right,
+            radiusLU: radius.leftUpper,
+            radiusRU: radius.rightUpper,
+            radiusRB: radius.rightBottom,
+            radiusLB: radius.leftBottom
         )
     }
     
@@ -249,15 +392,20 @@ public class TextMessageCell: MessageContentCell {
     public override func prepareForReuse() {
         
         super.prepareForReuse()
+        
         messageLabel.attributedText = nil
         messageLabel.text = nil
 //        forwardsContainer.subviews.forEach { $0.removeFromSuperview() }
 //        forwardsContainer.inlineViews.removeAll()
-//        forwardsContainer = InlineForwardsContainerView(frame: .zero)
-//        imagesView = InlineImagesGridView(frame: .zero)
-////        videosView = UIVi
-//        audiosView = InlineAudiosGridView(frame: .zero)
-//        filesView = InlineFilesGridView(frame: .zero)
+        forwardsContainer.resetState()
+        imagesView.subviews.forEach { $0.removeFromSuperview() }
+        imagesView.views.removeAll()
+        audiosView.subviews.forEach { $0.removeFromSuperview() }
+        audiosView.views.removeAll()
+        filesView.subviews.forEach { $0.removeFromSuperview() }
+        filesView.views.removeAll()
+        videosView.subviews.forEach { $0.removeFromSuperview() }
+        videosView.views.removeAll()
         authorView.text = nil
     }
     
@@ -307,7 +455,7 @@ public class TextMessageCell: MessageContentCell {
         self.audiosView.delegate = delegate
         self.audiosView.configure(message.audios, palette: palette)
         self.forwardsContainer.configure(message.forwards, palette: palette, delegate: delegate)
-//        self.videosView.configure(message.videos)
+        self.videosView.configure(message.videos)
         self.imagesView.layer.backgroundColor = MDCPalette.grey.tint100.cgColor
         
         
@@ -353,6 +501,14 @@ public class TextMessageCell: MessageContentCell {
             let translatedPoint = touchPoint.translate(x: -self.imagesView.frame.minX, y: -self.imagesView.frame.minY)
             if self.imagesView.handleTouch(at: translatedPoint, callback: { (urls, url) in
                 self.delegate?.didTapOnPhoto(urls: urls, url: url)
+            }) {
+                return true
+            }
+        }
+        if self.videosView.frame.contains(touchPoint) {
+            let translatedPoint = touchPoint.translate(x: -self.videosView.frame.minX, y: -self.videosView.frame.minY)
+            if self.videosView.handleTouch(at: translatedPoint, callback: { (urls, url) in
+                self.delegate?.didTapOnVideo(url: url)
             }) {
                 return true
             }

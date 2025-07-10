@@ -142,8 +142,8 @@ class InlineImagesGridView: InlineAttachmentView {
 //                view.layer.masksToBounds = true
 //                view.layer.borderColor = UIColor.black.withAlphaComponent(0.1).cgColor
 //                view.layer.borderWidth = 1
-                view.layer.cornerRadius = 2
-                view.layer.masksToBounds = true
+//                view.layer.cornerRadius = 7
+//                view.layer.masksToBounds = true
                 view.kf.setImage(
                     with: url,
                     placeholder: nil,

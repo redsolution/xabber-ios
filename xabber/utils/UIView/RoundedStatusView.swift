@@ -65,45 +65,52 @@ class RoundedStatusView: UIView {
             .forEach { $0.removeFromSuperview() }
         switch entity {
             case .privateChat:
-                let view = UIImageView(image: imageLiteral("custom.person.2.circle.fill"))
-                view.frame = self.bounds
-                view.tintColor = self.color
-                self.backgroundColor = .white
+                let view = UIImageView(image: imageLiteral("xabber.incognito.fill"))
+                view.frame = CGRect(x: 2, y: 2, width: bounds.width - 4, height: bounds.height - 4)
+                view.tintColor = .white
+                view.contentMode = .scaleAspectFit
+                self.backgroundColor = self.color
                 addSubview(view)
                 bringSubviewToFront(view)
             case .groupchat:
-                let view = UIImageView(image: imageLiteral("person.2.circle.fill"))
-                view.frame = self.bounds
-                view.tintColor = self.color
-                self.backgroundColor = .white
+                let view = UIImageView(image: imageLiteral("person.2.fill"))
+                
+                view.frame = CGRect(x: 2, y: 2, width: bounds.width - 4, height: bounds.height - 4)
+                view.tintColor = .white
+                view.contentMode = .scaleAspectFit
+                self.backgroundColor = self.color
                 addSubview(view)
                 bringSubviewToFront(view)
             case .bot:
-                let view = UIImageView(image: imageLiteral("xabber.bot.circle.fill"))
-                view.frame = self.bounds
-                view.tintColor = self.color
-                self.backgroundColor = .white
+                let view = UIImageView(image: imageLiteral("xabber.bot"))
+                view.frame = CGRect(x: 2, y: 2, width: bounds.width - 4, height: bounds.height - 4)
+                view.tintColor = .white
+                view.contentMode = .scaleAspectFit
+                self.backgroundColor = self.color
                 addSubview(view)
                 bringSubviewToFront(view)
             case .server:
                 let view = UIImageView(image: imageLiteral("badge-server"))
-                view.frame = self.bounds
-                view.tintColor = self.color
-                self.backgroundColor = .white
+                view.frame = CGRect(x: 2, y: 2, width: bounds.width - 4, height: bounds.height - 4)
+                view.tintColor = .white
+                view.contentMode = .scaleAspectFit
+                self.backgroundColor = self.color
                 addSubview(view)
                 bringSubviewToFront(view)
             case .incognitoChat:
-                let view = UIImageView(image: imageLiteral("custom.person.2.circle.fill"))
-                view.frame = self.bounds
-                view.tintColor = self.color
-                self.backgroundColor = .white
+                let view = UIImageView(image: imageLiteral("custom.person.2"))
+                view.frame = CGRect(x: 2, y: 2, width: bounds.width - 4, height: bounds.height - 4)
+                view.tintColor = .white
+                view.contentMode = .scaleAspectFit
+                self.backgroundColor = self.color
                 addSubview(view)
                 bringSubviewToFront(view)
             case .issue:
-                let view = UIImageView(image: imageLiteral("custom.megaphone.circle.fill"))
-                view.frame = self.bounds
-                view.tintColor = self.color
-                self.backgroundColor = .white
+                let view = UIImageView(image: imageLiteral("megaphone.fill"))
+                view.frame = CGRect(x: 2, y: 2, width: bounds.width - 4, height: bounds.height - 4)
+                view.tintColor = .white
+                view.contentMode = .scaleAspectFit
+                self.backgroundColor = self.color
                 addSubview(view)
                 bringSubviewToFront(view)
             default:

@@ -46,6 +46,8 @@ class CommonMessageSizeCalculator: CellSizeCalculator {
     static let tailWidth: CGFloat = 8
     static let attachmentPadding: UIEdgeInsets =  UIEdgeInsets(top: 0, left: 0, bottom: 2, right: 0)
     
+    public var inlineContainerSizePadding = UIEdgeInsets(top: 2, left: 2, bottom: 0, right: 2)
+    
     private func calcInlineImagesSize(for images: [ImageAttachment], min: CGSize, max: CGSize) -> CGSize {
         if images.isEmpty {
             return .zero
@@ -241,7 +243,10 @@ class CommonMessageSizeCalculator: CellSizeCalculator {
             )
         }
         
-        let totalSizes = [authorSize, sizeImages, sizeVideos, sizeFiles, sizeAudios, paddedLabelSize] + inlineMessagesSizes.compactMap({ $0.messageContainer })
+        let totalSizes = [authorSize, sizeImages, sizeVideos, sizeFiles, sizeAudios, paddedLabelSize] + inlineMessagesSizes.compactMap({ $0.messageContainer.margin(
+            width: 0,
+            height: inlineContainerSizePadding.vertical
+        ) })
         
         messageContainerSize.height = totalSizes.compactMap { $0.height }.reduce(0, +) + messageContainerPadding.vertical + messageContainerMargin.vertical
         messageContainerSize.width = totalSizes.compactMap { $0.width }.max() ?? maxWidth
@@ -260,6 +265,9 @@ class CommonMessageSizeCalculator: CellSizeCalculator {
                     let freeSpaceWidth = messageContainerSize.width - lastLineSize.width
                     if freeSpaceWidth < timeMarkerSize.width {
                         messageContainerSize.height += timeMarkerSize.height
+                    }
+                    if text.string.isEmpty && inlineMessagesSizes.isNotEmpty {
+                        messageContainerSize.height += 16
                     }
                 default:
                     break
@@ -300,7 +308,10 @@ class CommonMessageSizeCalculator: CellSizeCalculator {
             )
         }
         
-        let totalSizes = [authorSize, sizeImages, sizeVideos, sizeFiles, sizeAudios, paddedLabelSize] + inlineMessagesSizes.compactMap({ $0.messageContainer })
+        let totalSizes = [authorSize, sizeImages, sizeVideos, sizeFiles, sizeAudios, paddedLabelSize] + inlineMessagesSizes.compactMap({ $0.messageContainer.margin(
+            width: 0,
+            height: inlineContainerSizePadding.vertical
+        ) })
         
         messageContainerSize.height = totalSizes.compactMap { $0.height }.reduce(0, +) + messageContainerPadding.vertical + messageContainerMargin.vertical
         messageContainerSize.width = totalSizes.compactMap { $0.width }.max() ?? maxWidth
@@ -319,6 +330,9 @@ class CommonMessageSizeCalculator: CellSizeCalculator {
                     if freeSpaceWidth < timeMarkerSize.width {
                         messageContainerSize.height += timeMarkerSize.height
                     }
+                    if text.string.isEmpty && inlineMessagesSizes.isNotEmpty {
+                        messageContainerSize.height += 16
+                    }
                 default:
                     break
             }
@@ -330,9 +344,10 @@ class CommonMessageSizeCalculator: CellSizeCalculator {
         if message.forwards.isNotEmpty {
             forwardsContainerSize = CGSize(
                 width: [(inlineMessagesSizes.compactMap { $0.messageContainer.width }.max() ?? maxWidth), 64.0].max() ?? maxWidth,
-                height: inlineMessagesSizes.compactMap { $0.messageContainer.height }.reduce(0, +) + 4
+                height: inlineMessagesSizes.compactMap { $0.messageContainer.height + inlineContainerSizePadding.vertical }.reduce(0, +) //+ 4
             )
         }
+        attributes.inlineContainerSizePadding = inlineContainerSizePadding
         attributes.authorInlineSize = authorSize
         attributes.filesInlineViewSize = sizeFiles
         attributes.videosInlineViewSize = sizeVideos
@@ -353,6 +368,7 @@ class CommonMessageSizeCalculator: CellSizeCalculator {
         attributes.timeMarkerSize = timeMarkerSize
         attributes.timeMarkerRadius = 7
         attributes.timeMarkerIndicator = message.indicator
+        attributes.isImageMessage = message.images.isNotEmpty || message.videos.isNotEmpty
         if self.messagesLayout.messagesLayoutDelegate.messageAvatarVerticalPosition() == "top" {
             attributes.avatarPosition = AvatarPosition(horizontal: .cellLeading, vertical: .messageTop)
         } else {

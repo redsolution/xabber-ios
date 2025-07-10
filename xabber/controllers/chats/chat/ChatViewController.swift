@@ -258,7 +258,7 @@ class ChatViewController: MessagesViewController {
                 ChatViewController.Datasource.iconForMetadata(for: a.errorMetadata) == ChatViewController.Datasource.iconForMetadata(for: b.errorMetadata) &&
                 a.selectedSearchResultId == b.selectedSearchResultId &&
                 a.queryIds == b.queryIds &&
-                a.tailed == b.tailed &&
+//                a.tailed == b.tailed &&
                 a.indicator == b.indicator &&
                 a.editDate == b.editDate &&
                 a.avatarUrl == b.avatarUrl
@@ -633,6 +633,8 @@ class ChatViewController: MessagesViewController {
     
     internal var shouldRequestChatInfo: Bool = false
     
+    open var lastChatsDisplayDelegate: LastChatsDisplayDelegate? = nil
+    
     internal let sharedAudioPlayerPanel: SharedPlayerView? = {
         if UIDevice.current.userInterfaceIdiom == .pad {
             return nil
@@ -693,7 +695,7 @@ class ChatViewController: MessagesViewController {
         return button
     }()
     
-    func getUsernamePalette(for jid: String) -> MDCPalette {
+    static func getUsernamePalette(for jid: String) -> MDCPalette {
         let palettes: [MDCPalette] = [
             .red,
             .pink,
@@ -761,6 +763,7 @@ class ChatViewController: MessagesViewController {
         }
         self.xabberInputView.changeState(to: .search)
         self.searchBar.setShowsCancelButton(true, animated: true)
+//        self.searchBar
         
     }
     
@@ -1035,15 +1038,15 @@ class ChatViewController: MessagesViewController {
         self.messagesCollectionView.keyboardDismissMode = .interactive
         self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 0, right: 0)
         
+        
+        
+        self.configureBackground()
+        self.configureNavbar()
         if self.inSearchMode.value {
             self.configureSearchBar()
         } else {
             self.searchTextObserver.accept(nil)
-//            self.configureNavbar()
         }
-        
-        self.configureBackground()
-        self.configureNavbar()
         self.configureInputBar()
         self.configureSelectionPanel()
         self.configureMessagesPanel()
@@ -1137,6 +1140,9 @@ class ChatViewController: MessagesViewController {
         self.navigationItem.setRightBarButton(UIBarButtonItem(customView: self.userBarButton), animated: true)
         self.navigationItem.backButtonDisplayMode = .minimal
         self.navigationItem.leftItemsSupplementBackButton = true
+        self.navigationItem.largeTitleDisplayMode = .never
+        self.navigationController?.navigationBar.prefersLargeTitles = false
+//        self.navigationController?.navigationBar.large
         self.titleStack.isUserInteractionEnabled = false
         
         self.titleButton.addTarget(self, action: #selector(self.onTitleButtonTouchUp(_:)), for: .touchUpInside)

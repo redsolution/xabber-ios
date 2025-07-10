@@ -242,3 +242,183 @@
 //        }
 //    }
 //}
+
+import Foundation
+import UIKit
+import MaterialComponents.MDCPalettes
+import Kingfisher
+import CoreMedia
+import CocoaLumberjack
+import RealmSwift
+
+class InlineVideosGridView: InlineAttachmentView {
+    
+    class InlineMessageVideoView: UIImageView {
+        var url: URL?
+        
+        internal let playButton: UIButton = {
+            var conf = UIButton.Configuration.borderless()
+            conf.image = imageLiteral("play.fill")?.withTintColor(.white)
+            conf.title = nil
+            conf.background.cornerRadius = 32
+            
+            
+            let button = UIButton(frame: CGRect(square: 64))
+            
+            button.configuration = conf
+            button.tintColor = .white
+            
+            return button
+        }()
+        
+        init(frame: CGRect, url: URL?) {
+            self.url = url
+            super.init(frame: frame)
+            playButton.center = self.center
+            addSubview(playButton)
+        }
+        
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+    }
+    
+    var views: [InlineMessageVideoView] = []
+
+    public func prepareGrid(_ attachments: [VideoAttachment]) -> [CGRect] {
+        var rects: [CGRect] = []
+        let halfPadding: CGFloat = 2
+        let containerSize: CGSize = frame.size
+        switch attachments
+            .count {
+        case 0: break
+        case 1:
+            rects.append(CGRect(x: 0,
+                                y: 0,
+                                width: containerSize.width,
+                                height: containerSize.height))
+        case 2:
+            rects.append(CGRect(x: 0,
+                                y: 0,
+                                width: (containerSize.width / 2) - halfPadding,
+                                height: containerSize.height))
+            rects.append(CGRect(x: (containerSize.width / 2) + halfPadding,
+                                y: 0,
+                                width: (containerSize.width / 2) - halfPadding,
+                                height: containerSize.height))
+        case 3:
+            rects.append(CGRect(x: 0,
+                                y: 0,
+                                width: (containerSize.width / 2) - halfPadding,
+                                height: containerSize.height))
+            
+            rects.append(CGRect(x: (containerSize.width / 2) + halfPadding,
+                                y: 0,//halfPadding,
+                                width: (containerSize.width / 2) - halfPadding,
+                                height: (containerSize.height / 2) - halfPadding))
+            
+            rects.append(CGRect(x: (containerSize.width / 2) + halfPadding,
+                                y: (containerSize.height / 2) + halfPadding,
+                                width: (containerSize.width / 2) - halfPadding,
+                                height: (containerSize.height / 2) - halfPadding))
+        case 4:
+            rects.append(CGRect(x: 0,
+                                y: 0,
+                                width: (containerSize.width / 2) - halfPadding,
+                                height: (containerSize.height / 2) - halfPadding))
+            
+            rects.append(CGRect(x: (containerSize.width / 2) + halfPadding,
+                                y: 0,
+                                width: (containerSize.width / 2) - halfPadding,
+                                height: (containerSize.height / 2) - halfPadding))
+            
+            rects.append(CGRect(x: 0,
+                                y: (containerSize.height / 2) + halfPadding,
+                                width: (containerSize.width / 2) - halfPadding,
+                                height: (containerSize.height / 2) - halfPadding))
+            
+            rects.append(CGRect(x: (containerSize.width / 2) + halfPadding,
+                                y: (containerSize.height / 2) + halfPadding,
+                                width: (containerSize.width / 2) - halfPadding,
+                                height: (containerSize.height / 2) - halfPadding))
+        default:
+            rects.append(CGRect(x: 0,
+                                y: 0,
+                                width: (containerSize.width / 2) - halfPadding,
+                                height: (containerSize.height / 2) - halfPadding))
+            
+            rects.append(CGRect(x: 0,
+                                y: (containerSize.height / 2) + halfPadding,
+                                width: (containerSize.width / 2) - halfPadding,
+                                height: (containerSize.height / 2) - halfPadding))
+            
+            
+            rects.append(CGRect(x: (containerSize.width / 2) + halfPadding,
+                                y: 0,
+                                width: (containerSize.width / 2) - halfPadding,
+                                height: (containerSize.height / 3) - halfPadding))
+            
+            rects.append(CGRect(x: (containerSize.width / 2) + halfPadding,
+                                y: (containerSize.height / 3) + halfPadding,
+                                width: (containerSize.width / 2) - halfPadding,
+                                height: (containerSize.height / 3) - (halfPadding * 2)))
+            
+            rects.append(CGRect(x: (containerSize.width / 2) + halfPadding,
+                                y: ((containerSize.height / 3) * 2) + halfPadding,
+                                width: (containerSize.width / 2) - halfPadding,
+                                height: (containerSize.height / 3) - halfPadding))
+        }
+        return rects
+    }
+    
+    func configure(_ attachments: [VideoAttachment]) {
+        self.views.forEach { $0.removeFromSuperview() }
+        self.views = []
+        prepareGrid(attachments).enumerated().forEach {
+            index, rect in
+            let view = InlineMessageVideoView(frame: rect, url: attachments[index].url)
+            self.contentViews.append(view)
+            view.contentMode = .scaleAspectFill
+            view.layer.cornerRadius = 7
+            view.layer.masksToBounds = true
+            if let previewUrl = attachments[index].previewUrl {
+                
+                view.kf.setImage(
+                    with: previewUrl,
+                    placeholder: nil,
+                    options: [
+                        .alsoPrefetchToMemory,
+                        .waitForCache,
+                        .backgroundDecode,
+                    ]) { (result) in
+                        switch result {
+                            case .success(_):
+                                break
+                            case .failure(let error):
+                                print(error.errorCode)
+                        }
+                    }
+            } else {
+                view.backgroundColor = .black
+            }
+            self.addSubview(view)
+            self.views.append(view)
+            
+        }
+        
+    }
+    
+    func handleTouch(at point: CGPoint, callback: (([URL], URL) -> Void)?) -> Bool {
+        var isMyTouch: Bool = false
+        let urls = views.compactMap { $0.url }
+        for (index, item) in views.enumerated() {
+            if item.frame.contains(point) {
+                if let url = item.url {
+                    callback?(urls, url)
+                }
+                isMyTouch = true
+            }
+        }
+        return isMyTouch
+    }
+}

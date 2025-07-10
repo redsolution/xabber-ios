@@ -155,6 +155,17 @@ class MessageReferenceStorageItem: Object {
         }
     }
     
+    var videoPreviewUrl: URL? {
+        get {
+            guard let key = self.metadata?["thumbnail"] as? String else { return nil }
+            guard let url = URL(string: key) else { return nil }
+            return url
+        }
+        set {
+            self.metadata?["thumbnail"] = newValue?.absoluteString
+        }
+    }
+    
     var videoOrientation: String? {
         get {
             guard let orientation = self.metadata?["orientation"] as? String else { return nil }
@@ -553,7 +564,7 @@ class MessageReferenceStorageItem: Object {
         }
     }
     
-    func extractFrameFromVideo(forKey key: String) -> (width: CGFloat?, height: CGFloat?, video_duration: String?){
+    func extractFrameFromVideo(forKey key: String) -> (width: CGFloat?, height: CGFloat?, video_duration: String?, image: UIImage?){
         if !ImageCache.default.isCached(forKey: key) {
             var orientationImage: UIImage.Orientation = .up
             if videoOrientation != nil {
@@ -571,9 +582,9 @@ class MessageReferenceStorageItem: Object {
                 }
             }
             
-            guard let url = self.localFileUrl ?? downloadUrl else { return (nil, nil, nil) }
+            guard let url = self.localFileUrl ?? downloadUrl else { return (nil, nil, nil, nil) }
             let asset = AVAsset(url: url)
-            let timeForFrame = CMTime(value: asset.duration.value / 2,
+            let timeForFrame = CMTime(value: 1,
                                       timescale: asset.duration.timescale)
             
             let generator = AVAssetImageGenerator.init(asset: asset)
@@ -583,7 +594,7 @@ class MessageReferenceStorageItem: Object {
                 cgImage = try generator.copyCGImage(at: timeForFrame, actualTime: nil)
             } catch {
                 DDLogDebug("MessagereferenceStorageItem: \(#function). \(error.localizedDescription)")
-                return (nil, nil, nil)
+                return (nil, nil, nil, nil)
             }
             let image = UIImage(cgImage: cgImage, scale: 1.0, orientation: orientationImage)//.rotate(radians: rotation)
             ImageCache.default.store(image, forKey: key)
@@ -592,9 +603,11 @@ class MessageReferenceStorageItem: Object {
             let seconds = time.truncatingRemainder(dividingBy: 60)
             let minutes = (time - seconds).truncatingRemainder(dividingBy: 60)
             
-            return (width: image.size.width, height: image.size.height,
-                    video_duration: String(format: "%.0f:%2.0f", minutes, seconds).replacingOccurrences(of: " ", with: "0"))
+            return (width: image.size.width,
+                    height: image.size.height,
+                    video_duration: String(format: "%.0f:%2.0f", minutes, seconds).replacingOccurrences(of: " ", with: "0"),
+                    image)
         }
-        return (nil, nil, nil)
+        return (nil, nil, nil, nil)
     }
 }

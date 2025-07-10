@@ -215,99 +215,16 @@ public class MessageContentCell: MessageCollectionViewCell {
             fatalError(MessageKitError.nilMessagesDataSource)
         }
         self.isSelectedMessage = self.delegate?.isSelected(primary: message.primary) ?? false
-        
-//        guard let displayDelegate = messagesCollectionView.messagesDisplayDelegate else {
-//            fatalError(MessageKitError.nilMessagesDisplayDelegate)
-//        }
-//        self.layer.shouldRasterize = true
-//        self.layer.rasterizationScale = UIScreen.main.scale
-//        error = message.error
-//        if error {
-////            if message.errorType == "omemo" {
-////                messageErrorButton.setImage(imageLiteral( "alert")?.withRenderingMode(.alwaysTemplate), for: .normal)
-////                messageErrorButton.tintColor = .systemRed
-////                messageErrorButton.backgroundColor = .clear
-////            } else if message.errorType == "cert_error" {
-////                let icon = displayDelegate.messageErrorIcon(for: message, at: indexPath, on: messagesCollectionView) ?? "exclamationmark.triangle.fill"
-////                messageErrorButton.setImage(imageLiteral( icon), for: .normal)
-////                if icon != "exclamationmark.triangle.fill" {
-////                    messageErrorButton.tintColor = .systemGreen
-////                } else {
-////                    messageErrorButton.tintColor = .systemRed
-////                }
-////                messageErrorButton.backgroundColor = .clear
-////            } else {
-////                messageErrorButton.setImage(imageLiteral("exclamationmark.circle.fill"), for: .normal)
-////                messageErrorButton.tintColor = MDCPalette.red.tint700
-////                messageErrorButton.backgroundColor = .clear
-////            }
-//            self.errorButtonBackgroundView.isHidden = false
-//            self.messageErrorButton.isHidden = false
-//        } else {
-//            if message.errorType == "omemo" {
-//                self.messageContainerView.alpha = 0.35
-//                self.errorButtonBackgroundView.isHidden = true
-//                self.messageErrorButton.isHidden = true
-//            } else if message.errorType == "cert_error" {
-//                self.messageContainerView.alpha = 1.0
-//                self.errorButtonBackgroundView.isHidden = false
-//                self.messageErrorButton.isHidden = false
-////                let icon = displayDelegate.messageErrorIcon(for: message, at: indexPath, on: messagesCollectionView) ?? "exclamationmark.triangle.fill"
-////                messageErrorButton.setImage(imageLiteral( icon)?.withRenderingMode(.alwaysTemplate), for: .normal)
-////                if icon != "exclamationmark.triangle.fill" {
-////                    messageErrorButton.tintColor = .systemGreen
-////                } else {
-////                    messageErrorButton.tintColor = .systemRed
-////                }
-//                messageErrorButton.backgroundColor = .clear
-//            } else {
-//                self.messageContainerView.alpha = 1.0
-//                self.errorButtonBackgroundView.isHidden = true
-//                self.messageErrorButton.isHidden = true
-//            }
-//            
-//        }
-        
-//        messageErrorButton.setNeedsLayout()
-        
-//        self.messageErrorButton.addTarget(self, action: #selector(onMessageErrorButtonTouchUp), for: .touchUpInside)
-        
-//        canPinMessages = message.canPinMessage
-//        canEditMessage = message.canEditMessage
-//        canDeleteMessage = message.canDeleteMessage
+
         delegate = messagesCollectionView.messageCellDelegate
-
-//        if message.withAvatar {
-//            if let url = displayDelegate.urlForAvatarView(at: indexPath) {
-//                DefaultAvatarManager.shared.getGroupAvatar(url: url.absoluteString, userId: "", jid: message.jid, owner: message.owner, size: 32) { image in
-//                    if let image = image {
-//                        self.avatarView.image = image
-//                    }
-////                    else {
-////                        self.avatarView.setDefaultAvatar(for: username, owner: owner)
-////                    }
-//                }
-//            }
-//        }
-
-//        self.isBurnedMessage = displayDelegate.isBurnedMessage(at: indexPath)
-//        let messageColor = displayDelegate.backgroundColor(for: message, at: indexPath, in: messagesCollectionView)
-//        let messageStyle = displayDelegate.messageStyle(for: message, at: indexPath, in: messagesCollectionView)
-//        let isSelected = displayDelegate.isSelected(for: message, at: indexPath, in: messagesCollectionView)
-
         canPerformAction = dataSource.canPerformAction()
-        
-//        messageContainerView.bubbleImage.tintColor = messageColor
-//        messageContainerView.style = messageStyle
-//        messageContainerView.isSelected = isSelected
-        
-        let topCellLabelText: NSAttributedString? = dataSource.cellTopLabelAttributedText(for: message, at: indexPath)
-        let topMessageLabelText = dataSource.messageTopLabelAttributedText(for: message, at: indexPath)
-        let bottomText = dataSource.messageBottomLabelAttributedText(for: message, at: indexPath)
+//        let topCellLabelText: NSAttributedString? = dataSource.cellTopLabelAttributedText(for: message, at: indexPath)
+//        let topMessageLabelText = dataSource.messageTopLabelAttributedText(for: message, at: indexPath)
+//        let bottomText = dataSource.messageBottomLabelAttributedText(for: message, at: indexPath)
 
-        cellTopLabel.attributedText = topCellLabelText
-        messageTopLabel.attributedText = topMessageLabelText
-        messageBottomLabel.attributedText = bottomText 
+//        cellTopLabel.attributedText = topCellLabelText
+//        messageTopLabel.attributedText = topMessageLabelText
+//        messageBottomLabel.attributedText = bottomText 
 
         self.contentView.backgroundColor = .clear
 //        drawDeliveryIndicator(at: indexPath, in: messagesCollectionView)
@@ -527,21 +444,61 @@ public class MessageContentCell: MessageCollectionViewCell {
         var radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.noTail.message.bubble.getRadiusFor(index: attributes.cornerRadius)
         switch attributes.tail {
             case MessageStyleConfig.MessageBubbleContainer.CodingKeys.noTail.rawValue:
-                radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.noTail.message.bubble.getRadiusFor(index: attributes.cornerRadius)
+                if attributes.isImageMessage {
+                    radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.noTail.image.bubble.getRadiusFor(index: attributes.cornerRadius)
+                } else {
+                    radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.noTail.message.bubble.getRadiusFor(index: attributes.cornerRadius)
+                }
+                
             case MessageStyleConfig.MessageBubbleContainer.CodingKeys.smooth.rawValue:
-                radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.smooth.message.bubble.getRadiusFor(index: attributes.cornerRadius)
+                if attributes.isImageMessage {
+                    radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.smooth.image.bubble.getRadiusFor(index: attributes.cornerRadius)
+                } else {
+                    radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.smooth.message.bubble.getRadiusFor(index: attributes.cornerRadius)
+                }
+                
             case MessageStyleConfig.MessageBubbleContainer.CodingKeys.bubble.rawValue:
-                radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.bubble.message.bubble.getRadiusFor(index: attributes.cornerRadius)
+                if attributes.isImageMessage {
+                    radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.bubble.image.bubble.getRadiusFor(index: attributes.cornerRadius)
+                } else {
+                    radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.bubble.message.bubble.getRadiusFor(index: attributes.cornerRadius)
+                }
+                
             case MessageStyleConfig.MessageBubbleContainer.CodingKeys.bubbles.rawValue:
-                radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.bubbles.message.bubble.getRadiusFor(index: attributes.cornerRadius)
+                if attributes.isImageMessage {
+                    radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.bubbles.image.bubble.getRadiusFor(index: attributes.cornerRadius)
+                } else {
+                    radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.bubbles.message.bubble.getRadiusFor(index: attributes.cornerRadius)
+                }
+                
             case MessageStyleConfig.MessageBubbleContainer.CodingKeys.curvy.rawValue:
-                radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.curvy.message.bubble.getRadiusFor(index: attributes.cornerRadius)
+                if attributes.isImageMessage {
+                    radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.curvy.image.bubble.getRadiusFor(index: attributes.cornerRadius)
+                } else {
+                    radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.curvy.message.bubble.getRadiusFor(index: attributes.cornerRadius)
+                }
+                
             case MessageStyleConfig.MessageBubbleContainer.CodingKeys.stripes.rawValue:
-                radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.stripes.message.bubble.getRadiusFor(index: attributes.cornerRadius)
+                if attributes.isImageMessage {
+                    radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.stripes.image.bubble.getRadiusFor(index: attributes.cornerRadius)
+                } else {
+                    radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.stripes.message.bubble.getRadiusFor(index: attributes.cornerRadius)
+                }
+                
             case MessageStyleConfig.MessageBubbleContainer.CodingKeys.transparent.rawValue:
-                radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.transparent.message.bubble.getRadiusFor(index: attributes.cornerRadius)
+                if attributes.isImageMessage {
+                    radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.transparent.image.bubble.getRadiusFor(index: attributes.cornerRadius)
+                } else {
+                    radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.transparent.message.bubble.getRadiusFor(index: attributes.cornerRadius)
+                }
+                
             case MessageStyleConfig.MessageBubbleContainer.CodingKeys.wedge.rawValue:
-                radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.wedge.message.bubble.getRadiusFor(index: attributes.cornerRadius)
+                if attributes.isImageMessage {
+                    radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.wedge.image.bubble.getRadiusFor(index: attributes.cornerRadius)
+                } else {
+                    radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.wedge.message.bubble.getRadiusFor(index: attributes.cornerRadius)
+                }
+                
             default:
                 break
         }

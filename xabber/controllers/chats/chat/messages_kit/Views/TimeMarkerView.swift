@@ -83,7 +83,7 @@ class TimeMarkerView: UIView {
         }
         self.frame = frame
         let radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.smooth.image.timestamp.getRadiusFor(index: "16")
-        self.layer.cornerRadius = radius.leftBottom
+        self.layer.cornerRadius = rad
         self.layer.masksToBounds = true
         self.textLabel.textColor = UIColor.white
         self.textLabel.frame = CGRect(

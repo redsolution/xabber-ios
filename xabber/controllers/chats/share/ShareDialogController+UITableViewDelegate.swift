@@ -45,6 +45,7 @@ extension ShareDialogController: UITableViewDelegate {
                         conversationType: item.conversationType,
                         forwarded: self.forwardIds
                     )
+                self.lastChatsDisplayDelegate?.shouldMakeDialogSelected(jid: item.jid, owner: item.owner, conversationType: item.conversationType)
             }
         }
         

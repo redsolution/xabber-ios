@@ -153,29 +153,35 @@ class AudioAttachment {
 class MessageAttachment {
     var primary: String
     var author: String
+    var jid: String
+    var outgoing: Bool
     var textMessage: NSAttributedString?
     var images: [ImageAttachment]
     var videos: [VideoAttachment]
     var files: [FileAttachment]
     var audios: [AudioAttachment]
     var timeMarker: NSAttributedString
+    var subforwards: [MessageAttachment]
     
-    init(primary: String, author: String, textMessage: NSAttributedString?, images: [ImageAttachment], videos: [VideoAttachment], files: [FileAttachment], audios: [AudioAttachment], timeMarker: NSAttributedString) {
+    init(primary: String, author: String, jid: String, outgoing: Bool, textMessage: NSAttributedString?, images: [ImageAttachment], videos: [VideoAttachment], files: [FileAttachment], audios: [AudioAttachment], timeMarker: NSAttributedString, subforwards: [MessageAttachment]) {
         self.primary = primary
         self.author = author
+        self.jid = jid
+        self.outgoing = outgoing
         self.textMessage = textMessage
         self.images = images
         self.videos = videos
         self.files = files
         self.audios = audios
         self.timeMarker = timeMarker
+        self.subforwards = subforwards
     }
     
     var attributedAuthor: NSAttributedString {
         get {
             return NSAttributedString(string: self.author, attributes: [
                 NSAttributedString.Key.font: UIFont.systemFont(ofSize: 14, weight: .medium),
-                NSAttributedString.Key.foregroundColor: MDCPalette.purple.tint500
+                NSAttributedString.Key.foregroundColor: ChatViewController.getUsernamePalette(for: self.jid).tint500
             ])
         }
     }

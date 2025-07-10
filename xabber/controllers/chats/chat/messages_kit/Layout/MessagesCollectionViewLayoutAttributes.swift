@@ -51,7 +51,9 @@ open class MessagesCollectionViewLayoutAttributes: UICollectionViewLayoutAttribu
     public var timeMarkerWithBackplate: Bool = false
     
     public var inlineContainerSizeInsets = UIEdgeInsets(top: 4, left: 4, bottom: 4, right: 2)
-    public var inlineContainerSizePadding = UIEdgeInsets(top: 2, left: 2, bottom: 2, right: 2)
+    public var inlineContainerSizePadding = UIEdgeInsets(top: 2, left: 2, bottom: 0, right: 2)
+    
+    public var isImageMessage: Bool = false
 
     // MARK: - Methods
 
@@ -84,6 +86,7 @@ open class MessagesCollectionViewLayoutAttributes: UICollectionViewLayoutAttribu
         copy.inlineContainerSizeInsets = inlineContainerSizeInsets
         copy.inlineContainerSizePadding = inlineContainerSizePadding
         copy.cornerRadius = cornerRadius
+        copy.isImageMessage = isImageMessage
         
         return copy
     }
@@ -116,6 +119,7 @@ open class MessagesCollectionViewLayoutAttributes: UICollectionViewLayoutAttribu
             && attributes.inlineContainerSizePadding == inlineContainerSizePadding
             && attributes.authorInlineSize == authorInlineSize
             && attributes.cornerRadius == cornerRadius
+            && attributes.isImageMessage == isImageMessage
             
         } else {
             return false

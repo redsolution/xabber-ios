@@ -541,6 +541,7 @@ extension ImagePickerViewController: UIImagePickerControllerDelegate {
         
         ImageCache.default.store(image, forKey: url.absoluteString)
         item.primary = UUID().uuidString
+        item.videoPreviewKey = url.absoluteString
         item.localFileUrl = item.temporaryData?.saveToTemporaryDir(name: url.lastPathComponent)
         return item
     }
@@ -633,40 +634,47 @@ extension ImagePickerViewController: UIDocumentPickerDelegate {
         item.localFileUrl = item.temporaryData?.saveToTemporaryDir(name: url.lastPathComponent)
         
         switch mimeType {
-        case .image:
-            item.metadata?["name"] = "Image"
-            if let data = item.temporaryData,
-                let image = KFCrossPlatformImage(data: data) {
-                item.metadata?["width"] = image.size.width.rounded()
-                item.metadata?["height"] = image.size.height.rounded()
-                ImageCache.default.store(image, forKey: url.absoluteString)
-            }
-        case .audio:
-            item.metadata?["name"] = url.lastPathComponent
-            item.metadata?["duration"] = try? AVAudioPlayer(contentsOf: url).duration
-        case .video:
-            item.metadata?["name"] = "Video"
-            let asset = AVAsset(url: url)
-            guard let track = asset.tracks(withMediaType: .video).first else { break }
-            
-            let transform = track.preferredTransform
-            let size = track.naturalSize.applying(transform)
+            case .image:
+                item.metadata?["name"] = "Image"
+                if let data = item.temporaryData,
+                    let image = KFCrossPlatformImage(data: data) {
+                    item.metadata?["width"] = image.size.width.rounded()
+                    item.metadata?["height"] = image.size.height.rounded()
+                    ImageCache.default.store(image, forKey: url.absoluteString)
+                    item.videoPreviewKey = url.absoluteString
+                }
+            case .audio:
+                item.metadata?["name"] = url.lastPathComponent
+                item.metadata?["duration"] = try? AVAudioPlayer(contentsOf: url).duration
+            case .video:
+                item.metadata?["name"] = "Video"
+                let asset = AVAsset(url: url)
+                guard let track = asset.tracks(withMediaType: .video).first else { break }
+                
+                let transform = track.preferredTransform
+                let size = track.naturalSize.applying(transform)
 
-            let orientation = asset.videoOrientation().orientation.rawValue
-            
-            item.metadata?["width"] = abs(size.width)
-            item.metadata?["height"] = abs(size.height)
-            item.videoOrientation = orientation
-            
-            // add initialization of videoPreviewKey and videoDuration
-            let url = item.metadata?["uri"] as! String
-            let key = [jid, owner, url].prp()
-            let result = item.extractFrameFromVideo(forKey: key)
-            item.isDownloaded = true
-            item.videoPreviewKey = key
-            item.video_duration = result.video_duration ?? ""
-        default:
-            item.metadata?["name"] = url.lastPathComponent
+                let orientation = asset.videoOrientation().orientation.rawValue
+                
+                item.metadata?["width"] = abs(size.width)
+                item.metadata?["height"] = abs(size.height)
+                item.videoOrientation = orientation
+                
+                // add initialization of videoPreviewKey and videoDuration
+                let url = item.metadata?["uri"] as! String
+                let key = [jid, owner, url].prp()
+                let result = item.extractFrameFromVideo(forKey: key)
+                item.isDownloaded = true
+                item.videoPreviewKey = key
+                item.video_duration = result.video_duration ?? ""
+                let videoPreviewNamePrefix = "\(CommonConfigManager.shared.config.bundle_id).video_preview."
+                if let path = URL.documentsPath(forFileName: videoPreviewNamePrefix + NSUUID().uuidString),
+                   let data = result.image?.pngData() {
+                    try? data.write(to: path)
+                    item.metadata?["preview_local_url"] = path.absoluteString
+                }
+            default:
+                item.metadata?["name"] = url.lastPathComponent
         }
         
 //        HTTPUploadsManager.storeData(item.temporaryData!, for: item.primary)

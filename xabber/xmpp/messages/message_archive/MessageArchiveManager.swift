@@ -158,6 +158,9 @@ class MessageArchiveManager: AbstractXMPPManager {
                                         }
                                     }
                                     self.temporaryMessageReceiverDelegate?.didReceiveEndPage(queryId: elementId, fin: true, first: first, last: last, count: count)
+                                    DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
+                                        item.callback?()
+                                    }
                                     self.callbacksQueue.remove(item)
                                     return true
                                 }
@@ -170,6 +173,9 @@ class MessageArchiveManager: AbstractXMPPManager {
                                         instance.lastLoadedMessageHistoryId = nextPage
                                     }
                                     self.temporaryMessageReceiverDelegate?.didReceiveEndPage(queryId: elementId, fin: true, first: first, last: last, count: count)
+                                    DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
+                                        item.callback?()
+                                    }
                                     self.callbacksQueue.remove(item)
                                     return true
                                 }

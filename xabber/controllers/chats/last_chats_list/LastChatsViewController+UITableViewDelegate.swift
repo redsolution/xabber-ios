@@ -53,10 +53,31 @@ extension LastChatsViewController: UITableViewDelegate {
         vc.jid = item.jid
         vc.conversationType = item.conversationType
         vc.sharedPlayerPaneldelegae = self
+        vc.lastChatsDisplayDelegate = self
         if UIDevice.current.userInterfaceIdiom == .pad && CommonConfigManager.shared.config.interface_type == "split" {
             self.currentChatVC = vc
             self.playerViewToolbar.delegate = vc
         }
         showStacked(vc, in: self)
     }
+}
+
+protocol LastChatsDisplayDelegate {
+    func shouldMakeDialogSelected(jid: String, owner: String, conversationType: ClientSynchronizationManager.ConversationType)
+}
+
+extension LastChatsViewController: LastChatsDisplayDelegate {
+    func shouldMakeDialogSelected(jid: String, owner: String, conversationType: ClientSynchronizationManager.ConversationType) {
+        if let index = self.datasource.firstIndex(where: {
+            return $0.jid == jid && $0.owner == owner && $0.conversationType == conversationType
+        }) {
+            self.tableView
+                .indexPathsForSelectedRows?
+                .compactMap { $0 }
+                .forEach { self.tableView.deselectRow(at: $0, animated: true) }
+            self.tableView.selectRow(at: IndexPath(row: index, section: 0), animated: true, scrollPosition: .middle)
+        }
+    }
+    
+    
 }

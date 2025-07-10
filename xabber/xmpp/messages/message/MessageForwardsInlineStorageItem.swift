@@ -73,6 +73,21 @@ class MessageForwardsInlineStorageItem: Object {
         self.forwardJid = forwardJid ?? ""
     }
     
+    public func tryToLoadNickname() -> String {
+        do {
+            let realm = try WRealm.safe()
+            if self.owner == self.forwardJid {
+                return AccountManager.shared.find(for: self.owner)?.username ?? forwardJid
+            }
+            if let nickname = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: self.forwardJid, owner: self.owner))?.displayName {
+                return nickname
+            }
+        } catch {
+            DDLogDebug("MessageForwardsInlineStorageItem: \(#function). \(error.localizedDescription)")
+        }
+        return self.forwardJid
+    }
+    
     public final func createRefBody(_ attrs: [NSAttributedString.Key: Any], searchedText: String? = nil, searchedTextColor: UIColor? = nil) -> NSAttributedString {
         let string = NSMutableAttributedString(string: body.trimmingCharacters(in: .newlines))
         string.addAttributes(attrs, range: NSRange(location: 0, length: string.length))

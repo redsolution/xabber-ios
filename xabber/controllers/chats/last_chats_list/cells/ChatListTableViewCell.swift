@@ -365,21 +365,10 @@ class ChatListTableViewCell: UITableViewCell {
             usernameLabel.text = username
         }
         usernameLabel.sizeToFit()
-//        usernameLabel.layoutIfNeeded()
         
         subtitleLabel.text = groupchatNickname
-        
-//        switch conversationType {
-//            case .omemo, .omemo1, .axolotl:
-//                self.encryptedIndicator.isHidden = false
-//                self.usernameLabel.textColor = MDCPalette.green.tint500
-//            default:
-//                self.encryptedIndicator.isHidden = true
-//            break
-//        }
-        
+                
         if isPinned {
-//            self.contentView.backgroundColor = MDCPalette.grey.tint100
             self.pinnedIndicator.isHidden = false
         } else {
             self.pinnedIndicator.isHidden = true
@@ -467,14 +456,8 @@ class ChatListTableViewCell: UITableViewCell {
         }
         
         if subRequest {
-//            subBadgeView.setTitle("􀅼", for: .normal)
-//            if #available(iOS 13.0, *) {
-//                subBadgeView.imageEdgeInsets = UIEdgeInsets(square: 5)
-//                subBadgeView.setImage(UIImage(systemName: "plus")?.withRenderingMode(.alwaysTemplate), for: .normal)
-//            } else {
-                subBadgeView.setTitle("＋", for: .normal)
+            subBadgeView.setTitle("＋", for: .normal)
             subBadgeView.titleLabel?.font = UIFont.systemFont(ofSize: 13, weight: .bold)
-//            }
             subBadgeView.isHidden = false
             subBadgeView.tintColor = .white
         } else {
@@ -519,7 +502,7 @@ class ChatListTableViewCell: UITableViewCell {
         verificationBadgeView.isHidden = true
         avatarView.image = nil
         errorIndicator.isHidden = true
-        
+        self.avatarView.contentMode = .scaleAspectFill
         self.contentView.backgroundColor = .clear//.systemBackground
         
         badgeString = ""
@@ -528,13 +511,13 @@ class ChatListTableViewCell: UITableViewCell {
         if bottomStack.layoutMargins.right > 8 {
             bottomStack.layoutMargins = UIEdgeInsets(top: 0, bottom: 0, left: 0, right: 8)
         }
-        if statusIndicator.frame.width > 14 {
-            statusIndicator.frame = CGRect(x: 49,
-                                           y: 49,
-                                           width: 12,
-                                           height: 12)
-            statusIndicator.border(1)
-        }
+//        if statusIndicator.frame.width > 14 {
+        statusIndicator.frame = CGRect(x: 49,
+                                       y: 49,
+                                       width: 12,
+                                       height: 12)
+        statusIndicator.border(1)
+//        }
     }
     
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {

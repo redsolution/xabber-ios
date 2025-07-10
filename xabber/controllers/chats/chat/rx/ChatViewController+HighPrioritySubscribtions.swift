@@ -90,7 +90,7 @@ extension ChatViewController {
         Observable
             .collection(from: self.messagesObserver, synchronousStart: true)
             .skip(1)
-            .debounce(.milliseconds(20), scheduler: MainScheduler.asyncInstance)
+            .debounce(.milliseconds(30), scheduler: MainScheduler.asyncInstance)
             .subscribe {
                 (_) in
                 if self.showSkeletonObserver.value {

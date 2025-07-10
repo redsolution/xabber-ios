@@ -24,30 +24,75 @@ import RealmSwift
 import RxSwift
 import RxRealm
 import CocoaLumberjack
+import DeepDiff
+import XMPPFramework.XMPPJID
 
 
 class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISearchControllerDelegate {
     
-    struct Datasource {
+    struct Datasource: DiffAware {
+               
+        var diffId: String {
+            get {
+                return [jid, owner].prp()
+            }
+        }
+
         let jid: String
         let owner: String
         let username: String
+        let attributedUsername: NSAttributedString?
         let message: String
         let date: Date?
-        let deliveryState: MessageStorageItem.MessageSendingState?
+        let state: MessageStorageItem.MessageSendingState?
         let isMute: Bool
         let isSynced: Bool
-        let isGroupchat: Bool
         let status: ResourceStatus
-        let entity: RosterItemEntity
+        let entity: RosterItemEntity?
         let conversationType: ClientSynchronizationManager.ConversationType
         let unread: Int
         let unreadString: String?
-        let indicator: UIColor
+        let color: UIColor
         let isDraft: Bool
-        let isAttachment: Bool
-        let groupchatNickname: String?
-        let isSystem: Bool
+        let hasAttachment: Bool
+        let userNickname: String?
+        let isSystemMessage: Bool
+        let isPinned: Bool
+        let subRequest: Bool
+        let isEncrypted: Bool
+        let avatarUrl: String?
+        let hasErrorInChat: Bool
+        let updateTS: Double
+        let isVerificationActionRequired: Bool
+        
+        static func compareContent(_ a: ShareDialogController.Datasource, _ b: ShareDialogController.Datasource) -> Bool {
+            return a.jid == b.jid
+                    && a.owner == b.owner
+                    && a.username == b.username
+                    && a.attributedUsername?.string == b.attributedUsername?.string
+                    && a.message == b.message
+                    && a.date == b.date
+                    && a.state == b.state
+                    && a.isMute == b.isMute
+                    && a.isSynced == b.isSynced
+                    && a.status == b.status
+                    && a.entity == b.entity
+                    && a.conversationType == b.conversationType
+                    && a.unread == b.unread
+                    && a.unreadString == b.unreadString
+                    && a.color == b.color
+                    && a.isDraft == b.isDraft
+                    && a.hasAttachment == b.hasAttachment
+                    && a.userNickname == b.userNickname
+                    && a.isSystemMessage == b.isSystemMessage
+                    && a.isPinned == b.isPinned
+                    && a.subRequest == b.subRequest
+                    && a.isEncrypted == b.isEncrypted
+                    && a.avatarUrl == b.avatarUrl
+                    && a.hasErrorInChat == b.hasErrorInChat
+                    && a.updateTS == b.updateTS
+        }
+        
     }
     
     internal var forwardIds: [String] = []
@@ -58,6 +103,8 @@ class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISe
     internal var datasource: [Datasource] = []
     
     open var delegate: OpenChatDelegate? = nil
+    
+    open var lastChatsDisplayDelegate: LastChatsDisplayDelegate? = nil
     
     internal let tableView: UITableView = {
         let view = UITableView(frame: .zero, style: .plain)
@@ -76,7 +123,11 @@ class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISe
             chatsDataset = realm
                 .objects(LastChatsStorageItem.self)
                 .filter("owner == %@", owner)
-                .sorted(byKeyPath: "messageDate", ascending: false)
+                .sorted(by: [
+                    SortDescriptor(keyPath: "isPinned", ascending: false),
+                    SortDescriptor(keyPath: "pinnedPosition", ascending: true),
+                    SortDescriptor(keyPath: "messageDate", ascending: false)
+                ])
             
             rosterDataset = realm
                 .objects(RosterStorageItem.self)
@@ -90,16 +141,30 @@ class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISe
     
     internal func updateDatasource() {
         datasource = chatsDataset?.map { item in
-            var blankMessageText: String = "No messages".localizeString(id: "no_messages", arguments: [])
-            if !item.fullArchiveLoaded {
-                blankMessageText = (item.retractVersion == "0" && item.retractVersion != "") ? "No messages".localizeString(id: "no_messages", arguments: []) :
-                "Message retracted".localizeString(id: "recent_chat__last_message_retracted", arguments: [])
-            }
+            let blankMessageText: String = "Start messaging here".localizeString(id: "chat_message_start_messaging", arguments: [])
             
+            let subscriptionRequest: Bool = item.rosterItem?.isThereSubscriptionRequest() ?? false
             
             let primaryResource = item.rosterItem?.getPrimaryResource()
             
-            var message: String = item.lastMessage?.displayedBody() ?? blankMessageText
+            let date = item.messageDate == Date(timeIntervalSince1970: 0) ? nil : item.messageDate
+            
+            var message: String
+            
+            if let lastMessage = item.lastMessage {
+                message = lastMessage.displayedBody()
+                if message.isEmpty {
+                    message = blankMessageText
+                }
+                if lastMessage.isDeleted {
+                    message = blankMessageText
+                }
+            } else if item.conversationType == .saved {
+                let usersCount = AccountManager.shared.users.count
+                message = usersCount > 1 ? item.owner : "Save messages here"
+            } else {
+                message = blankMessageText
+            }
             
             var isDraft: Bool = false
             if let draft = item.draftMessage {
@@ -120,65 +185,121 @@ class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISe
                 isAttachment = true
             }
             
-            let isInvite = false//item.unread > 0 ? ((item.lastMessage?.displayAs ?? .text) == .initial ? true : false) : false
+            let isInvite = false
             
-            var nickname: String? = item.lastMessage?.groupchatDisplayedNickname
+            let nickname: String? = item.lastMessage?.groupchatDisplayedNickname
             if item.lastMessage?.inlineForwards.isNotEmpty ?? false {
                 let sender = item.lastMessage?.inlineForwards.first
                 var nick = sender?.forwardNickname
                 if nick == "" || nick == nil {
                     nick = String(JidManager.shared.prepareJid(jid: sender?.forwardJid ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])))
                 }
-//                switch item.lastMessage?.inlineForwards.first?.kind {
-//                case .text:
-//                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])): \(item.lastMessage?.inlineForwards.first?.body ?? "")"
-//                case .images:
-//                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " image".localizeString(id: "forward_image", arguments: [])
-//                case .videos:
-//                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " video".localizeString(id: "forward_video", arguments: [])
-//                case .files:
-//                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " file".localizeString(id: "forward_file", arguments: [])
-//                case .voice:
-//                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])):" + " voice message".localizeString(id: "forward_voice", arguments: [])
-//                case .quote:
-//                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])): \(item.lastMessage?.inlineForwards.first?.body ?? "")"
-//                case .none:
-//                    nickname = "\(nick ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: []))"
-//                }
-//                nickname = "Forwarded message"
             }
             
+            var isSystemMessage: Bool = [.system].contains(item.lastMessage?.displayAs ?? .text)
+            if isSystemMessage == false {
+                isSystemMessage = item.lastMessage?.shouldShowAsSystemMessage() ?? false
+            }
+            if item.isFreshNotEmptyEncryptedChat {
+                message = "Write your encrypted messages here"
+                isSystemMessage = true
+            }
+            if item.lastMessage == nil {
+                isSystemMessage = true
+            }
+            
+            let username = item.rosterItem?.displayName ?? item.jid
+            var attributedUsername: NSAttributedString? = nil
+            
+            var isVerificationActionRequired: Bool = false
+                            
+            if item.conversationType.isEncrypted {
+                let attributedTitle: NSMutableAttributedString = NSMutableAttributedString()
+                let indicatorAttach = NSTextAttachment()
+                var color: UIColor = .label
+                do {
+                    let realm = try WRealm.safe()
+                    let collectionJid = realm
+                        .objects(SignalDeviceStorageItem.self)
+                        .filter("jid == %@ AND owner == %@", item.jid, item.owner)
+                    if collectionJid.count == 0 {
+                        color = .secondaryLabel
+                        indicatorAttach.image = UIImage(systemName: "lock.fill")?.withTintColor(.secondaryLabel)
+                        attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
+                    } else if collectionJid.toArray().filter({ $0.state == .fingerprintChanged || $0.state == .revoked }).count > 0 {
+                        color = .systemRed
+                        indicatorAttach.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withTintColor(.systemRed)
+                        attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
+                    } else if collectionJid.toArray().filter({ $0.state != .trusted }).count > 0 {
+                        color = .systemOrange
+                        indicatorAttach.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withTintColor(.systemOrange)
+                        attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
+                    } else if collectionJid.toArray().filter({ $0.isTrustedByCertificate }).count > 0 {
+                        color = .systemGreen
+                        indicatorAttach.image = UIImage(systemName: "lock.circle.fill")?.withTintColor(.systemGreen)
+                        attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
+                    } else {
+                        color = .systemGreen
+                        indicatorAttach.image = UIImage(systemName: "lock.fill")?.withTintColor(.systemGreen)
+                        attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
+                    }
+                    
+                    let verificationInstance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", item.owner, item.jid).first
+                    if verificationInstance != nil &&
+                        [.receivedRequest, .receivedRequestAccept].contains((verificationInstance! as VerificationSessionStorageItem).state) {
+                       isVerificationActionRequired = true
+                    }
+                    
+                } catch {
+                    DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+                }
+                
+                attributedTitle.append(NSAttributedString(string: username, attributes: [
+                    .foregroundColor: color,
+                    .font: UIFont.systemFont(ofSize: 17, weight: .medium)
+                ]))
+                attributedUsername = attributedTitle as NSAttributedString
+            }
             return Datasource(
                 jid: item.jid,
                 owner: item.owner,
-                username: item.rosterItem?.displayName ?? item.jid,
+                username: username,
+                attributedUsername: attributedUsername,
                 message: message,
-                date: item.messageDate,
-                deliveryState: item.lastMessage?.outgoing ?? true ? item.lastMessage?.state ?? nil : nil,
+                date: date,
+                state: item.lastMessage?.outgoing ?? true ? item.lastMessage?.state ?? nil : nil,
                 isMute: item.isMuted,
                 isSynced: item.isSynced,
-                isGroupchat: item.conversationType == .group,
                 status: primaryResource?.status ?? .offline,
                 entity: primaryResource?.entity ?? .contact,
                 conversationType: item.conversationType,
-                unread: item.unread,
+                unread: item.lastMessage?.outgoing ?? false ? 0 : item.unread,
                 unreadString: isInvite ? "1" : nil,
-                indicator: .clear,
+                color: AccountManager.shared.users.count <= 1 ? .clear : AccountColorManager.shared.primaryColor(for: item.owner),
                 isDraft: isDraft,
-                isAttachment: isAttachment,
-                groupchatNickname: nickname,
-                isSystem: [.system].contains(item.lastMessage?.displayAs ?? .text)
+                hasAttachment: isAttachment,
+                userNickname: nickname,
+                isSystemMessage: isSystemMessage,
+                isPinned: item.isPinned,
+                subRequest: (XMPPJID(string: item.jid)?.isServer ?? true) ? false :  subscriptionRequest,
+                isEncrypted: item.conversationType.isEncrypted,
+                avatarUrl: item.rosterItem?.avatarMinUrl ?? item.rosterItem?.avatarMaxUrl ?? item.rosterItem?.oldschoolAvatarKey,
+                hasErrorInChat: item.hasErrorInChat,
+                updateTS: item.updateTS,
+                isVerificationActionRequired: isVerificationActionRequired
             )
         } ?? []
         
-        if let favoritesChat = datasource.firstIndex(where: { $0.conversationType == .saved }) {
-            datasource.swapAt(favoritesChat, 0)
+        if let favoritesChatIndex = datasource.firstIndex(where: { $0.conversationType == .saved }) {
+//            datasource.swapAt(favoritesChat, 0)
+            datasource.insert(datasource.remove(at: favoritesChatIndex), at: 0) 
         }
         
         self.datasource.append(contentsOf: self.rosterDataset?.compactMap({ item in
-            if datasource.contains(where: {$0.jid == item.jid}) {
+            if datasource.contains(where: {$0.jid == item.jid && $0.owner == item.owner}) {
                 return nil
             }
+            let blankMessageText: String = "Start messaging here".localizeString(id: "chat_message_start_messaging", arguments: [])
             
             let primaryResource = item.getPrimaryResource()
             let entity = primaryResource?.entity ?? .contact
@@ -189,27 +310,86 @@ class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISe
                 default:
                     conversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
             }
+            let username = item.displayName
+            var attributedUsername: NSAttributedString? = nil
+            
+            var isVerificationActionRequired: Bool = false
+                            
+            if conversationType.isEncrypted {
+                let attributedTitle: NSMutableAttributedString = NSMutableAttributedString()
+                let indicatorAttach = NSTextAttachment()
+                var color: UIColor = .label
+                do {
+                    let realm = try WRealm.safe()
+                    let collectionJid = realm
+                        .objects(SignalDeviceStorageItem.self)
+                        .filter("jid == %@ AND owner == %@", item.jid, item.owner)
+                    if collectionJid.count == 0 {
+                        color = .secondaryLabel
+                        indicatorAttach.image = UIImage(systemName: "lock.fill")?.withTintColor(.secondaryLabel)
+                        attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
+                    } else if collectionJid.toArray().filter({ $0.state == .fingerprintChanged || $0.state == .revoked }).count > 0 {
+                        color = .systemRed
+                        indicatorAttach.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withTintColor(.systemRed)
+                        attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
+                    } else if collectionJid.toArray().filter({ $0.state != .trusted }).count > 0 {
+                        color = .systemOrange
+                        indicatorAttach.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withTintColor(.systemOrange)
+                        attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
+                    } else if collectionJid.toArray().filter({ $0.isTrustedByCertificate }).count > 0 {
+                        color = .systemGreen
+                        indicatorAttach.image = UIImage(systemName: "lock.circle.fill")?.withTintColor(.systemGreen)
+                        attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
+                    } else {
+                        color = .systemGreen
+                        indicatorAttach.image = UIImage(systemName: "lock.fill")?.withTintColor(.systemGreen)
+                        attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
+                    }
+                    
+                    let verificationInstance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", item.owner, item.jid).first
+                    if verificationInstance != nil &&
+                        [.receivedRequest, .receivedRequestAccept].contains((verificationInstance! as VerificationSessionStorageItem).state) {
+                       isVerificationActionRequired = true
+                    }
+                    
+                } catch {
+                    DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+                }
+                
+                attributedTitle.append(NSAttributedString(string: username, attributes: [
+                    .foregroundColor: color,
+                    .font: UIFont.systemFont(ofSize: 17, weight: .medium)
+                ]))
+                attributedUsername = attributedTitle as NSAttributedString
+            }
             
             return Datasource(
                 jid: item.jid,
                 owner: item.owner,
                 username: item.displayName,
-                message: item.jid,
-                date: nil,
-                deliveryState: nil,
+                attributedUsername: attributedUsername,
+                message: blankMessageText,
+                date: Date(),
+                state: nil,
                 isMute: false,
                 isSynced: true,
-                isGroupchat: [.groupchat, .privateChat, .incognitoChat].contains(entity),
                 status: primaryResource?.status ?? .offline,
-                entity: entity,
+                entity: primaryResource?.entity ?? .contact,
                 conversationType: conversationType,
                 unread: 0,
                 unreadString: nil,
-                indicator: .clear,
+                color: AccountManager.shared.users.count <= 1 ? .clear : AccountColorManager.shared.primaryColor(for: item.owner),
                 isDraft: false,
-                isAttachment: false,
-                groupchatNickname: nil,
-                isSystem: false
+                hasAttachment: false,
+                userNickname: nil,
+                isSystemMessage: true,
+                isPinned: false,
+                subRequest: false,
+                isEncrypted: conversationType.isEncrypted,
+                avatarUrl: item.avatarUrl,
+                hasErrorInChat: false,
+                updateTS: 0,
+                isVerificationActionRequired: isVerificationActionRequired
             )
         }) ?? [])
         self.tableView.reloadData()

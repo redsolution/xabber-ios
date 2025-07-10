@@ -248,10 +248,159 @@ class MessageStorageItem: Object {
         }
     }
     
+    public final func shouldShowAsSystemMessage() -> Bool {
+        switch displayAs {
+            case .text, .system:
+                var resultBody: String = ""
+                let images: [ImageAttachment] = self.references.toArray().filter {
+                    item in
+                    item.mimeType == MimeIconTypes.image.rawValue
+                }.compactMap {
+                    item in
+                    guard let url = item.downloadUrl else {
+                        return nil
+                    }
+                    return ImageAttachment(primary: item.primary, url: url, size: item.sizeInPx ?? CGSize(square: 128))
+                }
+                
+                let videos: [VideoAttachment] = self.references.toArray().filter {
+                    $0.mimeType == MimeIconTypes.video.rawValue
+                } .compactMap {
+                    item in
+                    guard let url = item.downloadUrl else {
+                        return nil
+                    }
+                    return VideoAttachment(primary: item.primary, url: url, size: item.sizeInPx ?? CGSize(square: 128), previewUrl: nil, duration: 0, downloaded: item.isDownloaded)
+                }
+                
+                let audio: [AudioAttachment] = self.references.toArray().filter {
+                    $0.kind_ == "voice"
+                } .compactMap {
+                    item in
+                    return AudioAttachment(primary: item.primary, url: item.decodedUrl, size: 10, name: "name", duration: Double(item.duration ?? 0), downloaded: item.isDownloaded, pcm: item.meteringLevels ?? [])
+                }
+                
+                let files: [FileAttachment] = self.references.toArray().filter {
+                    return $0.kind == .media && ![MimeIconTypes.image.rawValue, MimeIconTypes.video.rawValue, MimeIconTypes.audio.rawValue].contains($0.mimeType)
+                } .compactMap {
+                    item in
+                    if item.kind_ == "groupchat" {
+                        return nil
+                    }
+                    guard let url = item.downloadUrl else {
+                        return nil
+                    }
+                    return FileAttachment(primary: item.primary, url: url, size: Double(item.sizeInBytesRaw), name: item.filename ?? item.name ?? "file", downloaded: item.isDownloaded)
+                }
+                resultBody += body.trimmingCharacters(in: .whitespacesAndNewlines)
+                if resultBody.isEmpty {
+                    if images.count > 0 {
+                        return true
+                    }
+                                    
+                    if audio.count > 0 {
+                        return true
+                    }
+                    
+                    if videos.count > 0 {
+                        return true
+                    }
+                    
+                    if files.count > 0 {
+                        return true
+                    }
+                    if inlineForwards.count > 0 {
+                        return true
+                    }
+                }
+                
+                return false
+        case .call:
+            return true
+        case .sticker:
+            return true
+        }
+    }
+    
     public final func displayedBody() -> String {
         switch displayAs {
             case .text, .system:
-            return body.trimmingCharacters(in: .whitespacesAndNewlines)
+                var resultBody: String = ""
+                let images: [ImageAttachment] = self.references.toArray().filter {
+                    item in
+                    item.mimeType == MimeIconTypes.image.rawValue
+                }.compactMap {
+                    item in
+                    guard let url = item.downloadUrl else {
+                        return nil
+                    }
+                    return ImageAttachment(primary: item.primary, url: url, size: item.sizeInPx ?? CGSize(square: 128))
+                }
+                
+                let videos: [VideoAttachment] = self.references.toArray().filter {
+                    $0.mimeType == MimeIconTypes.video.rawValue
+                } .compactMap {
+                    item in
+                    guard let url = item.downloadUrl else {
+                        return nil
+                    }
+                    return VideoAttachment(primary: item.primary, url: url, size: item.sizeInPx ?? CGSize(square: 128), previewUrl: nil, duration: 0, downloaded: item.isDownloaded)
+                }
+                
+                let audio: [AudioAttachment] = self.references.toArray().filter {
+                    $0.kind_ == "voice"
+                } .compactMap {
+                    item in
+                    return AudioAttachment(primary: item.primary, url: item.decodedUrl, size: 10, name: "name", duration: Double(item.duration ?? 0), downloaded: item.isDownloaded, pcm: item.meteringLevels ?? [])
+                }
+                
+                let files: [FileAttachment] = self.references.toArray().filter {
+                    return $0.kind == .media && ![MimeIconTypes.image.rawValue, MimeIconTypes.video.rawValue, MimeIconTypes.audio.rawValue].contains($0.mimeType)
+                } .compactMap {
+                    item in
+                    if item.kind_ == "groupchat" {
+                        return nil
+                    }
+                    guard let url = item.downloadUrl else {
+                        return nil
+                    }
+                    return FileAttachment(primary: item.primary, url: url, size: Double(item.sizeInBytesRaw), name: item.filename ?? item.name ?? "file", downloaded: item.isDownloaded)
+                }
+                resultBody += body.trimmingCharacters(in: .whitespacesAndNewlines)
+                if resultBody.isEmpty {
+                    
+                    if images.count == 1 {
+                        resultBody += "Image".localizeString(id: "chat_message_image", arguments: [])
+                    } else if images.count > 1 {
+                        resultBody += "Image, %@".localizeString(id: "chat_message_image_count", arguments: ["\(images.count)"])
+                    }
+                                    
+                    if audio.count == 1 {
+                        resultBody += "Voice message".localizeString(id: "chat_message_voice", arguments: [])
+                    } else if audio.count > 1 {
+                        resultBody += "Voice message, %@".localizeString(id: "chat_message_voice_duration", arguments: ["\(audio.count)"])
+                    }
+                    
+                    if videos.count == 1 {
+                        resultBody += "Video".localizeString(id: "chat_message_video", arguments: [])
+                    } else if videos.count > 1 {
+                        resultBody += "Video, %@".localizeString(id: "chat_message_video_count", arguments: ["\(videos.count)"])
+                    }
+                    
+                    if files.count == 1 {
+                        resultBody += "File".localizeString(id: "chat_message_file", arguments: [])
+                    } else if files.count > 1 {
+                        resultBody += "File, %@".localizeString(id: "chat_message_file_count", arguments: ["\(files.count)"])
+                    }
+                    
+                    if inlineForwards.count == 1 {
+                        resultBody += "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])
+                    } else if inlineForwards.count > 1 {
+                        resultBody += "%@ forwarded messages".localizeString(id: "chat_message_some_forwarded_messages", arguments: ["\(files.count)"])
+                    }
+                }
+                
+                return resultBody
         case .call:
             return "Call".localizeString(id: "chat_message_call", arguments: []) // TODO change text
         case .sticker:

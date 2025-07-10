@@ -69,6 +69,75 @@ extension ChatViewController {
         }
     }
     
+    internal func mapAttachment(_ attachment: MessageForwardsInlineStorageItem) -> MessageAttachment {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        formatter.timeStyle = .short
+        
+        let images: [ImageAttachment] = attachment.references.toArray().filter {
+            item in
+            item.mimeType == MimeIconTypes.image.rawValue
+        }.compactMap {
+            item in
+            let url = item.downloadUrl
+            return ImageAttachment(primary: item.primary, url: url, size: item.sizeInPx ?? CGSize(square: 128))
+        }
+        
+        let videos: [VideoAttachment] = attachment.references.toArray().filter {
+            $0.mimeType == MimeIconTypes.video.rawValue
+        } .compactMap {
+            item in
+            let url = item.downloadUrl
+            return VideoAttachment(primary: item.primary, url: url, size: item.sizeInPx ?? CGSize(square: 128), previewUrl: item.videoPreviewUrl, duration: 0, downloaded: item.isDownloaded)
+        }
+        
+        let audio: [AudioAttachment] = attachment.references.toArray().filter {
+            $0.kind_ == "voice"
+        } .compactMap {
+            item in
+            guard let url = item.decodedUrl else {
+                return nil
+            }
+            return AudioAttachment(primary: item.primary, url: url, size: 10, name: "name", duration: 0, downloaded: item.isDownloaded, pcm: item.meteringLevels ?? [])
+        }
+        
+        let files: [FileAttachment] = attachment.references.toArray().filter {
+            return $0.kind == .media && ![MimeIconTypes.image.rawValue, MimeIconTypes.video.rawValue, MimeIconTypes.audio.rawValue].contains($0.mimeType)
+        } .compactMap {
+            item in
+            let url = item.downloadUrl
+            return FileAttachment(primary: item.primary, url: url, size: Double(item.sizeInBytesRaw), name: item.filename ?? item.name ?? "file", downloaded: item.isDownloaded)
+        }
+        let timeString = formatter.string(from: attachment.originalDate ?? Date())
+        let timeMarkerString = NSAttributedString(
+            string: timeString,
+            attributes: [
+                NSAttributedString.Key.foregroundColor: UIColor(red: 158.0 / 255.0, green: 158.0 / 255.0, blue: 158.0 / 255.0, alpha: 1),
+                NSAttributedString.Key.font: UIFont.systemFont(ofSize: 10, weight: .regular)
+            ]
+        )
+        return MessageAttachment(
+            primary: attachment.primary,
+            author: attachment.tryToLoadNickname(),
+            jid: attachment.forwardJid,
+            outgoing: attachment.isOutgoing,
+            textMessage: attachment.createRefBody(
+                [
+                    NSAttributedString.Key.foregroundColor: UIColor.label,
+                    NSAttributedString.Key.font: UIFont.preferredFont(forTextStyle: .body)//UIFont.systemFont(ofSize: 16, weight: .regular),
+                ],
+                searchedText: self.searchTextObserver.value,
+                searchedTextColor: .systemGreen
+            ),
+            images: images,
+            videos: videos,
+            files: files,
+            audios: audio,
+            timeMarker: timeMarkerString,
+            subforwards: attachment.subforwards.toArray().compactMap({ return mapAttachment($0) })
+        )
+    }
+    
     internal final func mapDataset(dataset: Array<MessageStorageItem>) -> [Datasource] {
         if self.showSkeletonObserver.value {
             return skeletonMessages.enumerated().compactMap {
@@ -222,7 +291,7 @@ extension ChatViewController {
                 if let nickname = item.groupchatCard?.nickname, let uuid = item.groupchatCard?.jid ?? item.groupchatCard?.userId {
                     attributedAuthor = NSAttributedString(string: nickname, attributes: [
                         .font: UIFont.systemFont(ofSize: 14, weight: .medium),
-                        .foregroundColor: getUsernamePalette(for: uuid).tint500
+                        .foregroundColor: ChatViewController.getUsernamePalette(for: uuid).tint500
                     ])
                 }
             }
@@ -249,9 +318,10 @@ extension ChatViewController {
                 item.mimeType == MimeIconTypes.image.rawValue
             }.compactMap {
                 item in
-                guard let url = item.downloadUrl else {
-                    return nil
-                }
+                let url = item.downloadUrl ?? item.videoPreviewUrl
+//                guard let url = item.downloadUrl else {
+//                    return nil
+//                }
                 return ImageAttachment(primary: item.primary, url: url, size: item.sizeInPx ?? CGSize(square: 128))
             }
             
@@ -259,10 +329,11 @@ extension ChatViewController {
                 $0.mimeType == MimeIconTypes.video.rawValue
             } .compactMap {
                 item in
-                guard let url = item.downloadUrl else {
-                    return nil
-                }
-                return VideoAttachment(primary: item.primary, url: url, size: item.sizeInPx ?? CGSize(square: 128), previewUrl: nil, duration: 0, downloaded: item.isDownloaded)
+                let url = item.downloadUrl
+//                guard let url = item.downloadUrl else {
+//                    return nil
+//                }
+                return VideoAttachment(primary: item.primary, url: url, size: item.sizeInPx ?? CGSize(square: 128), previewUrl: item.videoPreviewUrl, duration: 0, downloaded: item.isDownloaded)
             }
             
             let audio: [AudioAttachment] = item.references.toArray().filter {
@@ -279,9 +350,10 @@ extension ChatViewController {
                 if item.kind_ == "groupchat" {
                     return nil
                 }
-                guard let url = item.downloadUrl else {
-                    return nil
-                }
+                let url = item.downloadUrl
+//                guard let url = item.downloadUrl else {
+//                    return nil
+//                }
                 return FileAttachment(primary: item.primary, url: url, size: Double(item.sizeInBytesRaw), name: item.filename ?? item.name ?? "file", downloaded: item.isDownloaded)
             }
             
@@ -291,74 +363,7 @@ extension ChatViewController {
             let formatter = DateFormatter()
             formatter.dateStyle = .none
             formatter.timeStyle = .short
-            let forwards: [MessageAttachment] = item.inlineForwards.toArray().compactMap({
-                attachment in
-                let images: [ImageAttachment] = attachment.references.toArray().filter {
-                    item in
-                    item.mimeType == MimeIconTypes.image.rawValue
-                }.compactMap {
-                    item in
-                    guard let url = item.downloadUrl else {
-                        return nil
-                    }
-                    return ImageAttachment(primary: item.primary, url: url, size: item.sizeInPx ?? CGSize(square: 128))
-                }
-                
-                let videos: [VideoAttachment] = attachment.references.toArray().filter {
-                    $0.mimeType == MimeIconTypes.video.rawValue
-                } .compactMap {
-                    item in
-                    guard let url = item.downloadUrl else {
-                        return nil
-                    }
-                    return VideoAttachment(primary: item.primary, url: url, size: item.sizeInPx ?? CGSize(square: 128), previewUrl: nil, duration: 0, downloaded: item.isDownloaded)
-                }
-                
-                let audio: [AudioAttachment] = attachment.references.toArray().filter {
-                    $0.kind_ == "voice"
-                } .compactMap {
-                    item in
-                    guard let url = item.decodedUrl else {
-                        return nil
-                    }
-                    return AudioAttachment(primary: item.primary, url: url, size: 10, name: "name", duration: 0, downloaded: item.isDownloaded, pcm: item.meteringLevels ?? [])
-                }
-                
-                let files: [FileAttachment] = attachment.references.toArray().filter {
-                    return $0.kind == .media && ![MimeIconTypes.image.rawValue, MimeIconTypes.video.rawValue, MimeIconTypes.audio.rawValue].contains($0.mimeType)
-                } .compactMap {
-                    item in
-                    guard let url = item.downloadUrl else {
-                        return nil
-                    }
-                    return FileAttachment(primary: item.primary, url: url, size: Double(item.sizeInBytesRaw), name: item.filename ?? item.name ?? "file", downloaded: item.isDownloaded)
-                }
-                let timeString = formatter.string(from: attachment.originalDate ?? Date())
-                let timeMarkerString = NSAttributedString(
-                    string: timeString,
-                    attributes: [
-                        NSAttributedString.Key.foregroundColor: UIColor(red: 158.0 / 255.0, green: 158.0 / 255.0, blue: 158.0 / 255.0, alpha: 1),
-                        NSAttributedString.Key.font: UIFont.systemFont(ofSize: 10, weight: .regular)
-                    ]
-                )
-                return MessageAttachment(
-                    primary: attachment.primary,
-                    author: attachment.jid,
-                    textMessage: attachment.createRefBody(
-                        [
-                            NSAttributedString.Key.foregroundColor: UIColor.label,
-                            NSAttributedString.Key.font: UIFont.preferredFont(forTextStyle: .body)//UIFont.systemFont(ofSize: 16, weight: .regular),
-                        ],
-                        searchedText: self.searchTextObserver.value,
-                        searchedTextColor: .systemGreen
-                    ),
-                    images: images,
-                    videos: videos,
-                    files: files,
-                    audios: audio,
-                    timeMarker: timeMarkerString
-                )
-            })
+            let forwards: [MessageAttachment] = item.inlineForwards.toArray().compactMap({ return mapAttachment($0) })
             var indicator: IndicatorType = .none
             if item.outgoing {
                 switch item.state {
@@ -562,96 +567,6 @@ extension ChatViewController {
                 
             }
         }
-//        if self.shouldShowInitialMessage && !self.inSearchMode.value {
-//            var descriptionText: String = ""
-//            let aboutAttrs: [NSAttributedString.Key: Any] = [
-//                .font: UIFont.systemFont(ofSize: 15, weight: .regular)
-//            ]
-//            switch self.conversationType {
-//            case .regular:
-//                descriptionText = "Messages in this chat are not encrypted. Servers often store transient messages in an archive. This allows easy device synchronization and server-side history search, but adds privacy risks."
-//            case .group:
-//                    do {
-//                        let realm = try WRealm.safe()
-//                        if let group = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
-//                            if group.peerToPeer {
-//                                descriptionText = "Private chat with incognito user. Messages are routed through group server and your identites are kept secret from each other. Be vigilant, do not disclose yourself by being careless."
-//                            } else if group.privacy == .incognito {
-//                                descriptionText = "Identities of users in this group are kept hidden from each other, only group admins can access your real XMPP ID. Be vigilant, do not disclose yourself by being careless."
-//                            } else {
-//                                descriptionText = "Identities of users in this group are public, so any member can contact you using your real XMPP ID."
-//                            }
-//                        } else {
-//                            descriptionText = "Identities of users in this group are public, so any member can contact you using your real XMPP ID."
-//                        }
-//                    } catch {
-//                        DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-//                    }
-//            case .channel:
-//                descriptionText = "Identities of users in this group are public, so any member can contact you using your real XMPP ID."
-//            case .omemo, .omemo1, .axolotl:
-//                descriptionText = "Messages in this chat are encrypted with end-to-end encryption. You must always confirm the identity of your contact by verifying encryption keys fingerprints."
-//            case .notifications:
-//                descriptionText = "fdg"
-//            case .saved:
-//                break
-//            }
-//            let modifiedDesccription = NSMutableAttributedString(
-//                attributedString: NSAttributedString(string: descriptionText,
-//                                                     attributes: aboutAttrs)
-//            )
-//            let allRange = NSRange(location: 0, length:  modifiedDesccription.string.count)
-//            let style = NSMutableParagraphStyle()
-//            style.lineSpacing = 1.5
-//            style.alignment = .center
-//            modifiedDesccription.addAttribute(NSAttributedString.Key.paragraphStyle, value: style, range: allRange)
-//            let kind: MessageKind = .initial(modifiedDesccription)
-//            out.append(Datasource(
-//                primary: "initial",
-//                jid: self.jid,
-//                owner: self.owner,
-//                outgoing: true,
-//                sender: self.ownerSender,
-//                messageId: "initial",
-//                sentDate: Date(),
-//                editDate: nil,
-//                kind: kind,
-//                withAuthor: false,
-//                withAvatar: false,//self.groupchat ? !item.outgoing : false,
-//                error: false,
-//                errorType: "",
-//                canPinMessage: false,
-//                canEditMessage: false,
-//                canDeleteMessage: false,
-//                forwards: [],
-//                isOutgoing: true,
-//                isEdited: false,
-//                groupchatAuthorRole: "",
-//                groupchatAuthorId: "",
-//                groupchatAuthorNickname: "",
-//                groupchatAuthorBadge: "",
-//                isHasAttachedMessages: false,
-//                isDownloaded: true,
-//                state: .none,
-//                searchString:  "",
-//                errorMetadata: nil,
-//                burnDate: 0,
-//                afterburnInterval: 0,
-//                archivedId: "initial",
-//                queryIds: "initial",
-//                isRead: true,
-//                selectedSearchResultId: nil,//item.archivedId == self.selectedSearchResultId ? self.selectedSearchResultId : nil,
-//                isHadHistoryGap: false,
-//                isFakeMessage: true,
-//                images: [],
-//                videos: [],
-//                files: [],
-//                audios: [],
-//                timeMarkerText: NSAttributedString(),
-//                indicator: .none,
-//                avatarUrl: nil
-//            ))
-//        }
         return out
     }
     
@@ -1013,46 +928,51 @@ extension ChatViewController {
     
     
     func didReceiveChangeset() {
-//        if self.canLoadDatasource {
-            if self.datasource.isNotEmpty {
-                self.shouldShowInitialMessage.accept(false)
+        if self.datasource.isNotEmpty {
+            self.shouldShowInitialMessage.accept(false)
+        }
+        guard let maxPrimary = self.datasource.filter({ !$0.isFakeMessage }).last?.primary,
+              let maxIndexRaw = self.messagesObserver.firstIndex(where: { $0.primary == maxPrimary }) else {
+            return
+        }
+        var maxIndex = maxIndexRaw
+        if self.currentPage.minIndex == 0 {
+            if self.messagesObserver.count < self.datasourcePageSize {
+                maxIndex = self.messagesObserver.count
             }
-//            self.loadDatasource(direction: self.chatScrollDirection ?? .up, ignoreGaps: true, samePage: true) { array in
-            guard let maxPrimary = self.datasource.filter({ !$0.isFakeMessage }).last?.primary,
-                  let maxIndexRaw = self.messagesObserver.firstIndex(where: { $0.primary == maxPrimary }) else {
-                return
-            }
-            var maxIndex = maxIndexRaw
-            if self.currentPage.minIndex == 0 {
-                if self.messagesObserver.count < self.datasourcePageSize {
-                    maxIndex = self.messagesObserver.count
-                }
-            }
-            let minIndex = self.currentPage.minIndex
-            let array = Array(self.messagesObserver.prefix(upTo: maxIndex).suffix(maxIndex - minIndex))
-            let newDatasource = self.mapDataset(dataset: array)
-            let diff = diff(old: self.datasource, new: newDatasource)
-            let updated = diff.compactMap { $0.replace }
-            let inserted = diff.compactMap { $0.insert }
-            let deleted = diff.compactMap { $0.delete }
-            let moved = diff.compactMap { $0.move }
-            if updated.isEmpty && inserted.isEmpty && deleted.isEmpty && moved.isEmpty { return }
-            self.messagesCollectionView.performBatchUpdates {
+        }
+        let minIndex = self.currentPage.minIndex
+        let array = Array(self.messagesObserver.prefix(upTo: maxIndex).suffix(maxIndex - minIndex))
+        let newDatasource = self.mapDataset(dataset: array)
+        let diff = diff(old: self.datasource, new: newDatasource)
+        let updated = diff.compactMap { $0.replace }
+        let inserted = diff.compactMap { $0.insert }
+        let deleted = diff.compactMap { $0.delete }
+        let moved = diff.compactMap { $0.move }
+        if updated.isEmpty && inserted.isEmpty && deleted.isEmpty && moved.isEmpty { return }
+        self.messagesCollectionView.collectionViewLayout.invalidateLayout()
+        DispatchQueue.main.async {
+            self.messagesCollectionView.performBatchUpdates ({
+                let validDeleted = deleted.compactMap { $0.index < self.messagesCollectionView.numberOfSections ? $0.index : nil }
+                self.messagesCollectionView.deleteSections(IndexSet(validDeleted))
+                
+                let validInserted = inserted.compactMap { $0.index >= 0 ? $0.index : nil }
+                self.messagesCollectionView.insertSections(IndexSet(validInserted))
+                
                 self.datasource = newDatasource
-                self.messagesCollectionView.deleteSections(IndexSet(deleted.compactMap { return $0.index }) )
-                self.messagesCollectionView.insertSections(IndexSet(inserted.compactMap { return $0.index }) )
+                
                 moved.forEach {
-                    self.messagesCollectionView.moveItem(at: IndexPath(row: 0, section: $0.fromIndex), to: IndexPath(row: 0, section: $0.toIndex))
+                    self.messagesCollectionView.moveItem(at: IndexPath(row: 0, section: $0.fromIndex),
+                                                        to: IndexPath(row: 0, section: $0.toIndex))
                 }
-                
-            } completion: { _ in
-                
-            }
-            UIView.performWithoutAnimation {
-                self.messagesCollectionView.reconfigureItems(at: updated.compactMap { return IndexPath(row: 0, section: $0.index) })
-            }
-//        }
-        
+                self.messagesCollectionView.reloadItems(at: updated.compactMap {
+                    IndexPath(row: 0, section: $0.index)
+                })
+            }, completion: { _ in
+                self.messagesCollectionView.collectionViewLayout.invalidateLayout()
+                self.messagesCollectionView.layoutIfNeeded()
+            })
+        }
     }
     
     internal func scrollToLastOrUnreadItem() {
