@@ -25,15 +25,11 @@ import MaterialComponents.MDCPalettes
 extension LastChatsViewController {
     func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
         let index = indexPath.row
-//        let index = showArchivedSection.value ? indexPath.row - 1 : indexPath.row
-//        if index < 0 { return nil }
-
         let isMuted = self.datasource[index].isMute
         let deleteAction = UIContextualAction(style: .destructive,
                                               title: "Delete".localizeString(id: "delete", arguments: [])) {
             (action, view, handler) in
             let item = self.datasource[index]
-//            print(item)
             let jid = item.jid
             let owner = item.owner
             let conversationType = item.conversationType
@@ -101,25 +97,28 @@ extension LastChatsViewController {
         }
 
         var actions: [UIContextualAction] = []
-        if filter.value == .archived {
-            actions = [unarchiveAction, deleteAction, muteAction]
-        } else {
-            actions = [archiveAction, deleteAction, muteAction]
+        let item = self.datasource[index]
+        switch item.specialMessageKind {
+            case .none:
+                if filter.value == .archived {
+                    actions = [unarchiveAction, deleteAction, muteAction]
+                } else {
+                    actions = [archiveAction, deleteAction, muteAction]
+                }
+                if AccountManager.shared.connectingUsers.value.isEmpty {
+                    let configuration = UISwipeActionsConfiguration(actions: actions)
+                    return configuration
+                } else {
+                    return nil
+                }
+            default:
+                break
         }
-        
-        if AccountManager.shared.connectingUsers.value.isEmpty {
-            let configuration = UISwipeActionsConfiguration(actions: actions)
-            return configuration
-        } else {
-            return nil
-        }
-        
+        return nil
     }
     
     func tableView(_ tableView: UITableView, leadingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
         let index = indexPath.row
-//        let index = showArchivedSection.value ? indexPath.row - 1 : indexPath.row
-//        if index < 0 { return nil }
         if AccountManager.shared.connectingUsers.value.isEmpty {
             let pinAction = UIContextualAction(style: .normal,
                                                title: "Pin".localizeString(id: "message_pin", arguments: [])) {

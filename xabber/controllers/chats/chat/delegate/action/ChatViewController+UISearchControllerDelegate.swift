@@ -41,15 +41,15 @@ extension ChatViewController: UISearchBarDelegate {
         }
         self.currentSearchQueryId = nil
 //        self.messagesCollectionView.reconfigureItems(at: self.messagesCollectionView.indexPathsForVisibleItems)
-        searchBar.resignFirstResponder()
+//        searchBar.resignFirstResponder()
         searchBar.endEditing(true)
         self.inSearchMode.accept(false)
         self.becomeFirstResponder()
         self.searchTextObserver.accept(nil)
-        self.configureNavbar()
         self.navigationItem.setLeftBarButton(self.navigationItem.backBarButtonItem, animated: true)
         self.navigationItem.setHidesBackButton(false, animated: true)
         self.messagesCollectionView.reloadDataAndKeepOffset()
+        self.configureNavbar()
     }
     
     @objc

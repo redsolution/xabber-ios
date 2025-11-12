@@ -35,6 +35,7 @@ class TimeMarkerView: UIView {
     }
     
     func configure(text: NSAttributedString, indicator: IndicatorType, withBackplate: Bool) {
+        self.textLabel.textColor = UIColor(red: 158.0 / 255.0, green: 158.0 / 255.0, blue: 158.0 / 255.0, alpha: 1)
         if withBackplate {
             let timeMarkerString = NSAttributedString(
                 string: text.string,
@@ -85,7 +86,7 @@ class TimeMarkerView: UIView {
         let radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.smooth.image.timestamp.getRadiusFor(index: "16")
         self.layer.cornerRadius = rad
         self.layer.masksToBounds = true
-        self.textLabel.textColor = UIColor.white
+//        self.textLabel.textColor = UIColor.white
         self.textLabel.frame = CGRect(
             origin: .zero.padding(x: 4, y: 0),
             size: CGSize(width: frame.width - self.indicatorWidth, height: frame.height).padding(width: 8, height: 0)

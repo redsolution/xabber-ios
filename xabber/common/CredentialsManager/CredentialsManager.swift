@@ -197,7 +197,7 @@ class CredentialsManager: NSObject {
         
         public final func release(error: Bool) {
             print("RELEASE SECRET FOR \(self.jid)")
-            DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {
+//            DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {
                 self.isInvalidate = error
                 do {
                     if error {
@@ -210,7 +210,7 @@ class CredentialsManager: NSObject {
                         }
                     }
                 }
-            }
+//            }
         }
         
         public func incrementCounter() {

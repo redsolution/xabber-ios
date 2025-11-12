@@ -513,12 +513,8 @@ class SignInServerFeaturesViewController: UIViewController {
             }
         }
         navigationController?.isNavigationBarHidden = false
-        if CommonConfigManager.shared.config.use_large_title {
-            navigationItem.largeTitleDisplayMode = .automatic
-        } else {
-            navigationItem.largeTitleDisplayMode = .never
-        }
-        navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
+        self.navigationItem.largeTitleDisplayMode = .never
+        self.navigationController?.navigationBar.prefersLargeTitles = false
         navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
         navigationController?.navigationBar.shadowImage = UIImage()
         navigationController?.navigationBar.setNeedsLayout()
@@ -681,7 +677,8 @@ class SignInServerFeaturesViewController: UIViewController {
 //        ]
 //        (UIApplication.shared.delegate as! AppDelegate).window?.rootViewController = vc
 //        (UIApplication.shared.delegate as! AppDelegate).splitController = vc
-        (UIApplication.shared.delegate as? AppDelegate)?.setupRootViewController()
+        let appDelegate = UIApplication.shared.delegate as? AppDelegate
+        AppDelegate.setupRootViewController(instance: appDelegate, window: appDelegate?.window)
     }
     
     private final func continuesFeatureAppearing() {
@@ -860,33 +857,8 @@ class SignInServerFeaturesViewController: UIViewController {
                 let vc = PasscodeViewController(isOnboarding: true)
                 self.navigationController?.pushViewController(vc, animated: true)
             } else {
-//                let vc = UISplitViewController(style: .tripleColumn)
-//                vc.navigationItem.largeTitleDisplayMode = .always
-//                vc.navigationController?.navigationBar.prefersLargeTitles = true
-//                vc.restorationIdentifier = "MainSplitViewController"
-//                vc.restoresFocusAfterTransition = true
-//                let chatsVc = LastChatsViewController()
-//                let primaryVc = LeftMenuViewController()
-//                let emptyChatVc = EmptyChatViewController()
-//                primaryVc.chatsVc = chatsVc
-//                chatsVc.splitDelegate = emptyChatVc
-//                chatsVc.navigationController?.navigationBar.prefersLargeTitles = true
-//                vc.minimumPrimaryColumnWidth = 320
-//                vc.minimumSupplementaryColumnWidth = 320
-//                vc.displayModeButtonVisibility = .always
-//                vc.preferredDisplayMode = .oneBesideSecondary//.oneBesideSecondary//.allVisible
-//                vc.preferredSplitBehavior = .displace//.tile
-//                vc.primaryBackgroundStyle = .sidebar
-//                
-//                vc.delegate = (UIApplication.shared.delegate as! AppDelegate)
-//                vc.viewControllers = [
-//                    primaryVc,
-//                    chatsVc,
-//                    UINavigationController(rootViewController: emptyChatVc)
-//                ]
-//                (UIApplication.shared.delegate as! AppDelegate).window?.rootViewController = vc
-//                (UIApplication.shared.delegate as! AppDelegate).splitController = vc
-                (UIApplication.shared.delegate as? AppDelegate)?.setupRootViewController()
+                let appDelegate = UIApplication.shared.delegate as? AppDelegate
+                AppDelegate.setupRootViewController(instance: appDelegate, window: appDelegate?.window)
             }
         }
     }

@@ -17,12 +17,12 @@
 ##
 ##
 ##
-platform :ios, '12.1'
+platform :ios, '14.0'
 
 use_frameworks!
 
 def main_pods
-    pod 'Alamofire', '~> 4.9.1' #, '~> 4.7.2' # HTTP request/response library
+    pod 'Alamofire'#, '~> 4.9.1' #, '~> 4.7.2' # HTTP request/response library
     pod 'RealmSwift', :git => 'https://github.com/realm/realm-swift.git', :tag => 'v10.46.0'
     pod 'RxSwift'
     pod 'RxCocoa'
@@ -32,8 +32,8 @@ def main_pods
     pod 'Kingfisher', :git => 'https://github.com/whspr/Klingfisher.git'
     pod 'Cache', :git => 'https://github.com/hyperoslo/Cache.git', :branch => 'master', :tag => '7.4.0'#'5.2.0' # data cache for video and audio messages
     pod 'MaterialComponents/Palettes'#, '~> 59.1.1' # material design palette
-    pod 'SwipeTransition'#, '~> 0.4.0'
-    pod 'SwipeTransitionAutoSwipeBack'#, '~> 0.4.    0'
+#    pod 'SwipeTransition'#, '~> 0.4.0'
+#    pod 'SwipeTransitionAutoSwipeBack'#, '~> 0.4.    0'
     pod 'GoogleWebRTC'
     pod 'LetterAvatarKit', '=1.2.3'
     pod 'DeepDiff'#, '=2.0.1'
@@ -42,8 +42,8 @@ def main_pods
     pod 'XMPPFramework/Swift', :path => '/Users/igor.boldin/projects/xabber/deps/XMPPFramework/'
 #    pod 'XMPPFramework/Swift', :git => 'https://github.com/whspr/XMPPFramework', :branch => 'light'
     pod 'CocoaAsyncSocket', :git => 'https://github.com/robbiehanson/CocoaAsyncSocket', :branch => 'master'
-    pod 'KYCircularProgress'
-    pod 'TOInsetGroupedTableView'
+#    pod 'KYCircularProgress'
+#    pod 'TOInsetGroupedTableView'
 #    pod 'ContextMenuSwift'
     pod 'OpenSSL-Universal'
     pod 'Curve25519Kit', :git => 'https://github.com/whspr/Curve25519Kit.git', :branch => 'mkirk/framework-friendly'
@@ -66,7 +66,7 @@ target 'xabber_push_extension' do
     inherit! :search_paths
 #    pod 'RealmSwift', :git => 'https://github.com/realm/realm-swift.git', :tag => 'v10.35.0'
     pod 'SwiftKeychainWrapper'
-    pod 'Starscream', :git => 'https://github.com/daltoniam/Starscream.git', :tag => '4.0.4'
+#    pod 'Starscream', :git => 'https://github.com/daltoniam/Starscream.git', :tag => '4.0.4'
     pod 'KissXML'
     pod 'CryptoSwift', :git => 'https://github.com/krzyzanowskim/CryptoSwift.git', :tag => '1.8.1'
     pod 'Curve25519Kit', :git => 'https://github.com/whspr/Curve25519Kit.git', :branch => 'mkirk/framework-friendly'
@@ -78,7 +78,7 @@ post_install do |installer|
         puts target.name
         target.build_configurations.each do |config|
             config.build_settings['CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF'] = 'NO'
-        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
+        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
         end
     end
 end

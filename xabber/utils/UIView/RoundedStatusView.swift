@@ -39,6 +39,26 @@ class RoundedStatusView: UIView {
     dnd - Red 700
     unavailable - Grey 500
 */
+    func setCustomStatus(color: UIColor, iconName: String?) {
+        self.backgroundColor = .clear
+        self.borderColor = .systemBackground
+        self.color = color
+        subviews
+            .forEach { $0.removeFromSuperview() }
+        if let iconName = iconName {
+            let view = UIImageView(image: imageLiteral(iconName))
+            view.frame = CGRect(x: 1, y: 1, width: bounds.width - 2, height: bounds.height - 2)
+            view.tintColor = .white
+            view.contentMode = .scaleAspectFit
+            view.backgroundColor = self.color
+            self.backgroundColor = .systemBackground
+            addSubview(view)
+            bringSubviewToFront(view)
+        }
+        layer.borderColor = borderColor.cgColor
+        setNeedsDisplay()
+    }
+    
     func setStatus(status: ResourceStatus, entity: RosterItemEntity?) {
         self.backgroundColor = .clear
         self.borderColor = .systemBackground
@@ -63,54 +83,60 @@ class RoundedStatusView: UIView {
         }
         subviews
             .forEach { $0.removeFromSuperview() }
+        print(imageLiteral("badge-circle-big-group-incognito-variant") == nil)
         switch entity {
             case .privateChat:
-                let view = UIImageView(image: imageLiteral("xabber.incognito.fill"))
-                view.frame = CGRect(x: 2, y: 2, width: bounds.width - 4, height: bounds.height - 4)
+                let view = UIImageView(image: imageLiteral("badge-circle-big-group-incognito-variant"))
+                view.frame = CGRect(x: 1, y: 1, width: bounds.width - 2, height: bounds.height - 2)
                 view.tintColor = .white
                 view.contentMode = .scaleAspectFit
-                self.backgroundColor = self.color
+                view.backgroundColor = self.color
+                self.backgroundColor = .systemBackground
                 addSubview(view)
                 bringSubviewToFront(view)
             case .groupchat:
-                let view = UIImageView(image: imageLiteral("person.2.fill"))
+                let view = UIImageView(image: UIImage(imageLiteralResourceName: "badge-circle-big-group-public").withRenderingMode(.alwaysTemplate))// imageLiteral("badge-circle-big-group-public", dimension: 0)?.withRenderingMode(.alwaysTemplate))
                 
-                view.frame = CGRect(x: 2, y: 2, width: bounds.width - 4, height: bounds.height - 4)
+                view.frame = CGRect(x: 1, y: 1, width: bounds.width - 2, height: bounds.height - 2)
                 view.tintColor = .white
                 view.contentMode = .scaleAspectFit
-                self.backgroundColor = self.color
+                view.backgroundColor = self.color
+                self.backgroundColor = .systemBackground
                 addSubview(view)
                 bringSubviewToFront(view)
             case .bot:
-                let view = UIImageView(image: imageLiteral("xabber.bot"))
-                view.frame = CGRect(x: 2, y: 2, width: bounds.width - 4, height: bounds.height - 4)
-                view.tintColor = .white
+                let view = UIImageView(image: imageLiteral("badge-circle-big-bot-variant"))
+                view.frame = CGRect(x: 1, y: 1, width: bounds.width - 2, height: bounds.height - 2)
+                view.tintColor = self.color
                 view.contentMode = .scaleAspectFit
-                self.backgroundColor = self.color
+                self.backgroundColor = .systemBackground
                 addSubview(view)
                 bringSubviewToFront(view)
             case .server:
-                let view = UIImageView(image: imageLiteral("badge-server"))
-                view.frame = CGRect(x: 2, y: 2, width: bounds.width - 4, height: bounds.height - 4)
+                let view = UIImageView(image: imageLiteral("badge-circle-big-server"))
+                view.frame = CGRect(x: 1, y: 1, width: bounds.width - 2, height: bounds.height - 2)
                 view.tintColor = .white
                 view.contentMode = .scaleAspectFit
-                self.backgroundColor = self.color
+                view.backgroundColor = self.color
+                self.backgroundColor = .systemBackground
                 addSubview(view)
                 bringSubviewToFront(view)
             case .incognitoChat:
-                let view = UIImageView(image: imageLiteral("custom.person.2"))
-                view.frame = CGRect(x: 2, y: 2, width: bounds.width - 4, height: bounds.height - 4)
+                let view = UIImageView(image: imageLiteral("badge-circle-big-group-incognito"))
+                view.frame = CGRect(x: 1, y: 1, width: bounds.width - 2, height: bounds.height - 2)
                 view.tintColor = .white
                 view.contentMode = .scaleAspectFit
-                self.backgroundColor = self.color
+                view.backgroundColor = self.color
+                self.backgroundColor = .systemBackground
                 addSubview(view)
                 bringSubviewToFront(view)
             case .issue:
-                let view = UIImageView(image: imageLiteral("megaphone.fill"))
-                view.frame = CGRect(x: 2, y: 2, width: bounds.width - 4, height: bounds.height - 4)
+                let view = UIImageView(image: imageLiteral("badge-circle-big-task"))
+                view.frame = CGRect(x: 1, y: 1, width: bounds.width - 2, height: bounds.height - 2)
                 view.tintColor = .white
                 view.contentMode = .scaleAspectFit
-                self.backgroundColor = self.color
+                view.backgroundColor = self.color
+                self.backgroundColor = .systemBackground
                 addSubview(view)
                 bringSubviewToFront(view)
             default:
@@ -121,6 +147,7 @@ class RoundedStatusView: UIView {
     }
     
     override func draw(_ rect: CGRect) {
+//        super.draw(rect)
         let modifiedRect = CGRect(x: rect.minX + 0.5, y: rect.minY + 0.5, width: rect.width - 1, height: rect.height - 1)
         self.backgroundColor = .clear
         guard let context = UIGraphicsGetCurrentContext() else {return}

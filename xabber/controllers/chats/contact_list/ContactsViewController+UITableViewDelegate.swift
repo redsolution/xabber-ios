@@ -13,8 +13,7 @@
 //
 //  You should have received a copy of the GNU General Public License along
 //  with this program; if not, write to the Free Software Foundation, Inc.,
-//  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-//
+//  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.//
 //
 //
 
@@ -26,50 +25,85 @@ import CocoaLumberjack
 extension ContactsViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         let item = datasource[indexPath.section][indexPath.row]
-        switch item.kind {
-        case .contact: return 84
-        case .group: return 44
-        case .collapsed: return 3
-        case .collapsedLast: return 6
-        case .noContact: return 0
+        if item.isHeader {
+            return tableView.estimatedRowHeight
+        }
+        if item.isButton {
+            return 40
+        }
+        if item.isInvite {
+            return tableView.estimatedRowHeight
+//            return 92
+        }
+        if isGroup {
+            return 92
+        }
+        return 86
+    }
+    
+//    func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {
+//        return 1
+//    }
+    
+    public func didSelectSpecialCategory(_ category: String) {
+        switch category {
+            case "show_all_contacts":
+                self.category = "subscribtions"
+                self.categoryDelegate?.filterDidSelect(category: "subscribtions")
+            case "show_all_invites":
+                self.category = "invitations"
+                self.categoryDelegate?.filterDidSelect(category: "invitations")
+            case "contacts":
+                self.category = "all"
+                self.categoryDelegate?.filterDidSelect(category: "all")
+            case "public":
+                self.category = "public"
+                self.categoryDelegate?.filterDidSelect(category: "public")
+            default:
+                break
         }
     }
     
-    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-        if enabledAccounts.value.count < 2 {
-            return 0
+    public func selectSpecialCategory(_ category: String) {
+        switch category {
+            case "show_all_contacts":
+                self.shouldFilterBy(category: "subscribtions")
+                self.categoryDelegate?.filterDidSelect(category: "subscribtions")
+            case "show_all_invites":
+                self.shouldFilterBy(category: "invitations")
+                self.categoryDelegate?.filterDidSelect(category: "invitations")
+            case "contacts":
+                self.shouldFilterBy(category: "all")
+                self.categoryDelegate?.filterDidSelect(category: "all")
+            case "public":
+                self.shouldFilterBy(category: "public")
+                self.categoryDelegate?.filterDidSelect(category: "public")
+            default:
+                break
         }
-        return 44
     }
-    
-    func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {
-        return 1
-    }
-    
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-//        if self.isCellTapped {
-//            return
-//        }
-//        self.isCellTapped = true
         let item = datasource[indexPath.section][indexPath.row]
-        switch item.kind {
-            case .group:
-                if let group = item.groupPrimary {
-                    collapseGroup(group, value: !(item.collapsed ?? true))
-                }
-                tableView.deselectRow(at: indexPath, animated: true)
-                self.canUpdateDataset = true
-                self.runDatasetUpdateTask()
-            case .contact:
-                guard let jid = item.jid else { return }
-                let owner = item.owner
-                let vc = ChatViewController()
-                vc.owner = owner
-                vc.jid = jid
+        if item.value.isNotEmpty {
+            self.selectSpecialCategory(item.value)
+        } else {
+            if isGroup {
+                let vc = GroupchatInfoViewController()
+                vc.owner = item.owner
+                vc.jid = item.jid
+                vc.leftMenuDelegate = self.leftMenuDelegate
+    //            vc.conversationType = item.conversationType
+                showModal(vc)
+            } else {
+                let vc = ContactInfoViewController()
+                vc.owner = item.owner
+                vc.jid = item.jid
                 vc.conversationType = item.conversationType
-                showStacked(vc, in: self)
-            default: break
+                vc.leftMenuDelegate = self.leftMenuDelegate
+                showModal(vc)
+            }
         }
     }
 }
+

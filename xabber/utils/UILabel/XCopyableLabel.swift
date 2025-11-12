@@ -41,10 +41,17 @@ class XCopyableLabel: UILabel {
     
     func sharedInit() {
         isUserInteractionEnabled = true
-        addGestureRecognizer(UILongPressGestureRecognizer(
+        let recognizer = UITapGestureRecognizer(
             target: self,
-            action: #selector(showMenu(sender:))
-        ))
+            action: #selector(makeCopy)
+        )
+        addGestureRecognizer(recognizer)
+    }
+    
+    @objc
+    func makeCopy(sender: Any?) {
+        UIPasteboard.general.string = text
+        ToastPresenter().presentSuccess(message: "Text was copied to clipboard")
     }
     
     @objc

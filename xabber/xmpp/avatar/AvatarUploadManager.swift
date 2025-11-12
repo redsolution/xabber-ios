@@ -176,47 +176,70 @@ class AvatarUploadManager: AbstractXMPPManager {
             "Authorization" : "Bearer \(token)",
         ]
         let createThumbnail: Bool = true
-        Alamofire
+        AF
             .upload(multipartFormData: { formData in
                 formData.append(data, withName: "file", fileName: filename, mimeType: mimeType)
                 formData.append("\(mimeType)".data(using: .utf8)!, withName: "media_type")
                 formData.append(String(createThumbnail).data(using: .utf8)!, withName: "create_thumbnail")
                 formData.append("avatar".data(using: .utf8)!, withName: "context")
             },
-            usingThreshold: SessionManager.multipartFormDataEncodingMemoryThreshold,
             to: url,
             method: .post,
-            headers: headers) { result in
-                switch result {
-                case .success(request: let request, streamingFromDisk: _, streamFileURL: _):
-                    request.responseData(queue: .global(qos: .background)) { response in
-                        print(response)
-                        do {
-                            if (response.response?.statusCode ?? 400) < 300 {
-                                guard let data = response.value else {
-                                    failCallback(400, "Unexpected error")
-                                    return
-                                }
-                                let avatar =  try JSONDecoder().decode(AvatarResponse.self, from: data)
-                                successCallback(avatar)
-                            } else {
-                                guard let data = response.value else {
-                                    failCallback(400, "Unexpected error")
-                                    return
-                                }
-                                let errorResponse = try JSONDecoder().decode(AvatarErrorResponse.self, from: data)
-                                failCallback(errorResponse.status, errorResponse.error)
-                            }
-                        } catch {
+            headers: HTTPHeaders(headers))
+            .validate()
+            .responseData { response in
+                do {
+                    if (response.response?.statusCode ?? 400) < 300 {
+                        guard let data = response.value else {
                             failCallback(400, "Unexpected error")
-                            DDLogDebug("AvatarUploadManager: \(#function). can't decode response)")
+                            return
                         }
+                        let avatar =  try JSONDecoder().decode(AvatarResponse.self, from: data)
+                        successCallback(avatar)
+                    } else {
+                        guard let data = response.value else {
+                            failCallback(400, "Unexpected error")
+                            return
+                        }
+                        let errorResponse = try JSONDecoder().decode(AvatarErrorResponse.self, from: data)
+                        failCallback(errorResponse.status, errorResponse.error)
                     }
-                case .failure(let error):
-                    DDLogDebug("AvatarUploadManager: \(#function). \(error.localizedDescription)")
+                } catch {
                     failCallback(400, "Unexpected error")
+                    DDLogDebug("AvatarUploadManager: \(#function). can't decode response)")
                 }
             }
+//        { result in
+//                switch result {
+//                case .success(request: let request, streamingFromDisk: let streamDisk, streamFileURL: let streamUrl):
+//                    request.responseData(queue: .global(qos: .background)) { response in
+//                        print(response)
+//                        do {
+//                            if (response.response?.statusCode ?? 400) < 300 {
+//                                guard let data = response.value else {
+//                                    failCallback(400, "Unexpected error")
+//                                    return
+//                                }
+//                                let avatar =  try JSONDecoder().decode(AvatarResponse.self, from: data)
+//                                successCallback(avatar)
+//                            } else {
+//                                guard let data = response.value else {
+//                                    failCallback(400, "Unexpected error")
+//                                    return
+//                                }
+//                                let errorResponse = try JSONDecoder().decode(AvatarErrorResponse.self, from: data)
+//                                failCallback(errorResponse.status, errorResponse.error)
+//                            }
+//                        } catch {
+//                            failCallback(400, "Unexpected error")
+//                            DDLogDebug("AvatarUploadManager: \(#function). can't decode response)")
+//                        }
+//                    }
+//                case .failure(let error):
+//                    DDLogDebug("AvatarUploadManager: \(#function). \(error.localizedDescription)")
+//                    failCallback(400, "Unexpected error")
+//                }
+//            }
     }
     
     func getImageTypeMetaData(url: String) -> String {

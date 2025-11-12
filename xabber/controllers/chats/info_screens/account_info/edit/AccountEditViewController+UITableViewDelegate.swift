@@ -27,7 +27,11 @@ extension AccountEditViewController: UITableViewDelegate {
         if indexPath.section == 0 {
             return 188//164
         }
-        return 44
+        if #available(iOS 26, *) {
+            return 52
+        } else {
+            return 44
+        }
     }
     
     func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {

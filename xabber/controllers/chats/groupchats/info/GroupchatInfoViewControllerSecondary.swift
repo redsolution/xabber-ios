@@ -27,7 +27,6 @@ import RxRealm
 import MaterialComponents.MDCPalettes
 import CocoaLumberjack
 import Kingfisher
-import TOInsetGroupedTableView
 import AVFoundation
 
 class GroupchatInfoViewControllerSecondary: SimpleBaseViewController {
@@ -353,7 +352,7 @@ class GroupchatInfoViewControllerSecondary: SimpleBaseViewController {
     }
     
     private let tableView: UITableView = {
-        let view = InsetGroupedTableView(frame: .zero)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(SimpleItemCell.self, forCellReuseIdentifier: SimpleItemCell.cellName)
         view.register(TableHeaderWithAvatarCell.self, forCellReuseIdentifier: TableHeaderWithAvatarCell.cellName)
@@ -536,7 +535,11 @@ extension GroupchatInfoViewControllerSecondary: UITableViewDelegate {
             }
             return 196//184//236
         default:
-            return 44
+                if #available(iOS 26, *) {
+                    return 52
+                } else {
+                    return 44
+                }
         }
     }
     

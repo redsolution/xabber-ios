@@ -24,7 +24,7 @@ import UIKit
 extension ContactsViewController {
     
     internal func configureSearchBar() {
-        searchController.searchBar.backgroundColor = .white
+//        searchController.searchBar.backgroundColor = .
         searchController.searchBar.barTintColor = .gray
         searchController.searchBar.tintColor = .blue
         searchController.searchBar.barStyle = .default

@@ -96,7 +96,9 @@ extension ChatViewController {
                 if self.showSkeletonObserver.value {
                     return
                 }
-                self.didReceiveChangeset()
+                if !self.currentPage.locked {
+                    self.didReceiveChangeset()
+                }
             }
             .disposed(by: self.bag)
         
@@ -192,7 +194,7 @@ extension ChatViewController {
         
         self.contentOffsetObserver
             .asObservable()
-//            .debounce(.milliseconds(40), scheduler: MainScheduler.asyncInstance)
+            .debounce(.milliseconds(40), scheduler: MainScheduler.asyncInstance)
             .subscribe { value in
                 self.showFloatingDateObserver.accept(false)
                 if value > 64 {

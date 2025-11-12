@@ -92,7 +92,7 @@ class MessagesCollectionViewFlowLayout: UICollectionViewFlowLayout {
 //        }
         return attributesArray
     }
-
+    
     func adjustAttributesIfNeeded(_ attributes: UICollectionViewLayoutAttributes) {
         switch attributes.representedElementKind {
             case UICollectionView.elementKindSectionHeader?:
@@ -162,8 +162,6 @@ class MessagesCollectionViewFlowLayout: UICollectionViewFlowLayout {
     lazy var initialMessageSizeCalculator = InitialMessageSizeCalculator(layout: self)
     lazy var callMessageSizeCalculator = CallMessageSizeCalculator(layout: self)
 
-    
-    
     func cellSizeCalculatorForItem(at indexPath: IndexPath) -> CellSizeCalculator {
         let message = messagesDataSource.messageForItem(at: indexPath, in: messagesCollectionView)
         switch message.kind {

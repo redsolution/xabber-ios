@@ -25,7 +25,6 @@ import RxRealm
 import RxSwift
 import RxCocoa
 import CocoaLumberjack
-import TOInsetGroupedTableView
 import XMPPFramework
 
 class ContactInfoViewController: BaseViewController {
@@ -37,6 +36,7 @@ class ContactInfoViewController: BaseViewController {
             case vcard
             case button
             case session
+            case jid
         }
         
         var kind: Kind
@@ -77,6 +77,7 @@ class ContactInfoViewController: BaseViewController {
     var headerHeightMax: CGFloat = 252//188
     
     open var chatStateDelegate: ChangeChatStateProtocol? = nil
+    open var leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil
     
     internal let headerView: InfoScreenHeaderView = {
         let view = InfoScreenHeaderView(frame: .zero)
@@ -94,9 +95,10 @@ class ContactInfoViewController: BaseViewController {
     }()
     
     internal let tableView: UITableView = {
-        let view = InsetGroupedTableView(frame: .zero)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(UITableViewCell.self, forCellReuseIdentifier: "TextCell")
+        view.register(XMPPIDInfoScreenYableViewCell.self, forCellReuseIdentifier: XMPPIDInfoScreenYableViewCell.cellName)
         view.register(UITableViewCell.self, forCellReuseIdentifier: "ButtonCell")
         view.register(VCardCell.self, forCellReuseIdentifier: VCardCell.cellName)
         view.register(ResourceInfoCell.self, forCellReuseIdentifier: ResourceInfoCell.cellName)
@@ -283,8 +285,8 @@ class ContactInfoViewController: BaseViewController {
 //                            Datasource(.button, icon: "phone", title: "Call".localizeString(id: "contact_bar_call", arguments: []), key: "call"),
 //                            Datasource(.button, isDanger: true, icon: "circle.slash", title: "Block".localizeString(id: "contact_bar_block", arguments: []), key: "block")
 //                        ]),
-                        Datasource(.text, title: "", childs: [
-                            Datasource(.button, icon: "xabber.circles", title: "Circles".localizeString(id: "contact_circle", arguments: []), key: "circles"),
+                        Datasource(.text, title: "XMPP ID".localizeString(id: "jid", arguments: []), childs: [
+                            Datasource(.jid, title: self.jid, subtitle: self.jid),
                         ]),
                     ])
                     if let item = results.first {
@@ -310,6 +312,12 @@ class ContactInfoViewController: BaseViewController {
                     let audiosCount = realm.objects(MessageReferenceStorageItem.self).filter("owner == %@ AND jid == %@ AND kind_ == %@ AND hasError == false", self.owner, self.jid, MessageReferenceStorageItem.Kind.voice.rawValue).count
                     let mimeTypes: [String] = ["document", "pdf", "table", "presentation", "archive", "audio", "file"]
                     let filesCount = realm.objects(MessageReferenceStorageItem.self).filter("owner == %@ AND jid == %@ AND mimeType IN %@ AND hasError == false", self.owner, self.jid, mimeTypes, "image").count
+                    
+                    newDatasource.append(
+                        Datasource(.text, title: "", childs: [
+                            Datasource(.button, icon: "xabber.circles", title: "Circles".localizeString(id: "contact_circle", arguments: []), key: "circles"),
+                        ])
+                    )
                     
                     newDatasource.append(Datasource(.text, title: "", childs: [
                         Datasource(.button, title: "Images", subtitle: String(imagesCount), key: "images"),
@@ -431,7 +439,7 @@ class ContactInfoViewController: BaseViewController {
     
     
     internal func configure() {
-        navigationItem.setRightBarButtonItems([showQRCodeButton, searchButton], animated: false)
+        navigationItem.setRightBarButtonItems([searchButton], animated: false)
         view.addSubview(tableView)
         
         tableView.delegate = self
@@ -446,8 +454,12 @@ class ContactInfoViewController: BaseViewController {
         
         footerView.imagesButton.isSelected = true
         leftDevicesNavBarButton.target = self
-        leftDevicesNavBarButton.action = #selector(onLEftDevicesNavBarButtonTouchUp)
+        leftDevicesNavBarButton.action = #selector(onLeftDevicesNavBarButtonTouchUp)
+        
+        
+        self.navigationItem.leftItemsSupplementBackButton = true
         self.navigationItem.setLeftBarButton(leftDevicesNavBarButton, animated: true)
+        
         self.headerView.configureButtons {
             let call = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
             call.configure(icon: "phone", title: "Call")
@@ -529,7 +541,7 @@ class ContactInfoViewController: BaseViewController {
                     ),
                 ]
             }
-            more.menu = UIMenu(options: [.singleSelection], children: childs)
+            more.menu = UIMenu(options: [], children: childs)
             more.showsMenuAsPrimaryAction = true
             return [write, call, mute, more]
         }
@@ -561,7 +573,7 @@ class ContactInfoViewController: BaseViewController {
     }
     
     @objc
-    func onLEftDevicesNavBarButtonTouchUp(_ sender: UIBarButtonItem) {
+    func onLeftDevicesNavBarButtonTouchUp(_ sender: UIBarButtonItem) {
         showFingerprints()
     }
     
@@ -613,7 +625,7 @@ class ContactInfoViewController: BaseViewController {
                                                object: nil)
         
         AccountManager.shared.find(for: owner)?.action({ (user, stream) in
-            user.vcards.requestItem(stream, jid: self.jid)
+            _ = user.vcards.requestItem(stream, jid: self.jid)
         })
     }
     
@@ -632,6 +644,8 @@ class ContactInfoViewController: BaseViewController {
             height: headerHeightMax
         )
         self.headerView.updateSubviews()
+        
+        
     }
     
     override func viewDidAppear(_ animated: Bool) {

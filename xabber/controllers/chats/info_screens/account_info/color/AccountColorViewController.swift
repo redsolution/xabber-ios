@@ -21,7 +21,6 @@
 import Foundation
 import UIKit
 import MaterialComponents.MDCPalettes
-import TOInsetGroupedTableView
 
 class AccountColorViewController: BaseViewController {
     
@@ -46,7 +45,7 @@ class AccountColorViewController: BaseViewController {
     
     internal let tableView: UITableView = {
 //        let view = UITableView(frame: .zero, style: .plain)
-        let view = InsetGroupedTableView(frame: .zero)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(InfoCell.self, forCellReuseIdentifier: InfoCell.cellName)
         

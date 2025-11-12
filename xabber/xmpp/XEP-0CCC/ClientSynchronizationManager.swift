@@ -676,6 +676,8 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                         forPrimaryKey: [jid, owner].prp()) {
                 instance.rosterItem = rosterItem
                 rosterItem.associatedLastChat = instance
+                
+                rosterItem.isContact = [ConversationType.regular, ConversationType.omemo, ConversationType.omemo1, ConversationType.axolotl].contains(conversationType)
             } else {
                 let rosterItem = RosterStorageItem()
                 rosterItem.owner = owner
@@ -683,6 +685,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 rosterItem.primary = RosterStorageItem.genPrimary(jid: jid, owner: owner)
                 rosterItem.groups.append(RosterUtils.ungroupped)
                 rosterItem.associatedLastChat = instance
+                rosterItem.isContact = [ConversationType.regular, ConversationType.omemo, ConversationType.omemo1, ConversationType.axolotl].contains(conversationType)
                 realm.add(rosterItem)
                 instance.rosterItem = rosterItem
             }

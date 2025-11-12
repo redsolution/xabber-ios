@@ -247,15 +247,27 @@ class MessageManager: AbstractXMPPManager {
                                                 owner: self.owner,
                                                 conversationType: message.conversationType)),
                    instance.unread > 0 {
+                    let messagesCollection = realm
+                        .objects(MessageStorageItem.self)
+                        .filter("owner == %@ AND opponent == %@ AND isDeleted == false AND isRead == false AND conversationType_ == %@ AND date <= %@", message.owner, message.opponent, message.conversationType.rawValue, message.date)
+                        .sorted(byKeyPath: "date", ascending: false)
                     if !realm.isInWriteTransaction {
                         try realm.write {
                             if instance.isInvalidated { return }
                             if last {
                                 instance.unread = 0
                                 instance.lastReadId = nil
+//                                messagesCollection.forEach {
+//                                    $0.isRead = true
+//                                }
                             } else {
-                                instance.unread -= 1
+                                instance.unread -= messagesCollection.count + 1
+                                instance.lastReadId = message.archivedId
+//                                messagesCollection.forEach {
+//                                    $0.isRead = true
+//                                }
                             }
+//                            message.isRead = true
                         }
                     }
                 }

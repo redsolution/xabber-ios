@@ -24,7 +24,6 @@ import RealmSwift
 import RxSwift
 import RxCocoa
 import CocoaLumberjack
-import TOInsetGroupedTableView
 
 class AccountConnectionViewController: BaseViewController {
     class Datasource {
@@ -71,7 +70,7 @@ class AccountConnectionViewController: BaseViewController {
     
     internal let tableView: UITableView = {
 //        let view = UITableView(frame: .zero, style: .grouped)
-        let view = InsetGroupedTableView(frame: .zero)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(EditValue.self, forCellReuseIdentifier: EditValue.cellName)
         

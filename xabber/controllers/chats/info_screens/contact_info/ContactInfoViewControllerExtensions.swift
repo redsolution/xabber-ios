@@ -30,6 +30,79 @@ protocol InfoVCDelegate {
     func scrollToMediaGallery()
 }
 
+class XMPPIDInfoScreenYableViewCell: UITableViewCell {
+    
+    static public let cellName: String = "XMPPIDInfoScreenYableViewCell"
+    
+    var stack: UIStackView = {
+        let stack = UIStackView()
+//            stack.axis = .vertical
+        stack.axis = .horizontal
+        stack.alignment = .center
+        stack.distribution = .fill
+        stack.spacing = 2
+        
+//        stack.isLayoutMarginsRelativeArrangement = true
+//        stack.layoutMargins = UIEdgeInsets(top: 6, bottom: 6, left: 20, right: 8)
+        return stack
+    }()
+    
+    var titleLabel: XCopyableLabel = {
+        let label = XCopyableLabel()
+        
+        label.textColor = .tintColor
+        
+        return label
+    }()
+    
+    var qrButton: UIButton = {
+        var conf = UIButton.Configuration.plain()
+        conf.image = imageLiteral("qrcode")
+        conf.baseForegroundColor = .tintColor
+        let button = UIButton(configuration: conf, primaryAction: nil)
+        
+        return button
+    }()
+    
+    final func configure(title: String, jid: String) {
+        self.titleLabel.text = title
+        self.jid = jid
+    }
+    
+    open var onQRCodeTouchUpInsideCallback: ((String) -> Void)? = nil
+    
+    internal var jid: String = ""
+    
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        self.selectionStyle = .none
+        self.contentView.addSubview(stack)
+        stack.fillSuperviewWithOffset(top: 6, bottom: 6, left: 20, right: 20)
+//        UIEdgeInsets(top: 6, bottom: 6, left: 20, right: 8)
+        
+        stack.addArrangedSubview(titleLabel)
+        stack.addArrangedSubview(qrButton)
+        self.qrButton.addTarget(self, action: #selector(self.onQRCodeButtonTouchUpInside), for: .touchUpInside)
+    }
+    
+    @objc
+    private func onQRCodeButtonTouchUpInside(_ sender: UIButton) {
+        self.onQRCodeTouchUpInsideCallback?(self.jid)
+    }
+    
+    required init?(coder aDecoder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    override func awakeFromNib() {
+        super.awakeFromNib()
+    }
+    
+    override func setSelected(_ selected: Bool, animated: Bool) {
+        super.setSelected(selected, animated: animated)
+    }
+}
+
 //MARK: - Extensions
 extension ContactInfoViewController: InfoVCDelegate {
     func presentVC(vc: UIViewController) {

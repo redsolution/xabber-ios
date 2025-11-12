@@ -21,7 +21,6 @@
 import Foundation
 import UIKit
 import RealmSwift
-import TOInsetGroupedTableView
 import MaterialComponents.MDCPalettes
 import CocoaLumberjack
 
@@ -67,7 +66,7 @@ class DeviceDetailViewController: SimpleBaseViewController {
     internal var issuedFor: String? = nil
     
     private let tableView: UITableView = {
-        let view = InsetGroupedTableView(frame: .zero)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(UITableViewCell.self, forCellReuseIdentifier: "SimpleCell")
         view.register(UITableViewCell.self, forCellReuseIdentifier: "ButtonCell")
@@ -294,7 +293,11 @@ extension DeviceDetailViewController: UITableViewDelegate {
         case "omemo_fingerprint":
             return 84
         default:
-            return 44
+                if #available(iOS 26, *) {
+                    return 52
+                } else {
+                    return 44
+                }
         }
     }
     

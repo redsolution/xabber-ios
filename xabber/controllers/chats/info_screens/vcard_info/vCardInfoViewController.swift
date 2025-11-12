@@ -23,7 +23,6 @@ import UIKit
 import RealmSwift
 import RxSwift
 import RxCocoa
-import TOInsetGroupedTableView
 import Kingfisher
 import CocoaLumberjack
 
@@ -72,7 +71,7 @@ class vCardInfoViewController: SimpleBaseViewController {
     }()
     
     internal let tableView: UITableView = {
-        let view = InsetGroupedTableView(frame: .zero)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(VCardCell.self, forCellReuseIdentifier: VCardCell.cellName)
         view.register(TableHeaderWithAvatarCell.self, forCellReuseIdentifier: TableHeaderWithAvatarCell.cellName)
@@ -395,7 +394,11 @@ extension vCardInfoViewController: UITableViewDelegate {
         if datasource[indexPath.section].kind == .resource {
             return 64
         }
-        return 44
+        if #available(iOS 26, *) {
+            return 52
+        } else {
+            return 44
+        }
     }
     
     func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {

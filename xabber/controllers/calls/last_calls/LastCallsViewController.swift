@@ -350,12 +350,12 @@ class LastCallsViewController: BaseViewController {
     
     internal func configureBars() {
         self.title = "Calls"
-        if CommonConfigManager.shared.config.use_large_title {
-            self.navigationItem.largeTitleDisplayMode = .automatic
-        } else {
+//        if CommonConfigManager.shared.config.use_large_title {
+//            self.navigationItem.largeTitleDisplayMode = .automatic
+//        } else {
             self.navigationItem.largeTitleDisplayMode = .never
-        }
-        self.navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
+//        }
+        self.navigationController?.navigationBar.prefersLargeTitles = false//CommonConfigManager.shared.config.use_large_title
         if #available(iOS 16.0, *) {
             self.navigationItem.preferredSearchBarPlacement = .stacked
         }
@@ -390,14 +390,14 @@ class LastCallsViewController: BaseViewController {
                 
                 let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
                 bottomBar.updateFrame(to: frame)
-                self.splitViewController?.navigationItem.setLeftBarButtonItems([], animated: true)
+//                self.splitViewController?.navigationItem.setLeftBarButtonItems([], animated: true)
                 
-                let sidebarButton = UIBarButtonItem(image: UIImage(systemName: "sidebar.left"), style: .plain, target: self, action: #selector(onSidebarButtonTouchUp))
+//                let sidebarButton = UIBarButtonItem(image: UIImage(systemName: "sidebar.left"), style: .plain, target: self, action: #selector(onSidebarButtonTouchUp))
                 
-                if UIDevice.current.userInterfaceIdiom != .pad {
-                    self.navigationItem.setHidesBackButton(true, animated: false)
-                    self.navigationItem.setLeftBarButton(sidebarButton, animated: true)
-                }
+//                if UIDevice.current.userInterfaceIdiom != .pad {
+//                    self.navigationItem.setHidesBackButton(true, animated: false)
+//                    self.navigationItem.setLeftBarButton(sidebarButton, animated: true)
+//                }
                 self.bottomBar.isHidden = true
         }
     }
@@ -453,9 +453,9 @@ class LastCallsViewController: BaseViewController {
         emptyView.fillSuperview()
         view.bringSubviewToFront(emptyView)
         
-        navigationController?
-            .navigationBar
-            .titleTextAttributes = [NSAttributedString.Key.foregroundColor: AccountColorManager.shared.topColor()]
+//        navigationController?
+//            .navigationBar
+//            .titleTextAttributes = [NSAttributedString.Key.foregroundColor: AccountColorManager.shared.topColor()]
         title = "Calls".localizeString(id: "chat_calls_title", arguments: [])
         
         do {
@@ -490,6 +490,22 @@ class LastCallsViewController: BaseViewController {
                                                selector: #selector(reloadDatasource),
                                                name: .newMaskSelected,
                                                object: nil)
+        let backButton = UIBarButtonItem(image: imageLiteral("chevron.left"), style: .plain, target: self, action: #selector(onBackButtonTouchUpInside))
+        self.navigationItem.setLeftBarButton(backButton, animated: false)
+        self.title = "Calls"
+//        if CommonConfigManager.shared.config.use_large_title {
+//            self.navigationItem.largeTitleDisplayMode = .automatic
+//        } else {
+            self.navigationItem.largeTitleDisplayMode = .never
+//        }
+        self.navigationController?.navigationBar.prefersLargeTitles = false//CommonConfigManager.shared.config.use_large_title
+    }
+    
+    var leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil
+    
+    @objc
+    private final func onBackButtonTouchUpInside(_ sender: UIBarButtonItem) {
+        self.leftMenuDelegate?.selectRootScreenAndCategory(screen: "chat", category: nil)
     }
     
     override func reloadDatasource() {

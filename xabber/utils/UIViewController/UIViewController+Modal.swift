@@ -50,8 +50,13 @@ public func showStacked(_ vc: UIViewController, in presenter: UIViewController) 
 //            presenter.splitViewController?.showDetailViewController(NavBarController(rootViewController: vc), sender: presenter)
             presenter.navigationController?.pushViewController(vc, animated: true)
         case .split:
-//            presenter.splitViewController?.showDetailViewController(UINavigationController(rootViewController: vc), sender: presenter)
-            presenter.splitViewController?.showDetailViewController(NavBarController(rootViewController: vc), sender: presenter)
+//            presenter.splitViewController?.showDetailViewController(vc, sender: presenter)
+            let nvc = UINavigationController(rootViewController: vc)
+//            nvc.setNavigationBarHidden(false, animated: false)
+//            nvc.setToolbarHidden(false, animated: false)
+            
+            
+            presenter.splitViewController?.showDetailViewController(nvc, sender: presenter)
             presenter.splitViewController?.hide(.primary)
     }
 }

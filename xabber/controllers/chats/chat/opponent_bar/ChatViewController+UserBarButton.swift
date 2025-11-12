@@ -31,7 +31,7 @@ import CocoaLumberjack
 extension ChatViewController {
     class UserBarButton: UIView {
 
-        static let initialAvatarSize: CGSize = CGSize(square: 32)
+        static let initialAvatarSize: CGSize = CGSize(square: 42)
 
         internal var jid: String = ""
         internal var owner: String = ""
@@ -41,13 +41,13 @@ extension ChatViewController {
         internal var allowBarAnimation: Bool = false
         
         internal var avatar: UIImageView = {
-            let image = UIImageView(frame: CGRect(origin: CGPoint(x: 5, y: 5),
+            let image = UIImageView(frame: CGRect(origin: CGPoint(x: 0, y: 0),
                                                   size: UserBarButton.initialAvatarSize))
             image.contentMode = .scaleAspectFill
 
             let mask = AccountMasksManager.shared.load()
             if mask != "square" {
-                image.mask = UIImageView(image: imageLiteral( AccountMasksManager.shared.mask32pt))
+                image.mask = UIImageView(image: imageLiteral( AccountMasksManager.shared.mask32pt)!.upscale(dimension: 42))
             } else {
                 image.mask = nil
             }
@@ -59,7 +59,7 @@ extension ChatViewController {
         internal let status: RoundedStatusView = {
             let view = RoundedStatusView()
 
-            view.frame = CGRect(origin: CGPoint(x: 26, y: 26), size: CGSize(square: 12))
+            view.frame = CGRect(origin: CGPoint(x: 30, y: 30), size: CGSize(square: 12))
 
             return view
         }()
@@ -204,10 +204,10 @@ extension ChatViewController {
             self.status.border(1)
             switch entity {
             case .groupchat, .incognitoChat, .server, .bot, .privateChat, .issue:
-                self.status.frame = CGRect(origin: CGPoint(x: 25, y: 25), size: CGSize(square: 14))
+                self.status.frame = CGRect(origin: CGPoint(x: 28, y: 28), size: CGSize(square: 14))
                 break
             default:
-                self.status.frame = CGRect(origin: CGPoint(x: 27, y: 27), size: CGSize(square: 10))
+                self.status.frame = CGRect(origin: CGPoint(x: 30, y: 30), size: CGSize(square: 10))
                 break
             }
             self.status.setStatus(status: status, entity: entity)

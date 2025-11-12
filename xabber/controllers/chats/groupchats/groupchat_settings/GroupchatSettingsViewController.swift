@@ -25,7 +25,6 @@ import RxSwift
 import RxRealm
 import RxCocoa
 import CocoaLumberjack
-import TOInsetGroupedTableView
 
 class GroupchatSettingsViewController: BaseViewController {
     
@@ -132,16 +131,16 @@ class GroupchatSettingsViewController: BaseViewController {
     }()
     
     internal let tableView: UITableView = {
-//        let view = UITableView(frame: .zero, style: .grouped)
-        let view = InsetGroupedTableView(frame: .zero)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
-        view.remembersLastFocusedIndexPath = true
-        view.keyboardDismissMode = .onDrag
+//        view.remembersLastFocusedIndexPath = true
+        view.keyboardDismissMode = .interactive
         
         view.register(ItemCell.self, forCellReuseIdentifier: ItemCell.cellName)
         view.register(InfoCell.self, forCellReuseIdentifier: InfoCell.cellName)
         view.register(TextItemCell.self, forCellReuseIdentifier: TextItemCell.cellName)
         view.register(LargeTextItemCell.self, forCellReuseIdentifier: LargeTextItemCell.cellName)
+        
         
         return view
     }()

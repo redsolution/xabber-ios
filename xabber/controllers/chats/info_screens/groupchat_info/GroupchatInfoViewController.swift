@@ -26,7 +26,6 @@ import RxSwift
 import RxCocoa
 import DeepDiff
 import CocoaLumberjack
-import TOInsetGroupedTableView
 import XMPPFramework.XMPPJID
 
 class GroupchatInfoViewController: SimpleBaseViewController {
@@ -50,6 +49,7 @@ class GroupchatInfoViewController: SimpleBaseViewController {
             case contact
             case button
             case danger
+            case jid
         }
         
         var kind: Kind
@@ -97,6 +97,8 @@ class GroupchatInfoViewController: SimpleBaseViewController {
     var headerHeightMax: CGFloat = 252//264
 //    var headerHeightMin: CGFloat = 180150
     
+    open var leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil
+    
     internal let lastSeenDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         
@@ -119,10 +121,9 @@ class GroupchatInfoViewController: SimpleBaseViewController {
       }()
     
     internal let tableView: UITableView = {
-//        let view = UITableView(frame: .zero, style: .grouped)
-        let view = InsetGroupedTableView(frame: .zero)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
-        view.translatesAutoresizingMaskIntoConstraints = false
+        view.register(XMPPIDInfoScreenYableViewCell.self, forCellReuseIdentifier: XMPPIDInfoScreenYableViewCell.cellName)
         view.register(UITableViewCell.self, forCellReuseIdentifier: "ButtonCell")
         view.register(UITableViewCell.self, forCellReuseIdentifier: "InfoCell")
         view.register(CommonMemberTableCell.self, forCellReuseIdentifier: CommonMemberTableCell.cellName)
@@ -269,7 +270,9 @@ class GroupchatInfoViewController: SimpleBaseViewController {
 //                                Datasource(.danger, title: "Leave".localizeString(id: "groupchat_bar_leave", arguments: []), key: "leave")
 //                            ]))
 //                        }
-                        
+                        newDatasource.append(Datasource(.text, title: "XMPP ID".localizeString(id: "jid", arguments: []), childs: [
+                            Datasource(.jid, title: self.jid, subtitle: self.jid),
+                        ]))
                         newDatasource.append(Datasource(.text, title: "About".localizeString(id: "about", arguments: []), childs: [
                             Datasource(.info, title: item.descr.isNotEmpty ? item.descr : "No description".localizeString(id: "no_description", arguments: []), key: "gc_descr"),
                             Datasource(.text, title: "Set status".localizeString(id: "status_editor", arguments: []), key: "gc_set_status")
@@ -447,11 +450,11 @@ class GroupchatInfoViewController: SimpleBaseViewController {
     
     override func configure() {
         super.configure()
-        navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
-        navigationController?.navigationBar.shadowImage = UIImage()
+//        navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
+//        navigationController?.navigationBar.shadowImage = UIImage()
         view.addSubview(tableView)
         
-        navigationItem.setRightBarButtonItems([showQRCodeButton, searchButton], animated: true)
+        navigationItem.setRightBarButtonItems([searchButton], animated: true)
         
         tableView.fillSuperview()
         tableView.delegate = self
@@ -504,20 +507,9 @@ class GroupchatInfoViewController: SimpleBaseViewController {
             let childs: [UIMenuElement] = [
                 UIAction(
                     title: "Edit",
-                    image: imageLiteral("xabber.pencil.cap"),
+                    image: imageLiteral("slider.horizontal.3"),
                     identifier: .none,
                     discoverabilityTitle: "Edit",
-                    attributes: [],
-                    state: .off,//filter.value == .all ? .on : .off,
-                    handler: { action in
-                        self.showSettings()
-                    }
-                ),
-                UIAction(
-                    title: "Info",
-                    image: imageLiteral("info"),
-                    identifier: .none,
-                    discoverabilityTitle: "Info",
                     attributes: [],
                     state: .off,//filter.value == .all ? .on : .off,
                     handler: { action in
@@ -555,7 +547,7 @@ class GroupchatInfoViewController: SimpleBaseViewController {
     
     @objc
     internal func onSearchButtonTouchUpInside(_ sender: UIBarButtonItem) {
-        self.searchChat()
+        self.openSearch()
     }
     
     @objc
@@ -621,14 +613,16 @@ class GroupchatInfoViewController: SimpleBaseViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         subscribe()
-        navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
-        navigationController?.navigationBar.shadowImage = UIImage()
+//        navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
+//        navigationController?.navigationBar.shadowImage = UIImage()
         tableView.fillSuperview()
         headerView.frame = CGRect(
             width: view.frame.width,
             height: headerHeightMax
         )
         self.headerView.updateSubviews()
+        
+
     }
     
     override func viewDidAppear(_ animated: Bool) {
@@ -653,3 +647,4 @@ class GroupchatInfoViewController: SimpleBaseViewController {
         super.didReceiveMemoryWarning()
     }
 }
+

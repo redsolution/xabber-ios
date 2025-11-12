@@ -50,72 +50,16 @@ class SignUpEnableNotificationsViewController: SignUpBaseViewController {
             (granted, error) in
             if granted {
                 DispatchQueue.main.async {
-                    (UIApplication.shared.delegate as? AppDelegate)?.getNotificationSettings()
-//                    let vc = UISplitViewController(style: .tripleColumn)
-//                    vc.navigationItem.largeTitleDisplayMode = .always
-//                    vc.navigationController?.navigationBar.prefersLargeTitles = true
-//                    vc.restorationIdentifier = "MainSplitViewController"
-//                    vc.restoresFocusAfterTransition = true
-//                    let chatsVc = LastChatsViewController()
-//                    let primaryVc = LeftMenuViewController()
-//                    let emptyChatVc = EmptyChatViewController()
-//                    primaryVc.chatsVc = chatsVc
-//                    chatsVc.splitDelegate = emptyChatVc
-//                    chatsVc.navigationController?.navigationBar.prefersLargeTitles = true
-//                    vc.minimumPrimaryColumnWidth = 320
-//                    vc.minimumSupplementaryColumnWidth = 320
-//                    vc.displayModeButtonVisibility = .always
-//                    vc.preferredDisplayMode = .oneBesideSecondary//.oneBesideSecondary//.allVisible
-//                    vc.preferredSplitBehavior = .displace//.tile
-//                    vc.primaryBackgroundStyle = .sidebar
-//                    
-//                    vc.delegate = (UIApplication.shared.delegate as! AppDelegate)
-//                    vc.viewControllers = [
-//                        primaryVc,
-//                        chatsVc,
-//                        UINavigationController(rootViewController: emptyChatVc)
-//                    ]
-//                    (UIApplication.shared.delegate as! AppDelegate).window?.rootViewController = vc
-//                    (UIApplication.shared.delegate as! AppDelegate).splitController = vc
-                    
-                    (UIApplication.shared.delegate as? AppDelegate)?.setupRootViewController()
+                    let appDelegate = UIApplication.shared.delegate as? AppDelegate
+                    appDelegate?.getNotificationSettings()
+                    AppDelegate.setupRootViewController(instance: appDelegate, window: appDelegate?.window)
                 }
             } else {
                 DispatchQueue.main.async {
                     let alert = UIAlertController(title: " ", message: "You can enable notifications later in settings".localizeString(id: "title_register_enable_notifications", arguments: []), preferredStyle: .alert)
                     alert.addAction(UIAlertAction(title: "Continue".localizeString(id: "title_register_continue", arguments: []), style: .cancel, handler: { _ in
-                        
-                        (UIApplication.shared.delegate as? AppDelegate)?.setupRootViewController()
-//                        let vc = UISplitViewController(style: .tripleColumn)
-//                        vc.navigationItem.largeTitleDisplayMode = .always
-//                        vc.navigationController?.navigationBar.prefersLargeTitles = true
-//                        vc.restorationIdentifier = "MainSplitViewController"
-//                        vc.restoresFocusAfterTransition = true
-//                        let chatsVc = LastChatsViewController()
-//                        let primaryVc = LeftMenuViewController()
-//                        let emptyChatVc = EmptyChatViewController()
-//                        primaryVc.chatsVc = chatsVc
-//                        chatsVc.splitDelegate = emptyChatVc
-//                        chatsVc.navigationController?.navigationBar.prefersLargeTitles = true
-//                        vc.minimumPrimaryColumnWidth = 320
-//                        vc.minimumSupplementaryColumnWidth = 320
-//                        vc.displayModeButtonVisibility = .always
-//                        vc.preferredDisplayMode = .oneBesideSecondary//.oneBesideSecondary//.allVisible
-//                        vc.preferredSplitBehavior = .displace//.tile
-//                        vc.primaryBackgroundStyle = .sidebar
-//                        
-//                        vc.delegate = (UIApplication.shared.delegate as! AppDelegate)
-//                        vc.viewControllers = [
-//                            primaryVc,
-//                            chatsVc,
-//                            UINavigationController(rootViewController: emptyChatVc)
-//                        ]
-//                        (UIApplication.shared.delegate as! AppDelegate).window?.rootViewController = vc
-//                        (UIApplication.shared.delegate as! AppDelegate).splitController = vc
-                        
-                        
-//                            let viewController: UIViewController = UIStoryboard(name: "Main", bundle: nil).instantiateViewController(withIdentifier: "tabBarControllerRID") as UIViewController
-//                            (UIApplication.shared.delegate as! AppDelegate).window?.rootViewController = viewController
+                        let appDelegate = UIApplication.shared.delegate as? AppDelegate
+                        AppDelegate.setupRootViewController(instance: appDelegate, window: appDelegate?.window)
                     }))
                     if UIDevice.current.userInterfaceIdiom == .pad {
                         if let popoverController = alert.popoverPresentationController {

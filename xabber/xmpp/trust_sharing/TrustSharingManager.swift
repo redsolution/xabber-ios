@@ -478,8 +478,8 @@ class TrustSharingManager: AbstractXMPPManager {
         omemoMessage.addAttribute(withName: "from", stringValue: self.owner)
         
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-            let iq = user.akeManager.getNotificationContainer(message: XMPPMessage(from: omemoMessage), notificationTo: XMPPJID(string: self.owner)!)
-            stream.send(iq)
+            let packet = user.akeManager.getSignalMessagePacket(message: XMPPMessage(from: omemoMessage), to: XMPPJID(string: self.owner)!, ttl: 300)
+            stream.send(packet)
         })
         
     }
@@ -626,10 +626,9 @@ class TrustSharingManager: AbstractXMPPManager {
         omemoMessage.addAttribute(withName: "from", stringValue: self.owner)
         
 //        let iq = akeManager.getNotificationContainer(message: XMPPMessage(from: omemoMessage), notificationTo: XMPPJID(string: self.owner)!)
-        
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-            let iq = user.akeManager.getNotificationContainer(message: XMPPMessage(from: omemoMessage), notificationTo: XMPPJID(string: self.owner)!)
-            stream.send(iq)
+            let packet = user.akeManager.getSignalMessagePacket(message: XMPPMessage(from: omemoMessage), to: XMPPJID(string: self.owner)!, ttl: 300)
+            stream.send(packet)
         })
     }
     

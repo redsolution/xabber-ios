@@ -305,9 +305,8 @@ extension ChatViewController {
                 } else {
                     self.navigationItem.setHidesBackButton(false, animated: true)
                     self.navigationItem.setLeftBarButton(nil, animated: true)
-                    self.navigationItem.setRightBarButton(UIBarButtonItem(customView: self.userBarButton), animated: true)
                     self.xabberInputView.hideSelectionPanel()
-                    self.navigationItem.titleView = self.titleButton
+                    self.configureNavbar()
                 }
             })
             .disposed(by: bag)
@@ -382,6 +381,22 @@ extension ChatViewController {
             } onDisposed: {
                 
             }.disposed(by: self.bag)
+        
+        self.messagesToReadObserver.asObservable().debounce(.milliseconds(500), scheduler: MainScheduler.asyncInstance).subscribe { messages in
+            guard let lastReadPrimary = self.datasource
+                .filter({ messages.contains($0.primary) })
+                .sorted(by: { $0.sentDate.timeIntervalSince1970 > $1.sentDate.timeIntervalSince1970 })
+                .first?
+                .primary else { return }
+            AccountManager.shared.find(for: self.owner)?.messages.readMessage(lastReadPrimary, last: false)
+        } onError: { _ in
+            
+        } onCompleted: {
+            
+        } onDisposed: {
+            
+        }.disposed(by: self.bag)
+
         
         self.draftMessageText
             .asObservable()

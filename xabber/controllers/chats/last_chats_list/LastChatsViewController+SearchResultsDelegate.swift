@@ -23,10 +23,6 @@ import UIKit
 
 extension LastChatsViewController: SearchResultsDelegateProtocol {
     func openChat(owner: String, jid: String, conversationType: ClientSynchronizationManager.ConversationType) {
-        let vc = ChatViewController()
-        vc.owner = owner
-        vc.jid = jid
-        vc.conversationType = conversationType
-        self.navigationController?.pushViewController(vc, animated: true)
+        self.stackNewChat(owner: owner, jid: jid, conversationType: conversationType)
     }
 }

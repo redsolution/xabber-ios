@@ -30,13 +30,22 @@ extension GroupchatInfoViewController: UITableViewDelegate {
             return tableView.estimatedRowHeight
         }
         switch datasource[indexPath.section].childs[indexPath.row].kind {
-        case .info:
-            if ProcessInfo().operatingSystemVersion.majorVersion == 10 {
-                return 44
-            } else {
-                return tableView.estimatedRowHeight
-            }
-        default: return 44
+            case .info:
+                if ProcessInfo().operatingSystemVersion.majorVersion == 10 {
+                    if #available(iOS 26, *) {
+                        return 52
+                    } else {
+                        return 44
+                    }
+                } else {
+                    return tableView.estimatedRowHeight
+                }
+            default:
+                if #available(iOS 26, *) {
+                    return 52
+                } else {
+                    return 44
+                }
         }
     }
     

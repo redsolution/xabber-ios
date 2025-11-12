@@ -8,7 +8,6 @@
 
 import Foundation
 import UIKit
-import TOInsetGroupedTableView
 
 class PrivacySettingsViewController: SimpleBaseViewController {
     
@@ -59,8 +58,8 @@ class PrivacySettingsViewController: SimpleBaseViewController {
         }
     }
     
-    private let tableView: InsetGroupedTableView = {
-        let view = InsetGroupedTableView(frame: .zero)
+    private let tableView: UITableView = {
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(CheckmarkCell.self, forCellReuseIdentifier: CheckmarkCell.cellName)
         view.register(BoolCell.self, forCellReuseIdentifier: BoolCell.cellName)

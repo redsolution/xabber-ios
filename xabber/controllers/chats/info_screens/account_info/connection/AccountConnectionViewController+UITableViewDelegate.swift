@@ -27,7 +27,11 @@ extension AccountConnectionViewController: UITableViewDelegate {
         if indexPath.section == 1 && tokenSupport {
             return 72
         }
-        return 44
+        if #available(iOS 26, *) {
+            return 52
+        } else {
+            return 44
+        }
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {

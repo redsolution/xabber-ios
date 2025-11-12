@@ -20,7 +20,6 @@
 
 import Foundation
 import UIKit
-import TOInsetGroupedTableView
 import RealmSwift
 import RxRealm
 import RxSwift
@@ -72,8 +71,8 @@ class AccountEncryptionInfoViewController: SimpleBaseViewController {
         return view
     }()
     
-    private let tableView: InsetGroupedTableView = {
-        let view = InsetGroupedTableView(frame: .zero)
+    private let tableView: UITableView = {
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(DeviceInfoTableCell.self, forCellReuseIdentifier: DeviceInfoTableCell.cellName)
         view.register(ButtonTableViewCell.self, forCellReuseIdentifier: ButtonTableViewCell.cellName)

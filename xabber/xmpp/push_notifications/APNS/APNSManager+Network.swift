@@ -55,7 +55,7 @@ extension APNSManager {
 //        let retrier = RequestRetrier()
         /*SUCCESS: {"action":"regjid","result":"success","jid":"igor.boldin@xmppdev01.xabber.com/3F02F22F-5185-43A9-9116-B1C1E306F6C7","node":"65be5460-5052-4ada-8483-a3a869731e16","service":"pubsub.devpush.xabber.com"}
          */
-        Alamofire.request(url, method: .post, parameters: params, encoding: JSONEncoding.default, headers: headers).responseData { response in
+        AF.request(url, method: .post, parameters: params, encoding: JSONEncoding.default, headers: HTTPHeaders(headers)).responseData { response in
             switch response.result {
             case .success(let data):
                 guard let json = try? JSONDecoder().decode(NodeData.self, from: data) else {
@@ -97,7 +97,7 @@ extension APNSManager {
             "target": [jid, hashString].joined(separator: "/"),
             "endpoint_key": voip ? VoIPtoken : deviceToken
         ]
-        Alamofire.request(url, method: .delete, parameters: params, encoding: JSONEncoding.default, headers: headers)
+        AF.request(url, method: .delete, parameters: params, encoding: JSONEncoding.default, headers: HTTPHeaders(headers))
     }
     
     func sendDeleteRequest(_ pushData: [AnyHashable: Any], voip: Bool) {
@@ -124,7 +124,7 @@ extension APNSManager {
             "endpoint_key": voip ? VoIPtoken : deviceToken
         ]
         print(url, #function, params)
-        Alamofire.request(url, method: .delete, parameters: params, encoding: JSONEncoding.default, headers: headers)
+        AF.request(url, method: .delete, parameters: params, encoding: JSONEncoding.default, headers: HTTPHeaders(headers))
             .responseJSON {
                 response in
                 switch response.result {

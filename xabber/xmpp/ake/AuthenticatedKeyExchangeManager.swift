@@ -22,6 +22,10 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
     static let showCodeInputViewNotification = NSNotification.Name("com.xabber.ios.ake.showCodeInputViewNotification")
     static let showCodeOutputViewNotification = NSNotification.Name("com.xabber.ios.ake.showCodeOutputViewNotification")
     
+    static let closeViewNotification = NSNotification.Name(rawValue: "com.xabber.ios.ake.closeView")
+    static let verificationConfirmationVCRejected = NSNotification.Name(rawValue: "com.xabber.ios.ake.rejected_VerificationConfirmationViewController")
+    static let authenticationCodeInputVCShow = NSNotification.Name(rawValue: "com.xabber.ios.ake.AuthenticationCodeInputViewController")
+    
     enum State{
         case none
         case sentRequest
@@ -118,9 +122,9 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                             }
                             bodyNotification = "Verification failed"
                             self.showNotification(title: jid, owner: self.owner, body: bodyNotification, sid: sid, timestamp: timestamp)
-                            NotificationCenter.default.post(name: NSNotification.Name(rawValue: "rejected_VerificationConfirmationViewController"), object: self, userInfo: ["sid": sid])
-                            NotificationCenter.default.post(name: NSNotification.Name(rawValue: "close_view"), object: self, userInfo: ["sid": sid])
-                            NotificationCenter.default.post(name: NSNotification.Name(rawValue: "AuthenticationCodeInputViewController"), object: self, userInfo: ["sid": sid])
+                            NotificationCenter.default.post(name: AuthenticatedKeyExchangeManager.verificationConfirmationVCRejected, object: self, userInfo: ["sid": sid])
+                            NotificationCenter.default.post(name: AuthenticatedKeyExchangeManager.closeViewNotification, object: self, userInfo: ["sid": sid])
+                            NotificationCenter.default.post(name: AuthenticatedKeyExchangeManager.authenticationCodeInputVCShow, object: self, userInfo: ["sid": sid])
                             
                             if jid != self.owner {
                                 self.makeSystemMessage(jid: jid, body: "Verification failed")
@@ -227,7 +231,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         
         let verificationStart = DDXMLElement(name: "verification-start")
         verificationStart.addAttribute(withName: "device-id", stringValue: String(myDeviceId))
-        verificationStart.addAttribute(withName: "ttl", stringValue: String(ttl))
+        verificationStart.addAttribute(withName: "ttl", integerValue: ttl)
         if deviceId != nil {
             verificationStart.addAttribute(withName: "to-device-id", stringValue: deviceId!)
         }
@@ -289,16 +293,27 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
     }
     
     func didReceivedVerificationMessage(message: XMPPMessage) -> Bool {
-        guard let notify = message.element(forName: "notify", xmlns: XMPPNotificationsManager.xmlns) ?? message.element(forName: "notification", xmlns: XMPPNotificationsManager.xmlns),
-              let messageContainer = notify.element(forName: "forwarded")?.element(forName: "message"),
-              let authenticatedKeyExchange = messageContainer.element(forName: "authenticated-key-exchange", xmlns: getPrimaryNamespace()),
-              XMPPMessage(from: messageContainer).from != nil,
+        guard let authenticatedKeyExchange = message.element(forName: "authenticated-key-exchange", xmlns: getPrimaryNamespace()),
+              message.from != nil,
               authenticatedKeyExchange.attributeStringValue(forName: "sid") != nil,
               authenticatedKeyExchange.attributeStringValue(forName: "timestamp") != nil else {
             return false
         }
-        
-        if XMPPMessage(from: messageContainer).from == AccountManager.shared.find(for: self.owner)?.xmppStream.myJID {
+        if message.element(forName: "high-priority", xmlns: "https://xabber.com/protocol/priority") != nil {
+            if getStanzaId(message, owner: self.owner).isNotEmpty {
+                let query = DDXMLElement(name: "query", xmlns: "https://xabber.com/protocol/priority")
+                query.addAttribute(withName: "device", stringValue: AccountManager.shared.find(for: self.owner)?.devices.deviceId ?? "")
+                let stanzaId = DDXMLElement(name: "stanza-id", xmlns: "urn:xmpp:sid:0")
+                stanzaId.addAttribute(withName: "by", stringValue: self.owner)
+                stanzaId.addAttribute(withName: "id", stringValue: getStanzaId(message, owner: self.owner))
+                query.addChild(stanzaId)
+                let iq = XMPPIQ(iqType: .set, to: XMPPJID(string: self.owner), elementID: "HP ACK: \(NanoID.new(6))", child: query)
+                AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                    stream.send(iq)
+                })
+            }
+        }
+        if message.from == AccountManager.shared.find(for: self.owner)?.xmppStream.myJID {
             return true
         }
         
@@ -310,10 +325,8 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
     }
     
     func processMessage(message: XMPPMessage) -> String? {
-        guard let notify = message.element(forName: "notification", xmlns: XMPPNotificationsManager.xmlns),
-              let messageContainer = notify.element(forName: "forwarded")?.element(forName: "message"),
-              let authenticatedKeyExchange = messageContainer.element(forName: "authenticated-key-exchange", xmlns: getPrimaryNamespace()),
-              let jid = XMPPMessage(from: messageContainer).from,
+        guard let authenticatedKeyExchange = message.element(forName: "authenticated-key-exchange", xmlns: getPrimaryNamespace()),
+              let jid = XMPPMessage(from: message).from,
               let sid = authenticatedKeyExchange.attributeStringValue(forName: "sid") else {
             return nil
         }
@@ -413,6 +426,8 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             try realm.write {
                 realm.add(instance)
             }
+            let timer = Timer.scheduledTimer(timeInterval: Double(ttl! - secondsPassed), target: self, selector: #selector(cleanUpVerificationRequestAfterTTL), userInfo: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid), repeats: false)
+            RunLoop.current.add(timer, forMode: .default)
             
             DispatchQueue.main.asyncAfter(deadline: .now() + (ttl! - secondsPassed)) {
                 do {
@@ -423,7 +438,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                             realm.delete(instance)
                         }
                         
-                        NotificationCenter.default.post(name: NSNotification.Name(rawValue: "close_view"), object: self, userInfo: ["sid": sid])
+                        NotificationCenter.default.post(name: AuthenticatedKeyExchangeManager.closeViewNotification, object: self, userInfo: ["sid": sid])
                     }
                 } catch {
                     DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
@@ -435,6 +450,27 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         } catch {
             DDLogDebug("AuthenticatedKeyExchange \(#function). \(error.localizedDescription)")
             return false
+        }
+    }
+    
+    @objc
+    internal func cleanUpVerificationRequestAfterTTL(_ sender: Timer) {
+        guard let primary = sender.userInfo as? String else {
+            return
+        }
+        
+        do {
+            let realm = try WRealm.safe()
+            if let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: primary),
+               instance.state == .receivedRequest {
+                let sid = instance.sid
+                try realm.write {
+                    realm.delete(instance)
+                }
+                NotificationCenter.default.post(name: AuthenticatedKeyExchangeManager.closeViewNotification, object: self, userInfo: ["sid": sid])
+            }
+        } catch {
+            DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
         }
     }
     
@@ -469,7 +505,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 let saltEncrypted = authenticatedKeyExchange.element(forName: "salt")?.element(forName: "ciphertext")?.stringValue
                 let saltIv = authenticatedKeyExchange.element(forName: "salt")?.element(forName: "iv")?.stringValue
                 if (saltEncrypted == nil && saltIv == nil) || instance.state != .sentRequest {
-                    NotificationCenter.default.post(name: NSNotification.Name(rawValue: "rejected_VerificationConfirmationViewController"), object: self, userInfo: ["sid": sid])
+                    NotificationCenter.default.post(name: AuthenticatedKeyExchangeManager.verificationConfirmationVCRejected, object: self, userInfo: ["sid": sid])
                     try realm.write {
                         realm.delete(instance)
                     }
@@ -510,6 +546,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         }
         
         var deviceId: Int? = nil
+        let ttl: Int = jid.bare == self.owner ? 300 : 86400
         
         do {
             let realm = try WRealm.safe()
@@ -540,22 +577,21 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             return false
         }
         
-        guard let fullJid = AccountManager.shared.find(for: self.owner)?.xmppStream.myJID?.full,
-              let deviceId = deviceId else {
+        guard let deviceId = deviceId else {
             return false
         }
         
         if !checkHashFromInitiator(jid: jid.bare, sid: sid, deviceId: deviceId, hashEncrypted: hashEncrypted, byteSequenceEncrypted: byteSequenceEncrypted) {
-            NotificationCenter.default.post(name: NSNotification.Name(rawValue: "close_view"), object: self, userInfo: ["sid": sid])
+            NotificationCenter.default.post(name: AuthenticatedKeyExchangeManager.closeViewNotification, object: self, userInfo: ["sid": sid])
             
             let child = self.getMessageChildsForErrorMessage(sid: sid, reason: "Hashes didn't match")
             
             let message = XMPPMessage(messageType: .chat, to: jid, elementID: UUID().uuidString, child: child)
-            message.addAttribute(withName: "from", stringValue: fullJid)
+//            message.addAttribute(withName: "from", stringValue: fullJid)
             
-            let iq = self.getNotificationContainer(message: message, notificationTo: jid)
+            let packet = self.getSignalMessagePacket(message: message, to: jid, ttl: ttl)
             AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                stream.send(iq)
+                stream.send(packet)
             })
             
             do {
@@ -602,13 +638,14 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         hashChild.addChild(DDXMLElement(name: "ciphertext", stringValue: hashCiphertext.toBase64()))
         hashChild.addChild(DDXMLElement(name: "iv", stringValue: hashIv.toBase64()))
         authenticatedKeyExchangeChild.addChild(hashChild)
+        let elementId = "AKE: \(NanoID.new(6))"
+        let message = XMPPMessage(messageType: .chat, to: jid, elementID: elementId, child: authenticatedKeyExchangeChild)
+        message.addOriginId(elementId)
+//        message.addAttribute(withName: "from", stringValue: fullJid)
         
-        let message = XMPPMessage(messageType: .chat, to: jid, elementID: UUID().uuidString, child: authenticatedKeyExchangeChild)
-        message.addAttribute(withName: "from", stringValue: fullJid)
-        
-        let iq = self.getNotificationContainer(message: message, notificationTo: jid)
+        let packet = self.getSignalMessagePacket(message: message, to: jid, ttl: ttl)
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-            stream.send(iq)
+            stream.send(packet)
         })
         
         return true
@@ -650,8 +687,6 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                 code = instance.code
                 byteSequence = try instance.byteSequence.base64decoded()
                 opponentByteSequence = try instance.opponentByteSequence.base64decoded()
-                
-                
             }
         } catch {
             DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
@@ -795,7 +830,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                         realm.delete(instance)
                     }
                     
-                    NotificationCenter.default.post(name: NSNotification.Name(rawValue: "rejected_VerificationConfirmationViewController"), object: self, userInfo: ["sid": sid])
+                    NotificationCenter.default.post(name: AuthenticatedKeyExchangeManager.verificationConfirmationVCRejected, object: self, userInfo: ["sid": sid])
                     return false
                     
                 } else {
@@ -805,7 +840,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                     }
                 }
                 
-                NotificationCenter.default.post(name: NSNotification.Name(rawValue: "rejected_VerificationConfirmationViewController"), object: self, userInfo: ["sid": sid])
+                NotificationCenter.default.post(name: AuthenticatedKeyExchangeManager.verificationConfirmationVCRejected, object: self, userInfo: ["sid": sid])
                 return true
                 
             } else {
@@ -836,7 +871,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
                         realm.delete(instance)
                     }
                     
-                    NotificationCenter.default.post(name: NSNotification.Name(rawValue: "close_view"), object: self, userInfo: ["sid": sid])
+                    NotificationCenter.default.post(name: AuthenticatedKeyExchangeManager.closeViewNotification, object: self, userInfo: ["sid": sid])
                     return false
                     
                 } else {
@@ -872,12 +907,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
     
     func sendVerificationRequest(jid: String, deviceId: String? = nil) {
         let sid = UUID().uuidString
-        var ttl: Int
-        if jid == self.owner {
-            ttl = 300
-        } else {
-            ttl = 86400
-        }
+        var ttl: Int = jid == self.owner ? 300 : 86400
         
         guard let myDeviceId = AccountManager.shared.find(for: owner)?.omemo.localStore.localDeviceId() else {
             return
@@ -926,12 +956,12 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         
         let childs = self.getMessageChildsForVerififcationRequest(sid: sid, ttl: ttl, myDeviceId: myDeviceId, deviceId: deviceId)
         let message = XMPPMessage(messageType: .chat, to: XMPPJID(string: jid), elementID: UUID().uuidString, child: childs)
-        message.addAttribute(withName: "from", stringValue: fullJid!)
+//        message.addAttribute(withName: "from", stringValue: fullJid!)
         
-        let iq = self.getNotificationContainer(message: message, notificationTo: toJid!)
+        let packet = self.getSignalMessagePacket(message: message, to: toJid!, ttl: ttl)
         
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-            stream.send(iq)
+            stream.send(packet)
         })
         
         DispatchQueue.main.asyncAfter(deadline: .now() + TimeInterval(ttl)) {
@@ -982,6 +1012,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         
         var deviceId: Int? = nil
         var fullJID: String? = nil
+        let ttl: Int = jid == self.owner ? 300 : 86400
         
         var byteSequence: [UInt8]? = nil
         do {
@@ -1043,9 +1074,9 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         let message = XMPPMessage(messageType: .chat, to: toJid, elementID: UUID().uuidString, child: child)
         message.addAttribute(withName: "from", stringValue: myFullJid)
         
-        let iq = self.getNotificationContainer(message: message, notificationTo: toJid)
+        let packet = self.getSignalMessagePacket(message: message, to: toJid, ttl: ttl)
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-            stream.send(iq)
+            stream.send(packet)
         })
         
         if toJid.bare != self.owner {
@@ -1067,9 +1098,9 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             let message = XMPPMessage(messageType: .chat, to: XMPPJID(string: fullJID), elementID: UUID().uuidString, child: akeXML)
             message.addAttribute(withName: "from", stringValue: myFullJid)
             
-            let iqToMyDevices = self.getNotificationContainer(message: message, notificationTo: XMPPJID(string: self.owner)!)
+            let packet = self.getSignalMessagePacket(message: message, to: XMPPJID(string: self.owner)!, ttl: ttl)
             AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                stream.send(iqToMyDevices)
+                stream.send(packet)
             })
             
             makeSystemMessage(jid: jid, body: "You accepted the verification request")
@@ -1078,26 +1109,15 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         return code
     }
     
-    func getNotificationContainer(message: XMPPMessage, notificationTo: XMPPJID) -> XMPPIQ {
-        let forwarded = DDXMLElement(name: "forwarded", xmlns: "urn:xmpp:forward:0")
-        forwarded.addChild(message.copy() as! DDXMLElement)
+    func getSignalMessagePacket(message: XMPPMessage, to: XMPPJID, ttl: Int) -> DDXMLElement {
+       
+        let highPriority = DDXMLElement(name: "high-priority", xmlns: "https://xabber.com/protocol/priority")
+        highPriority.addAttribute(withName: "seconds", integerValue: ttl)
+        message.addChild(highPriority)
+        message.addStorageHint(.store)
         
-        let notification = DDXMLElement(name: "notification")
-        notification.addChild(forwarded)
         
-        let address = DDXMLElement(name: "address")
-        address.addAttribute(withName: "type", stringValue: "to")
-        address.addAttribute(withName: "jid", stringValue: notificationTo.full)
-        let addresses = DDXMLElement(name: "addresses", xmlns: "http://jabber.org/protocol/address")
-        addresses.addChild(address)
-        
-        let notify = DDXMLElement(name: "notify", xmlns: "urn:xabber:xen:0")
-        notify.addChild(notification)
-        notify.addChild(addresses)
-        
-        let iq = XMPPIQ(iqType: .set, to: notificationTo.bareJID, child: notify)
-        
-        return iq
+        return message
     }
     
     func sendHashToOpponent(jid: XMPPJID, sid: String) {
@@ -1106,6 +1126,8 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         var opponentByteSequence: [UInt8]? = nil
         var code: String? = nil
         var myTrustedKey: String? = nil
+        
+        let ttl: Int = jid.bare == self.owner ? 300 : 86400
         
         do {
             let realm = try WRealm.safe()
@@ -1172,14 +1194,15 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         let messageToSend = XMPPMessage(messageType: .chat, to: jid, elementID: UUID().uuidString, child: child)
         messageToSend.addAttribute(withName: "from", stringValue: myFullJid)
         
-        let iq = self.getNotificationContainer(message: messageToSend, notificationTo: jid)
+        let packet = self.getSignalMessagePacket(message: messageToSend, to: jid, ttl: ttl)
         
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-            stream.send(iq)
+            stream.send(packet)
         })
     }
     
-    func sendSuccessfulVerificationMessage(toJid: XMPPJID, sid: String) {
+    func sendSuccessfulVerificationMessage(toJid jid: XMPPJID, sid: String) {
+        let ttl: Int = jid.bare == self.owner ? 300 : 86400
         let authenticatedKeyExchange = DDXMLElement(name: "authenticated-key-exchange", xmlns: getPrimaryNamespace())
         authenticatedKeyExchange.addAttribute(withName: "sid", stringValue: sid)
         authenticatedKeyExchange.addAttribute(withName: "timestamp", stringValue: String(Int(Date().timeIntervalSince1970.rounded())))
@@ -1193,17 +1216,17 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             return
         }
         
-        let message = XMPPMessage(messageType: .chat, to: toJid, elementID: UUID().uuidString, child: authenticatedKeyExchange)
+        let message = XMPPMessage(messageType: .chat, to: jid, elementID: UUID().uuidString, child: authenticatedKeyExchange)
         message.addAttribute(withName: "from", stringValue: myFullJid)
         
-        let iq = self.getNotificationContainer(message: message, notificationTo: toJid)
+        let packet = self.getSignalMessagePacket(message: message, to: jid, ttl: ttl)
         
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-            stream.send(iq)
+            stream.send(packet)
         })
     }
     
-    func sendErrorMessage(fullJID: XMPPJID, sid: String, reason: String) {
+    func sendErrorMessage(fullJID jid: XMPPJID, sid: String, reason: String) {
         let child = getMessageChildsForErrorMessage(sid: sid, reason: reason)
         
         guard let myFullJid = AccountManager.shared.find(for: self.owner)?.xmppStream.myJID?.full else {
@@ -1211,13 +1234,15 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             return
         }
         
-        let message = XMPPMessage(messageType: .chat, to: fullJID, elementID: UUID().uuidString, child: child)
+        let ttl: Int = jid.bare == self.owner ? 300 : 86400
+        
+        let message = XMPPMessage(messageType: .chat, to: jid, elementID: UUID().uuidString, child: child)
         message.addAttribute(withName: "from", stringValue: myFullJid)
         
-        let iq = self.getNotificationContainer(message: message, notificationTo: fullJID)
+        let packet = self.getSignalMessagePacket(message: message, to: jid, ttl: ttl)
         
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-            stream.send(iq)
+            stream.send(packet)
         })
     }
     
@@ -1435,7 +1460,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
             return
         }
-        
+        let ttl: Int = jid == self.owner ? 300 : 86400
         let timestamp = Int(Date().timeIntervalSince1970.rounded())
         let authenticatedKeyExchange = DDXMLElement(name: "authenticated-key-exchange", xmlns: getPrimaryNamespace())
         authenticatedKeyExchange.addAttribute(withName: "sid", stringValue: sid)
@@ -1452,9 +1477,9 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
         let message = XMPPMessage(messageType: .chat, to: jid, elementID: UUID().uuidString, child: authenticatedKeyExchange)
         message.addAttribute(withName: "from", stringValue: myFullJid)
         
-        let iq = self.getNotificationContainer(message: message, notificationTo: jid)
+        let packet = self.getSignalMessagePacket(message: message, to: jid, ttl: ttl)
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-            stream.send(iq)
+            stream.send(packet)
         })
         
         if jid.bare != self.owner {
@@ -1468,9 +1493,9 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager{
             let message = XMPPMessage(messageType: .chat, to: jid, elementID: UUID().uuidString, child: akeXML)
             message.addAttribute(withName: "from", stringValue: myFullJid)
             
-            let iqToMyDevices = self.getNotificationContainer(message: message, notificationTo: XMPPJID(string: self.owner)!)
+            let packet = self.getSignalMessagePacket(message: message, to: XMPPJID(string: self.owner)!, ttl: ttl)
             AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                stream.send(iqToMyDevices)
+                stream.send(packet)
             })
         }
     }

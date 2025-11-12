@@ -22,7 +22,6 @@ import Foundation
 import UIKit
 import RealmSwift
 import CocoaLumberjack
-import TOInsetGroupedTableView
 import CoreMedia
 import RxSwift
 import XMPPFramework
@@ -65,8 +64,8 @@ class TrustedDevicesViewController: SimpleBaseViewController {
     var datasource: [[Datasource]] = []
     var activeVerificationSessionSid: String? = nil
     
-    let tableView: InsetGroupedTableView = {
-        let view = InsetGroupedTableView(frame: .zero)
+    let tableView: UITableView = {
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(DeviceInfoTableCell.self, forCellReuseIdentifier: DeviceInfoTableCell.cellName)
         view.register(ButtonTableViewCell.self, forCellReuseIdentifier: ButtonTableViewCell.cellName)
@@ -361,12 +360,16 @@ extension TrustedDevicesViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         let item = datasource[indexPath.section][indexPath.row]
         switch item.kind {
-        case .button:
-            return 44
-        case .device:
-            return 60
-        case .session:
-            return tableView.estimatedRowHeight
+            case .button:
+                if #available(iOS 26, *) {
+                    return 52
+                } else {
+                    return 44
+                }
+            case .device:
+                return 60
+            case .session:
+                return tableView.estimatedRowHeight
         }
     }
     

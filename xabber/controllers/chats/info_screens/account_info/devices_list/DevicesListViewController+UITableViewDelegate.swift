@@ -27,18 +27,27 @@ extension DevicesListViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         let item = datasource[indexPath.section]
         switch item.kind {
-        case .current:
-            if item.childs[indexPath.row].kind == .button {
-                return 44
-            }
-            return 60
-        case .token, .broken:
-            if indexPath.row == 0 {
-                return tableView.estimatedRowHeight
-            }
-            return 60
-        case .button: return 44
-        case .session: return tableView.estimatedRowHeight
+            case .current:
+                if item.childs[indexPath.row].kind == .button {
+                    if #available(iOS 26, *) {
+                        return 52
+                    } else {
+                        return 44
+                    }
+                }
+                return 60
+            case .token, .broken:
+                if indexPath.row == 0 {
+                    return tableView.estimatedRowHeight
+                }
+                return 60
+            case .button:
+                if #available(iOS 26, *) {
+                    return 52
+                } else {
+                    return 44
+                }
+            case .session: return tableView.estimatedRowHeight
         }
     }
     

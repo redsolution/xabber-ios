@@ -19,7 +19,6 @@
 //
 
 import UIKit
-import TOInsetGroupedTableView
 import CocoaLumberjack
 import RealmSwift
 import RxSwift
@@ -66,7 +65,7 @@ class CloudStorageViewController: BaseViewController {
     var datasource: [Datasource] = []
     
     let tableView: UITableView = {
-        let tableView = InsetGroupedTableView()
+        let tableView = UITableView(frame: .zero, style: .insetGrouped)
         tableView.register(QuotaInfoCell.self, forCellReuseIdentifier: QuotaInfoCell.cellName)
         
         return tableView

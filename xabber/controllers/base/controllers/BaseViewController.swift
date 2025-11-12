@@ -109,6 +109,10 @@ class BaseViewController: UIViewController {
         
     }
     
+    public func resetState() {
+        
+    }
+    
 }
 
 extension BaseViewController: UIAdaptivePresentationControllerDelegate {

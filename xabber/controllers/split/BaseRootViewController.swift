@@ -145,6 +145,7 @@ class BaseRootViewController: BaseViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         self.addTabBar()
+        self.navigationItem.backButtonDisplayMode = .minimal
     }
     
     override func viewWillAppear(_ animated: Bool) {

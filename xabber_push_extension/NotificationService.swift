@@ -323,34 +323,33 @@ class NotificationService: UNNotificationServiceExtension {
         bestAttemptContent = (request.content.mutableCopy() as? UNMutableNotificationContent)
 //        identifier = request.identifier
         bestAttemptContent?.sound = .default
-        bestAttemptContent?.title = "Clandestino"//CommonConfigManager.shared.config.app_name
+        bestAttemptContent?.title = CommonConfigManager.shared.config.app_name
         bestAttemptContent?.body = "New message"
-        contentHandler(bestAttemptContent!)
-        return
-//        payload = "\(request.content.userInfo)"
-////        print(payload)
-////        print(bestAttemptContent)
-//
-//        if let bestAttemptContent = bestAttemptContent {
-//            guard let body = request.content.userInfo["body"] as? String,
-//                let payload = parse(payload: body) else {
-//                bestAttemptContent.title = CommonConfigManager.shared.config.app_name
-//                bestAttemptContent.body = "fail to parse"
-//                contentHandler(bestAttemptContent)
-//                return
-//            }
-//            
-//            guard let node = request.content.userInfo["target"] as? String else {
-//                bestAttemptContent.title = CommonConfigManager.shared.config.app_name
-//                bestAttemptContent.body = "bad node: \(request.content.userInfo["target"] as? String ?? "")"
-//                contentHandler(bestAttemptContent)
-//                return
-//            }
-//            self.loadCredentials(for: node, payload: payload)
-//            
-//        } else {
-//            return
-//        }
+
+        payload = "\(request.content.userInfo)"
+//        print(payload)
+//        print(bestAttemptContent)
+
+        if let bestAttemptContent = bestAttemptContent {
+            guard let body = request.content.userInfo["body"] as? String,
+                let payload = parse(payload: body) else {
+                bestAttemptContent.title = CommonConfigManager.shared.config.app_name
+                bestAttemptContent.body = "fail to parse"
+                contentHandler(bestAttemptContent)
+                return
+            }
+            
+            guard let node = request.content.userInfo["target"] as? String else {
+                bestAttemptContent.title = CommonConfigManager.shared.config.app_name
+                bestAttemptContent.body = "bad node: \(request.content.userInfo["target"] as? String ?? "")"
+                contentHandler(bestAttemptContent)
+                return
+            }
+            self.loadCredentials(for: node, payload: payload)
+            
+        } else {
+            return
+        }
     }
     
     override func serviceExtensionTimeWillExpire() {

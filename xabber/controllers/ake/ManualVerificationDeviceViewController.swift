@@ -8,7 +8,6 @@
 
 import Foundation
 import UIKit
-import TOInsetGroupedTableView
 import XMPPFramework
 
 class ManualVerificationDeviceViewController: SimpleBaseViewController {
@@ -36,7 +35,7 @@ class ManualVerificationDeviceViewController: SimpleBaseViewController {
     var datasource: [Datasource] = []
     var deviceId: String = ""
     
-    let tableView = InsetGroupedTableView(frame: .zero)
+    let tableView = UITableView(frame: .zero, style: .insetGrouped)
     
     override func setupSubviews() {
         super.setupSubviews()

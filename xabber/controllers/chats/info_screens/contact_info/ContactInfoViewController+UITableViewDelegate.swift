@@ -28,8 +28,18 @@ extension ContactInfoViewController: UITableViewDelegate {
             return tableView.estimatedRowHeight
         }
         switch datasource[indexPath.section].childs[indexPath.row].kind {
-        case .session: return tableView.estimatedRowHeight
-        default: return 44
+            case .session:
+                return tableView.estimatedRowHeight
+            default:
+                if #available(iOS 26, *) {
+                    return 52
+                } else {
+                    if #available(iOS 26, *) {
+                        return 52
+                    } else {
+                        return 44
+                    }
+                }
         }
     }
     

@@ -29,6 +29,23 @@ enum ResourceStatus: String {
     case dnd = "dnd"
     case online = "online"
     case chat = "chat"
+    
+    func statusToSortedItem() -> Int {
+        switch self {
+            case .offline:
+                return 0
+            case .xa:
+                return 1
+            case .away:
+                return 2
+            case .dnd:
+                return 3
+            case .online:
+                return 4
+            case .chat:
+                return 5
+        }
+    }
 }
 
 enum RosterItemEntity: String {

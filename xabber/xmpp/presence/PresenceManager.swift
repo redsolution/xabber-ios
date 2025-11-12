@@ -378,6 +378,7 @@ class PresenceManager: AbstractXMPPManager {
                     realm.add(instance, update: .modified)
                 }
                 realm.object(ofType: RosterStorageItem.self, forPrimaryKey: [fromJid.bare, owner].prp())?.notes = " "
+                realm.object(ofType: RosterStorageItem.self, forPrimaryKey: [fromJid.bare, owner].prp())?.isContact = presence.element(forName: "x", xmlns: GroupchatManager.staticGetNamespace()) == nil
             }
         } catch {
             DDLogDebug("PresenceManager: \(#function). \(error.localizedDescription)")
@@ -475,33 +476,49 @@ class PresenceManager: AbstractXMPPManager {
         
         do {
             let realm = try  WRealm.safe()
-            let notificationId = ["subscribtion_request", jid, owner].prp()
-            if let instance = realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: NotificationStorageItem.genPrimary(owner: owner, jid: jid, uniqueId: notificationId)) {
+            let primary = UINotificationStorageItem.genPrimary(owner: owner, jid: jid)
+            if realm.object(ofType: UINotificationStorageItem.self, forPrimaryKey: primary) == nil {
+                let uiNotifyObject = UINotificationStorageItem()
+                uiNotifyObject.primary = primary
+                uiNotifyObject.owner = owner
+                uiNotifyObject.jid = jid
+                uiNotifyObject.kind = .contactRequest
+                uiNotifyObject.date = Date()
+                uiNotifyObject.readAt = nil
                 try realm.write {
-                    instance.date = Date()
-                    instance.associatedJid = jid
-                    instance.displayedNick = presence.element(forName: "nick", xmlns: "http://jabber.org/protocol/nick")?.stringValue
-                }
-            } else {
-                let instance = NotificationStorageItem()
-                instance.owner = owner
-                instance.jid = jid
-                instance.uniqueId = notificationId
-                instance.primary = NotificationStorageItem.genPrimary(owner: owner, jid: jid, uniqueId: notificationId)
-                instance.associatedJid = jid
-                instance.displayedNick = presence.element(forName: "nick", xmlns: "http://jabber.org/protocol/nick")?.stringValue
-                instance.date = Date()
-                instance.isRead = true
-                instance.shouldShow = true
-                instance.category = .contact
-                instance.metadata = [
-                    "message": presence.status ?? "",
-                    "username": presence.element(forName: "nick", xmlns: "http://jabber.org/protocol/nick")?.stringValue ?? jid
-                ]
-                try realm.write {
-                    realm.add(instance)
+                    realm.add(uiNotifyObject)
                 }
             }
+//            let notificationId = ["subscribtion_request", jid, owner].prp()
+//            if let instance = realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: NotificationStorageItem.genPrimary(owner: owner, jid: jid, uniqueId: notificationId)) {
+//                try realm.write {
+//                    instance.date = Date()
+//                    instance.associatedJid = jid
+//                    instance.displayedNick = presence.element(forName: "nick", xmlns: "http://jabber.org/protocol/nick")?.stringValue
+//                }
+//            } else {
+//                let instance = NotificationStorageItem()
+//                instance.owner = owner
+//                instance.jid = jid
+//                instance.uniqueId = notificationId
+//                instance.primary = NotificationStorageItem.genPrimary(owner: owner, jid: jid, uniqueId: notificationId)
+//                instance.associatedJid = jid
+//                instance.displayedNick = presence.element(forName: "nick", xmlns: "http://jabber.org/protocol/nick")?.stringValue
+//                instance.date = Date()
+//                instance.isRead = true
+//                instance.shouldShow = true
+//                instance.category = .contact
+//                instance.metadata = [
+//                    "message": presence.status ?? "",
+//                    "username": presence.element(forName: "nick", xmlns: "http://jabber.org/protocol/nick")?.stringValue ?? jid
+//                ]
+//                try realm.write {
+//                    realm.add(instance)
+//                }
+//                
+//                
+//                
+//            }
             if let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: [jid, owner].prp()) {
                 try realm.write {
                     instance.ask = .in

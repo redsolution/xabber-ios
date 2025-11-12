@@ -8,7 +8,6 @@
 
 import Foundation
 import UIKit
-import TOInsetGroupedTableView
 
 class NewContactSelectAccountViewController: BaseViewController {
     internal var callback: ((String) -> Void)? = nil
@@ -18,7 +17,7 @@ class NewContactSelectAccountViewController: BaseViewController {
     internal var current: String? = nil
     
     internal let tableView: UITableView = {
-        let view = UITableView(frame: .zero, style: .grouped)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(UITableViewCell.self, forCellReuseIdentifier: "UITableViewCell")
         
@@ -107,7 +106,11 @@ extension NewContactSelectAccountViewController: UITableViewDataSource {
 
 extension NewContactSelectAccountViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return 44
+        if #available(iOS 26, *) {
+            return 52
+        } else {
+            return 44
+        }
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {

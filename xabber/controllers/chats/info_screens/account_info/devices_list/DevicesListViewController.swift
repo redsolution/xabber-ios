@@ -25,7 +25,6 @@ import RxSwift
 import RxRealm
 import MaterialComponents.MDCPalettes
 import CocoaLumberjack
-import TOInsetGroupedTableView
 import XMPPFramework
 
 class DevicesListViewController: BaseViewController {
@@ -80,7 +79,7 @@ class DevicesListViewController: BaseViewController {
     
     internal let tableView: UITableView = {
 //        let view = UITableView(frame: .zero, style: .grouped)
-        let view = InsetGroupedTableView(frame: .zero)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(DeviceInfoTableCell.self, forCellReuseIdentifier: DeviceInfoTableCell.cellName)
         view.register(ButtonTableViewCell.self, forCellReuseIdentifier: ButtonTableViewCell.cellName)

@@ -65,6 +65,8 @@ class AddNewContactViewController: UIViewController {
         case unexpected
     }
     
+    open var leftMenuSelectRootCategoryDelegate: LeftMenuSelectRootScreenDelegate? = nil
+    
     var errorsObserver: BehaviorRelay<ValidateErrors?> = BehaviorRelay(value: nil)
     var bag: DisposeBag = DisposeBag()
     
@@ -198,13 +200,17 @@ class AddNewContactViewController: UIViewController {
     func closeAndDisplayContact(jid: String, owner: String) {
         DispatchQueue.main.async {
             self.dismiss(animated: true) {
-                let vc = ChatViewController()
-                vc.jid = jid
-                vc.owner = owner
-                vc.conversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
-                
-                if let presenterVc = self.presentationController {
-                    showStacked(vc, in: presenterVc.presentingViewController)
+                if self.leftMenuSelectRootCategoryDelegate != nil {
+                    self.leftMenuSelectRootCategoryDelegate?.openChatlistWithChat(owner: owner, jid: jid, conversationType: ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular, configure: nil)
+                } else {
+                    let vc = ChatViewController()
+                    vc.jid = jid
+                    vc.owner = owner
+                    vc.conversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
+                    
+                    if let presenterVc = self.presentationController {
+                        showStacked(vc, in: presenterVc.presentingViewController)
+                    }
                 }
             }
         }
@@ -299,7 +305,7 @@ class AddNewContactViewController: UIViewController {
 extension AddNewContactViewController: UITableViewDataSource {
     
     func numberOfSections(in tableView: UITableView) -> Int {
-        return 2
+        return 1
     }
     
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
@@ -343,7 +349,11 @@ extension AddNewContactViewController: UITableViewDataSource {
 
 extension AddNewContactViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return 44
+        if #available(iOS 26, *) {
+            return 52
+        } else {
+            return 44
+        }
     }
         
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {

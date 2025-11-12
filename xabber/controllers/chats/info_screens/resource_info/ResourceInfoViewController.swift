@@ -24,7 +24,6 @@ import RealmSwift
 import RxRealm
 import RxSwift
 import CocoaLumberjack
-import TOInsetGroupedTableView
 
 class ContactInfoResourceController: UIViewController {
     
@@ -41,7 +40,7 @@ class ContactInfoResourceController: UIViewController {
     
     var tableView: UITableView = {
 //        let view = UITableView(frame: .zero, style: .grouped)
-        let view = InsetGroupedTableView(frame: .zero)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(VCardCell.self, forCellReuseIdentifier: VCardCell.cellName)
         view.register(StatusInfoCell.self, forCellReuseIdentifier: StatusInfoCell.cellName)
@@ -196,7 +195,11 @@ extension ContactInfoResourceController: UITableViewDataSource {
     }
     
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return 44
+        if #available(iOS 26, *) {
+            return 52
+        } else {
+            return 44
+        }
     }
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {

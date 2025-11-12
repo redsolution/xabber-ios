@@ -72,8 +72,8 @@ class InfoScreenHeaderView: UIView {
         return view
     }()
     
-    let subtitleLabel: UILabel = {
-        let label = UILabel()
+    let subtitleLabel: XCopyableLabel = {
+        let label = XCopyableLabel()
         
         label.textAlignment = .center
         label.textColor = .secondaryLabel

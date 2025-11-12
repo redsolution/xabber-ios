@@ -107,13 +107,31 @@ func getUniqueMessageId(_ message: XMPPMessage, owner: String) -> String {
     return Id
 }
 
+func getOriginOrMessageId(_ message: XMPPMessage) -> String {
+    var Id: String = ""
+    if let messageId = message.elementID {
+        Id = messageId
+    }
+    if let originId = getOriginId(message) {
+        Id = originId
+    }
+    return Id
+}
+
 func getArchivedMessageContainer(_ message: XMPPMessage) -> XMPPMessage? {
     if let container = message.element(forName: "result")?.element(forName: "forwarded")?.element(forName: "message") {
         return XMPPMessage(from: container)
     }
     return nil
 }
-    
+
+func getPriorityMessageContainer(_ message: XMPPMessage) -> XMPPMessage? {
+    if let container = message.element(forName: "priority-message")?.element(forName: "forwarded")?.element(forName: "message") {
+        return XMPPMessage(from: container)
+    }
+    return nil
+}
+
 func getCarbonCopyMessageContainer(_ message: XMPPMessage) -> XMPPMessage? {
     guard let from = message.from?.bare,
           let to = message.to?.bare,
@@ -153,7 +171,14 @@ func isArchivedMessage(_ message: XMPPMessage) -> Bool {
     }
     return false
 }
-    
+ 
+func isPriorityMessage(_ message: XMPPMessage) -> Bool {
+    if let namespace = message.element(forName: "priority-message")?.xmlns() {
+        return "https://xabber.com/protocol/priority" == namespace
+    }
+    return false
+}
+
 func isCarbonCopy(_ message: XMPPMessage) -> Bool {
     if let namespace = message.element(forName: "sent")?.xmlns() {
         return ["urn:xmpp:carbons:0", "urn:xmpp:carbons:1", "urn:xmpp:carbons:2"].contains(namespace)

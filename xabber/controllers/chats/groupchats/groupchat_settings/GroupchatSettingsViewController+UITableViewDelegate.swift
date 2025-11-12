@@ -25,8 +25,14 @@ extension GroupchatSettingsViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         let item = datasource[indexPath.section]
         switch item.kind {
-        case .textMulti: return 128
-        default: return 44
+            case .textMulti:
+                return 128
+            default:
+                if #available(iOS 26, *) {
+                    return 52
+                } else {
+                    return 44
+                }
         }
     }
     

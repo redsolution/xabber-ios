@@ -28,20 +28,23 @@ import DeepDiff
 import CocoaLumberjack
 import Kingfisher
 import MaterialComponents.MDCPalettes
-import TOInsetGroupedTableView
 
 class GroupchatMembersListViewController: SimpleBaseViewController {
     
     class Datasource: DiffAware, Equatable, Hashable {
-        let userId: String
-        let title: String
-        let badge: String
-        let isMe: Bool
-        let subtitle: String
-        let status: ResourceStatus
-        let entity: RosterItemEntity
-        let avatarUrl: String
-        let role: GroupchatUserStorageItem.Role
+        var userId: String
+        var jid: String
+        var title: String
+        var badge: String
+        var isMe: Bool
+        var subtitle: String
+        var status: ResourceStatus
+        var avatarUrl: String
+        var role: GroupchatUserStorageItem.Role
+        var canPromote: Bool
+        var canRestrict: Bool
+        var canEdit: Bool
+        var canKick: Bool
         
         typealias DiffId = String
         
@@ -56,17 +59,20 @@ class GroupchatMembersListViewController: SimpleBaseViewController {
         }
         
         
-        init(userId: String, title: String, badge: String, isMe: Bool, subtitle: String, status: ResourceStatus, entity: RosterItemEntity, avatarUrl: String, role: GroupchatUserStorageItem.Role) {
+        init(userId: String, jid: String, title: String, badge: String, isMe: Bool, subtitle: String, status: ResourceStatus, avatarUrl: String, role: GroupchatUserStorageItem.Role, canPromote: Bool, canRestrict: Bool, canEdit: Bool, canKick: Bool) {
             self.userId = userId
+            self.jid = jid
             self.title = title
             self.badge = badge
             self.isMe = isMe
             self.subtitle = subtitle
             self.status = status
-            self.entity = entity
             self.avatarUrl = avatarUrl
             self.role = role
-            
+            self.canPromote = canPromote
+            self.canRestrict = canRestrict
+            self.canEdit = canEdit
+            self.canKick = canKick
         }
         
         func hash(into hasher: inout Hasher) {
@@ -80,7 +86,6 @@ class GroupchatMembersListViewController: SimpleBaseViewController {
             a.isMe == b.isMe &&
             a.subtitle == b.subtitle &&
             a.status == b.status &&
-            a.entity == b.entity &&
             a.avatarUrl == b.avatarUrl &&
             a.role == b.role
         }
@@ -93,8 +98,10 @@ class GroupchatMembersListViewController: SimpleBaseViewController {
     
     internal var membersObserver: Results<GroupchatUserStorageItem>? = nil
     
+//    open var showOnlyAdmins: Bool = false
+    
     internal let tableView: UITableView = {
-        let view = InsetGroupedTableView(frame: .zero)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(CommonMemberTableCell.self, forCellReuseIdentifier: CommonMemberTableCell.cellName)
         
@@ -124,6 +131,7 @@ class GroupchatMembersListViewController: SimpleBaseViewController {
                         SortDescriptor(keyPath: "isMe", ascending: false),
                         SortDescriptor(keyPath: "sortedRole", ascending: true)
                     ])
+            
             
             Observable
                 .collection(from: membersObserver!)
@@ -165,38 +173,39 @@ class GroupchatMembersListViewController: SimpleBaseViewController {
         navigationController?.navigationBar.shadowImage = nil
     }
     
+    var canPromote: Bool = true
+    var canRestrict: Bool = true
+    var canEdit: Bool = true
+    var canKick: Bool = true
+    
     private final func mapDataset() -> [Datasource] {
-        
-        do {
-            let realm = try WRealm.safe()
-            
-            let collection = realm
-                .objects(GroupchatUserStorageItem.self)
-                .filter("groupchatId == %@ AND isBlocked == false AND isKicked == false AND isTemporary == false", [jid, owner].prp())
-                .sorted(by: [
-                    SortDescriptor(keyPath: "isMe", ascending: false),
-                    SortDescriptor(keyPath: "sortedRole", ascending: true)
-                ])
-            
-            return collection.compactMap {
-                item in
-                
-                return Datasource(
-                    userId: item.userId,
-                    title: item.nickname,
-                    badge: item.badge,
-                    isMe: item.isMe,
-                    subtitle: item.isOnline ? "Online".localizeString(id: "account_state_connected", arguments: []): item.dateString ?? "Offline".localizeString(id: "unavailable", arguments: []),
-                    status: item.isOnline ? .online : .offline,
-                    entity: .contact,
-                    avatarUrl: item.avatarURI,
-                    role: item.role
-                )
-            }
-        } catch {
-            DDLogDebug("GroupchatMembersListViewController: \(#function). \(error.localizedDescription)")
+        guard let collection = membersObserver else {
+            return []
         }
-        return []
+        return collection.compactMap {
+            item in
+            
+            let canPromote: Bool = !item.isMe && self.canPromote
+            let canRestrict: Bool = !item.isMe && self.canRestrict
+            let canEdit: Bool = !item.isMe && self.canEdit
+            let canKick: Bool = !item.isMe && self.canKick
+            
+            return Datasource(
+                userId: item.userId,
+                jid: item.jid,
+                title: item.nickname,
+                badge: item.badge,
+                isMe: item.isMe,
+                subtitle: item.isOnline ? "Online".localizeString(id: "account_state_connected", arguments: []): item.dateString ?? "Offline".localizeString(id: "unavailable", arguments: []),
+                status: item.isOnline ? .online : .offline,
+                avatarUrl: item.avatarURI,
+                role: item.role,
+                canPromote: canPromote,
+                canRestrict: canRestrict,
+                canEdit: canEdit,
+                canKick: canKick
+            )
+        }
     }
     
     public final var canUpdateDataset = true
@@ -312,9 +321,9 @@ extension GroupchatMembersListViewController: UITableViewDataSource {
             isMe: item.isMe,
             subtitle: item.subtitle,
             status: item.status,
-            entity: item.entity,
-            role: item.role)
-                
+            entity: .contact,
+            role: item.role
+        )
         return cell
     }
     
@@ -331,11 +340,171 @@ extension GroupchatMembersListViewController: UITableViewDelegate {
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         let item = datasource[indexPath.row]
-        let vc = GroupchatContactInfoViewController()
-        vc.owner = self.owner
-        vc.jid = self.jid
-        vc.userId = item.userId
+        if item.jid.isNotEmpty {
+            let vc = ContactInfoViewController()
+            vc.owner = self.owner
+            vc.jid = item.jid
+            vc.conversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
+            self.navigationController?.pushViewController(vc, animated: true)
+        } else {
+            let vc = GroupchatContactInfoViewController()
+            vc.owner = self.owner
+            vc.jid = self.jid
+            vc.userId = item.userId
+            
+            navigationController?.pushViewController(vc, animated: true)
+        }
+    }
+    
+    func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+        let index = indexPath.row
+        let item = self.datasource[index]
         
-        navigationController?.pushViewController(vc, animated: true)
+        let infoAction = UIContextualAction(style: .destructive, title: "Information") { action, view, handler in
+            let item = self.datasource[index]
+            self.onInfoUser(userId: item.userId)
+            handler(true)
+        }
+        
+        infoAction.image = imageLiteral("person.fill")
+        infoAction.backgroundColor = .systemBlue
+        
+        let kickAction = UIContextualAction(style: .destructive, title: "Kick") { action, view, handler in
+            let item = self.datasource[index]
+            self.onKickUser(userId: item.userId)
+            handler(true)
+        }
+        
+        kickAction.image = imageLiteral("person.fill.xmark")
+        kickAction.backgroundColor = .systemRed
+        
+        let restrictAction = UIContextualAction(style: .normal, title: "Restrict") { action, view, handler in
+            let item = self.datasource[index]
+            self.onRestrictUser(userId: item.userId)
+            handler(true)
+        }
+        
+        restrictAction.image = imageLiteral("key.fill")
+        restrictAction.backgroundColor = .systemYellow
+        
+        let promoteAction = UIContextualAction(style: .normal, title: "Promote") { action, view, handler in
+            let item = self.datasource[index]
+            self.onPromoteUser(userId: item.userId)
+            handler(true)
+        }
+        
+        promoteAction.image = imageLiteral("star.fill")
+        promoteAction.backgroundColor = .systemBlue
+        
+        var actions: [UIContextualAction] = []
+        
+        if item.isMe {
+            actions.append(infoAction)
+        } else {
+            if item.canKick {
+                actions.append(kickAction)
+            }
+            if item.canRestrict {
+                actions.append(restrictAction)
+            }
+            if item.canPromote {
+                actions.append(promoteAction)
+            }
+        }
+        
+        let conf = UISwipeActionsConfiguration(actions: actions)
+        conf.performsFirstActionWithFullSwipe = true
+        return conf
+    }
+    
+    func tableView(_ tableView: UITableView, leadingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+        let item = self.datasource[indexPath.row]
+        let index = indexPath.row
+        let directChat = UIContextualAction(style: .normal, title: "Chat") { action, view, handler in
+            let item = self.datasource[index]
+            self.onDirectChat(jid: item.jid)
+            handler(true)
+        }
+        
+        directChat.image = imageLiteral("custom.person.bubble.left.fill")
+        directChat.backgroundColor = AccountColorManager.shared.palette(for: self.owner).tint700
+        
+        let privateChat = UIContextualAction(style: .normal, title: "Chat") { action, view, handler in
+            let item = self.datasource[index]
+            self.onPrivateChat(userId: item.userId)
+            handler(true)
+        }
+        
+        privateChat.image = imageLiteral("xabber.incognito.fill.bubble.left.fill")
+        privateChat.backgroundColor = AccountColorManager.shared.palette(for: self.owner).tint700
+        
+        let messagesFilterAction = UIContextualAction(style: .normal, title: "Messages") { action, view, handler in
+            let item = self.datasource[index]
+            self.onShowMessages(userId: item.userId)
+            handler(true)
+        }
+        
+        messagesFilterAction.image = imageLiteral("bubble.left.and.bubble.right.fill")
+        messagesFilterAction.backgroundColor = .systemBlue
+        
+        let editUserAction = UIContextualAction(style: .normal, title: "Edit") { action, view, handler in
+            let item = self.datasource[index]
+            self.onEditUser(userId: item.userId)
+            handler(true)
+        }
+        
+        editUserAction.image = imageLiteral("pencil")
+        editUserAction.backgroundColor = .systemOrange
+        
+        var actions: [UIContextualAction] = []
+        if !item.isMe {
+            if item.jid.isEmpty {
+                actions.append(privateChat)
+            } else {
+                actions.append(directChat)
+            }
+        }
+        actions.append(messagesFilterAction)
+        if item.canEdit {
+            actions.append(editUserAction)
+        }
+        
+        let conf = UISwipeActionsConfiguration(actions: [directChat, messagesFilterAction, editUserAction])
+        conf.performsFirstActionWithFullSwipe = true
+        return conf
+    }
+}
+
+extension GroupchatMembersListViewController {
+    private func onDirectChat(jid: String) {
+        
+    }
+    
+    private func onPrivateChat(userId: String) {
+        
+    }
+    
+    private func onShowMessages(userId: String) {
+        
+    }
+    
+    private func onEditUser(userId: String) {
+        
+    }
+    
+    private func onKickUser(userId: String) {
+        
+    }
+    
+    private func onRestrictUser(userId: String) {
+        
+    }
+    
+    private func onPromoteUser(userId: String) {
+        
+    }
+    
+    private func onInfoUser(userId: String) {
+        
     }
 }

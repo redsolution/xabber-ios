@@ -545,7 +545,15 @@ class QuotaInfoCell: UITableViewCell {
             addSubview(avatarStack)
             avatarStack.addArrangedSubview(avatarIndicator)
             avatarStack.addArrangedSubview(avatarLabel)
-            
+            NSLayoutConstraint.activate([
+                avatarProgressView.leftAnchor.constraint(equalTo: mainProgressView.rightAnchor),
+                avatarProgressView.topAnchor.constraint(equalTo: mainProgressView.topAnchor),
+                avatarProgressView.bottomAnchor.constraint(equalTo: mainProgressView.bottomAnchor),
+                avatarProgressView.widthAnchor.constraint(equalTo: mainProgressView.widthAnchor,
+                                                         multiplier: avatarWidthMultiplier,
+                                                         constant: -3/4),
+                avatarProgressView.widthAnchor.constraint(greaterThanOrEqualToConstant: 1),
+            ])
             if audioWidthMultiplier != 0 {
                 makeAvatarConstraints(delimeter: whiteDelimeterViewFourth, stack: voiceStack)
             } else if filesWidthMultiplier != 0 {
@@ -688,13 +696,7 @@ class QuotaInfoCell: UITableViewCell {
     
     func makeAvatarConstraints(delimeter: UIView, stack: UIView) {
         NSLayoutConstraint.activate([
-            avatarProgressView.leftAnchor.constraint(equalTo: delimeter.rightAnchor),
-            avatarProgressView.topAnchor.constraint(equalTo: delimeter.topAnchor),
-            avatarProgressView.bottomAnchor.constraint(equalTo: delimeter.bottomAnchor),
-            avatarProgressView.widthAnchor.constraint(equalTo: mainProgressView.widthAnchor,
-                                                     multiplier: avatarWidthMultiplier,
-                                                     constant: -3/4),
-            avatarProgressView.widthAnchor.constraint(greaterThanOrEqualToConstant: 1),
+
             
             avatarStack.leftAnchor.constraint(equalTo: stack.rightAnchor, constant: 20),
             avatarStack.topAnchor.constraint(equalTo: mainProgressView.bottomAnchor, constant: 12),

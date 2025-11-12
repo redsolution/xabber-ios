@@ -215,9 +215,18 @@ extension NotificationsSubscribtionsListViewController {
             return button
         }()
         
+        let dimmedView: UIView = {
+            let view = UIView(frame: .zero)
+            
+            view.backgroundColor = MDCPalette.grey.tint50
+            
+            return view
+        }()
+        
         func setupSubviews() {
             badgeIndicator.addSubview(badgeIcon)
-            
+            contentView.addSubview(dimmedView)
+            dimmedView.fillSuperview()
             contentView.addSubview(avatarContainer)
             avatarContainer.frame = CGRect(x: 16, y: 10, width: 64, height: 64)
             avatarContainer.addSubview(userImageView)
@@ -245,7 +254,7 @@ extension NotificationsSubscribtionsListViewController {
             separatorInset = UIEdgeInsets(top: 0, bottom: 0, left: 96, right: 0)
         }
         
-        func configure(owner: String, username: NSAttributedString, jid: String, message: NSAttributedString? = nil, icon: String, avatarUrl: String? = nil, uuid: String) {
+        func configure(owner: String, username: NSAttributedString, jid: String, message: NSAttributedString? = nil, icon: String, avatarUrl: String? = nil, uuid: String, isRead: Bool) {
             DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 64) { image in
                 if let image = image {
                     self.avatarView.image = image
@@ -253,9 +262,10 @@ extension NotificationsSubscribtionsListViewController {
                     self.avatarView.image = UIImageView.getDefaultAvatar(for: username.string, owner: owner, size: 64)
                 }
             }
+            dimmedView.backgroundColor = AccountColorManager.shared.palette(for: owner).tint50
+            updateReadState(isRead, animated: false)
             titleLabel.attributedText = username
             subtitleLabel.text = jid
-            
             if let message = message {
                 messageView = MessageView(frame: .zero)
                 messageView?.configure(message)
@@ -267,6 +277,30 @@ extension NotificationsSubscribtionsListViewController {
             self.jid = jid
             self.owner = owner
             self.uuid = uuid
+        }
+        
+        public final func updateReadState(_ state: Bool, animated: Bool) {
+            func transaction(_ block: @escaping (() -> Void)) {
+                if animated {
+                    UIView.animate(
+                        withDuration: 0.3,
+                        delay: 0.0,
+                        usingSpringWithDamping: 0.7,
+                        initialSpringVelocity: 0.4,
+                        options: [.curveLinear],
+                        animations: block,
+                        completion: nil)
+                } else {
+                    block()
+                }
+            }
+            transaction {
+                if state {
+                    self.dimmedView.alpha = 0.0
+                } else {
+                    self.dimmedView.alpha = 1.0
+                }
+            }
         }
         
         override func prepareForReuse() {

@@ -78,15 +78,23 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
         vc.owner = self.owner
         vc.isGroupchat = true
         vc.isCircleSelectView = true
-        showModal(vc, parent: self)
+        self.navigationController?.pushViewController(vc, animated: true)
+//        showModal(vc, parent: self)
     }
     
     internal func openChat() {
-        let chatVc = ChatViewController()
-        chatVc.owner = self.owner
-        chatVc.jid = self.jid
-        chatVc.conversationType = .group
-        showDetail(chatVc, currentVc: self)
+        
+        if leftMenuDelegate == nil {
+            let chatVc = ChatViewController()
+            chatVc.owner = self.owner
+            chatVc.jid = self.jid
+            chatVc.conversationType = .group
+            showDetail(chatVc, currentVc: self)
+        } else {
+            self.leftMenuDelegate?.openChatlistWithChat(owner: self.owner, jid: self.jid, conversationType: .group, configure: nil)
+            self.dismiss(animated: true) {
+            }
+        }
     }
     
     internal func searchChat() {
@@ -99,7 +107,8 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
         shouldResetNavbar = false
         let vc = GroupchatInviteViewController()
         vc.configure(jid: self.jid, owner: self.owner)
-        showModal(vc, parent: self)
+        self.navigationController?.pushViewController(vc, animated: true)
+//        showModal(vc, parent: self)
     }
     
     internal func onChangeNotifications() {
@@ -209,10 +218,13 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
     
     func showSettings() {
         self.shouldResetNavbar = false
-        let vc = GroupchatSettingsViewController()
-        vc.isStatus = false
-        vc.configure(self.owner, jid: self.jid)
-        showModal(vc, parent: self)
+        let vc = GroupchatSettingsViewControllerT()
+        vc.jid = self.jid
+        vc.owner = self.owner
+//        vc.isStatus = false
+//        vc.configure(self.owner, jid: self.jid)
+        self.navigationController?.pushViewController(vc, animated: true)
+//        showModal(vc, parent: self)
 //        self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
 //        self.navigationController?.navigationBar.shadowImage = nil
 //        navigationController?.pushViewController(vc, animated: true)
@@ -247,10 +259,13 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
     func setStatus() {
         self.shouldResetNavbar = false
         let vc = GroupchatSettingsViewController()
-        vc.isStatus = true
-        vc.entity = self.isIncognitoChat ? .incognitoChat : .groupchat
-        vc.configure(self.owner, jid: self.jid)
-        showModal(vc, parent: self)
+        vc.jid = self.jid
+        vc.owner = self.owner
+//        vc.isStatus = true
+//        vc.entity = self.isIncognitoChat ? .incognitoChat : .groupchat
+//        vc.configure(self.owner, jid: self.jid)
+        self.navigationController?.pushViewController(vc, animated: true)
+//        showModal(vc, parent: self)
 //        self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
 //        self.navigationController?.navigationBar.shadowImage = nil
 //        navigationController?.pushViewController(vc, animated: true)
@@ -281,7 +296,8 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
             DDLogDebug("GroupchatInfoViewController: \(#function). \(error.localizedDescription)")
         }
         
-        showModal(vc, parent: self)
+        self.navigationController?.pushViewController(vc, animated: true)
+//        showModal(vc, parent: self)
     }
     
     func clearHistory() {
@@ -353,18 +369,28 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
     }
     
     func openSearch() {
-        let chatVc = ChatViewController()
-        chatVc.owner = self.owner
-        chatVc.jid = self.jid
-        chatVc.conversationType = .group
-        chatVc.inSearchMode.accept(true)
-        navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
-        navigationController?.navigationBar.shadowImage = nil
-        if let rootVc = navigationController?.viewControllers.first {
-            navigationController?.setViewControllers([rootVc, chatVc], animated: true)
+        
+        
+        if leftMenuDelegate == nil {
+            let chatVc = ChatViewController()
+            chatVc.owner = self.owner
+            chatVc.jid = self.jid
+            chatVc.conversationType = .group
+            chatVc.inSearchMode.accept(true)
+            navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
+            navigationController?.navigationBar.shadowImage = nil
+            if let rootVc = navigationController?.viewControllers.first {
+                navigationController?.setViewControllers([rootVc, chatVc], animated: true)
+            } else {
+                navigationController?.pushViewController(chatVc, animated: true)
+            }
         } else {
-            navigationController?.pushViewController(chatVc, animated: true)
+            self.leftMenuDelegate?.openChatlistWithChat(owner: self.owner, jid: self.jid, conversationType: .group, configure: { chatVc in
+                chatVc?.inSearchMode.accept(true)
+            })
+            self.dismiss(animated: true)
         }
+        
     }
     
     private final func showGroupInfo() {
@@ -508,7 +534,8 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
         vc.delegate = self
         vc.palette = nil
         vc.lastSettedEmoji = nil
-        showModal(vc, parent: self)
+        self.navigationController?.pushViewController(vc, animated: true)
+//        showModal(vc, parent: self)
     }
     
     internal final func onOpenEmojiPicker() {

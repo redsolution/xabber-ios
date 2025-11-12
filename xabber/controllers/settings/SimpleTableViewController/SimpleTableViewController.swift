@@ -19,7 +19,6 @@
 //
 
 import UIKit
-import TOInsetGroupedTableView
 import RealmSwift
 import RxRealm
 import RxSwift
@@ -49,7 +48,7 @@ class SimpleTableViewController: BaseViewController {
     }()
     
     internal let tableView: UITableView = {
-        let view = InsetGroupedTableView(frame: .zero)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         view.register(SwitchCell.self, forCellReuseIdentifier: SwitchCell.cellName)
         view.register(StatusInfoCell.self, forCellReuseIdentifier: StatusInfoCell.cellName)
         return view
@@ -239,7 +238,11 @@ extension SimpleTableViewController: UITableViewDelegate {
             return 150
         }
         
-        return 44
+        if #available(iOS 26, *) {
+            return 52
+        } else {
+            return 44
+        }
     }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {

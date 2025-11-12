@@ -25,7 +25,6 @@ import RxRealm
 import RxSwift
 import MaterialComponents.MDCPalettes
 import CocoaLumberjack
-import TOInsetGroupedTableView
 
 class AccountNewStatusViewController: BaseViewController {
     
@@ -70,7 +69,7 @@ class AccountNewStatusViewController: BaseViewController {
     
     internal let tableView: UITableView = {
 //        let view = UITableView(frame: .zero, style: .grouped)
-        let view = InsetGroupedTableView(frame: .zero)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(BaseStatus.self, forCellReuseIdentifier: BaseStatus.cellName)
         view.register(CustomStatus.self, forCellReuseIdentifier: CustomStatus.cellName)

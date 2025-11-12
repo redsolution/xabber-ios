@@ -1299,6 +1299,7 @@ class ModernXabberInputView: UIView {
         self.addSubview(self.searchPanel)
         self.addSubview(self.recordAndPlayPanel)
         self.addSubview(self.recordPanel)
+        self.bringSubviewToFront(searchPanel)
         
         self.stateButton.fillSuperview()
         self.stateButton.isHidden = true
@@ -1617,11 +1618,17 @@ class ModernXabberInputView: UIView {
             )
             self.frame = frame
             self.blurredEffectView.frame = self.bounds
+//            NSLayoutConstraint.activate([
+//                self.heightAnchor.constraint(equalToConstant: inputHeight)
+//            ])
+            self.heightConstraint?.constant = inputHeight
             additionalAnimations?()
         }
         self.layoutSubviews()
     }
-        
+
+    open var heightConstraint: NSLayoutConstraint? = nil
+    
     final func activateConstraints() {
         
     }
@@ -1701,6 +1708,7 @@ class ModernXabberInputView: UIView {
                 inputHeight += bottomInset
             }
         }
+        
         UIView.animate(withDuration: 0.16, delay: 0.0, options: [.curveEaseIn]) {
             self.textField.frame = CGRect(
                 origin: CGPoint(x: 40, y: 0),

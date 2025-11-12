@@ -24,7 +24,11 @@ import UIKit
 extension AboutXabberViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
         if section == 0 {
-            return 44
+            if #available(iOS 26, *) {
+                return 52
+            } else {
+                return 44
+            }
         }
         return 72
     }

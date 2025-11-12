@@ -10,7 +10,6 @@ import Foundation
 import UIKit
 import XMPPFramework
 import RxSwift
-import TOInsetGroupedTableView
 
 class VerificationViewController: SimpleBaseViewController {
     class DeviceDatasource {
@@ -96,7 +95,7 @@ class VerificationViewController: SimpleBaseViewController {
     }()
     
     internal let tableView: UITableView = {
-        let view = UITableView()
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         view.register(DeviceInfoTableCell.self, forCellReuseIdentifier: DeviceInfoTableCell.cellName)
         view.register(UITableViewCell.self, forCellReuseIdentifier: "SimpleTableViewCell")
         
@@ -446,8 +445,8 @@ class VerificationViewController: SimpleBaseViewController {
     }
     
     override func addObservers() {
-        NotificationCenter.default.addObserver(self, selector: #selector(closeView(_:)), name: NSNotification.Name(rawValue: "rejected_VerificationConfirmationViewController"), object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(closeView(_:)), name: NSNotification.Name(rawValue: "close_view"), object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(closeView(_:)), name: AuthenticatedKeyExchangeManager.verificationConfirmationVCRejected, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(closeView(_:)), name: AuthenticatedKeyExchangeManager.closeViewNotification, object: nil)
         
         NotificationCenter.default.addObserver(
             self,

@@ -233,7 +233,7 @@ class VoiceMediaCollectionCell: UICollectionViewCell {
         audioView = .init(frame: .zero)
     }
     
-    func setup(withReference audioReference: MessageReferenceStorageItem?, date: String, send_time: String, senderName: String? = nil, owner: String? = nil, sizeInBytes: String, url: String? = nil) {
+    func setup(url: URL, meters: [Float], date: String, send_time: String, senderName: String? = nil, owner: String? = nil, sizeInBytes: String) {
         self.owner = owner ?? ""
         self.sizeInBytes = sizeInBytes
         
@@ -246,23 +246,18 @@ class VoiceMediaCollectionCell: UICollectionViewCell {
         self.date = date
         self.send_time = send_time
         self.sender = senderName ?? ""
-        guard let audioReference = audioReference else {
-            self.audioUrl = URL(string: url!)
-            return
-        }
-        configure(withReference: audioReference)
-        
-        guard let url = audioReference.downloadUrl else { return }
+
         self.audioUrl = url
+        configure(meters: meters)
     }
     
-    func configure(withReference reference: MessageReferenceStorageItem) {
+    func configure(meters: [Float]) {
 //        if reference.audioDuration != nil {
 //            duration = reference.audioDuration!
 //        }
         audioView.configure(.paused,
-                            meters: reference.meteringLevels ?? [0.0, 0.0],
-                            loading: reference.meteringLevels == nil,
+                            meters: meters,
+                            loading: false,
                             duration: lastPlayedDuration.minuteFormatedString + " / " + duration.minuteFormatedString,
                             senderName: self.sender,
                             date: self.date,

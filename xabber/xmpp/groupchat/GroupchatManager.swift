@@ -114,22 +114,23 @@ class GroupchatManager: AbstractXMPPManager {
     }
     
     public final func fullJid(_ bareJid: String) -> XMPPJID? {
-        do {
-            let realm = try  WRealm.safe()
-            let resource = realm
-                .objects(ResourceStorageItem.self)
-                .filter("owner == %@ AND jid == %@", self.owner, bareJid)
-                .sorted(by: [
-                    SortDescriptor(keyPath: "timestamp", ascending: false),
-                    SortDescriptor(keyPath: "priority", ascending: false)
-                ])
-                .first?
-            .resource ?? "Group"
-            return XMPPJID(string: bareJid, resource: resource)
-        } catch {
-            DDLogDebug("GroupchatManager: \(#function). \(error.localizedDescription)")
-        }
-        return nil
+        return XMPPJID(string: bareJid, resource: "Group")
+//        do {
+//            let realm = try  WRealm.safe()
+//            let resource = realm
+//                .objects(ResourceStorageItem.self)
+//                .filter("owner == %@ AND jid == %@", self.owner, bareJid)
+//                .sorted(by: [
+//                    SortDescriptor(keyPath: "timestamp", ascending: false),
+//                    SortDescriptor(keyPath: "priority", ascending: false)
+//                ])
+//                .first?
+//            .resource ?? "Group"
+//            return XMPPJID(string: bareJid, resource: "Group")
+//        } catch {
+//            DDLogDebug("GroupchatManager: \(#function). \(error.localizedDescription)")
+//        }
+//        return nil
     }
     
 //    public final func open(_ xmppStream: XMPPStream, groupchat: String) {
@@ -153,7 +154,7 @@ class GroupchatManager: AbstractXMPPManager {
 //    }
     
     public final func createPeerToPeer(_ xmppStream: XMPPStream, groupchat: String, user userId: String, callback: @escaping ((String?) -> Void)) {
-        let elementId = xmppStream.generateUUID
+        let elementId = "GC: \(NanoID.new(6))"
         let query = DDXMLElement(name: "query", xmlns: xmlns("create"))
         let peerToPeer = DDXMLElement(name: "peer-to-peer")
         peerToPeer.addAttribute(withName: "jid", stringValue: groupchat)
@@ -168,7 +169,7 @@ class GroupchatManager: AbstractXMPPManager {
     }
     
     public final func create(_ xmppStream: XMPPStream, server: String, name: String, localPart: String?, privacy: GroupChatStorageItem.Privacy?, membership: GroupChatStorageItem.Membership?,  index: GroupChatStorageItem.Index?, description: String?, callback: @escaping ((String?) -> Void)) {
-        let elementId = xmppStream.generateUUID
+        let elementId = "GC: \(NanoID.new(6))"
         let query = DDXMLElement(name: "query", xmlns: xmlns("create"))
         query.addChild(DDXMLElement(name: "name", stringValue: name))
         if let localPart = localPart {
@@ -197,7 +198,7 @@ class GroupchatManager: AbstractXMPPManager {
     }
     
     public final func delete(_ xmppStream: XMPPStream, groupchat: String, callback: @escaping ((String?) -> Void)) {
-        let elementId = xmppStream.generateUUID
+        let elementId = "GC: \(NanoID.new(6))"
         let query = DDXMLElement(name: "query", xmlns: xmlns("delete"))
         query.addChild(DDXMLElement(name: "localpart", stringValue: XMPPJID(string: groupchat)?.user ?? "\(groupchat.split(separator: "@").first ?? "")"))
         xmppStream.send(XMPPIQ(iqType: .set, to: XMPPJID(string: groupchat)?.domainJID, elementID: elementId, child: query))
@@ -241,7 +242,7 @@ class GroupchatManager: AbstractXMPPManager {
     }
     
     public final func decline(_ xmppStream: XMPPStream, groupchat: String, callback: @escaping ((String?) -> Void)) {
-        let elementId = xmppStream.generateUUID
+        let elementId = "GC: \(NanoID.new(6))"
         xmppStream.send(XMPPIQ(iqType: .set,
                                to: fullJid(groupchat),
                                elementID: elementId,
@@ -285,7 +286,7 @@ class GroupchatManager: AbstractXMPPManager {
     }
 
     public final func changeUserData(_ xmppStream: XMPPStream, groupchat: String, userId: String, nickname: String? = nil, badge: String? = nil, callback: ((String?) -> Void)?) {
-        let elementId = xmppStream.generateUUID
+        let elementId = "GC: \(NanoID.new(6))"
         let user = DDXMLElement(name: "user", xmlns: getPrimaryNamespace())
         user.addAttribute(withName: "id", stringValue: userId)
         if let nickname = nickname {
@@ -302,7 +303,7 @@ class GroupchatManager: AbstractXMPPManager {
     }
     
     public final func willInvite(_ xmppStream: XMPPStream, groupchat: String, jid: String, callback: @escaping ((String, String?) -> Void)) {
-        let elementId = xmppStream.generateUUID
+        let elementId = "GC: \(NanoID.new(6))"
         let invite = DDXMLElement(name: "invite", xmlns: xmlns("invite"))
         invite.addChild(DDXMLElement(name: "jid", stringValue: jid))
         invite.addChild(DDXMLElement(name: "send", stringValue: "false"))
@@ -312,7 +313,7 @@ class GroupchatManager: AbstractXMPPManager {
     }
     
     public final func didInvite(_ xmppStream: XMPPStream, groupchat: String, jid: String, reason: String? = nil) {
-        let elementId = xmppStream.generateUUID
+        let elementId = "GC: \(NanoID.new(6))"
         let invite = DDXMLElement(name: "invite", xmlns: xmlns("invite"))
         invite.addAttribute(withName: "jid", stringValue: groupchat)
         if let reason = reason {
@@ -326,6 +327,7 @@ class GroupchatManager: AbstractXMPPManager {
         xmppStream.send(message)
         do {
             let realm = try  WRealm.safe()
+            
             let instance = GroupchatInvitesStorageItem()
             instance.owner = owner
             instance.jid = jid
@@ -346,7 +348,7 @@ class GroupchatManager: AbstractXMPPManager {
     }
     
     public final func revokeInvites(_ xmppStream: XMPPStream, groupchat: String, jids: [String], callback: @escaping ((String?) -> Void)) {
-        let elementId = xmppStream.generateUUID
+        let elementId = "GC: \(NanoID.new(6))"
         let revoke = DDXMLElement(name: "revoke", xmlns: xmlns("invite"))
         jids.forEach { revoke.addChild(DDXMLElement(name: "jid", stringValue: $0)) }
         xmppStream.send(XMPPIQ(iqType: .set,
@@ -358,7 +360,7 @@ class GroupchatManager: AbstractXMPPManager {
     }
     
     public final func revokeInvite(_ xmppStream: XMPPStream, groupchat: String, jid: String, callback: @escaping ((String, String?) -> Void)) {
-        let elementId = xmppStream.generateUUID
+        let elementId = "GC: \(NanoID.new(6))"
         let revoke = DDXMLElement(name: "revoke", xmlns: xmlns("invite"))
         revoke.addChild(DDXMLElement(name: "jid", stringValue: jid))
         xmppStream.send(XMPPIQ(iqType: .set,
@@ -370,7 +372,7 @@ class GroupchatManager: AbstractXMPPManager {
     }
     
     public final func requestInvitedUsers(_ xmppStream: XMPPStream, groupchat: String) {
-        let elementId = xmppStream.generateUUID
+        let elementId = "GC: \(NanoID.new(6))"
         xmppStream.send(XMPPIQ(iqType: .get,
                                to: fullJid(groupchat),
                                elementID: elementId,
@@ -381,7 +383,7 @@ class GroupchatManager: AbstractXMPPManager {
     
     //<iq from='igor.boldin@redsolution.com' to='xabber@xmppdev01.xabber.com' type='get' xmlns='jabber:client' id='d15f14fa-cc9d-4368-a075-2b691642b219:sendIQ'><query xmlns='https://xabber.com/protocol/groups#members' version='0'/></iq>
     public final func requestUsers(_ xmppStream: XMPPStream, groupchat: String, userId: String? = nil) {
-        let elementId = xmppStream.generateUUID
+        let elementId = "GC: \(NanoID.new(6))"
         let query = DDXMLElement(name: "query", xmlns: xmlns("members"))
         if let userId = userId {
             if userId == "" {
@@ -407,11 +409,143 @@ class GroupchatManager: AbstractXMPPManager {
                                to: fullJid(groupchat),
                                elementID: elementId,
                                child: query))
+        do {
+            let realm = try WRealm.safe()
+            if let instance = realm.objects(GroupchatInvitesStorageItem.self).filter("owner == %@ AND groupchat == %@", self.owner, groupchat).first {
+                if instance.isGroupInfoLoaded == false {
+                    try realm.write {
+                        instance.isGroupInfoLoaded = true
+                    }
+                }
+            }
+        } catch {
+            DDLogDebug("GroupchatManager: \(#function). \(error.localizedDescription)")
+        }
         self.queryIds.insert(elementId)
     }
     
+    var rightsDelegate: GroupchatPermissionsDelegate? = nil
+    
+    public final func updateDefaultRights(_ xmppStream: XMPPStream, groupchat: String, changes: [GroupchatPermission]) -> String? {
+        guard let to = XMPPJID(string: groupchat) else { return nil }
+        let elementId = "GC Rights: \(NanoID.new(6))"
+        let query = XMPPElement(name: "query", xmlns: "https://xabber.com/protocol/groups/permissions#default")
+        let permissions = DDXMLElement(name: "permissions", xmlns: "https://xabber.com/protocol/groups/permissions")
+        query.addChild(permissions)
+        changes.forEach {
+            item in
+            let permission = DDXMLElement(name: "permission")
+            permission.addAttribute(withName: "name", stringValue: item.name)
+            permission.addAttribute(withName: "status", boolValue: item.status)
+            if let seconds = item.expires {
+                permission.addAttribute(withName: "seconds", doubleValue: seconds)
+            }
+            permissions.addChild(permission)
+        }
+        let iq = XMPPIQ(iqType: .set, to: to, elementID: elementId, child: query)
+        xmppStream.send(iq)
+        
+        return elementId
+    }
+    
+    public final func getDefaultRights(_ xmppStream: XMPPStream, groupchat: String) -> String? {
+        guard let to = XMPPJID(string: groupchat) else { return nil }
+        let elementId = "GC Rights: \(NanoID.new(6))"
+        let query = XMPPElement(name: "query", xmlns: "https://xabber.com/protocol/groups/permissions#default")
+        let iq = XMPPIQ(iqType: .get, to: to, elementID: elementId, child: query)
+        xmppStream.send(iq)
+        return elementId
+    }
+    
+    private func onReceiveDefaultRightsList(_ iq: XMPPIQ) -> Bool {
+//        guard let permissions = iq.elemen
+        /*
+         RECV: <iq xmlns="jabber:client" lang="ru" to="igor.boldin@redsolution.com/xabber-ios-F04F3ECE_ui_upgrade_task" from="test-group-igor-20250903@xmppdev01.xabber.com" type="result" id="GC Rights: dmE7eq">
+           <permissions xmlns="https://xabber.com/protocol/groups/permissions">
+             <permission status="true" role="member" name="send-messages">Send messages</permission>
+             <permission status="true" role="member" name="send-media">Send media</permission>
+             <permission status="true" role="member" name="add-members">Add members</permission>
+             <permission status="false" role="member" name="pin-messages">Pin messages</permission>
+             <permission status="false" role="member" name="change-group-info">Change group info</permission>
+           </permissions>
+         </iq>
+         */
+        
+        guard let elementID = iq.elementID,
+              let query = iq.element(forName: "query", xmlns: "https://xabber.com/protocol/groups/permissions#default"),
+              let permissionsRaw = query.element(forName: "permissions", xmlns: "https://xabber.com/protocol/groups/permissions")?
+            .elements(forName: "permission") else {
+            return false
+        }
+        let permissions: [GroupchatPermission] = permissionsRaw.compactMap {
+            return GroupchatPermission(
+                role: $0.attributeStringValue(forName: "role", withDefaultValue: "member"),
+                name: $0.attributeStringValue(forName: "name", withDefaultValue: ""),
+                status: $0.attributeBoolValue(forName: "status", withDefaultValue: false),
+                displayName: $0.stringValue ?? "",
+                expires: nil
+            )
+        }
+        
+        self.rightsDelegate?.groupchatPermissionsList(default: permissions, elementId: elementID)
+        
+        return false
+    }
+    
+    private func onReceiveUserPermissionssList(_ iq: XMPPIQ) -> Bool {
+//        guard let permissions = iq.elemen
+        /*
+         RECV: <iq xmlns="jabber:client" lang="ru" to="igor.boldin@redsolution.com/xabber-ios-F04F3ECE_ui_upgrade_task" from="test-group-igor-20250903@xmppdev01.xabber.com" type="result" id="GC Rights: dmE7eq">
+           <permissions xmlns="https://xabber.com/protocol/groups/permissions">
+             <permission status="true" role="member" name="send-messages">Send messages</permission>
+             <permission status="true" role="member" name="send-media">Send media</permission>
+             <permission status="true" role="member" name="add-members">Add members</permission>
+             <permission status="false" role="member" name="pin-messages">Pin messages</permission>
+             <permission status="false" role="member" name="change-group-info">Change group info</permission>
+           </permissions>
+         </iq>
+         */
+        
+        guard let elementID = iq.elementID,
+              let query = iq.element(forName: "query", xmlns: "https://xabber.com/protocol/groups/permissions"),
+              let permissionsContainer = query.element(forName: "permissions", xmlns: "https://xabber.com/protocol/groups/permissions"),
+              let userId = query.attributeStringValue(forName: "userId") else {
+            return false
+        }
+        let permissionsRaw = permissionsContainer.elements(forName: "permission")
+        let permissions: [GroupchatPermission] = permissionsRaw.compactMap {
+            return GroupchatPermission(
+                role: $0.attributeStringValue(forName: "role", withDefaultValue: "member"),
+                name: $0.attributeStringValue(forName: "name", withDefaultValue: ""),
+                status: $0.attributeBoolValue(forName: "status", withDefaultValue: false),
+                displayName: $0.stringValue ?? "",
+                expires: nil
+            )
+        }
+        
+        self.rightsDelegate?.groupchatPermissionsList(user: userId, permissions: permissions, elementId: elementID)
+        
+        return false
+    }
+    
+//    private final func onReceiveUserPermissions()
+    
+    public final func requestUserPermissions(_ xmppStream: XMPPStream, groupchat: String, user userId: String) {
+        /*<iq to=”groupchat@xabber.com” type=”get”>
+         <query xmlns=”https://xabber.com/protocol/groups/permissions” id="userid"/>
+         </iq>
+*/
+        guard let to = XMPPJID(string: groupchat) else { return }
+        let elementId = "GC Rights: \(NanoID.new(6))"
+        let query = XMPPElement(name: "query", xmlns: "https://xabber.com/protocol/groups/permissions")
+        query.addAttribute(withName: "id", stringValue: userId)
+        let iq = XMPPIQ(iqType: .get, to: to, elementID: elementId, child: query)
+        xmppStream.send(iq)
+        queryIds.append(elementId)
+    }
+    
     public final func requestDefaltRightsForm(_ xmppStream: XMPPStream, groupchat: String, callback: @escaping ([[String: Any]]?, String?) -> Void) -> String {
-        let elementId = xmppStream.generateUUID
+        let elementId = "GC: \(NanoID.new(6))"
         xmppStream.send(XMPPIQ(iqType: .get,
                                to: fullJid(groupchat),
                                elementID: elementId,
@@ -423,7 +557,7 @@ class GroupchatManager: AbstractXMPPManager {
     }
     
     public final func requestChatSettingsForm(_ xmppStream: XMPPStream, groupchat: String, callback: (([[String: Any]]?, String?) -> Void)?) -> String {
-        let elementId = xmppStream.generateUUID
+        let elementId = "GC: \(NanoID.new(6))"
         xmppStream.send(XMPPIQ(iqType: .get,
                                to: fullJid(groupchat),
                                elementID: elementId,
@@ -435,7 +569,7 @@ class GroupchatManager: AbstractXMPPManager {
     }
     
     public final func requestChatStatusForm(_ xmppStream: XMPPStream, groupchat: String, callback: (([[String: Any]]?, String?) -> Void)?) -> String {
-        let elementId = xmppStream.generateUUID
+        let elementId = "GC: \(NanoID.new(6))"
         xmppStream.send(XMPPIQ(iqType: .get,
                                to: fullJid(groupchat),
                                elementID: elementId,
@@ -447,7 +581,7 @@ class GroupchatManager: AbstractXMPPManager {
     }
     
     public final func requestMyRights(_ xmppStream: XMPPStream, groupchat: String, callback: (([[String: Any]]?, [[String: Any]]?, [[String: Any]]?, String?) -> Void)? = nil) -> String {
-        let elementId = xmppStream.generateUUID
+        let elementId = "GC: \(NanoID.new(6))"
         let query = DDXMLElement(name: "query", xmlns: xmlns("rights"))
         let user = DDXMLElement(name: "user", xmlns: getPrimaryNamespace())
         user.addAttribute(withName: "id", stringValue: "")
@@ -459,7 +593,7 @@ class GroupchatManager: AbstractXMPPManager {
     }
     
     public final func requestEditUserForm(_ xmppStream: XMPPStream, groupchat: String, userId: String, callback: @escaping ([[String: Any]]?, [[String: Any]]?, [[String: Any]]?, String?) -> Void) -> String {
-        let elementId = xmppStream.generateUUID
+        let elementId = "GC: \(NanoID.new(6))"
         let query = DDXMLElement(name: "query", xmlns: xmlns("rights"))
         let user = DDXMLElement(name: "user", xmlns: getPrimaryNamespace())
         user.addAttribute(withName: "id", stringValue: userId)
@@ -470,8 +604,15 @@ class GroupchatManager: AbstractXMPPManager {
         return elementId
     }
     
+    public final func getGroupInfo(_ xmppStream: XMPPStream, groupchat: String) {
+        let elementId = "GC: \(NanoID.new(6))"
+        let query = DDXMLElement(name: "query", xmlns: xmlns("info"))
+        xmppStream.send(XMPPIQ(iqType: .get, to: fullJid(groupchat), elementID: elementId, child: query))
+        self.queryIds.insert(elementId)
+    }
+    
     public final func updateForm(_ xmppStream: XMPPStream, formType: FormType, groupchat: String, userData: [[String: Any]], callback: @escaping ((String?) -> Void)) -> String {
-        let elementId = xmppStream.generateUUID
+        let elementId = "GC: \(NanoID.new(6))"
         let query = DDXMLElement(name: "query")
         switch formType {
         case .settings:
@@ -514,7 +655,7 @@ class GroupchatManager: AbstractXMPPManager {
     }
     
     public final func blockList(_ xmppStream: XMPPStream, groupchat: String) {
-        let elementId = xmppStream.generateUUID
+        let elementId = "GC: \(NanoID.new(6))"
         xmppStream.send(XMPPIQ(iqType: .get,
                                to: fullJid(groupchat),
                                elementID: elementId,
@@ -524,7 +665,7 @@ class GroupchatManager: AbstractXMPPManager {
     }
     
     public final func kickUser(_ xmppStream: XMPPStream, groupchat: String, userId: String, callback: ((String?) -> Void)?) {
-        let elementId = xmppStream.generateUUID
+        let elementId = "GC: \(NanoID.new(6))"
         let kick = DDXMLElement(name: "kick", xmlns: getPrimaryNamespace())
         kick.addChild(DDXMLElement(name: "id", stringValue: userId))
         xmppStream.send(XMPPIQ(iqType: .set, to: fullJid(groupchat), elementID: elementId, child: kick))
@@ -533,7 +674,7 @@ class GroupchatManager: AbstractXMPPManager {
     }
     
     public final func blockUser(_ xmppStream: XMPPStream, groupchat: String, ids: [String] = [], jids: [String] = [], domains: [String] = [], callback: @escaping ((String?) -> Void)) {
-        let elementId = xmppStream.generateUUID
+        let elementId = "GC: \(NanoID.new(6))"
         let block = DDXMLElement(name: "block", xmlns: xmlns("block"))
         ids.forEach { block.addChild(DDXMLElement(name: "id", stringValue: $0)) }
         jids.forEach { block.addChild(DDXMLElement(name: "jid", stringValue: $0)) }
@@ -548,7 +689,7 @@ class GroupchatManager: AbstractXMPPManager {
     }
     
     public final func unblockUser(_ xmppStream: XMPPStream, groupchat: String, ids: [String] = [], jids: [String] = [], domains: [String] = [], callback: @escaping ((String?) -> Void)) {
-        let elementId = xmppStream.generateUUID
+        let elementId = "GC: \(NanoID.new(6))"
         let block = DDXMLElement(name: "unblock", xmlns: xmlns("block"))
         ids.forEach { block.addChild(DDXMLElement(name: "id", stringValue: $0)) }
         jids.forEach { block.addChild(DDXMLElement(name: "jid", stringValue: $0)) }
@@ -567,7 +708,7 @@ class GroupchatManager: AbstractXMPPManager {
     }
     
     public final func pinMessage(_ xmppStream: XMPPStream, groupchat: String, message stanzaId: String, callback: @escaping ((String?) -> Void)) {
-        let elementId = xmppStream.generateUUID
+        let elementId = "GC: \(NanoID.new(6))"
         let update = DDXMLElement(name: "update", xmlns: getPrimaryNamespace())
         update.addChild(DDXMLElement(name: "pinned-message", stringValue: stanzaId))
         xmppStream.send(XMPPIQ(iqType: .set, to: fullJid(groupchat), elementID: elementId, child: update))
@@ -601,7 +742,7 @@ class GroupchatManager: AbstractXMPPManager {
     }
     
     public final func publishAvatar(_ xmppStream: XMPPStream, groupchat: String, groupAvatar: Bool, userId: String = "", image: UIImage?, callback: @escaping ((String?) -> Void)) {
-        let elementId = xmppStream.generateUUID
+        let elementId = "GC: \(NanoID.new(6))"
         if let image = image {
             let jpegData = image.jpegData(compressionQuality: 0.7)
             let hash = jpegData?.sha1().toHexString() ?? ""
@@ -681,7 +822,7 @@ class GroupchatManager: AbstractXMPPManager {
             let imageId = item.payload.first?["id"],
             let mimeType = item.payload.first?["type"],
             let userId = item.payload.first?["userId"] {
-            let elementId = xmppStream.generateUUID
+            let elementId = "GC: \(NanoID.new(6))"
             let info = DDXMLElement(name: "info")
             info.addAttribute(withName: "bytes", stringValue: bytes)
             info.addAttribute(withName: "id", stringValue: imageId)
@@ -1146,14 +1287,13 @@ class GroupchatManager: AbstractXMPPManager {
                     realm.add(instance, update: .modified)
                 }
             }
-            if let name = x.element(forName: "name")?.stringValue,
-                let instance = realm.object(ofType: RosterStorageItem.self,
-                                            forPrimaryKey: [from, owner].prp()) {
-                try realm.write {
-                    if instance.isInvalidated { return }
-                    instance.username = name
-                }
+            let instance = realm.object(ofType: RosterStorageItem.self,
+                                            forPrimaryKey: [from, owner].prp())
+            try realm.write {
+                instance?.username = x.element(forName: "name")?.stringValue ?? ""
+                instance?.isContact = false
             }
+            
             
             
             if let instnace = realm.object(
@@ -1342,7 +1482,7 @@ class GroupchatManager: AbstractXMPPManager {
         if let item = queueItems.first(where: { $0.elementId == elementId }) {
             if item.value == "peer-to-peer" {
                 AccountManager.shared.find(for: self.owner)?.unsafeAction({ (user, stream) in
-                    user.groupchats.join(stream, uiConnection: false, groupchat: jid) { (nil) in
+                    user.groupchats.join(stream, uiConnection: false, groupchat: jid) { (_) in
                         
                     }
                 })
@@ -1789,6 +1929,90 @@ class GroupchatManager: AbstractXMPPManager {
         return true
     }
     
+    private func onGroupInfo(_ iq: XMPPIQ) -> Bool {
+        guard let fromRaw = iq.from,
+              let from = iq.from?.bare,
+            let x = iq.element(forName: "x", xmlns: getPrimaryNamespace()) else {
+            return false
+        }
+        let resource: String = fromRaw.resource ?? "groupchat"
+        
+        func update(_ instance: GroupChatStorageItem) {
+            if instance.isInvalidated { return }
+            instance.name = x.element(forName: "name")?.stringValue ?? instance.name
+            instance.privacy_ = x.element(forName: "privacy")?.stringValue ?? instance.privacy_
+            instance.index_ = x.element(forName: "index")?.stringValue ?? instance.index_
+            instance.membership_ = x.element(forName: "membership")?.stringValue ?? instance.membership_
+            instance.descr = x.element(forName: "description")?.stringValue ?? instance.descr
+            instance.members = x.attributeIntegerValue(forName: "members", withDefaultValue: instance.members)
+            instance.status = x.element(forName: "status")?.stringValue ?? ""
+            if let pinnedMessage = x.element(forName: "pinned-message")?.stringValue {
+                if pinnedMessage != "0" {
+                    if instance.pinnedMessage != pinnedMessage {
+                        AccountManager.shared.find(for: owner)?.action({ (user, stream) in
+                            user.groupchats.requestPinnedMessage(stream, groupchat: from, message: pinnedMessage)
+                        })
+                        instance.pinnedMessage = pinnedMessage
+                    }
+                } else {
+                    instance.pinnedMessage = ""
+                }
+            }
+            if let members = x.element(forName: "members") {
+                instance.members = members.stringValueAsNSInteger()
+            }
+            if let present = x.element(forName: "present") {
+                instance.present = present.stringValueAsNSInteger()
+            }
+        }
+        do {
+            let realm = try WRealm.safe()
+            if let instance = realm.object(ofType: GroupChatStorageItem.self,
+                                           forPrimaryKey: [from, owner].prp()) {
+                try realm.write {
+                    if instance.isInvalidated { return }
+                    update(instance)
+                }
+            } else {
+                let instance = GroupChatStorageItem()
+                instance.jid = from
+                instance.owner = owner
+                instance.primary = GroupChatStorageItem.genPrimary(jid: from, owner: owner)
+                update(instance)
+                try realm.write {
+                    if instance.isInvalidated { return }
+                    realm.add(instance, update: .modified)
+                }
+            }
+            let instance = realm.object(ofType: RosterStorageItem.self,
+                                        forPrimaryKey: [from, owner].prp())
+            try realm.write {
+                instance?.username = x.element(forName: "name")?.stringValue ?? ""
+                instance?.isContact = false
+            }
+            
+            
+            
+            if let instnace = realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(
+                    jid: from,
+                    owner: owner,
+                    conversationType: .group
+                )
+            ) {
+                if instnace.conversationType != .group {
+                    try realm.write {
+                        instnace.conversationType = .group
+                    }
+                }
+            }
+        } catch {
+            DDLogDebug("GroupchatManager: \(#function). \(error.localizedDescription)")
+        }
+        return true
+    }
+    
     private final func onUnblock(_ iq: XMPPIQ) -> Bool {
         guard let elementId = iq.elementID,
             queryIds.contains(elementId),
@@ -1880,6 +2104,8 @@ class GroupchatManager: AbstractXMPPManager {
             
             var lastInviteDate: Date = Date(timeIntervalSince1970: 1)
             
+            let reason = invite.element(forName: "reason")?.stringValue
+            
             if let instance = realm
                 .objects(GroupchatInvitesStorageItem.self)
                 .filter("owner == %@ AND groupchat == %@", owner, groupchat)
@@ -1896,13 +2122,16 @@ class GroupchatManager: AbstractXMPPManager {
                     }
                 }
             }
+            
+            let isReadInvite = lastInviteDate < date ? isRead ?? (from == owner) : true
             let instance = GroupchatInvitesStorageItem()
             instance.inviteId = elementId
             instance.owner = owner
             instance.primary = [elementId, owner].prp()
             instance.groupchat = groupchat
             instance.outgoing = from == owner
-            instance.isRead = lastInviteDate < date ? isRead ?? (from == owner) : true
+            instance.reason = reason
+            instance.isRead = isReadInvite
             instance.isProcessed = lastInviteDate <= date ? false : true// false
             instance.date = date
             instance.jid = from == owner ? to : from
@@ -1911,6 +2140,14 @@ class GroupchatManager: AbstractXMPPManager {
                 .element(forName: "x", xmlns: getPrimaryNamespace())?
                 .element(forName: "privacy")?
                 .stringValue == "incognito"
+            
+            let rosterItem = RosterStorageItem()
+            rosterItem.jid = groupchat
+            rosterItem.owner = self.owner
+            rosterItem.primary = RosterStorageItem.genPrimary(jid: groupchat, owner: self.owner)
+            rosterItem.isContact = false
+            rosterItem.subscribtion = .none
+            rosterItem.ask = .none
             
             if let x = message.element(forName: "x", xmlns: getPrimaryNamespace()) {
                 var entity: RosterItemEntity = .groupchat
@@ -1933,6 +2170,7 @@ class GroupchatManager: AbstractXMPPManager {
                 resource.priority = -5
                 resource.isTemporary = true
                 resource.primary = ResourceStorageItem.genPrimary(jid: groupchat, owner: owner, resource: owner)
+                
                 if commit {
                     try realm.write {
                         realm.add(resource, update: .all)
@@ -1942,12 +2180,40 @@ class GroupchatManager: AbstractXMPPManager {
                 }
             }
             
+            
+            
             if commit {
+                
                 try realm.write {
                     realm.add(instance, update: .modified)
+                    realm.add(rosterItem, update: .modified)
+                    let primary = UINotificationStorageItem.genPrimary(owner: owner, jid: groupchat)
+                    if !isReadInvite {
+                        let uiNotifyObject = UINotificationStorageItem()
+                        uiNotifyObject.primary = primary
+                        uiNotifyObject.owner = owner
+                        uiNotifyObject.jid = groupchat
+                        uiNotifyObject.kind = .invite
+                        uiNotifyObject.date = Date()
+                        uiNotifyObject.readAt = nil
+                        realm.add(uiNotifyObject, update: .modified)
+                    }
+                    
                 }
             } else {
                 realm.add(instance, update: .modified)
+                realm.add(rosterItem, update: .modified)
+                let primary = UINotificationStorageItem.genPrimary(owner: owner, jid: groupchat)
+                if !isReadInvite {
+                    let uiNotifyObject = UINotificationStorageItem()
+                    uiNotifyObject.primary = primary
+                    uiNotifyObject.owner = owner
+                    uiNotifyObject.jid = groupchat
+                    uiNotifyObject.kind = .invite
+                    uiNotifyObject.date = Date()
+                    uiNotifyObject.readAt = nil
+                    realm.add(uiNotifyObject, update: .modified)
+                }
             }
         } catch {
             DDLogDebug("GroupchatManager: \(#function). \(error.localizedDescription)")
@@ -2021,7 +2287,7 @@ class GroupchatManager: AbstractXMPPManager {
                 }
                 if AccountManager.shared.find(for: owner)?.syncManager.isSynced() ?? true {
                     AccountManager.shared.find(for: owner)?.action({ (user, stream) in
-                        user.vcards.requestItem(stream, jid: jid)
+                        _ = user.vcards.requestItem(stream, jid: jid)
                     })
                 }
                 
@@ -2494,28 +2760,30 @@ class GroupchatManager: AbstractXMPPManager {
     
     func read(_ stream: XMPPStream, withIQ iq: XMPPIQ) -> Bool {
         switch true {
-        case onCreate(iq): return true
-        case onError(iq): return true
-        case onUser(iq): return true
-        case onEditChatSettingsForm(iq): return true
-        case onEditStatusForm(iq): return true
-        case onEditDefaultRightsForm(iq): return true
-        case onSuccessUserUpdatedForm(iq): return true
-        case onEditUserForm(iq): return true
-        case onSuccessSettingsUpdatedForm(iq): return true
-        case onSuccessStatusUpdatedForm(iq): return true
-        case onSuccesInvite(iq): return true
-        case onInviteList(iq): return true
-        case onRevoke(iq): return true
-        case onBlockList(iq): return true
-        case onBlock(iq): return true
-        case onUnblock(iq): return true
-        case onPublishData(stream, iq: iq): return true
-        case onPublishMetadata(iq): return true
-        case onResetAvatar(iq): return true
-        case onSuccess(iq): return true
-        case onDecline(iq): return true
-        default: return false
+            case onCreate(iq): return true
+            case onError(iq): return true
+            case onUser(iq): return true
+            case onGroupInfo(iq): return true
+            case onReceiveDefaultRightsList(iq): return true
+            case onEditChatSettingsForm(iq): return true
+            case onEditStatusForm(iq): return true
+            case onEditDefaultRightsForm(iq): return true
+            case onSuccessUserUpdatedForm(iq): return true
+            case onEditUserForm(iq): return true
+            case onSuccessSettingsUpdatedForm(iq): return true
+            case onSuccessStatusUpdatedForm(iq): return true
+            case onSuccesInvite(iq): return true
+            case onInviteList(iq): return true
+            case onRevoke(iq): return true
+            case onBlockList(iq): return true
+            case onBlock(iq): return true
+            case onUnblock(iq): return true
+            case onPublishData(stream, iq: iq): return true
+            case onPublishMetadata(iq): return true
+            case onResetAvatar(iq): return true
+            case onSuccess(iq): return true
+            case onDecline(iq): return true
+            default: return false
         }
     }
     

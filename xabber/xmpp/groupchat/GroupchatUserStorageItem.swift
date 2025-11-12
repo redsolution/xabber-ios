@@ -88,6 +88,18 @@ class GroupchatUserStorageItem: Object {
     @objc dynamic var updateTimestamp: Date = Date(timeIntervalSinceReferenceDate: 0)
     @objc dynamic var updatedTS: Double = 0
     
+    @objc dynamic var sendMessage: Bool = false
+    @objc dynamic var sendMedia: Bool = false
+    @objc dynamic var addMembers: Bool = false
+    @objc dynamic var pinMessages: Bool = false
+    @objc dynamic var changeGroupInfo: Bool = false
+    @objc dynamic var changeGroupSettings: Bool = false
+    @objc dynamic var changeUserInfo: Bool = false
+    @objc dynamic var changePermissions: Bool = false
+    @objc dynamic var createAdmins: Bool = false
+    @objc dynamic var isOwner: Bool = false
+    
+    
     override static func indexedProperties() -> [String] {
         return ["owner", "groupchatId"]
     }

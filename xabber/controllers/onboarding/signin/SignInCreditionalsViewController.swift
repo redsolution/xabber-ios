@@ -477,12 +477,8 @@ class SignInCreditionalsViewController: SimpleBaseViewController {
             isModalInPresentation = true
         }
         self.navigationController?.isNavigationBarHidden = false
-        if CommonConfigManager.shared.config.use_large_title {
-            self.navigationItem.largeTitleDisplayMode = .automatic
-        } else {
-            self.navigationItem.largeTitleDisplayMode = .never
-        }
-        self.navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
+        self.navigationItem.largeTitleDisplayMode = .never
+        self.navigationController?.navigationBar.prefersLargeTitles = false
         self.navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
         self.navigationController?.navigationBar.shadowImage = UIImage()
         self.navigationController?.navigationBar.setNeedsLayout()

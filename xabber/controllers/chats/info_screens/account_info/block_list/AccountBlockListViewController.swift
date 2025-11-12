@@ -24,7 +24,6 @@ import RealmSwift
 import RxRealm
 import RxSwift
 import CocoaLumberjack
-import TOInsetGroupedTableView
 
 class AccountBlockListViewController: BaseViewController {
     
@@ -37,7 +36,7 @@ class AccountBlockListViewController: BaseViewController {
     
     internal let tableView: UITableView = {
 //        let view = UITableView(frame: .zero, style: .grouped)
-        let view = InsetGroupedTableView(frame: .zero)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(ItemCell.self, forCellReuseIdentifier: ItemCell.cellName)
         

@@ -70,6 +70,8 @@ class RosterStorageItem: Object {
     @objc dynamic var updatedTS: Double = -1
     @objc dynamic var encryptionUpdatedTS: Double = -1
     
+    @objc dynamic var isContact: Bool = true
+    
     
     var groups: List<String> = List<String>()
     

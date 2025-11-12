@@ -120,7 +120,7 @@ class GroupChatStorageItem: Object {
     @objc dynamic var canChangeBadge: Bool = false
     @objc dynamic var canBlockUsers: Bool = false
     @objc dynamic var canChangeAvatars: Bool = false
-    @objc dynamic var canDeleteMessages: Bool = false
+    @Persisted var canDeleteMessages: Bool = false
     
     var defaultRestrictions: List<String> = List<String>()
     
@@ -132,6 +132,31 @@ class GroupChatStorageItem: Object {
     
     override static func indexedProperties() -> [String] {
         return ["owner", ]
+    }
+    
+    @objc dynamic var defaultPermissions_: String = ""
+    
+    var defaultPermissions: [GroupchatPermission] {
+            get { decodePermissions(from: defaultPermissions_) }
+            set { defaultPermissions_ = encodePermissions(newValue) }
+        }
+
+        // MARK: – Helpers
+    private func encodePermissions(_ perms: [GroupchatPermission]) -> String {
+        guard let data = try? JSONEncoder().encode(perms),
+              let json = String(data: data, encoding: .utf8) else {
+            return ""                     // fallback – empty array
+        }
+        return json
+    }
+
+    private func decodePermissions(from json: String) -> [GroupchatPermission] {
+        guard !json.isEmpty,
+              let data = json.data(using: .utf8),
+              let perms = try? JSONDecoder().decode([GroupchatPermission].self, from: data) else {
+            return []                     // fallback – empty array
+        }
+        return perms
     }
     
     var muteState: MuteState {

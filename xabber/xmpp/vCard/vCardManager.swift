@@ -172,6 +172,36 @@ class VCardManager: AbstractXMPPManager {
         }
     }
     
+    var missedVCardJidsList: Set<String> = Set()
+    var missedVCardLastQueryId: String? = nil
+    
+    public final func lazyLoadMissedVCards(_ stream: XMPPStream) {
+        if missedVCardLastQueryId == nil && missedVCardJidsList.isEmpty {
+            do {
+                let realm = try WRealm.safe()
+                let jids = Set(realm.objects(RosterStorageItem.self).filter("owner == %@", self.owner).compactMap { $0.jid })
+                let vcards = Set(realm.objects(vCardStorageItem.self).filter("owner == %@", self.owner).compactMap { $0.jid })
+                self.missedVCardJidsList = jids.subtracting(vcards)
+                if let jid = missedVCardJidsList.popFirst() {
+                    self.missedVCardLastQueryId = self.requestItem(stream, jid: jid)
+                }
+            } catch {
+                DDLogDebug("VCardManager: \(#function). \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    public final func continueLazyLoadMissedVCards(_ stream: XMPPStream) {
+        if missedVCardLastQueryId != nil && missedVCardJidsList.isNotEmpty {
+            if let jid = missedVCardJidsList.popFirst() {
+                self.missedVCardLastQueryId = self.requestItem(stream, jid: jid)
+            } else {
+                self.missedVCardLastQueryId = nil
+                self.missedVCardJidsList = Set()
+            }
+        }
+    }
+    
     override func read(withIQ iq: XMPPIQ) -> Bool {
         guard let elementID = iq.elementID,
             let from = iq.from?.bare,
@@ -180,6 +210,11 @@ class VCardManager: AbstractXMPPManager {
         }
         if elementID == self.addContactVcardCheckId {
             self.addContactVcardCheckCallback?(from, iq.iqType != .error)
+        }
+        if elementID == self.missedVCardLastQueryId {
+            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                user.vcards.continueLazyLoadMissedVCards(stream)
+            })
         }
         if iq.element(forName: "error") != nil || iq.iqType == .error {
             do {
@@ -193,6 +228,7 @@ class VCardManager: AbstractXMPPManager {
                 } else {
                     let instance = vCardStorageItem()
                     instance.jid = from
+                    instance.owner = self.owner
                     instance.lastUpdateDate = Date()
                     instance.isLastUpdateErrorOccured = true
                     try realm.write {
@@ -207,6 +243,7 @@ class VCardManager: AbstractXMPPManager {
         
         self.getOrCreate(for: from) { instance in
             instance.lastUpdateDate = Date()
+            instance.owner = self.owner
             instance.isLastUpdateErrorOccured = false
             instance.fn = self.getEscapingElementValue(element: query.element(forName: "FN"))
             instance.family = self.getEscapingElementValue(element: query.element(forName: "N")?.element(forName: "FAMILY"))
@@ -274,8 +311,9 @@ class VCardManager: AbstractXMPPManager {
             do {
                 let realm = try  WRealm.safe()
                 try realm.write {
-                    if let instance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: [from, owner].prp()) {
+                    if let instance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: from, owner: self.owner)) {
                         instance.membership_ = membership
+                        instance.name = self.getEscapingElementValue(element: query.element(forName: "NICKNAME"))
                         instance.descr = desc
                         instance.index_ = index
                         instance.privacy_ = privacy
@@ -283,11 +321,27 @@ class VCardManager: AbstractXMPPManager {
                         if let members = query.element(forName: "X-MEMBERS")?.stringValueAsNSInteger() {
                             instance.members = members
                         }
+                    } else {
+                        let instance = GroupChatStorageItem()
+                        instance.name = self.getEscapingElementValue(element: query.element(forName: "NICKNAME"))
+                        instance.membership_ = membership
+                        instance.descr = desc
+                        instance.index_ = index
+                        instance.privacy_ = privacy
+                        instance.status = status
+                        instance.jid = from
+                        instance.owner = self.owner
+                        instance.primary = GroupChatStorageItem.genPrimary(jid: from, owner: self.owner)
+                        if let members = query.element(forName: "X-MEMBERS")?.stringValueAsNSInteger() {
+                            instance.members = members
+                        }
+                        realm.add(instance)
                     }
                     realm
                         .objects(ResourceStorageItem.self)
                         .filter("owner == %@ AND jid == %@", owner, from)
                         .forEach { $0.statusMessage = status }
+                    realm.object(ofType: UINotificationStorageItem.self, forPrimaryKey: UINotificationStorageItem.genPrimary(owner: owner, jid: from))?.updateAt = Date()
                 }
             } catch {
                 DDLogDebug("vCardAvatarManager: \(#function). \(error.localizedDescription)")
@@ -445,7 +499,7 @@ class VCardManager: AbstractXMPPManager {
     open var addContactVcardCheckCallback: ((String, Bool) -> Void)? = nil
     open var addContactVcardCheckId: String? = nil
     
-    public final func requestItem(_ xmppStream: XMPPStream, jid: String, addContactVcardCheckCallback: ((String, Bool) -> Void)? = nil) {
+    public final func requestItem(_ xmppStream: XMPPStream, jid: String, addContactVcardCheckCallback: ((String, Bool) -> Void)? = nil) -> String {
         let elementId = "vCard: \(NanoID.new(8))"
         let iq = XMPPIQ(
             iqType: .get,
@@ -458,13 +512,14 @@ class VCardManager: AbstractXMPPManager {
             self.addContactVcardCheckId = elementId
         }
         xmppStream.send(iq)
+        return elementId
     }
     
     public final func requestIfMissed(_ stream: XMPPStream, jid: String) {
         do {
             let realm = try WRealm.safe()
             if realm.object(ofType: vCardStorageItem.self, forPrimaryKey: jid) == nil {
-                self.requestItem(stream, jid: jid)
+                _ = self.requestItem(stream, jid: jid)
             }
         } catch {
             DDLogDebug("VCardManager: \(#function). \(error.localizedDescription)")

@@ -21,7 +21,6 @@
 import Foundation
 import UIKit
 import RealmSwift
-import TOInsetGroupedTableView
 import CocoaLumberjack
 
 
@@ -60,8 +59,8 @@ class ContactFingerprintsViewController: SimpleBaseViewController {
     internal var datasource: [[Datasource]] = []
     var timer: Timer? = nil
     
-    private let tableView: InsetGroupedTableView = {
-        let view = InsetGroupedTableView(frame: .zero)
+    private let tableView: UITableView = {
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(DeviceInfoTableCell.self, forCellReuseIdentifier: DeviceInfoTableCell.cellName)
         view.register(ButtonTableViewCell.self, forCellReuseIdentifier: ButtonTableViewCell.cellName)
@@ -158,7 +157,11 @@ class ContactFingerprintsViewController: SimpleBaseViewController {
 
 extension ContactFingerprintsViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return 44
+        if #available(iOS 26, *) {
+            return 52
+        } else {
+            return 44
+        }
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {

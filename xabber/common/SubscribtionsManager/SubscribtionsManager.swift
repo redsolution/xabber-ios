@@ -122,15 +122,16 @@ class SubscribtionsManager: NSObject {
     
     func getState(account jid: String) -> AccountState {
         self.checkSubscriptionStateForAccount(jid: jid)
-        if let item = self.accounts.first(where: { $0.jid == jid }),
-           item.date.timeIntervalSince1970 > Date().timeIntervalSince1970 {
-            if subscribtionsList.filter ({ $0.uuid == jid.uuid() }).isEmpty {
-                return .trial
-            } else {
-                return .active
-            }
-        }
-        return .expired
+        return .trial
+//        if let item = self.accounts.first(where: { $0.jid == jid }),
+//           item.date.timeIntervalSince1970 > Date().timeIntervalSince1970 {
+//            if subscribtionsList.filter ({ $0.uuid == jid.uuid() }).isEmpty {
+//                return .trial
+//            } else {
+//                return .active
+//            }
+//        }
+//        return .expired
     }
 
     fileprivate func loadProductList() {
@@ -165,13 +166,13 @@ class SubscribtionsManager: NSObject {
         }
         self.loadProductList()
         let url = [api_url, "/v1/accounts/\(jid.uuid().uuidString.lowercased())/"].joined()
-        Alamofire
+        AF
             .request(
                 url,
                 method: .get,
                 parameters: [:],
                 encoding: URLEncoding.default,
-                headers: ["Cache-Control": "no-cache"]
+                headers: HTTPHeaders(["Cache-Control": "no-cache"])
             ).responseJSON {
                 response in
 //                print(response)

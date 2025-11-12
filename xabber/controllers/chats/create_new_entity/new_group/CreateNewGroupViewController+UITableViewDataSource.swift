@@ -58,7 +58,7 @@ extension CreateNewGroupViewController: UITableViewDataSource {
             cell.configure("localpart",
                            localpart: localpart,
                            placeholder: "XMPP ID",
-                           server: ["@", server["value"]!].joined())
+                           server: self.selectedServer)
             
             return cell
             

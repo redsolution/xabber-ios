@@ -25,7 +25,6 @@ import RxRealm
 import RxSwift
 import RxCocoa
 import CocoaLumberjack
-import TOInsetGroupedTableView
 
 class GroupchatContactInfoViewController: SimpleBaseViewController {
     
@@ -103,7 +102,7 @@ class GroupchatContactInfoViewController: SimpleBaseViewController {
     
     internal let tableView: UITableView = {
 //        let view = UITableView(frame: .zero, style: .grouped)
-        let view = InsetGroupedTableView(frame: .zero)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.translatesAutoresizingMaskIntoConstraints = false
         view.register(UITableViewCell.self, forCellReuseIdentifier: "ButtonCell")
@@ -493,13 +492,13 @@ class GroupchatContactInfoViewController: SimpleBaseViewController {
         subscribe()
         navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
         navigationController?.navigationBar.shadowImage = UIImage()
-        XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
-            session.groupchat?.requestUsers(stream, groupchat: self.jid, userId: self.userId)
-        }, fail: {
-            AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                user.groupchats.requestUsers(stream, groupchat: self.jid, userId: self.userId)
-            })
-        })
+//        XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
+//            session.groupchat?.requestUsers(stream, groupchat: self.jid, userId: self.userId)
+//        }, fail: {
+//            AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
+//                user.groupchats.requestUsers(stream, groupchat: self.jid, userId: self.userId)
+//            })
+//        })
         headerView.frame = CGRect(
             width: view.frame.width,
             height: headerHeightMax

@@ -334,6 +334,15 @@ extension SharedPlayerView: MulticastAVAudioPlayerDelegate {
     
 }
 
+struct AvatarStructItem {
+    let jid: String
+    let owner: String
+    let name: String
+    let url: String?
+    let isGroup: Bool
+    let uuid: String
+}
+
 class LastChatsViewController: BaseViewController {
     
     enum Filter: Int {
@@ -341,6 +350,12 @@ class LastChatsViewController: BaseViewController {
         case unread
         case archived
         case saved
+    }
+    
+    enum SpecialMessageKind {
+        case none
+        case contact
+        case invite
     }
     
     struct Datasource: DiffAware {
@@ -376,6 +391,10 @@ class LastChatsViewController: BaseViewController {
         let hasErrorInChat: Bool
         let updateTS: Double
         let isVerificationActionRequired: Bool
+        let specialMessageKind: SpecialMessageKind
+        let avatars: [AvatarStructItem]
+        
+        
         
         static func compareContent(_ a: LastChatsViewController.Datasource, _ b: LastChatsViewController.Datasource) -> Bool {
             return a.jid == b.jid
@@ -414,12 +433,15 @@ class LastChatsViewController: BaseViewController {
         public let updated: [Int]
     }
     
+    open var leftMenuSelectRootCategoryDelegate: LeftMenuSelectRootScreenDelegate? = nil
+    
     internal let tableView: UITableView = {
         let view = UITableView(frame: .zero, style: .plain)
         
         view.register(ChatListTableViewCell.self, forCellReuseIdentifier: ChatListTableViewCell.cellName)
         view.register(ArchivedCell.self, forCellReuseIdentifier: ArchivedCell.cellName)
         view.register(SkeletonCell.self, forCellReuseIdentifier: SkeletonCell.cellName)
+        view.register(SpecialMessageTableViewCell.self, forCellReuseIdentifier: SpecialMessageTableViewCell.cellName)
         view.contentInsetAdjustmentBehavior = .scrollableAxes
         view.tableHeaderView = UIView(frame: .zero)
         view.tableFooterView = UIView(frame: .zero)
@@ -550,6 +572,11 @@ class LastChatsViewController: BaseViewController {
         return view
     }()
     
+    override func resetState() {
+        super.resetState()
+        self.currentChatVC = nil
+    }
+    
     internal func configurePlayerView() {
         self.playerViewToolbar.update(frame: CGRect(0, 0, self.view.frame.width, 44), isHidden: false)
         self.playerViewToolbar.configure(title: "", subtitle: "Voice message")
@@ -648,6 +675,32 @@ class LastChatsViewController: BaseViewController {
                 }
                 .disposed(by: self.bag)
             
+            
+            let jids = realm.objects(AccountStorageItem.self).filter("enabled == true").toArray().compactMap { $0.jid }
+            let invites = realm
+                .objects(UINotificationStorageItem.self)
+                .filter("owner IN %@ AND isRead == %@ AND kind_ == %@", jids, false, UINotificationStorageItem.Kind.invite.rawValue)
+            
+            let requests = realm
+                .objects(UINotificationStorageItem.self)
+                .filter("owner IN %@ AND isRead == %@ AND kind_ == %@", jids, false, UINotificationStorageItem.Kind.contactRequest.rawValue)
+            
+            Observable
+                .collection(from: requests)
+                .debounce(.milliseconds(800), scheduler: MainScheduler.asyncInstance)
+                .subscribe { _ in
+                    self.runDatasetUpdateTask()
+                }
+                .disposed(by: self.datasetBag)
+
+            Observable
+                .collection(from: invites)
+                .debounce(.milliseconds(900), scheduler: MainScheduler.asyncInstance)
+                .subscribe { _ in
+                    self.runDatasetUpdateTask()
+                }
+                .disposed(by: self.datasetBag)
+            
             Observable
                 .collection(from: chatsObserver!)
                 .debounce(.milliseconds(70), scheduler: MainScheduler.asyncInstance)
@@ -689,11 +742,7 @@ class LastChatsViewController: BaseViewController {
                     } else {
                         self.unreadAllMessagesButton.isHidden = true
                     }
-                    do {
-                        try self.updateBottomTitle()
-                    } catch {
-                        DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
-                    }
+                    self.updateBottomTitle()
                 })
                 .disposed(by: datasetBag)
             
@@ -749,7 +798,9 @@ class LastChatsViewController: BaseViewController {
                     avatarUrl: nil,
                     hasErrorInChat: false,
                     updateTS: 0,
-                    isVerificationActionRequired: false
+                    isVerificationActionRequired: false,
+                    specialMessageKind: .none,
+                    avatars: []
                 )
             }
         }
@@ -757,23 +808,26 @@ class LastChatsViewController: BaseViewController {
             let realm = try  WRealm.safe()
             let predicate: NSPredicate
             var pinnedChatsSorting: Bool = false
+            let ignoredJids: [String] = AccountManager.shared.users.compactMap { $0.notifications.node }
             switch self.filter.value {
             case .chats:
                 self.unreadedJids = []
                 if let lockedType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) {
                     var excludedJids = Array(enabledAccounts.value).compactMap({XMPPJID(string: $0)!.domain})
                     excludedJids.append(CommonConfigManager.shared.config.support_jid)
+                    
                     predicate = NSPredicate(
-                        format: "isArchived == %@ AND owner IN %@ AND (conversationType_ == %@ OR jid IN %@)",
+                        format: "isArchived == %@ AND owner IN %@ AND (conversationType_ == %@ OR jid IN %@) AND NOT (jid IN %@)",
                         argumentArray: [
                             false,
                             Array(enabledAccounts.value),
                             lockedType.rawValue,
-                            excludedJids
+                            excludedJids,
+                            ignoredJids
                         ]
                     )
                 } else {
-                    predicate = NSPredicate(format: "isArchived == %@ AND owner IN %@", argumentArray: [false, Array(enabledAccounts.value)])
+                    predicate = NSPredicate(format: "isArchived == %@ AND owner IN %@ AND NOT (jid IN %@)", argumentArray: [false, Array(enabledAccounts.value), ignoredJids])
                 }
                 pinnedChatsSorting = true
             case .unread:
@@ -782,13 +836,14 @@ class LastChatsViewController: BaseViewController {
                     var excludedJids = Array(enabledAccounts.value).compactMap({XMPPJID(string: $0)!.domain})
                     excludedJids.append(CommonConfigManager.shared.config.support_jid)
                     let basePredicate = NSPredicate(
-                        format: "isArchived == %@ AND owner IN %@ AND (conversationType_ == %@ OR jid IN %@) AND unread > %@",
+                        format: "isArchived == %@ AND owner IN %@ AND (conversationType_ == %@ OR jid IN %@) AND unread > %@ AND NOT (jid IN %@)",
                         argumentArray: [
                             false,
                             Array(enabledAccounts.value),
                             lockedType.rawValue,
                             excludedJids,
-                            0
+                            0,
+                            ignoredJids
                         ]
                     )
                     let unreadedJidsNew = Array(Set(realm
@@ -799,21 +854,23 @@ class LastChatsViewController: BaseViewController {
                     self.unreadedJids = Array(Set(self.unreadedJids))
 //                    print(unreadedJids)
                     predicate = NSPredicate(
-                        format: "isArchived == %@ AND owner IN %@ AND (conversationType_ == %@ OR jid IN %@) AND (unread > %@ OR jid IN %@)",
+                        format: "isArchived == %@ AND owner IN %@ AND (conversationType_ == %@ OR jid IN %@) AND (unread > %@ OR jid IN %@) AND NOT (jid IN %@)",
                         argumentArray: [
                             false,
                             Array(enabledAccounts.value),
                             lockedType.rawValue,
                             excludedJids,
                             0,
-                            unreadedJids
+                            unreadedJids,
+                            ignoredJids
                         ]
                     )
                 } else {
-                    let basePredicate = NSPredicate(format: "isArchived == %@ AND unread > %@ AND owner IN %@",
+                    let basePredicate = NSPredicate(format: "isArchived == %@ AND unread > %@ AND owner IN %@ AND NOT (jid IN %@)",
                                                     argumentArray: [false,
                                                                     0,
-                                                                    Array(enabledAccounts.value)])
+                                                                    Array(enabledAccounts.value),
+                                                                    ignoredJids])
                     let unreadedJidsNew = Array(Set(realm
                         .objects(LastChatsStorageItem.self)
                         .filter(basePredicate)
@@ -836,16 +893,17 @@ class LastChatsViewController: BaseViewController {
                     var excludedJids = Array(enabledAccounts.value).compactMap({XMPPJID(string: $0)!.domain})
                     excludedJids.append(CommonConfigManager.shared.config.support_jid)
                     predicate = NSPredicate(
-                        format: "isArchived == %@ AND owner IN %@ AND (conversationType_ == %@ OR jid IN %@)",
+                        format: "isArchived == %@ AND owner IN %@ AND (conversationType_ == %@ OR jid IN %@) AND NOT (jid IN %@)",
                         argumentArray: [
                             true,
                             Array(enabledAccounts.value),
                             lockedType.rawValue,
-                            excludedJids
+                            excludedJids,
+                            ignoredJids
                         ]
                     )
                 } else {
-                    predicate = NSPredicate(format: "isArchived == %@ AND owner IN %@", argumentArray: [true, Array(enabledAccounts.value)])
+                    predicate = NSPredicate(format: "isArchived == %@ AND owner IN %@ AND NOT (jid IN %@)", argumentArray: [true, Array(enabledAccounts.value), ignoredJids])
                 }
             case .saved:
                 predicate = NSPredicate(format: "owner IN %@ AND conversationType_ == %@", argumentArray: [Array(enabledAccounts.value), ClientSynchronizationManager.ConversationType.saved.rawValue])
@@ -866,7 +924,94 @@ class LastChatsViewController: BaseViewController {
                 ])
             }
             
-            return collection.compactMap {
+            var out: [Datasource] = []
+            
+            let jids = realm.objects(AccountStorageItem.self).filter("enabled == true").toArray().compactMap { $0.jid }
+            
+            let invites = realm
+                .objects(GroupchatInvitesStorageItem.self)
+                .filter("owner IN %@ AND isRead == %@", jids, false)
+                .toArray()
+            
+            let requests = realm
+                .objects(UINotificationStorageItem.self)
+                .filter("owner IN %@ AND isRead == %@ AND kind_ == %@", jids, false, UINotificationStorageItem.Kind.contactRequest.rawValue)
+                .toArray()
+            
+            if requests.isNotEmpty {
+                let rosterItems = requests.compactMap({ return realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: $0.jid, owner: $0.owner)) })
+                let avatars = rosterItems.prefix(3).compactMap { AvatarStructItem(jid: $0.jid, owner: $0.owner, name: $0.displayName, url: $0.avatarUrl, isGroup: false, uuid: "")}
+                if let rosterInstance = rosterItems.first {
+                    out.append(Datasource(
+                        jid: rosterInstance.jid,
+                        owner: rosterInstance.owner,
+                        username: rosterInstance.displayName,
+                        attributedUsername: nil,
+                        message: "",
+                        date: nil,
+                        state: nil,
+                        isMute: false,
+                        isSynced: true,
+                        status: .offline,
+                        entity: .groupchat,
+                        conversationType: .group,
+                        unread: rosterItems.count,
+                        unreadString: nil,
+                        color: .brown,
+                        isDraft: false,
+                        hasAttachment: false,
+                        userNickname: nil,
+                        isSystemMessage: false,
+                        isPinned: false,
+                        subRequest: false,
+                        isEncrypted: false,
+                        avatarUrl: nil,
+                        hasErrorInChat: false,
+                        updateTS: 0,
+                        isVerificationActionRequired: false,
+                        specialMessageKind: SpecialMessageKind.contact,
+                        avatars: avatars
+                    ))
+                }
+            }
+            if invites.isNotEmpty {
+                let rosterItems = invites.compactMap({ return realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: $0.jid, owner: $0.owner)) })
+                let groupItems = invites.compactMap({ return realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: $0.jid, owner: $0.owner)) })
+                let avatars = rosterItems.prefix(3).compactMap { AvatarStructItem(jid: $0.jid, owner: $0.owner, name: $0.displayName, url: $0.avatarUrl, isGroup: false, uuid: "")}
+                if let groupInstance = groupItems.first {
+                    out.append(Datasource(
+                        jid: groupInstance.jid,
+                        owner: groupInstance.owner,
+                        username: groupInstance.name,
+                        attributedUsername: nil,
+                        message: "",
+                        date: nil,
+                        state: nil,
+                        isMute: false,
+                        isSynced: true,
+                        status: .offline,
+                        entity: .groupchat,
+                        conversationType: .group,
+                        unread: rosterItems.count,
+                        unreadString: nil,
+                        color: .brown,
+                        isDraft: false,
+                        hasAttachment: false,
+                        userNickname: nil,
+                        isSystemMessage: false,
+                        isPinned: false,
+                        subRequest: false,
+                        isEncrypted: false,
+                        avatarUrl: nil,
+                        hasErrorInChat: false,
+                        updateTS: 0,
+                        isVerificationActionRequired: false,
+                        specialMessageKind: .invite,
+                        avatars: avatars
+                    ))
+                }
+            }
+            out.append(contentsOf: collection.compactMap {
                 item in
                 let blankMessageText: String = "Start messaging here".localizeString(id: "chat_message_start_messaging", arguments: [])
                 
@@ -1000,8 +1145,8 @@ class LastChatsViewController: BaseViewController {
                     status: primaryResource?.status ?? .offline,
                     entity: primaryResource?.entity ?? .contact,
                     conversationType: item.conversationType,
-                    unread: item.lastMessage?.outgoing ?? false ? 0 : item.unread,
-                    unreadString: isInvite ? "1" : nil,
+                    unread: item.unread,//item.lastMessage?.outgoing ?? false ? 0 : item.unread,
+                    unreadString: nil,
                     color: AccountManager.shared.users.count <= 1 ? .clear : AccountColorManager.shared.primaryColor(for: item.owner),
                     isDraft: isDraft,
                     hasAttachment: isAttachment,
@@ -1013,9 +1158,12 @@ class LastChatsViewController: BaseViewController {
                     avatarUrl: item.rosterItem?.avatarMinUrl ?? item.rosterItem?.avatarMaxUrl ?? item.rosterItem?.oldschoolAvatarKey,
                     hasErrorInChat: item.hasErrorInChat,
                     updateTS: item.updateTS,
-                    isVerificationActionRequired: isVerificationActionRequired
+                    isVerificationActionRequired: isVerificationActionRequired,
+                    specialMessageKind: .none,
+                    avatars: []
                 )
-            }
+            })
+            return out
         } catch {
             DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
         }
@@ -1137,7 +1285,7 @@ class LastChatsViewController: BaseViewController {
         bag = DisposeBag()
         
         do {
-            let realm = try  WRealm.safe()
+            let realm = try WRealm.safe()
             Observable
                 .collection(from: realm.objects(AccountStorageItem.self).filter("enabled == %@", true))
                 .subscribe(onNext: { (results) in
@@ -1370,6 +1518,7 @@ class LastChatsViewController: BaseViewController {
                             subtitle: "Try to start a new chat".localizeString(id: "try_to_start_new_chat", arguments: []),
                             buttonTitle: "Start new chat".localizeString(id: "start_new_chat", arguments: [])) {
             let vc = CreateNewEntityViewController()
+            vc.leftMenuSelectRootCategoryDelegate = self.leftMenuSelectRootCategoryDelegate
             showModal(vc, parent: self)
         }
         
@@ -1405,9 +1554,25 @@ class LastChatsViewController: BaseViewController {
 //        configureNavbar()
     }
     
+    var isPrimaryShow: Bool = false
+    
     @objc
     private func onSidebarButtonTouchUp(_ sender: UIBarButtonItem) {
-        self.splitViewController?.show(.primary)
+        if #available(iOS 26.0, *) {
+            if self.splitViewController?.isShowing(.primary) ?? false {
+                self.splitViewController?.hide(.primary)
+            } else {
+                self.splitViewController?.show(.primary)
+            }
+        } else {
+            if isPrimaryShow {
+                isPrimaryShow = false
+                self.splitViewController?.hide(.primary)
+            } else {
+                isPrimaryShow = true
+                self.splitViewController?.show(.primary)
+            }
+        }
     }
     
     open var shouldShowBottomBar: Bool = true
@@ -1456,7 +1621,7 @@ class LastChatsViewController: BaseViewController {
                 accountNavButton.addTarget(self, action: #selector(showSettings), for: .touchUpInside)
             case .split:
                 self.bottomBar.splitViewController = self.splitViewController
-                self.view.addSubview(bottomBar)
+//                self.view.addSubview(bottomBar)
                 self.view.bringSubviewToFront(bottomBar)
                 var inputHeight: CGFloat = 49
                 if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
@@ -1470,18 +1635,29 @@ class LastChatsViewController: BaseViewController {
                 self.splitViewController?.navigationItem.setLeftBarButtonItems([], animated: true)
                 
                 let sidebarButton = UIBarButtonItem(image: imageLiteral("sidebar.left"), style: .plain, target: self, action: #selector(onSidebarButtonTouchUp))
-                
-                if UIDevice.current.userInterfaceIdiom != .pad {
-                    self.navigationItem.setHidesBackButton(true, animated: false)
-                    self.navigationItem.setLeftBarButton(sidebarButton, animated: true)
-                }
+                self.navigationItem.setHidesBackButton(true, animated: false)
+                self.navigationItem.setLeftBarButton(sidebarButton, animated: true)
                 bottomBar.leftCallback = self.onLeftBarButtonTapped
                 self.bottomBar.leftButton.setImage(imageLiteral(self.filter.value == .unread ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate), for: .normal)
                 self.bottomBar.titleCallback = self.onTitleBarButtonTapped
                 self.bottomBar.isHidden = !shouldShowBottomBar
+                let addBarButton = UIBarButtonItem(
+                    image: UIImage(systemName: "plus")?
+                        .upscale(dimension: 24)
+                        .withRenderingMode(.alwaysTemplate),
+                    style: .done,
+                    target: self,
+                    action: #selector(onAddButtonTouchUpInside)
+                )
+                self.filterButton = UIBarButtonItem(image: imageLiteral(self.filter.value == .unread ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle"), style: .plain, target: self, action: #selector(onFilterButtonTouchUpInside))
+
+                self.navigationItem.setRightBarButtonItems([addBarButton, filterButton!], animated: true)
+                
         }
         
     }
+    
+    var filterButton: UIBarButtonItem? = nil
     
     var normalState: Filter = .chats
     
@@ -1517,18 +1693,30 @@ class LastChatsViewController: BaseViewController {
             case .archived:
                 title = CommonConfigManager.shared.config.app_name
                 bottomBar.titleButton.setTitleColor(.label, for: .normal)
+                let backButton = UIBarButtonItem(image: imageLiteral("chevron.left"), style: .plain, target: self, action: #selector(onBackButtonTouchUpInside))
+                self.navigationItem.setLeftBarButton(backButton, animated: false)
             case .unread:
                 title = "Mark all as read".localizeString(id: "mark_all_as_read_button", arguments: [])
                 bottomBar.titleButton.setTitleColor(.systemBlue, for: .normal)
             case .chats:
                 title = CommonConfigManager.shared.config.app_name
                 bottomBar.titleButton.setTitleColor(.label, for: .normal)
-        case .saved:
-            bottomBar.isHidden = true
+                let sidebarButton = UIBarButtonItem(image: imageLiteral("sidebar.left"), style: .plain, target: self, action: #selector(onSidebarButtonTouchUp))
+                self.navigationItem.setHidesBackButton(true, animated: false)
+                self.navigationItem.setLeftBarButton(sidebarButton, animated: true)
+            case .saved:
+                bottomBar.isHidden = true
+                let backButton = UIBarButtonItem(image: imageLiteral("chevron.left"), style: .plain, target: self, action: #selector(onBackButtonTouchUpInside))
+                self.navigationItem.setLeftBarButton(backButton, animated: false)
         }
         bottomBar.titleButton.setTitle(title, for: .normal)
     }
+        
     
+    @objc
+    private final func onBackButtonTouchUpInside(_ sender: UIBarButtonItem) {
+        self.leftMenuSelectRootCategoryDelegate?.selectRootScreenAndCategory(screen: "chat", category: nil)
+    }
     @objc
     func showSettings(_ sender: AnyObject) {
         let vc = SettingsViewController()
@@ -1540,6 +1728,7 @@ class LastChatsViewController: BaseViewController {
     @objc
     func onAddButtonTouchUpInside(_ sender: AnyObject) {
         let vc = CreateNewEntityViewController()
+        vc.leftMenuSelectRootCategoryDelegate = leftMenuSelectRootCategoryDelegate
         showModal(vc, parent: self)
     }
     
@@ -1555,12 +1744,9 @@ class LastChatsViewController: BaseViewController {
         } else {
             self.filter.accept(self.normalState)
         }
+        filterButton?.image = imageLiteral(self.filter.value == .unread ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
         self.bottomBar.leftButton.setImage(UIImage(systemName: self.filter.value == .unread ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate), for: .normal)
-        do {
-            try self.updateBottomTitle()
-        } catch {
-            DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
-        }
+        self.updateBottomTitle()
     }
     
     override func shouldChangeFrame() {
@@ -1653,6 +1839,14 @@ class LastChatsViewController: BaseViewController {
             center.requestAuthorization(options: [.alert, .sound, .badge]) {
                 (granted, error) in
                 
+            }
+        }
+        AccountManager.shared.users.compactMap { $0.jid }.forEach {
+            activeUser in
+            AccountManager.shared.find(for: activeUser)?.delayedAction(delay: 3){ user, stream in
+                if stream.isAuthenticated {
+                    user.vcards.lazyLoadMissedVCards(stream)
+                }
             }
         }
         isFirstLayout = true

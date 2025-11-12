@@ -42,11 +42,18 @@ class ChatViewController: MessagesViewController {
     class ChatPage {
         var page: Int
         var minIndex: Int
+        
         var maxIndex: Int
         var lowArchivedId: String
         var highArchivedId: String
         var isLoading: Bool = false
-        var locked: Bool = false
+        var locked: Bool = false {
+            didSet {
+                if !locked {
+                    print("lockedDidSet")
+                }
+            }
+        }
         var longLock: Bool = false
         
         open var isUnlocked: Bool {
@@ -73,7 +80,7 @@ class ChatViewController: MessagesViewController {
             if self.locked {
                 return
             }
-//            self.locked = true
+            self.locked = true
             self.page += 1
             callback?()
             if autoUnlock {
@@ -85,7 +92,7 @@ class ChatViewController: MessagesViewController {
             if self.locked {
                 return
             }
-//            self.locked = true
+            self.locked = true
             self.page -= 1
             if self.page < 0 {
                 self.page = 0
@@ -101,10 +108,10 @@ class ChatViewController: MessagesViewController {
         }
         
         public final func setCustomPage(_ newPage: Int, autoUnlock: Bool = true, callback: (() -> Void)? = nil) {
-//            if self.locked {
-//                return
-//            }
-//            self.locked = true
+            if self.locked {
+                return
+            }
+            self.locked = true
             self.page = newPage
             callback?()
             if autoUnlock {
@@ -290,7 +297,7 @@ class ChatViewController: MessagesViewController {
         }
     }
         
-    let datasourcePageSize: Int = 180
+    let datasourcePageSize: Int = 100
         
     var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
 
@@ -397,6 +404,8 @@ class ChatViewController: MessagesViewController {
     
     internal var canLoadDatasource: Bool = false
     internal var loadDatasourceObserver: BehaviorRelay<Bool> = BehaviorRelay(value: true)
+    
+    internal var messagesToReadObserver: BehaviorRelay<Set<String>> = BehaviorRelay(value: Set())
     
     internal let pinnedDateView: FloatDateView = {
         let view = FloatDateView(frame: .zero)
@@ -525,12 +534,23 @@ class ChatViewController: MessagesViewController {
         return label
     }()
     
+//    internal var searchBar: UISearchBar = {
+//        let bar = UISearchBar()
+//        
+//        bar.placeholder = "Search this chat".localizeString(id: "search_this_chat_hint", arguments: [])
+//        bar.showsCancelButton = true
+//        
+//        return bar
+//    }()
     internal var searchBar: UISearchBar = {
         let bar = UISearchBar()
-        
         bar.placeholder = "Search this chat".localizeString(id: "search_this_chat_hint", arguments: [])
-        bar.showsCancelButton = true
-        
+        // iOS 26+ : Align with Liquid Glass (translucent, fluid styling)
+        if #available(iOS 26.0, iPadOS 26.0, *) {
+            bar.tintColor = UIColor.systemBlue  // Matches iOS 26's vibrant accents; adjust for theme
+            bar.overrideUserInterfaceStyle = .unspecified  // Ensures adaptation to system translucency
+            bar.backgroundImage = UIImage()  // Optional: Makes background more transparent for Liquid Glass effect
+        }
         return bar
     }()
     
@@ -599,14 +619,14 @@ class ChatViewController: MessagesViewController {
         return view
     }()
     
-    internal let navbarOverlayView: UIView = {
-        let view = UIView()
-        
-        view.backgroundColor = .systemBackground
-        view.isUserInteractionEnabled = false
-        
-        return view
-    }()
+//    internal let navbarOverlayView: UIView = {
+//        let view = UIView()
+//        
+//        view.backgroundColor = .systemBackground
+//        view.isUserInteractionEnabled = false
+//        
+//        return view
+//    }()
     
     let recordLockIndicator: UIButton = {
         let button = UIButton(frame: CGRect(square: 38))
@@ -690,8 +710,10 @@ class ChatViewController: MessagesViewController {
 
     
     internal let cancelSearchBarButton: UIBarButtonItem = {
-        let button = UIBarButtonItem(systemItem: .cancel, primaryAction: nil, menu: nil)
-        
+        let button = UIBarButtonItem(title: "Cancel", style: .plain, target: nil, action: nil)
+        if #available(iOS 26.0, *) {
+            button.hidesSharedBackground = true
+        }
         return button
     }()
     
@@ -728,43 +750,122 @@ class ChatViewController: MessagesViewController {
     }
     
     func configureSearchBar() {
+        if #available(iOS 26.0, *) {
+            self.cancelSearchBarButton.action = #selector(self.pnCancelButtonTouchUp)
+            self.cancelSearchBarButton.target = self
+            if UIDevice.current.userInterfaceIdiom == .pad {
+                self.searchBar.frame = CGRect(width: self.view.bounds.width - 150, height: 44)
+                self.cancelSearchBarButton.hidesSharedBackground = true
+//                self.searchBar.searchBarStyle = .minimal
+                searchBar.backgroundImage = UIImage()  // Strips default background/borders
+                searchBar.layer.shadowOpacity = 0      // Removes outer shadow
+                searchBar.layer.shadowRadius = 0
+                searchBar.layer.shadowOffset = .zero
+                searchBar.layer.shadowColor = UIColor.clear.cgColor
+
+                // For iOS 13+ (your case), minimal style enhances clean look
+                
+                searchBar.searchBarStyle = .default
+                searchBar.showsCancelButton = true
+                searchBar.searchTextField.layer.shadowOpacity = 0
+                searchBar.searchTextField.layer.shadowRadius = 0
+                searchBar.searchTextField.layer.shadowOffset = .zero
+                searchBar.searchTextField.layer.shadowColor = UIColor.clear.cgColor
+                searchBar.searchTextField.backgroundColor = .clear
+                searchBar.searchTextField.borderStyle = .roundedRect
+                let panel = UIBarButtonItem(customView: searchBar)
+                panel.hidesSharedBackground = true
+                self.navigationItem.setRightBarButtonItems([self.cancelSearchBarButton, panel], animated: true)
+//                self.navigationItem.setRightBarButton(self.cancelSearchBarButton, animated: true)
+            } else {
+                self.searchBar.sizeToFit()
+                let panel = UIBarButtonItem(customView: searchBar)
+                panel.hidesSharedBackground = true
+                self.navigationItem.setRightBarButton(panel, animated: true)
+            }
+            self.navigationItem.titleView = nil
+            self.searchBar.delegate = self
+            self.navigationItem.setHidesBackButton(true, animated: true)
+            self.searchBar.becomeFirstResponder()
+            self.searchBar.searchTextField.becomeFirstResponder()
+            if self.searchMessagesQueue.isEmpty {
+                self.xabberInputView.searchPanel.changeState(to: .empty)
+            } else {
+                self.xabberInputView.searchPanel.changeState(to: .withResults)
+            }
+            self.xabberInputView.changeState(to: .search)
+            self.searchBar.setShowsCancelButton(true, animated: true)
+        } else {
+            self.cancelSearchBarButton.action = #selector(self.pnCancelButtonTouchUp)
+            self.cancelSearchBarButton.target = self
+            if UIDevice.current.userInterfaceIdiom == .pad {
+                self.searchBar.frame = CGRect(width: self.view.bounds.width - 150, height: 44)
+                self.navigationItem.setLeftBarButton(UIBarButtonItem(customView: searchBar), animated: true)
+                self.navigationItem.setRightBarButton(self.cancelSearchBarButton, animated: true)
+            } else {
+                self.searchBar.sizeToFit()
+                self.navigationItem.setRightBarButton(UIBarButtonItem(customView: searchBar), animated: true)
+            }
+            self.navigationItem.titleView = nil
+            self.searchBar.delegate = self
+            self.navigationItem.setHidesBackButton(true, animated: true)
+            self.searchBar.becomeFirstResponder()
+            self.searchBar.searchTextField.becomeFirstResponder()
+            if self.searchMessagesQueue.isEmpty {
+                self.xabberInputView.searchPanel.changeState(to: .empty)
+            } else {
+                self.xabberInputView.searchPanel.changeState(to: .withResults)
+            }
+            self.xabberInputView.changeState(to: .search)
+            self.searchBar.setShowsCancelButton(true, animated: true)
+        }
+        
+    }
+    
+    func configureSearchBarT() {
+        // Configure cancel button action
         self.cancelSearchBarButton.action = #selector(self.pnCancelButtonTouchUp)
         self.cancelSearchBarButton.target = self
+        
         if UIDevice.current.userInterfaceIdiom == .pad {
-            self.searchBar.frame = CGRect(width: self.view.bounds.width - 150, height: 44)
-            self.navigationItem.setLeftBarButton(UIBarButtonItem(customView: searchBar), animated: true)
+            // iPad: Dynamic width based on nav bar (handles iPadOS 26 multitasking/menu bar)
+            let navBarWidth = self.navigationController?.navigationBar.frame.width ?? self.view.bounds.width
+            self.searchBar.frame = CGRect(x: 0, y: 0, width: navBarWidth - 150, height: 44)
+//            self.navigationItem.setLeftBarButton(UIBarButtonItem(customView: searchBar), animated: true)
+            
+            if #available(iOS 26.0, *) {
+                let barButtonItem = UIBarButtonItem(customView: searchBar)
+                barButtonItem.sharesBackground = false  // Prevents merging with adjacent buttons
+                navigationItem.leftBarButtonItem = barButtonItem
+            } else {
+                navigationItem.leftBarButtonItem = UIBarButtonItem(customView: searchBar)
+            }
+            
             self.navigationItem.setRightBarButton(self.cancelSearchBarButton, animated: true)
-//            self.navigationItem.setRightBarButtonItems([self.cancelSearchBarButton, UIBarButtonItem(customView: searchBar)], animated: true)
-//            self.cancelSearchBarButton.sizeToFit()
-//            self.searchBar.sizeToFit()
-//            var size = self.searchBar.frame.size
-//            self.searchBar.frame = CGRect(
-//                origin: self.searchBar.frame.origin,
-//                size: CGSize(width: size.width - 72,//self.cancelSearchBarButton.width,
-//                             height: size.height)
-//            )
         } else {
+            // iPhone: Auto-size; iOS 26 keeps nav search top by default
             self.searchBar.sizeToFit()
             self.navigationItem.setRightBarButton(UIBarButtonItem(customView: searchBar), animated: true)
         }
+        
+        // Standard search mode setup
         self.navigationItem.titleView = nil
         self.searchBar.delegate = self
         self.navigationItem.setHidesBackButton(true, animated: true)
-//        let barFrame = self.view.inputAccessoryView?.frame
-//        self.bottomSearchBar.frame = barFrame ?? .zero
+        
+        // Focus the search bar (single call suffices)
         self.searchBar.becomeFirstResponder()
-        self.searchBar.searchTextField.becomeFirstResponder()
-//        self.xabberInputView.searchPanel.isInLoadingState = false
-//        self.showLoadingIndicator.accept(false)
+        
+        // Update input view state based on search results
         if self.searchMessagesQueue.isEmpty {
             self.xabberInputView.searchPanel.changeState(to: .empty)
         } else {
             self.xabberInputView.searchPanel.changeState(to: .withResults)
         }
         self.xabberInputView.changeState(to: .search)
-        self.searchBar.setShowsCancelButton(true, animated: true)
-//        self.searchBar
         
+        // Animate cancel button visibility (iOS 26 enhances fluid animations automatically)
+        self.searchBar.setShowsCancelButton(true, animated: true)
     }
     
     public func onSearchPanelChangeConversationType(_ oldConversationType: ClientSynchronizationManager.ConversationType) {
@@ -988,6 +1089,11 @@ class ChatViewController: MessagesViewController {
         self.showSharedAudioPanel()
     }
     
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+//        updateInsets()  // Recompute and apply as above
+    }
+    
     private func configure() {
         restorationIdentifier = "CHAT_VIEW_CONTROLLER_RID_\(self.jid)\(self.owner)"
         self.initSender()
@@ -1002,6 +1108,33 @@ class ChatViewController: MessagesViewController {
         self.messagesCollectionView.messagesLayoutDelegate = self
         
         self.messagesCollectionView.transform = CGAffineTransform(scaleX: 1, y: -1)
+        
+        if #available(iOS 11.0, *) {
+            messagesCollectionView.contentInsetAdjustmentBehavior = .never
+        } else {
+            automaticallyAdjustsScrollViewInsets = false
+        }
+
+        // Compute nav/status height once (update dynamically if needed, e.g., in viewDidLayoutSubviews)
+        let navHeight: CGFloat = {
+            let statusBarHeight = view.safeAreaInsets.top
+            let navBarHeight = navigationController?.navigationBar.frame.height ?? 0
+            return statusBarHeight + navBarHeight
+        }()
+
+        // Update insets: top for input (visual bottom), bottom for nav (visual top)
+        var inputHeight: CGFloat = 49
+        if let bottomInset = UIApplication.shared.windows.first?.safeAreaInsets.bottom {
+            inputHeight += bottomInset
+        }
+        messagesCollectionView.contentInset = UIEdgeInsets(
+            top: inputHeight + 8,
+            left: 0,
+            bottom: navHeight,
+            right: 0
+        )
+        messagesCollectionView.scrollIndicatorInsets = messagesCollectionView.contentInset
+        
         self.messagesCollectionView.scrollsToTop = false
         self.scrollsToBottomOnKeybordBeginsEditing = false
         self.maintainPositionOnKeyboardFrameChanged = true
@@ -1017,23 +1150,34 @@ class ChatViewController: MessagesViewController {
         if UIDevice.current.userInterfaceIdiom == .pad && CommonConfigManager.shared.config.interface_type == "tabs" {
             navbarHeight += 55
         }
-        self.navbarOverlayView.frame = CGRect(
-            width: self.view.bounds.width,
-            height: navbarHeight
-        )
+//        self.navbarOverlayView.frame = CGRect(
+//            width: self.view.bounds.width,
+//            height: navbarHeight
+//        )
         
-        var inputHeight: CGFloat = 49
-        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
-            inputHeight += bottomInset
-        }
+//        inputHeight: CGFloat = 49
+//        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
+//            inputHeight += bottomInset
+//        }
         
         let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
         self.xabberInputView = ModernXabberInputView(frame: frame)
         self.xabberInputView.accountPalette = accountPallete
         self.xabberInputView.delegate = self
+        
         self.view.addSubview(self.scrollDownButton)
         self.view.addSubview(xabberInputView)
         self.view.bringSubviewToFront(xabberInputView)
+        
+        xabberInputView.translatesAutoresizingMaskIntoConstraints = false
+        let heightConstraint = xabberInputView.heightAnchor.constraint(equalToConstant: inputHeight)
+        NSLayoutConstraint.activate([
+            xabberInputView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            xabberInputView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            xabberInputView.bottomAnchor.constraint(equalTo: view.bottomAnchor),  // Pins to bottom safe area (home indicator)
+            heightConstraint  // Your computed inputHeight (49 + bottomInset)
+        ])
+        xabberInputView.heightConstraint = heightConstraint
         
         self.messagesCollectionView.keyboardDismissMode = .interactive
         self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 0, right: 0)
@@ -1055,7 +1199,7 @@ class ChatViewController: MessagesViewController {
         self.previousFrame = self.view.bounds
         self.view.addSubview(self.chatViewLoadingOverlay)
         self.chatViewLoadingOverlay.fillSuperview()
-        self.view.addSubview(self.navbarOverlayView)
+//        self.view.addSubview(self.navbarOverlayView)
 //        self.view.addSubview(floatingDateView)
         self.scrollDownButton.addTarget(self, action: #selector(self.onScrollDownChatButtonTouchUpInside), for: .touchUpInside)
         self.view.addSubview(self.messageLoadingActivityIndicator)
@@ -1070,6 +1214,18 @@ class ChatViewController: MessagesViewController {
 //    case avatarChatPosition = "avatar_chat_vertical_position"
 //    case avatarCornerStyle = "avatar_corner_style"
         self.updateCornerStyle()
+        
+//        self.navigationItem.title = "Chat"
+//        self.navigationController?.navigationBar
+//        if #available(iOS 26.0, *) {
+//            let button = UIBarButtonItem(image: imageLiteral("person"), style: .prominent, target: nil, action: nil)
+//            self.navigationItem.setRightBarButton(button, animated: true)
+//        } else {
+            // Fallback on earlier versions
+//        }
+        
+//        self.self.navigationController?.navigationBar.isTranslucent = true
+//        button./
     }
     
     @objc
@@ -1101,10 +1257,10 @@ class ChatViewController: MessagesViewController {
     
     final func configureBackground() {
         backgroundView.frame = CGRect(
-            origin: CGPoint(x: 0, y: 0),//((UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top ?? 0) + (self.navigationController?.navigationBar.frame.height ?? 0)),
+            origin: CGPoint(x: 0, y: ((UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top ?? 0) + (self.navigationController?.navigationBar.frame.maxY ?? 0)),
             size: self.view.bounds.size
         )
-        backgroundImage.frame = self.view.bounds
+        backgroundImage.frame = self.backgroundView.bounds
         
         gradientView.frame = self.view.bounds
         gradient.frame = self.view.bounds
@@ -1125,35 +1281,73 @@ class ChatViewController: MessagesViewController {
     }
     
     final func configureNavbar() {
+        self.navigationItem.setRightBarButtonItems([], animated: false)
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithDefaultBackground()  // Opaque base; overrides iOS 15+ transparency defaults
+        appearance.backgroundColor = .systemBackground  // Solid color (or AccountColorManager.shared.palette(for: owner).primary)
+        appearance.backgroundImage = UIImage()  // Clears tint/gray overlay
+        appearance.shadowImage = UIImage()  // Removes artifacts/gray lines
+        appearance.shadowColor = .clear
+
+        let scrollEdgeAppearance = UINavigationBarAppearance()
+        scrollEdgeAppearance.configureWithDefaultBackground()
+        scrollEdgeAppearance.backgroundColor = .systemBackground  // For scroll edge (iPadOS favors this)
+        scrollEdgeAppearance.backgroundImage = UIImage()
+        scrollEdgeAppearance.shadowImage = UIImage()
+        scrollEdgeAppearance.shadowColor = .clear
+
+        let compactAppearance = UINavigationBarAppearance()
+        compactAppearance.configureWithDefaultBackground()
+        compactAppearance.backgroundColor = .systemBackground  // Match standard for iPad/landscape consistency
+        compactAppearance.backgroundImage = UIImage()
+        compactAppearance.shadowImage = UIImage()
+        compactAppearance.shadowColor = .clear
+
+        // Apply per-VC (scoped, no global conflicts)
+        self.navigationItem.standardAppearance = appearance
+        self.navigationItem.compactAppearance = compactAppearance
+        self.navigationItem.scrollEdgeAppearance = scrollEdgeAppearance
+
+        navigationController?.navigationBar.isTranslucent = false  // Locks solid on iOS 16
+
+        navigationItem.largeTitleDisplayMode = .never
+        
+        // Custom title setup (use constraints instead of frame for better layout)
         userBarButton.gradient.colors = [UIColor.white.cgColor,
                                          AccountColorManager.shared.palette(for: self.owner).tint700.cgColor]
         
-        self.titleStack.addArrangedSubview(titleLabel)
-        self.titleStack.addArrangedSubview(statusLabel)
-        self.titleButton.addSubview(titleStack)
-        self.titleStack.fillSuperview()
-        self.titleButton.bringSubviewToFront(titleStack)
+        titleStack.addArrangedSubview(titleLabel)
+        titleStack.addArrangedSubview(statusLabel)
+        titleButton.addSubview(titleStack)
+        titleStack.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            titleStack.topAnchor.constraint(equalTo: titleButton.topAnchor),
+            titleStack.leadingAnchor.constraint(equalTo: titleButton.leadingAnchor),
+            titleStack.trailingAnchor.constraint(equalTo: titleButton.trailingAnchor),
+            titleStack.bottomAnchor.constraint(equalTo: titleButton.bottomAnchor)
+        ])
         
-        self.navigationItem.setLeftBarButton(nil, animated: true)
-        let gesture = UITapGestureRecognizer(target: self, action: #selector(self.showInfo))
-        self.userBarButton.addGestureRecognizer(gesture)
-        self.navigationItem.setRightBarButton(UIBarButtonItem(customView: self.userBarButton), animated: true)
-        self.navigationItem.backButtonDisplayMode = .minimal
-        self.navigationItem.leftItemsSupplementBackButton = true
-        self.navigationItem.largeTitleDisplayMode = .never
-        self.navigationController?.navigationBar.prefersLargeTitles = false
-//        self.navigationController?.navigationBar.large
-        self.titleStack.isUserInteractionEnabled = false
+        navigationItem.setLeftBarButton(nil, animated: true)
+        let gesture = UITapGestureRecognizer(target: self, action: #selector(showInfo))
+        userBarButton.addGestureRecognizer(gesture)
+        let accountButton = UIBarButtonItem(customView: userBarButton)
+        if #available(iOS 26.0, *) {  // Fixed: iOS 16+, not 26 (typo?)
+            accountButton.hidesSharedBackground = true
+        }
+        navigationItem.setRightBarButtonItems([accountButton], animated: false)
+        navigationItem.backButtonDisplayMode = .minimal
+        navigationItem.leftItemsSupplementBackButton = true
+        titleStack.isUserInteractionEnabled = false
         
-        self.titleButton.addTarget(self, action: #selector(self.onTitleButtonTouchUp(_:)), for: .touchUpInside)
-        self.navigationItem.titleView = titleButton
+        titleButton.addTarget(self, action: #selector(onTitleButtonTouchUp(_:)), for: .touchUpInside)
+        navigationItem.titleView = titleButton
         
-        self.titleButton.frame = CGRect(width: self.view.frame.width - 64, height: 40)
-        self.titleLabel.attributedText = self.updateTitle()
-        self.initStatus()
+        // Remove manual frame; let Auto Layout handle (titleButton will size to content + available width)
+        titleLabel.attributedText = updateTitle()
+        initStatus()
         
         userBarButton.configure(owner: owner, jid: jid)
-        if self.conversationType == .saved {
+        if conversationType == .saved {
             userBarButton.avatar.image = imageLiteral(XMPPFavoritesManagerStorageItem.imageName, dimension: 16)
             userBarButton.avatar.tintColor = AccountColorManager.shared.palette(for: owner).tint900
             userBarButton.avatar.backgroundColor = AccountColorManager.shared.palette(for: owner).tint100
@@ -1213,11 +1407,11 @@ class ChatViewController: MessagesViewController {
         gradient.frame = self.view.bounds
         
         
-        self.navbarOverlayView.frame = CGRect(
-            width: self.view.bounds.width,
-            height: navbarHeight
-        )
-        
+//        self.navbarOverlayView.frame = CGRect(
+//            width: self.view.bounds.width,
+//            height: navbarHeight
+//        )
+//        
         self.messageLoadingActivityIndicator.frame = CGRect(width: 64, height: 64)
         self.messageLoadingActivityIndicator.center = CGPoint(x: self.view.center.x, y: navbarHeight + 32)
         
@@ -1431,7 +1625,12 @@ class ChatViewController: MessagesViewController {
                 self.datasource = self.mapDataset(dataset: array)
                 self.messagesCollectionView.reloadData()
             }
-            
+        }
+        self.configureNavbar()
+        if self.inSearchMode.value {
+            self.configureSearchBar()
+        } else {
+            self.searchTextObserver.accept(nil)
         }
     }
     
@@ -1467,6 +1666,19 @@ class ChatViewController: MessagesViewController {
         self.showFloatingDateObserver.accept(false)
         self.pinnedDateView.hide(withoutAnimation: true)
 //        self.topPanelState.accept(.audioPlayer)
+        
+//        DispatchQueue.main.async {
+//                guard self.messagesCollectionView.numberOfSections > 0,
+//                      let lastIndexPath = self.messagesCollectionView.indexPathsForVisibleItems.max(by: { $0.section < $1.section || ($0.section == $1.section && $0.item < $1.item) }),
+//                      self.messagesCollectionView.contentSize.height > self.messagesCollectionView.bounds.height else { return }
+//                
+//                // Scroll to visual bottom (last message) with flip: negative y offset
+//                let bottomOffset = CGPoint(
+//                    x: 0,
+//                    y: -(self.messagesCollectionView.contentSize.height - self.messagesCollectionView.bounds.height)
+//                )
+//                self.messagesCollectionView.setContentOffset(bottomOffset, animated: false)
+//            }
     }
     
     

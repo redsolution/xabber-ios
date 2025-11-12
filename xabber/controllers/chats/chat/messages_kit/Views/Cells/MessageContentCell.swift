@@ -182,6 +182,8 @@ public class MessageContentCell: MessageCollectionViewCell {
         self.messageErrorButton.isHidden = true
         self.errorButtonBackgroundView.isHidden = true
         avatarView.image = nil
+        self.replyIcon.frame = .zero
+        self.replyIconBackground.frame = .zero
     }
     
     var error: Bool = false

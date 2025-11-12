@@ -41,7 +41,7 @@ extension CreateNewGroupViewController {
         AccountManager.shared.find(for: self.account["value"]!)?.action({ (user, stream) in
             user.groupchats.create(
                 stream,
-                server: self.server["value"]!,
+                server: self.selectedServer,
                 name: self.name.value!,
                 localPart: self.localpart,
                 privacy: GroupChatStorageItem.Privacy(rawValue: privacyValue),
@@ -83,16 +83,20 @@ extension CreateNewGroupViewController {
 //            })
 //        }
         
+        
         DispatchQueue.main.async {
             self.dismiss(animated: true) {
-                let splitVc = (UIApplication.shared.delegate as? AppDelegate)?.splitController
-                let vc = ChatViewController()
-                vc.jid = jid
-                vc.owner = owner
-                vc.conversationType = .group
-                
-                if let presenterVc = self.presentationController {
-                    showStacked(vc, in: presenterVc.presentingViewController)
+                if self.leftMenuSelectRootCategoryDelegate != nil {
+                    self.leftMenuSelectRootCategoryDelegate?.openChatlistWithChat(owner: owner, jid: jid, conversationType: .group, configure: nil)
+                } else {
+                    let vc = ChatViewController()
+                    vc.jid = jid
+                    vc.owner = owner
+                    vc.conversationType = .group
+                    
+                    if let presenterVc = self.presentationController {
+                        showStacked(vc, in: presenterVc.presentingViewController)
+                    }
                 }
             }
         }

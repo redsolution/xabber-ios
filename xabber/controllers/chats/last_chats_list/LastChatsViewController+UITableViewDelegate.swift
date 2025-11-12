@@ -34,7 +34,11 @@ extension LastChatsViewController: UITableViewDelegate {
     }
     
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return 84
+        let item = self.datasource[indexPath.row]
+        switch item.specialMessageKind {
+            case .none: return 84
+            default: return 48
+        }
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
@@ -42,18 +46,30 @@ extension LastChatsViewController: UITableViewDelegate {
             return
         }
         let item = self.datasource[indexPath.row]
+        switch item.specialMessageKind {
+            case .contact:
+                self.leftMenuSelectRootCategoryDelegate?.selectRootScreenAndCategory(screen: "contacts", category: "show_all_contacts")
+            case .invite:
+                self.leftMenuSelectRootCategoryDelegate?.selectRootScreenAndCategory(screen: "groups", category: "show_all_invites")
+            case .none:
+                self.stackNewChat(owner: item.owner, jid: item.jid, conversationType: item.conversationType)
+        }
+    }
+    
+    public func stackNewChat(owner: String, jid: String, conversationType: ClientSynchronizationManager.ConversationType, configure configureCallback: ((ChatViewController?) -> Void)? = nil) {
         if let oldVc = self.currentChatVC,
-           oldVc.jid == item.jid, oldVc.owner == item.owner, oldVc.conversationType == item.conversationType {
+           oldVc.jid == jid, oldVc.owner == owner, oldVc.conversationType == conversationType {
             oldVc.scrollToLastOrUnreadItem()
             return
         }
         self.currentChatVC = nil
         let vc = ChatViewController()
-        vc.owner = item.owner
-        vc.jid = item.jid
-        vc.conversationType = item.conversationType
+        vc.owner = owner
+        vc.jid = jid
+        vc.conversationType = conversationType
         vc.sharedPlayerPaneldelegae = self
         vc.lastChatsDisplayDelegate = self
+        configureCallback?(vc)
         if UIDevice.current.userInterfaceIdiom == .pad && CommonConfigManager.shared.config.interface_type == "split" {
             self.currentChatVC = vc
             self.playerViewToolbar.delegate = vc

@@ -128,7 +128,7 @@ class XabberUploadManager: AbstractXMPPManager {
             }
         }
         
-        Alamofire.upload(
+        AF.upload(
             multipartFormData: { formData in
                 formData.append(data, withName: "file", fileName: filename, mimeType: mimeType ?? "")
                 formData.append(mime.data(using: .utf8)!, withName: "media_type")
@@ -139,59 +139,100 @@ class XabberUploadManager: AbstractXMPPManager {
                     formData.append(jsonMetadata, withName: "metadata")
                 }
             },
-            usingThreshold: SessionManager.multipartFormDataEncodingMemoryThreshold,
             to: url,
             method: .post,
-            headers: headers) { result in
-                switch result {
-                    
-                case .success(request: let request, streamingFromDisk: let streamingFromDisk, streamFileURL: let streamFileURL):
-                    request.responseJSON(queue: nil, options: []) { response in
-                        guard let code = response.response?.statusCode else { return }
-                        if code >= 200 && code < 300 {
-                            guard let json = response.result.value as? NSDictionary,
-                                  let fileUrl = json["file"] as? String,
-                                  let name = json["name"] as? String,
-                                  let hash = json["hash"] as? String,
-                                  let quota = json["quota"] as? Int,
-                                  let used = json["used"] as? Int,
-                                  let fileID = json["id"] as? Int else {
-                                guard let json = response.result.value as? NSDictionary,
-                                      let statusCode = json["status"] as? Int else {
-                                          errorCallback(response.response?.statusCode)
-                                          return
-                                      }
-                                errorCallback(statusCode)
-                                return
-                            }
-                            
-                            let thumbnailUrl = (json["thumbnail"] as? NSDictionary)?["url"] as? String
-
-                            successCallback(fileUrl, thumbnailUrl, fileID, name, hash, url, quota, used)
-                            self.getStats()
-                        } else if code == 401 {
-                            self.tokenWasExpired()
-                            guard let json = response.result.value as? NSDictionary,
-                                  let statusCode = json["status"] as? Int else {
-                                      errorCallback(response.response?.statusCode)
-                                      return
-                                  }
-                            errorCallback(statusCode)
-                        } else if code > 401 {
-                            guard let json = response.result.value as? NSDictionary,
-                                  let statusCode = json["status"] as? Int else {
-                                      errorCallback(response.response?.statusCode)
-                                      return
-                                  }
-                            errorCallback(statusCode)
-                        }
-                    }
-                    
-                case .failure(let error):
-                    DDLogDebug("XabberUploadManager: \(#function). \(error.localizedDescription)")
-                    failCallback(error)
+            headers: HTTPHeaders(headers))
+        .validate()
+        .responseJSON { response in
+            guard let code = response.response?.statusCode else { return }
+            if code >= 200 && code < 300 {
+                guard let json = response.value as? NSDictionary,
+                      let fileUrl = json["file"] as? String,
+                      let name = json["name"] as? String,
+                      let hash = json["hash"] as? String,
+                      let quota = json["quota"] as? Int,
+                      let used = json["used"] as? Int,
+                      let fileID = json["id"] as? Int else {
+                    guard let json = response.value as? NSDictionary,
+                          let statusCode = json["status"] as? Int else {
+                              errorCallback(response.response?.statusCode)
+                              return
+                          }
+                    errorCallback(statusCode)
+                    return
                 }
+                
+                let thumbnailUrl = (json["thumbnail"] as? NSDictionary)?["url"] as? String
+
+                successCallback(fileUrl, thumbnailUrl, fileID, name, hash, url, quota, used)
+                self.getStats()
+            } else if code == 401 {
+                self.tokenWasExpired()
+                guard let json = response.value as? NSDictionary,
+                      let statusCode = json["status"] as? Int else {
+                          errorCallback(response.response?.statusCode)
+                          return
+                      }
+                errorCallback(statusCode)
+            } else if code > 401 {
+                guard let json = response.value as? NSDictionary,
+                      let statusCode = json["status"] as? Int else {
+                          errorCallback(response.response?.statusCode)
+                          return
+                      }
+                errorCallback(statusCode)
             }
+        }
+//        { result in
+//                switch result {
+//                    
+//                case .success(request: let request, streamingFromDisk: let streamingFromDisk, streamFileURL: let streamFileURL):
+//                    request.responseJSON(queue: nil, options: []) { response in
+//                        guard let code = response.response?.statusCode else { return }
+//                        if code >= 200 && code < 300 {
+//                            guard let json = response.result.value as? NSDictionary,
+//                                  let fileUrl = json["file"] as? String,
+//                                  let name = json["name"] as? String,
+//                                  let hash = json["hash"] as? String,
+//                                  let quota = json["quota"] as? Int,
+//                                  let used = json["used"] as? Int,
+//                                  let fileID = json["id"] as? Int else {
+//                                guard let json = response.result.value as? NSDictionary,
+//                                      let statusCode = json["status"] as? Int else {
+//                                          errorCallback(response.response?.statusCode)
+//                                          return
+//                                      }
+//                                errorCallback(statusCode)
+//                                return
+//                            }
+//                            
+//                            let thumbnailUrl = (json["thumbnail"] as? NSDictionary)?["url"] as? String
+//
+//                            successCallback(fileUrl, thumbnailUrl, fileID, name, hash, url, quota, used)
+//                            self.getStats()
+//                        } else if code == 401 {
+//                            self.tokenWasExpired()
+//                            guard let json = response.result.value as? NSDictionary,
+//                                  let statusCode = json["status"] as? Int else {
+//                                      errorCallback(response.response?.statusCode)
+//                                      return
+//                                  }
+//                            errorCallback(statusCode)
+//                        } else if code > 401 {
+//                            guard let json = response.result.value as? NSDictionary,
+//                                  let statusCode = json["status"] as? Int else {
+//                                      errorCallback(response.response?.statusCode)
+//                                      return
+//                                  }
+//                            errorCallback(statusCode)
+//                        }
+//                    }
+//                    
+//                case .failure(let error):
+//                    DDLogDebug("XabberUploadManager: \(#function). \(error.localizedDescription)")
+//                    failCallback(error)
+//                }
+//            }
     }
     
     //MARK: - Gets voice & media references from sent message, calls uploadFile func
@@ -415,12 +456,12 @@ class XabberUploadManager: AbstractXMPPManager {
             "Authorization" : "Bearer \(self.token)",
         ]
         
-        Alamofire
+        AF
             .request(url,
                      method: .get,
                      parameters: nil,
                      encoding: JSONEncoding.default,
-                     headers: headers
+                     headers: HTTPHeaders(headers)
                 ).responseJSON { response in
                     switch response.result {
                     case .success(let value):
@@ -507,12 +548,12 @@ class XabberUploadManager: AbstractXMPPManager {
         
         guard let url = URL(string: stringUrl) else { return }
         
-        Alamofire
+        AF
             .request(url,
                      method: .delete,
                      parameters: params,
                      encoding: JSONEncoding.default,
-                     headers: headers)
+                     headers: HTTPHeaders(headers))
             .responseJSON { response in
                 guard let code = response.response?.statusCode else { return }
                 if code >= 200 && code < 300 {
@@ -554,12 +595,12 @@ class XabberUploadManager: AbstractXMPPManager {
         ]
         guard let url = URL(string: stringUrl) else { return }
         
-        Alamofire
+        AF
             .request(url,
                      method: .delete,
                      parameters: params,
                      encoding: JSONEncoding.default,
-                     headers: headers)
+                     headers: HTTPHeaders(headers))
             .responseJSON { response in
                 guard let code = response.response?.statusCode else { return }
                 if code >= 200 && code < 300 {
@@ -595,12 +636,12 @@ class XabberUploadManager: AbstractXMPPManager {
             "jid" : jid
         ]
         
-        Alamofire
+        AF
             .request(url,
                      method: .delete,
                      parameters: params,
                      encoding: JSONEncoding.default,
-                     headers: headers)
+                     headers: HTTPHeaders(headers))
             .responseJSON { response in
                 guard let code = response.response?.statusCode else { return }
                 if code >= 200 && code < 300 {
@@ -640,12 +681,12 @@ class XabberUploadManager: AbstractXMPPManager {
             "Authorization": "Bearer \(self.token)"
         ]
         
-        Alamofire
+        AF
             .request(url,
                      method: .get,
                      parameters: nil,
                      encoding: JSONEncoding.default,
-                     headers: headers)
+                     headers: HTTPHeaders(headers))
             .responseJSON { response in
                 print("ResponseJSON (of type): \(response)")
                 
@@ -684,12 +725,12 @@ class XabberUploadManager: AbstractXMPPManager {
             "Authorization": "Bearer \(self.token)"
         ]
         
-        Alamofire
+        AF
             .request(components,
                      method: .get,
                      parameters: nil,
                      encoding: JSONEncoding.default,
-                     headers: headers)
+                     headers: HTTPHeaders(headers))
             .responseJSON { response in
                 print("ResponseJSON (avatars): \(response)")
                 
@@ -728,12 +769,12 @@ class XabberUploadManager: AbstractXMPPManager {
             "Authorization": "Bearer \(self.token)"
         ]
         
-        Alamofire
+        AF
             .request(url,
                      method: .get,
                      parameters: nil,
                      encoding: JSONEncoding.default,
-                     headers: headers)
+                     headers: HTTPHeaders(headers))
             .responseJSON { response in
                 print("ResponseJSON (from percent): \(response)")
                 
@@ -770,12 +811,12 @@ class XabberUploadManager: AbstractXMPPManager {
         
         guard let url = URL(string: stringUrl) else { return }
         
-        Alamofire
+        AF
             .request(url,
                      method: .delete,
                      parameters: [:],
                      encoding: JSONEncoding.default,
-                     headers: headers)
+                     headers: HTTPHeaders(headers))
                 .responseJSON { response in
                     switch response.result {
                     case .success(_):
@@ -813,12 +854,12 @@ class XabberUploadManager: AbstractXMPPManager {
             URLQueryItem(name: "context", value: FilesContext.voice.rawValue),
             URLQueryItem(name: "context", value: FilesContext.file.rawValue),
         ]
-        Alamofire
+        AF
             .request(url,
                      method: .delete,
                      parameters: [:],
                      encoding: JSONEncoding.default,
-                     headers: headers)
+                     headers: HTTPHeaders(headers))
                 .responseJSON { response in
                     switch response.result {
                     case .success(_):
@@ -853,13 +894,13 @@ class XabberUploadManager: AbstractXMPPManager {
             failCallback?(nil)
             return
         }
-        Alamofire
+        AF
             .request(
                 url,
                 method: .post,
                 parameters: params,
                 encoding: JSONEncoding.default,
-                headers: headers
+                headers: HTTPHeaders(headers)
             ).responseJSON { response in
                 print("ResponseJSON (from getKey): \(response)")
                 
@@ -917,13 +958,13 @@ class XabberUploadManager: AbstractXMPPManager {
             return
         }
         
-        Alamofire
+        AF
             .request(
                 url,
                 method: .post,
                 parameters: params,
                 encoding: JSONEncoding.default,
-                headers: headers
+                headers: HTTPHeaders(headers)
             ).responseJSON { [unowned self] response in
                 switch response.result {
                 case .success(let value):

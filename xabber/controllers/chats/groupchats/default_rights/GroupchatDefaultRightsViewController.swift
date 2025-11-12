@@ -22,7 +22,6 @@ import Foundation
 import UIKit
 import RxSwift
 import RxCocoa
-import TOInsetGroupedTableView
 
 class GroupchatDefaultRightsViewController: BaseViewController {
     
@@ -83,7 +82,7 @@ class GroupchatDefaultRightsViewController: BaseViewController {
     
     internal let tableView: UITableView = {
 //        let view = UITableView(frame: .zero, style: .grouped)
-        let view = InsetGroupedTableView(frame: .zero)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(ListItemEditCell.self, forCellReuseIdentifier: ListItemEditCell.cellName)
         

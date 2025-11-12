@@ -36,6 +36,7 @@ class vCardStorageItem: Object {
     }
     
     @objc dynamic var jid: String = ""
+    @objc dynamic var owner: String = ""
     //avatar
     @objc dynamic var avatarHash: String = ""
     //common

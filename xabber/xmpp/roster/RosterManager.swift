@@ -173,10 +173,6 @@ class RosterManager: AbstractXMPPManager {
                 user.presence()
             })
         }
-//        if !isInitialRosterReceived && iq.iqType == .result {
-//            isInitialRosterReceived = true
-//            AccountManager.shared.find(for: owner)?.didReceiveRoster()
-//        }
         do {
             let realm = try  WRealm.safe()
             
@@ -297,7 +293,7 @@ class RosterManager: AbstractXMPPManager {
                             }
                         }
                     } else if let instance = realm.object(ofType: RosterStorageItem.self,
-                                                   forPrimaryKey: [jid, owner].prp()) {
+                                                          forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner)) {
                         instance.owner = owner
                         instance.customUsername = item.attributeStringValue(forName: "name", withDefaultValue: "")
                         instance.subscription_ = subscribtion
@@ -308,6 +304,9 @@ class RosterManager: AbstractXMPPManager {
                             }
                         } else {
                             instance.ask = .none
+                            if let notifyInstance = realm.object(ofType: UINotificationStorageItem.self, forPrimaryKey: UINotificationStorageItem.genPrimary(owner: jid, jid: owner)) {
+                                realm.delete(notifyInstance)
+                            }
                         }
                         if let approved = item.attributeStringValue(forName: "approved"),
                            approved == "true" {

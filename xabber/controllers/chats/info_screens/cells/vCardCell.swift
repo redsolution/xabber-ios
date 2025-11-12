@@ -34,8 +34,8 @@ class VCardCell: UITableViewCell {
         stack.distribution = .fill
         stack.spacing = 2
         
-        stack.isLayoutMarginsRelativeArrangement = true
-        stack.layoutMargins = UIEdgeInsets(top: 6, bottom: 6, left: 20, right: 8)
+//        stack.isLayoutMarginsRelativeArrangement = true
+//        stack.layoutMargins = UIEdgeInsets(top: 6, bottom: 6, left: 20, right: 8)
         return stack
     }()
     
@@ -73,8 +73,9 @@ class VCardCell: UITableViewCell {
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         self.selectionStyle = .none
-        self.addSubview(stack)
-        stack.fillSuperview()
+        self.contentView.addSubview(stack)
+        stack.fillSuperviewWithOffset(top: 6, bottom: 6, left: 20, right: 20)
+//        UIEdgeInsets(top: 6, bottom: 6, left: 20, right: 8)
         
         stack.addArrangedSubview(titleLabel)
         stack.addArrangedSubview(subtitleLabel)

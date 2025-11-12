@@ -54,96 +54,10 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         
         window = UIWindow(windowScene: windowScene)
 //        window?.rootViewController = YourRootViewController()
-        
-        if AccountManager.shared.emptyAccountsList() {
-            CredentialsManager.shared.clearKeyachain()
-            AccountManager.shared.connectingUsers.accept(Set<String>())
-            let vc = OnboardingViewController()
-            
-            let navigationController = UINavigationController(rootViewController: vc)
-            
-            navigationController.isNavigationBarHidden = true
-            window?.rootViewController = navigationController
-        } else {
-            switch CommonConfigManager.shared.interfaceType {
-                case .split:
-                    let vc = UISplitViewController(style: .tripleColumn)
-                    if CommonConfigManager.shared.config.use_large_title {
-                        vc.navigationItem.largeTitleDisplayMode = .automatic
-                    } else {
-                        vc.navigationItem.largeTitleDisplayMode = .never
-                    }
-                    vc.navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
-                    vc.restorationIdentifier = "MainSplitViewController"
-                    vc.restoresFocusAfterTransition = true
-                    let chatsVc = LastChatsViewController()
-                    let primaryVc = LeftMenuViewController()
-                    let emptyChatVc = EmptyChatViewController()
-                    primaryVc.chatsVc = chatsVc
-                    chatsVc.splitDelegate = emptyChatVc
-                    if CommonConfigManager.shared.config.use_large_title {
-                        chatsVc.navigationItem.largeTitleDisplayMode = .automatic
-                    } else {
-                        chatsVc.navigationItem.largeTitleDisplayMode = .never
-                    }
-                    chatsVc.navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
-                    vc.displayModeButtonVisibility = .always
-                    vc.preferredDisplayMode = .oneBesideSecondary//.oneBesideSecondary//.allVisible
-                    vc.preferredSplitBehavior = .displace//.tile
-                    vc.primaryBackgroundStyle = .sidebar
-                    
-                    vc.delegate = UIApplication.shared.delegate as? AppDelegate
-                    
-                    let chatsNvc = UINavigationController(rootViewController: chatsVc)
-                    if CommonConfigManager.shared.config.use_large_title {
-                        chatsNvc.navigationItem.largeTitleDisplayMode = .automatic
-                    } else {
-                        chatsNvc.navigationItem.largeTitleDisplayMode = .never
-                    }
-                    chatsNvc.navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
-                    vc.viewControllers = [
-                        primaryVc,
-                        chatsNvc,
-                        UINavigationController(rootViewController: emptyChatVc)
-                    ]
-                    window?.rootViewController = vc
-                    self.splitController = vc
-                    (UIApplication.shared.delegate as? AppDelegate)?.splitController = vc
-                case .tabs:
-                    let vc = XabberTabBarViewController()
-                    vc.restorationIdentifier = "MainSplitViewController"
-                    vc.restoresFocusAfterTransition = true
-                    let chatsVc = LastChatsViewController()
-                    let contactsVc = ContactsViewController()
-                    let archivedVc = LastChatsViewController()
-                    archivedVc.filter.accept(.archived)
-                    let notificationsVc = NotificationsListViewController()
-                    let callsVc = LastCallsViewController()
-                    if CommonConfigManager.shared.config.support_calls {
-                        vc.viewControllers = [
-                            NavBarController(rootViewController: chatsVc),
-                            NavBarController(rootViewController: contactsVc),
-                            NavBarController(rootViewController: notificationsVc),
-                            NavBarController(rootViewController: archivedVc),
-                            NavBarController(rootViewController: callsVc),
-                        ]
-                    } else {
-                        vc.viewControllers = [
-                            NavBarController(rootViewController: chatsVc),
-                            NavBarController(rootViewController: contactsVc),
-                            NavBarController(rootViewController: notificationsVc),
-                            NavBarController(rootViewController: archivedVc),
-                        ]
-                    }
-                    window?.rootViewController = vc
-                    self.tabController = vc
-                    (UIApplication.shared.delegate as? AppDelegate)?.tabController = vc
-            }
-            
-        }
-        
+        let appDelegate = UIApplication.shared.delegate as? AppDelegate
+        appDelegate?.window = window
         window?.makeKeyAndVisible()
-        (UIApplication.shared.delegate as? AppDelegate)?.window = window
+        AppDelegate.setupRootViewController(instance: appDelegate, window: window)
     }
 }
 
@@ -171,23 +85,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         configurationForConnecting connectingSceneSession: UISceneSession,
         options: UIScene.ConnectionOptions
     ) -> UISceneConfiguration {
-
-
-        // Each UISceneConfiguration have a unique configuration name.
-        // The configuration name is a app-specific name
-        // you use to identify the scene, and it corresponds to entries
-        // in the `Info.plist` scene manifest.
-        var configurationName: String!
-    
-//        switch options.userActivities.first?.activityType {
-//        case UserActivity.GalleryOpenInspectorActivityType:
-//            // Create a photo inspector window scene.
-//            configurationName = "Inspector Configuration"
-//        default:
-            // Create a default gallery window scene.
-            configurationName = "Default Configuration"
-//        }
-        
+        var configurationName: String = "Default Configuration"
         return UISceneConfiguration(
             name: configurationName,
             sessionRole: connectingSceneSession.role
@@ -216,7 +114,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
     
     
-    func setupRootViewController() {
+    static func setupRootViewController(instance: AppDelegate?, window: UIWindow?) {
         if AccountManager.shared.emptyAccountsList() {
             CredentialsManager.shared.clearKeyachain()
             AccountManager.shared.connectingUsers.accept(Set<String>())
@@ -230,6 +128,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             switch CommonConfigManager.shared.interfaceType {
                 case .split:
                     let vc = UISplitViewController(style: .tripleColumn)
+//                    vc.displayModeButtonVisibility = .never
                     if CommonConfigManager.shared.config.use_large_title {
                         vc.navigationItem.largeTitleDisplayMode = .automatic
                     } else {
@@ -241,6 +140,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                     let chatsVc = LastChatsViewController()
                     let primaryVc = LeftMenuViewController()
                     let emptyChatVc = EmptyChatViewController()
+                    chatsVc.leftMenuSelectRootCategoryDelegate = primaryVc
                     primaryVc.chatsVc = chatsVc
                     chatsVc.splitDelegate = emptyChatVc
                     if CommonConfigManager.shared.config.use_large_title {
@@ -249,12 +149,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                         chatsVc.navigationItem.largeTitleDisplayMode = .never
                     }
                     chatsVc.navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
-                    vc.displayModeButtonVisibility = .always
+                    vc.displayModeButtonVisibility = .never
                     vc.preferredDisplayMode = .oneBesideSecondary//.oneBesideSecondary//.allVisible
                     vc.preferredSplitBehavior = .displace//.tile
                     vc.primaryBackgroundStyle = .sidebar
                     
-                    vc.delegate = self
+                    vc.delegate = instance
                     
                     let chatsNvc = UINavigationController(rootViewController: chatsVc)
                     if CommonConfigManager.shared.config.use_large_title {
@@ -268,8 +168,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                         chatsNvc,
                         UINavigationController(rootViewController: emptyChatVc)
                     ]
-                    window?.rootViewController = vc
-                    self.splitController = vc
+                    instance?.window?.rootViewController = vc
+                    instance?.splitController = vc
                 case .tabs:
                     let vc = XabberTabBarViewController()
                     vc.restorationIdentifier = "MainSplitViewController"
@@ -298,7 +198,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                     }
                     
                     window?.rootViewController = vc
-                    self.tabController = vc
+                    instance?.tabController = vc
             }
             
         }

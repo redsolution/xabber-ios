@@ -404,6 +404,65 @@ extension ChatViewController {
             if item.outgoing {
                 withAuthor = false
             }
+//            if (dataset.count > 1 && (offset + 1) < dataset.count) || (offset + 1 == dataset.count) {
+//                if item.archivedId == unreadId {
+//                    let kind: MessageKind = .unread(
+//                        NSAttributedString(
+//                            string: "Unread messages",
+//                            attributes: [
+//                                .font: UIFont.preferredFont(forTextStyle: .caption1),
+//                                .foregroundColor: UIColor.white,
+//                            ]
+//                        )
+//                    )
+//                    self.unreadMessagePositionId = offset
+//                    out.append(Datasource(
+//                        primary: "\(item.primary) unread",
+//                        jid: self.jid,
+//                        owner: self.owner,
+//                        outgoing: item.outgoing,
+//                        sender: item.outgoing ? self.ownerSender : self.opponentSender,
+//                        messageId: item.messageId,
+//                        sentDate: date,
+//                        editDate: nil,
+//                        kind: kind,
+//                        withAuthor: false,
+//                        withAvatar: false,//self.groupchat ? !item.outgoing : false,
+//                        error: item.state == .error,
+//                        errorType: "",
+//                        canPinMessage: false,
+//                        canEditMessage: false,
+//                        canDeleteMessage: false,
+//                        forwards: [],
+//                        isOutgoing: item.outgoing,
+//                        isEdited: false,
+//                        groupchatAuthorRole: "",
+//                        groupchatAuthorId: "",
+//                        groupchatAuthorNickname: "",
+//                        groupchatAuthorBadge: "",
+//                        isHasAttachedMessages: false,
+//                        isDownloaded: true,
+//                        state: .none,
+//                        searchString:  "",
+//                        errorMetadata: nil,
+//                        burnDate: 0,
+//                        afterburnInterval: 0,
+//                        archivedId: "\(item.archivedId) unread",
+//                        queryIds: "\(item.queryIds ?? "") unread",
+//                        isRead: item.isRead,
+//                        selectedSearchResultId: nil,//item.archivedId == self.selectedSearchResultId ? self.selectedSearchResultId : nil,
+//                        isHadHistoryGap: false,
+//                        isFakeMessage: true,
+//                        images: [],
+//                        videos: [],
+//                        files: [],
+//                        audios: [],
+//                        timeMarkerText: NSAttributedString(),
+//                        indicator: .none,
+//                        avatarUrl: nil
+//                    ))
+//                }
+//            }
             out.append(Datasource(
                 primary: item.primary,
                 jid: self.jid,
@@ -451,63 +510,7 @@ extension ChatViewController {
                 attributedAuthor: attributedAuthor
             ))
             if (dataset.count > 1 && (offset + 1) < dataset.count) || (offset + 1 == dataset.count) {
-                if item.archivedId == unreadId {
-                    let kind: MessageKind = .unread(
-                        NSAttributedString(
-                            string: "Unread messages",
-                            attributes: [
-                                .font: UIFont.preferredFont(forTextStyle: .caption1),
-                                .foregroundColor: UIColor.white,
-                            ]
-                        )
-                    )
-                    self.unreadMessagePositionId = offset
-                    out.append(Datasource(
-                        primary: "\(item.primary) unread",
-                        jid: self.jid,
-                        owner: self.owner,
-                        outgoing: item.outgoing,
-                        sender: item.outgoing ? self.ownerSender : self.opponentSender,
-                        messageId: item.messageId,
-                        sentDate: date,
-                        editDate: nil,
-                        kind: kind,
-                        withAuthor: false,
-                        withAvatar: false,//self.groupchat ? !item.outgoing : false,
-                        error: item.state == .error,
-                        errorType: "",
-                        canPinMessage: false,
-                        canEditMessage: false,
-                        canDeleteMessage: false,
-                        forwards: [],
-                        isOutgoing: item.outgoing,
-                        isEdited: false,
-                        groupchatAuthorRole: "",
-                        groupchatAuthorId: "",
-                        groupchatAuthorNickname: "",
-                        groupchatAuthorBadge: "",
-                        isHasAttachedMessages: false,
-                        isDownloaded: true,
-                        state: .none,
-                        searchString:  "",
-                        errorMetadata: nil,
-                        burnDate: 0,
-                        afterburnInterval: 0,
-                        archivedId: "\(item.archivedId) unread",
-                        queryIds: "\(item.queryIds ?? "") unread",
-                        isRead: item.isRead,
-                        selectedSearchResultId: nil,//item.archivedId == self.selectedSearchResultId ? self.selectedSearchResultId : nil,
-                        isHadHistoryGap: false,
-                        isFakeMessage: true,
-                        images: [],
-                        videos: [],
-                        files: [],
-                        audios: [],
-                        timeMarkerText: NSAttributedString(),
-                        indicator: .none,
-                        avatarUrl: nil
-                    ))
-                }
+                
                 if (offset + 1 == dataset.count) || self.isDateChange(from: item.sentDate, to: dataset[offset + 1].sentDate) {
                     let kind: MessageKind = .date(
                         NSAttributedString(
@@ -619,7 +622,7 @@ extension ChatViewController {
 //            self.messageLoadingActivityIndicator.isHidden = false
 //        }
         self.showLoadingIndicator.accept(true)
-        self.currentPage.nextPage {
+        self.currentPage.nextPage(autoUnlock: false) {
             self.loadDatasource(direction: direction) { addditional in
 //                DispatchQueue.main.async {
 //                    self.messageLoadingActivityIndicator.isHidden = true
@@ -749,6 +752,7 @@ extension ChatViewController {
                 }
                 self.messageLoadingActivityIndicator.isHidden = true
                 callback(slice)
+                self.currentPage.unlock()
             }
         }
         
@@ -789,7 +793,7 @@ extension ChatViewController {
             callback([])
             return
         }
-        if self.currentPage.minIndex == 0 && self.currentPage.maxIndex >= self.messagesObserver.count - 1 && !first{
+        if self.currentPage.minIndex == 0 && self.currentPage.maxIndex >= self.messagesObserver.count - 1 && direction == .up {// !first{
             self.loadDatasourceObserver.accept(true)
             self.currentPage.unlock()
             callback([])
@@ -844,7 +848,7 @@ extension ChatViewController {
                 minIndex = 0
             }
             let slice = Array(self.messagesObserver.prefix(upTo: maxIndex).suffix(maxIndex - minIndex))
-            
+            print("BEFORE min", minIndex, "max", maxIndex)
             slice.enumerated().forEach {
                 (offset, item) in
                 let newIndex = offset + 1
@@ -882,6 +886,7 @@ extension ChatViewController {
             }
         }
         if hasGap {
+            self.currentPage.locked = true
             XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
                 switch direction {
                     case .up:

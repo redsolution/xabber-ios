@@ -135,10 +135,10 @@ class ServerDiscoManager: AbstractXMPPManager {
                 return true
             }
             if let jid = iq.from?.bare {
-                if getNotificationServiceNode(query, jid: iq.from!.bare) {
-                    return true
-                } else if getFavoritesServiceNode(query, jid: iq.from!.bare) {
-                    return true
+                switch true {
+                    case getNotificationServiceNode(query, jid: jid): return true
+                    case getFavoritesServiceNode(query, jid: jid): return true
+                    default: break
                 }
             }
                 
@@ -152,17 +152,18 @@ class ServerDiscoManager: AbstractXMPPManager {
                 } else if type == "file" && category == "store" {
                     self.parseHTTPSettings(query, node: iq.from?.full ?? "")
                     return true
-                } else if type == "server" && category == "conference" && name == "Groupchat Service" {
-                    SettingManager.shared.saveItem(for: owner,
-                                                       scope: .globalIndex,
-                                                       key: "localJid",
-                                                       value: iq.from?.bare ?? "")
-                    SettingManager.shared.saveItem(for: owner,
-                                                       scope: .globalIndex,
-                                                       key: "localNode",
-                                                       value: query.attributeStringValue(forName: "node") ?? "")
-                    return true
                 }
+//                else if type == "server" && category == "conference" && name == "Groupchat Service" {
+//                    SettingManager.shared.saveItem(for: owner,
+//                                                       scope: .globalIndex,
+//                                                       key: "localJid",
+//                                                       value: iq.from?.bare ?? "")
+//                    SettingManager.shared.saveItem(for: owner,
+//                                                       scope: .globalIndex,
+//                                                       key: "localNode",
+//                                                       value: query.attributeStringValue(forName: "node") ?? "")
+//                    return true
+//                }
             }
             
             self.parseAndStoreUrls(query: query, nspace: "urn:xabber:http:url")

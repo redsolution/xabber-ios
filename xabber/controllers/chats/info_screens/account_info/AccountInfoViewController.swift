@@ -26,7 +26,6 @@ import RxSwift
 import RxCocoa
 import XMPPFramework
 import CocoaLumberjack
-import TOInsetGroupedTableView
 import SwiftUI
 
 class AccountInfoViewController: BaseViewController {
@@ -112,7 +111,7 @@ class AccountInfoViewController: BaseViewController {
     
     internal let tableView: UITableView = {
 //        let view = UITableView(frame: .zero, style: .grouped)
-        let view = InsetGroupedTableView(frame: .zero)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.translatesAutoresizingMaskIntoConstraints = false
         view.register(UITableViewCell.self, forCellReuseIdentifier: "ButtonCell")
@@ -352,7 +351,7 @@ class AccountInfoViewController: BaseViewController {
     
     func navigationBarButtonsConfigure() {
         let qrCodeButton = UIBarButtonItem(image: imageLiteral( "qrcode")?.withRenderingMode(.alwaysTemplate),
-                                       style: .plain,
+                                       style: .done,
                                        target: self,
                                        action: #selector(self.onQRCode))
         let paletteButton = UIBarButtonItem(image: imageLiteral( "palette")?.withRenderingMode(.alwaysTemplate),

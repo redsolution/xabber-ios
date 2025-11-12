@@ -25,7 +25,6 @@ import RxSwift
 import RxCocoa
 import MaterialComponents.MDCPalettes
 import CocoaLumberjack
-import TOInsetGroupedTableView
 
 class CreateNewGroupViewController: BaseViewController {
     
@@ -57,6 +56,7 @@ class CreateNewGroupViewController: BaseViewController {
     internal var account: [String: String] = [:]
     internal var localpart: String? = nil
     internal var canGenerateLocalpart: Bool = true
+    internal var selectedServer: String = CreateNewGroupSelectJIDViewController.servers[0]
     internal var server: [String: String] = ["type": "default", "label": "xmppdev01.xabber.com", "value": "xmppdev01.xabber.com"]
     internal var privacy: [String: String] = ["type": "default", "label": "Public", "value": "public"]
     internal var index: [String: String] = ["type": "default", "label": "Local", "value": "local"]
@@ -67,10 +67,12 @@ class CreateNewGroupViewController: BaseViewController {
     internal var creatingOwnerJid: String? = nil
     
     internal var datasource: [[CellKind]] = []
+    
+    open var leftMenuSelectRootCategoryDelegate: LeftMenuSelectRootScreenDelegate? = nil
         
     internal let saveButton: UIBarButtonItem = {
         let button = UIBarButtonItem(title: "Create".localizeString(id: "create", arguments: []),
-                                     style: .plain, target: nil, action: nil)
+                                     style: .done, target: nil, action: nil)
         
         button.isEnabled = false
         
@@ -87,7 +89,7 @@ class CreateNewGroupViewController: BaseViewController {
     
     internal let tableView: UITableView = {
 //        let view = UITableView(frame: .zero, style: .grouped)
-        let view = InsetGroupedTableView(frame: .zero)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(DescriptionCell.self, forCellReuseIdentifier: DescriptionCell.cellName)
         view.register(ItemCell.self, forCellReuseIdentifier: ItemCell.cellName)

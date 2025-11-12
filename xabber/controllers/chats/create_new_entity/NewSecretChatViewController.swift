@@ -25,7 +25,6 @@ import RxCocoa
 import RxSwift
 import RxRealm
 import CocoaLumberjack
-import TOInsetGroupedTableView
 
 class NewSecretChatViewController: SimpleBaseViewController {
     
@@ -40,6 +39,8 @@ class NewSecretChatViewController: SimpleBaseViewController {
     }
     
     internal var datasource: [Datasource] = []
+    
+    open var leftMenuSelectRootCategoryDelegate: LeftMenuSelectRootScreenDelegate? = nil
         
     private let tableView: UITableView = {
         let view = UITableView(frame: .zero, style: .insetGrouped)
@@ -154,14 +155,17 @@ extension NewSecretChatViewController: UITableViewDelegate {
         let item = datasource[indexPath.row]
         AccountManager.shared.find(for: item.owner)?.omemo.initChat(jid: item.jid)
         self.dismiss(animated: true) {
-            let splitVc = (UIApplication.shared.delegate as? AppDelegate)?.splitController
-            let vc = ChatViewController()
-            vc.jid = item.jid
-            vc.owner = item.owner
-            vc.conversationType = .omemo
-            
-            if let presenterVc = self.presentationController {
-                showStacked(vc, in: presenterVc.presentingViewController)
+            if self.leftMenuSelectRootCategoryDelegate != nil {
+                self.leftMenuSelectRootCategoryDelegate?.openChatlistWithChat(owner: item.owner, jid: item.jid, conversationType: .omemo, configure: nil)
+            } else {
+                let vc = ChatViewController()
+                vc.jid = item.jid
+                vc.owner = item.owner
+                vc.conversationType = .omemo
+                
+                if let presenterVc = self.presentationController {
+                    showStacked(vc, in: presenterVc.presentingViewController)
+                }
             }
         }
     }

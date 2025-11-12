@@ -21,7 +21,6 @@
 import Foundation
 import UIKit
 import Realm
-import TOInsetGroupedTableView
 
 class DevicesAndEncryptionListViewController: SimpleBaseViewController {
     
@@ -52,8 +51,8 @@ class DevicesAndEncryptionListViewController: SimpleBaseViewController {
     
     internal var datasource: [[Datasource]] = []
     
-    private let tableView: InsetGroupedTableView = {
-        let view = InsetGroupedTableView(frame: .zero)
+    private let tableView: UITableView = {
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         
         

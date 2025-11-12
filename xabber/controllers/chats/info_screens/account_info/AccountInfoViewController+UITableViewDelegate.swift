@@ -27,18 +27,32 @@ extension AccountInfoViewController: UITableViewDelegate {
             if datasource[indexPath.section].childs[indexPath.row].key == .accountQuota {
                 return 110
             }
-            return 44
+            if #available(iOS 26, *) {
+                return 52
+            } else {
+                return 44
+            }
         } else {
             let item = tokensDatasource[indexPath.section - datasource.count]
             switch item.kind {
-            case .current:
-                if item.childs[indexPath.row].kind == .button {
-                    return 44
-                }
-                return 84
-            case .token: return 84
-            case .button: return 44
-            case .text: return 44
+                case .current:
+                    if item.childs[indexPath.row].kind == .button {
+                        return 44
+                    }
+                    return 84
+                case .token: return 84
+                case .button:
+                    if #available(iOS 26, *) {
+                        return 52
+                    } else {
+                        return 44
+                    }
+                case .text:
+                    if #available(iOS 26, *) {
+                        return 52
+                    } else {
+                        return 44
+                    }
             }
         }
     }

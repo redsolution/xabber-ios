@@ -18,8 +18,8 @@
 //
 //
 
+import Foundation
 import UIKit
-import TOInsetGroupedTableView
 
 class MasksSelectionViewController: BaseViewController {
     class Datasource {
@@ -40,8 +40,8 @@ class MasksSelectionViewController: BaseViewController {
         }
     }
     
-    let masksSelectionTableView: InsetGroupedTableView = {
-        let tableView = InsetGroupedTableView(frame: .zero)
+    let masksSelectionTableView: UITableView = {
+        let tableView = UITableView(frame: .zero, style: .insetGrouped)
         
         return tableView
     }()

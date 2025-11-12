@@ -109,21 +109,21 @@ extension ContactsViewController {
             let accounts = realm.objects(AccountStorageItem.self)
                 .filter("enabled == true")
                 .sorted(byKeyPath: "order", ascending: true)
-            self.enabledAccounts.accept(accounts.compactMap {
-                do {
-                    let realm = try WRealm.safe()
-                    let contactsCount = realm
-                        .objects(RosterStorageItem.self)
-                        .filter("owner == %@ AND isHidden == false AND removed == false AND subscription_ != %@", $0.jid, "")
-                        .count
-                    return EnabledAccount(jid: $0.jid, isCollapsed: $0.isCollapsed, contactsCount: contactsCount)
-                } catch {
-                    DDLogDebug("ContactsViewController: \(#function). \(error.localizedDescription)")
-                }
-                
-                return EnabledAccount(jid: $0.jid, isCollapsed: $0.isCollapsed, contactsCount: 0)
-            })
-            self.updateSectionHeaders(for: self.enabledAccounts.value)
+//            self.enabledAccounts.accept(accounts.compactMap {
+//                do {
+//                    let realm = try WRealm.safe()
+//                    let contactsCount = realm
+//                        .objects(RosterStorageItem.self)
+//                        .filter("owner == %@ AND isHidden == false AND removed == false AND subscription_ != %@", $0.jid, "")
+//                        .count
+//                    return EnabledAccount(jid: $0.jid, isCollapsed: $0.isCollapsed, contactsCount: contactsCount)
+//                } catch {
+//                    DDLogDebug("ContactsViewController: \(#function). \(error.localizedDescription)")
+//                }
+//                
+//                return EnabledAccount(jid: $0.jid, isCollapsed: $0.isCollapsed, contactsCount: 0)
+//            })
+//            self.updateSectionHeaders(for: self.enabledAccounts.value)
             self.canUpdateDataset = true
             self.runDatasetUpdateTask(force: true)
         } catch {

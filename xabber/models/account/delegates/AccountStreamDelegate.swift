@@ -319,18 +319,21 @@ extension Account: XMPPStreamDelegate {
                         
                         return
                     }
-                    
-                    if VoIPManager.shared.onReceiveMessage(bareMessage, owner: self.jid, archivedDate: getDeliveryTime(bareMessage, owner: self.jid) ?? getDelayedDate(message)) {
-                        return
-                    } else if self.groupchats.readInvite(in: bareMessage, date: getDelayedDate(message) ?? Date(), isRead: nil) {
-                        return
-                    }
                     if self.akeManager.didReceivedVerificationMessage(message: bareMessage) {
                         return
-                    } else if self.trustSharingManager.didReceivedListOfContactsDevices(message: bareMessage) {
+                    }
+                    
+                    if self.trustSharingManager.didReceivedListOfContactsDevices(message: bareMessage) {
                         return
-                    } else if self.xTokens.receive(sender, withMessage: bareMessage) {
-                        
+                    }
+                    if VoIPManager.shared.onReceiveMessage(bareMessage, owner: self.jid, archivedDate: getDeliveryTime(bareMessage, owner: self.jid) ?? getDelayedDate(message)) {
+                        return
+                    }
+                    if self.groupchats.readInvite(in: bareMessage, date: getDelayedDate(message) ?? Date(), isRead: nil) {
+                        return
+                    }
+                    if self.xTokens.receive(sender, withMessage: bareMessage) {
+                        return
                     }
                 }
                 if self.chatMarkers.read(withMessage: message) {
@@ -339,6 +342,12 @@ extension Account: XMPPStreamDelegate {
                     return
                 } else {
                     self.messages.receiveArchived(message)
+                }
+            } else if isPriorityMessage(message) {
+                if let bareMessage = getPriorityMessageContainer(message) {
+                    if self.akeManager.didReceivedVerificationMessage(message: bareMessage) {
+                        return
+                    }
                 }
             } else if isCarbonCopy(message) {
                 if let bareMessage = getCarbonCopyMessageContainer(message) {
@@ -349,7 +358,9 @@ extension Account: XMPPStreamDelegate {
                         
                         return
                     }
-                    
+                    if self.akeManager.didReceivedVerificationMessage(message: bareMessage) {
+                        return
+                    }
                     if self.chatStates.read(withMessage: bareMessage) {
                         return
                     } else if VoIPManager.shared.onReceiveMessage(bareMessage, owner: self.jid, archivedDate: getDeliveryTime(bareMessage, owner: self.jid) ?? getDelayedDate(message), runtime: true, outgoing: true) {
@@ -373,7 +384,9 @@ extension Account: XMPPStreamDelegate {
                         
                         return
                     }
-                    
+                    if self.akeManager.didReceivedVerificationMessage(message: bareMessage) {
+                        return
+                    }
                     if VoIPManager.shared.onReceiveMessage(bareMessage, owner: self.jid, archivedDate: getDeliveryTime(bareMessage, owner: self.jid) ?? getDelayedDate(message), runtime: true, outgoing: true) {
                         return
                     } else if self.deliveryReceipts.read(withMessage: bareMessage) {
@@ -399,7 +412,9 @@ extension Account: XMPPStreamDelegate {
                     
                     return
                 }
-                
+                if self.akeManager.didReceivedVerificationMessage(message: message) {
+                    return
+                }
                 if self.chatMarkers.read(withMessage: message) {
                     return
                 }
@@ -431,6 +446,16 @@ extension Account: XMPPStreamDelegate {
         case .headline:
             if self.deliveryManager.read(headline: message) {
                 return
+            }
+            if self.akeManager.didReceivedVerificationMessage(message: message) {
+                return
+            }
+            if isPriorityMessage(message) {
+                if let bareMessage = getPriorityMessageContainer(message) {
+                    if self.akeManager.didReceivedVerificationMessage(message: bareMessage) {
+                        return
+                    }
+                }
             }
             if self.devices.readHeadline(message) {
                 return

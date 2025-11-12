@@ -88,137 +88,178 @@ class XMPPNotificationsManager: AbstractXMPPManager {
     }
     
     public func read(withMessage message: XMPPMessage) -> Bool {
-//        if message.from?.bare == self.node {
-            var bareMessage: XMPPMessage = message
-            if isArchivedMessage(message) {
-                bareMessage = getArchivedMessageContainer(message) ?? message
-            } else if isCarbonCopy(message) {
-                bareMessage = getCarbonCopyMessageContainer(message) ?? message
-            } else if isCarbonForwarded(message) {
-                bareMessage = getCarbonForwardedMessageContainer(message) ?? message
-            }
-            if let notify = bareMessage.element(forName: "notification", xmlns: self.getPrimaryNamespace()) {
-                let uniqueMessageId = getUniqueMessageId(bareMessage, owner: self.owner)
-                
-                guard let jidRaw = bareMessage.element(forName: "addresses")?.element(forName: "address")?.attributeStringValue(forName: "jid"),
-                      let jid = XMPPJID(string: jidRaw)?.bare else {
-                    return false
-                }
-                do {
-                    let realm = try WRealm.safe()
-                    if realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: NotificationStorageItem.genPrimary(owner: self.owner, jid: jid, uniqueId: uniqueMessageId)) != nil {
-                        return true
-                    }
-                    let instance = NotificationStorageItem()
-                    instance.owner = self.owner
-                    instance.jid = jid
-                    instance.uniqueId = uniqueMessageId
-                    instance.primary = NotificationStorageItem.genPrimary(owner: self.owner, jid: jid, uniqueId: uniqueMessageId)
-                    if let messageContainer = notify.element(forName: "forwarded")?.element(forName: "message"),
-                       let deviceElement = messageContainer.element(forName: "device") {
-                        instance.category = .device
-                        let deviceId = deviceElement.attributeStringValue(forName: "id", withDefaultValue: "none")
-                        if let deviceInstance = realm.object(ofType: DeviceStorageItem.self, forPrimaryKey: DeviceStorageItem.genPrimary(uid: deviceId, owner: self.owner)) {
-                            instance.metadata = [
-                                "deviceId": deviceId,
-                                "ip": deviceInstance.ip,
-                                "client": deviceInstance.client,
-                                "device": deviceInstance.device,
-                            ]
-                            instance.shouldShow = true
-                        } else {
-                            instance.metadata = [
-                                "deviceId": deviceId,
-                            ]
-                            instance.shouldShow = true
-                        }
-                        
-                        instance.text = messageContainer.element(forName: "body")?.stringValue
-                        guard let dateString = bareMessage
-                            .elements(forName: "time")
-                            .first(where: { $0.xmlns() == "https://xabber.com/protocol/delivery"
-                                && $0.attributeStringValue(forName: "by", withDefaultValue: "none") == owner})?
-                            .attributeStringValue(forName: "stamp", withDefaultValue: "0")
-                            else {
-                                return false
-                        }
-                        var date: Date? = nil
-                        let dateFormatter = DateFormatter()
-                        dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
-                        date = dateFormatter.date(from: dateString)
-                        if date == nil {
-                            let dateFormatter = DateFormatter()
-                            dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZ"
-                            date = dateFormatter.date(from: dateString)
-                        }
-                        instance.date = date ?? Date()
-                    } else if let mentionElement = notify.element(forName: "mention") {
-                        instance.category = .mention
-                        guard let dateString = bareMessage
-                            .elements(forName: "time")
-                            .first(where: { $0.xmlns() == "https://xabber.com/protocol/delivery"
-                                && $0.attributeStringValue(forName: "by", withDefaultValue: "none") == owner})?
-                            .attributeStringValue(forName: "stamp", withDefaultValue: "0")
-                            else {
-                                return false
-                        }
-                        var date: Date? = nil
-                        let dateFormatter = DateFormatter()
-                        dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
-                        date = dateFormatter.date(from: dateString)
-                        if date == nil {
-                            let dateFormatter = DateFormatter()
-                            dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZ"
-                            date = dateFormatter.date(from: dateString)
-                        }
-                        instance.date = date ?? Date()
-                        instance.shouldShow = true
-                    } else if let infoElement = notify.element(forName: "info") {
-                        instance.category = .info
-                        guard let dateString = bareMessage
-                            .elements(forName: "time")
-                            .first(where: { $0.xmlns() == "https://xabber.com/protocol/delivery"
-                                && $0.attributeStringValue(forName: "by", withDefaultValue: "none") == owner})?
-                            .attributeStringValue(forName: "stamp", withDefaultValue: "0")
-                            else {
-                                return false
-                        }
-                        var date: Date? = nil
-                        let dateFormatter = DateFormatter()
-                        dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
-                        date = dateFormatter.date(from: dateString)
-                        if date == nil {
-                            let dateFormatter = DateFormatter()
-                            dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZ"
-                            date = dateFormatter.date(from: dateString)
-                        }
-                        instance.date = date ?? Date()
-                        instance.shouldShow = true
-                        instance.metadata = ["text": infoElement.stringValue]
-                    } else {
-                        return false
-                    }
-                    try realm.write {
-                        realm.add(instance)
-                    }
-                } catch {
-                    DDLogDebug("XMPPNotificationManager: \(#function). \(error.localizedDescription)")
-                }
-                return true
-            } else {
+        var bareMessage: XMPPMessage = message
+        if isArchivedMessage(message) {
+            bareMessage = getArchivedMessageContainer(message) ?? message
+        } else if isCarbonCopy(message) {
+            bareMessage = getCarbonCopyMessageContainer(message) ?? message
+        } else if isCarbonForwarded(message) {
+            bareMessage = getCarbonForwardedMessageContainer(message) ?? message
+        }
+        if let notify = bareMessage.element(forName: "notification", xmlns: self.getPrimaryNamespace()) {
+            let uniqueMessageId = getUniqueMessageId(bareMessage, owner: self.owner)
+            let messageId = getOriginOrMessageId(bareMessage)
+            
+            guard let jidRaw = bareMessage.element(forName: "addresses")?.element(forName: "address")?.attributeStringValue(forName: "jid"),
+                  let jid = XMPPJID(string: jidRaw)?.bare else {
                 return false
             }
+            do {
+                let realm = try WRealm.safe()
+                if realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: NotificationStorageItem.genPrimary(owner: self.owner, jid: jid, uniqueId: uniqueMessageId)) != nil {
+                    return true
+                }
+                let instance = NotificationStorageItem()
+                instance.owner = self.owner
+                instance.jid = jid
+                instance.uniqueId = uniqueMessageId
+                instance.messageId = messageId
+                instance.primary = NotificationStorageItem.genPrimary(owner: self.owner, jid: jid, uniqueId: uniqueMessageId)
+                if let messageContainer = notify.element(forName: "forwarded")?.element(forName: "message"),
+                   let deviceElement = messageContainer.element(forName: "device") {
+                    instance.category = .device
+                    let deviceId = deviceElement.attributeStringValue(forName: "id", withDefaultValue: "none")
+                    if let deviceInstance = realm.object(ofType: DeviceStorageItem.self, forPrimaryKey: DeviceStorageItem.genPrimary(uid: deviceId, owner: self.owner)) {
+                        instance.metadata = [
+                            "deviceId": deviceId,
+                            "ip": deviceInstance.ip,
+                            "client": deviceInstance.client,
+                            "device": deviceInstance.device,
+                        ]
+                        instance.shouldShow = true
+                    } else {
+                        instance.metadata = [
+                            "deviceId": deviceId,
+                        ]
+                        instance.shouldShow = true
+                    }
+                    
+                    instance.text = messageContainer.element(forName: "body")?.stringValue
+                    
+                    guard let dateString = bareMessage
+                        .elements(forName: "time")
+                        .first(where: { $0.xmlns() == "https://xabber.com/protocol/delivery"
+                            && $0.attributeStringValue(forName: "by", withDefaultValue: "none") == owner})?
+                        .attributeStringValue(forName: "stamp", withDefaultValue: "0")
+                        else {
+                            return false
+                    }
+                    var date: Date? = nil
+                    let dateFormatter = DateFormatter()
+                    dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
+                    date = dateFormatter.date(from: dateString)
+                    if date == nil {
+                        let dateFormatter = DateFormatter()
+                        dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZ"
+                        date = dateFormatter.date(from: dateString) ?? Date()
+                    }
+                    guard let date = date else { return false }
+                    instance.date = date
+                    let lastReadNotificationDate = realm.objects(NotificationStorageItem.self).filter("owner == %@ AND isRead == true", self.owner).sorted(byKeyPath: "date", ascending: false).first?.date.timeIntervalSince1970 ?? 0
+                    instance.isRead = date.timeIntervalSince1970 > lastReadNotificationDate
+                } else if let mentionElement = notify.element(forName: "mention") {
+                    instance.category = .mention
+                    guard let dateString = bareMessage
+                        .elements(forName: "time")
+                        .first(where: { $0.xmlns() == "https://xabber.com/protocol/delivery"
+                            && $0.attributeStringValue(forName: "by", withDefaultValue: "none") == owner})?
+                        .attributeStringValue(forName: "stamp", withDefaultValue: "0")
+                        else {
+                            return false
+                    }
+                    var date: Date? = nil
+                    let dateFormatter = DateFormatter()
+                    dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
+                    date = dateFormatter.date(from: dateString)
+                    if date == nil {
+                        let dateFormatter = DateFormatter()
+                        dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZ"
+                        date = dateFormatter.date(from: dateString) ?? Date()
+                    }
+                    guard let date = date else { return false }
+                    instance.date = date
+                    let lastReadNotificationDate = realm.objects(NotificationStorageItem.self).filter("owner == %@ AND isRead == true", self.owner).sorted(byKeyPath: "date", ascending: false).first?.date.timeIntervalSince1970 ?? 0
+                    instance.isRead = date.timeIntervalSince1970 > lastReadNotificationDate
+                    instance.shouldShow = true
+                } else if let infoElement = notify.element(forName: "info") {
+                    instance.category = .info
+                    guard let dateString = bareMessage
+                        .elements(forName: "time")
+                        .first(where: { $0.xmlns() == "https://xabber.com/protocol/delivery"
+                            && $0.attributeStringValue(forName: "by", withDefaultValue: "none") == owner})?
+                        .attributeStringValue(forName: "stamp", withDefaultValue: "0")
+                        else {
+                            return false
+                    }
+                    var date: Date? = nil
+                    let dateFormatter = DateFormatter()
+                    dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
+                    date = dateFormatter.date(from: dateString)
+                    if date == nil {
+                        let dateFormatter = DateFormatter()
+                        dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZ"
+                        date = dateFormatter.date(from: dateString) ?? Date()
+                    }
+                    guard let date = date else { return false }
+                    instance.date = date
+                    let lastReadNotificationDate = realm.objects(NotificationStorageItem.self).filter("owner == %@ AND isRead == true", self.owner).sorted(byKeyPath: "date", ascending: false).first?.date.timeIntervalSince1970 ?? 0
+                    instance.isRead = date.timeIntervalSince1970 > lastReadNotificationDate
+                    instance.shouldShow = true
+                    instance.metadata = ["text": infoElement.stringValue ?? ""]
+                } else {
+                    return false
+                }
+                try realm.write {
+                    realm.add(instance)
+                }
+            } catch {
+                DDLogDebug("XMPPNotificationManager: \(#function). \(error.localizedDescription)")
+            }
+            return true
+        } else {
+            return false
+        }
+    }
+    
+    public func readAll(_ stream: XMPPStream) {
+        do {
+            let realm = try WRealm.safe()
+            guard let node = self.node else {
+                return
+            }
+            if let lastReadNotification = realm
+                .objects(NotificationStorageItem.self)
+                .filter("owner == %@ AND isRead == false", self.owner)
+                .sorted(byKeyPath: "date", ascending: false)
+                .first {
+                
+                let elementId = "ChatMarkers: \(NanoID.new(8))"
+                let displayed = DDXMLElement(name: "displayed", xmlns: getPrimaryNamespace())
+                displayed.addAttribute(withName: "id", stringValue: lastReadNotification.messageId)
+                
+                let response = XMPPMessage(messageType: .chat, to: XMPPJID(string: node), elementID: elementId, child: displayed)
+                let conversationType = ClientSynchronizationManager.ConversationType.notifications
+                let conversation = DDXMLElement(name: "conversation", xmlns: "https://xabber.com/protocol/synchronization")
+                conversation.addAttribute(withName: "type", stringValue: conversationType.rawValue)
+                conversation.addAttribute(withName: "jid", stringValue: node)
+                response.addChild(conversation)
+                stream.send(response)
+            }
+        } catch {
+            DDLogDebug("XMPPNotificationsManager: \(#function). \(error.localizedDescription)")
+        }
     }
     
     public func update(_ stream: XMPPStream) {
         guard isAvailable(), let node = self.node else { return }
         do {
             let realm = try WRealm.safe()
-            let lastId = realm.object(
-                ofType: XMPPNotificationsManagerStorageItem.self,
-                forPrimaryKey: XMPPNotificationsManagerStorageItem
-                    .genPrimary(owner: self.owner)
-            )?.lastItemId
+            let lastId = realm
+                .objects(NotificationStorageItem.self)
+                .filter("owner == %@", self.owner)
+                .sorted(byKeyPath: "date", ascending: false)
+                .first?
+                .uniqueId
             AccountManager.shared.find(for: self.owner)?.mam.requestArchive(
                 stream,
                 jid: node,

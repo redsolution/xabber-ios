@@ -89,6 +89,12 @@ class EmptyStateView: UIView {
     }
     
     public final func configure(image: UIImage?, title: String, subtitle: String, buttonTitle: String, onButtonTouchUp: (() -> Void)?) {
+        self.update(image: image, title: title, subtitle: subtitle, buttonTitle: buttonTitle)
+        callback = onButtonTouchUp
+    }
+    
+    override init(frame: CGRect) {
+        super.init(frame: frame)
         backgroundColor = .systemBackground
         addSubview(stack)
         stack.fillSuperview()
@@ -98,14 +104,14 @@ class EmptyStateView: UIView {
         centerStack.addArrangedSubview(iconImage)
         centerStack.addArrangedSubview(titleLabel)
         centerStack.addArrangedSubview(subtitleLabel)
-
-        self.update(image: image, title: title, subtitle: subtitle, buttonTitle: buttonTitle)
-        
         button.titleLabel?.numberOfLines = 0
         button.titleLabel?.textAlignment = .center
         button.addTarget(self, action: #selector(onButtonPressed), for: .touchUpInside)
         activaateConstraints()
-        callback = onButtonTouchUp
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
     
     public final func update(image: UIImage?, title: String, subtitle: String, buttonTitle: String) {

@@ -176,3 +176,29 @@ extension String
         return image
     }
 }
+
+extension String {
+    static func membersAndContactsString(members: Int, contacts: Int) -> String {
+        var memberStr: String = ""
+        var contactStr: String = ""
+        if members == 0 {
+            return ""
+        }
+        if members == 1 {
+            memberStr = "1 member"
+        }
+        if members > 1 {
+            memberStr = "\(members) members"
+        }
+        if contacts == 0 {
+            contactStr = ""
+        }
+        if contacts == 1 {
+            contactStr = " · 1 contact"
+        }
+        if contacts > 1 {
+            contactStr = " · \(contacts) contacts"
+        }
+        return memberStr + contactStr
+    }
+}

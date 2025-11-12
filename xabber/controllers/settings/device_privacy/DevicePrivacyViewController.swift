@@ -8,7 +8,6 @@
 
 import Foundation
 import UIKit
-import TOInsetGroupedTableView
 import RealmSwift
 import CocoaLumberjack
 
@@ -19,7 +18,7 @@ class DevicePrivacyViewController: SimpleBaseViewController {
     private var yetAnotherDeviceName: String = ""
     
     internal let tableView: UITableView = {
-        let view = InsetGroupedTableView(frame: .zero)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(SimpleTableViewController.SwitchCell.self, forCellReuseIdentifier: SimpleTableViewController.SwitchCell.cellName)
         view.register(DeviceNameTextFieldCell.self, forCellReuseIdentifier: DeviceNameTextFieldCell.cellName)
@@ -106,7 +105,11 @@ extension DevicePrivacyViewController: UITableViewDataSource {
 extension DevicePrivacyViewController: UITableViewDelegate {
     
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return 44
+        if #available(iOS 26, *) {
+            return 52
+        } else {
+            return 44
+        }
     }
     
 }

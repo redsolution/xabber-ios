@@ -47,6 +47,8 @@ class GroupchatInvitesStorageItem: Object {
     @objc dynamic var isProcessed: Bool = false
     @objc dynamic var entity_: String = RosterItemEntity.groupchat.rawValue
     
+    @objc dynamic var isGroupInfoLoaded: Bool = false
+    
     @objc dynamic var isAnonymous: Bool = false
     
     var entity: RosterItemEntity {

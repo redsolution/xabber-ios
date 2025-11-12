@@ -20,7 +20,6 @@
 
 import Foundation
 import UIKit
-import TOInsetGroupedTableView
 import CocoaLumberjack
 import RealmSwift
 
@@ -159,8 +158,8 @@ class MessageSigningInfoViewController: SimpleBaseViewController {
     internal var datasource: [[Datasource]] = []
     var timer: Timer? = nil
     
-    private let tableView: InsetGroupedTableView = {
-        let view = InsetGroupedTableView(frame: .zero)
+    private let tableView: UITableView = {
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(UITableViewCell.self, forCellReuseIdentifier: "YKTableCell")
         view.register(CheckomarkTableViewCell.self, forCellReuseIdentifier: CheckomarkTableViewCell.cellName)
@@ -323,7 +322,11 @@ class MessageSigningInfoViewController: SimpleBaseViewController {
 
 extension MessageSigningInfoViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return 44
+        if #available(iOS 26, *) {
+            return 52
+        } else {
+            return 44
+        }
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {

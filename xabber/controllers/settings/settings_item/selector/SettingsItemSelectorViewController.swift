@@ -20,13 +20,12 @@
 
 import Foundation
 import UIKit
-import TOInsetGroupedTableView
 
 class SettingsItemSelectorViewController: BaseViewController {
     
     internal let tableView: UITableView = {
 //        let view = UITableView(frame: .zero, style: .grouped)
-        let view = InsetGroupedTableView(frame: .zero)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(Cell.self, forCellReuseIdentifier: Cell.cellName)
         

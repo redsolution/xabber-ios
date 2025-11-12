@@ -9,7 +9,6 @@
 import Foundation
 import UIKit
 import CocoaLumberjack
-import TOInsetGroupedTableView
 
 class SubscribtionsListViewController: SimpleBaseViewController {
     
@@ -95,8 +94,8 @@ class SubscribtionsListViewController: SimpleBaseViewController {
         return button
     }()
     
-    let tableView: InsetGroupedTableView = {
-        let view = InsetGroupedTableView(frame: .zero)
+    let tableView: UITableView = {
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(AccountStateCell.self, forCellReuseIdentifier: AccountStateCell.cellName)
         view.register(SubscribtionItemCell.self, forCellReuseIdentifier: SubscribtionItemCell.cellName)
@@ -227,7 +226,8 @@ class SubscribtionsListViewController: SimpleBaseViewController {
 //                    ]
 //                    (UIApplication.shared.delegate as! AppDelegate).window?.rootViewController = vc
 //                    (UIApplication.shared.delegate as! AppDelegate).splitController = vc
-                    (UIApplication.shared.delegate as? AppDelegate)?.setupRootViewController()
+                    let appDelegate = UIApplication.shared.delegate as? AppDelegate
+                    AppDelegate.setupRootViewController(instance: appDelegate, window: appDelegate?.window)
                 default:
                     self.dismiss(animated: true)
                     self.navigationController?.popViewController(animated: true)
@@ -318,7 +318,11 @@ extension SubscribtionsListViewController: UITableViewDelegate {
             case 1:
                 return 56
             case 2:
-                return 44
+                if #available(iOS 26, *) {
+                    return 52
+                } else {
+                    return 44
+                }
             default:
                 return 0
         }

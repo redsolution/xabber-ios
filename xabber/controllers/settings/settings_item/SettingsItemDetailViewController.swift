@@ -22,7 +22,6 @@ import Foundation
 import UIKit
 import RxSwift
 import CocoaLumberjack
-import TOInsetGroupedTableView
 
 class SettingsItemDetailViewController: BaseViewController {
     
@@ -32,7 +31,7 @@ class SettingsItemDetailViewController: BaseViewController {
     
     internal let tableView: UITableView = {
 //        let view = UITableView(frame: .zero, style: .grouped)
-        let view = InsetGroupedTableView(frame: .zero)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(SelectorCell.self, forCellReuseIdentifier: SelectorCell.cellName)
         view.register(SwitchCell.self, forCellReuseIdentifier: SwitchCell.cellName)

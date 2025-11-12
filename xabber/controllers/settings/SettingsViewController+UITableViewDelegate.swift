@@ -29,13 +29,21 @@ extension SettingsViewController: UITableViewDelegate {
         switch datasource[indexPath.section].section {
         case .xmppAccounts:
             if indexPath.row == (accounts?.count ?? 0) {
-                return 44
+                if #available(iOS 26, *) {
+                    return 52
+                } else {
+                    return 44
+                }
             }
             return 64
         case .session:
             return tableView.estimatedRowHeight
         default:
-            return 44
+                if #available(iOS 26, *) {
+                    return 52
+                } else {
+                    return 44
+                }
         }
     }
     

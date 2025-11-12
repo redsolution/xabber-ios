@@ -13,7 +13,7 @@ import MaterialComponents.MDCPalettes
 extension NotificationsListViewController {
     class NotificationItemCell: UITableViewCell {
         static let cellName = "NotificationItemCell"
-        static let badgeSize: CGFloat = 24
+        static let badgeSize: CGFloat = 16
         let stack: UIStackView = {
             let stack = UIStackView()
             
@@ -24,6 +24,16 @@ extension NotificationsListViewController {
             
             stack.isLayoutMarginsRelativeArrangement = true
             stack.layoutMargins = UIEdgeInsets(top: 8, bottom: 8, left: 0, right: 0)
+            
+            return stack
+        }()
+        
+        let titleStack: UIStackView = {
+            let stack = UIStackView()
+            
+            stack.axis = .horizontal
+            stack.distribution = .fill
+            stack.alignment = .center
             
             return stack
         }()
@@ -91,29 +101,44 @@ extension NotificationsListViewController {
             
             return label
         }()
-                
-        let badgeIndicator: UIImageView = {
-            let view = UIImageView(frame: CGRect(x: 62.5 - NotificationItemCell.badgeSize, y: 62.5 - NotificationItemCell.badgeSize, width: NotificationItemCell.badgeSize, height: NotificationItemCell.badgeSize))
+        
+        let dateLabel: UILabel = {
+            let label = UILabel()
+                        
+            label.lineBreakMode = .byWordWrapping
+            label.font = UIFont.systemFont(ofSize: 14, weight: .regular)
+            label.textColor = .secondaryLabel
+            label.numberOfLines = 0
             
-            view.layer.cornerRadius = NotificationItemCell.badgeSize / 2
-            view.layer.masksToBounds = true
-            view.backgroundColor = .systemBackground
+            return label
+        }()
+                
+        let badgeIndicator: RoundedStatusView = {
+            let view = RoundedStatusView()
+            
+            view.frame = CGRect(x: 47,
+                                y: 47,
+                                width: 16,
+                                height: 16)
+
+            view.border(1)
+            view.setCustomStatus(color: UIColor.red, iconName: nil)
             
             return view
         }()
         
-        let badgeIcon: UIImageView = {
-            let view = UIImageView(frame: CGRect(0, 0, NotificationItemCell.badgeSize, NotificationItemCell.badgeSize))
+        let dimmedView: UIView = {
+            let view = UIView(frame: .zero)
             
-            view.tintColor = MDCPalette.green.tint700
-            view.contentMode = .center
+            view.backgroundColor = MDCPalette.grey.tint50
             
             return view
         }()
+        
                 
         var currentUrl: String? = nil
         
-        public func configure(jid: String, owner: String, avatarUrl: String?, icon: String, title: NSAttributedString, date: Date) {
+        public func configure(jid: String, owner: String, avatarUrl: String?, icon: String, title: NSAttributedString, message: NSAttributedString?, date: Date, isRead: Bool) {
 
             if currentUrl != avatarUrl || currentUrl == nil {
                 currentUrl = avatarUrl
@@ -125,17 +150,17 @@ extension NotificationsListViewController {
                     }
                 }
             }
+            dimmedView.backgroundColor = AccountColorManager.shared.palette(for: owner).tint50
+            updateReadState(isRead, animated: false)
             
-            
-            self.badgeIcon.image = imageLiteral(icon, dimension: NotificationItemCell.badgeSize + 2)
+            self.badgeIndicator.setCustomStatus(color: AccountColorManager.shared.palette(for: owner).tint700, iconName: icon)
             
             let dateFormatter = DateFormatter()
             
-            dateFormatter.dateFormat = "HH:mm"
-                        
-            accessoryType = .disclosureIndicator
+            dateFormatter.dateFormat = "HH:mm:ss"
             titleLabel.attributedText = title
-            messageLabel.text = dateFormatter.string(from: date)
+            messageLabel.attributedText = message
+            dateLabel.text = dateFormatter.string(from: date)
         }
         
         internal final func setMask() {
@@ -153,13 +178,38 @@ extension NotificationsListViewController {
 
         }
         
+        public final func updateReadState(_ state: Bool, animated: Bool) {
+            func transaction(_ block: @escaping (() -> Void)) {
+                if animated {
+                    UIView.animate(
+                        withDuration: 0.3,
+                        delay: 0.0,
+                        usingSpringWithDamping: 0.7,
+                        initialSpringVelocity: 0.4,
+                        options: [.curveLinear],
+                        animations: block,
+                        completion: nil)
+                } else {
+                    block()
+                }
+            }
+            transaction {
+                if state {
+                    self.dimmedView.alpha = 0.0
+                } else {
+                    self.dimmedView.alpha = 1.0
+                }
+            }
+        }
+        
         private func setupSubviews() {
+            contentView.addSubview(dimmedView)
+            dimmedView.fillSuperview()
             contentView.addSubview(stack)
             stack.fillSuperviewWithOffset(top: 8, bottom: 8, left: 96, right: 18)
             
             backgroundColor = .systemBackground
             
-            badgeIndicator.addSubview(badgeIcon)
             avatarContainer.frame = CGRect(x: 16, y: 10, width: 64, height: 64)
             avatarContainer.addSubview(userImageView)
             avatarView.frame = CGRect(x: 0, y: 0, width: 64, height: 64)
@@ -168,16 +218,41 @@ extension NotificationsListViewController {
             avatarContainer.addSubview(badgeIndicator)
             avatarContainer.bringSubviewToFront(badgeIndicator)
             
-            stack.addArrangedSubview(titleLabel)
+            stack.addArrangedSubview(titleStack)
+            titleStack.addArrangedSubview(titleLabel)
+            if UIDevice.current.userInterfaceIdiom == .pad {
+                titleStack.addArrangedSubview(dateLabel)
+            }
             stack.addArrangedSubview(messageLabel)
+            if UIDevice.current.userInterfaceIdiom != .pad {
+                stack.addArrangedSubview(dateLabel)
+            }
             
             separatorInset = UIEdgeInsets(top: 0, bottom: 0, left: 96, right: 0)
+            
+            
+//            self.dateLabel.frame = CGRect(
+//                origin: .zero,
+//                size: CGSize(width: 100, height: 20)
+//            )
+            if UIDevice.current.userInterfaceIdiom == .pad {
+                self.dateLabel.textAlignment = .right
+            } else {
+                self.dateLabel.textAlignment = .left
+            }
+            
+            
             activateConstraints()
         }
         
         private func activateConstraints() {
+            
             NSLayoutConstraint.activate([
-                stack.heightAnchor.constraint(greaterThanOrEqualToConstant: 64)
+                stack.heightAnchor.constraint(greaterThanOrEqualToConstant: 64),
+                self.dateLabel.widthAnchor.constraint(equalToConstant: 120),
+//                self.dateLabel.rightAnchor.constraint(equalTo: titleStack.rightAnchor),
+                self.titleStack.leftAnchor.constraint(equalTo: stack.leftAnchor),
+                self.titleStack.rightAnchor.constraint(equalTo: stack.rightAnchor)
             ])
         }
         

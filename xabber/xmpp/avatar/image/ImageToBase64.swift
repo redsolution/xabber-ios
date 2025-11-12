@@ -33,8 +33,8 @@ public func base64ToImage(_ string: String) -> UIImage? {
     return UIImage(data: data)
 }
 
-public func imageToBase64(_ image: UIImage) -> String? {
-    guard let collection = image.pngData()?.bytes else { return nil }
-    let string = Data(collection).base64EncodedString()
-    return string
-}
+//public func imageToBase64(_ image: UIImage) -> String? {
+//    guard let collection = image.pngData()?.bytes else { return nil }
+//    let string = Data(collection).base64EncodedString()
+//    return string
+//}

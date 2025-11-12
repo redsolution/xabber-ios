@@ -31,6 +31,8 @@ class QRCodeScannerViewController: UIViewController, AVCaptureMetadataOutputObje
     
     var captureSession: AVCaptureSession!
     var previewLayer: AVCaptureVideoPreviewLayer!
+    
+    open var leftMenuSelectRootCategoryDelegate: LeftMenuSelectRootScreenDelegate? = nil
 
     private let qrScannerView: UIView = {
         let view = UIView()

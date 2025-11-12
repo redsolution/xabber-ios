@@ -26,7 +26,11 @@ extension GroupchatContactInfoViewController: UITableViewDelegate {
         if indexPath.section >= datasource.count {
             return 64
         }
-        return 44
+        if #available(iOS 26, *) {
+            return 52
+        } else {
+            return 44
+        }
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {

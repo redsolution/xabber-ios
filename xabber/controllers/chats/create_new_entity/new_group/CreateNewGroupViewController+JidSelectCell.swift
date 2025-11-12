@@ -57,8 +57,10 @@ extension CreateNewGroupViewController {
         internal let label: UILabel = {
             let label = UILabel()
             
-            label.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
-            label.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+//            label.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+//            label.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+//            
+            label.textColor = .tintColor
             
             return label
         }()
@@ -72,26 +74,31 @@ extension CreateNewGroupViewController {
         }
         
         internal func activateConstraints() {
-            textField.heightAnchor.constraint(equalToConstant: 36).isActive = true
+//            textField.heightAnchor.constraint(equalToConstant: 36).isActive = true
         }
         
         open func configure(_ itemId: String, localpart: String?, placeholder: String, server: String) {
             self.itemId = itemId
-            textField.placeholder = placeholder
-            textField.text = localpart
-            label.text = server
+//            textField.placeholder = placeholder
+//            textField.text = localpart
+            if let localpart = localpart {
+                label.text = "\(localpart)@\(server)"
+            } else {
+                label.text = "\(server)"
+            }
+            
         }
         
         override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
             super.init(style: style, reuseIdentifier: reuseIdentifier)
             contentView.addSubview(stack)
             stack.fillSuperview()
-            stack.addArrangedSubview(textField)
+//            stack.addArrangedSubview(textField)
             stack.addArrangedSubview(label)
             accessoryType = .disclosureIndicator
             selectionStyle = .none
-            textField.addTarget(self, action: #selector(onValueChanged), for: .editingChanged)
-            activateConstraints()
+//            textField.addTarget(self, action: #selector(onValueChanged), for: .editingChanged)
+//            activateConstraints()
         }
         
         required init?(coder: NSCoder) {

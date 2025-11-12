@@ -24,7 +24,6 @@ import RealmSwift
 import RxSwift
 import RxCocoa
 import CocoaLumberjack
-import TOInsetGroupedTableView
 
 class EditContactViewController: BaseViewController {
     
@@ -57,7 +56,7 @@ class EditContactViewController: BaseViewController {
     open var isCircleSelectView: Bool = false
     
     internal let tableView: UITableView = {
-        let view = InsetGroupedTableView(frame: .zero)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.keyboardDismissMode = .onDrag
         
@@ -107,7 +106,7 @@ class EditContactViewController: BaseViewController {
     
     internal let saveButton: UIBarButtonItem = {
         let button = UIBarButtonItem(title: "Save".localizeString(id: "save", arguments: []),
-                                     style: .plain, target: nil, action: nil)
+                                     style: .done, target: nil, action: nil)
         
         button.isEnabled = false
         
@@ -440,7 +439,7 @@ class EditContactViewController: BaseViewController {
         load()
         if self.isCircleSelectView {
             self.title = "Circles".localizeString(id: "contact_circle", arguments: [])
-            self.navigationItem.setLeftBarButton(self.cancelButton, animated: true)
+//            self.navigationItem.setLeftBarButton(self.cancelButton, animated: true)
         } else {
             self.title = "Edit".localizeString(id: "groupchat_member_edit", arguments: [])
         }

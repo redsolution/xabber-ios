@@ -20,7 +20,6 @@
 
 import Foundation
 import UIKit
-import TOInsetGroupedTableView
 
 protocol GroupchatInfoEditItemViewControllerDelegate {
     func didSelect(section: String, value: String)
@@ -39,7 +38,7 @@ class GroupchatInfoEditItemViewController: SimpleBaseViewController {
     public var currentValue: String? = nil
     
     private let tableView: UITableView = {
-        let view = InsetGroupedTableView(frame: .zero)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(UITableViewCell.self, forCellReuseIdentifier: "itemCell")
         

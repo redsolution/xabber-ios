@@ -20,7 +20,6 @@
 
 import Foundation
 import UIKit
-import TOInsetGroupedTableView
 
 class CreateNewGroupEditViewController: BaseViewController {
     
@@ -34,7 +33,7 @@ class CreateNewGroupEditViewController: BaseViewController {
     
     internal let tableView: UITableView = {
 //        let view = UITableView(frame: .zero, style: .grouped)
-        let view = InsetGroupedTableView(frame: .zero)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(TextCell.self, forCellReuseIdentifier: TextCell.cellName)
         view.register(UITableViewCell.self, forCellReuseIdentifier: "UITableViewCell")
@@ -154,7 +153,11 @@ extension CreateNewGroupEditViewController: UITableViewDataSource {
 
 extension CreateNewGroupEditViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return 44
+        if #available(iOS 26, *) {
+            return 52
+        } else {
+            return 44
+        }
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {

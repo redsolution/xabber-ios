@@ -20,6 +20,7 @@
 
 import Foundation
 import UIKit
+import CocoaLumberjack
 
 extension LastChatsViewController: UITableViewDataSource {
     
@@ -33,45 +34,114 @@ extension LastChatsViewController: UITableViewDataSource {
 
         let index = indexPath.row
         let item = datasource[index]
-        guard let cell = tableView.dequeueReusableCell(withIdentifier: ChatListTableViewCell.cellName,
-                                                       for: indexPath) as? ChatListTableViewCell else {
-            fatalError()
+        
+        switch item.specialMessageKind {
+            case .none:
+                guard let cell = tableView.dequeueReusableCell(withIdentifier: ChatListTableViewCell.cellName,
+                                                               for: indexPath) as? ChatListTableViewCell else {
+                    fatalError()
+                }
+                
+                
+                cell.configure(
+                    item.jid,
+                    owner: item.owner,
+                    username: item.username,
+                    attributedUsername: item.attributedUsername,
+                    message: item.message,
+                    date: item.date,
+                    deliveryState: item.state,
+                    isMute: item.isMute,
+                    isSynced: item.isSynced,
+                    isGroupchat: [.groupchat, .incognitoChat].contains(item.entity),
+                    status: item.status,
+                    entity: item.entity,
+                    conversationType: item.conversationType,
+                    unread: item.unread,
+                    unreadString: item.unreadString,
+                    indicator: item.color,
+                    isDraft: item.isDraft,
+                    isAttachment: item.hasAttachment,
+                    groupchatNickname: item.userNickname,
+                    isSystem: item.isSystemMessage,
+                    isPinned: item.isPinned,
+                    subRequest: item.subRequest,
+                    avatarUrl: item.avatarUrl,
+                    hasErrorInChat: item.hasErrorInChat,
+                    verAction: item.isVerificationActionRequired
+                )
+                cell.setMask()
+                
+                let view = UIView()
+                view.backgroundColor = AccountColorManager.shared.palette(for: item.owner).tint50 | AccountColorManager.shared.palette(for: item.owner).tint900
+                cell.selectedBackgroundView = view
+            
+                return cell
+            case .contact:
+                guard let cell = tableView.dequeueReusableCell(withIdentifier: SpecialMessageTableViewCell.cellName, for: indexPath) as? SpecialMessageTableViewCell else {
+                    fatalError()
+                }
+                cell.configure(
+                    title: "New contact request",
+                    subtitle: item.unread > 1 ? "New contact requests from: \(item.username) and others" : "New contact request from \(item.username)",
+                    avatars: item.avatars,
+                    owner: item.owner,
+                    showTopLine: indexPath.row == 0,
+                    key: "contact"
+                )
+                cell.closeCallback = onCloseNotificationCallback
+                return cell
+            case .invite:
+                guard let cell = tableView.dequeueReusableCell(withIdentifier: SpecialMessageTableViewCell.cellName, for: indexPath) as? SpecialMessageTableViewCell else {
+                    fatalError()
+                }
+                
+                cell.configure(
+                    title: "New group invite",
+                    subtitle: item.unread > 1 ? "Join new groups: \(item.username) and more" : "Join \(item.username)",
+                    avatars: item.avatars,
+                    owner: item.owner,
+                    showTopLine: indexPath.row == 0,
+                    key: "invite"
+                )
+                cell.closeCallback = onCloseNotificationCallback
+                return cell
         }
-        
-        cell.configure(
-            item.jid,
-            owner: item.owner,
-            username: item.username,
-            attributedUsername: item.attributedUsername,
-            message: item.message,
-            date: item.date,
-            deliveryState: item.state,
-            isMute: item.isMute,
-            isSynced: item.isSynced,
-            isGroupchat: [.groupchat, .incognitoChat].contains(item.entity),
-            status: item.status,
-            entity: item.entity,
-            conversationType: item.conversationType,
-            unread: item.unread,
-            unreadString: item.unreadString,
-            indicator: item.color,
-            isDraft: item.isDraft,
-            isAttachment: item.hasAttachment,
-            groupchatNickname: item.userNickname,
-            isSystem: item.isSystemMessage,
-            isPinned: item.isPinned,
-            subRequest: item.subRequest,
-            avatarUrl: item.avatarUrl,
-            hasErrorInChat: item.hasErrorInChat,
-            verAction: item.isVerificationActionRequired
-        )
-        cell.setMask()
-        
-        let view = UIView()
-        view.backgroundColor = AccountColorManager.shared.palette(for: item.owner).tint50 | AccountColorManager.shared.palette(for: item.owner).tint900
-        cell.selectedBackgroundView = view
+    }
     
-        return cell
+    public func onCloseNotificationCallback(_ key: String) {
+        do {
+            let realm = try WRealm.safe()
+            let jids = realm.objects(AccountStorageItem.self).filter("enabled == true").toArray().compactMap { $0.jid }
+            switch key {
+                case "contact":
+                    let requests = realm
+                        .objects(UINotificationStorageItem.self)
+                        .filter("owner IN %@ AND isRead == %@ AND kind_ == %@", jids, false, UINotificationStorageItem.Kind.contactRequest.rawValue)
+                    try realm.write {
+                        requests.forEach {
+                            $0.isRead = true
+                            $0.readAt = Date()
+                        }
+                    }
+                case "invite":
+                    let invites = realm
+                        .objects(UINotificationStorageItem.self)
+                        .filter("owner IN %@ AND isRead == %@ AND kind_ == %@", jids, false, UINotificationStorageItem.Kind.invite.rawValue)
+                    try realm.write {
+                        invites.forEach {
+                            $0.isRead = true
+                            $0.readAt = Date()
+                        }
+                    }
+                default:
+                    break
+            }
+            self.canUpdateDataset = true
+            self.runDatasetUpdateTask()
+        } catch {
+            DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
+        }
         
     }
     

@@ -51,7 +51,8 @@ extension ContactInfoViewController: InfoScreenHeaderDelegate {
         vc.jid = self.jid
         vc.owner = self.owner
         vc.isCircleSelectView = true
-        showModal(vc, parent: self)
+        self.navigationController?.pushViewController(vc, animated: true)
+//        showModal(vc, parent: self)
     }
     
     func onQRCode() {
@@ -78,7 +79,8 @@ extension ContactInfoViewController: InfoScreenHeaderDelegate {
             DDLogDebug("GroupchatInfoViewController: \(#function). \(error.localizedDescription)")
         }
         
-        showModal(vc, parent: self)
+        self.navigationController?.pushViewController(vc, animated: true)
+//        showModal(vc, parent: self)
         
     }
     
@@ -86,28 +88,56 @@ extension ContactInfoViewController: InfoScreenHeaderDelegate {
         if conversationType == .omemo {
             AccountManager.shared.find(for: self.owner)?.omemo.initChat(jid: self.jid)
         }
-        
-        let chatVc = ChatViewController()
-        chatVc.owner = self.owner
-        chatVc.jid = self.jid
-        chatVc.conversationType = conversationType
-        
-        showDetail(chatVc, currentVc: self)
+        if leftMenuDelegate == nil {
+            let chatVc = ChatViewController()
+            chatVc.owner = self.owner
+            chatVc.jid = self.jid
+            chatVc.conversationType = conversationType
+            
+            showDetail(chatVc, currentVc: self)
+        } else {
+            self.leftMenuDelegate?.openChatlistWithChat(owner: self.owner, jid: self.jid, conversationType: conversationType, configure: nil)
+            self.dismiss(animated: true) {
+            }
+        }
     }
     
     internal func searchChat(conversationType: ClientSynchronizationManager.ConversationType = .regular) {
-        self.dismiss(animated: true) {
-            self.chatStateDelegate?.openSearchBar()
+        if conversationType == .omemo {
+            AccountManager.shared.find(for: self.owner)?.omemo.initChat(jid: self.jid)
+        }
+        if leftMenuDelegate == nil {
+            let chatVc = ChatViewController()
+            chatVc.owner = self.owner
+            chatVc.jid = self.jid
+            chatVc.conversationType = conversationType
+            chatVc.inSearchMode.accept(true)
+            showDetail(chatVc, currentVc: self)
+        } else {
+            self.leftMenuDelegate?.openChatlistWithChat(owner: self.owner, jid: self.jid, conversationType: conversationType, configure: {
+                chatVc in
+                chatVc?.inSearchMode.accept(true)
+            })
+            self.dismiss(animated: true) {
+            }
         }
     }
     
     internal func onStartEncryptedChat() {
         AccountManager.shared.find(for: self.owner)?.omemo.initChat(jid: self.jid)
-        let chatVc = ChatViewController()
-        chatVc.owner = self.owner
-        chatVc.jid = self.jid
-        chatVc.conversationType = .omemo
-        showDetail(chatVc, currentVc: self)
+        
+        if leftMenuDelegate == nil {
+            let chatVc = ChatViewController()
+            chatVc.owner = self.owner
+            chatVc.jid = self.jid
+            chatVc.conversationType = .omemo
+            showDetail(chatVc, currentVc: self)
+        } else {
+            self.leftMenuDelegate?.openChatlistWithChat(owner: self.owner, jid: self.jid, conversationType: .omemo, configure: nil)
+            self.dismiss(animated: true) {
+//                self.leftMenuDelegate?.openChatlistWithChat(owner: self.owner, jid: self.jid, conversationType: .omemo)
+            }
+        }
     }
     
     internal func onChangeNotifications() {
@@ -321,9 +351,9 @@ extension ContactInfoViewController: InfoScreenHeaderDelegate {
     func showQRCode() {
         let vc = QRCodeViewController()
         
+        vc.username = self.nickname
         vc.jid = self.jid
         vc.stringValue = "xmpp:\(self.jid)"
-        vc.username = nickname
         
         do {
             let realm = try WRealm.safe()
@@ -341,7 +371,8 @@ extension ContactInfoViewController: InfoScreenHeaderDelegate {
             DDLogDebug("GroupchatInfoViewController: \(#function). \(error.localizedDescription)")
         }
         
-        showModal(vc, parent: self)
+        self.navigationController?.pushViewController(vc, animated: true)
+//        showModal(vc, parent: self)
         
     }
     

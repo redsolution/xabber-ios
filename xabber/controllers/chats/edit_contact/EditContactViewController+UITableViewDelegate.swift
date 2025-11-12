@@ -25,11 +25,20 @@ extension EditContactViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         let item = datasource[indexPath.section][indexPath.row]
         switch item.kind {
-        case .field: return 44
-        case .select:
-            return 42
-        default:
-            return 44
+            case .field:
+                if #available(iOS 26, *) {
+                    return 52
+                } else {
+                    return 44
+                }
+            case .select:
+                return 42
+            default:
+                if #available(iOS 26, *) {
+                    return 52
+                } else {
+                    return 44
+                }
         }
     }
     

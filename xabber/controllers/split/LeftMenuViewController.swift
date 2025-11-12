@@ -153,7 +153,9 @@ class LeftMenuViewController: UIViewController {
         let title: String
         let icon: String
         let key: String
+        let category: String
         var subtitle: String
+        var showTriangle: Bool
     }
     
     var datasource: [[Datasource]] = []
@@ -163,11 +165,14 @@ class LeftMenuViewController: UIViewController {
     var callsVc: LastCallsViewController? = nil
     var notificationsVc: NotificationsListViewController? = nil
     var notificationsCategoriesVc: NotificationsCategoriesViewController? = nil
+    var contactsCategoriesVc: ContactsCategoryViewController? = nil
+    var groupsCategoriesVc: ContactsCategoryViewController? = nil
     var contactsVc: ContactsViewController? = nil
+    var groupsVc: ContactsViewController? = nil
     var savedMessagesChatsVc: LastChatsViewController? = nil
     
     private let tableView: UITableView = {
-        let view = UITableView(frame: .zero, style: .insetGrouped)
+        let view = UITableView(frame: .zero, style: .grouped)
         
         view.register(MenuItemTableCell.self, forCellReuseIdentifier: MenuItemTableCell.cellName)
 //        view.register(UITableViewCell.self, forCellReuseIdentifier: "tablecell")
@@ -194,21 +199,31 @@ class LeftMenuViewController: UIViewController {
     private func loadDatasource() {
         do {
             let realm = try WRealm.safe()
-            let jids = AccountManager.shared.users.map { $0.jid }
-            let chatsCount = realm.objects(LastChatsStorageItem.self).filter("isArchived == false AND unread > 0 AND owner IN %@", jids).count
-            let archivedCount = realm.objects(LastChatsStorageItem.self).filter("isArchived == true AND unread > 0 AND owner IN %@", jids).count
-            let callsCount = realm.objects(CallMetadataStorageItem.self).count
-            let contactsCount = realm.objects(RosterStorageItem.self).filter("isHidden == false AND removed == false AND (ask_ == %@ OR ask_ == %@) AND owner IN %@", "in", "both", jids).count
-            let notificationsCount = realm.objects(NotificationStorageItem.self).filter("isRead == false AND shouldShow == true AND owner IN %@", jids).count
+            let accounts = realm.objects(AccountStorageItem.self).filter("enabled == true").sorted(byKeyPath: "order")
+            let jids = accounts.toArray().compactMap({ return $0.jid })
+            var ignoredJids: [String] = AccountManager.shared.users.compactMap { $0.notifications.node }
+            ignoredJids.append(contentsOf: AccountManager.shared.users.compactMap { $0.favorites.node })
+            if CommonConfigManager.shared.config.support_jid.isNotEmpty {
+                ignoredJids.append(CommonConfigManager.shared.config.support_jid)
+            }
+            let chats = realm.objects(LastChatsStorageItem.self).filter("isArchived == false AND unread > 0").compactMap({ $0.unread }).reduce(0, +)
+            let archived = realm.objects(LastChatsStorageItem.self).filter("isArchived == true AND unread > 0").compactMap({ $0.unread }).reduce(0, +)
+            let calls = realm.objects(CallMetadataStorageItem.self)
+            let contacts = realm.objects(RosterStorageItem.self).filter("owner IN %@ AND isHidden == false AND removed == false AND ask_ == %@ AND isContact == true AND NOT (jid IN %@)", jids, "in", ignoredJids)
+            let notifications = realm.objects(NotificationStorageItem.self).filter("isRead == false AND shouldShow == true")
+            let invitations = realm.objects(GroupchatInvitesStorageItem.self).filter("owner IN %@ AND isRead == false", jids)
             self.datasource = [[
-                Datasource(title: "Chats", icon: "message", key: "chat", subtitle: "\(chatsCount)"),
-                Datasource(title: "Calls", icon: "phone", key: "calls", subtitle: "\(callsCount)"),
+                Datasource(title: "Chats", icon: "bubble", key: "chat", category: "", subtitle: "\(chats)", showTriangle: false),
+                Datasource(title: "Calls", icon: "phone", key: "calls", category: "", subtitle: "\(calls.count)", showTriangle: false),
     //            Datasource(title: "Mentions", icon: "at", key: "mentions"),
-                Datasource(title: "Notifications", icon: "bell", key: "notifications", subtitle: "\(notificationsCount)"),
-                Datasource(title: "Contacts", icon: "person.2", key: "contacts", subtitle: "\(contactsCount)"),
-                Datasource(title: "Archive", icon: "archivebox", key: "archive", subtitle: "\(archivedCount)"),
-                Datasource(title: "Saved messages", icon: "bookmark", key: "saved", subtitle: "0"),
-            ],
+                Datasource(title: "Notifications", icon: "bell", key: "notifications", category: "", subtitle: "\(notifications.count)", showTriangle: false),
+                Datasource(title: "Contacts", icon: "person", key: "contacts", category: "contacts", subtitle: "\(contacts.count)", showTriangle: false),
+                Datasource(title: "Groups", icon: "person.2", key: "groups", category: "public", subtitle: "\(invitations.count)", showTriangle: false),
+                Datasource(title: "Archive", icon: "archivebox", key: "archive", category: "", subtitle: "\(archived)", showTriangle: false),
+                Datasource(title: "Saved messages", icon: "bookmark", key: "saved", category: "", subtitle: "0", showTriangle: false),
+            ],[
+               Datasource(title: "Settings", icon: "gearshape", key: "settings", category: "", subtitle: "0", showTriangle: false),
+            ]
            ]
         } catch {
             DDLogDebug("LeftMenuViewController: \(#function). \(error.localizedDescription)")
@@ -223,24 +238,36 @@ class LeftMenuViewController: UIViewController {
     
     var bag = DisposeBag()
     
+    enum TriangleIndicatorStyle {
+        case none
+        case orangeTriangle
+        case redTriangle
+    }
+    
+    var triangleIndicatorStyle: TriangleIndicatorStyle = .none
+    
     func subscribe() {
         self.bag = DisposeBag()
         do {
             let realm = try WRealm.safe()
+            let accounts = realm.objects(AccountStorageItem.self).filter("enabled == true").sorted(byKeyPath: "order")
+            let jids = accounts.toArray().compactMap({ return $0.jid })
+            var ignoredJids: [String] = AccountManager.shared.users.compactMap { $0.notifications.node }
+            ignoredJids.append(contentsOf: AccountManager.shared.users.compactMap { $0.favorites.node })
+            if CommonConfigManager.shared.config.support_jid.isNotEmpty {
+                ignoredJids.append(CommonConfigManager.shared.config.support_jid)
+            }
             let chats = realm.objects(LastChatsStorageItem.self).filter("isArchived == false AND unread > 0")
             let archived = realm.objects(LastChatsStorageItem.self).filter("isArchived == true AND unread > 0")
             let calls = realm.objects(CallMetadataStorageItem.self)
-            let contacts = realm.objects(RosterStorageItem.self).filter("isHidden == false AND removed == false AND (ask_ == %@ OR ask_ == %@)", "in", "out")
+            let contacts = realm.objects(RosterStorageItem.self).filter("owner IN %@ AND isHidden == false AND removed == false AND ask_ == %@ AND isContact == true AND NOT (jid IN %@)", jids, "in", ignoredJids)
             let notifications = realm.objects(NotificationStorageItem.self).filter("isRead == false AND shouldShow == true")
-            
+            let invitations = realm.objects(GroupchatInvitesStorageItem.self).filter("owner IN %@ AND isRead == false", jids)
             let section = 0
-            
-            let accounts = realm.objects(AccountStorageItem.self).sorted(byKeyPath: "order")
-            let enabledAccounts = accounts.toArray().compactMap({ return $0.enabled ? $0.jid : nil })
             
             let badDevices = realm
                 .objects(SignalDeviceStorageItem.self)
-                .filter("owner IN %@ AND owner == jid AND state_ IN %@", enabledAccounts, [SignalDeviceStorageItem.TrustState.unknown.rawValue, SignalDeviceStorageItem.TrustState.fingerprintChanged.rawValue, SignalDeviceStorageItem.TrustState.revoked.rawValue])
+                .filter("owner IN %@ AND owner == jid AND state_ IN %@", jids, [SignalDeviceStorageItem.TrustState.unknown.rawValue, SignalDeviceStorageItem.TrustState.fingerprintChanged.rawValue, SignalDeviceStorageItem.TrustState.revoked.rawValue])
             
             Observable
                 .collection(from: badDevices)
@@ -248,14 +275,17 @@ class LeftMenuViewController: UIViewController {
                 .subscribe { results in
                     if results.isEmpty {
                         self.accountView.errorIndicator.isHidden = true
+                        self.triangleIndicatorStyle = .none
                         return
                     }
                     self.accountView.errorIndicator.isHidden = false
                     if results.filter({ $0.state == .fingerprintChanged || $0.state == .revoked }).count > 0 {
                         self.accountView.errorIndicator.tintColor = .systemRed
+                        self.triangleIndicatorStyle = .redTriangle
                         return
                     }
                     self.accountView.errorIndicator.tintColor = .systemOrange
+                    self.triangleIndicatorStyle = .orangeTriangle
                     
                 } onError: { _ in
                     
@@ -288,7 +318,7 @@ class LeftMenuViewController: UIViewController {
                 .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
                 .subscribe { results in
                     if let index = self.datasource[section].firstIndex(where: { $0.key == "chat" }) {
-                        self.datasource[section][index].subtitle = "\(results.count)"
+                        self.datasource[section][index].subtitle = "\(results.compactMap({ $0.unread }).reduce(0, +))"
                         self.tableView.reloadRows(at: [IndexPath(row: index, section: section)], with: .none)
                     }
                     
@@ -307,7 +337,7 @@ class LeftMenuViewController: UIViewController {
                 .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
                 .subscribe { results in
                     if let index = self.datasource[section].firstIndex(where: { $0.key == "archive" }) {
-                        self.datasource[section][index].subtitle = "\(results.count)"
+                        self.datasource[section][index].subtitle = "\(results.compactMap({ $0.unread }).reduce(0, +))"
                         self.tableView.reloadRows(at: [IndexPath(row: index, section: section)], with: .none)
                     }
                     
@@ -359,6 +389,25 @@ class LeftMenuViewController: UIViewController {
                 .disposed(by: self.bag)
             
             Observable
+                .collection(from: invitations)
+                .skip(1)
+                .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
+                .subscribe { results in
+                    if let index = self.datasource[section].firstIndex(where: { $0.key == "groups" }) {
+                        self.datasource[section][index].subtitle = "\(results.count)"
+                        self.tableView.reloadRows(at: [IndexPath(row: index, section: section)], with: .none)
+                    }
+                    
+                } onError: { _ in
+                    
+                } onCompleted: {
+                    
+                } onDisposed: {
+                    
+                }
+                .disposed(by: self.bag)
+            
+            Observable
                 .collection(from: notifications)
                 .skip(1)
                 .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
@@ -394,12 +443,16 @@ class LeftMenuViewController: UIViewController {
     
     public func configure() {
         self.title = CommonConfigManager.shared.config.app_name.capitalized
-        if CommonConfigManager.shared.config.use_large_title {
-            navigationItem.largeTitleDisplayMode = .automatic
-        } else {
-            navigationItem.largeTitleDisplayMode = .never
-        }
-        navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
+        
+        navigationItem.largeTitleDisplayMode = .automatic
+        navigationController?.navigationBar.prefersLargeTitles = true
+        self.navigationItem.backButtonDisplayMode = .minimal
+//        if CommonConfigManager.shared.config.use_large_title {
+//            navigationItem.largeTitleDisplayMode = .automatic
+//        } else {
+//            navigationItem.largeTitleDisplayMode = .never
+//        }
+//        navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
         
         view.addSubview(tableView)
         tableView.fillSuperview()
@@ -422,36 +475,7 @@ class LeftMenuViewController: UIViewController {
             self.splitViewController?.hide(.primary)
         }
     }
-    
-    func setupBottomBar() {
-        var inputHeight: CGFloat = 80
-        var leftInset: CGFloat = 0
-        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
-            inputHeight += bottomInset
-        }
-        
-        if UIDevice.current.userInterfaceIdiom == .pad {
-            leftInset += 100
-        }
-        let size = CGSize(width: self.view.bounds.width - leftInset, height: inputHeight)
-        let frame = CGRect(origin: CGPoint(x: leftInset, y: self.view.bounds.height - inputHeight), size: size)
-//        bottomBar.frame = frame
-        self.accountView.frame = CGRect(origin: .zero, size: size)
-        self.accountView.configure()
-        self.accountButton.frame = frame
-        self.accountButton.addSubview(accountView)
-        self.view.addSubview(accountButton)
-        self.view.bringSubviewToFront(accountButton)
-        self.accountButton.addTarget(self, action: #selector(onAccountButton), for: .touchUpInside)
-        self.accountView.isUserInteractionEnabled = false
-        NSLayoutConstraint.activate([
-            self.accountButton.leadingAnchor.constraint(equalTo: self.view.leadingAnchor),
-            self.accountButton.trailingAnchor.constraint(equalTo: self.view.trailingAnchor),
-            self.accountButton.bottomAnchor.constraint(equalTo: self.view.bottomAnchor),
-            self.accountButton.heightAnchor.constraint(equalToConstant: 80),
-        ])
-    }
-    
+ 
     @objc
     func onAccountButton(_ sender: UIButton) {
         let vc = SettingsViewController()
@@ -498,7 +522,6 @@ class LeftMenuViewController: UIViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        setupBottomBar()
         
     }
 
@@ -527,93 +550,196 @@ extension LeftMenuViewController: UITableViewDataSource {
         }
         let item = datasource[indexPath.section][indexPath.row]
         
-        cell.configure(title: item.title, badge: item.subtitle, icon: item.icon)
+        cell.configure(title: item.title, badge: item.subtitle, icon: item.icon, isImportant: true)
         if item.key == "archive" {
             cell.badgeView.configuration?.baseBackgroundColor = .systemGray
         } else {
             cell.badgeView.configuration?.baseBackgroundColor = UIColor(red: 0.2196, green: 0.5569, blue: 0.2353, alpha: 1.0)
         }
+        cell.selectionStyle = .none
         return cell
     }
     
     
 }
 
-extension LeftMenuViewController {
-    class MenuItemTableCell: UITableViewCell {
-        static let cellName: String = "MenuItemTableCell"
+class MenuItemHeaderTableCell: UITableViewCell {
+    static let cellName: String = "MenuItemHeaderTableCell"
+    
+    let stack: UIStackView = {
+        let stack = UIStackView()
         
-        let stack: UIStackView = {
-            let stack = UIStackView()
-            
-            stack.axis = .horizontal
-            stack.distribution = .fill
-            stack.alignment = .center
-            
-            return stack
-        }()
+        stack.axis = .vertical
+        stack.distribution = .fill
+        stack.alignment = .center
+        stack.spacing = 0
+        stack.layoutMargins = UIEdgeInsets(top: 12, bottom: 12, left: 24, right: 24)
+        stack.isLayoutMarginsRelativeArrangement = true
         
-        let titleLabel: UILabel = {
-            let label = UILabel()
-            
-            label.setContentHuggingPriority(.defaultLow, for: .horizontal)
-            
-            return label
-        }()
+//        stack.layer.cornerRadius = 8
+//        stack.layer.masksToBounds = true
         
-        let badgeView: UIButton = {
-            let view = UIButton()
-            
-//            view.contentEdgeInsets = UIEdgeInsets(square: 4)
-//            view.backgroundColor = UIColor(red: 0.2196, green: 0.5569, blue: 0.2353, alpha: 1.0)
-//            view.setTitleColor(.white, for: .normal)
-            view.titleLabel?.font = UIFont.systemFont(ofSize: 13, weight: .regular)
-            view.layer.masksToBounds = true
-            view.layer.cornerRadius = 10
-            
-            view.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-            
+        return stack
+    }()
+    
+    let titleLabel: UILabel = {
+        let label = UILabel()
+        
+        label.font = UIFont.systemFont(ofSize: 25, weight: .bold)
+        label.numberOfLines = 0
+        label.lineBreakMode = .byWordWrapping
+        label.textAlignment = .center
+        
+        return label
+    }()
+    
+    let subtitleLabel: UILabel = {
+        let label = UILabel()
+        
+        label.font = UIFont.preferredFont(forTextStyle: .body)
+        label.textColor = .label
+        label.numberOfLines = 0
+        label.lineBreakMode = .byWordWrapping
+        label.textAlignment = .center
+        
+        return label
+    }()
+    
+    let iconView: UIButton = {
+        let button = UIButton()
+        
+        return button
+    }()
+    
+    func configure(title: String, subtitle: String, icon: String, color: UIColor, withCircle: Bool = false) {
+        self.titleLabel.text = title
+        self.subtitleLabel.text = subtitle
+        
+        var configuration = UIButton.Configuration.filled()
+        if withCircle {
+            configuration.baseBackgroundColor = .secondarySystemBackground
+        } else {
+            configuration.baseBackgroundColor = .systemBackground
+        }
+        
+        configuration.baseForegroundColor = color
+        configuration.buttonSize = .large
+        configuration.cornerStyle = .capsule
+        if withCircle {
+            configuration.image = imageLiteral(icon)?.upscale(dimension: 48).withRenderingMode(.alwaysTemplate)
+            self.stack.setCustomSpacing(8, after: self.iconView)
+        } else {
+            configuration.image = imageLiteral(icon)?.upscale(dimension: 76).withRenderingMode(.alwaysTemplate)
+            self.stack.setCustomSpacing(0, after: self.iconView)
+        }
+        self.stack.setCustomSpacing(4, after: self.titleLabel)
+        self.iconView.configuration = configuration
+    }
+    
+    func setupSubviews() {
+        self.backgroundColor = .systemBackground
+        self.contentView.addSubview(stack)
+        self.stack.fillSuperviewWithOffset(top: 0, bottom: 16, left: 16, right: 16)
+        self.stack.addArrangedSubview(self.iconView)
+        self.stack.addArrangedSubview(self.titleLabel)
+        self.stack.addArrangedSubview(self.subtitleLabel)
+//        self.stack.backgroundColor = .systemBackground
+//        self.stack.setCustomSpacing(8, after: self.titleLabel)
+        self.activateConstraints()
+    }
+    
+    func activateConstraints() {
+        NSLayoutConstraint.activate([
+            self.iconView.widthAnchor.constraint(equalToConstant: 96),
+            self.iconView.heightAnchor.constraint(equalToConstant: 96)
+        ])
+    }
+    
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        self.setupSubviews()
+    }
+    
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        self.setupSubviews()
+    }
+}
+
+class MenuItemTableCell: UITableViewCell {
+    static let cellName: String = "MenuItemTableCell"
+    
+    let stack: UIStackView = {
+        let stack = UIStackView()
+        
+        stack.axis = .horizontal
+        stack.distribution = .fill
+        stack.alignment = .center
+        stack.layoutMargins = UIEdgeInsets(top: 2, bottom: 0, left: 16, right: 16)
+        stack.isLayoutMarginsRelativeArrangement = true
+        
+        return stack
+    }()
+    
+    let titleLabel: UILabel = {
+        let label = UILabel()
+        
+        label.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        
+        return label
+    }()
+    
+    let badgeView: UIButton = {
+        let view = UIButton()
+
+        return view
+    }()
+    
+    func configure(title: String, badge: String, icon: String, isImportant: Bool) {
+        self.titleLabel.text = title
+        self.imageView?.image = (UIImage(named: icon) ?? UIImage(systemName: icon))?.withRenderingMode(.alwaysTemplate)
+        self.badgeView.setTitle("\(badge)", for: .normal)
+        self.badgeView.isHidden = badge == "0" ? true : false
+        if isImportant {
             var configuration = UIButton.Configuration.filled()
-            configuration.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 6, bottom: 4, trailing: 6)
             configuration.baseBackgroundColor = UIColor(red: 0.2196, green: 0.5569, blue: 0.2353, alpha: 1.0)
             configuration.baseForegroundColor = .white
-            configuration.buttonSize = .small
-            
-            view.configuration = configuration
-            
-            return view
-        }()
-        
-        func configure(title: String, badge: String, icon: String) {
-            self.titleLabel.text = title
-            self.imageView?.image = (UIImage(named: icon) ?? UIImage(systemName: icon))?.withRenderingMode(.alwaysTemplate)
-            self.selectionStyle = .none
-            self.badgeView.setTitle("\(badge)", for: .normal)
-            self.badgeView.isHidden = badge == "0" ? true : false
+            configuration.buttonSize = .mini
+            configuration.cornerStyle = .capsule
+            self.badgeView.configuration = configuration
+        } else {
+            var configuration = UIButton.Configuration.filled()
+            configuration.baseBackgroundColor = .clear
+            configuration.baseForegroundColor = .secondaryLabel
+            configuration.buttonSize = .mini
+            configuration.cornerStyle = .capsule
+            self.badgeView.configuration = configuration
         }
-        
-        func setupSubviews() {
-            self.backgroundColor = .clear
-            self.layer.cornerRadius = 8
-            self.layer.masksToBounds = true
-            self.selectionStyle = .none
-            self.contentView.addSubview(stack)
-            self.stack.fillSuperviewWithOffset(top: 0, bottom: 4, left: 56, right: 0)
-            self.stack.addArrangedSubview(self.titleLabel)
-            self.stack.addArrangedSubview(self.badgeView)
-        }
-        
-        override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-            super.init(style: style, reuseIdentifier: reuseIdentifier)
-            self.setupSubviews()
-        }
-        
-        required init?(coder: NSCoder) {
-            super.init(coder: coder)
-            self.setupSubviews()
-        }
-        
+        self.badgeView.updateConfiguration()
+        self.badgeView.setNeedsLayout()
+        self.badgeView.layoutIfNeeded()
     }
+    
+    func setupSubviews() {
+        self.backgroundColor = .clear
+        self.layer.cornerRadius = 8
+        self.layer.masksToBounds = true
+        self.contentView.addSubview(stack)
+        self.stack.fillSuperviewWithOffset(top: 0, bottom: 4, left: 56, right: 4)
+        self.stack.addArrangedSubview(self.titleLabel)
+        self.stack.addArrangedSubview(self.badgeView)
+    }
+    
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        self.setupSubviews()
+    }
+    
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        self.setupSubviews()
+    }
+    
 }
 
 extension LeftMenuViewController: UITableViewDelegate {
@@ -621,11 +747,89 @@ extension LeftMenuViewController: UITableViewDelegate {
         return 44
     }
     
-    private func show(controller vc: UIViewController, kind: EmptyChatViewController.Kind, isNotifications: Bool = false) {
+    func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
+        return nil
+    }
+    
+    func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+        return nil
+    }
+    
+    func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {
+        return 0
+    }
+    
+    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+        return 0
+    }
+    
+    private func show(controller vc: BaseViewController, kind: EmptyChatViewController.Kind, isNotifications: Bool = false, isContacts: Bool = false, isGroups: Bool = false, category: String? = nil, leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil) {
+        if #available(iOS 26, *) {
+            // Code for iOS 26 and above
+            self.showNew(controller: vc, kind: kind, isNotifications: isNotifications, isContacts: isContacts, isGroups: isGroups, category: category, leftMenuDelegate: leftMenuDelegate)
+        } else {
+            // Fallback for older iOS versions
+            self.showOld(controller: vc, kind: kind, isNotifications: isNotifications, isContacts: isContacts, isGroups: isGroups, category: category, leftMenuDelegate: leftMenuDelegate)
+        }
+    }
+    
+    private func showNew(controller vc: BaseViewController, kind: EmptyChatViewController.Kind, isNotifications: Bool = false, isContacts: Bool = false, isGroups: Bool = false, category: String? = nil, leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil) {
         let svc: UIViewController
+        vc.resetState()
         if isNotifications {
             svc = NotificationsListViewController()
             (vc as? NotificationsCategoriesViewController)?.filterDelegate = (svc as? NotificationsListViewController)
+        } else if isContacts {
+            svc = ContactsViewController()
+            (vc as? ContactsCategoryViewController)?.filterDelegate = (svc as? ContactsViewController)
+            (svc as? ContactsViewController)?.categoryDelegate = (vc as? ContactsCategoryViewController)
+            (svc as? ContactsViewController)?.leftMenuDelegate = leftMenuDelegate
+            (svc as? ContactsViewController)?.didSelectSpecialCategory(category ?? "")
+        } else if isGroups {
+            svc = ContactsViewController()
+            (svc as? ContactsViewController)?.isGroup = true
+            (vc as? ContactsCategoryViewController)?.filterDelegate = (svc as? ContactsViewController)
+            (svc as? ContactsViewController)?.categoryDelegate = (vc as? ContactsCategoryViewController)
+            (svc as? ContactsViewController)?.leftMenuDelegate = leftMenuDelegate
+            (svc as? ContactsViewController)?.didSelectSpecialCategory(category ?? "")
+        } else {
+            svc = EmptyChatViewController()
+        }
+        (svc as? EmptyChatViewController)?.kind = kind
+        
+//        let nsvc = UINavigationController(rootViewController: svc)
+        guard let splitVC = self.splitViewController else {
+            print("Error: splitViewController is nil")
+            return
+        }
+        
+        splitVC.setViewController(UINavigationController(rootViewController: vc), for: .supplementary)
+        splitVC.setViewController(svc, for: .secondary)
+        splitVC.show(.supplementary)
+        splitVC.hide(.primary)
+    }
+    
+    private func showOld(controller vc: BaseViewController, kind: EmptyChatViewController.Kind, isNotifications: Bool = false, isContacts: Bool = false, isGroups: Bool = false, category: String? = nil, leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil) {
+        let svc: UIViewController
+        vc.resetState()
+        if isNotifications {
+            svc = NotificationsListViewController()
+            (vc as? NotificationsCategoriesViewController)?.filterDelegate = (svc as? NotificationsListViewController)
+        } else if isContacts {
+            svc = ContactsViewController()
+            (vc as? ContactsCategoryViewController)?.filterDelegate = (svc as? ContactsViewController)
+            (svc as? ContactsViewController)?.categoryDelegate = (vc as? ContactsCategoryViewController)
+            (svc as? ContactsViewController)?.leftMenuDelegate = leftMenuDelegate
+            (svc as? ContactsViewController)?.didSelectSpecialCategory(category ?? "")
+            
+        } else if isGroups {
+            svc = ContactsViewController()
+            (svc as? ContactsViewController)?.isGroup = true
+            (vc as? ContactsCategoryViewController)?.filterDelegate = (svc as? ContactsViewController)
+            (svc as? ContactsViewController)?.categoryDelegate = (vc as? ContactsCategoryViewController)
+            (svc as? ContactsViewController)?.leftMenuDelegate = leftMenuDelegate
+            (svc as? ContactsViewController)?.didSelectSpecialCategory(category ?? "")
+            
         } else {
             svc = EmptyChatViewController()
         }
@@ -635,7 +839,7 @@ extension LeftMenuViewController: UITableViewDelegate {
         if UIDevice.current.userInterfaceIdiom == .pad {
             self.splitViewController?.hide(.primary)
         } else {
-            self.splitViewController?.show(.supplementary)
+            self.splitViewController!.show(.supplementary)
         }
     }
     
@@ -650,6 +854,23 @@ extension LeftMenuViewController: UITableViewDelegate {
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         let key = self.datasource[indexPath.section][indexPath.row].key
+        if key == "settings" {
+            let vc = SettingsViewController()
+            vc.jid = AccountManager.shared.users.first?.jid ?? ""
+            vc.owner = AccountManager.shared.users.first?.jid ?? ""
+            showModal(vc, parent: self)
+            self.splitViewController?.show(.supplementary)
+            self.splitViewController?.hide(.primary)
+        } else {
+            let category = self.datasource[indexPath.section][indexPath.row].category
+            self.didSelectRootScreenBy(key: key)
+        }
+    }
+}
+
+extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
+    
+    func didSelectRootScreenBy(key: String, category: String? = nil) {
         if self.previousSelectedKey == key {
             if UIDevice.current.userInterfaceIdiom == .pad {
                 self.splitViewController?.hide(.primary)
@@ -664,12 +885,14 @@ extension LeftMenuViewController: UITableViewDelegate {
                 if let vc = self.chatsVc {
                     vc.filter.accept(.chats)
                     self.show(controller: vc, kind: .emptyChat)
-//                    self.showEmptyDetail(for: .emptyChat)
+                    vc.leftMenuSelectRootCategoryDelegate = self
+                  
                 } else {
                     let vc = LastChatsViewController()
                     self.chatsVc = vc
                     self.show(controller: vc, kind: .emptyChat)
-//                    self.showEmptyDetail(for: .emptyChat)
+                    vc.leftMenuSelectRootCategoryDelegate = self
+                    
                 }
             case "calls":
                 if self.chatsVc?.filter.value == .unread {
@@ -679,10 +902,12 @@ extension LeftMenuViewController: UITableViewDelegate {
                     self.archivedVc?.filter.accept(.archived)
                 }
                 if let vc = self.callsVc {
+                    vc.leftMenuDelegate = self
                     self.show(controller: vc, kind: .emptyCall)
 //                    self.showEmptyDetail(for: .emptyCall)
                 } else {
                     let vc = LastCallsViewController()
+                    vc.leftMenuDelegate = self
                     self.callsVc = vc
                     self.show(controller: vc, kind: .emptyCall)
 //                    self.showEmptyDetail(for: .emptyCall)
@@ -710,17 +935,21 @@ extension LeftMenuViewController: UITableViewDelegate {
                 }
                 if UIDevice.current.userInterfaceIdiom == .pad {
                     if let vc = self.notificationsCategoriesVc {
+                        vc.leftMenuDelegate = self
                         self.show(controller: vc, kind: .emptyChat, isNotifications: true)
                     } else {
                         let vc = NotificationsCategoriesViewController()
+                        vc.leftMenuDelegate = self
                         self.notificationsCategoriesVc = vc
                         self.show(controller: vc, kind: .emptyChat, isNotifications: true)
                     }
                 } else {
                     if let vc = self.notificationsVc {
+                        vc.leftMenuDelegate = self
                         self.show(controller: vc, kind: .emptyChat)
                     } else {
                         let vc = NotificationsListViewController()
+                        vc.leftMenuDelegate = self
                         self.notificationsVc = vc
                         self.show(controller: vc, kind: .emptyChat)
                     }
@@ -733,22 +962,66 @@ extension LeftMenuViewController: UITableViewDelegate {
                 if self.archivedVc?.filter.value == .unread {
                     self.archivedVc?.filter.accept(.archived)
                 }
-                if let vc = self.contactsVc {
-                    self.show(controller: vc, kind: .emptyContact)
-//                    self.showEmptyDetail(for: .emptyContact)
+                if UIDevice.current.userInterfaceIdiom == .pad {
+                    if let vc = self.contactsCategoriesVc {
+                        vc.leftMenuDelegate = self
+                        self.show(controller: vc, kind: .emptyChat, isContacts: true, category: category, leftMenuDelegate: self)
+                    } else {
+                        let vc = ContactsCategoryViewController()
+                        self.contactsCategoriesVc = vc
+                        vc.leftMenuDelegate = self
+                        self.show(controller: vc, kind: .emptyChat, isContacts: true, category: category, leftMenuDelegate: self)
+                    }
                 } else {
-                    let vc = ContactsViewController()
-                    self.contactsVc = vc
-                    self.show(controller: vc, kind: .emptyContact)
-//                    self.showEmptyDetail(for: .emptyContact)
-                 }
+                    if let vc = self.contactsVc {
+                        vc.leftMenuDelegate = self
+                        self.show(controller: vc, kind: .emptyChat, category: category, leftMenuDelegate: self)
+                    } else {
+                        let vc = ContactsViewController()
+                        vc.leftMenuDelegate = self
+                        self.contactsVc = vc
+                        self.show(controller: vc, kind: .emptyChat, category: category, leftMenuDelegate: self)
+                    }
+                }
+            case "groups":
+                if self.chatsVc?.filter.value == .unread {
+                    self.chatsVc?.filter.accept(.chats)
+                }
+                if self.archivedVc?.filter.value == .unread {
+                    self.archivedVc?.filter.accept(.archived)
+                }
+                if UIDevice.current.userInterfaceIdiom == .pad {
+                    if let vc = self.groupsCategoriesVc {
+                        vc.leftMenuDelegate = self
+                        self.show(controller: vc, kind: .emptyChat, isGroups: true, category: category, leftMenuDelegate: self)
+                    } else {
+                        let vc = ContactsCategoryViewController()
+                        vc.isGroup = true
+                        vc.leftMenuDelegate = self
+                        self.groupsCategoriesVc = vc
+                        self.show(controller: vc, kind: .emptyChat, isGroups: true, category: category, leftMenuDelegate: self)
+                    }
+                } else {
+                    if let vc = self.groupsVc {
+                        vc.leftMenuDelegate = self
+                        self.show(controller: vc, kind: .emptyChat, category: category, leftMenuDelegate: self)
+                    } else {
+                        let vc = ContactsViewController()
+                        vc.isGroup = true
+                        vc.leftMenuDelegate = self
+                        self.groupsVc = vc
+                        self.show(controller: vc, kind: .emptyChat, category: category, leftMenuDelegate: self)
+                    }
+                }
             case "archive":
                 if let vc = self.archivedVc {
                     vc.filter.accept(.archived)
+                    vc.leftMenuSelectRootCategoryDelegate = self
                     self.show(controller: vc, kind: .emptyChat)
                 } else {
                     let vc = LastChatsViewController()
                     vc.shouldShowBottomBar = false
+                    vc.leftMenuSelectRootCategoryDelegate = self
                     vc.filter.accept(.archived)
                     self.archivedVc = vc
                     self.show(controller: vc, kind: .emptyChat)
@@ -762,10 +1035,12 @@ extension LeftMenuViewController: UITableViewDelegate {
                     self.archivedVc?.filter.accept(.archived)
                 }
                 if let vc = self.savedMessagesChatsVc {
+                    vc.leftMenuSelectRootCategoryDelegate = self
                     self.showSavedMessages(controller: vc)
                 } else {
                     let vc = LastChatsViewController()
                     vc.shouldShowBottomBar = false
+                    vc.leftMenuSelectRootCategoryDelegate = self
                     vc.filter.accept(.saved)
                     self.savedMessagesChatsVc = vc
                     self.showSavedMessages(controller: vc)
@@ -774,4 +1049,31 @@ extension LeftMenuViewController: UITableViewDelegate {
                 break
         }
     }
+    
+    func selectRootScreenAndCategory(screen key: String, category: String?) {
+        self.didSelectRootScreenBy(key: key, category: category)
+    }
+    
+    func openChatlistWithChat(owner: String, jid: String, conversationType: ClientSynchronizationManager.ConversationType, configure: ((ChatViewController?) -> Void)?) {
+        self.previousSelectedKey = nil
+        if let vc = self.chatsVc {
+            vc.filter.accept(.chats)
+            self.show(controller: vc, kind: .emptyChat)
+            vc.leftMenuSelectRootCategoryDelegate = self
+            vc.stackNewChat(owner: owner, jid: jid, conversationType: conversationType, configure: configure)
+//                    self.showEmptyDetail(for: .emptyChat)
+        } else {
+            let vc = LastChatsViewController()
+            self.chatsVc = vc
+            self.show(controller: vc, kind: .emptyChat)
+            vc.leftMenuSelectRootCategoryDelegate = self
+            vc.stackNewChat(owner: owner, jid: jid, conversationType: conversationType, configure: configure)
+//                    self.showEmptyDetail(for: .emptyChat)
+        }
+    }
+}
+
+protocol LeftMenuSelectRootScreenDelegate {
+    func selectRootScreenAndCategory(screen key: String, category: String?)
+    func openChatlistWithChat(owner: String, jid: String, conversationType: ClientSynchronizationManager.ConversationType, configure: ((ChatViewController?) -> Void)?)
 }

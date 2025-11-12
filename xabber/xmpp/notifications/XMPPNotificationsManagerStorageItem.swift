@@ -38,6 +38,8 @@ class NotificationStorageItem: Object {
     @objc dynamic var owner: String = ""
     @objc dynamic var jid: String = ""
     @objc dynamic var uniqueId: String = ""
+    @objc dynamic var messageId: String = ""
+    @objc dynamic var stanzaId: String = ""
     
     @objc dynamic var category_: String = ""
     @objc dynamic var isRead: Bool = true

@@ -123,9 +123,12 @@ UICollectionViewDelegateFlowLayout, UICollectionViewDataSource {
 
     private final func setupDefaults() {
         extendedLayoutIncludesOpaqueBars = true
+        edgesForExtendedLayout = [.bottom]
         view.backgroundColor = .systemBackground
         messagesCollectionView.keyboardDismissMode = .interactive
         messagesCollectionView.alwaysBounceVertical = true
+        
+        messagesCollectionView.contentInsetAdjustmentBehavior = .never
     }
 
     private final func setupDelegates() {
@@ -141,11 +144,13 @@ UICollectionViewDelegateFlowLayout, UICollectionViewDataSource {
     private final func setupConstraints() {
         messagesCollectionView.translatesAutoresizingMaskIntoConstraints = false
         
-        let top = messagesCollectionView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor)
-        let bottom = messagesCollectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        let leading = messagesCollectionView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor)
-        let trailing = messagesCollectionView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor)
-        NSLayoutConstraint.activate([top, bottom, trailing, leading])
+        messagesCollectionView.fillSuperview()
+        
+//        let top = messagesCollectionView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor)
+//        let bottom = messagesCollectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+//        let leading = messagesCollectionView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor)
+//        let trailing = messagesCollectionView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor)
+//        NSLayoutConstraint.activate([top, bottom, trailing, leading])
     }
 
     // MARK: - UICollectionViewDataSource

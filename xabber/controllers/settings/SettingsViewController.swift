@@ -26,7 +26,6 @@ import RxCocoa
 import RxRealm
 import XMPPFramework
 import CocoaLumberjack
-import TOInsetGroupedTableView
 import SwiftUI
 import CocoaLumberjack
 import MaterialComponents.MDCPalettes
@@ -270,7 +269,7 @@ class SettingsViewController: BaseViewController {
     }
     
     internal let tableView: UITableView = {
-        let view = InsetGroupedTableView(frame: .zero)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(AccountCell.self, forCellReuseIdentifier: AccountCell.cellName)
         view.register(UITableViewCell.self, forCellReuseIdentifier: "AddAccountCell")
@@ -517,39 +516,44 @@ class SettingsViewController: BaseViewController {
     }
     
     func navigationBarButtonsConfigure(multiAccounts: Bool) {
-        barButtonItemAddAccount = (CommonConfigManager.shared.config.supports_multiaccounts && !multiAccounts) ?
-        UIBarButtonItem(image: imageLiteral( "contact-add")?.withRenderingMode(.alwaysTemplate),
-                        style: .plain,
-                        target: self,
-                        action: #selector(addAccount)) : nil
-        if (CommonConfigManager.shared.config.supports_multiaccounts && !multiAccounts) {
-            navigationItem.leftItemsSupplementBackButton = true
-            navigationItem.setLeftBarButtonItems([barButtonItemAddAccount].compactMap { $0 } , animated: false)
-        }
-        
-        
+//        barButtonItemAddAccount = (CommonConfigManager.shared.config.supports_multiaccounts && !multiAccounts) ?
+//        UIBarButtonItem(image: imageLiteral( "contact-add")?.withRenderingMode(.alwaysTemplate),
+//                        style: .plain,
+//                        target: self,
+//                        action: #selector(addAccount)) : nil
+//        if (CommonConfigManager.shared.config.supports_multiaccounts && !multiAccounts) {
+////            navigationItem.leftItemsSupplementBackButton = true
+////            navigationItem.setLeftBarButton(barButtonItemAddAccount, animated: true)
+////            navigationItem.setLeftBarButtonItems([barButtonItemAddAccount].compactMap { $0 } , animated: false)
+//        }
+//        
+//        
         if multiAccounts {
+            editButton = UIBarButtonItem(barButtonSystemItem: .edit, target: self, action: #selector(onEdit))
+            doneEditButton = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(onDoneEditing))
             if self.tableView.isEditing {
-                navigationItem.setRightBarButtonItems([doneEditButton].compactMap { $0 }, animated: false)
+                navigationItem.setRightBarButton(doneEditButton, animated: false)
             } else {
-                navigationItem.setRightBarButtonItems([editButton].compactMap { $0 }, animated: false)
+                navigationItem.setRightBarButton(editButton, animated: false)
             }
         } else {
-            let qrCodeButton = UIBarButtonItem(image: imageLiteral( "qrcode")?.withRenderingMode(.alwaysTemplate),
-                                               style: .plain,
+            let qrCodeButton = UIBarButtonItem(image: imageLiteral( "qrcode"),
+                                               style: .done,
                                                target: self,
                                                action: #selector(self.onQRCode))
-            let paletteButton = UIBarButtonItem(image: imageLiteral( "palette")?.withRenderingMode(.alwaysTemplate),
+            let paletteButton = UIBarButtonItem(image: imageLiteral( "paintpalette"),
                                                 style: .plain,
                                                 target: self,
                                                 action: #selector(self.showAccountColorViewController))
             if CommonConfigManager.shared.config.locked_account_color.isNotEmpty {
-                navigationItem.setRightBarButtonItems([qrCodeButton], animated: false)
+                navigationItem.setRightBarButton(qrCodeButton, animated: false)
             } else {
                 navigationItem.setRightBarButtonItems([qrCodeButton, paletteButton], animated: false)
             }
         }
     }
+    
+    var multiAccounts: Bool = false
     
     internal func load() {
         datasource = []
@@ -564,6 +568,7 @@ class SettingsViewController: BaseViewController {
         self.jid = item.jid
         
         if accounts.count > 1 {
+            multiAccounts = true
             datasource.append(Datasource(section: .xmppAccounts, title: Datasource.Section.xmppAccounts.description()))
             headerView.removeFromSuperview()
             tableView.fillSuperview()
@@ -578,7 +583,7 @@ class SettingsViewController: BaseViewController {
         } else {
             tableView.setEditing(false, animated: false)
             navigationBarButtonsConfigure(multiAccounts: false)
-//            headerViewConfig()
+//            headerViewConfig(multiAccounts: false)
             
             do {
                 let realm = try WRealm.safe()
@@ -647,7 +652,8 @@ class SettingsViewController: BaseViewController {
                                        key: .accountDelete)
                         ])
                     ]),
-                    Datasource(section: .accountSettings, title: "Devices", icon: "custom.desktopcomputer.square.fill", color: UIColor.systemBlue, key: .accountSessions)
+                    Datasource(section: .accountSettings, title: "Devices", icon: "custom.desktopcomputer.square.fill", color: UIColor.systemBlue, key: .accountSessions),
+                    Datasource(section: .accountSettings, title: "Subscriptions", icon: "xabber.lightbulb.square.fill", color: UIColor.systemBlue, key: .subscriptions)
                 ]))
             }
             
@@ -786,7 +792,7 @@ class SettingsViewController: BaseViewController {
     }
     
     internal func configure() {
-        self.navigationItem.backButtonTitle = "Settings".localizeString(id: "settings", arguments: [])
+//        self.navigationItem.backButtonTitle = "Settings".localizeString(id: "settings", arguments: [])
         view.addSubview(tableView)
         
         do {
@@ -813,11 +819,12 @@ class SettingsViewController: BaseViewController {
         load()
         tableView.delegate = self
         tableView.dataSource = self
-        editButton = UIBarButtonItem(title: "Edit", style: .plain, /*barButtonSystemItem: .edit,*/ target: self, action: #selector(self.onEdit))
-        doneEditButton = UIBarButtonItem(title: "Done", style: .plain, /*barButtonSystemItem: .done,*/ target: self, action: #selector(self.onDoneEditing))
-        if #available(iOS 14.0, *) {
+        
+//        editButton = UIBarButtonItem(title: "Edit", style: .plain, /*barButtonSystemItem: .edit,*/ target: self, action: #selector(self.onEdit))
+//        doneEditButton = UIBarButtonItem(title: "Done", style: .plain, /*barButtonSystemItem: .done,*/ target: self, action: #selector(self.onDoneEditing))
+//        if #available(iOS 14.0, *) {
             navigationItem.backButtonDisplayMode = .minimal
-        }
+//        }
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(reloadDatasource),
                                                name: .newMaskSelected,
@@ -903,11 +910,16 @@ class SettingsViewController: BaseViewController {
         tableView.fillSuperviewWithOffset(top: 0, bottom: 0, left: 0, right: 0)
         tableView.delegate = self
         tableView.dataSource = self
+        if self.multiAccounts {
+            return
+        }
+        
         headerView.frame = CGRect(
             width: view.frame.width,
             height: headerHeightMax
         )
         headerView.updateSubviews()
+        
         tableView.tableHeaderView = headerView
         self.headerView.delegate = self
     }
@@ -930,7 +942,7 @@ class SettingsViewController: BaseViewController {
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        title = ""
+        title = nil
         
         NotifyManager.shared.setLastChats(displayed: false)
         headerViewConfig()

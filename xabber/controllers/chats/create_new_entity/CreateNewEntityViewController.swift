@@ -35,11 +35,15 @@ class CreateNewEntityViewController: UIViewController {
     var notificationsCategoriesVc: NotificationsCategoriesViewController? = nil
     var contactsVc: ContactsViewController? = nil
     
+    open var leftMenuSelectRootCategoryDelegate: LeftMenuSelectRootScreenDelegate? = nil
+    
     private let tableView: UITableView = {
         let view = UITableView(frame: .zero, style: .insetGrouped)
         
-        view.register(UITableViewCell.self, forCellReuseIdentifier: "tablecell")
+        view.register(MenuItemTableCell.self, forCellReuseIdentifier: MenuItemTableCell.cellName)
         view.separatorStyle = .singleLine
+        
+        view.isScrollEnabled = false
         
         return view
     }()
@@ -49,10 +53,10 @@ class CreateNewEntityViewController: UIViewController {
         if CommonConfigManager.shared.config.locked_conversation_type == "none" {
             self.datasource = [
                 [
-                    Datasource(title: "Add contact", iconImage: nil ,icon: "person.fill", key: "add_contact", subtitle: ""),
-                    Datasource(title: "Create group", iconImage: nil, icon: "person.2.fill", key: "create_group", subtitle: ""),
-                    Datasource(title: "Create incognito group", iconImage:  nil, icon: "custom.person.2", key: "create_incognito", subtitle: ""),
-                    Datasource(title: "Start secret chat", iconImage: nil, icon: "custom.lock.bubble.left.fill", key: "start_secret_chat", subtitle: ""),
+                    Datasource(title: "Add contact", iconImage: nil ,icon: "person", key: "add_contact", subtitle: ""),
+                    Datasource(title: "Create group", iconImage: nil, icon: "person.2", key: "create_group", subtitle: ""),
+                    Datasource(title: "Create incognito group", iconImage:  nil, icon: "xabber.incognito.variant", key: "create_incognito", subtitle: ""),
+                    Datasource(title: "Start secret chat", iconImage: nil, icon: "custom.lock.bubble.left", key: "start_secret_chat", subtitle: ""),
                 ],
                 [
                     Datasource(title: "Scan QR code", iconImage: nil, icon: "qrcode.viewfinder", key: "qr_code", subtitle: ""),
@@ -74,18 +78,16 @@ class CreateNewEntityViewController: UIViewController {
     }
         
     public func configure() {
-        if CommonConfigManager.shared.config.use_large_title {
-            self.navigationItem.largeTitleDisplayMode = .automatic
-        } else {
-            self.navigationItem.largeTitleDisplayMode = .never
-        }
-        navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
+        
+        self.navigationItem.largeTitleDisplayMode = .never
+        navigationController?.navigationBar.prefersLargeTitles = false
         navigationItem.backButtonDisplayMode = .minimal
         
         view.addSubview(tableView)
         tableView.fillSuperview()
         tableView.delegate = self
         tableView.dataSource = self
+        
         loadDatasource()
     }
         
@@ -142,25 +144,38 @@ extension CreateNewEntityViewController: UITableViewDataSource {
     }
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = UITableViewCell(style: .value1, reuseIdentifier: "tablecell")
-        
-        cell.textLabel?.text = datasource[indexPath.section][indexPath.row].title
-        if let image = datasource[indexPath.section][indexPath.row].iconImage {
-            cell.imageView?.image = image.withRenderingMode(.alwaysTemplate)
-            cell.tintColor = .tintColor
-        } else {
-            cell.imageView?.image = imageLiteral(datasource[indexPath.section][indexPath.row].icon, dimension: 24)
+        guard let cell = tableView.dequeueReusableCell(withIdentifier: MenuItemTableCell.cellName, for: indexPath) as? MenuItemTableCell else {
+            fatalError()
         }
-        cell.selectionStyle = .none
+        let item = datasource[indexPath.section][indexPath.row]
+        cell.configure(title: item.title, badge: "", icon: item.icon, isImportant: false)
+        cell.backgroundColor = .white
+        cell.layer.cornerRadius = 0
+        cell.layer.masksToBounds = false
+        cell.separatorInset = UIEdgeInsets(top: 0, left: 72, bottom: 0, right: 16)
         cell.accessoryType = .disclosureIndicator
-        
+        cell.selectionStyle = .none
+//
+//        let cell = UITableViewCell(style: .value1, reuseIdentifier: "tablecell")
+//        
+//        cell.textLabel?.text = datasource[indexPath.section][indexPath.row].title
+//        if let image = datasource[indexPath.section][indexPath.row].iconImage {
+//            cell.imageView?.image = image.withRenderingMode(.alwaysTemplate)
+//            cell.imageView?.contentMode = .scaleAspectFit
+//            cell.tintColor = .tintColor
+//        } else {
+//            cell.imageView?.image = imageLiteral(datasource[indexPath.section][indexPath.row].icon, dimension: 24)
+//        }
+//        cell.selectionStyle = .none
+//        cell.accessoryType = .disclosureIndicator
+//        
         return cell
     }
 }
 
 extension CreateNewEntityViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return tableView.estimatedRowHeight
+        return 52
     }
     
     private func show(controller vc: UIViewController) {
@@ -183,20 +198,25 @@ extension CreateNewEntityViewController: UITableViewDelegate {
         switch key {
             case "add_contact":
                 let vc = AddNewContactViewController()
+                vc.leftMenuSelectRootCategoryDelegate = leftMenuSelectRootCategoryDelegate
                 self.navigationController?.pushViewController(vc, animated: true)
             case "create_group":
                 let vc = CreateNewGroupViewController()
                 vc.createIncognitoGroup = false
+                vc.leftMenuSelectRootCategoryDelegate = leftMenuSelectRootCategoryDelegate
                 self.navigationController?.pushViewController(vc, animated: true)
             case "create_incognito":
                 let vc = CreateNewGroupViewController()
                 vc.createIncognitoGroup = true
+                vc.leftMenuSelectRootCategoryDelegate = leftMenuSelectRootCategoryDelegate
                 self.navigationController?.pushViewController(vc, animated: true)
             case "start_secret_chat":
                 let vc = NewSecretChatViewController()
+                vc.leftMenuSelectRootCategoryDelegate = leftMenuSelectRootCategoryDelegate
                 self.navigationController?.pushViewController(vc, animated: true)
             case "qr_code":
                 let vc = QRCodeScannerViewController()
+                vc.leftMenuSelectRootCategoryDelegate = leftMenuSelectRootCategoryDelegate
                 self.navigationController?.pushViewController(vc, animated: true)
             default:
                 break

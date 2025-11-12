@@ -26,7 +26,6 @@ import RxSwift
 import RxCocoa
 import MaterialComponents.MDCPalettes
 import CocoaLumberjack
-import TOInsetGroupedTableView
 
 // TODO: fix it or drop it
 class AccountSecurityViewController: BaseViewController {
@@ -63,7 +62,7 @@ class AccountSecurityViewController: BaseViewController {
     
     internal let tableView: UITableView = {
 //        let view = UITableView(frame: .zero, style: .grouped)
-        let view = InsetGroupedTableView(frame: .zero)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(EditValue.self, forCellReuseIdentifier: EditValue.cellName)
         

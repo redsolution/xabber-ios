@@ -73,5 +73,3 @@ class ActionSheetPresenter {
         view.present(alert!, animated:  animated, completion: self.completion)
     }
 }
-
-

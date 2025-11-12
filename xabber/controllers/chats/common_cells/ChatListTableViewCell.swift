@@ -534,8 +534,8 @@ class ChatListTableViewCell: UITableViewCell {
         
         accountIndicator.frame = CGRect(x: 0.5, y: 1, width: 2, height: 74)
         userImageView.frame = CGRect(x: 16, y: 10, width: 64, height: 64)
-        addSubview(accountIndicator)
-        addSubview(userImageView)
+        contentView.addSubview(accountIndicator)
+        contentView.addSubview(userImageView) 
         
         infoStack.addArrangedSubview(topStack)
         infoStack.addArrangedSubview(bottomStack)
@@ -573,7 +573,7 @@ class ChatListTableViewCell: UITableViewCell {
         errorIndicator.isHidden = true
         
 //        self.selectionStyle = .none
-        separatorInset = UIEdgeInsets(top: 0, bottom: 0, left: 74, right: 0)
+        separatorInset = UIEdgeInsets(top: 0, bottom: 0, left: 96, right: 0)
         activateConstraints()
         layoutIfNeeded()
     }

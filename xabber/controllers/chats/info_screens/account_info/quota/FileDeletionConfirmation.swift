@@ -8,7 +8,6 @@
 
 import Foundation
 import UIKit
-import TOInsetGroupedTableView
 
 class FileDeletionConfirmation: BaseViewController {
     var percent: Int = 0
@@ -17,7 +16,7 @@ class FileDeletionConfirmation: BaseViewController {
     var items: [NSDictionary] = []
     
     let tableView: UITableView = {
-        let view = InsetGroupedTableView(frame: .zero)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         view.register(UITableViewCell.self, forCellReuseIdentifier: "ViewFilesCell")
         view.register(UITableViewCell.self, forCellReuseIdentifier: "DeleteFilesCell")
         return view
