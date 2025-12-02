@@ -22,29 +22,23 @@ platform :ios, '14.0'
 use_frameworks!
 
 def main_pods
-    pod 'Alamofire'#, '~> 4.9.1' #, '~> 4.7.2' # HTTP request/response library
+    pod 'Alamofire'
     pod 'RealmSwift', :git => 'https://github.com/realm/realm-swift.git', :tag => 'v10.46.0'
     pod 'RxSwift'
     pod 'RxCocoa'
     pod 'RxRealm', :git => 'https://github.com/whspr/RxRealm.git', :branch => 'update_podspec'
-    pod 'CryptoSwift', :git => 'https://github.com/krzyzanowskim/CryptoSwift.git', :tag => '1.8.1'#'1.3.8'#, '~> 0.12.0'#, '~> 0.12.0' # SHA-1 hashå
-    pod 'SwiftKeychainWrapper' # keychain
+    pod 'CryptoSwift', :git => 'https://github.com/krzyzanowskim/CryptoSwift.git', :tag => '1.8.1'
+    pod 'SwiftKeychainWrapper'
     pod 'Kingfisher', :git => 'https://github.com/whspr/Klingfisher.git'
-    pod 'Cache', :git => 'https://github.com/hyperoslo/Cache.git', :branch => 'master', :tag => '7.4.0'#'5.2.0' # data cache for video and audio messages
-    pod 'MaterialComponents/Palettes'#, '~> 59.1.1' # material design palette
-#    pod 'SwipeTransition'#, '~> 0.4.0'
-#    pod 'SwipeTransitionAutoSwipeBack'#, '~> 0.4.    0'
+    pod 'Cache', :git => 'https://github.com/hyperoslo/Cache.git', :branch => 'master', :tag => '7.4.0'
+    pod 'MaterialComponents/Palettes'
     pod 'GoogleWebRTC'
     pod 'LetterAvatarKit', '=1.2.3'
-    pod 'DeepDiff'#, '=2.0.1'
+    pod 'DeepDiff'
     pod 'Punycode'
-#    pod 'Toast-Swift', '~> 5.0.1'
     pod 'XMPPFramework/Swift', :path => '/Users/igor.boldin/projects/xabber/deps/XMPPFramework/'
 #    pod 'XMPPFramework/Swift', :git => 'https://github.com/whspr/XMPPFramework', :branch => 'light'
     pod 'CocoaAsyncSocket', :git => 'https://github.com/robbiehanson/CocoaAsyncSocket', :branch => 'master'
-#    pod 'KYCircularProgress'
-#    pod 'TOInsetGroupedTableView'
-#    pod 'ContextMenuSwift'
     pod 'OpenSSL-Universal'
     pod 'Curve25519Kit', :git => 'https://github.com/whspr/Curve25519Kit.git', :branch => 'mkirk/framework-friendly'
     pod 'SignalProtocolObjC', :git => 'https://github.com/redsolution/SignalProtocol-ObjC.git', :branch => 'master'
@@ -64,9 +58,7 @@ end
 
 target 'xabber_push_extension' do
     inherit! :search_paths
-#    pod 'RealmSwift', :git => 'https://github.com/realm/realm-swift.git', :tag => 'v10.35.0'
     pod 'SwiftKeychainWrapper'
-#    pod 'Starscream', :git => 'https://github.com/daltoniam/Starscream.git', :tag => '4.0.4'
     pod 'KissXML'
     pod 'CryptoSwift', :git => 'https://github.com/krzyzanowskim/CryptoSwift.git', :tag => '1.8.1'
     pod 'Curve25519Kit', :git => 'https://github.com/whspr/Curve25519Kit.git', :branch => 'mkirk/framework-friendly'
