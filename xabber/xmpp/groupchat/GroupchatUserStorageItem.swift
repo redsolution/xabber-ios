@@ -110,6 +110,21 @@ class GroupchatUserStorageItem: Object {
         get { decodePermissions(from: userPermissions_) }
         set { userPermissions_ = encodePermissions(newValue) }
     }
+    
+    public final func permissionsDiffer(then defaultPermissions: [GroupchatPermission]) -> Bool {
+        var hasChanges: Bool = false
+        defaultPermissions.forEach {
+            defaultItem in
+            if defaultItem.role == "member" {
+                if let item = self.userPermissions.first(where: { $0.name == defaultItem.name }),
+                   item.status != defaultItem.status {
+                    hasChanges = true
+                    return
+                }
+            }
+        }
+        return hasChanges
+    }
 
     private func encodePermissions(_ perms: [GroupchatPermission]) -> String {
         guard let data = try? JSONEncoder().encode(perms),

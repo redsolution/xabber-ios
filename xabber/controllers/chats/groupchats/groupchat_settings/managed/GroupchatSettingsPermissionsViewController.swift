@@ -15,6 +15,7 @@ import CocoaLumberjack
 import RxSwift
 import RxCocoa
 import RxRelay
+import DeepDiff
 
 class GroupchatSettingsPermissionsViewController: SimpleBaseViewController {
     
@@ -118,10 +119,11 @@ class GroupchatSettingsPermissionsViewController: SimpleBaseViewController {
     }
     
     
-    class Datasource {
+    class Datasource: DiffAware, Equatable, Hashable {
         enum Kind {
             case permission
             case button
+            case member
         }
         
         var kind: Kind
@@ -131,12 +133,66 @@ class GroupchatSettingsPermissionsViewController: SimpleBaseViewController {
         var originalStatus: Bool = false
         var changed: Bool = false
         
+        var userId: String = ""
+        var jid: String = ""
+        var badge: String = ""
+        var isMe: Bool = false
+        var subtitle: String = ""
+        var memberStatus: ResourceStatus = .offline
+        var avatarUrl: String = ""
+        var role: GroupchatUserStorageItem.Role = .member
+        
+        typealias DiffId = String
+        
+        var diffId: String {
+            get {
+                return userId
+            }
+        }
+        
+        static func == (lhs: Datasource, rhs: Datasource) -> Bool {
+            return lhs.userId == rhs.userId
+        }
+        
         init(kind: Kind, title: String, value: String, status: Bool = false) {
+            self.userId = value
             self.kind = kind
             self.title = title
             self.value = value
             self.status = status
             self.originalStatus = status
+        }
+        
+        init(forMember userId: String, jid: String, title: String, badge: String, isMe: Bool, subtitle: String, status: ResourceStatus, avatarUrl: String, role: GroupchatUserStorageItem.Role) {
+            self.kind = .member
+            self.value = ""
+            self.status = false
+            self.originalStatus = false
+            
+            self.userId = userId
+            self.jid = jid
+            self.title = title
+            self.badge = badge
+            self.isMe = isMe
+            self.subtitle = subtitle
+            self.memberStatus = status
+            self.avatarUrl = avatarUrl
+            self.role = role
+        }
+        
+        func hash(into hasher: inout Hasher) {
+            hasher.combine(self.userId)
+        }
+        
+        static func compareContent(_ a: GroupchatMembersListViewController.Datasource, _ b: GroupchatMembersListViewController.Datasource) -> Bool {
+            return a.userId == b.userId &&
+            a.title == b.title &&
+            a.badge == b.badge &&
+            a.isMe == b.isMe &&
+            a.subtitle == b.subtitle &&
+            a.status == b.status &&
+            a.avatarUrl == b.avatarUrl &&
+            a.role == b.role
         }
     }
     
@@ -154,6 +210,7 @@ class GroupchatSettingsPermissionsViewController: SimpleBaseViewController {
         
         view.register(SettingsSwitchCell.self, forCellReuseIdentifier: SettingsSwitchCell.cellName)
         view.register(GroupchatSettingsViewControllerT.SettingsItemCell.self, forCellReuseIdentifier: GroupchatSettingsViewControllerT.SettingsItemCell.cellName)
+        view.register(CommonMemberTableCell.self, forCellReuseIdentifier: CommonMemberTableCell.cellName)
         
         return view
     }()
@@ -170,6 +227,111 @@ class GroupchatSettingsPermissionsViewController: SimpleBaseViewController {
         return button
     }()
     
+    internal var membersObserver: Results<GroupchatUserStorageItem>? = nil
+    
+    internal var canUpdateDataset: Bool = true
+    
+    private func runDatasetUpdateTask(firstLaunch: Bool) {
+        guard let collection = self.membersObserver else {
+            return
+        }
+        
+        let out = collection.toArray()
+            .filter({ $0.permissionsDiffer(then: self.defaultPermissions) })
+            .compactMap {
+            item in
+            return Datasource(
+                forMember: item.userId,
+                jid: item.jid,
+                title: item.nickname,
+                badge: item.badge,
+                isMe: item.isMe,
+                subtitle: item.isOnline ? "Online".localizeString(id: "account_state_connected", arguments: []): item.dateString ?? "Offline".localizeString(id: "unavailable", arguments: []),
+                status: item.isOnline ? .online : .offline,
+                avatarUrl: item.avatarURI,
+                role: item.role,
+            )
+        }
+        if firstLaunch {
+            let index = self.datasource.count - 1
+            self.datasource[index] = out
+            self.tableView.reloadData()
+        } else {
+            self.apply(members: out)
+        }
+        
+    }
+    
+    private func apply(members newDataset: [Datasource]) {
+        let index = self.datasource.count - 1
+        let oldDataset = self.datasource[index]
+        let changes = diff(old: oldDataset, new: newDataset)
+        let indexPaths = self.convertChangeset(changes: changes)
+        DispatchQueue.main.async {
+            self.apply(changes: indexPaths) {
+                self.datasource[index] = newDataset
+            }
+        }
+    
+    }
+
+    private final func apply(changes: ChangesWithIndexPath, prepare: @escaping (() -> Void)) {
+        if changes.deletes.isEmpty &&
+            changes.inserts.isEmpty &&
+            changes.moves.isEmpty &&
+            changes.replaces.isEmpty {
+            prepare()
+            self.canUpdateDataset = true
+            return
+        }
+        UIView.performWithoutAnimation {
+            self.tableView.performBatchUpdates({
+                prepare()
+                if !changes.deletes.isEmpty {
+                    self.tableView.deleteRows(at: changes.deletes, with: .none)
+                }
+                
+                if !changes.inserts.isEmpty {
+                    self.tableView.insertRows(at: changes.inserts, with: .none)
+                }
+                
+                if changes.moves.isNotEmpty {
+                    changes.moves.forEach {
+                        (from, to) in
+                        self.tableView.moveRow(at: from, to: to)
+                    }
+                }
+            }, completion: {
+                result in
+                self.canUpdateDataset = true
+                if changes.replaces.isEmpty { return }
+                self.tableView.reloadRows(at: changes.replaces, with: .none)
+            })
+        }
+    }
+    
+    private final func convertChangeset(changes: [Change<Datasource>]) -> ChangesWithIndexPath {
+        let section: Int = self.datasource.count - 1
+        
+        let inserts =  changes.compactMap { return $0.insert?.index }.compactMap({ return IndexPath(row:$0, section: section)})
+        let deletes =  changes.compactMap { return $0.delete?.index }.compactMap({ return IndexPath(row:$0, section: section )})
+        let replaces = changes.compactMap { return $0.replace?.index }.compactMap({ return IndexPath(row:$0, section: section )})
+        
+        let moves = changes.compactMap({ $0.move }).map({
+          (
+            from: IndexPath(item: $0.fromIndex, section: section),
+            to: IndexPath(item: $0.toIndex, section: section)
+          )
+        })
+        
+        return ChangesWithIndexPath(
+            inserts: inserts,
+            deletes: deletes,
+            replaces: replaces,
+            moves: moves
+        )
+    }
+    
     override func subscribe() {
         super.subscribe()
         self.changesObserver
@@ -185,8 +347,40 @@ class GroupchatSettingsPermissionsViewController: SimpleBaseViewController {
                 }
             }
             .disposed(by: self.bag)
+        
+        do {
+            let realm = try WRealm.safe()
+            membersObserver = realm
+                    .objects(GroupchatUserStorageItem.self)
+                    .filter("groupchatId == %@ AND isBlocked == false AND isKicked == false AND isTemporary == false", [jid, owner].prp())
+                    .sorted(by: [
+                        SortDescriptor(keyPath: "isMe", ascending: false),
+                        SortDescriptor(keyPath: "sortedRole", ascending: true)
+                    ])
+            
+            
+            Observable
+                .collection(from: membersObserver!)
+                .debounce(.milliseconds(400), scheduler: MainScheduler.asyncInstance)
+                .subscribe { (results) in
+                    self.runDatasetUpdateTask(firstLaunch: false)
+                } onError: { (error) in
+                    DDLogDebug("GroupchatMembersListViewController: \(#function). RX error: \(error.localizedDescription)")
+                } onCompleted: {
+                    DDLogDebug("GroupchatMembersListViewController: \(#function). RX state: completed")
+                } onDisposed: {
+                    DDLogDebug("GroupchatMembersListViewController: \(#function). RX state: disposed")
+                }
+                .disposed(by: bag)
 
+            canUpdateDataset = true
+            runDatasetUpdateTask(firstLaunch: true)
+            
+        } catch {
+            DDLogDebug("GroupchatMembersListViewController: \(#function). \(error.localizedDescription)")
+        }
     }
+    
     
     @objc
     internal func onCancelButtonTouchUpInside(_ sender: AnyObject) {
@@ -229,7 +423,8 @@ class GroupchatSettingsPermissionsViewController: SimpleBaseViewController {
             },
             [
                 Datasource(kind: .button, title: "Permissions for new members", value: "newbies")
-            ]
+            ],
+            []
         ]
     }
     
@@ -251,6 +446,15 @@ class GroupchatSettingsPermissionsViewController: SimpleBaseViewController {
     }
     override func onAppear() {
         super.onAppear()
+        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+            session.groupchat?.getDefaultPermissions(stream, groupchat: self.jid)
+            session.groupchat?.getNewbiesPermissions(stream, groupchat: self.jid)
+        } fail: {
+            AccountManager.shared.find(for: self.owner)?.action { user, stream in
+                user.groupchats.getDefaultPermissions(stream, groupchat: self.jid)
+                user.groupchats.getNewbiesPermissions(stream, groupchat: self.jid)
+            }
+        }
     }
     
     internal func updateValue() {
@@ -260,23 +464,43 @@ class GroupchatSettingsPermissionsViewController: SimpleBaseViewController {
 
 extension GroupchatSettingsPermissionsViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return 52
+        let item = self.datasource[indexPath.section][indexPath.row]
+        switch item.kind {
+            case .button, .permission:
+                return 52
+            case .member:
+                return 64
+        }
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         let item = self.datasource[indexPath.section][indexPath.row]
-        switch item.value {
-            case "newbies":
-                let vc = GroupchatSettingsNewbiesPermissionsViewController()
+        switch item.kind {
+            case .member:
+                let vc = GroupchatSettingsRestrictUserViewController()
                 
+                vc.userId = item.userId
                 vc.jid = self.jid
                 vc.owner = self.owner
-                vc.defaultPermissions = defaultPermissions
                 
                 self.navigationController?.pushViewController(vc, animated: true)
-            default:
+            case .button:
+                switch item.value {
+                    case "newbies":
+                        let vc = GroupchatSettingsNewbiesPermissionsViewController()
+                        
+                        vc.jid = self.jid
+                        vc.owner = self.owner
+                        vc.defaultPermissions = defaultPermissions
+                        
+                        self.navigationController?.pushViewController(vc, animated: true)
+                    default:
+                        break
+                }
+            case .permission:
                 break
         }
+        
     }
 }
 
@@ -334,6 +558,26 @@ extension GroupchatSettingsPermissionsViewController: UITableViewDataSource {
                 }
                 
                 cell.configure(title: item.title, badge: "", icon: "custom.person.fill.badge.minus.square.fill")
+                cell.selectionStyle = .none
+                cell.accessoryType = .disclosureIndicator
+                return cell
+            case .member:
+                guard let cell = tableView.dequeueReusableCell(withIdentifier: CommonMemberTableCell.cellName, for: indexPath) as? CommonMemberTableCell else {
+                    fatalError()
+                }
+                cell.configure(
+                    avatarUrl: item.avatarUrl,
+                    jid: item.jid,
+                    owner: self.owner,
+                    userId: item.userId,
+                    title: item.title,
+                    badge: item.badge,
+                    isMe: item.isMe,
+                    subtitle: item.subtitle,
+                    status: item.memberStatus,
+                    entity: .contact,
+                    role: item.role
+                )
                 cell.selectionStyle = .none
                 cell.accessoryType = .disclosureIndicator
                 return cell

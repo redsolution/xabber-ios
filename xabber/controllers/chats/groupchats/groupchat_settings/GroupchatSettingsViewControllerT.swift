@@ -535,10 +535,15 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
         }
         
         XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+            session.groupchat?.requestPermissionsEachUser(stream, groupchat: self.jid)
             session.groupchat?.getDefaultPermissions(stream, groupchat: self.jid)
+            session.groupchat?.getNewbiesPermissions(stream, groupchat: self.jid)
+//            session
         } fail: {
             AccountManager.shared.find(for: self.owner)?.action { user, stream in
+                user.groupchats.requestPermissionsEachUser(stream, groupchat: self.jid)
                 user.groupchats.getDefaultPermissions(stream, groupchat: self.jid)
+                user.groupchats.getNewbiesPermissions(stream, groupchat: self.jid)
             }
         }
     }
@@ -603,36 +608,120 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
                 }
             }
             .disposed(by: self.bag)
+        
+        do {
+            let realm = try WRealm.safe()
+            let collection = realm.objects(GroupChatStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid)
+            Observable
+                .collection(from: collection, synchronousStart: true)
+                .debounce(.milliseconds(200), scheduler: MainScheduler.asyncInstance)
+                .subscribe { results in
+                    DispatchQueue.main.async {
+                        if !self.isFirstResponder {
+                            self.loadDatasource()
+                            self.tableView.reloadData()
+                        }
+                    }
+                }
+                .disposed(by: self.bag)
 
+        } catch {
+            
+        }
     }
     
     @objc
     internal func onCancelButtonTouchUpInside(_ sender: AnyObject) {
         self.changesObserver.accept(false)
         self.tableView.reconfigureRows(at: self.datasource[0].enumerated().compactMap({ return IndexPath(row: $0.offset, section: 0) }))
-//        self.navigationController?.popViewController(animated: true)
     }
     
     @objc
     internal func onSaveButtonTouchUpInside(_ sender: AnyObject) {
-//        let changes = self.datasource[0].filter({ $0.changed }).compactMap({
-//            return GroupchatPermission(role: self.permissionsScope, name: $0.key, status: $0.status, displayName: $0.title, expires: $0.period)
-//        })
-//        guard changes.isNotEmpty else {
-//            return
-//        }
+//        self.resignFirstResponder()
+        self.datasource[0].enumerated().compactMap({ return IndexPath(row: $0.offset, section: 0) }).compactMap({ self.tableView.cellForRow(at: $0) as? SettingsTextFieldCell}).forEach {
+            cell in
+            cell.field.resignFirstResponder()
+        }
+        self.changesObserver.accept(false)
+        if let index = self.datasource[0].firstIndex(where: { $0.key == "title" }) {
+            self.datasource[0][index].value = self.titleObserver.value ?? ""
+        }
+        if let index = self.datasource[0].firstIndex(where: { $0.key == "description" }) {
+            self.datasource[0][index].value = self.descriptionObserver.value ?? ""
+        }
+        self.tableView.reconfigureRows(at: self.datasource[0].enumerated().compactMap({ return IndexPath(row: $0.offset, section: 0) }))
         
-//        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-//            session.groupchat?.updateUserPermissions(stream, groupchat: self.jid, user: self.userId, changes: changes)
-//        } fail: {
-//            AccountManager.shared.find(for: self.owner)?.action { user, stream in
-//                user.groupchats.updateUserPermissions(stream, groupchat: self.jid, user: self.userId, changes: changes)
-//            }
-//        }
+        let data: [[String: Any]] = [
+            ["type": "hidden", "var": "'FORM_TYPE'", "value": "https://xabber.com/protocol/groups"],
+            ["var": "name", "value": self.titleObserver.value ?? ""],
+            ["var": "description", "value": self.descriptionObserver.value ?? ""]
+        ]
+
+        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+            _ = session.groupchat?.updateForm(stream, formType: .settings, groupchat: self.jid, userData: data) { error in
+                do {
+                    let realm = try WRealm.safe()
+                    if let instance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
+                        try realm.write {
+                            instance.name = self.titleObserver.value ?? ""
+                            instance.descr = self.descriptionObserver.value ?? ""
+                            realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: self.jid, owner: self.owner))?.customUsername = self.titleObserver.value ?? ""
+                        }
+                    }
+                } catch {
+                    DDLogDebug("")
+                }
+                DispatchQueue.main.async {self.storedTitle = self.titleObserver.value
+                    self.storedDescription = self.descriptionObserver.value
+                    if let index = self.datasource[0].firstIndex(where: { $0.key == "title" }) {
+                        self.datasource[0][index].value = self.titleObserver.value ?? ""
+                    }
+                    if let index = self.datasource[0].firstIndex(where: { $0.key == "description" }) {
+                        self.datasource[0][index].value = self.descriptionObserver.value ?? ""
+                    }
+                    if let error {
+                        ToastPresenter().presentError(message: "Error: \(error)")
+                    } else {
+                        ToastPresenter().presentSuccess(message: "Membership updated")
+                    }
+                }
+            }
+        } fail: {
+            AccountManager.shared.find(for: self.owner)?.action { user, stream in
+                _ = user.groupchats.updateForm(stream, formType: .settings, groupchat: self.jid, userData: data) { error in
+                    do {
+                        let realm = try WRealm.safe()
+                        if let instance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
+                            try realm.write {
+                                instance.name = self.titleObserver.value ?? ""
+                                instance.descr = self.descriptionObserver.value ?? ""
+                                realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: self.jid, owner: self.owner))?.customUsername = self.titleObserver.value ?? ""
+                            }
+                        }
+                    } catch {
+                        DDLogDebug("")
+                    }
+                    DispatchQueue.main.async {
+                        self.storedTitle = self.titleObserver.value
+                        self.storedDescription = self.descriptionObserver.value
+                        if let index = self.datasource[0].firstIndex(where: { $0.key == "title" }) {
+                            self.datasource[0][index].value = self.titleObserver.value ?? ""
+                        }
+                        if let index = self.datasource[0].firstIndex(where: { $0.key == "description" }) {
+                            self.datasource[0][index].value = self.descriptionObserver.value ?? ""
+                        }
+                        if let error {
+                            ToastPresenter().presentError(message: "Error: \(error)")
+                        } else {
+                            ToastPresenter().presentSuccess(message: "Membership updated")
+                        }
+                    }
+                }
+            }
+        }
         
-        
-        
-        self.navigationController?.popViewController(animated: true)
+//        self.navigationController?.popViewController(animated: true)
     }
 
 }

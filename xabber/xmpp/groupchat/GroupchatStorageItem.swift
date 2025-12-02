@@ -140,6 +140,13 @@ class GroupChatStorageItem: Object {
         get { decodePermissions(from: defaultPermissions_) }
         set { defaultPermissions_ = encodePermissions(newValue) }
     }
+    
+    @objc dynamic var newbiesPermissions_: String = ""
+    
+    var newbiesPermissions: [GroupchatPermission] {
+        get { decodePermissions(from: newbiesPermissions_) }
+        set { newbiesPermissions_ = encodePermissions(newValue) }
+    }
 
     private func encodePermissions(_ perms: [GroupchatPermission]) -> String {
         guard let data = try? JSONEncoder().encode(perms),

@@ -152,7 +152,7 @@ class GroupchatSettingsNewbiesPermissionsViewController: SimpleBaseViewControlle
         var key: String = ""
         var originalStatus: Bool = false
         
-        public final func updateTimer(day: Int?, hour: Int?, mins: Int?) {
+        public final func updateTimer(day: Int?, hour: Int?, mins: Int?, isChanged: Bool) {
             var customString = ""
             if let value = day, value > 0 {
                 customString += "\(value)d "
@@ -165,8 +165,16 @@ class GroupchatSettingsNewbiesPermissionsViewController: SimpleBaseViewControlle
             }
             
             var conf = UIButton.Configuration.plain()
+            var color: UIColor = .secondaryLabel
+            if self.originalStatus != switchView.isOn  {
+                color = .tintColor
+            }
+            if isChanged {
+                color = .tintColor
+            }
             conf.attributedTitle = AttributedString(NSAttributedString(string: customString, attributes: [
-                .font: UIFont.systemFont(ofSize: 13)
+                .font: UIFont.systemFont(ofSize: 13),
+                .foregroundColor: color
             ]))
             self.customPeriodButton.configuration = conf
             self.customPeriodButton.updateConfiguration()
@@ -179,7 +187,7 @@ class GroupchatSettingsNewbiesPermissionsViewController: SimpleBaseViewControlle
             self.switchView.isOn = isOn
             self.key = key
             self.originalStatus = originalStatus
-            self.updateTimer(day: day, hour: hour, mins: mins)
+            self.updateTimer(day: day, hour: hour, mins: mins, isChanged: isChanged)
             if originalStatus != isOn {
                 self.switchView.backgroundColor = .systemGreen
                 self.switchView.onTintColor = .systemGreen
@@ -258,6 +266,10 @@ class GroupchatSettingsNewbiesPermissionsViewController: SimpleBaseViewControlle
         var customiPeriodHour: Int? = nil
         var customiPeriodMins: Int? = nil
         
+        var defaultPeriodDay: Int? = nil
+        var defaultPeriodHour: Int? = nil
+        var defaultPeriodMins: Int? = nil
+        
         init(kind: Kind, title: String, value: String, status: Bool = false, key: String = "", icon: String = "") {
             self.kind = kind
             self.title = title
@@ -270,6 +282,44 @@ class GroupchatSettingsNewbiesPermissionsViewController: SimpleBaseViewControlle
         
         var period: Double? {
             return Double(self.customiPeriodDay ?? 0) * 24 * 60 * 60 + Double(self.customiPeriodHour ?? 0) * 60 * 60 + Double(self.customiPeriodMins ?? 0) * 60
+        }
+        
+        func isCustomDatedifferToDefaultDate() -> Bool {
+            if (self.customiPeriodDay ?? 0) != (self.defaultPeriodDay ?? 0) {
+                return true
+            } else if (self.customiPeriodHour ?? 0) != (self.defaultPeriodHour ?? 0) {
+                return true
+            } else if (self.customiPeriodMins ?? 0) != (self.defaultPeriodMins ?? 0) {
+                return true
+            }
+            return false
+        }
+        
+        func updateCustomPeriod(with seconds: Double?) {
+            guard let totalSeconds = seconds, totalSeconds >= 0 else {
+                self.customiPeriodDay = nil
+                self.customiPeriodHour = nil
+                self.customiPeriodMins = nil
+                self.defaultPeriodDay = nil
+                self.defaultPeriodHour = nil
+                self.defaultPeriodMins = nil
+                return
+            }
+            let totalSec = Int(totalSeconds)
+            
+            let days = totalSec / 86400
+            let remainingAfterDays = totalSec % 86400
+            
+            let hours = remainingAfterDays / 3600
+            let remainingAfterHours = remainingAfterDays % 3600
+            
+            let minutes = remainingAfterHours / 60
+            self.customiPeriodDay = days
+            self.customiPeriodHour = hours
+            self.customiPeriodMins = minutes
+            self.defaultPeriodDay = days
+            self.defaultPeriodHour = hours
+            self.defaultPeriodMins = minutes
         }
     }
     
@@ -315,14 +365,26 @@ class GroupchatSettingsNewbiesPermissionsViewController: SimpleBaseViewControlle
         do {
             let realm = try WRealm.safe()
             if let instance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
-                self.currentValue = instance.membership_
+                self.defaultPermissions = instance.defaultPermissions
+                instance.newbiesPermissions.forEach {
+                    item in
+                    if let index = self.defaultPermissions.firstIndex(where: { $0.name == item.name }) {
+                        self.defaultPermissions[index].status = item.status
+                        self.defaultPermissions[index].expires = item.expires
+                        self.defaultPermissions[index].seconds = item.seconds
+                    }
+                }
             }
         } catch {
             DDLogDebug("GroupchatSettingsMembershipViewController: \(#function). \(error.localizedDescription)")
         }
         self.datasource = [
             self.defaultPermissions.compactMap {
-                return Datasource(kind: .permission, title: $0.displayName, value: $0.name, status: $0.status, key: $0.name)
+                let item = Datasource(kind: .permission, title: $0.displayName, value: $0.name, status: $0.status, key: $0.name)
+                if let seconds = $0.seconds {
+                    item.updateCustomPeriod(with: seconds)
+                }
+                return item
             },
             [
                 Datasource(kind: .button, title: "1 Hour", value: "", key: "1_hour", icon: "1.square.fill"),
@@ -353,6 +415,13 @@ class GroupchatSettingsNewbiesPermissionsViewController: SimpleBaseViewControlle
     }
     override func onAppear() {
         super.onAppear()
+        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+            session.groupchat?.getNewbiesPermissions(stream, groupchat: self.jid)
+        } fail: {
+            AccountManager.shared.find(for: self.owner)?.action { user, stream in
+                user.groupchats.getNewbiesPermissions(stream, groupchat: self.jid)
+            }
+        }
     }
     
     internal func updateValue() {
@@ -384,17 +453,30 @@ class GroupchatSettingsNewbiesPermissionsViewController: SimpleBaseViewControlle
     
     @objc
     internal func onSaveButtonTouchUpInside(_ sender: AnyObject) {
-        let changes = self.datasource[0].filter({ $0.changed }).compactMap({
+        var changes = self.datasource[0].filter({ $0.changed }).compactMap({
             return GroupchatPermission(role: "member", name: $0.key, status: $0.status, displayName: $0.title, expires: $0.period)
         })
+        do {
+            let realm = try WRealm.safe()
+            if let instance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
+                instance.newbiesPermissions.forEach {
+                    item in
+                    if changes.firstIndex(where: { $0.name == item.name }) == nil {
+                        changes.append(item)
+                    }
+                }
+            }
+        } catch {
+            DDLogDebug("GroupchatSettingsMembershipViewController: \(#function). \(error.localizedDescription)")
+        }
         guard changes.isNotEmpty else {
             return
         }
         XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-            session.groupchat?.updateDefaultPermissions(stream, groupchat: self.jid, changes: changes)
+            session.groupchat?.updateNewbiesPermissions(stream, groupchat: self.jid, changes: changes)
         } fail: {
             AccountManager.shared.find(for: self.owner)?.action { user, stream in
-                user.groupchats.updateDefaultPermissions(stream, groupchat: self.jid, changes: changes)
+                user.groupchats.updateNewbiesPermissions(stream, groupchat: self.jid, changes: changes)
             }
         }
         self.navigationController?.popViewController(animated: true)
@@ -512,13 +594,12 @@ extension GroupchatSettingsNewbiesPermissionsViewController: UITableViewDataSour
             self.datasource[0][index].customiPeriodHour = self.customiPeriodHour ?? self.predefinedPeriodHour ?? 1
             self.datasource[0][index].customiPeriodMins = self.customiPeriodMins ?? self.predefinedPeriodMins
             let item = self.datasource[0][index]
-            (self.tableView.cellForRow(at: IndexPath(row: index, section: 0)) as? SettingsSwitchCell)?.updateTimer(day: item.customiPeriodDay, hour: item.customiPeriodHour, mins: item.customiPeriodMins)
+            (self.tableView.cellForRow(at: IndexPath(row: index, section: 0)) as? SettingsSwitchCell)?.updateTimer(day: item.customiPeriodDay, hour: item.customiPeriodHour, mins: item.customiPeriodMins, isChanged: item.changed)
         } else {
             self.datasource[0][index].changed = false
-            self.datasource[0][index].customiPeriodDay = nil
-            self.datasource[0][index].customiPeriodHour = nil
-            self.datasource[0][index].customiPeriodMins = nil
-            (self.tableView.cellForRow(at: IndexPath(row: index, section: 0)) as? SettingsSwitchCell)?.updateTimer(day: nil, hour: nil, mins: nil)
+            self.datasource[0][index].updateCustomPeriod(with: self.defaultPermissions.first(where: { self.datasource[0][index].value == $0.name })?.seconds)
+            let item = self.datasource[0][index]
+            (self.tableView.cellForRow(at: IndexPath(row: index, section: 0)) as? SettingsSwitchCell)?.updateTimer(day: item.customiPeriodDay, hour: item.customiPeriodHour, mins: item.customiPeriodMins, isChanged: item.changed)
         }
         self.changesObserver.accept(self.datasource[0].filter({ $0.changed }).isNotEmpty)
     }
@@ -569,6 +650,7 @@ extension GroupchatSettingsNewbiesPermissionsViewController: TimePickerAlertCont
             self.datasource[0][index].customiPeriodDay = days
             self.datasource[0][index].customiPeriodHour = hours
             self.datasource[0][index].customiPeriodMins = minutes
+            self.datasource[0][index].changed = self.datasource[0][index].isCustomDatedifferToDefaultDate()
             self.tableView.reconfigureRows(at: [IndexPath(row: index, section: 0)])
         } else {
             let section = 1

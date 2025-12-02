@@ -7,12 +7,22 @@
 //
 import Foundation
 
-struct GroupchatPermission: Codable {
-    let role: String
-    let name: String
-    let status: Bool
-    let displayName: String
-    let expires: Double?
+class GroupchatPermission: Codable {
+    var role: String
+    var name: String
+    var status: Bool
+    var displayName: String
+    var expires: Double?
+    var seconds: Double?
+    
+    init(role: String, name: String, status: Bool, displayName: String, expires: Double? = nil, seconds: Double? = nil) {
+        self.role = role
+        self.name = name
+        self.status = status
+        self.displayName = displayName
+        self.expires = expires
+        self.seconds = seconds
+    }
 }
 
 extension Array where Element == GroupchatPermission {
