@@ -500,6 +500,17 @@ extension ChatViewController {
     }
     
     internal final func groupSubscribtions() throws {
+        
+        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+            session.groupchat?.getDefaultPermissions(stream, groupchat: self.jid)
+            session.groupchat?.requestMyPermissions(stream, groupchat: self.jid)
+        } fail: {
+            AccountManager.shared.find(for: self.owner)?.action { user, stream in
+                user.groupchats.getDefaultPermissions(stream, groupchat: self.jid)
+                user.groupchats.requestMyPermissions(stream, groupchat: self.jid)
+            }
+        }
+
 //        let realm = try WRealm.safe()
 //        
 //        self.showMyNickname = realm

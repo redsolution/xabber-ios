@@ -680,6 +680,7 @@ class ChatViewController: MessagesViewController {
         vc.owner = self.owner
         vc.jid = self.jid
         showModal(vc, parent: self)
+        self.removeObservers()
     }
     
     @objc
@@ -1443,6 +1444,8 @@ class ChatViewController: MessagesViewController {
         self.bag = DisposeBag()
     }
     
+    
+    
     override public func addObservers() {
         NotificationCenter.default.addObserver(
             self,
@@ -1525,7 +1528,54 @@ class ChatViewController: MessagesViewController {
     
     override func removeObservers() {
         super.removeObservers()
-        NotificationCenter.default.removeObserver(self)
+//        NotificationCenter.default.removeObserver(self)
+        
+        
+        NotificationCenter.default.removeObserver(
+            self,
+            name: UIApplication.willEnterForegroundNotification,
+            object: UIApplication.shared
+        )
+        NotificationCenter.default.removeObserver(
+            self,
+            name: UIApplication.didEnterBackgroundNotification,
+            object: UIApplication.shared
+        )
+        NotificationCenter.default.removeObserver(
+            self,
+            name: .newMaskSelected,
+            object: nil
+        )
+        NotificationCenter.default.removeObserver(
+            self,
+            name: .chatInterfaceChanged,
+            object: nil
+        )
+        NotificationCenter.default.removeObserver(
+            self,
+            name: .chatBackgroundChanged,
+            object: nil
+        )
+        NotificationCenter.default.removeObserver(
+            self,
+            name: UIWindow.keyboardWillShowNotification,
+            object: nil
+        )
+        NotificationCenter.default.removeObserver(
+            self,
+            name: UIWindow.keyboardWillHideNotification,
+            object: nil
+        )
+        NotificationCenter.default.removeObserver(
+            self,
+            name: UIWindow.keyboardWillChangeFrameNotification,
+            object: nil
+        )
+        NotificationCenter.default.removeObserver(
+            self,
+            name: .recorderDidUpdateMeteringLevelNotification,
+            object: nil
+        )
     }
     
 //    internal func addMeteringObservers() {
@@ -1665,6 +1715,7 @@ class ChatViewController: MessagesViewController {
         self.hideFloatingDateObserver.accept(true)
         self.showFloatingDateObserver.accept(false)
         self.pinnedDateView.hide(withoutAnimation: true)
+        self.addObservers()
 //        self.topPanelState.accept(.audioPlayer)
         
 //        DispatchQueue.main.async {

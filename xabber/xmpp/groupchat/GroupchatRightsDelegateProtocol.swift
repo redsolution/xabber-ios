@@ -15,6 +15,11 @@ struct GroupchatPermission: Codable {
     let expires: Double?
 }
 
+extension Array where Element == GroupchatPermission {
+    func findByPermissionName(_ name: String) -> GroupchatPermission? {
+        first { $0.name == name }
+    }
+}
 protocol GroupchatPermissionsDelegate {
     func groupchatPermissionsList(default permissions: [GroupchatPermission], elementId: String)
     func groupchatPermissionsList(user userId: String,  permissions: [GroupchatPermission], elementId: String)

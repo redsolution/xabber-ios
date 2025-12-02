@@ -144,6 +144,56 @@ extension GroupchatSettingsMembershipViewController: UITableViewDelegate {
                 self.tableView.cellForRow(at: IndexPath(row: index, section: 0))?.accessoryType = .none
             }
         }
+        
+        let data: [[String: Any]] = [
+            ["type": "hidden", "var": "'FORM_TYPE'", "value": "https://xabber.com/protocol/groups"],
+            ["var": "membership", "value": item.value],
+        ]
+
+        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+            _ = session.groupchat?.updateForm(stream, formType: .settings, groupchat: self.jid, userData: data) { error in
+                do {
+                    let realm = try WRealm.safe()
+                    if let instance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
+                        try realm.write {
+                            instance.membership_ = item.value
+                        }
+                    }
+                } catch {
+                    DDLogDebug("")
+                }
+                DispatchQueue.main.async {
+                    if let error {
+                        ToastPresenter().presentError(message: "Error: \(error)")
+                    } else {
+                        ToastPresenter().presentSuccess(message: "Membership updated")
+                    }
+                }
+            }
+        } fail: {
+            AccountManager.shared.find(for: self.owner)?.action { user, stream in
+                _ = user.groupchats.updateForm(stream, formType: .settings, groupchat: self.jid, userData: data) { error in
+                    do {
+                        let realm = try WRealm.safe()
+                        if let instance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
+                            try realm.write {
+                                instance.membership_ = item.value
+                            }
+                        }
+                    } catch {
+                        DDLogDebug("")
+                    }
+                    DispatchQueue.main.async {
+                        if let error {
+                            ToastPresenter().presentError(message: "Error: \(error)")
+                        } else {
+                            ToastPresenter().presentSuccess(message: "Membership updated")
+                        }
+                    }
+                }
+            }
+        }
+
     }
 }
 

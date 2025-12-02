@@ -574,39 +574,39 @@ extension GroupchatContactInfoViewController: InfoScreenHeaderDelegate {
             }
         }
         modifiedForm.append(contentsOf: changedValues.value)
-        XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
-            self.updateFormId = session.groupchat?.updateForm(stream, formType: .userRights, groupchat: self.jid, userData: modifiedForm) { (error) in
-                DispatchQueue.main.async {
-                    if let error = error {
-                        var message: String = "Internal server error".localizeString(id: "error_internal_server", arguments: [])
-                        if error == "fail" {
-                            message = "Connection failed".localizeString(id: "grouchats_connection_failed", arguments: [])
-                        }
-                        self.view.makeToast(message)
-                    } else {
-                        self.changedValues.accept([])
-                    }
-                    self.inSaveMode.accept(false)
-                }
-            }
-        }) {
-            AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                self.updateFormId = user.groupchats.updateForm(stream, formType: .userRights, groupchat: self.jid, userData: modifiedForm) { (error) in
-                    DispatchQueue.main.async {
-                        if let error = error {
-                            var message: String = "Internal server error".localizeString(id: "error_internal_server", arguments: [])
-                            if error == "fail" {
-                                message = "Connection failed".localizeString(id: "grouchats_connection_failed", arguments: [])
-                            }
-                            self.view.makeToast(message)
-                        } else {
-                            self.changedValues.accept([])
-                        }
-                        self.inSaveMode.accept(false)
-                    }
-                }
-            })
-        }
+//        XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
+//            self.updateFormId = session.groupchat?.updateForm(stream, formType: .userRights, groupchat: self.jid, userData: modifiedForm) { (error) in
+//                DispatchQueue.main.async {
+//                    if let error = error {
+//                        var message: String = "Internal server error".localizeString(id: "error_internal_server", arguments: [])
+//                        if error == "fail" {
+//                            message = "Connection failed".localizeString(id: "grouchats_connection_failed", arguments: [])
+//                        }
+//                        self.view.makeToast(message)
+//                    } else {
+//                        self.changedValues.accept([])
+//                    }
+//                    self.inSaveMode.accept(false)
+//                }
+//            }
+//        }) {
+//            AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
+//                self.updateFormId = user.groupchats.updateForm(stream, formType: .userRights, groupchat: self.jid, userData: modifiedForm) { (error) in
+//                    DispatchQueue.main.async {
+//                        if let error = error {
+//                            var message: String = "Internal server error".localizeString(id: "error_internal_server", arguments: [])
+//                            if error == "fail" {
+//                                message = "Connection failed".localizeString(id: "grouchats_connection_failed", arguments: [])
+//                            }
+//                            self.view.makeToast(message)
+//                        } else {
+//                            self.changedValues.accept([])
+//                        }
+//                        self.inSaveMode.accept(false)
+//                    }
+//                }
+//            })
+//        }
         
     }
     

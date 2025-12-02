@@ -198,7 +198,7 @@ class CommonMemberTableCell: UITableViewCell {
             roleIndicator.image = imageLiteral( "star.fill")
         case .admin:
             roleIndicator.image = imageLiteral( "star")
-        case .member:
+        case .member, .custom:
             roleIndicator.image = nil
         }
     }

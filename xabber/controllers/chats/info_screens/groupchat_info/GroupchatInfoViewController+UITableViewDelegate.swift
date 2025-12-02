@@ -107,6 +107,7 @@ extension GroupchatInfoViewController: UITableViewDelegate {
                     let vc = GroupchatMembersListViewController()
                     vc.owner = self.owner
                     vc.jid = self.jid
+                    vc.permissionScope = "owner,admin,member,custom"
                     navigationController?.pushViewController(vc, animated: true)
                     
                 case "images":

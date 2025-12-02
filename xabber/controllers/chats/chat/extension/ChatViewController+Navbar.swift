@@ -23,6 +23,12 @@ import UIKit
 import MaterialComponents
 import CocoaLumberjack
 
+extension ChatViewController{
+    func presentationControllerWillDismiss(_ presentationController: UIPresentationController) {
+        self.addObservers()
+    }
+}
+
 extension ChatViewController {
     @objc
     internal func onTitleButtonTouchUp(_ sender: UIButton) {

@@ -28,16 +28,17 @@ class GroupchatUserStorageItem: Object {
         case owner = "owner"
         case admin = "admin"
         case member = "member"
+        case custom = "custom"
         
         var localized: String {
             get {
                 switch self {
-                case .owner:
-                    return "Owner".localizeString(id: "groupchat_personal_status_owner", arguments: [])
-                case .admin:
-                    return "Administrator".localizeString(id: "groupchat_personal_status_administrator", arguments: [])
-                case .member:
-                    return "Member".localizeString(id: "groupchat_personal_status_member", arguments: [])
+                    case .owner:
+                        return "Owner".localizeString(id: "groupchat_personal_status_owner", arguments: [])
+                    case .admin:
+                        return "Administrator".localizeString(id: "groupchat_personal_status_administrator", arguments: [])
+                    case .member, .custom:
+                        return "Member".localizeString(id: "groupchat_personal_status_member", arguments: [])
                 }
             }
         }
@@ -96,9 +97,36 @@ class GroupchatUserStorageItem: Object {
     @objc dynamic var changeGroupSettings: Bool = false
     @objc dynamic var changeUserInfo: Bool = false
     @objc dynamic var changePermissions: Bool = false
+    @objc dynamic var changeDefaultPermissions: Bool = false
+    @objc dynamic var blockUsers: Bool = false
     @objc dynamic var createAdmins: Bool = false
+    
     @objc dynamic var isOwner: Bool = false
     
+    
+    @objc dynamic var userPermissions_: String = ""
+    
+    var userPermissions: [GroupchatPermission] {
+        get { decodePermissions(from: userPermissions_) }
+        set { userPermissions_ = encodePermissions(newValue) }
+    }
+
+    private func encodePermissions(_ perms: [GroupchatPermission]) -> String {
+        guard let data = try? JSONEncoder().encode(perms),
+              let json = String(data: data, encoding: .utf8) else {
+            return ""                     // fallback – empty array
+        }
+        return json
+    }
+
+    private func decodePermissions(from json: String) -> [GroupchatPermission] {
+        guard !json.isEmpty,
+              let data = json.data(using: .utf8),
+              let perms = try? JSONDecoder().decode([GroupchatPermission].self, from: data) else {
+            return []                     // fallback – empty array
+        }
+        return perms
+    }
     
     override static func indexedProperties() -> [String] {
         return ["owner", "groupchatId"]

@@ -381,9 +381,7 @@ class GroupchatSettingsUserPermissionsViewController: SimpleBaseViewController {
     internal func onCancelButtonTouchUpInside(_ sender: AnyObject) {
         self.navigationController?.popViewController(animated: true)
     }
-    
-    internal var saveRequestId: String? = nil
-    
+        
     @objc
     internal func onSaveButtonTouchUpInside(_ sender: AnyObject) {
         let changes = self.datasource[0].filter({ $0.changed }).compactMap({
@@ -393,10 +391,10 @@ class GroupchatSettingsUserPermissionsViewController: SimpleBaseViewController {
             return
         }
         XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-            self.saveRequestId = session.groupchat?.updateDefaultRights(stream, groupchat: self.jid, changes: changes)
+            session.groupchat?.updateDefaultPermissions(stream, groupchat: self.jid, changes: changes)
         } fail: {
             AccountManager.shared.find(for: self.owner)?.action { user, stream in
-                self.saveRequestId = user.groupchats.updateDefaultRights(stream, groupchat: self.jid, changes: changes)
+                user.groupchats.updateDefaultPermissions(stream, groupchat: self.jid, changes: changes)
             }
         }
         self.navigationController?.popViewController(animated: true)

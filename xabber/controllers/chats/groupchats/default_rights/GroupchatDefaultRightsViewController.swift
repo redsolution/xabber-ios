@@ -164,11 +164,7 @@ class GroupchatDefaultRightsViewController: BaseViewController {
         tableView.fillSuperview()
         tableView.dataSource = self
         tableView.delegate = self
-        AccountManager.shared.find(for: owner)?.action({ (user, stream) in
-            self.formId = user.groupchats.requestDefaltRightsForm(stream,
-                                                                         groupchat: self.jid,
-                                                                         callback: self.onReceiveForm)
-        })
+        
     }
     
     override func viewDidLoad() {

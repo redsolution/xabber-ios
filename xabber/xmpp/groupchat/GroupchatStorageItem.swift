@@ -120,7 +120,7 @@ class GroupChatStorageItem: Object {
     @objc dynamic var canChangeBadge: Bool = false
     @objc dynamic var canBlockUsers: Bool = false
     @objc dynamic var canChangeAvatars: Bool = false
-    @Persisted var canDeleteMessages: Bool = false
+    @objc dynamic var canDeleteMessages: Bool = false
     
     var defaultRestrictions: List<String> = List<String>()
     
@@ -137,11 +137,10 @@ class GroupChatStorageItem: Object {
     @objc dynamic var defaultPermissions_: String = ""
     
     var defaultPermissions: [GroupchatPermission] {
-            get { decodePermissions(from: defaultPermissions_) }
-            set { defaultPermissions_ = encodePermissions(newValue) }
-        }
+        get { decodePermissions(from: defaultPermissions_) }
+        set { defaultPermissions_ = encodePermissions(newValue) }
+    }
 
-        // MARK: – Helpers
     private func encodePermissions(_ perms: [GroupchatPermission]) -> String {
         guard let data = try? JSONEncoder().encode(perms),
               let json = String(data: data, encoding: .utf8) else {

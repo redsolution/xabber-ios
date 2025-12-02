@@ -32,8 +32,12 @@ func showModal(_ vc: UIViewController, parent parentVc: UIViewController? = nil,
         if let popoverController = nvc.popoverPresentationController {
             popoverController.sourceView = parent?.view
             popoverController.sourceRect = CGRect(x: parent?.view.bounds.midX ?? 0, y: parent?.view.bounds.midY ?? 0, width: 0, height: 0)
-            popoverController.permittedArrowDirections = []
+            popoverController.permittedArrowDirections = [.any]
         }
+    }
+    
+    if let adaptiveDelegate = parentVc as? UIAdaptivePresentationControllerDelegate {
+        nvc.presentationController?.delegate = adaptiveDelegate
     }
     
     parent?.definesPresentationContext = true

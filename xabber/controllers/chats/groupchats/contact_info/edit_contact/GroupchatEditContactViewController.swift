@@ -265,11 +265,11 @@ class GroupchatEditContactViewController: BaseViewController {
         super.viewWillAppear(animated)
         subscribe()
         inSaveMode.accept(true)
-        AccountManager.shared.find(for: owner)?.action({ (user, stream) in
-            self.requestFormId = user.groupchats.requestEditUserForm(stream, groupchat: self.groupchat,
-                                                                     userId: self.userId,
-                                                                     callback: self.onReceiveForm)
-        })
+//        AccountManager.shared.find(for: owner)?.action({ (user, stream) in
+//            self.requestFormId = user.groupchats.requestEditUserForm(stream, groupchat: self.groupchat,
+//                                                                     userId: self.userId,
+//                                                                     callback: self.onReceiveForm)
+//        })
     }
     
     override func viewDidAppear(_ animated: Bool) {

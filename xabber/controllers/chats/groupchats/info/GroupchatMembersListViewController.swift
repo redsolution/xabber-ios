@@ -31,6 +31,51 @@ import MaterialComponents.MDCPalettes
 
 class GroupchatMembersListViewController: SimpleBaseViewController {
     
+    class ButtonTableCell: UITableViewCell {
+        static let cellName: String = "ButtonTableCell"
+        
+        let stack: UIStackView = {
+            let stack = UIStackView()
+            
+            stack.axis = .horizontal
+            stack.distribution = .fill
+            stack.alignment = .center
+            stack.layoutMargins = UIEdgeInsets(top: 2, bottom: 0, left: 16, right: 16)
+            stack.isLayoutMarginsRelativeArrangement = true
+            
+            return stack
+        }()
+        
+        let titleLabel: UILabel = {
+            let label = UILabel()
+            
+            label.textColor = .tintColor
+            
+            return label
+        }()
+        
+        func configure(title: String) {
+            self.titleLabel.text = title
+        }
+        
+        func setupSubviews() {
+            self.contentView.addSubview(stack)
+            self.stack.fillSuperview()
+            self.stack.addArrangedSubview(self.titleLabel)
+            self.accessoryType = .disclosureIndicator
+        }
+        
+        override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+            super.init(style: style, reuseIdentifier: reuseIdentifier)
+            self.setupSubviews()
+        }
+        
+        required init?(coder: NSCoder) {
+            super.init(coder: coder)
+            self.setupSubviews()
+        }
+    }
+    
     class Datasource: DiffAware, Equatable, Hashable {
         var userId: String
         var jid: String
@@ -104,6 +149,7 @@ class GroupchatMembersListViewController: SimpleBaseViewController {
         let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(CommonMemberTableCell.self, forCellReuseIdentifier: CommonMemberTableCell.cellName)
+        view.register(ButtonTableCell.self, forCellReuseIdentifier: ButtonTableCell.cellName)
         
         return view
     }()
@@ -120,13 +166,15 @@ class GroupchatMembersListViewController: SimpleBaseViewController {
         return DispatchQueue.global(qos: .background)
     }()
     
+    open var permissionScope: String = "member"
+    
     override func subscribe() {
         super.subscribe()
         do {
             let realm = try WRealm.safe()
             membersObserver = realm
                     .objects(GroupchatUserStorageItem.self)
-                    .filter("groupchatId == %@ AND isBlocked == false AND isKicked == false AND isTemporary == false", [jid, owner].prp())
+                    .filter("groupchatId == %@ AND isBlocked == false AND isKicked == false AND isTemporary == false AND role_ IN %@", [jid, owner].prp(), permissionScope.components(separatedBy: ","))
                     .sorted(by: [
                         SortDescriptor(keyPath: "isMe", ascending: false),
                         SortDescriptor(keyPath: "sortedRole", ascending: true)
@@ -161,11 +209,27 @@ class GroupchatMembersListViewController: SimpleBaseViewController {
         tableView.fillSuperview()
     }
     
+    internal var isPromoteAdmin: Bool = false
+    
+    public final func configurePromoteAdmin() {
+        self.isPromoteAdmin = true
+    }
+    
     override func configure() {
         super.configure()
         tableView.delegate = self
         tableView.dataSource = self
-        title = "Members".localizeString(id: "group_settings__members_list__header", arguments: [])
+        if self.permissionScope == "member" {
+            title = "Members".localizeString(id: "group_settings__members_list__header", arguments: [])
+        } else if self.permissionScope == "owner,admin" {
+            title = "Administrators"
+        } else if self.isPromoteAdmin {
+            title = "Select user"
+        } else if self.permissionScope == "restrited" {
+            title = "Restricted users"
+        } else {
+            title = nil
+        }
     }
     
     override func onAppear() {
@@ -212,14 +276,16 @@ class GroupchatMembersListViewController: SimpleBaseViewController {
     
     
     private final func convertChangeset(changes: [Change<Datasource>]) -> ChangesWithIndexPath {
-        let inserts =  changes.compactMap { return $0.insert?.index }.compactMap({ return IndexPath(row:$0, section: 0)})
-        let deletes =  changes.compactMap { return $0.delete?.index }.compactMap({ return IndexPath(row:$0, section: 0 )})
-        let replaces = changes.compactMap { return $0.replace?.index }.compactMap({ return IndexPath(row:$0, section: 0 )})
+        let section: Int = self.permissionScope == "owner,admin" ? 1 : 0
+        
+        let inserts =  changes.compactMap { return $0.insert?.index }.compactMap({ return IndexPath(row:$0, section: section)})
+        let deletes =  changes.compactMap { return $0.delete?.index }.compactMap({ return IndexPath(row:$0, section: section )})
+        let replaces = changes.compactMap { return $0.replace?.index }.compactMap({ return IndexPath(row:$0, section: section )})
         
         let moves = changes.compactMap({ $0.move }).map({
           (
-            from: IndexPath(item: $0.fromIndex, section: 0),
-            to: IndexPath(item: $0.toIndex, section: 0)
+            from: IndexPath(item: $0.fromIndex, section: section),
+            to: IndexPath(item: $0.toIndex, section: section)
           )
         })
         
@@ -301,30 +367,67 @@ class GroupchatMembersListViewController: SimpleBaseViewController {
 }
 
 extension GroupchatMembersListViewController: UITableViewDataSource {
+    func numberOfSections(in tableView: UITableView) -> Int {
+        if self.isPromoteAdmin {
+            return 1
+        }
+        if self.permissionScope == "member" {
+            return 1
+        } else if self.permissionScope == "owner,admin" {
+            return 2
+        } else {
+            return 1
+        }
+    }
+    
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return datasource.count
+        if self.isPromoteAdmin {
+            return datasource.count
+        }
+        if self.permissionScope == "owner,admin" {
+            if section == 0 {
+                return 1
+            } else {
+                return datasource.count
+            }
+        } else {
+            return datasource.count
+        }
+        
     }
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        guard let cell = tableView.dequeueReusableCell(withIdentifier: CommonMemberTableCell.cellName, for: indexPath) as? CommonMemberTableCell else {
-            fatalError()
+        if indexPath.section == 0 && self.permissionScope == "owner,admin" {
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: ButtonTableCell.cellName, for: indexPath) as? ButtonTableCell else {
+                fatalError()
+            }
+            
+            cell.configure(title: "Add Administrator")
+            cell.selectionStyle = .none
+            
+            return cell
+        } else {
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: CommonMemberTableCell.cellName, for: indexPath) as? CommonMemberTableCell else {
+                fatalError()
+            }
+            let item = datasource[indexPath.row]
+            
+            cell.configure(
+                avatarUrl: item.avatarUrl,
+                jid: self.jid,
+                owner: self.owner,
+                userId: item.userId,
+                title: item.title,
+                badge: item.badge,
+                isMe: item.isMe,
+                subtitle: item.subtitle,
+                status: item.status,
+                entity: .contact,
+                role: item.role
+            )
+            return cell
         }
-        let item = datasource[indexPath.row]
         
-        cell.configure(
-            avatarUrl: item.avatarUrl,
-            jid: self.jid,
-            owner: self.owner,
-            userId: item.userId,
-            title: item.title,
-            badge: item.badge,
-            isMe: item.isMe,
-            subtitle: item.subtitle,
-            status: item.status,
-            entity: .contact,
-            role: item.role
-        )
-        return cell
     }
     
     
@@ -332,6 +435,9 @@ extension GroupchatMembersListViewController: UITableViewDataSource {
 
 extension GroupchatMembersListViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        if indexPath.section == 0 && self.permissionScope == "owner,admin" {
+            return 52
+        }
         return 64
     }
     func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
@@ -340,12 +446,27 @@ extension GroupchatMembersListViewController: UITableViewDelegate {
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         let item = datasource[indexPath.row]
+        if self.isPromoteAdmin {
+            let vc = GroupchatSettingsPromoteAdminViewController()
+            
+            vc.userId = item.userId
+            vc.jid = self.jid
+            vc.owner = self.owner
+            
+            self.navigationController?.pushViewController(vc, animated: true)
+            return
+        }
+        if indexPath.section == 0 && self.permissionScope == "owner,admin" {
+            self.onAddAdmin()
+            return
+        }
         if item.jid.isNotEmpty {
             let vc = ContactInfoViewController()
             vc.owner = self.owner
             vc.jid = item.jid
             vc.conversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
             self.navigationController?.pushViewController(vc, animated: true)
+            return
         } else {
             let vc = GroupchatContactInfoViewController()
             vc.owner = self.owner
@@ -353,10 +474,14 @@ extension GroupchatMembersListViewController: UITableViewDelegate {
             vc.userId = item.userId
             
             navigationController?.pushViewController(vc, animated: true)
+            return
         }
     }
     
     func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+        if self.isPromoteAdmin {
+            return nil
+        }
         let index = indexPath.row
         let item = self.datasource[index]
         
@@ -384,7 +509,7 @@ extension GroupchatMembersListViewController: UITableViewDelegate {
             handler(true)
         }
         
-        restrictAction.image = imageLiteral("key.fill")
+        restrictAction.image = imageLiteral("person.badge.key.fill")
         restrictAction.backgroundColor = .systemYellow
         
         let promoteAction = UIContextualAction(style: .normal, title: "Promote") { action, view, handler in
@@ -393,7 +518,7 @@ extension GroupchatMembersListViewController: UITableViewDelegate {
             handler(true)
         }
         
-        promoteAction.image = imageLiteral("star.fill")
+        promoteAction.image = imageLiteral("xabber.person.star.fill")
         promoteAction.backgroundColor = .systemBlue
         
         var actions: [UIContextualAction] = []
@@ -405,7 +530,9 @@ extension GroupchatMembersListViewController: UITableViewDelegate {
                 actions.append(kickAction)
             }
             if item.canRestrict {
-                actions.append(restrictAction)
+                if item.role == .member || item.role == .custom {
+                    actions.append(restrictAction)
+                }
             }
             if item.canPromote {
                 actions.append(promoteAction)
@@ -418,6 +545,9 @@ extension GroupchatMembersListViewController: UITableViewDelegate {
     }
     
     func tableView(_ tableView: UITableView, leadingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+        if self.isPromoteAdmin {
+            return nil
+        }
         let item = self.datasource[indexPath.row]
         let index = indexPath.row
         let directChat = UIContextualAction(style: .normal, title: "Chat") { action, view, handler in
@@ -497,14 +627,37 @@ extension GroupchatMembersListViewController {
     }
     
     private func onRestrictUser(userId: String) {
+        let vc = GroupchatSettingsRestrictUserViewController()
         
+        vc.userId = userId
+        vc.jid = self.jid
+        vc.owner = self.owner
+        
+        self.navigationController?.pushViewController(vc, animated: true)
     }
     
     private func onPromoteUser(userId: String) {
+        let vc = GroupchatSettingsPromoteAdminViewController()
         
+        vc.userId = userId
+        vc.jid = self.jid
+        vc.owner = self.owner
+        
+        self.navigationController?.pushViewController(vc, animated: true)
     }
     
     private func onInfoUser(userId: String) {
         
+    }
+    
+    private func onAddAdmin() {
+        let vc = GroupchatMembersListViewController()
+        
+        vc.permissionScope = "member"
+        vc.jid = self.jid
+        vc.owner = self.owner
+        vc.configurePromoteAdmin()
+        
+        self.navigationController?.pushViewController(vc, animated: true)
     }
 }

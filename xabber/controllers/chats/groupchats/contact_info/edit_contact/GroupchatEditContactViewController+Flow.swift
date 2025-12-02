@@ -68,13 +68,13 @@ extension GroupchatEditContactViewController {
                 }
             }
             changes.append(contentsOf: modifiedForm.value)
-            AccountManager.shared.find(for: owner)?.action({ (user, stream) in
-                user.groupchats.updateForm(stream,
-                                           formType: .userRights,
-                                           groupchat: self.groupchat,
-                                           userData: changes,
-                                           callback: self.onSaveCallback)
-            })
+//            AccountManager.shared.find(for: owner)?.action({ (user, stream) in
+//                user.groupchats.updateForm(stream,
+//                                           formType: .userRights,
+//                                           groupchat: self.groupchat,
+//                                           userData: changes,
+//                                           callback: self.onSaveCallback)
+//            })
         } else {
             onSaveCallback(nil)
         }

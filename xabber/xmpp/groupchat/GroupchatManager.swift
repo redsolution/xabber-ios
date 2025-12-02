@@ -29,8 +29,6 @@ class GroupchatManager: AbstractXMPPManager {
     
     enum FormType {
         case settings
-        case defaultRights
-        case userRights
         case status
     }
     
@@ -424,19 +422,22 @@ class GroupchatManager: AbstractXMPPManager {
         self.queryIds.insert(elementId)
     }
     
-    var rightsDelegate: GroupchatPermissionsDelegate? = nil
     
-    public final func updateDefaultRights(_ xmppStream: XMPPStream, groupchat: String, changes: [GroupchatPermission]) -> String? {
-        guard let to = XMPPJID(string: groupchat) else { return nil }
-        let elementId = "GC Rights: \(NanoID.new(6))"
-        let query = XMPPElement(name: "query", xmlns: "https://xabber.com/protocol/groups/permissions#default")
-        let permissions = DDXMLElement(name: "permissions", xmlns: "https://xabber.com/protocol/groups/permissions")
+    public final func updateDefaultPermissions(_ xmppStream: XMPPStream, groupchat: String, changes: [GroupchatPermission]) {
+        guard let to = XMPPJID(string: groupchat) else { return }
+        let elementId = "GC Permissions: \(NanoID.new(6))"
+        let query = XMPPElement(name: "defaults", xmlns: "https://xabber.com/protocol/permissions")
+        let permissions = DDXMLElement(name: "permissions", xmlns: "https://xabber.com/protocol/permissions")
         query.addChild(permissions)
         changes.forEach {
             item in
             let permission = DDXMLElement(name: "permission")
             permission.addAttribute(withName: "name", stringValue: item.name)
-            permission.addAttribute(withName: "status", boolValue: item.status)
+            if item.status {
+                permission.addAttribute(withName: "status", stringValue: "true")
+            } else {
+                permission.addAttribute(withName: "status", stringValue: "false")
+            }
             if let seconds = item.expires {
                 permission.addAttribute(withName: "seconds", doubleValue: seconds)
             }
@@ -444,20 +445,44 @@ class GroupchatManager: AbstractXMPPManager {
         }
         let iq = XMPPIQ(iqType: .set, to: to, elementID: elementId, child: query)
         xmppStream.send(iq)
-        
-        return elementId
+        self.getDefaultPermissions(xmppStream, groupchat: groupchat)
     }
     
-    public final func getDefaultRights(_ xmppStream: XMPPStream, groupchat: String) -> String? {
-        guard let to = XMPPJID(string: groupchat) else { return nil }
-        let elementId = "GC Rights: \(NanoID.new(6))"
-        let query = XMPPElement(name: "query", xmlns: "https://xabber.com/protocol/groups/permissions#default")
+    public final func updateUserPermissions(_ xmppStream: XMPPStream, groupchat: String, user userId: String, changes: [GroupchatPermission]) {
+        guard let to = XMPPJID(string: groupchat) else { return }
+        let elementId = "GC Permissions: \(NanoID.new(6))"
+        
+        let permissions = DDXMLElement(name: "permissions", xmlns: "https://xabber.com/protocol/permissions")
+        permissions.addAttribute(withName: "target", stringValue: userId)
+        changes.forEach {
+            item in
+            let permission = DDXMLElement(name: "permission")
+            permission.addAttribute(withName: "name", stringValue: item.name)
+            if item.status {
+                permission.addAttribute(withName: "status", stringValue: "true")
+            } else {
+                permission.addAttribute(withName: "status", stringValue: "false")
+            }
+            
+            if let seconds = item.expires {
+                permission.addAttribute(withName: "seconds", doubleValue: seconds)
+            }
+            permissions.addChild(permission)
+        }
+        let iq = XMPPIQ(iqType: .set, to: to, elementID: elementId, child: permissions)
+        xmppStream.send(iq)
+        self.requestUserPermissions(xmppStream, groupchat: groupchat, user: userId)
+    }
+    
+    public final func getDefaultPermissions(_ xmppStream: XMPPStream, groupchat: String) {
+        guard let to = XMPPJID(string: groupchat) else { return }
+        let elementId = "GC Permissions: \(NanoID.new(6))"
+        let query = XMPPElement(name: "defaults", xmlns: "https://xabber.com/protocol/permissions")
         let iq = XMPPIQ(iqType: .get, to: to, elementID: elementId, child: query)
         xmppStream.send(iq)
-        return elementId
     }
     
-    private func onReceiveDefaultRightsList(_ iq: XMPPIQ) -> Bool {
+    private func onReceiveDefaultPermissionsList(_ iq: XMPPIQ) -> Bool {
 //        guard let permissions = iq.elemen
         /*
          RECV: <iq xmlns="jabber:client" lang="ru" to="igor.boldin@redsolution.com/xabber-ios-F04F3ECE_ui_upgrade_task" from="test-group-igor-20250903@xmppdev01.xabber.com" type="result" id="GC Rights: dmE7eq">
@@ -471,89 +496,135 @@ class GroupchatManager: AbstractXMPPManager {
          </iq>
          */
         
-        guard let elementID = iq.elementID,
-              let query = iq.element(forName: "query", xmlns: "https://xabber.com/protocol/groups/permissions#default"),
-              let permissionsRaw = query.element(forName: "permissions", xmlns: "https://xabber.com/protocol/groups/permissions")?
+        guard let groupchat = iq.from?.bare,
+              let elementID = iq.elementID,
+              let query = iq.element(forName: "defaults", xmlns: "https://xabber.com/protocol/permissions"),
+              let permissionsRaw = query.element(forName: "permissions", xmlns: "https://xabber.com/protocol/permissions")?
             .elements(forName: "permission") else {
             return false
         }
         let permissions: [GroupchatPermission] = permissionsRaw.compactMap {
             return GroupchatPermission(
-                role: $0.attributeStringValue(forName: "role", withDefaultValue: "member"),
+                role: $0.attributeStringValue(forName: "level", withDefaultValue: "member"),
                 name: $0.attributeStringValue(forName: "name", withDefaultValue: ""),
                 status: $0.attributeBoolValue(forName: "status", withDefaultValue: false),
-                displayName: $0.stringValue ?? "",
-                expires: nil
+                displayName: $0.attributeStringValue(forName: "display", withDefaultValue: ""),
+                expires: $0.attributeDoubleValue(forName: "expires")
             )
         }
         
-        self.rightsDelegate?.groupchatPermissionsList(default: permissions, elementId: elementID)
+        do {
+            let realm = try WRealm.safe()
+            if let instance = realm.object(
+                ofType: GroupChatStorageItem.self,
+                forPrimaryKey: GroupChatStorageItem.genPrimary(jid: groupchat, owner: self.owner)
+            ) {
+                try realm.write {
+                    instance.defaultPermissions = permissions
+                }
+            }
+        } catch {
+            DDLogDebug("GroupchatManager: \(#function). \(error.localizedDescription)")
+        }
         
-        return false
+        return true
     }
     
     private func onReceiveUserPermissionssList(_ iq: XMPPIQ) -> Bool {
 //        guard let permissions = iq.elemen
         /*
-         RECV: <iq xmlns="jabber:client" lang="ru" to="igor.boldin@redsolution.com/xabber-ios-F04F3ECE_ui_upgrade_task" from="test-group-igor-20250903@xmppdev01.xabber.com" type="result" id="GC Rights: dmE7eq">
-           <permissions xmlns="https://xabber.com/protocol/groups/permissions">
-             <permission status="true" role="member" name="send-messages">Send messages</permission>
-             <permission status="true" role="member" name="send-media">Send media</permission>
-             <permission status="true" role="member" name="add-members">Add members</permission>
-             <permission status="false" role="member" name="pin-messages">Pin messages</permission>
-             <permission status="false" role="member" name="change-group-info">Change group info</permission>
+         RECV: <iq xmlns="jabber:client" lang="ru" to="igor.boldin@redsolution.com/xabber-ios-0413280E_ui_upgrade_task" from="test-group-igor-20250903@xmppdev01.xabber.com" type="result" id="GC Rights: JEtuLm">
+         <query xmlns="https://xabber.com/protocol/groups/permissions" id="jlol81xet5s29hn4">
+           <permissions role="owner">
+             <permission fixed="true" status="true" role="member" name="send-messages">Send messages</permission>
+             <permission fixed="true" status="true" role="member" name="send-media">Send media</permission>
+             <permission fixed="true" status="true" role="member" name="add-members">Add members</permission>
+             <permission fixed="true" status="true" role="member" name="pin-messages">Pin messages</permission>
+             <permission fixed="true" status="true" role="member" name="change-group-info">Change group info</permission>
+             <permission fixed="true" status="true" role="owner" name="owner">Owner</permission>
+             <permission fixed="true" status="true" role="admin" name="change-group-settings">Edit group settings</permission>
+             <permission fixed="true" status="true" role="admin" name="change-user-info">Edit users' info</permission>
+             <permission fixed="true" status="true" role="admin" name="delete-messages">Delete messages</permission>
+             <permission fixed="true" status="true" role="admin" name="change-permissions">Change users' permissions</permission>
+             <permission fixed="true" status="true" role="admin" name="change-default-permissions">Change default permissions</permission>
+             <permission fixed="true" status="true" role="admin" name="block-users">Kick and block users</permission>
+             <permission fixed="true" status="true" role="admin" name="create-admins">Create admins</permission>
            </permissions>
-         </iq>
+         </query>
+       </iq>
          */
         
-        guard let elementID = iq.elementID,
-              let query = iq.element(forName: "query", xmlns: "https://xabber.com/protocol/groups/permissions"),
-              let permissionsContainer = query.element(forName: "permissions", xmlns: "https://xabber.com/protocol/groups/permissions"),
-              let userId = query.attributeStringValue(forName: "userId") else {
+        guard let groupchat = iq.from?.bare,
+              let elementID = iq.elementID,
+              let permissionsContainer = iq.element(forName: "permissions", xmlns: "https://xabber.com/protocol/permissions"),
+              let userId = permissionsContainer.attributeStringValue(forName: "target") else {
             return false
         }
         let permissionsRaw = permissionsContainer.elements(forName: "permission")
         let permissions: [GroupchatPermission] = permissionsRaw.compactMap {
             return GroupchatPermission(
-                role: $0.attributeStringValue(forName: "role", withDefaultValue: "member"),
+                role: $0.attributeStringValue(forName: "level", withDefaultValue: "member"),
                 name: $0.attributeStringValue(forName: "name", withDefaultValue: ""),
                 status: $0.attributeBoolValue(forName: "status", withDefaultValue: false),
-                displayName: $0.stringValue ?? "",
-                expires: nil
+                displayName: $0.attributeStringValue(forName: "display", withDefaultValue: ""),
+                expires: $0.attributeDoubleValue(forName: "expires")
             )
         }
         
-        self.rightsDelegate?.groupchatPermissionsList(user: userId, permissions: permissions, elementId: elementID)
         
-        return false
+        do {
+            let realm = try WRealm.safe()
+            if let instance = realm.object(
+                ofType: GroupchatUserStorageItem.self,
+                forPrimaryKey: GroupchatUserStorageItem.genPrimary(id: userId, groupchat: groupchat, owner: owner)
+            ) {
+                try realm.write {
+                    instance.userPermissions = permissions                   
+                    instance.sendMessage = permissions.findByPermissionName("send-messages")?.status ?? false
+                    instance.sendMedia = permissions.findByPermissionName("send-media")?.status ?? false
+                    instance.addMembers = permissions.findByPermissionName("add-members")?.status ?? false
+                    instance.pinMessages = permissions.findByPermissionName("pin-messages")?.status ?? false
+                    instance.changeGroupInfo = permissions.findByPermissionName("change-group-info")?.status ?? false
+                    instance.changeGroupSettings = permissions.findByPermissionName("change-group-settings")?.status ?? false
+                    instance.changeUserInfo = permissions.findByPermissionName("change-user-info")?.status ?? false
+                    instance.changePermissions = permissions.findByPermissionName("change-permissions")?.status ?? false
+                    instance.changeDefaultPermissions = permissions.findByPermissionName("change-default-permissions")?.status ?? false
+                    instance.blockUsers = permissions.findByPermissionName("block-users")?.status ?? false
+                    instance.createAdmins = permissions.findByPermissionName("create-admins")?.status ?? false
+                }
+            }
+        } catch {
+            DDLogDebug("GroupchatManager: \(#function). \(error.localizedDescription)")
+        }
+        
+        return true
     }
     
 //    private final func onReceiveUserPermissions()
     
     public final func requestUserPermissions(_ xmppStream: XMPPStream, groupchat: String, user userId: String) {
-        /*<iq to=”groupchat@xabber.com” type=”get”>
-         <query xmlns=”https://xabber.com/protocol/groups/permissions” id="userid"/>
-         </iq>
-*/
         guard let to = XMPPJID(string: groupchat) else { return }
-        let elementId = "GC Rights: \(NanoID.new(6))"
-        let query = XMPPElement(name: "query", xmlns: "https://xabber.com/protocol/groups/permissions")
-        query.addAttribute(withName: "id", stringValue: userId)
-        let iq = XMPPIQ(iqType: .get, to: to, elementID: elementId, child: query)
+        let elementId = "GC Permissions: \(NanoID.new(6))"
+        let permissions = XMPPElement(name: "permissions", xmlns: "https://xabber.com/protocol/permissions")
+        permissions.addAttribute(withName: "target", stringValue: userId)
+        let iq = XMPPIQ(iqType: .get, to: to, elementID: elementId, child: permissions)
         xmppStream.send(iq)
         queryIds.append(elementId)
     }
     
-    public final func requestDefaltRightsForm(_ xmppStream: XMPPStream, groupchat: String, callback: @escaping ([[String: Any]]?, String?) -> Void) -> String {
-        let elementId = "GC: \(NanoID.new(6))"
-        xmppStream.send(XMPPIQ(iqType: .get,
-                               to: fullJid(groupchat),
-                               elementID: elementId,
-                               child: DDXMLElement(name: "query",
-                                                   xmlns: xmlns("default-rights"))))
-        queryIds.insert(elementId)
-        queueItems.insert(QueueItem(.requestForm, elementId: elementId, settingsCallback: callback))
-        return elementId
+    public final func requestMyPermissions(_ xmppStream: XMPPStream, groupchat: String) {
+        guard let to = XMPPJID(string: groupchat) else { return }
+        do {
+            let realm = try WRealm.safe()
+            if let instance = realm
+                .objects(GroupchatUserStorageItem.self)
+                .filter("groupchatId == %@ AND isMe == true",
+                        GroupChatStorageItem.genPrimary(jid: groupchat, owner: self.owner)).first {
+                self.requestUserPermissions(xmppStream, groupchat: groupchat, user: instance.userId)
+            }
+        } catch {
+            DDLogDebug("GroupchatManager: \(#function). \(error.localizedDescription)")
+        }
     }
     
     public final func requestChatSettingsForm(_ xmppStream: XMPPStream, groupchat: String, callback: (([[String: Any]]?, String?) -> Void)?) -> String {
@@ -580,29 +651,6 @@ class GroupchatManager: AbstractXMPPManager {
         return elementId
     }
     
-    public final func requestMyRights(_ xmppStream: XMPPStream, groupchat: String, callback: (([[String: Any]]?, [[String: Any]]?, [[String: Any]]?, String?) -> Void)? = nil) -> String {
-        let elementId = "GC: \(NanoID.new(6))"
-        let query = DDXMLElement(name: "query", xmlns: xmlns("rights"))
-        let user = DDXMLElement(name: "user", xmlns: getPrimaryNamespace())
-        user.addAttribute(withName: "id", stringValue: "")
-        query.addChild(user)
-        xmppStream.send(XMPPIQ(iqType: .get, to: fullJid(groupchat), elementID: elementId, child: query))
-        self.queryIds.insert(elementId)
-        queueItems.insert(QueueItem(.requestForm, elementId: elementId, formCallback: callback))
-        return elementId
-    }
-    
-    public final func requestEditUserForm(_ xmppStream: XMPPStream, groupchat: String, userId: String, callback: @escaping ([[String: Any]]?, [[String: Any]]?, [[String: Any]]?, String?) -> Void) -> String {
-        let elementId = "GC: \(NanoID.new(6))"
-        let query = DDXMLElement(name: "query", xmlns: xmlns("rights"))
-        let user = DDXMLElement(name: "user", xmlns: getPrimaryNamespace())
-        user.addAttribute(withName: "id", stringValue: userId)
-        query.addChild(user)
-        xmppStream.send(XMPPIQ(iqType: .get, to: fullJid(groupchat), elementID: elementId, child: query))
-        self.queryIds.insert(elementId)
-        queueItems.insert(QueueItem(.requestForm, elementId: elementId, formCallback: callback))
-        return elementId
-    }
     
     public final func getGroupInfo(_ xmppStream: XMPPStream, groupchat: String) {
         let elementId = "GC: \(NanoID.new(6))"
@@ -617,10 +665,6 @@ class GroupchatManager: AbstractXMPPManager {
         switch formType {
         case .settings:
             query.setXmlns(getPrimaryNamespace())
-        case .defaultRights:
-            query.setXmlns(xmlns("default-rights"))
-        case .userRights:
-            query.setXmlns(xmlns("rights"))
         case .status:
             query.setXmlns(xmlns("status"))
         }
@@ -848,42 +892,6 @@ class GroupchatManager: AbstractXMPPManager {
         }
     }
     
-    private final func onEditDefaultRightsForm(_ iq: XMPPIQ) -> Bool {
-        guard let elementId = iq.elementID,
-            queryIds.contains(elementId),
-            let query = iq.element(forName: "query", xmlns: xmlns("default-rights")),
-            let x = query.element(forName: "x", xmlns: "jabber:x:data"),
-            x.attributeStringValue(forName: "type", withDefaultValue: "none") == "form" else {
-            return false
-        }
-        queryIds.remove(elementId)
-        var out: [[String: Any]] = []
-        x.elements(forName: "field").forEach {
-            field in
-            var item: [String: Any] = [:]
-            if let varName = field.attributeStringValue(forName: "var") {
-                item["var"] = varName
-            }
-            if let type = field.attributeStringValue(forName: "type") {
-                item["type"] = type
-            }
-            if let label = field.attributeStringValue(forName: "label") {
-                item["label"] = label
-            }
-            if let value = field.element(forName: "value")?.stringValue {
-                item["value"] = value
-            }
-            item["values"] = field.elements(forName: "option").compactMap {
-                return ["label": $0.attributeStringValue(forName: "label"), "value": $0.stringValue]
-            }
-            out.append(item)
-        }
-        if let item = queueItems.first(where: { $0.elementId == elementId }) {
-            item.settingsCallback?(out, nil)
-            queueItems.remove(item)
-        }
-        return true
-    }
     
     private final func onEditChatSettingsForm(_ iq: XMPPIQ) -> Bool {
         guard let elementId = iq.elementID,
@@ -1000,80 +1008,6 @@ class GroupchatManager: AbstractXMPPManager {
         return true
     }
     
-    private final func onUpdateOwnRights(_ iq: XMPPIQ) -> Bool {
-        guard let from = iq.from?.bare,
-            let query = iq.element(forName: "query", xmlns: xmlns("rights")),
-            let x = query.element(forName: "x", xmlns: "jabber:x:data"),
-            x.attributeStringValue(forName: "type", withDefaultValue: "none") == "form" else {
-            return false
-        }
-        if let userId = x.elements(forName: "field").first(where: { $0.attributeStringValue(forName: "var") == "user-id" })?.element(forName: "value"),
-            userId.stringValue == "" {
-            do {
-                let realm = try  WRealm.safe()
-                if let instance = realm.object(ofType: GroupChatStorageItem.self,
-                                               forPrimaryKey: [from, owner].prp()) {
-                    try realm.write {
-                        instance.canInvite = true
-                        instance.canChangeSettings = false
-                        instance.canChangeUsersSettings = false
-                        instance.canChangeNicknames = false
-                        instance.canChangeBadge = false
-                        instance.canBlockUsers = false
-                        instance.canChangeAvatars = false
-                        instance.canDeleteMessages = false
-                        
-                        x.elements(forName: "field").forEach {
-                            element in
-                            let fieldName = element.attributeStringValue(forName: "var", withDefaultValue: "none")
-                            guard let value = element.element(forName: "value")?.stringValue,
-                                value.isNotEmpty else { return }
-                            switch fieldName {
-                                case "owner":
-                                    instance.canInvite = true
-                                    instance.canChangeSettings = true
-                                    instance.canChangeUsersSettings = true
-                                    instance.canChangeNicknames = true
-                                    instance.canChangeBadge = true
-                                    instance.canBlockUsers = true
-                                    instance.canChangeAvatars = true
-                                    instance.canDeleteMessages = true
-                                case "restrict-participants":
-                                    instance.canChangeNicknames = true
-                                    instance.canChangeBadge = true
-                                    instance.canChangeUsersSettings = true
-                                    instance.canBlockUsers = true
-                                case "block-participants":
-                                    instance.canBlockUsers = true
-                                case "administrator":
-                                    instance.canChangeSettings = true
-                                    instance.canChangeUsersSettings = true
-                                    instance.canChangeNicknames = true
-                                    instance.canChangeBadge = true
-                                    instance.canBlockUsers = true
-                                    instance.canChangeAvatars = true
-                                case "change-badges":
-                                    instance.canChangeBadge = true
-                                case "change-nicknames":
-                                    instance.canChangeNicknames = true
-                                case "delete-messages":
-                                    instance.canDeleteMessages = true
-                                case "send-invitations":
-                                    instance.canInvite = false
-                                    break
-                            default: break
-                            }
-                        }
-                    }
-                }
-            } catch {
-                DDLogDebug("GroupchatManager: \(#function). \(error.localizedDescription)")
-            }
-            return true
-        }
-        return false
-    }
-    
     private final func onEditUserForm(_ iq: XMPPIQ) -> Bool {
         guard let elementId = iq.elementID,
             queryIds.contains(elementId),
@@ -1083,7 +1017,6 @@ class GroupchatManager: AbstractXMPPManager {
             return false
         }
         
-        _ = onUpdateOwnRights(iq)
         var isPermission: Bool = true
         var out: [[String: Any]] = []
         var permissions: [[String: Any]] = []
@@ -1119,23 +1052,6 @@ class GroupchatManager: AbstractXMPPManager {
         }
         if let item = queueItems.first(where: { $0.elementId == elementId }) {
             item.formCallback?(out, permissions, restrictions, nil)
-            queueItems.remove(item)
-        }
-        return true
-    }
-    
-    private final func onSuccessDefaultRightsUpdatedForm(_ iq: XMPPIQ) -> Bool {
-        guard let elementId = iq.elementID,
-            queryIds.contains(elementId),
-            let query = iq.element(forName: "query",
-                                   xmlns: xmlns("default-rights")),
-            let x = query.element(forName: "x", xmlns: "jabber:x:data"),
-            x.attributeStringValue(forName: "type", withDefaultValue: "none") == "result" else {
-            return false
-        }
-        queryIds.remove(elementId)
-        if let item = queueItems.first(where: { $0.elementId == elementId }) {
-            item.callback?(nil)
             queueItems.remove(item)
         }
         return true
@@ -1214,23 +1130,6 @@ class GroupchatManager: AbstractXMPPManager {
                 DDLogDebug("GroupchatManager: \(#function). \(error.localizedDescription)")
             }
         }
-    }
-    
-    private final func onSuccessUserUpdatedForm(_ iq: XMPPIQ) -> Bool {
-        guard let elementId = iq.elementID,
-            queryIds.contains(elementId),
-            let query = iq.element(forName: "query",
-                                   xmlns: xmlns("rights")),
-            let x = query.element(forName: "x", xmlns: "jabber:x:data"),
-            x.attributeStringValue(forName: "type", withDefaultValue: "none") == "result" else {
-            return false
-        }
-        queryIds.remove(elementId)
-        if let item = queueItems.first(where: { $0.elementId == elementId }) {
-            item.callback?(nil)
-            queueItems.remove(item)
-        }
-        return true
     }
     
     private final func onInfo(_ presence: XMPPPresence) -> Bool {
@@ -1675,7 +1574,7 @@ class GroupchatManager: AbstractXMPPManager {
             switch instance.role {
             case .owner: instance.sortedRole = GroupchatUserStorageItem.IntegerRole.owner.rawValue
             case .admin: instance.sortedRole = GroupchatUserStorageItem.IntegerRole.admin.rawValue
-            case .member: instance.sortedRole = GroupchatUserStorageItem.IntegerRole.member.rawValue
+                case .member, .custom: instance.sortedRole = GroupchatUserStorageItem.IntegerRole.member.rawValue
             }
             instance.badge = card.element(forName: "badge")?.stringValue ?? instance.badge
             if let present = card.element(forName: "present") {
@@ -2689,9 +2588,9 @@ class GroupchatManager: AbstractXMPPManager {
                                       commitTransaction: commitTransaction,
                                       cardDate: getDelayedDate(message) ?? Date())
             if card?.isMe ?? false {
-                AccountManager.shared.find(for: owner)?.action({ (user, stream) in
-                    _ = user.groupchats.requestMyRights(stream, groupchat: groupchat)
-                })
+//                AccountManager.shared.find(for: owner)?.action({ (user, stream) in
+//                    user.groupchats.requestUserPermissions(stream, groupchat: groupchat, user: card?.userId ?? "0")
+//                })
             }
         }
         if let userCard = bareMessage
@@ -2706,9 +2605,9 @@ class GroupchatManager: AbstractXMPPManager {
                                       commitTransaction: commitTransaction,
                                       cardDate: getDelayedDate(message) ?? Date())
             if card?.isMe ?? false {
-                AccountManager.shared.find(for: owner)?.action({ (user, stream) in
-                    _ = user.groupchats.requestMyRights(stream, groupchat: groupchat)
-                })
+//                AccountManager.shared.find(for: owner)?.action({ (user, stream) in
+//                    user.groupchats.requestUserPermissions(stream, groupchat: groupchat, user: card?.userId ?? "0")
+//                })
             }
         }
         return false
@@ -2764,11 +2663,10 @@ class GroupchatManager: AbstractXMPPManager {
             case onError(iq): return true
             case onUser(iq): return true
             case onGroupInfo(iq): return true
-            case onReceiveDefaultRightsList(iq): return true
+            case onReceiveUserPermissionssList(iq): return true
+            case onReceiveDefaultPermissionsList(iq): return true
             case onEditChatSettingsForm(iq): return true
             case onEditStatusForm(iq): return true
-            case onEditDefaultRightsForm(iq): return true
-            case onSuccessUserUpdatedForm(iq): return true
             case onEditUserForm(iq): return true
             case onSuccessSettingsUpdatedForm(iq): return true
             case onSuccessStatusUpdatedForm(iq): return true

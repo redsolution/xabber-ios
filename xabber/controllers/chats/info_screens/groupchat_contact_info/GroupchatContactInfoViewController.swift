@@ -305,20 +305,10 @@ class GroupchatContactInfoViewController: SimpleBaseViewController {
                                 self.canChangeUserPermissions = false
                                 
                                 XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
-                                    self.callbackIds.insert(
-                                        session.groupchat?.requestMyRights(
-                                            stream,
-                                            groupchat: self.jid,
-                                            callback: self.onReceiveForm
-                                    ) ?? "")
+                                    session.groupchat?.requestUserPermissions(stream, groupchat: self.jid, user: "0")
                                 }, fail: {
                                     AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                                        self.callbackIds.insert(
-                                            user.groupchats.requestMyRights(
-                                                stream,
-                                                groupchat: self.jid,
-                                                callback: self.onReceiveForm
-                                        ))
+                                        user.groupchats.requestUserPermissions(stream, groupchat: self.jid, user: "0")
                                     })
                                 })
                             }
@@ -335,25 +325,25 @@ class GroupchatContactInfoViewController: SimpleBaseViewController {
                                         }
                                         if !self.isBlocked,
                                             !self.isKicked {
-                                            XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
-                                                self.callbackIds.insert(
-                                                    session.groupchat?.requestEditUserForm(
-                                                        stream,
-                                                        groupchat: self.jid,
-                                                        userId: self.userId,
-                                                        callback: self.onReceiveForm
-                                                ) ?? "")
-                                            }, fail: {
-                                                AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                                                    self.callbackIds.insert(
-                                                        user.groupchats.requestEditUserForm(
-                                                            stream,
-                                                            groupchat: self.jid,
-                                                            userId: self.userId,
-                                                            callback: self.onReceiveForm
-                                                    ))
-                                                })
-                                            })
+//                                            XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
+//                                                self.callbackIds.insert(
+//                                                    session.groupchat?.requestEditUserForm(
+//                                                        stream,
+//                                                        groupchat: self.jid,
+//                                                        userId: self.userId,
+//                                                        callback: self.onReceiveForm
+//                                                ) ?? "")
+//                                            }, fail: {
+//                                                AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
+//                                                    self.callbackIds.insert(
+//                                                        user.groupchats.requestEditUserForm(
+//                                                            stream,
+//                                                            groupchat: self.jid,
+//                                                            userId: self.userId,
+//                                                            callback: self.onReceiveForm
+//                                                    ))
+//                                                })
+//                                            })
                                         }
                                     } else {
                                         DispatchQueue.main.async {
@@ -369,25 +359,25 @@ class GroupchatContactInfoViewController: SimpleBaseViewController {
                                     }
                                     if !self.isBlocked,
                                         !self.isKicked {
-                                        XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
-                                            self.callbackIds.insert(
-                                                session.groupchat?.requestEditUserForm(
-                                                    stream,
-                                                    groupchat: self.jid,
-                                                    userId: self.userId,
-                                                    callback: self.onReceiveForm
-                                            ) ?? "")
-                                        }, fail: {
-                                            AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                                                self.callbackIds.insert(
-                                                    user.groupchats.requestEditUserForm(
-                                                        stream,
-                                                        groupchat: self.jid,
-                                                        userId: self.userId,
-                                                        callback: self.onReceiveForm
-                                                ))
-                                            })
-                                        })
+//                                        XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
+//                                            self.callbackIds.insert(
+//                                                session.groupchat?.requestEditUserForm(
+//                                                    stream,
+//                                                    groupchat: self.jid,
+//                                                    userId: self.userId,
+//                                                    callback: self.onReceiveForm
+//                                            ) ?? "")
+//                                        }, fail: {
+//                                            AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
+//                                                self.callbackIds.insert(
+//                                                    user.groupchats.requestEditUserForm(
+//                                                        stream,
+//                                                        groupchat: self.jid,
+//                                                        userId: self.userId,
+//                                                        callback: self.onReceiveForm
+//                                                ))
+//                                            })
+//                                        })
                                         
                                     }
                                 } else {

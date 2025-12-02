@@ -39,13 +39,13 @@ extension GroupchatDefaultRightsViewController {
                 }
             }
             changes.append(contentsOf: modifiedForm.value)
-            AccountManager.shared.find(for: owner)?.action({ (user, stream) in
-                self.updateFormId = user.groupchats.updateForm(stream,
-                                           formType: .defaultRights,
-                                           groupchat: self.jid,
-                                           userData: changes,
-                                           callback: self.onSaveCallback)
-            })
+//            AccountManager.shared.find(for: owner)?.action({ (user, stream) in
+//                self.updateFormId = user.groupchats.updateForm(stream,
+//                                           formType: .defaultRights,
+//                                           groupchat: self.jid,
+//                                           userData: changes,
+//                                           callback: self.onSaveCallback)
+//            })
         } else {
             onSaveCallback(nil)
         }

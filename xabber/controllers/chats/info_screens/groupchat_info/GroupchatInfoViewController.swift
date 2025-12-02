@@ -563,9 +563,8 @@ class GroupchatInfoViewController: SimpleBaseViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
-            let requestId = session.groupchat?.requestMyRights(stream, groupchat: self.jid)
-            self.callbackIds.insert(requestId ?? "")
-            session.vcardManager?.requestItem(stream, jid: self.jid)
+            session.groupchat?.requestUserPermissions(stream, groupchat: self.jid, user: "0")
+            _ = session.vcardManager?.requestItem(stream, jid: self.jid)
             session.groupchat?.requestUsers(stream, groupchat: self.jid)
             session.groupchat?.requestInvitedUsers(stream, groupchat: self.jid)
             session.groupchat?.blockList(stream, groupchat: self.jid)
@@ -578,9 +577,8 @@ class GroupchatInfoViewController: SimpleBaseViewController {
                 )
         }, fail: {
             AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                let requestId = user.groupchats.requestMyRights(stream, groupchat: self.jid)
-                self.callbackIds.insert(requestId)
-                user.vcards.requestItem(stream, jid: self.jid)
+                user.groupchats.requestUserPermissions(stream, groupchat: self.jid, user: "0")
+                _ = user.vcards.requestItem(stream, jid: self.jid)
                 user.groupchats.requestUsers(stream, groupchat: self.jid)
                 user.groupchats.requestInvitedUsers(stream, groupchat: self.jid)
                 user.groupchats.blockList(stream, groupchat: self.jid)

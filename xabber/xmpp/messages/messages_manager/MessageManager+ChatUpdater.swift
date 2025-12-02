@@ -29,13 +29,13 @@ extension MessageManager {
             XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
                 session.retract?.enableForGroupchat(stream, jid: jid)
                 session.groupchat?.requestUsers(stream, groupchat: jid)
+                session.groupchat?.requestMyPermissions(stream, groupchat: jid)
                 _ = session.groupchat?.requestChatSettingsForm(stream, groupchat: jid, callback: nil)
-                _ = session.groupchat?.requestMyRights(stream, groupchat: jid)
             }) {
                 AccountManager.shared.find(for: self.owner)?.delayedAction(delay: 3, toExecute: { (user, stream) in
                     user.msgDeleteManager.enableForGroupchat(stream, jid: jid)
                     user.groupchats.requestUsers(stream, groupchat: jid)
-                    _ = user.groupchats.requestMyRights(stream, groupchat: jid)
+                    user.groupchats.requestMyPermissions(stream, groupchat: jid)
                     _ = user.groupchats.requestChatSettingsForm(stream, groupchat: jid, callback: nil)
                 })
             }

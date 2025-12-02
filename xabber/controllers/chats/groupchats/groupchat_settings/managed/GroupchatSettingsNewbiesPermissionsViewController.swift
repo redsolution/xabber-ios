@@ -326,8 +326,10 @@ class GroupchatSettingsNewbiesPermissionsViewController: SimpleBaseViewControlle
             },
             [
                 Datasource(kind: .button, title: "1 Hour", value: "", key: "1_hour", icon: "1.square.fill"),
-                Datasource(kind: .button, title: "12 Hours", value: "", key: "12_hours", icon: "12.square.fill"),
+                Datasource(kind: .button, title: "4 Hours", value: "", key: "4_hours", icon: "12.square.fill"),
                 Datasource(kind: .button, title: "1 Day", value: "", key: "1_day", icon: "24.square.fill"),
+                Datasource(kind: .button, title: "1 Week", value: "", key: "1_week", icon: "24.square.fill"),
+                Datasource(kind: .button, title: "2 Week", value: "", key: "2_week", icon: "24.square.fill"),
                 Datasource(kind: .button, title: "Custom", value: "", key: "custom", icon: "custom.clock.square.fill")
             ]
         ]
@@ -380,8 +382,6 @@ class GroupchatSettingsNewbiesPermissionsViewController: SimpleBaseViewControlle
         self.navigationController?.popViewController(animated: true)
     }
     
-    internal var saveRequestId: String? = nil
-    
     @objc
     internal func onSaveButtonTouchUpInside(_ sender: AnyObject) {
         let changes = self.datasource[0].filter({ $0.changed }).compactMap({
@@ -391,10 +391,10 @@ class GroupchatSettingsNewbiesPermissionsViewController: SimpleBaseViewControlle
             return
         }
         XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-            self.saveRequestId = session.groupchat?.updateDefaultRights(stream, groupchat: self.jid, changes: changes)
+            session.groupchat?.updateDefaultPermissions(stream, groupchat: self.jid, changes: changes)
         } fail: {
             AccountManager.shared.find(for: self.owner)?.action { user, stream in
-                self.saveRequestId = user.groupchats.updateDefaultRights(stream, groupchat: self.jid, changes: changes)
+                user.groupchats.updateDefaultPermissions(stream, groupchat: self.jid, changes: changes)
             }
         }
         self.navigationController?.popViewController(animated: true)
@@ -416,62 +416,30 @@ extension GroupchatSettingsNewbiesPermissionsViewController: UITableViewDelegate
         let item = self.datasource[indexPath.section][indexPath.row]
         switch item.key {
             case "1_hour":
-                deselectCellsFor(indexPath: indexPath)
-                self.datasource[0].filter({ $0.changed }).forEach {
-                    $0.customiPeriodDay = 0
-                    $0.customiPeriodHour = 1
-                    $0.customiPeriodMins = 0
-                }
-                
                 self.predefinedPeriodDay = 0
                 self.predefinedPeriodHour = 1
                 self.predefinedPeriodMins = 0
-                
-                self.customiPeriodDay = nil
-                self.customiPeriodHour = nil
-                self.customiPeriodMins = nil
-                
-                self.tableView.reconfigureRows(at: (0..<self.datasource[0].count).compactMap({ return IndexPath(row: $0, section: 0) }))
-                self.tableView.cellForRow(at: indexPath)?.accessoryType = .checkmark
             case "12_hours":
-                deselectCellsFor(indexPath: indexPath)
-                self.datasource[0].filter({ $0.changed }).forEach {
-                    $0.customiPeriodDay = 0
-                    $0.customiPeriodHour = 12
-                    $0.customiPeriodMins = 0
-                }
-                
                 self.predefinedPeriodDay = 0
                 self.predefinedPeriodHour = 12
                 self.predefinedPeriodMins = 0
-                
-                self.customiPeriodDay = nil
-                self.customiPeriodHour = nil
-                self.customiPeriodMins = nil
-                
-                
-                self.tableView.reconfigureRows(at: (0..<self.datasource[0].count).compactMap({ return IndexPath(row: $0, section: 0) }))
-                self.tableView.cellForRow(at: indexPath)?.accessoryType = .checkmark
+            case "4_hours":
+                self.predefinedPeriodDay = 0
+                self.predefinedPeriodHour = 4
+                self.predefinedPeriodMins = 0
             case "1_day":
-                deselectCellsFor(indexPath: indexPath)
-                self.datasource[0].filter({ $0.changed }).forEach {
-                    $0.customiPeriodDay = 1
-                    $0.customiPeriodHour = 0
-                    $0.customiPeriodMins = 0
-                }
-                
                 self.predefinedPeriodDay = 1
                 self.predefinedPeriodHour = 0
                 self.predefinedPeriodMins = 0
-                
-                self.customiPeriodDay = nil
-                self.customiPeriodHour = nil
-                self.customiPeriodMins = nil
-                
-                self.tableView.reconfigureRows(at: (0..<self.datasource[0].count).compactMap({ return IndexPath(row: $0, section: 0) }))
-                self.tableView.cellForRow(at: indexPath)?.accessoryType = .checkmark
+            case "1_week":
+                self.predefinedPeriodDay = 7
+                self.predefinedPeriodHour = 0
+                self.predefinedPeriodMins = 0
+            case "2_week":
+                self.predefinedPeriodDay = 14
+                self.predefinedPeriodHour = 0
+                self.predefinedPeriodMins = 0
             case "custom":
-                deselectCellsFor(indexPath: indexPath)
                 let picker = TimePickerPresenter()
                 picker.delegate = self
                 picker.present(
@@ -484,6 +452,19 @@ extension GroupchatSettingsNewbiesPermissionsViewController: UITableViewDelegate
                 )
             default:
                 break
+        }
+        if item.key != "custom" {
+            deselectCellsFor(indexPath: indexPath)
+            self.datasource[0].filter({ $0.changed }).forEach {
+                $0.customiPeriodDay = self.predefinedPeriodDay
+                $0.customiPeriodHour = self.predefinedPeriodHour
+                $0.customiPeriodMins = self.predefinedPeriodMins
+            }
+            self.customiPeriodDay = nil
+            self.customiPeriodHour = nil
+            self.customiPeriodMins = nil
+            self.tableView.reconfigureRows(at: (0..<self.datasource[0].count).compactMap({ return IndexPath(row: $0, section: 0) }))
+            self.tableView.cellForRow(at: indexPath)?.accessoryType = .checkmark
         }
     }
 }

@@ -44,20 +44,13 @@ class TimePickerAlertController: XabberAlertController{
         picker.delegate = self
         self.view.addSubview(picker)
         picker.fillSuperviewWithOffset(top: -44, bottom: 52, left: 0, right: 0)
-//        DispatchQueue.main.async {
-//            if let firstSubview = self.view.subviews.first,
-//               let contentView = firstSubview.subviews.first {
-//                contentView.addSubview(self.picker)
-//                self.picker.fillSuperview()
-//            }
-//        }
-
     }
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         picker.sizeToFit()
     }
 }
+
 extension TimePickerAlertController: UIPickerViewDataSource {
     func numberOfComponents(in pickerView: UIPickerView) -> Int {
         return 6

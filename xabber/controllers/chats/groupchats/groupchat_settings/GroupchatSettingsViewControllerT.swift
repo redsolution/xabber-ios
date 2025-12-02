@@ -10,6 +10,10 @@ import Foundation
 import UIKit
 import Realm
 import RealmSwift
+import RxSwift
+import RxCocoa
+import RxRealm
+import RxRelay
 import MaterialComponents.MDCPalettes
 import CocoaLumberjack
 
@@ -181,6 +185,9 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
     class SettingsTextFieldCell: UITableViewCell {
         static let cellName: String = "SettingsTextFieldCell"
         
+        var isChanged: Bool = false
+        var key: String = ""
+        
         var stack: UIStackView = {
             let stack = UIStackView()
             
@@ -206,18 +213,19 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
             return field
         }()
         
-        var callback: ((UITextField) -> Void)? = nil
+        var callback: ((String, String?) -> Void)? = nil
         
         private func activateConstraints() {
             field.heightAnchor.constraint(equalToConstant: 30).isActive = true
             field.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 0.95).isActive = true
         }
         
-        func configure(_ title: String, value: String) {
+        func configure(_ title: String, value: String, key: String) {
             field.text = value.isEmpty ? nil : value
             field.placeholder = title
             field.clearButtonMode = .always
             field.addTarget(self, action: #selector(fieldDidChange), for: .editingChanged)
+            self.key = key
         }
         
         private func setupSubviews() {
@@ -249,7 +257,7 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
         
         @objc
         internal func fieldDidChange(_ sender: UITextField) {
-            callback?(sender)
+            callback?(self.key, sender.text)
         }
     }
     
@@ -420,6 +428,18 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
         return view
     }()
     
+    internal let saveBarButton: UIBarButtonItem = {
+        let button = UIBarButtonItem(systemItem: .save)
+        
+        return button
+    }()
+    
+    internal var cancelBarButton: UIBarButtonItem = {
+        let button = UIBarButtonItem(systemItem: .cancel)
+        
+        return button
+    }()
+    
     internal let headerView: HeaderView = {
         let view = HeaderView(frame: CGRect(x: 0, y: -44, width: .zero, height: 176))
         
@@ -430,27 +450,48 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
         super.loadDatasource()
         do {
             let realm = try WRealm.safe()
-            let members = realm.objects(GroupchatUserStorageItem.self).filter("owner == %@ AND groupchatId == %@ AND role_ == %@ AND isBlocked == false AND isKicked == false AND isTemporary == false", self.owner, [self.jid, self.owner].prp(), GroupchatUserStorageItem.Role.member.rawValue)
+            guard let userCard = realm
+                .objects(GroupchatUserStorageItem.self)
+                .filter("groupchatId == %@ AND isMe == true",
+                        GroupChatStorageItem.genPrimary(jid: self.jid, owner: self.owner)).first else {
+                return
+            }
+            guard let groupInstance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: self.jid, owner: self.owner)) else {
+                return
+            }
+            self.permissions = groupInstance.defaultPermissions
             let admins = realm.objects(GroupchatUserStorageItem.self).filter("owner == %@ AND groupchatId == %@ AND (role_ == %@ OR role_ == %@) AND isBlocked == false AND isKicked == false AND isTemporary == false", self.owner, [self.jid, self.owner].prp(), GroupchatUserStorageItem.Role.admin.rawValue, GroupchatUserStorageItem.Role.owner.rawValue)
             if let instance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
-                self.datasource = [
-                    [
-                        Datasource(kind: .textField, title: "Name", key: "nickname", value: instance.name),
-                        Datasource(kind: .multilineTextField, title: "Description", key: "nickname", value: instance.descr)
-                    ],
-                    [
+                self.datasource = []
+                self.storedTitle = instance.name
+                self.storedDescription = instance.descr
+                self.datasource.append([
+                    Datasource(kind: .textField, title: "Name", key: "title", value: instance.name),
+                    Datasource(kind: .multilineTextField, title: "Description", key: "description", value: instance.descr)
+                ])
+                if userCard.changeGroupSettings {
+                    self.datasource.append([
                         Datasource(kind: .item, title: "Group type", subtitle: nil, icon: "custom.person.2.square.fill", key: "membership", value: instance.membership.localized ?? ""),
-                    ],
-                    [
-                        Datasource(kind: .item, title: "Permissions", subtitle: nil, icon: "custom.key.square.fill", key: "permissions", value: "\(self.permissionsList.filter({ $0.status}).count) / \(self.permissionsList.count)"),
-//                        Datasource(kind: .item, title: "Members", subtitle: nil, icon: "custom.person.3.square.fill", key: "members", value: "\(members.count)"),
-                        Datasource(kind: .item, title: "Administrators", subtitle: nil, icon: "star.square.fill", key: "admins", value: "\(admins.count)"),
-                        Datasource(kind: .item, title: "Restricted users", subtitle: nil, icon: "custom.exclamationmark.octagon.square.fill", key: "restrited", value: "")
-                    ],
-                    [
+                    ])
+                }
+                var permDatasource: [Datasource] = []
+                if userCard.changeDefaultPermissions {
+                    permDatasource.append(Datasource(kind: .item, title: "Permissions", subtitle: nil, icon: "custom.key.square.fill", key: "permissions", value: "\(self.permissions.filter({ $0.status}).count) / \(self.permissions.count)"))
+                }
+                if userCard.createAdmins {
+                    permDatasource.append(Datasource(kind: .item, title: "Administrators", subtitle: nil, icon: "star.square.fill", key: "admins", value: "\(admins.count)"))
+                }
+//                if userCard.changePermissions {
+//                    permDatasource.append(Datasource(kind: .item, title: "Restricted users", subtitle: nil, icon: "custom.exclamationmark.octagon.square.fill", key: "restrited", value: ""))
+//                }
+                if permDatasource.isNotEmpty {
+                    self.datasource.append(permDatasource)
+                }
+                if userCard.isOwner {
+                    self.datasource.append([
                         Datasource(kind: .delete, title: "Delete  group", subtitle: nil, icon: nil, key: "delete", value: "")
-                    ]
-                ]
+                    ])
+                }
             }
         } catch {
             DDLogDebug("GroupchatSettingsViewController: \(#function). \(error.localizedDescription)")
@@ -473,10 +514,13 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
         super.configure()
         self.tableView.dataSource = self
         self.tableView.delegate = self
+        self.cancelBarButton.action = #selector(onCancelButtonTouchUpInside)
+        self.cancelBarButton.target = self
+        self.saveBarButton.action = #selector(onSaveButtonTouchUpInside)
+        self.saveBarButton.target = self
     }
     
-    var defaultPermissionsElementId: String? = nil
-    var permissionsList: [GroupchatPermission] = []
+    var permissions: [GroupchatPermission] = []
     
     override func onAppear() {
         super.onAppear()
@@ -491,15 +535,106 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
         }
         
         XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-            session.groupchat?.rightsDelegate = self
-            self.defaultPermissionsElementId = session.groupchat?.getDefaultRights(stream, groupchat: self.jid)
+            session.groupchat?.getDefaultPermissions(stream, groupchat: self.jid)
         } fail: {
             AccountManager.shared.find(for: self.owner)?.action { user, stream in
-                user.groupchats.rightsDelegate = self
-                self.defaultPermissionsElementId = user.groupchats.getDefaultRights(stream, groupchat: self.jid)
+                user.groupchats.getDefaultPermissions(stream, groupchat: self.jid)
             }
         }
     }
+    
+    internal var changesObserver: BehaviorRelay<Bool> = BehaviorRelay(value: false)
+    
+    var titleObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)
+    var descriptionObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)
+    
+    var storedTitle: String? = nil
+    var storedDescription: String? = nil
+    
+    
+    override func subscribe() {
+        super.subscribe()
+        do {
+            let realm = try WRealm.safe()
+            if let instance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
+                self.storedTitle = instance.name
+                self.storedDescription = instance.descr
+                self.titleObserver.accept(self.storedTitle)
+                self.descriptionObserver.accept(self.storedDescription)
+            }
+        } catch {
+            DDLogDebug("")
+        }
+        self.titleObserver
+            .asObservable()
+            .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
+            .subscribe { value in
+                if value != self.storedTitle {
+                    self.changesObserver.accept(true)
+                } else {
+                    self.changesObserver.accept(self.storedDescription != self.descriptionObserver.value)
+                }
+            }
+            .disposed(by: self.bag)
+        
+        
+        self.descriptionObserver
+            .asObservable()
+            .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
+            .subscribe { value in
+                if value != self.storedDescription {
+                    self.changesObserver.accept(true)
+                } else {
+                    self.changesObserver.accept(self.storedTitle != self.titleObserver.value)
+                }
+            }
+            .disposed(by: self.bag)
+        
+        self.changesObserver
+            .asObservable()
+            .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
+            .subscribe { value in
+                if value {
+                    self.navigationItem.setLeftBarButton(self.cancelBarButton, animated: true)
+                    self.navigationItem.setRightBarButton(self.saveBarButton, animated: true)
+                } else {
+                    self.navigationItem.setLeftBarButton(self.navigationItem.backBarButtonItem, animated: true)
+                    self.navigationItem.setRightBarButton(nil, animated: true)
+                }
+            }
+            .disposed(by: self.bag)
+
+    }
+    
+    @objc
+    internal func onCancelButtonTouchUpInside(_ sender: AnyObject) {
+        self.changesObserver.accept(false)
+        self.tableView.reconfigureRows(at: self.datasource[0].enumerated().compactMap({ return IndexPath(row: $0.offset, section: 0) }))
+//        self.navigationController?.popViewController(animated: true)
+    }
+    
+    @objc
+    internal func onSaveButtonTouchUpInside(_ sender: AnyObject) {
+//        let changes = self.datasource[0].filter({ $0.changed }).compactMap({
+//            return GroupchatPermission(role: self.permissionsScope, name: $0.key, status: $0.status, displayName: $0.title, expires: $0.period)
+//        })
+//        guard changes.isNotEmpty else {
+//            return
+//        }
+        
+//        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+//            session.groupchat?.updateUserPermissions(stream, groupchat: self.jid, user: self.userId, changes: changes)
+//        } fail: {
+//            AccountManager.shared.find(for: self.owner)?.action { user, stream in
+//                user.groupchats.updateUserPermissions(stream, groupchat: self.jid, user: self.userId, changes: changes)
+//            }
+//        }
+        
+        
+        
+        self.navigationController?.popViewController(animated: true)
+    }
+
 }
 
 extension GroupchatSettingsViewControllerT: UITableViewDelegate {
@@ -528,12 +663,12 @@ extension GroupchatSettingsViewControllerT: UITableViewDelegate {
                 
                 vc.jid = self.jid
                 vc.owner = self.owner
-                vc.defaultPermissions = permissionsList
                 
                 self.navigationController?.pushViewController(vc, animated: true)
             case "members":
                 let vc = GroupchatMembersListViewController()
                 
+                vc.permissionScope = "member"
                 vc.jid = self.jid
                 vc.owner = self.owner
                 
@@ -541,6 +676,15 @@ extension GroupchatSettingsViewControllerT: UITableViewDelegate {
             case "admins":
                 let vc = GroupchatMembersListViewController()
                 
+                vc.permissionScope = "owner,admin"
+                vc.jid = self.jid
+                vc.owner = self.owner
+                
+                self.navigationController?.pushViewController(vc, animated: true)
+            case "restrited":
+                let vc = GroupchatMembersListViewController()
+                
+                vc.permissionScope = "restrited"
                 vc.jid = self.jid
                 vc.owner = self.owner
                 
@@ -560,6 +704,18 @@ extension GroupchatSettingsViewControllerT: UITableViewDataSource {
         return self.datasource[section].count
     }
     
+    public func onTextFieldDidChange(key: String, value: String?) {
+//        self.
+        switch key {
+            case "title":
+                self.titleObserver.accept(value)
+            case "description":
+                self.descriptionObserver.accept(value)
+            default:
+                break
+        }
+    }
+    
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let item = self.datasource[indexPath.section][indexPath.row]
         switch item.kind {
@@ -577,7 +733,8 @@ extension GroupchatSettingsViewControllerT: UITableViewDataSource {
                     fatalError()
                 }
                 
-                cell.configure(item.title, value: item.value)
+                cell.configure(item.title, value: item.value, key: item.key)
+                cell.callback = self.onTextFieldDidChange
                 cell.selectionStyle = .none
                 
                 return cell
@@ -586,7 +743,8 @@ extension GroupchatSettingsViewControllerT: UITableViewDataSource {
                     fatalError()
                 }
                 
-                cell.configure(item.title, value: item.value)
+                cell.configure(item.title, value: item.value, key: item.key)
+                cell.callback = self.onTextFieldDidChange
                 cell.selectionStyle = .none
                 
                 return cell
@@ -614,19 +772,3 @@ extension GroupchatSettingsViewControllerT: UITableViewDataSource {
 }
 
 
-extension GroupchatSettingsViewControllerT: GroupchatPermissionsDelegate {
-    func groupchatPermissionsList(default permissions: [GroupchatPermission], elementId: String) {
-        self.permissionsList = permissions
-        DispatchQueue.main.async {
-            guard let index = self.datasource[2].firstIndex(where: { $0.key == "permissions" }) else {
-                return
-            }
-            self.datasource[2][index].value = "\(permissions.filter({ $0.status}).count) / \(permissions.count)"
-            self.tableView.reconfigureRows(at: [IndexPath(row: index, section: 2)])
-        }
-    }
-    
-    func groupchatPermissionsList(user userId: String, permissions: [GroupchatPermission], elementId: String) {
-        
-    }
-}
