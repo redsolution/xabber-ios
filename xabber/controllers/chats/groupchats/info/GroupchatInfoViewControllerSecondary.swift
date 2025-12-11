@@ -98,7 +98,7 @@ class GroupchatInfoViewControllerSecondary: SimpleBaseViewController {
         invitesCount = instance.invited.count
         do {
             let realm = try WRealm.safe()
-            blockedCount = realm.objects(GroupchatUserStorageItem.self).filter("groupchatId == %@ AND isBlocked == true", instance.primary).count
+            blockedCount = realm.objects(GroupchatUserStorageItem.self).filter("groupchatId == %@ AND isBlocked == true AND isHidden == false", instance.primary).count
         } catch {
             DDLogDebug("GroupchatInfoViewController: \(#function). \(error.localizedDescription)")
         }
@@ -506,17 +506,15 @@ extension GroupchatInfoViewControllerSecondary {
     
     func openInvitations() {
         let vc = GroupchatInviteListViewController()
-        vc.configure(jid, owner: owner)
-        self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
-        self.navigationController?.navigationBar.shadowImage = nil
+        vc.jid = self.jid
+        vc.owner = self.owner
         navigationController?.pushViewController(vc, animated: true)
     }
     
     func openBlocked() {
         let vc = GroupchatBlockedViewController()
-        vc.configure(jid, owner: owner)
-        self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
-        self.navigationController?.navigationBar.shadowImage = nil
+        vc.jid = jid
+        vc.owner = self.owner
         navigationController?.pushViewController(vc, animated: true)
     }
 }

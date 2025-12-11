@@ -102,17 +102,14 @@ class GroupchatInviteViewController: BaseViewController {
     
     
     internal let cancelButton: UIBarButtonItem = {
-        let button = UIBarButtonItem(title: "Cancel".localizeString(id: "cancel", arguments: []),
-                                     style: .plain, target: nil, action: nil)
+        let button = UIBarButtonItem(systemItem: .cancel)
         
         return button
     }()
     
     internal let inviteButton: UIBarButtonItem = {
         let button = UIBarButtonItem(title: "Invite".localizeString(id: "groupchat_invite", arguments: []),
-                                     style: .done, target: nil, action: nil)
-        
-        button.isEnabled = false
+                                     style: .plain, target: nil, action: nil)
         
         return button
     }()
@@ -219,19 +216,6 @@ class GroupchatInviteViewController: BaseViewController {
     internal func subscribe() {
         bag = DisposeBag()
         
-        
-        
-//        if contacts != nil {
-//            self.formDatasource(contacts!)
-//            Observable
-//                .collection(from: contacts!)
-//                .debounce(0.33, scheduler: MainScheduler.asyncInstance)
-//                .subscribe(onNext: { (results) in
-//                    self.formDatasource(results)
-//                })
-//                .disposed(by: bag)
-//        }
-        
         cancelButton
             .rx
             .tap
@@ -253,52 +237,30 @@ class GroupchatInviteViewController: BaseViewController {
         inSaveMode
             .asObservable()
             .subscribe(onNext: { (value) in
-                DispatchQueue.main.async {
+//                DispatchQueue.main.async {
                     self.tableView.isUserInteractionEnabled = !value
                     if value {
                         self.navigationItem.setRightBarButton(self.saveIndicator, animated: true)
                     } else {
                         self.navigationItem.setRightBarButton(self.inviteButton, animated: true)
                     }
-                }
+//                }
             })
             .disposed(by: bag)
-        
-//        collapsedGroups
-//            .asObservable()
-//            .subscribe(onNext: { (value) in
-////                DispatchQueue.main.async {
-//                    let indexSet = IndexSet(value.compactMap { item in
-//                        return self.datasource.firstIndex(where: { $0.name == item })})
-//                    self.tableView.reloadSections(indexSet, with: .automatic)
-////                }
-//            })
-//            .disposed(by: bag)
         
         selectedJids
             .asObservable()
             .debounce(.milliseconds(50), scheduler: MainScheduler.asyncInstance)
             .subscribe(onNext: { (value) in
-                DispatchQueue.main.async {
-                    UIView.animate(withDuration: 0.33) {
-                        if value.isEmpty {
-                            if self.inviteButton.isEnabled {
-                                self.inviteButton.isEnabled = false
-                            }
-                        } else {
-                            if !self.inviteButton.isEnabled {
-                                self.inviteButton.isEnabled = true
-                            }
-                        }
-                    }
+                if value.isEmpty {
+                    self.navigationItem.setRightBarButton(nil, animated: true)
+                    self.navigationItem.setLeftBarButton(nil, animated: true)
+                } else {
+                    self.navigationItem.setRightBarButton(self.inviteButton, animated: true)
+                    self.navigationItem.setLeftBarButton(self.cancelButton, animated: true)
                 }
-                
-//                self.tableView.reloadData()
             })
             .disposed(by: bag)
-        
-//        select
-        
     }
     
     internal func unsubscribe() {

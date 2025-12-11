@@ -20,9 +20,49 @@
 
 import Foundation
 import UIKit
+import MaterialComponents.MDCPalettes
 
 class EditCirclesCell: UITableViewCell {
     public static let cellName: String = "EditCirclesCell"
+    
+    class CircleCollectionItemCell: UICollectionViewCell {
+        public static let cellName: String = "CircleCollectionItemCell"
+        private let label = UILabel()
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            setup()
+        }
+        required init?(coder: NSCoder) { fatalError() }
+
+        private func setup() {
+            label.font = .systemFont(ofSize: 14, weight: .regular)
+            label.textAlignment = .center
+            label.translatesAutoresizingMaskIntoConstraints = false
+
+            contentView.addSubview(label)
+            contentView.layer.cornerRadius = 4
+            contentView.layer.borderWidth = 0
+
+            NSLayoutConstraint.activate([
+                label.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
+                label.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
+                label.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
+                label.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4)
+            ])
+        }
+
+        func configure(with text: String, color: UIColor) {
+            label.text = text
+            contentView.backgroundColor = color.withAlphaComponent(0.15)
+            contentView.layer.borderColor = color.cgColor
+        }
+        
+        override func prepareForReuse() {
+            super.prepareForReuse()
+            label.text = nil
+        }
+    }
     
     let iconView: UIImageView = {
         let view = UIImageView()
@@ -30,79 +70,92 @@ class EditCirclesCell: UITableViewCell {
         return view
     }()
     
-    let stack: UIStackView = {
-        let stack = UIStackView()
-        
-        stack.axis = .vertical
-        stack.alignment = .leading
-        stack.spacing = 4
-        
-        return stack
-    }()
     
-    let titleLabel: UILabel = {
-        let label = UILabel()
-        
-        label.font = UIFont.systemFont(ofSize: 17)
-        label.numberOfLines = 1
-        
-        return label
-    }()
-    
-    let subtitleLabel: UILabel = {
-        let label = UILabel()
-        
-        label.font = UIFont.systemFont(ofSize: 14, weight: .light)
-        label.numberOfLines = 0
-        
-        if #available(iOS 13.0, *) {
-            label.textColor = .secondaryLabel
-        } else {
-            label.textColor = .gray
+    class FlowLayout: UICollectionViewFlowLayout {
+        override init() {
+            super.init()
+            estimatedItemSize = UICollectionViewFlowLayout.automaticSize
+            minimumInteritemSpacing = 8
+            minimumLineSpacing = 8
+            sectionInset = UIEdgeInsets(top: 4, left: 0, bottom: 4, right: 0)
         }
         
-        return label
-    }()
-    
-    public final func configure(icon: String?, title: String, circles: [String]) {
-        titleLabel.text = title
-        if let icon = icon {
-//            let image = imageLiteral( icon).upscale(dimension: 24).withRenderingMode(.alwaysTemplate)
-//            if  {
-//                iconView.image = image
-//            } else 
-            if let image = UIImage(systemName: icon) {
-                iconView.image = image
-            } else if let image = UIImage(named: icon) {
-                iconView.image = image
+        required init?(coder: NSCoder) {
+            fatalError()
+        }
+        
+        override func layoutAttributesForElements(in rect: CGRect) -> [UICollectionViewLayoutAttributes]? {
+            let attributes = super.layoutAttributesForElements(in: rect)?.map { $0.copy() as! UICollectionViewLayoutAttributes }
+                    
+            var leftMargin = sectionInset.left
+            var maxY: CGFloat = -1.0
+            
+            attributes?.forEach { layoutAttribute in
+                if layoutAttribute.frame.origin.y >= maxY { // новая строка
+                    leftMargin = sectionInset.left
+                }
+                layoutAttribute.frame.origin.x = leftMargin
+                leftMargin += layoutAttribute.frame.width + minimumInteritemSpacing
+                maxY = max(maxY, layoutAttribute.frame.maxY)
             }
+            
+            return attributes
         }
-        if circles.isEmpty {
-            subtitleLabel.text = "No circles".localizeString(id: "contact_circles_empty", arguments: [])
-            subtitleLabel.font = subtitleLabel.font.italic()
-        } else {
-            subtitleLabel.text = circles.joined(separator: ", ")
-        }
+    }
+    
+    let tagView: UICollectionView = {
+        let layout = FlowLayout()
+        
+        let view = UICollectionView(frame: .zero, collectionViewLayout: layout)
+        
+        view.register(CircleCollectionItemCell.self, forCellWithReuseIdentifier: CircleCollectionItemCell.cellName)
+        
+        return view
+    }()
+    
+    var circles: [String] = []
+    var color: UIColor = .tintColor
+    
+    public final func configure(owner: String, icon: String?, circles: [String]) {
+//        if let icon = icon {
+//            iconView.image = imageLiteral(icon)
+//        } else {
+//            iconView.isHidden = true
+//        }
+        self.circles = Array(Set(circles)).sorted()
+        self.tagView.reloadData()
+        self.color = AccountColorManager.shared.palette(for: owner).tint700
     }
     
     override func prepareForReuse() {
         super.prepareForReuse()
-        self.subtitleLabel.font = UIFont.systemFont(ofSize: 14, weight: .light)
+//        iconView.isHidden = false
     }
     
     public final func setupSubviews() {
         selectionStyle = .none
-        iconView.frame = CGRect(
-            origin: CGPoint(x: 18, y: 8),
-            size: CGSize(square: 24)
-        )
-        contentView.addSubview(iconView)
-        contentView.addSubview(stack)
-        stack.fillSuperviewWithOffset(top: 10, bottom: 10, left: 56, right: 16)
-        stack.addArrangedSubview(titleLabel)
-        stack.addArrangedSubview(subtitleLabel)
+//        contentView.addSubview(iconView)
+        contentView.addSubview(tagView)
+
+//        iconView.translatesAutoresizingMaskIntoConstraints = false
+        tagView.translatesAutoresizingMaskIntoConstraints = false
+
+        NSLayoutConstraint.activate([
+//            iconView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 18),
+//            iconView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
+//            iconView.widthAnchor.constraint(equalToConstant: 24),
+//            iconView.heightAnchor.constraint(equalToConstant: 24),
+
+            tagView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
+            tagView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16), // отступ слева
+            tagView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            tagView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8)
+        ])
+
         accessoryType = .disclosureIndicator
-        
+        tagView.dataSource = self
+        tagView.delegate = self
+        tagView.backgroundColor = .clear
     }
     
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
@@ -122,4 +175,40 @@ class EditCirclesCell: UITableViewCell {
     override func setSelected(_ selected: Bool, animated: Bool) {
         super.setSelected(selected, animated: animated)
     }
+    
+    override func systemLayoutSizeFitting(_ targetSize: CGSize,
+                                          withHorizontalFittingPriority horizontal: UILayoutPriority,
+                                          verticalFittingPriority: UILayoutPriority) -> CGSize {
+
+        tagView.layoutIfNeeded()
+        let height = tagView.collectionViewLayout.collectionViewContentSize.height
+        return CGSize(width: targetSize.width, height: height + 16)
+    }
+}
+
+extension EditCirclesCell: UICollectionViewDelegate {
+    
+}
+
+extension EditCirclesCell: UICollectionViewDataSource {
+    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
+        if self.circles.isEmpty {
+            return 1
+        }
+        return self.circles.count
+    }
+    
+    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+        guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: CircleCollectionItemCell.cellName, for: indexPath) as? CircleCollectionItemCell else {
+            fatalError()
+        }
+        if self.circles.isEmpty {
+            cell.configure(with: "No circles", color: MDCPalette.grey.tint500)
+        } else {
+            cell.configure(with: self.circles[indexPath.row], color: self.color)
+        }
+        return cell
+    }
+    
+    
 }

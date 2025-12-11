@@ -112,7 +112,7 @@ extension GroupchatInfoViewController: UITableViewDataSource {
                         fatalError()
                     }
                     
-                    cell.configure(icon: "circle.hexagonpath", title: "Circles".localizeString(id: "contact_circle", arguments: []), circles: self.circles)
+                    cell.configure(owner: self.owner, icon: "xabber.circles", circles: self.circles)
                     
                     return cell
                 } else if section.key == "chat_files" {

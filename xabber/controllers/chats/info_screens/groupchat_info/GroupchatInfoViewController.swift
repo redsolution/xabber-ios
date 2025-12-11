@@ -178,6 +178,7 @@ class GroupchatInfoViewController: SimpleBaseViewController {
     internal var circles: [String] = []
     internal var groupEditFormValues: [[String: Any]]? = nil
     
+    
     private func reloadHeaderTitle(inSection section: Int) {
         UIView.setAnimationsEnabled(false)
         tableView.beginUpdates()
@@ -198,7 +199,7 @@ class GroupchatInfoViewController: SimpleBaseViewController {
             circles = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner))?.groups.toArray().sorted() ?? []
             contacts = realm
                 .objects(GroupchatUserStorageItem.self)
-                .filter("groupchatId == %@ AND isBlocked == false AND isKicked == false AND isTemporary == false", [jid, owner].prp())
+                .filter("groupchatId == %@ AND isBlocked == false AND isKicked == false AND isTemporary == false AND isHidden == false", [jid, owner].prp())
                 .sorted(by: [
                     SortDescriptor(keyPath: "isMe", ascending: false),
                     SortDescriptor(keyPath: "sortedRole", ascending: true),
@@ -279,7 +280,7 @@ class GroupchatInfoViewController: SimpleBaseViewController {
                         ]))
                         toUpdateRow.insert(IndexPath(row: 1, section: newDatasource.count - 1))
                         
-                        newDatasource.append(Datasource(.text, title: "", childs: [
+                        newDatasource.append(Datasource(.text, title: "Circles", childs: [
                             Datasource(.button, title: "Circles".localizeString(id: "contact_circle", arguments: []), key: "gc_circles"),
                         ]))
                         
@@ -419,7 +420,7 @@ class GroupchatInfoViewController: SimpleBaseViewController {
             
             Observable.collection(from: realm
                     .objects(GroupchatUserStorageItem.self)
-                    .filter("groupchatId == %@ AND isBlocked == true", [jid, owner].prp()))
+                    .filter("groupchatId == %@ AND isBlocked == true AND isHidden == false", [jid, owner].prp()))
                 .debounce(.milliseconds(40), scheduler: MainScheduler.asyncInstance)
                 .subscribe(onNext: { (results) in
                     self.blockedCount = results.count
@@ -453,8 +454,24 @@ class GroupchatInfoViewController: SimpleBaseViewController {
 //        navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
 //        navigationController?.navigationBar.shadowImage = UIImage()
         view.addSubview(tableView)
+        var showEdit: Bool = false
+        do {
+            let realm = try WRealm.safe()
+            if let instance = realm.objects(GroupchatUserStorageItem.self).filter("groupchatId == %@ AND isMe == true AND isHidden == false", [self.jid, self.owner].prp()).first {
+                showEdit = instance.role == .admin || instance.role == .owner
+            }
+            
+        } catch {
+            
+        }
         
-        navigationItem.setRightBarButtonItems([searchButton], animated: true)
+        if showEdit {
+            let editButton = UIBarButtonItem(image: imageLiteral("slider.horizontal.3"), style: .plain, target: self, action: #selector(self.onEditButtonTouchUpInside))
+            navigationItem.setRightBarButtonItems([editButton, searchButton], animated: true)
+        } else {
+            navigationItem.setRightBarButtonItems([searchButton], animated: true)
+        }
+        
         
         tableView.fillSuperview()
         tableView.delegate = self
@@ -504,6 +521,10 @@ class GroupchatInfoViewController: SimpleBaseViewController {
             let more = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
             more.configure(icon: "ellipsis", title: "More", forceStrong: false)
             
+            let leave = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
+            leave.configure(icon: "xabber.figure.exit", title: "Leave", forceStrong: false)
+            leave.addTarget(self, action: #selector(onLeaveHeaderButtonTouchUpInside), for: .touchUpInside)
+            
             let childs: [UIMenuElement] = [
                 UIAction(
                     title: "Edit",
@@ -528,16 +549,17 @@ class GroupchatInfoViewController: SimpleBaseViewController {
                     }
                 ),
             ]
-            more.menu = UIMenu(options: [.singleSelection], children: childs)
+            more.menu = UIMenu(options: [], children: childs)
             more.showsMenuAsPrimaryAction = true
             
-            return [write, invite, mute, more]
+            return [write, invite, mute, leave]
         }
     }
     
     @objc
     internal func onInviteButtonTouchUpInside(_ sender: InfoHeaderButton) {
         print(#function)
+        self.onInvite()
     }
     
     @objc

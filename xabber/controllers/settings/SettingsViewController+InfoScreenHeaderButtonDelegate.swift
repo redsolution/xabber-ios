@@ -196,8 +196,8 @@ extension SettingsViewController: InfoScreenHeaderDelegate {
     }
     
     func onUpdateAvatar(_ image: UIImage?) {
+        self.beforeSettingAvatar()
         AccountManager.shared.find(for: jid)?.action({ (user, stream) in
-            self.beforeSettingAvatar()
             user.avatarUploader.setAvatar(image: image, successCallback: {
                 do {
                     let realm = try WRealm.safe()
@@ -208,8 +208,6 @@ extension SettingsViewController: InfoScreenHeaderDelegate {
                         } else {
                             self.headerView.imageButton.setImage(UIImageView.getDefaultAvatar(for: self.jid, owner: self.jid, size: 256), for: .normal)
                         }
-                        self.headerView.imageActivityIndicator.stopAnimating()
-                        self.headerView.hideDarkenedView()
                     }
                 } catch {
                     DDLogDebug("dsg")
@@ -228,8 +226,6 @@ extension SettingsViewController: InfoScreenHeaderDelegate {
                         } else {
                             self.headerView.imageButton.setImage(UIImageView.getDefaultAvatar(for: self.jid, owner: self.jid, size: 256), for: .normal)
                         }
-                        self.headerView.imageActivityIndicator.stopAnimating()
-                        self.headerView.hideDarkenedView()
                     }
                 } catch {
                     DDLogDebug("dsg")
@@ -263,15 +259,13 @@ extension SettingsViewController: InfoScreenHeaderDelegate {
     
     func beforeSettingAvatar() {
         DispatchQueue.main.async {
-            self.headerView.imageActivityIndicator.startAnimating()
-            self.headerView.showDarkenedView()
+            self.headerView.imageButton.showLoading()
         }
     }
     
     func afterSettingAvatar(image: UIImage?) {
         DispatchQueue.main.async {
-            self.headerView.imageActivityIndicator.stopAnimating()
-            self.headerView.hideDarkenedView()
+            self.headerView.imageButton.hideLoading()
             if image == nil {
 //                let conf = LetterAvatarBuilderConfiguration()
 //                conf.backgroundColors = [AccountColorManager.shared.palette(for: self.owner).tint500]
@@ -300,8 +294,7 @@ extension SettingsViewController: InfoScreenHeaderDelegate {
                 }
             } else {
                 DispatchQueue.main.async {
-                    self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
-                    self.navigationController?.navigationBar.shadowImage = nil
+                    
                     self.navigationController?.popToRootViewController(animated: true)
                 }
             }

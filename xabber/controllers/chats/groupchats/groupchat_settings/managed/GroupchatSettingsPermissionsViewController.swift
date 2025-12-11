@@ -154,13 +154,14 @@ class GroupchatSettingsPermissionsViewController: SimpleBaseViewController {
             return lhs.userId == rhs.userId
         }
         
-        init(kind: Kind, title: String, value: String, status: Bool = false) {
+        init(kind: Kind, title: String, value: String, status: Bool = false, badge: String? = nil) {
             self.userId = value
             self.kind = kind
             self.title = title
             self.value = value
             self.status = status
             self.originalStatus = status
+            self.badge = badge ?? ""
         }
         
         init(forMember userId: String, jid: String, title: String, badge: String, isMe: Bool, subtitle: String, status: ResourceStatus, avatarUrl: String, role: GroupchatUserStorageItem.Role) {
@@ -352,7 +353,7 @@ class GroupchatSettingsPermissionsViewController: SimpleBaseViewController {
             let realm = try WRealm.safe()
             membersObserver = realm
                     .objects(GroupchatUserStorageItem.self)
-                    .filter("groupchatId == %@ AND isBlocked == false AND isKicked == false AND isTemporary == false", [jid, owner].prp())
+                    .filter("groupchatId == %@ AND isBlocked == false AND isKicked == false AND isTemporary == false AND isHidden == false", [jid, owner].prp())
                     .sorted(by: [
                         SortDescriptor(keyPath: "isMe", ascending: false),
                         SortDescriptor(keyPath: "sortedRole", ascending: true)
@@ -409,10 +410,12 @@ class GroupchatSettingsPermissionsViewController: SimpleBaseViewController {
     override func loadDatasource() {
         super.loadDatasource()
         
+        var newbiesBadge: String? = nil
         do {
             let realm = try WRealm.safe()
             if let instance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
                 self.defaultPermissions = instance.defaultPermissions
+                newbiesBadge = "\(instance.newbiesPermissions.count) / \(instance.defaultPermissions.count)"
             }
         } catch {
             DDLogDebug("GroupchatSettingsMembershipViewController: \(#function). \(error.localizedDescription)")
@@ -422,7 +425,7 @@ class GroupchatSettingsPermissionsViewController: SimpleBaseViewController {
                 return Datasource(kind: .permission, title: $0.displayName, value: $0.name, status: $0.status)
             },
             [
-                Datasource(kind: .button, title: "Permissions for new members", value: "newbies")
+                Datasource(kind: .button, title: "Permissions for new members", value: "newbies", badge: newbiesBadge)
             ],
             []
         ]
@@ -557,7 +560,7 @@ extension GroupchatSettingsPermissionsViewController: UITableViewDataSource {
                     fatalError()
                 }
                 
-                cell.configure(title: item.title, badge: "", icon: "custom.person.fill.badge.minus.square.fill")
+                cell.configure(title: item.title, badge: item.badge, icon: "custom.person.fill.badge.minus.square.fill")
                 cell.selectionStyle = .none
                 cell.accessoryType = .disclosureIndicator
                 return cell

@@ -209,12 +209,12 @@ extension AccountInfoViewController: InfoScreenHeaderDelegate {
     }
     
     func onUpdateAvatar(_ image: UIImage?) {
-        
-        AccountManager.shared.find(for: jid)?.action({ (user, stream) in
-            self.beforeSettingAvatar()
-            user.avatarUploader.setAvatar(image: image, successCallback: {
+        self.beforeSettingAvatar()
+        XMPPUIActionManager.shared.performRequest(owner: self.jid) { stream, session in
+            
+            session.avatarUploader?.setAvatar(image: image, successCallback: {
                 self.afterSettingAvatar(image: image)
-                user.cloudStorage.getStats()
+                session.cloudStorage?.getStats()
             }, failureCallback: {
                 status, error in
                 self.afterSettingAvatar(image: nil)
@@ -242,18 +242,54 @@ extension AccountInfoViewController: InfoScreenHeaderDelegate {
                 }
                 DDLogDebug("AccountInfoVC, InfoScreenButtonDelegate: \(#function). Fail to set avatar.")
             })
-        })
+        } fail: {
+            AccountManager.shared.find(for: self.jid)?.action({ (user, stream) in
+                self.beforeSettingAvatar()
+                user.avatarUploader.setAvatar(image: image, successCallback: {
+                    self.afterSettingAvatar(image: image)
+                    user.cloudStorage.getStats()
+                }, failureCallback: {
+                    status, error in
+                    self.afterSettingAvatar(image: nil)
+                    DispatchQueue.main.async {
+                        let errorMessage = "Unable to send file: out of Cloud Storage"//item.messageError
+                        let itemsWithQuota = [
+                            ActionSheetPresenter.Item(destructive: false, title: "Manage Cloud Storage", value: "quota")
+                        ]
+                        ActionSheetPresenter().present(
+                            in: self,
+                            title: "Avatar upload error",
+                            message: errorMessage,
+                            cancel: "Cancel",
+                            values: itemsWithQuota,
+                            animated: true) { value in
+                                switch value {
+                                    case "quota":
+                                        let vc = CloudStorageViewController()
+                                        vc.configure(jid: self.jid)
+                                        self.navigationController?.pushViewController(vc, animated: true)
+                                    default:
+                                        break
+                                }
+                            }
+                    }
+                    DDLogDebug("AccountInfoVC, InfoScreenButtonDelegate: \(#function). Fail to set avatar.")
+                })
+            })
+        }
+
+        
     }
     
     func beforeSettingAvatar() {
         DispatchQueue.main.async {
-            self.headerView.imageActivityIndicator.startAnimating()
-            self.headerView.showDarkenedView()
+            self.headerView.imageButton.showLoading()
         }
     }
     
     func afterSettingAvatar(image: UIImage?) {
         DispatchQueue.main.async {
+            self.headerView.imageButton.hideLoading()
             if image == nil {
 //                let conf = LetterAvatarBuilderConfiguration()
 //                conf.backgroundColors = [AccountColorManager.shared.palette(for: self.owner).tint500]
@@ -265,8 +301,6 @@ extension AccountInfoViewController: InfoScreenHeaderDelegate {
             } else {
                 self.headerView.imageButton.setImage(image?.resize(targetSize: CGSize(square: 128)), for: .normal)
             }
-            self.headerView.imageActivityIndicator.stopAnimating()
-            self.headerView.hideDarkenedView()
         }
     }
     
@@ -338,9 +372,6 @@ extension AccountInfoViewController: UIImagePickerControllerDelegate & UINavigat
         if picker.sourceType == .camera {
             UIImageWriteToSavedPhotosAlbum(image, self, nil, nil)
         }
-//        if image.size.width > maxSize || image.size.height > maxSize {
-//            image = image.resize(targetSize: CGSize(square: maxSize))
-//        }
         image = image.fixOrientation()
         picker.dismiss(animated: true) {
             self.onUpdateAvatar(image)

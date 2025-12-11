@@ -156,17 +156,18 @@ extension ContactsViewController {
             titleLabel.text = title
             subtitleLabel.text = subtitle//JidManager.shared.prepareJid(jid: subtitle)
             bottomLineLabel.text = bottomLine
-            let textInsets = UIEdgeInsets(top: 1, left: 8, bottom: 1, right: 8)
+            let textInsets = UIEdgeInsets(top: 2, left: 8, bottom: 2, right: 8)
             var offset: CGFloat = 0
-            for group in groups {
+            Array(Set(groups)).sorted().forEach {
+                group in
                 let label = MessageLabel()
                 label.text = group
-                label.textColor = AccountColorManager.shared.palette(for: owner).tint700.withAlphaComponent(0.8)
-                label.backgroundColor = MDCPalette.grey.tint100
+                label.textColor = .label
+                label.backgroundColor = AccountColorManager.shared.palette(for: owner).tint700.withAlphaComponent(0.15)
                 label.textInsets = textInsets
-                label.layer.cornerRadius = 8
+                label.layer.cornerRadius = 4
                 label.layer.masksToBounds = true
-                label.font = UIFont.systemFont(ofSize: 12, weight: .medium)
+                label.font = UIFont.systemFont(ofSize: 12, weight: .regular)
                 let size = label.sizeThatFits(CGSize(width: 300, height: 16)).margin(width: textInsets.horizontal, height: textInsets.vertical)
                 let frame = CGRect(
                     origin: CGPoint(x: offset, y: 0),

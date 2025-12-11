@@ -153,6 +153,11 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
         }
     }
     
+    @objc
+    internal func onLeaveHeaderButtonTouchUpInside(_ sender: AnyObject) {
+        self.onLeave()
+    }
+    
     internal func onLeave() {
         do {
             let realm = try WRealm.safe()
@@ -216,18 +221,18 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
         }
     }
     
+    @objc
+    internal func onEditButtonTouchUpInside(_ sender: AnyObject) {
+        self.showSettings()
+    }
+    
     func showSettings() {
         self.shouldResetNavbar = false
         let vc = GroupchatSettingsViewControllerT()
         vc.jid = self.jid
         vc.owner = self.owner
-//        vc.isStatus = false
-//        vc.configure(self.owner, jid: self.jid)
+        vc.leftMenuDelegate = self.leftMenuDelegate
         self.navigationController?.pushViewController(vc, animated: true)
-//        showModal(vc, parent: self)
-//        self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
-//        self.navigationController?.navigationBar.shadowImage = nil
-//        navigationController?.pushViewController(vc, animated: true)
     }
     
     func showDefaultRestrictions() {
@@ -241,30 +246,29 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
     
     func showInvitations() {
         let vc = GroupchatInviteListViewController()
-        vc.configure(jid, owner: owner)
+        vc.jid = self.jid
+        vc.owner = self.owner
         self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
-        self.navigationController?.navigationBar.shadowImage = nil
-        navigationController?.pushViewController(vc, animated: true)
     }
     
     func showBlocked() {
 //        self.shouldResetNavbar = false
         let vc = GroupchatBlockedViewController()
-        vc.configure(jid, owner: owner)
-        self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
-        self.navigationController?.navigationBar.shadowImage = nil
+//        vc.configure(jid, owner: owner)
+        vc.jid = self.jid
+        vc.owner = self.owner
         navigationController?.pushViewController(vc, animated: true)
     }
     
     func setStatus() {
         self.shouldResetNavbar = false
-        let vc = GroupchatSettingsViewController()
-        vc.jid = self.jid
-        vc.owner = self.owner
+//        let vc = GroupchatSettingsViewController()
+//        vc.jid = self.jid
+//        vc.owner = self.owner
 //        vc.isStatus = true
 //        vc.entity = self.isIncognitoChat ? .incognitoChat : .groupchat
 //        vc.configure(self.owner, jid: self.jid)
-        self.navigationController?.pushViewController(vc, animated: true)
+//        self.navigationController?.pushViewController(vc, animated: true)
 //        showModal(vc, parent: self)
 //        self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
 //        self.navigationController?.navigationBar.shadowImage = nil

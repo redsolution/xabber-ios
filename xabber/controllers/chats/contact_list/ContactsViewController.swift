@@ -582,10 +582,10 @@ class ContactsViewController: BaseViewController {
                 
                 
                 let groupInstance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: invite.groupchat, owner: invite.owner))
-                let members = realm.objects(GroupchatUserStorageItem.self).filter("groupchatId == %@", [invite.groupchat, invite.owner].prp()).toArray().compactMap {
+                let members = realm.objects(GroupchatUserStorageItem.self).filter("groupchatId == %@ AND isHidden == false", [invite.groupchat, invite.owner].prp()).toArray().compactMap {
                     return GroupDisplayMember(name: $0.nickname, jid: $0.jid, avatarUrl: $0.avatarURI, uuid: $0.userId)
                 }
-                let membersJids = Set(realm.objects(GroupchatUserStorageItem.self).filter("groupchatId == %@", [invite.groupchat, invite.owner].prp()).toArray().compactMap { $0.jid.isEmpty ? $0.userId : $0.jid })
+                let membersJids = Set(realm.objects(GroupchatUserStorageItem.self).filter("groupchatId == %@ AND isHidden == false", [invite.groupchat, invite.owner].prp()).toArray().compactMap { $0.jid.isEmpty ? $0.userId : $0.jid })
                 let rosterItem = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: invite.groupchat, owner: invite.owner))
                 let invitedBy = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: invite.jid, owner: invite.owner))?.displayName ?? invite.jid
                 var entity: RosterItemEntity = .groupchat
@@ -646,10 +646,10 @@ class ContactsViewController: BaseViewController {
             out.append(contentsOf: requests.sorted(by: { $0.date.timeIntervalSince1970 > $1.date.timeIntervalSince1970 }).compactMap {
                 invite in
                 let groupInstance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: invite.groupchat, owner: invite.owner))
-                let members = realm.objects(GroupchatUserStorageItem.self).filter("groupchatId == %@", [invite.groupchat, invite.owner].prp()).toArray().compactMap {
+                let members = realm.objects(GroupchatUserStorageItem.self).filter("groupchatId == %@ AND isHidden == false", [invite.groupchat, invite.owner].prp()).toArray().compactMap {
                     return GroupDisplayMember(name: $0.nickname, jid: $0.jid, avatarUrl: $0.avatarURI, uuid: $0.userId)
                 }
-                let membersJids = Set(realm.objects(GroupchatUserStorageItem.self).filter("groupchatId == %@", [invite.groupchat, invite.owner].prp()).toArray().compactMap { $0.jid.isEmpty ? $0.userId : $0.jid })
+                let membersJids = Set(realm.objects(GroupchatUserStorageItem.self).filter("groupchatId == %@ AND isHidden == false", [invite.groupchat, invite.owner].prp()).toArray().compactMap { $0.jid.isEmpty ? $0.userId : $0.jid })
                 let rosterItem = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: invite.groupchat, owner: invite.owner))
                 let invitedBy = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: invite.jid, owner: invite.owner))?.displayName ?? invite.jid
                 var entity: RosterItemEntity = .groupchat
@@ -722,7 +722,7 @@ class ContactsViewController: BaseViewController {
                     }
                 }
 //                let groupInstance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: contact.jid, owner: contact.owner))
-                let members = Set(realm.objects(GroupchatUserStorageItem.self).filter("groupchatId == %@", [group.jid, group.owner].prp()).toArray().compactMap { $0.jid.isEmpty ? $0.userId : $0.jid })
+                let members = Set(realm.objects(GroupchatUserStorageItem.self).filter("groupchatId == %@ AND isHidden == false", [group.jid, group.owner].prp()).toArray().compactMap { $0.jid.isEmpty ? $0.userId : $0.jid })
                 var entity: RosterItemEntity = .groupchat
                 if group.privacy == .incognito {
                     entity = .incognitoChat
@@ -788,7 +788,7 @@ class ContactsViewController: BaseViewController {
                         return nil
                     }
                 }
-                let members = Set(realm.objects(GroupchatUserStorageItem.self).filter("groupchatId == %@", [group.jid, group.owner].prp()).toArray().compactMap { $0.jid.isEmpty ? $0.userId : $0.jid })
+                let members = Set(realm.objects(GroupchatUserStorageItem.self).filter("groupchatId == %@ AND isHidden == false", [group.jid, group.owner].prp()).toArray().compactMap { $0.jid.isEmpty ? $0.userId : $0.jid })
                 var entity: RosterItemEntity = .groupchat
                 if group.privacy == .incognito {
                     entity = .incognitoChat
@@ -853,7 +853,7 @@ class ContactsViewController: BaseViewController {
                         return nil
                     }
                 }
-                let members = Set(realm.objects(GroupchatUserStorageItem.self).filter("groupchatId == %@", [group.jid, group.owner].prp()).toArray().compactMap { $0.jid.isEmpty ? $0.userId : $0.jid })
+                let members = Set(realm.objects(GroupchatUserStorageItem.self).filter("groupchatId == %@ AND isHidden == false", [group.jid, group.owner].prp()).toArray().compactMap { $0.jid.isEmpty ? $0.userId : $0.jid })
                 var entity: RosterItemEntity = .groupchat
                 if group.privacy == .incognito {
                     entity = .incognitoChat
@@ -914,7 +914,7 @@ class ContactsViewController: BaseViewController {
                         }
                     }
                     
-                    let members = Set(realm.objects(GroupchatUserStorageItem.self).filter("groupchatId == %@", [group.jid, group.owner].prp()).toArray().compactMap { $0.jid.isEmpty ? $0.userId : $0.jid })
+                    let members = Set(realm.objects(GroupchatUserStorageItem.self).filter("groupchatId == %@ AND isHidden == false", [group.jid, group.owner].prp()).toArray().compactMap { $0.jid.isEmpty ? $0.userId : $0.jid })
                     
                     if !showOffline {
                         let primaryResource = contact.getPrimaryResource()
@@ -1126,26 +1126,26 @@ class ContactsViewController: BaseViewController {
                 let invitesCollection = realm.objects(GroupchatInvitesStorageItem.self).filter("owner IN %@ AND isGroupInfoLoaded == false", jids)
                 invitesCollection.toArray().forEach {
                     item in
-                    if !item.isGroupInfoLoaded {
-                        let groupchat = item.groupchat
-                        let owner = item.owner
-                        AccountManager.shared.find(for: owner)?.action({ user, stream in
-                            user.presences.probe(stream, jid: groupchat)
-                            user.groupchats.requestUsers(stream, groupchat: groupchat, userId: nil)
-                            user.vcards.requestIfMissed(stream, jid: groupchat)
-                        })
-                    }
+//                    if !item.isGroupInfoLoaded {
+//                        let groupchat = item.groupchat
+//                        let owner = item.owner
+//                        AccountManager.shared.find(for: owner)?.action({ user, stream in
+//                            user.presences.probe(stream, jid: groupchat)
+//                            user.groupchats.requestUsers(stream, groupchat: groupchat, userId: nil)
+//                            user.vcards.requestIfMissed(stream, jid: groupchat)
+//                        })
+//                    }
                 }
                 Observable.collection(from: invitesCollection).debounce(.milliseconds(500), scheduler: MainScheduler.asyncInstance).subscribe { results in
                     results.forEach {
                         item in
-                        if !item.isGroupInfoLoaded {
-                            AccountManager.shared.find(for: item.owner)?.action({ user, stream in
-                                user.groupchats.requestUsers(stream, groupchat: item.groupchat, userId: nil)
-                                user.vcards.requestIfMissed(stream, jid: item.groupchat)
-                                user.presences.probe(stream, jid: item.groupchat)
-                            })
-                        }
+//                        if !item.isGroupInfoLoaded {
+//                            AccountManager.shared.find(for: item.owner)?.action({ user, stream in
+//                                user.groupchats.requestUsers(stream, groupchat: item.groupchat, userId: nil)
+//                                user.vcards.requestIfMissed(stream, jid: item.groupchat)
+//                                user.presences.probe(stream, jid: item.groupchat)
+//                            })
+//                        }
                     }
                 } onError: { _ in
                     

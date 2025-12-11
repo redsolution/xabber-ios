@@ -80,173 +80,6 @@ class GroupchatSettingsPromoteAdminViewController: SimpleBaseViewController {
         }
     }
     
-    
-//    class SettingsSwitchCell: UITableViewCell {
-//        static let cellName: String = "SettingsSwitchCell"
-//        
-//        let stack: UIStackView = {
-//            let stack = UIStackView()
-//            
-//            stack.axis = .horizontal
-//            stack.distribution = .fill
-//            stack.alignment = .center
-//            stack.spacing = 4
-//            stack.layoutMargins = UIEdgeInsets(top: 2, bottom: 0, left: 16, right: 16)
-//            stack.isLayoutMarginsRelativeArrangement = true
-//            
-//            return stack
-//        }()
-//        
-//        let titleLabel: UILabel = {
-//            let label = UILabel()
-//            
-//            label.setContentHuggingPriority(.defaultLow, for: .horizontal)
-//            
-//            return label
-//        }()
-//                
-//        let switchView: UISwitch = {
-//            let view = UISwitch()
-//            
-//            view.isOn = false
-//            view.tintColor = .green
-//            view.preferredStyle = .sliding
-//            
-//            return view
-//        }()
-//        
-//        let customPeriodButton: UIButton = {
-//            var conf = UIButton.Configuration.plain()
-//            
-//            conf.attributedTitle = AttributedString(NSAttributedString(string: "2d 13h 11m", attributes: [
-//                .font: UIFont.systemFont(ofSize: 13)
-//            ]))
-//            
-//            let button = UIButton(configuration: conf, primaryAction: nil)
-//            
-//            return button
-//        }()
-//        
-//        var key: String = ""
-//        var originalStatus: Bool = false
-//        var customString: String = ""
-//        
-//        public final func updateTimer(isForever: Bool, day: Int?, hour: Int?, mins: Int?) {
-//            customString = ""
-//            if isForever {
-//                customString = "Forever"
-//            } else if let value = day, value > 0 {
-//                customString = "\(value) \(value == 1 ? "Day" : "days")"
-//            } else if let value = hour, value > 0 {
-//                customString = "\(value) \(value == 1 ? "Hour" : "Hours")"
-//            } else if let value = mins, value > 0 {
-//                customString = "\(value) \(value == 1 ? "Minute" : "Minutes")"
-//            }
-//            
-//            var conf = UIButton.Configuration.plain()
-//            conf.attributedTitle = AttributedString(NSAttributedString(string: customString, attributes: [
-//                .font: UIFont.systemFont(ofSize: 13),
-//                .foregroundColor: isChanged ? UIColor.tintColor : UIColor.secondaryLabel
-//            ]))
-//            self.customPeriodButton.configuration = conf
-//            self.customPeriodButton.updateConfiguration()
-//            self.customPeriodButton.sizeToFit()
-//            self.stack.layoutSubviews()
-//        }
-//        
-//        func configure(title: String, isOn: Bool, key: String, isChanged: Bool, originalStatus: Bool, isForever: Bool, day: Int?, hour: Int?, mins: Int?) {
-//            self.titleLabel.text = title
-//            self.switchView.isOn = isOn
-//            self.key = key
-//            self.isChanged = isChanged
-//            self.originalStatus = originalStatus
-//            self.updateTimer(isForever: isForever, day: day, hour: hour, mins: mins)
-//            if originalStatus != isOn {
-//                self.switchView.backgroundColor = .systemGreen
-//                self.switchView.onTintColor = .systemGreen
-//            } else {
-//                self.switchView.backgroundColor = MDCPalette.green.tint100//.systemGreen.withAlphaComponent(0.2)
-//                self.switchView.onTintColor = MDCPalette.green.tint100//.systemGreen.withAlphaComponent(0.2)
-//            }
-//        }
-//        
-//        open var isChanged: Bool = false
-//        open var onSwitchValueChangedCallback: ((String, Bool) -> Void)? = nil
-//        
-//        @objc
-//        func onChangeSwitchValue(_ sender: UISwitch) {
-////            print()
-//            self.isChanged = self.originalStatus != sender.isOn
-//            UIView.animate(withDuration: 0.33) {
-//                if self.originalStatus != sender.isOn {
-//                    self.switchView.backgroundColor = .systemGreen
-//                    self.switchView.onTintColor = .systemGreen
-//                } else {
-//                    self.switchView.backgroundColor = MDCPalette.green.tint100//.systemGreen.withAlphaComponent(0.2)
-//                    self.switchView.onTintColor = MDCPalette.green.tint100//.systemGreen.withAlphaComponent(0.2)
-//                }
-//                var conf = UIButton.Configuration.plain()
-//                conf.attributedTitle = AttributedString(NSAttributedString(string: self.customString, attributes: [
-//                    .font: UIFont.systemFont(ofSize: 13),
-//                    .foregroundColor: self.isChanged ? UIColor.tintColor : UIColor.secondaryLabel
-//                ]))
-//                self.customPeriodButton.configuration = conf
-//                self.customPeriodButton.updateConfiguration()
-//                self.customPeriodButton.sizeToFit()
-//            }
-//            self.onSwitchValueChangedCallback?(self.key, sender.isOn)
-//        }
-//        
-//        func setupSubviews() {
-//            self.contentView.addSubview(stack)
-//            self.stack.fillSuperviewWithOffset(top: 0, bottom: 4, left: 4, right: 4)
-//            self.stack.addArrangedSubview(self.titleLabel)
-//            self.stack.addArrangedSubview(self.customPeriodButton)
-//            self.stack.addArrangedSubview(self.switchView)
-//            self.switchView.backgroundColor = .red
-//            self.switchView.layer.cornerRadius = self.switchView.bounds.height / 2
-//            self.switchView.layer.masksToBounds = true
-//            self.switchView.addTarget(self, action: #selector(onChangeSwitchValue), for: .valueChanged)
-//            self.customPeriodButton.addTarget(self, action: #selector(onCustomPeriodButtonTouchUpInside), for: .touchUpInside)
-//        }
-//        
-//        override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-//            super.init(style: style, reuseIdentifier: reuseIdentifier)
-//            self.setupSubviews()
-//        }
-//        
-//        required init?(coder: NSCoder) {
-//            super.init(coder: coder)
-//            self.setupSubviews()
-//        }
-//        
-//        open var onCustomPeriodCallback: ((String) -> Void)? = nil
-//        
-//        @objc
-//        private func onCustomPeriodButtonTouchUpInside(_ sender: UIButton) {
-//            self.onCustomPeriodCallback?(self.key)
-//        }
-//    }
-//    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
     class SettingsSwitchWithKeyboardCell: UITableViewCell {
         static let cellName: String = "SettingsSwitchWithKeyboardCell"
         
@@ -299,9 +132,10 @@ class GroupchatSettingsPromoteAdminViewController: SimpleBaseViewController {
             self.stack.layoutSubviews()
         }
         
-        func configure(title: String, isOn: Bool, key: String, isChanged: Bool, originalStatus: Bool, isForever: Bool, date: Date?) {
+        func configure(title: String, isOn: Bool, key: String, isChanged: Bool, originalStatus: Bool, isForever: Bool, date: Date?, fixed: Bool) {
             self.titleLabel.text = title
             self.switchView.isOn = isOn
+            self.switchView.isEnabled = !fixed
             self.key = key
             self.isChanged = isChanged
             self.originalStatus = originalStatus
@@ -382,6 +216,7 @@ class GroupchatSettingsPromoteAdminViewController: SimpleBaseViewController {
         var originalStatus: Bool
         var key: String
         var icon: String
+        var fixed: Bool
         
         var defaultStatus: Bool
         
@@ -393,7 +228,7 @@ class GroupchatSettingsPromoteAdminViewController: SimpleBaseViewController {
         
         var isSelected: Bool = false
         
-        init(kind: Kind, title: String, value: String, status: Bool = false, defaultStatus: Bool = false, key: String = "", icon: String = "", isSelected: Bool = false) {
+        init(kind: Kind, title: String, value: String, status: Bool = false, defaultStatus: Bool = false, key: String = "", icon: String = "", isSelected: Bool = false, fixed: Bool = false) {
             self.kind = kind
             self.title = title
             self.value = value
@@ -403,6 +238,7 @@ class GroupchatSettingsPromoteAdminViewController: SimpleBaseViewController {
             self.key = key
             self.icon = icon
             self.isSelected = isSelected
+            self.fixed = fixed
         }
         
         var period: Double? {
@@ -473,7 +309,7 @@ class GroupchatSettingsPromoteAdminViewController: SimpleBaseViewController {
             self.userPermissions.compactMap {
                 item in
                 let defaultPermissionStatus = self.defaultPermissions.first(where: { $0.name == item.name })?.status ?? false
-                var out = Datasource(kind: .permission, title: item.displayName, value: item.name, status: item.status, defaultStatus: defaultPermissionStatus, key: item.name)
+                let out = Datasource(kind: .permission, title: item.displayName, value: item.name, status: item.status, defaultStatus: defaultPermissionStatus, key: item.name, fixed: item.fixed)
                 if let expires = item.expires, expires > 0 {
                     out.customDate = Date(timeIntervalSince1970: expires)
                 }
@@ -564,9 +400,7 @@ class GroupchatSettingsPromoteAdminViewController: SimpleBaseViewController {
     internal func onCancelButtonTouchUpInside(_ sender: AnyObject) {
         self.navigationController?.popViewController(animated: true)
     }
-    
-    internal var saveRequestId: String? = nil
-    
+        
     @objc
     internal func onSaveButtonTouchUpInside(_ sender: AnyObject) {
         let changes = self.datasource[0].filter({ $0.changed }).compactMap({
@@ -682,7 +516,7 @@ extension GroupchatSettingsPromoteAdminViewController: UITableViewDataSource {
                     fatalError()
                 }
                 
-                cell.configure(title: item.title, isOn: item.status, key: item.value, isChanged: item.changed, originalStatus: item.originalStatus, isForever: item.selectedForever, date: item.customDate)
+                cell.configure(title: item.title, isOn: item.status, key: item.value, isChanged: item.changed, originalStatus: item.originalStatus, isForever: item.selectedForever, date: item.customDate, fixed: item.fixed)
                 cell.textField.dateDelegate = self
                 cell.onSwitchValueChangedCallback = self.onSwitchValueChangedCallback
                 cell.selectionStyle = .none
@@ -744,7 +578,7 @@ extension GroupchatSettingsPromoteAdminViewController: DateTimePickerTextFieldDe
                     self.datasource[0][index].customDate = date
                     if let cell = self.tableView.cellForRow(at: IndexPath(row: index, section: 0)) as? SettingsSwitchWithKeyboardCell {
                         let item = self.datasource[0][index]
-                        cell.configure(title: item.title, isOn: item.status, key: item.value, isChanged: item.changed, originalStatus: item.originalStatus, isForever: item.selectedForever, date: item.customDate)
+                        cell.configure(title: item.title, isOn: item.status, key: item.value, isChanged: item.changed, originalStatus: item.originalStatus, isForever: item.selectedForever, date: item.customDate, fixed: item.fixed)
                     }
                 }
                 break

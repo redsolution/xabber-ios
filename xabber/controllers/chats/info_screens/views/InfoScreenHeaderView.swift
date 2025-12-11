@@ -52,26 +52,6 @@ class InfoScreenHeaderView: UIView {
         return button
     }()
     
-    let imageActivityIndicator: UIActivityIndicatorView = {
-        let indicator = UIActivityIndicatorView()
-        
-        indicator.translatesAutoresizingMaskIntoConstraints = false
-        indicator.stopAnimating()
-        indicator.style = .medium
-        
-        return indicator
-    }()
-    
-    let darkenedView: UIView = {
-        let view = UIView()
-        
-        view.translatesAutoresizingMaskIntoConstraints = false
-        view.backgroundColor = .black.withAlphaComponent(0.27)
-        view.alpha = 0
-        
-        return view
-    }()
-    
     let subtitleLabel: XCopyableLabel = {
         let label = XCopyableLabel()
         
@@ -173,8 +153,6 @@ class InfoScreenHeaderView: UIView {
         
         self.buttonsStack.addArrangedSubview(self.supportButtonsStack)
         
-        imageButton.imageView?.addSubview(darkenedView)
-        imageButton.imageView?.addSubview(imageActivityIndicator)
         
         imageButton.addTarget(self, action: #selector(onAvatarButtonTouchUpInside), for: .touchUpInside)
     }
@@ -199,15 +177,7 @@ class InfoScreenHeaderView: UIView {
         }
     }
     
-    internal func showDarkenedView() {
-        UIView.animate(withDuration: 0.2) {
-            self.darkenedView.alpha = 1
-        }
-    }
     
-    internal func hideDarkenedView() {
-        self.darkenedView.alpha = 0
-    }
     
     override init(frame: CGRect) {
         self.showButtons = false

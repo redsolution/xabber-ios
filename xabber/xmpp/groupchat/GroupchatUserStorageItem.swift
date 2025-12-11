@@ -75,6 +75,7 @@ class GroupchatUserStorageItem: Object {
     @objc dynamic var lastSeen: Date? = nil
     @objc dynamic var isBlocked: Bool = false
     @objc dynamic var isKicked: Bool = false
+    @objc dynamic var isHidden: Bool = false
     
     @objc dynamic var isTemporary: Bool = false
     
@@ -109,6 +110,12 @@ class GroupchatUserStorageItem: Object {
     var userPermissions: [GroupchatPermission] {
         get { decodePermissions(from: userPermissions_) }
         set { userPermissions_ = encodePermissions(newValue) }
+    }
+    
+    var avatarUrl: String? {
+        get {
+            return self.avatarURI
+        }
     }
     
     public final func permissionsDiffer(then defaultPermissions: [GroupchatPermission]) -> Bool {

@@ -68,7 +68,7 @@ extension ContactInfoViewController: UITableViewDataSource {
                         fatalError()
                     }
                     
-                    cell.configure(icon: item.icon, title: item.title, circles: circles)
+                    cell.configure(owner: self.owner, icon: item.icon, circles: circles)
                     
                     return cell
                 }

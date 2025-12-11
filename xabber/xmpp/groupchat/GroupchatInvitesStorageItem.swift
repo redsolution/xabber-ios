@@ -24,8 +24,8 @@ import RealmSwift
 
 class GroupchatInvitesStorageItem: Object {
     
-    public static func genPrimary(inviteId: String, owner: String) -> String {
-        return [inviteId, owner].prp()
+    public static func genPrimary(jid: String, groupchat: String, owner: String) -> String {
+        return [jid, owner].prp()
     }
     
     override static func primaryKey() -> String? {
@@ -37,26 +37,12 @@ class GroupchatInvitesStorageItem: Object {
     @objc dynamic var groupchat: String = ""
     @objc dynamic var jid: String = ""
     @objc dynamic var sender: String = ""
-    @objc dynamic var inviteId: String = ""
     @objc dynamic var date: Date = Date(timeIntervalSinceReferenceDate: 0)
     @objc dynamic var reason: String? = nil
     @objc dynamic var outgoing: Bool = true
     @objc dynamic var isRead: Bool = false
-    @objc dynamic var isHidden: Bool = false
-    @objc dynamic var temporary: Bool = true
     @objc dynamic var isProcessed: Bool = false
-    @objc dynamic var entity_: String = RosterItemEntity.groupchat.rawValue
-    
-    @objc dynamic var isGroupInfoLoaded: Bool = false
-    
     @objc dynamic var isAnonymous: Bool = false
-    
-    var entity: RosterItemEntity {
-        get {
-            return RosterItemEntity(rawValue: self.entity_) ?? .groupchat
-        } set {
-            self.entity_ = newValue.rawValue
-        }
-    }
-    
+    @objc dynamic var messageId: String = ""
+    @objc dynamic var isFromGroupchat: Bool = false
 }

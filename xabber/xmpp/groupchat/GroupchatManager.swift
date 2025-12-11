@@ -330,7 +330,7 @@ class GroupchatManager: AbstractXMPPManager {
             instance.owner = owner
             instance.jid = jid
             instance.primary = [elementId, owner].prp()
-            instance.inviteId = elementId
+//            instance.inviteId = elementId
             instance.date = Date()
             instance.groupchat = groupchat
             instance.sender = owner
@@ -367,6 +367,36 @@ class GroupchatManager: AbstractXMPPManager {
                                child: revoke))
         queryIds.insert(elementId)
         queueItems.insert(QueueItem(.revokeInvite, elementId: elementId, inviteCallback: callback, value: jid))
+    }
+    
+    public final func cancelInvite(_ xmppStream: XMPPStream, groupchat: String, jid: String) {
+        let elementId = "GC: \(NanoID.new(6))"
+        let revoke = DDXMLElement(name: "revoke", xmlns: xmlns("invite"))
+        revoke.addChild(DDXMLElement(name: "jid", stringValue: jid))
+        xmppStream.send(XMPPIQ(iqType: .set,
+                               to: fullJid(groupchat),
+                               elementID: elementId,
+                               child: revoke))
+        queryIds.insert(elementId)
+        do {
+            let realm = try WRealm.safe()
+            if let instance = realm.object(
+                ofType: GroupchatInvitedUsersStorageItem.self,
+                forPrimaryKey: GroupchatInvitedUsersStorageItem.genPrimary(jid: jid, groupchat: groupchat, owner: self.owner)) {
+                try realm.write {
+                    realm.delete(instance)
+                }
+            }
+            if let instance = realm.object(
+                ofType: GroupchatInvitesStorageItem.self,
+                forPrimaryKey: GroupchatInvitesStorageItem.genPrimary(jid: jid, groupchat: groupchat, owner: self.owner)) {
+                try realm.write {
+                    realm.delete(instance)
+                }
+            }
+        } catch {
+            DDLogDebug("GroupchatManager: \(#function). \(error.localizedDescription)")
+        }
     }
     
     public final func requestInvitedUsers(_ xmppStream: XMPPStream, groupchat: String) {
@@ -410,11 +440,11 @@ class GroupchatManager: AbstractXMPPManager {
         do {
             let realm = try WRealm.safe()
             if let instance = realm.objects(GroupchatInvitesStorageItem.self).filter("owner == %@ AND groupchat == %@", self.owner, groupchat).first {
-                if instance.isGroupInfoLoaded == false {
-                    try realm.write {
-                        instance.isGroupInfoLoaded = true
-                    }
-                }
+//                if instance.isGroupInfoLoaded == false {
+//                    try realm.write {
+//                        instance.isGroupInfoLoaded = true
+//                    }
+//                }
             }
         } catch {
             DDLogDebug("GroupchatManager: \(#function). \(error.localizedDescription)")
@@ -498,7 +528,8 @@ class GroupchatManager: AbstractXMPPManager {
                 status: $0.attributeBoolValue(forName: "status", withDefaultValue: false),
                 displayName: $0.attributeStringValue(forName: "display", withDefaultValue: ""),
                 expires: $0.attributeDoubleValue(forName: "expires"),
-                seconds: $0.attributeDoubleValue(forName: "seconds")
+                seconds: $0.attributeDoubleValue(forName: "seconds"),
+                fixed: $0.attributeBoolValue(forName: "fixed", withDefaultValue: false)
             )
         }
         
@@ -565,7 +596,8 @@ class GroupchatManager: AbstractXMPPManager {
                 status: $0.attributeBoolValue(forName: "status", withDefaultValue: false),
                 displayName: $0.attributeStringValue(forName: "display", withDefaultValue: ""),
                 expires: $0.attributeDoubleValue(forName: "expires"),
-                seconds: $0.attributeDoubleValue(forName: "seconds")
+                seconds: $0.attributeDoubleValue(forName: "seconds"),
+                fixed: $0.attributeBoolValue(forName: "fixed", withDefaultValue: false)
             )
         }
         
@@ -632,7 +664,8 @@ class GroupchatManager: AbstractXMPPManager {
                         status: $0.attributeBoolValue(forName: "status", withDefaultValue: false),
                         displayName: $0.attributeStringValue(forName: "display", withDefaultValue: ""),
                         expires: $0.attributeDoubleValue(forName: "expires"),
-                        seconds: $0.attributeDoubleValue(forName: "seconds")
+                        seconds: $0.attributeDoubleValue(forName: "seconds"),
+                        fixed: $0.attributeBoolValue(forName: "fixed", withDefaultValue: false)
                     )
                 }
                 if let instance = realm.object(
@@ -858,6 +891,9 @@ class GroupchatManager: AbstractXMPPManager {
     
     public final func publishAvatar(_ xmppStream: XMPPStream, groupchat: String, groupAvatar: Bool, userId: String = "", image: UIImage?, callback: @escaping ((String?) -> Void)) {
         let elementId = "GC: \(NanoID.new(6))"
+        
+        
+        
         if let image = image {
             let jpegData = image.jpegData(compressionQuality: 0.7)
             let hash = jpegData?.sha1().toHexString() ?? ""
@@ -2028,29 +2064,84 @@ class GroupchatManager: AbstractXMPPManager {
     
     private final func onInviteList(_ iq: XMPPIQ) -> Bool {
         guard let elementId = iq.elementID,
-            queryIds.contains(elementId),
             let from = iq.from?.bare,
             let query = iq.element(forName: "query", xmlns: xmlns("invite")) else {
                 return false
         }
-        queryIds.remove(elementId)
+//        queryIds.remove(elementId)
+//        do {
+//            let realm = try  WRealm.safe()
+//            if let instance = realm
+//                .object(ofType: GroupChatStorageItem.self,
+//                        forPrimaryKey: [from, owner].prp()) {
+//                try realm.write {
+//                    instance.invited.removeAll()
+//                    instance
+//                        .invited
+//                        .append(objectsIn: query
+//                                            .elements(forName: "user")
+//                                            .compactMap { return $0.attributeStringValue(forName: "jid")})
+//                }
+//            }
+//        } catch {
+//            DDLogDebug("GroupchatManager: \(#function). \(error.localizedDescription)")
+//        }
+        let groupchatId = GroupChatStorageItem.genPrimary(jid: from, owner: self.owner)
         do {
-            let realm = try  WRealm.safe()
-            if let instance = realm
-                .object(ofType: GroupChatStorageItem.self,
-                        forPrimaryKey: [from, owner].prp()) {
-                try realm.write {
-                    instance.invited.removeAll()
-                    instance
-                        .invited
-                        .append(objectsIn: query
-                                            .elements(forName: "user")
-                                            .compactMap { return $0.attributeStringValue(forName: "jid")})
+            let realm = try WRealm.safe()
+            let jids = Set(query.elements(forName: "user").compactMap { $0.attributeStringValue(forName: "jid") })
+            
+            try jids.forEach {
+                jid in
+                let primary = GroupchatInvitedUsersStorageItem.genPrimary(jid: jid, groupchat: from, owner: self.owner)
+                if let instance = realm.object(ofType: GroupchatInvitedUsersStorageItem.self, forPrimaryKey: primary) {
+                    if let rosterItem = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: self.owner)) {
+                        try realm.write {
+                            instance.nickname = rosterItem.displayName
+                            instance.avatarMaxUrl = rosterItem.avatarMaxUrl
+                            instance.avatarMinUrl = rosterItem.avatarMinUrl
+                            instance.oldschoolAvatarKey = rosterItem.oldschoolAvatarKey
+                            instance.avatarUpdatedTS = rosterItem.avatarUpdatedTS
+                        }
+                    } else if let vcardItem = realm.object(ofType: vCardStorageItem.self, forPrimaryKey: jid) {
+                        try realm.write {
+                            instance.nickname = vcardItem.nickname
+                        }
+                    }
+                } else {
+                    let instance = GroupchatInvitedUsersStorageItem()
+                    instance.primary = primary
+                    instance.owner = self.owner
+                    instance.jid = jid
+                    instance.groupchatId = groupchatId
+                    if let rosterItem = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: self.owner)) {
+                        instance.nickname = rosterItem.displayName
+                        instance.avatarMaxUrl = rosterItem.avatarMaxUrl
+                        instance.avatarMinUrl = rosterItem.avatarMinUrl
+                        instance.oldschoolAvatarKey = rosterItem.oldschoolAvatarKey
+                        instance.avatarUpdatedTS = rosterItem.avatarUpdatedTS
+                    } else if let vcardItem = realm.object(ofType: vCardStorageItem.self, forPrimaryKey: jid) {
+                        instance.nickname = vcardItem.nickname
+                    }
+                    try realm.write {
+                        realm.add(instance, update: .modified)
+                    }
+                }
+            }
+            let invited = Set(realm.objects(GroupchatInvitedUsersStorageItem.self).filter("groupchatId == %@", groupchatId).toArray().compactMap { $0.jid })
+            try invited.subtracting(jids).forEach {
+                jid in
+                let primary = GroupchatInvitedUsersStorageItem.genPrimary(jid: jid, groupchat: from, owner: self.owner)
+                if let instance = realm.object(ofType: GroupchatInvitedUsersStorageItem.self, forPrimaryKey: primary) {
+                    try realm.write {
+                        realm.delete(instance)
+                    }
                 }
             }
         } catch {
             DDLogDebug("GroupchatManager: \(#function). \(error.localizedDescription)")
         }
+        
         return true
     }
     
@@ -2095,7 +2186,7 @@ class GroupchatManager: AbstractXMPPManager {
             
             let isReadInvite = lastInviteDate < date ? isRead ?? (from == owner) : true
             let instance = GroupchatInvitesStorageItem()
-            instance.inviteId = elementId
+//            instance.inviteId = elementId
             instance.owner = owner
             instance.primary = [elementId, owner].prp()
             instance.groupchat = groupchat
@@ -2105,7 +2196,7 @@ class GroupchatManager: AbstractXMPPManager {
             instance.isProcessed = lastInviteDate <= date ? false : true// false
             instance.date = date
             instance.jid = from == owner ? to : from
-            instance.temporary = true
+//            instance.temporary = true
             instance.isAnonymous = message
                 .element(forName: "x", xmlns: getPrimaryNamespace())?
                 .element(forName: "privacy")?
@@ -2128,7 +2219,7 @@ class GroupchatManager: AbstractXMPPManager {
                     entity = .incognitoChat
                 }
                 
-                instance.entity = entity
+//                instance.entity = .groupchat
                 
                 let resource = ResourceStorageItem()
                 resource.owner = owner
@@ -2209,7 +2300,7 @@ class GroupchatManager: AbstractXMPPManager {
             let realm = try  WRealm.safe()
             let invites = realm
                 .objects(GroupchatInvitesStorageItem.self)
-                .filter("owner == %@ AND temporary == %@ AND outgoing == %@ AND isProcessed == %@", owner, true, false, false)
+                .filter("owner == %@ AND outgoing == %@ AND isProcessed == %@", owner, false, false)
             let blocked = realm
                 .objects(BlockStorageItem.self)
                 .filter("owner == %@", owner)
@@ -2221,7 +2312,7 @@ class GroupchatManager: AbstractXMPPManager {
                         if let resource = blockedItem.resource,
                             let timeInterval = TimeInterval(resource) {
                             item.isRead = timeInterval < item.date.timeIntervalSince1970
-                            item.temporary = false
+//                            item.temporary = false
                         }
                     }
                 }
@@ -2285,7 +2376,7 @@ class GroupchatManager: AbstractXMPPManager {
                     }
                 }
                 
-                let entity: RosterItemEntity = item.entity
+                let entity: RosterItemEntity = .groupchat//item.entity
                 
                 
                 if item.isRead { continue }

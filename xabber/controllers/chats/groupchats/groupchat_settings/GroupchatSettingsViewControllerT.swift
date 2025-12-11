@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import AVFoundation
 import UIKit
 import Realm
 import RealmSwift
@@ -16,6 +17,7 @@ import RxRealm
 import RxRelay
 import MaterialComponents.MDCPalettes
 import CocoaLumberjack
+import XMPPFramework.XMPPJID
 
 class GroupchatSettingsViewControllerT: SimpleBaseViewController {
     
@@ -38,8 +40,8 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
             button.layer.masksToBounds = true
             button.contentVerticalAlignment = .center
             button.contentHorizontalAlignment = .center
-            button.imageView?.contentMode = .scaleAspectFit
-            button.contentMode = .scaleAspectFit
+            button.imageView?.contentMode = .scaleAspectFill
+            button.contentMode = .scaleAspectFill
             button.backgroundColor = .secondarySystemBackground
             
             return button
@@ -71,6 +73,15 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
             self.stack.addArrangedSubview(self.imageButton)
             self.stack.addArrangedSubview(self.actionButton)
             self.activateConstraints()
+            self.imageButton.addTarget(self, action: #selector(onAvatarButtonTouchUpInside), for: .touchUpInside)
+            self.actionButton.addTarget(self, action: #selector(onAvatarButtonTouchUpInside), for: .touchUpInside)
+        }
+        
+        open var avatarButtonTouchUpCallback: (() -> Void)? = nil
+        
+        @objc
+        internal func onAvatarButtonTouchUpInside(_ sender: AnyObject) {
+            self.avatarButtonTouchUpCallback?()
         }
         
         internal var currentUrl: String? = nil
@@ -220,12 +231,16 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
             field.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 0.95).isActive = true
         }
         
-        func configure(_ title: String, value: String, key: String) {
-            field.text = value.isEmpty ? nil : value
+        func configure(_ title: String, value: String?, key: String) {
+            field.text = value
             field.placeholder = title
             field.clearButtonMode = .always
             field.addTarget(self, action: #selector(fieldDidChange), for: .editingChanged)
             self.key = key
+        }
+        
+        func configureField(_ block: ((UITextField) -> Void)) {
+            block(field)
         }
         
         private func setupSubviews() {
@@ -416,6 +431,8 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
     
     internal var datasource: [[Datasource]] = []
     
+    var leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil
+    
     internal let tableView: UITableView = {
         let view = UITableView(frame: .zero, style: .insetGrouped)
         
@@ -460,7 +477,11 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
                 return
             }
             self.permissions = groupInstance.defaultPermissions
-            let admins = realm.objects(GroupchatUserStorageItem.self).filter("owner == %@ AND groupchatId == %@ AND (role_ == %@ OR role_ == %@) AND isBlocked == false AND isKicked == false AND isTemporary == false", self.owner, [self.jid, self.owner].prp(), GroupchatUserStorageItem.Role.admin.rawValue, GroupchatUserStorageItem.Role.owner.rawValue)
+            
+            let invitedCount = realm.objects(GroupchatInvitedUsersStorageItem.self).filter("groupchatId == %@", [jid, owner].prp()).count
+            let blockedCount = realm.objects(GroupchatUserStorageItem.self).filter("groupchatId == %@ AND isBlocked == true", [jid, owner].prp()).count
+            
+            let adminsCount = realm.objects(GroupchatUserStorageItem.self).filter("owner == %@ AND groupchatId == %@ AND (role_ == %@ OR role_ == %@) AND isBlocked == false AND isKicked == false AND isHidden == false AND isTemporary == false AND isHidden == false", self.owner, [self.jid, self.owner].prp(), GroupchatUserStorageItem.Role.admin.rawValue, GroupchatUserStorageItem.Role.owner.rawValue).count
             if let instance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
                 self.datasource = []
                 self.storedTitle = instance.name
@@ -479,7 +500,7 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
                     permDatasource.append(Datasource(kind: .item, title: "Permissions", subtitle: nil, icon: "custom.key.square.fill", key: "permissions", value: "\(self.permissions.filter({ $0.status}).count) / \(self.permissions.count)"))
                 }
                 if userCard.createAdmins {
-                    permDatasource.append(Datasource(kind: .item, title: "Administrators", subtitle: nil, icon: "star.square.fill", key: "admins", value: "\(admins.count)"))
+                    permDatasource.append(Datasource(kind: .item, title: "Administrators", subtitle: nil, icon: "star.square.fill", key: "admins", value: "\(adminsCount)"))
                 }
 //                if userCard.changePermissions {
 //                    permDatasource.append(Datasource(kind: .item, title: "Restricted users", subtitle: nil, icon: "custom.exclamationmark.octagon.square.fill", key: "restrited", value: ""))
@@ -487,6 +508,18 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
                 if permDatasource.isNotEmpty {
                     self.datasource.append(permDatasource)
                 }
+                
+                var membersDatasource: [Datasource] = []
+                
+//                if userCard.addMembers {
+//                    if groupInstance.invited.count > 0 {
+                        membersDatasource.append(Datasource(kind: .item, title: "Invitations", subtitle: nil, icon: "xabber.invite.square.fill", key: "invites", value: "\(invitedCount)"))
+//                    }
+//                }
+//                if userCard.blockUsers {
+                    membersDatasource.append(Datasource(kind: .item, title: "Blocked", subtitle: nil, icon: "custom.nosign.square.fill", key: "block", value: "\(blockedCount)"))
+//                }
+                self.datasource.append(membersDatasource)
                 if userCard.isOwner {
                     self.datasource.append([
                         Datasource(kind: .delete, title: "Delete  group", subtitle: nil, icon: nil, key: "delete", value: "")
@@ -504,6 +537,7 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
         self.view.addSubview(self.tableView)
         self.tableView.fillSuperviewWithOffset(top: -24, bottom: 0, left: 0, right: 0)
         self.tableView.tableHeaderView = self.headerView
+        self.headerView.avatarButtonTouchUpCallback = self.onChangeAvatar
         NSLayoutConstraint.activate([
             self.headerView.widthAnchor.constraint(equalTo: self.tableView.widthAnchor),
             self.headerView.heightAnchor.constraint(equalToConstant: 176)
@@ -778,6 +812,23 @@ extension GroupchatSettingsViewControllerT: UITableViewDelegate {
                 vc.owner = self.owner
                 
                 self.navigationController?.pushViewController(vc, animated: true)
+            case "invites":
+                let vc = GroupchatInviteListViewController()
+                
+                vc.jid = self.jid
+                vc.owner = self.owner
+                vc.leftMenuDelegate = self.leftMenuDelegate
+                
+                self.navigationController?.pushViewController(vc, animated: true)
+                
+            case "block":
+                let vc = GroupchatBlockedViewController()
+                
+                vc.jid = self.jid
+                vc.owner = self.owner
+                vc.leftMenuDelegate = self.leftMenuDelegate
+                
+                self.navigationController?.pushViewController(vc, animated: true)
             default:
                 break
         }
@@ -860,4 +911,244 @@ extension GroupchatSettingsViewControllerT: UITableViewDataSource {
     
 }
 
+extension GroupchatSettingsViewControllerT {
+    func onChangeAvatar() {
+        let items = [
+            ActionSheetPresenter.Item(destructive: false, title: "Use emoji".localizeString(id: "account_emoji_profile_image_button", arguments: []), value: "emoji"),
+            ActionSheetPresenter.Item(destructive: false, title: "Open gallery".localizeString(id: "account_open_gallery", arguments: []), value: "gallery"),
+            ActionSheetPresenter.Item(destructive: false, title: "Open camera".localizeString(id: "account_open_camera", arguments: []), value: "camera"),
+            ActionSheetPresenter.Item(destructive: true, title: "Clear avatar".localizeString(id: "account_clear_avatar", arguments: []), value: "clear")
+        ]
+        ActionSheetPresenter().present(in: self,
+                                       title: nil,
+                                       message: nil,
+                                       cancel: "Cancel".localizeString(id: "cancel", arguments: []),
+                                       values: items,
+                                       animated: true) { (value) in
+                                        switch value {
+                                        case "camera": self.onOpenCamera()
+                                        case "gallery": self.onOpenGallery()
+                                        case "emoji": self.onOpenEmojiPicker()
+                                        case "clear": self.onClearAvatar()
+                                        default: break
+                                        }
+        }
+    }
+    
+    
+    internal func askPermision(_ callback: @escaping ((Bool) -> Void)) {
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            callback(true)
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .video) { granted in
+                callback(granted)
+            }
+        case .denied, .restricted:
+            callback(false)
+            return
+        @unknown default:
+            callback(false)
+        }
+    }
+    
+    internal func openCamera() {
+        askPermision { (result) in
+            DispatchQueue.main.async {
+                if result && UIImagePickerController.isSourceTypeAvailable(.camera) {
+                    let cameraPickerVC = UIImagePickerController()
+                    cameraPickerVC.delegate = self
+                    cameraPickerVC.sourceType = .camera
+                    cameraPickerVC.allowsEditing = true
+                    self.present(cameraPickerVC, animated: true, completion: nil)
+                } else {
+                    ErrorMessagePresenter()
+                        .present(in: self,
+                                 message: "To choose group picture from camera, you should grant permission first".localizeString(id: "account_camera_permission", arguments: []),
+                                 animated: true,
+                                 completion: nil)
+                }
+            }
+        }
+    }
+    
+    internal func openGallery() {
+        if UIImagePickerController.isSourceTypeAvailable(.photoLibrary) {
+            let galleryPickerVC = UIImagePickerController()
+            galleryPickerVC.delegate = self
+            galleryPickerVC.sourceType = .photoLibrary
+            galleryPickerVC.allowsEditing = true
+            self.present(galleryPickerVC, animated: true, completion: nil)
+        }
+    }
+    
+    internal final func openAvatarPicker() {
+        let vc = AvatarPickerViewController()
+        vc.delegate = self
+        vc.palette = nil
+        vc.lastSettedEmoji = nil
+        showModal(vc, parent: self)
+    }
+    
+    internal final func onOpenEmojiPicker() {
+        openAvatarPicker()
+    }
+    
+    func onOpenCamera() {
+        openCamera()
+    }
+    
+    func onOpenGallery() {
+        openGallery()
+    }
+    
+    func onClearAvatar() {
+//        do {
+            self.beforeSettingAvatar()
 
+//            let realm = try WRealm.safe()
+            
+            if owner == "" {
+                owner = jid
+            }
+            
+//            guard let avatar = realm.object(ofType: AvatarStorageItem.self,
+//                                            forPrimaryKey: [jid, owner].prp()),
+//                  let url = avatar.uploadUrl,
+//                  let previousHash = avatar.imageHash,
+//                  let uuidFirstPart = UUID().uuidString.split(separator: "_").first else { return }
+//            let hash = previousHash + "#" + uuidFirstPart
+//
+//            XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
+//                session.avatarUploader?.sendClearMetadata(stream) {
+//                    self.afterSettingAvatar(image: nil)
+//                }
+//            }, fail: {
+                AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
+                    user.avatarUploader.sendClearMetadata(stream, to: XMPPJID()) {
+                        self.afterSettingAvatar(image: nil)
+                    }
+                })
+//            })
+//        } catch {
+//            DDLogDebug("AccountInfoViewController+InfoScreenHeaderButtonDelegate: \(#function). \(error.localizedDescription)")
+//        }
+    }
+    
+    func onUpdateAvatar(_ image: UIImage?) {
+        
+        self.beforeSettingAvatar()
+        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+            
+            session.avatarUploader?.setGrpoupAvatar(groupchat: self.jid, image: image, successCallback: {
+                self.afterSettingAvatar(image: image)
+                session.cloudStorage?.getStats()
+            }, failureCallback: {
+                status, error in
+                self.afterSettingAvatar(image: nil)
+                DispatchQueue.main.async {
+                    let errorMessage = "Unable to send file: out of Cloud Storage"//item.messageError
+                    let itemsWithQuota = [
+                        ActionSheetPresenter.Item(destructive: false, title: "Manage Cloud Storage", value: "quota")
+                    ]
+                    ActionSheetPresenter().present(
+                        in: self,
+                        title: "Avatar upload error",
+                        message: errorMessage,
+                        cancel: "Cancel",
+                        values: itemsWithQuota,
+                        animated: true) { value in
+                            switch value {
+                                case "quota":
+                                    let vc = CloudStorageViewController()
+                                    vc.configure(jid: self.jid)
+                                    self.navigationController?.pushViewController(vc, animated: true)
+                                default:
+                                    break
+                            }
+                        }
+                }
+                DDLogDebug("AccountInfoVC, InfoScreenButtonDelegate: \(#function). Fail to set avatar.")
+            })
+        } fail: {
+            AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
+                self.beforeSettingAvatar()
+                user.avatarUploader.setGrpoupAvatar(groupchat: self.jid, image: image, successCallback: {
+                    self.afterSettingAvatar(image: image)
+                    user.cloudStorage.getStats()
+                }, failureCallback: {
+                    status, error in
+                    self.afterSettingAvatar(image: nil)
+                    DispatchQueue.main.async {
+                        let errorMessage = "Unable to send file: out of Cloud Storage"//item.messageError
+                        let itemsWithQuota = [
+                            ActionSheetPresenter.Item(destructive: false, title: "Manage Cloud Storage", value: "quota")
+                        ]
+                        ActionSheetPresenter().present(
+                            in: self,
+                            title: "Avatar upload error",
+                            message: errorMessage,
+                            cancel: "Cancel",
+                            values: itemsWithQuota,
+                            animated: true) { value in
+                                switch value {
+                                    case "quota":
+                                        let vc = CloudStorageViewController()
+                                        vc.configure(jid: self.jid)
+                                        self.navigationController?.pushViewController(vc, animated: true)
+                                    default:
+                                        break
+                                }
+                            }
+                    }
+                    DDLogDebug("AccountInfoVC, InfoScreenButtonDelegate: \(#function). Fail to set avatar.")
+                })
+            })
+        }
+
+        
+    }
+    
+    func beforeSettingAvatar() {
+        DispatchQueue.main.async {
+            self.headerView.imageButton.showLoading()
+        }
+    }
+    
+    func afterSettingAvatar(image: UIImage?) {
+        DispatchQueue.main.async {
+            self.headerView.imageButton.hideLoading()
+            if image == nil {
+                self.headerView.imageButton.setImage(UIImageView.getDefaultAvatar(for: self.jid, owner: self.jid, size: 256), for: .normal)
+            } else {
+                self.headerView.imageButton.setImage(image?.resize(targetSize: CGSize(square: 128)), for: .normal)
+            }
+        }
+    }
+}
+
+extension GroupchatSettingsViewControllerT: AvatarPickerViewControllerDelegate {
+    func onReceiveAvatar(image: UIImage, emoji: String?, currentPalette: MDCPalette?) {
+        onUpdateAvatar(image)
+    }
+}
+
+extension GroupchatSettingsViewControllerT: UIImagePickerControllerDelegate & UINavigationControllerDelegate {
+    func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
+        let maxSize: CGFloat = 164
+        guard let newImage = info[UIImagePickerController.InfoKey.editedImage] as? UIImage ?? info[UIImagePickerController.InfoKey.originalImage] as? UIImage else {
+            DispatchQueue.main.async {
+                self.view.makeToast("Internal error".localizeString(id: "message_manager_error_internal", arguments: []))
+            }
+            return
+        }
+        var image = newImage
+        if picker.sourceType == .camera {
+            UIImageWriteToSavedPhotosAlbum(image, self, nil, nil)
+        }
+        image = image.fixOrientation()
+        picker.dismiss(animated: true) {
+            self.onUpdateAvatar(image)
+        }
+    }
+}

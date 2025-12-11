@@ -60,7 +60,11 @@ extension GroupchatInviteViewController {
     }
     
     internal func onCancel() {
-        self.navigationController?.dismiss(animated: true, completion: nil)
+        self.selectedJids.accept(Set<String>())
+        self.tableView.indexPathsForSelectedRows?.forEach {
+            selectedPath in
+            self.tableView.deselectRow(at: selectedPath, animated: true)
+        }
     }
     
     internal func onInvite() {
@@ -69,23 +73,32 @@ extension GroupchatInviteViewController {
         invitedJids = selectedJids.value
         self.invitedJidsCount = invitedJids.count
         self.errorJidsCount = 0
-        selectedJids.value.forEach {
-            contact in
-            XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
+        let jids = selectedJids.value
+        XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
+            jids.forEach {
+                contact in
                 session.groupchat?.willInvite(stream,
                                               groupchat: self.jid,
                                               jid: contact,
                                               callback: self.willInviteCallback)
-            }) {
-                AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
+            }
+            
+        }) {
+            AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
+                jids.forEach {
+                    contact in
                     user.groupchats.willInvite(stream,
                                                groupchat: self.jid,
                                                jid: contact,
                                                callback: self.willInviteCallback)
-                })
-            }
-            
+                }
+            })
         }
+//        selectedJids.value.forEach {
+//            contact in
+//            
+//            
+//        }
     }
     
     internal func willInviteCallback(_ contact: String, error: String?) {
@@ -94,11 +107,11 @@ extension GroupchatInviteViewController {
                 switch error {
                 case "conflict":
                     self.conflictJids.insert(contact)
-                    if self.conflictJids.count > 1 {
-                        self.inviteErrorMessage = "Failed to send invitations".localizeString(id: "groupchat__toast_failed_to_sent_invitations[other]", arguments: [])
-                    } else {
-                        self.inviteErrorMessage = "Failed to send invitation".localizeString(id: "groupchat__toast_failed_to_sent_invitations[one]", arguments: [])
-                    }
+//                    if self.conflictJids.count > 1 {
+//                        self.inviteErrorMessage = "Failed to send invitations".localizeString(id: "groupchat__toast_failed_to_sent_invitations[other]", arguments: [])
+//                    } else {
+//                        self.inviteErrorMessage = "Failed to send invitation".localizeString(id: "groupchat__toast_failed_to_sent_invitations[one]", arguments: [])
+//                    }
                 case "not-allowed":
                     self.inviteErrorMessage = "You have no permission to invite members"
                         .localizeString(id: "groupchats_no_permission_to_invite", arguments: [])
@@ -128,8 +141,6 @@ extension GroupchatInviteViewController {
     }
     
     internal func finishInviting() {
-        self.inSaveMode.accept(false)
-        self.selectedJids.accept([])
         if let error = inviteErrorMessage {
             ErrorMessagePresenter()
                 .present(in: self,
@@ -154,7 +165,8 @@ extension GroupchatInviteViewController {
             }
             self.invitedJidsCount = 0
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                [unowned self] in
+                self.inSaveMode.accept(false)
+                self.selectedJids.accept([])
                 self.dismiss(animated: true, completion: nil)
             }
         }
@@ -165,13 +177,13 @@ extension GroupchatInviteViewController {
                 .forEach { self.tableView
                     .deselectRow(at: $0, animated: true) }
 //            self.navigationController?.dismiss(animated: true, completion: nil)
-            XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
-                session.groupchat?.requestInvitedUsers(stream, groupchat: self.jid)
-            }) {
-                AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                    user.groupchats.requestInvitedUsers(stream, groupchat: self.jid)
-                })
-            }
+//            XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
+//                session.groupchat?.requestInvitedUsers(stream, groupchat: self.jid)
+//            }) {
+//                AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
+//                    user.groupchats.requestInvitedUsers(stream, groupchat: self.jid)
+//                })
+//            }
         } else {
             self.tableView.reloadData()
         }

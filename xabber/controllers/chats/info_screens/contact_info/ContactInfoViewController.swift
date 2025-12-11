@@ -123,6 +123,7 @@ class ContactInfoViewController: BaseViewController {
     
     internal var bag: DisposeBag = DisposeBag()
     
+    
     internal var datasource: [Datasource] = []
     
     internal var isBlocked: Bool = false
@@ -314,7 +315,7 @@ class ContactInfoViewController: BaseViewController {
                     let filesCount = realm.objects(MessageReferenceStorageItem.self).filter("owner == %@ AND jid == %@ AND mimeType IN %@ AND hasError == false", self.owner, self.jid, mimeTypes, "image").count
                     
                     newDatasource.append(
-                        Datasource(.text, title: "", childs: [
+                        Datasource(.text, title: "Circles", childs: [
                             Datasource(.button, icon: "xabber.circles", title: "Circles".localizeString(id: "contact_circle", arguments: []), key: "circles"),
                         ])
                     )

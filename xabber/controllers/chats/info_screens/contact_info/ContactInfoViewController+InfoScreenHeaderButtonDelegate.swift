@@ -47,12 +47,18 @@ extension ContactInfoViewController: InfoScreenHeaderDelegate {
     }
     
     internal func editCircles() {
-        let vc = EditContactViewController()
+//        let vc = EditContactViewController()
+//        vc.jid = self.jid
+//        vc.owner = self.owner
+//        vc.isCircleSelectView = true
+//        self.navigationController?.pushViewController(vc, animated: true)
+        
+        let vc = EditCirclesViewController()
+        
         vc.jid = self.jid
         vc.owner = self.owner
-        vc.isCircleSelectView = true
+        
         self.navigationController?.pushViewController(vc, animated: true)
-//        showModal(vc, parent: self)
     }
     
     func onQRCode() {

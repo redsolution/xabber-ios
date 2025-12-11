@@ -29,7 +29,7 @@ import CocoaLumberjack
 import Kingfisher
 import MaterialComponents.MDCPalettes
 
-class GroupchatBlockedViewController: SimpleBaseViewController {
+class GroupchatBlockAddViewController: SimpleBaseViewController {
     
     class Datasource: DiffAware, Equatable, Hashable {
         var userId: String
@@ -82,48 +82,72 @@ class GroupchatBlockedViewController: SimpleBaseViewController {
         let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(CommonMemberTableCell.self, forCellReuseIdentifier: CommonMemberTableCell.cellName)
+        view.register(GroupchatSettingsViewControllerT.SettingsTextFieldCell.self, forCellReuseIdentifier: GroupchatSettingsViewControllerT.SettingsTextFieldCell.cellName)
         
         return view
     }()
+    
+    internal let saveBarButton: UIBarButtonItem = {
+        let button = UIBarButtonItem(title: "Block", style: .plain, target: nil, action: nil)
         
+        button.tintColor = .systemRed
+        
+        return button
+    }()
+    
+    internal var cancelBarButton: UIBarButtonItem = {
+        let button = UIBarButtonItem(systemItem: .cancel)
+        
+        return button
+    }()
+    
     internal let updateQueue: DispatchQueue = {
         return DispatchQueue.global(qos: .background)
     }()
     
     
+    internal var changesObserver: BehaviorRelay<Bool> = BehaviorRelay(value: false)
+    
+    internal var selectedJids: BehaviorRelay<Set<String>> = BehaviorRelay(value: Set())
+    
+    internal var enteredJid: BehaviorRelay<String?> = BehaviorRelay(value: nil)
+    
     override func subscribe() {
         super.subscribe()
-        do {
-            let realm = try WRealm.safe()
-            membersObserver = realm
-                    .objects(GroupchatUserStorageItem.self)
-                    .filter("groupchatId == %@ AND isBlocked == true", [jid, owner].prp())
-                    .sorted(by: [
-                        SortDescriptor(keyPath: "nickname", ascending: true),
-                        SortDescriptor(keyPath: "jid", ascending: true)
-                    ])
-            
-            
-            Observable
-                .collection(from: membersObserver!)
-                .debounce(.milliseconds(50), scheduler: MainScheduler.asyncInstance)
-                .subscribe { (results) in
-                    self.runDatasetUpdateTask()
-                } onError: { (error) in
-                    DDLogDebug("GroupchatMembersListViewController: \(#function). RX error: \(error.localizedDescription)")
-                } onCompleted: {
-                    DDLogDebug("GroupchatMembersListViewController: \(#function). RX state: completed")
-                } onDisposed: {
-                    DDLogDebug("GroupchatMembersListViewController: \(#function). RX state: disposed")
-                }
-                .disposed(by: bag)
 
-            canUpdateDataset = true
-            runDatasetUpdateTask()
-            
-        } catch {
-            DDLogDebug("GroupchatMembersListViewController: \(#function). \(error.localizedDescription)")
-        }
+        
+        self.enteredJid
+            .asObservable()
+            .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
+            .subscribe { value in
+                if let value = value {
+                    
+                }
+                self.changesObserver.accept((value ?? "").isNotEmpty)
+            } onError: { _ in
+                
+            } onCompleted: {
+                
+            } onDisposed: {
+                
+            }
+            .disposed(by: self.bag)
+
+
+        
+        self.changesObserver
+            .asObservable()
+            .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
+            .subscribe { value in
+                if value {
+                    self.navigationItem.setLeftBarButton(self.cancelBarButton, animated: true)
+                    self.navigationItem.setRightBarButton(self.saveBarButton, animated: true)
+                } else {
+                    self.navigationItem.setLeftBarButton(self.navigationItem.backBarButtonItem, animated: true)
+                    self.navigationItem.setRightBarButton(nil, animated: true)
+                }
+            }
+            .disposed(by: self.bag)
     }
     
     override func setupSubviews() {
@@ -140,22 +164,31 @@ class GroupchatBlockedViewController: SimpleBaseViewController {
     
     override func configure() {
         super.configure()
+        title = "Blocked"
+        
         tableView.delegate = self
         tableView.dataSource = self
-        title = "Blocked"
-        let blockBarButton = UIBarButtonItem(image: imageLiteral("custom.nosign.badge.plus"), style: .plain, target: self, action: #selector(onBlockBarButtonTouchUpInside))
         
-        self.navigationItem.setRightBarButton(blockBarButton, animated: true)
+        self.cancelBarButton.action = #selector(onCancelButtonTouchUpInside)
+        self.cancelBarButton.target = self
+        self.saveBarButton.action = #selector(onSaveButtonTouchUpInside)
+        self.saveBarButton.target = self
     }
     
     @objc
-    private func onBlockBarButtonTouchUpInside(_ sender: UIBarButtonItem) {
-        self.onBlock()
+    internal func onCancelButtonTouchUpInside(_ sender: AnyObject) {
+        self.navigationController?.popViewController(animated: true)
+    }
+    
+    
+    @objc
+    internal func onSaveButtonTouchUpInside(_ sender: AnyObject) {
+        
+        self.navigationController?.popViewController(animated: true)
     }
     
     override func onAppear() {
-//        navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
-//        navigationController?.navigationBar.shadowImage = nil
+        
     }
     
     var canPromote: Bool = true
@@ -184,7 +217,7 @@ class GroupchatBlockedViewController: SimpleBaseViewController {
     
     
     private final func convertChangeset(changes: [Change<Datasource>]) -> ChangesWithIndexPath {
-        let section: Int = 0
+        let section: Int = 1
         
         let inserts =  changes.compactMap { return $0.insert?.index }.compactMap({ return IndexPath(row:$0, section: section)})
         let deletes =  changes.compactMap { return $0.delete?.index }.compactMap({ return IndexPath(row:$0, section: section )})
@@ -272,16 +305,40 @@ class GroupchatBlockedViewController: SimpleBaseViewController {
     
 }
 
-extension GroupchatBlockedViewController: UITableViewDataSource {
+extension GroupchatBlockAddViewController: UITableViewDataSource {
     func numberOfSections(in tableView: UITableView) -> Int {
-        return 1
+        return 2
     }
     
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        if section == 0 {
+            return 1
+        }
         return datasource.count
     }
     
+    internal func onTextFieldDidChange(key: String, value: String?) {
+        self.enteredJid.accept(value)
+    }
+    
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        if indexPath.section == 0 {
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: GroupchatSettingsViewControllerT.SettingsTextFieldCell.cellName, for: indexPath) as? GroupchatSettingsViewControllerT.SettingsTextFieldCell else {
+                fatalError()
+            }
+            
+            cell.isEditing = false
+            
+            cell.configureField { field in
+                field.keyboardType = .emailAddress
+                field.clearButtonMode = .always
+//                field.
+            }
+            
+            cell.configure("name@example.com or example.com", value: nil, key: "item")
+            cell.callback = onTextFieldDidChange
+            return cell
+        }
         guard let cell = tableView.dequeueReusableCell(withIdentifier: CommonMemberTableCell.cellName, for: indexPath) as? CommonMemberTableCell else {
             fatalError()
         }
@@ -300,33 +357,48 @@ extension GroupchatBlockedViewController: UITableViewDataSource {
             entity: .contact,
             role: .member
         )
+        cell.selectionStyle = .default
+        
         return cell
     }
     
     
 }
 
-extension GroupchatBlockedViewController: UITableViewDelegate {
+extension GroupchatBlockAddViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
 //        if indexPath.section == 0 && self.permissionScope == "owner,admin" {
 //            return 52
 //        }
         return 64
     }
-    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-        return 0
+
+    func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+        if section == 0 {
+            return "Block a specific XMPP address or domain. Blocked users will be unable to join this group in the future."
+        }
+        return nil
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        if indexPath.section == 0 { return }
         let item = datasource[indexPath.row]
-        let vc = ContactInfoViewController()
-        vc.owner = self.owner
-        vc.jid = item.jid
-        vc.conversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
-        self.navigationController?.pushViewController(vc, animated: true)
+        var value = self.selectedJids.value
+        value.insert(item.jid.isEmpty ? item.userId : item.jid)
+        self.selectedJids.accept(value)
     }
     
+    func tableView(_ tableView: UITableView, didDeselectRowAt indexPath: IndexPath) {
+        if indexPath.section == 0 { return }
+        let item = datasource[indexPath.row]
+        var value = self.selectedJids.value
+        value.remove(item.jid.isEmpty ? item.userId : item.jid)
+        self.selectedJids.accept(value)
+    }
+    
+    
     func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+        if indexPath.section == 0 { return nil }
         let index = indexPath.row
         let cancelInviteAction = UIContextualAction(style: .destructive, title: "Unblock") { action, view, handler in
             let item = self.datasource[index]
@@ -343,6 +415,7 @@ extension GroupchatBlockedViewController: UITableViewDelegate {
     }
     
     func tableView(_ tableView: UITableView, leadingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+        if indexPath.section == 0 { return nil }
         let index = indexPath.row
         let directChat = UIContextualAction(style: .normal, title: "Chat") { action, view, handler in
             let item = self.datasource[index]
@@ -359,13 +432,10 @@ extension GroupchatBlockedViewController: UITableViewDelegate {
     }
 }
 
-extension GroupchatBlockedViewController {
+extension GroupchatBlockAddViewController {
     
     internal func onBlock() {
-        let vc = GroupchatBlockAddViewController()
-        vc.jid = self.jid
-        vc.owner = self.owner
-        self.navigationController?.pushViewController(vc, animated: true)
+        
     }
     
     private func onInvite() {

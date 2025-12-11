@@ -174,7 +174,7 @@ class GroupchatMembersListViewController: SimpleBaseViewController {
             let realm = try WRealm.safe()
             membersObserver = realm
                     .objects(GroupchatUserStorageItem.self)
-                    .filter("groupchatId == %@ AND isBlocked == false AND isKicked == false AND isTemporary == false AND role_ IN %@", [jid, owner].prp(), permissionScope.components(separatedBy: ","))
+                    .filter("groupchatId == %@ AND isBlocked == false AND isKicked == false AND isTemporary == false AND role_ IN %@ AND isHidden == false", [jid, owner].prp(), permissionScope.components(separatedBy: ","))
                     .sorted(by: [
                         SortDescriptor(keyPath: "isMe", ascending: false),
                         SortDescriptor(keyPath: "sortedRole", ascending: true)
@@ -458,6 +458,16 @@ extension GroupchatMembersListViewController: UITableViewDelegate {
         }
         if indexPath.section == 0 && self.permissionScope == "owner,admin" {
             self.onAddAdmin()
+            return
+        }
+        if self.permissionScope == "owner,admin" {
+            let vc = GroupchatSettingsPromoteAdminViewController()
+            
+            vc.userId = item.userId
+            vc.jid = self.jid
+            vc.owner = self.owner
+            
+            self.navigationController?.pushViewController(vc, animated: true)
             return
         }
         if item.jid.isNotEmpty {

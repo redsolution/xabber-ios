@@ -147,7 +147,7 @@ extension ChatViewController {
                             if self.conversationType == .group {
                                 if let instance = realm
                                     .objects(GroupchatUserStorageItem.self)
-                                    .filter("groupchatId == %@ AND isMe == true", [self.jid, self.owner].prp())
+                                    .filter("groupchatId == %@ AND isMe == true AND isHidden == false", [self.jid, self.owner].prp())
                                     .first {
                                     nickname = instance.nickname
                                 }

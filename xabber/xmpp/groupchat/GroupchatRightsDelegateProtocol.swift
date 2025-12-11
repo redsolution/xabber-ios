@@ -14,14 +14,16 @@ class GroupchatPermission: Codable {
     var displayName: String
     var expires: Double?
     var seconds: Double?
+    var fixed: Bool
     
-    init(role: String, name: String, status: Bool, displayName: String, expires: Double? = nil, seconds: Double? = nil) {
+    init(role: String, name: String, status: Bool, displayName: String, expires: Double? = nil, seconds: Double? = nil, fixed: Bool = false) {
         self.role = role
         self.name = name
         self.status = status
         self.displayName = displayName
         self.expires = expires
         self.seconds = seconds
+        self.fixed = fixed
     }
 }
 

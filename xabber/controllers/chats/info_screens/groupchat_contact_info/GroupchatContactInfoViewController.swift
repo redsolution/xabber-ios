@@ -181,7 +181,7 @@ class GroupchatContactInfoViewController: SimpleBaseViewController {
             Observable
                 .collection(from: realm
                     .objects(GroupchatUserStorageItem.self)
-                    .filter("owner == %@ AND userId == %@", owner, userId))
+                    .filter("owner == %@ AND userId == %@ AND isHidden == false", owner, userId))
                 .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
                 .subscribe(onNext: { (results) in
                     var lastSeen: Date? = nil

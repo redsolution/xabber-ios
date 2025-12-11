@@ -56,6 +56,76 @@ class AvatarUploadManager: AbstractXMPPManager {
         return node.isNotEmpty
     }
     
+    fileprivate func posGroupAvatarUpdate(groupchat: String, image imageData: Data, mimeType: String, callback successCallback: (() -> Void)? = nil, failCallback: ((Int, String) -> Void)? = nil) {
+        uploadAvatar(data: imageData,
+                     filename: "\(NanoID.new(5)).png",
+                     mimeType: mimeType,
+                     successCallback: { (avatar) in
+
+            
+            
+            do {
+                let realm = try WRealm.safe()
+                var maxUrl: String = avatar.file
+                var minUrl: String? = nil
+                avatar.thumbnails.forEach {
+                    thumb in
+                    let thumbUrl = thumb.url
+                    let width = thumb.width
+                    if width >= 512 {
+                        maxUrl = thumbUrl
+                        return
+                    } else if width >= 256 {
+                        maxUrl = thumbUrl
+                        return
+                    }
+                }
+                
+                avatar.thumbnails.forEach {
+                    thumb in
+                    let thumbUrl = thumb.url
+                    let width = thumb.width
+                    if width < 256 && width >= 128 {
+                        minUrl = thumbUrl
+                        return
+                    } else if width < 128 {
+                        minUrl = thumbUrl
+                        return
+                    }
+                }
+                if let image = UIImage(data: imageData) {
+                    ImageCache.default.store(image, forKey: maxUrl, options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory]))
+                    let thumbImage = image.resize(targetSize: CGSize(square: 256))
+                    if let thumb = thumbImage.pngData(),
+                       let minUrl = minUrl {
+                        ImageCache.default.store(thumbImage, forKey: minUrl, options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory]))
+                    }
+                }
+                
+                successCallback?()
+                
+                if let group = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: groupchat, owner: self.owner)) {
+                    try realm.write {
+                        group.oldschoolAvatarKey = avatar.hash
+                        group.avatarUpdatedTS = Date().timeIntervalSince1970
+                        group.avatarMaxUrl = maxUrl
+                        group.avatarMinUrl = minUrl
+                    }
+                }
+                
+                AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
+                    user.avatarUploader.sendImageMetadata(stream, avatar: avatar, to: XMPPJID(string: groupchat))
+                })
+                
+            } catch {
+                DDLogDebug("AvatarUploadManager: \(#function). \(error.localizedDescription)")
+            }
+        }, failCallback: { status, failError in
+            failCallback?(status, failError)
+            DDLogDebug("AvatarUploadManager: \(#function). \(failError)")
+        })
+    }
+    
     fileprivate func posAvatarUpdate(image imageData: Data, mimeType: String, callback successCallback: (() -> Void)? = nil, failCallback: ((Int, String) -> Void)? = nil) {
         uploadAvatar(data: imageData,
                      filename: "\(NanoID.new(5)).png",
@@ -124,6 +194,18 @@ class AvatarUploadManager: AbstractXMPPManager {
             failCallback?(status, failError)
             DDLogDebug("AvatarUploadManager: \(#function). \(failError)")
         })
+    }
+    
+    public final func setGrpoupAvatar(groupchat: String, image: UIImage?, successCallback: (() -> Void)? = nil, failureCallback: ((Int, String) -> Void)? = nil) {
+        guard let imageData = image?.pngData() else { return }
+
+        posGroupAvatarUpdate(
+            groupchat: groupchat,
+            image: imageData,
+            mimeType: "image/png",
+            callback: successCallback,
+            failCallback: failureCallback
+        )
     }
     
     public final func setAvatar(image: UIImage?, successCallback: (() -> Void)? = nil, failureCallback: ((Int, String) -> Void)? = nil) {
@@ -209,37 +291,6 @@ class AvatarUploadManager: AbstractXMPPManager {
                     DDLogDebug("AvatarUploadManager: \(#function). can't decode response)")
                 }
             }
-//        { result in
-//                switch result {
-//                case .success(request: let request, streamingFromDisk: let streamDisk, streamFileURL: let streamUrl):
-//                    request.responseData(queue: .global(qos: .background)) { response in
-//                        print(response)
-//                        do {
-//                            if (response.response?.statusCode ?? 400) < 300 {
-//                                guard let data = response.value else {
-//                                    failCallback(400, "Unexpected error")
-//                                    return
-//                                }
-//                                let avatar =  try JSONDecoder().decode(AvatarResponse.self, from: data)
-//                                successCallback(avatar)
-//                            } else {
-//                                guard let data = response.value else {
-//                                    failCallback(400, "Unexpected error")
-//                                    return
-//                                }
-//                                let errorResponse = try JSONDecoder().decode(AvatarErrorResponse.self, from: data)
-//                                failCallback(errorResponse.status, errorResponse.error)
-//                            }
-//                        } catch {
-//                            failCallback(400, "Unexpected error")
-//                            DDLogDebug("AvatarUploadManager: \(#function). can't decode response)")
-//                        }
-//                    }
-//                case .failure(let error):
-//                    DDLogDebug("AvatarUploadManager: \(#function). \(error.localizedDescription)")
-//                    failCallback(400, "Unexpected error")
-//                }
-//            }
     }
     
     func getImageTypeMetaData(url: String) -> String {
@@ -254,7 +305,7 @@ class AvatarUploadManager: AbstractXMPPManager {
         return "unknown"
     }
     //public func sendImageMetadata(_ xmppStream: XMPPStream, mainUrl: String, hash: String, size: Int, thumbnails: [Thumbnail], jid: String? = nil) {
-    public func sendImageMetadata(_ xmppStream: XMPPStream, avatar: AvatarResponse) {
+    public func sendImageMetadata(_ xmppStream: XMPPStream, avatar: AvatarResponse, to: XMPPJID? = nil) {
         
         let elementId = "Avatar: \(NanoID.new(8))"
         let metadata = DDXMLElement(name: "metadata", xmlns: "urn:xmpp:avatar:metadata")
@@ -291,12 +342,12 @@ class AvatarUploadManager: AbstractXMPPManager {
         pubsub.addChild(publish)
         pubsub.setXmlns("http://jabber.org/protocol/pubsub")
         
-        let iq = XMPPIQ(iqType: .set, to: nil, elementID: elementId, child: pubsub)
+        let iq = XMPPIQ(iqType: .set, to: to, elementID: elementId, child: pubsub)
         xmppStream.send(iq)
         queryIds.insert(elementId)
     }
     
-    public func sendClearMetadata(_ xmppStream: XMPPStream, finishCallback: (() -> Void)) {
+    public func sendClearMetadata(_ xmppStream: XMPPStream, to: XMPPJID? = nil, finishCallback: (() -> Void)) {
         do {
             let realm = try WRealm.safe()
             if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: self.owner) {
@@ -315,7 +366,7 @@ class AvatarUploadManager: AbstractXMPPManager {
                 pubsub.addChild(publish)
                 pubsub.setXmlns("http://jabber.org/protocol/pubsub")
                 
-                let iq = XMPPIQ(iqType: .set, to: nil, elementID: elementId, child: pubsub)
+                let iq = XMPPIQ(iqType: .set, to: to, elementID: elementId, child: pubsub)
                 xmppStream.send(iq)
                 queryIds.insert(elementId)
                 try realm.write {

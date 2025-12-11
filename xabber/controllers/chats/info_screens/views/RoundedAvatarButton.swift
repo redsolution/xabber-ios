@@ -22,6 +22,24 @@ import Foundation
 import UIKit
 
 class RoundedAvatarButton: UIButton {
+    
+    internal let dimmedView: UIView = {
+        let view = UIView()
+        
+        view.backgroundColor = UIColor.black.withAlphaComponent(0.2)
+        view.isHidden = true
+        
+        return view
+    }()
+    
+    internal let activityIndicator: UIActivityIndicatorView = {
+        let view = UIActivityIndicatorView(style: .large)
+        
+        view.isHidden = true
+        
+        return view
+    }()
+    
     init(frame: CGRect, avatarMaskResourceName: String) {
         super.init(frame: frame)
         guard let image = UIImage(named: avatarMaskResourceName) else {
@@ -29,6 +47,28 @@ class RoundedAvatarButton: UIButton {
             return
         }
         self.mask = UIImageView(image: image)
+        self.addSubview(self.dimmedView)
+        self.addSubview(self.activityIndicator)
+        self.dimmedView.fillSuperview()
+        self.activityIndicator.center = self.center
+//        self.dimmedView.isHidden = true
+        
+    }
+    
+    public func showLoading() {
+        self.activityIndicator.startAnimating()
+        UIView.animate(withDuration: 0.33) {
+            self.dimmedView.isHidden = false
+            self.activityIndicator.isHidden = false
+        }
+    }
+    
+    public func hideLoading() {
+        self.activityIndicator.stopAnimating()
+//        UIView.animate(withDuration: 0.33) {
+        self.dimmedView.isHidden = true
+        self.activityIndicator.isHidden = true
+//        }
     }
     
     required init?(coder: NSCoder) {
@@ -43,5 +83,4 @@ class RoundedAvatarButton: UIButton {
     override func layerWillDraw(_ layer: CALayer) {
         super.layerWillDraw(layer)
     }
-    
 }

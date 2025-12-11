@@ -130,7 +130,7 @@ extension ChatViewController: MessagesSelectionPanelActionDelegate {
                 var nickname: String = ""
                 if self.conversationType == .group {
                     if let gcNickname = realm.objects(GroupchatUserStorageItem.self)
-                        .filter("groupchatId == %@ AND jid == %@", [self.jid, self.owner].prp(), item.outgoing ? item.owner : item.opponent).first?.nickname {
+                        .filter("groupchatId == %@ AND jid == %@ AND isHidden == false", [self.jid, self.owner].prp(), item.outgoing ? item.owner : item.opponent).first?.nickname {
                         nickname = gcNickname
                     }
                 } else {

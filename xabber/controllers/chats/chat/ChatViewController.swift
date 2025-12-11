@@ -654,6 +654,7 @@ class ChatViewController: MessagesViewController {
     internal var shouldRequestChatInfo: Bool = false
     
     open var lastChatsDisplayDelegate: LastChatsDisplayDelegate? = nil
+    var leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil
     
     internal let sharedAudioPlayerPanel: SharedPlayerView? = {
         if UIDevice.current.userInterfaceIdiom == .pad {

@@ -60,6 +60,7 @@ class XMPPUIActionManager: NSObject {
 //    var omemo: OmemoManager? = nil
     var reconnect: XMPPReconnect? = nil
 //    var x509: X509XMPPManager? = nil
+    var cloudStorage: XabberUploadManager? = nil
     var shouldRecreate: Bool = true
     
     override init() {
@@ -116,6 +117,7 @@ class XMPPUIActionManager: NSObject {
 //        self.xtokens = XTokenManager(withOwner: owner)
         self.devices = XMPPDeviceManager(withOwner: owner)
         self.reconnect = XMPPReconnect(dispatchQueue: self.queue)
+        self.cloudStorage = XabberUploadManager(withOwner: owner)
 //        self.x509 = X509XMPPManager(withOwner: owner)
         
         self.stream.myJID = XMPPJID(string: owner, resource: AccountManager.defaultResource + "_ui_upgrade_task")
@@ -149,6 +151,7 @@ class XMPPUIActionManager: NSObject {
         self.deliveryManager = nil
         self.messages = nil
         self.mam = nil
+        self.cloudStorage = nil
 //        self.chatMarkers = nil
         self.roster = nil
         self.presences = nil

@@ -83,6 +83,66 @@ class RosterManager: AbstractXMPPManager {
     open func setContact(_ xmppStream: XMPPStream, jid: String, getNickFromVCard: Bool = false, nickname preferredNickname: String? = nil, groups: [String] = [], shouldAddSystemMessage: Bool = false, callback: ((String?, String?, Bool) -> Void)? = nil) {
         do {
             let realm = try  WRealm.safe()
+            
+            func updateGroups(_ instance: RosterStorageItem, groups: [String]) {
+                if let item = realm.object(ofType: RosterGroupStorageItem.self, forPrimaryKey: [RosterGroupStorageItem.notInRosterGroupName, owner].prp()) {
+                    if let index = item.contacts.firstIndex(where: { $0.primary == instance.primary }) {
+                        item.contacts.remove(at: index)
+                    }
+                }
+                if groups.isEmpty {
+                    realm.objects(RosterGroupStorageItem.self)
+                        .filter("owner == %@", owner)
+                        .forEach { item in
+                            if let index = item.contacts.firstIndex(where: { $0.primary == instance.primary }) {
+                                item.contacts.remove(at: index)
+                            }
+                        }
+                    if let group = realm.object(ofType: RosterGroupStorageItem.self, forPrimaryKey: [RosterGroupStorageItem.systemGroupName, owner].prp()) {
+                        if !group.contacts.contains(instance) {
+                            group.contacts.append(instance)
+                        }
+                    } else {
+                        let group = RosterGroupStorageItem()
+                        group.isSystemGroup = true
+                        group.name = RosterGroupStorageItem.systemGroupName
+                        group.owner = owner
+                        group.primary = RosterGroupStorageItem.genPrimary(name: RosterGroupStorageItem.systemGroupName, owner: owner)
+                        group.contacts.append(instance)
+                        realm.add(group, update: .modified)
+                    }
+                } else {
+                    if let item = realm.object(ofType: RosterGroupStorageItem.self, forPrimaryKey: [RosterGroupStorageItem.systemGroupName, owner].prp()) {
+                        if let index = item.contacts.firstIndex(where: { $0.primary == instance.primary }) {
+                            item.contacts.remove(at: index)
+                        }
+                    }
+                    groups.forEach {
+                        groupName in
+                        realm.objects(RosterGroupStorageItem.self)
+                            .filter("owner == %@", owner)
+                            .forEach { item in
+                                if let index = item.contacts.firstIndex(where: { $0.primary == instance.primary }),
+                                   item.groupName != groupName {
+                                    item.contacts.remove(at: index)
+                                }
+                            }
+                        if let group = realm.object(ofType: RosterGroupStorageItem.self, forPrimaryKey: [groupName, owner].prp()) {
+                            if !group.contacts.contains(instance) {
+                                group.contacts.append(instance)
+                            }
+                        } else {
+                            let group = RosterGroupStorageItem()
+                            group.name = groupName
+                            group.owner = owner
+                            group.primary = RosterGroupStorageItem.genPrimary(name: groupName, owner: owner)
+                            group.contacts.append(instance)
+                            realm.add(group, update: .modified)
+                        }
+                    }
+                }
+            }
+            
             let elementId = xmppStream.generateUUID
             let query = DDXMLElement(name: "query", xmlns: getPrimaryNamespace())
             let item = DDXMLElement(name: "item")
@@ -93,8 +153,13 @@ class RosterManager: AbstractXMPPManager {
                     nickname = vcard.unsafeGeneratedNickname
                 }
             }
+            
+            let displayNick = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: self.owner))?.displayName
+            
             if let nickname = nickname {
                 item.addAttribute(withName: "name", stringValue: nickname)
+            } else if let nick = displayNick {
+                item.addAttribute(withName: "name", stringValue: nick)
             }
             groups
                 .filter{ $0.isNotEmpty }
@@ -108,17 +173,22 @@ class RosterManager: AbstractXMPPManager {
             
             if let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner)) {
                 try realm.write {
-                    instance.subscribtion = .none
+                    instance.groups.removeAll()
+                    instance.groups.append(objectsIn: groups)
+                    instance.customUsername = preferredNickname ?? ""
+                    updateGroups(instance, groups: groups)
                 }
             } else {
                 let instance = RosterStorageItem()
                 instance.jid = jid
                 instance.owner = owner
+                instance.customUsername = preferredNickname ?? ""
                 instance.primary = RosterStorageItem.genPrimary(jid: jid, owner: owner)
                 instance.subscribtion = .none
                 instance.associatedLastChat = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular))
                 try realm.write {
                     realm.add(instance, update: .modified)
+                    updateGroups(instance, groups: groups)
                 }
             }
         } catch {
