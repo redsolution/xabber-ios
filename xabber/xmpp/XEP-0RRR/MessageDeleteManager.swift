@@ -351,24 +351,29 @@ class MessageDeleteManager: AbstractXMPPManager {
         return true
     }
     
-    open func deleteMessage(_ xmppStream: XMPPStream, primary: String, jid: String, conversationType: ClientSynchronizationManager.ConversationType, symmetric: Bool, callback: ((String?, Bool) -> Void)?) {
-        func send(_ messageId: String, elementId: String, to archiveJid: XMPPJID?) {
-            let retract = DDXMLElement(name: "retract-message", xmlns: getPrimaryNamespace())
-            retract.addAttribute(withName: "symmetric", stringValue: symmetric ? "true" : "false" )
-            retract.addAttribute(withName: "id", stringValue: messageId)
-            retract.addAttribute(withName: "type", stringValue: conversationType.rawValue)
-            xmppStream.send(XMPPIQ(iqType: .set, to: archiveJid, elementID: elementId, child: retract))
-        }
+    open func deleteMessage(_ xmppStream: XMPPStream, primary: String, symmetric: Bool, callback: ((String?, Bool) -> Void)?) {
+        
         do {
             let realm = try  WRealm.safe()
             if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
                 let elementId = "RRR: \(NanoID.new(8))"
-                send(instance.archivedId, elementId: elementId, to: jid.isEmpty ? nil : XMPPJID(string: jid))
+                
+                let retract = DDXMLElement(name: "retract-message", xmlns: getPrimaryNamespace())
+                retract.addAttribute(withName: "symmetric", boolValue: symmetric)
+                retract.addAttribute(withName: "id", stringValue: instance.archivedId)
+                retract.addAttribute(withName: "type", stringValue: instance.conversationType_)
+                xmppStream.send(XMPPIQ(iqType: .set, to: instance.conversationType == .group ? XMPPJID(string: instance.opponent) : nil, elementID: elementId, child: retract))
+                
                 queryIds.insert(elementId)
                 guard instance.archivedId.isNotEmpty else {
+                    if [.sending, .uploading, .notSended, .error].contains(instance.state) {
+                        instance.isDeleted = true
+                        callback?(nil, true)
+                    }
                     callback?("Can`t delete message: unexpected error".localizeString(id: "cant_delete_message_error", arguments: []), false)
                     return
                 }
+                
                 itemsQuery.insert(Item(primary, kind: .retract, messageId: instance.archivedId, iqId: elementId, callback: callback))
             }
         } catch {

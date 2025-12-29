@@ -34,7 +34,7 @@ class StatusInfoCell: UITableViewCell {
         stack.spacing = 8
         
         stack.isLayoutMarginsRelativeArrangement = true
-        stack.layoutMargins = UIEdgeInsets(top: 10, bottom: 10, left: 16, right: 8)
+        stack.layoutMargins = UIEdgeInsets(top: 10, bottom: 10, left: 20, right: 16)
         
         return stack
     }()

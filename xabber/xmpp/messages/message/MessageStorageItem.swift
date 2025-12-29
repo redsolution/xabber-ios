@@ -551,26 +551,26 @@ class MessageStorageItem: Object {
 //    }
     
     func configureSystemMessage(_ messageContainer: XMPPMessage, owner: String, opponent: String, date: Date) {
-        self.references.append(objectsIn: parseReferences(messageContainer, jid: opponent, owner: owner))
-        self.legacyBody = messageContainer.body ?? ""
-        self.body = messageContainer.body ?? ""
-        self.systemMetadata = parseSystemMessageMetadata(messageContainer)
         self.owner = owner
         self.opponent = opponent
         self.displayAs = .system
         self.messageId = getUniqueMessageId(messageContainer, owner: self.owner)
         self.archivedId = getStanzaId(messageContainer, owner: self.owner)
         self.previousId = getPreviousId(messageContainer)
+        self.updatePrimary()
+        self.references.append(objectsIn: parseReferences(messageContainer, primary: self.primary, jid: opponent, owner: owner))
+        self.legacyBody = messageContainer.body ?? ""
+        self.body = messageContainer.body ?? ""
+        self.systemMetadata = parseSystemMessageMetadata(messageContainer)
         self.date = date
         self.sentDate = date
         self.outgoing = false
         self.conversationType = .group
-        self.updatePrimary()
     }
     
     func editMessage(_ messageContainer: XMPPMessage, editDate: Date) {
         self.references.removeAll()
-        self.references.append(objectsIn: parseReferences(messageContainer, jid: opponent, owner: owner))
+        self.references.append(objectsIn: parseReferences(messageContainer, primary: self.primary, jid: opponent, owner: owner))
         let groupchatRef = messageContainer
             .element(forName: "x",xmlns: "https://xabber.com/protocol/groups")?
             .element(forName: "reference",xmlns: "https://xabber.com/protocol/references")
@@ -594,7 +594,13 @@ class MessageStorageItem: Object {
     }
     
     func configureIncomingMessage(_ messageContainer: XMPPMessage, owner: String, opponent: String, outgoing: Bool, isRead: Bool, date: Date, isEncrypted: Bool = false) {
-        self.references.append(objectsIn: parseReferences(messageContainer, jid: opponent, owner: owner))
+        self.opponent = opponent
+        self.owner = owner
+        self.messageId = getUniqueMessageId(messageContainer, owner: self.owner)
+        self.archivedId = getStanzaId(messageContainer, owner: self.owner)
+        self.previousId = getPreviousId(messageContainer)
+        updatePrimary()
+        self.references.append(objectsIn: parseReferences(messageContainer, primary: self.primary, jid: opponent, owner: owner))
         let groupchatRef = messageContainer
             .element(forName: "x",xmlns: "https://xabber.com/protocol/groups")?
             .element(forName: "reference",xmlns: "https://xabber.com/protocol/references")
@@ -611,15 +617,10 @@ class MessageStorageItem: Object {
             self.messageError = "Edit"
         }
         self.legacyBody = messageContainer.body ?? ""
-        self.opponent = opponent
-        self.owner = owner
         self.outgoing = outgoing
         self.isRead = isRead
         self.date = date
         self.sentDate = date
-        self.messageId = getUniqueMessageId(messageContainer, owner: self.owner)
-        self.archivedId = getStanzaId(messageContainer, owner: self.owner)
-        self.previousId = getPreviousId(messageContainer)
         self.originalStanza = messageContainer
         
         self.conversationType = conversationTypeByMessage(messageContainer)
@@ -633,7 +634,6 @@ class MessageStorageItem: Object {
 //            self.conversationType = .omemo
 //        }
         
-        updatePrimary()
         self.inlineForwards.append(objectsIn: parseInlineMessages(messageContainer, parentId: primary, jid: opponent, owner: owner))
         updateDisplayMode()
         self.references.forEach { $0.messageId = self.primary }
@@ -1088,11 +1088,24 @@ class MessageStorageItem: Object {
                     }
                     let file = DDXMLElement(name: "file")
                     reference.metadata?.forEach {
-                        if !["media-type", "name", "height", "width", "size", "desc", "duration", "hash", "orientation"].contains($0.key) { return }
-                        if let value = $0.value as? String {
-                            file.addChild(DDXMLElement(name: $0.key, stringValue: value))
-                        } else if let value = $0.value as? Int {
-                            file.addChild(DDXMLElement(name: $0.key, stringValue: "\(value)"))
+                        switch $0.key {
+                            case "thumbnail-uri":
+                                if let value = $0.value as? String {
+                                    let thumb = DDXMLElement(name: "thumbnail", xmlns: "urn:xmpp:thumbs:1")
+                                    thumb.addAttribute(withName: "width", integerValue: (reference.metadata?["thumbnail-width"] as? Int) ?? 24)
+                                    thumb.addAttribute(withName: "height", integerValue: (reference.metadata?["thumbnail-height"] as? Int) ?? 24)
+                                    thumb.addAttribute(withName: "media-type", stringValue: "image/jpeg")
+                                    thumb.addAttribute(withName: "uri", stringValue: value)
+                                    file.addChild(thumb)
+                                }
+                            case "media-type", "name", "height", "width", "size", "desc", "duration", "hash", "orientation":
+                                if let value = $0.value as? String {
+                                    file.addChild(DDXMLElement(name: $0.key, stringValue: value))
+                                } else if let value = $0.value as? Int {
+                                    file.addChild(DDXMLElement(name: $0.key, stringValue: "\(value)"))
+                                }
+                            default:
+                                break
                         }
                     }
                     if let iv = reference.metadata?["iv"] as? String,

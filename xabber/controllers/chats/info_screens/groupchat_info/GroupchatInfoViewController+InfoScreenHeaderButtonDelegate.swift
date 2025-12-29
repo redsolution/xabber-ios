@@ -72,14 +72,12 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
     }
     
     internal func editCircles() {
-        self.shouldResetNavbar = false
-        let vc = EditContactViewController()
+        let vc = EditCirclesViewController()
+        
         vc.jid = self.jid
         vc.owner = self.owner
-        vc.isGroupchat = true
-        vc.isCircleSelectView = true
+        
         self.navigationController?.pushViewController(vc, animated: true)
-//        showModal(vc, parent: self)
     }
     
     internal func openChat() {

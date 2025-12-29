@@ -138,12 +138,12 @@ func getReferenceType(_ ref: DDXMLElement) -> String? {
     return nil
 }
 
-func parseReferences(_ message: XMPPMessage, jid: String, owner: String, echo: Bool = false) -> [MessageReferenceStorageItem] {
+func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner: String, echo: Bool = false) -> [MessageReferenceStorageItem] {
     var out: [MessageReferenceStorageItem] = []
     let escapingBody = (message.body ?? "").xmlEscaping(reverse: false)
     let references = message.elements(forName: "reference")
     
-    let messageDate = getDeliveryTime(message, owner: owner) ?? Date(timeIntervalSince1970: 0)
+    let messageDate = getDelayedDate(message) ?? Date()
     
     let groupchatRef = message
         .element(forName: "x",xmlns: "https://xabber.com/protocol/groups")?
@@ -208,11 +208,14 @@ func parseReferences(_ message: XMPPMessage, jid: String, owner: String, echo: B
                         return nil
                     }
                 
+                var isEncrypted: Bool = false
+                
                 if let encryptedElement = file.element(forName: "encrypted", xmlns: "urn:xmpp:esfs:0"),
                    let encryptionKey = encryptedElement.element(forName: "key")?.stringValue,
                    let iv = encryptedElement.element(forName: "iv")?.stringValue {
                     metadata["encryption-key"] = encryptionKey
                     metadata["iv"] = iv
+                    isEncrypted = true
                 }
                 
                 let mediaType = file.element(forName: "media-type")?.stringValue ?? ""
@@ -228,6 +231,53 @@ func parseReferences(_ message: XMPPMessage, jid: String, owner: String, echo: B
                 metadata["video_duration"] = file.element(forName: "video_duration")?.stringValue ?? ""
                 metadata["uri"] = uri
                 reference.url = uri
+                
+                let conversationType = reference.conversationType
+                let attachment = MessageMediaAttachmentStorageItem()
+                attachment.primary = MessageMediaAttachmentStorageItem.genPrimary(jid: jid, owner: owner, url: uri, messagePrimary: primary)
+                attachment.url_ = uri
+                attachment.jid = jid
+                attachment.owner = owner
+                attachment.conversationType = conversationType
+                attachment.archiveId = getStanzaId(message, owner: owner)
+                switch reference.mimeType {
+                    case "image":
+                        attachment.kind = .image
+                    case "video":
+                        attachment.kind = .video
+                    case "audio":
+                        attachment.kind = .audio
+                    default:
+                        attachment.kind = .file
+                }
+                attachment.date = messageDate
+                attachment.outgoing = message.from?.bare == owner
+                attachment.filename = file.element(forName: "name")?.stringValue ?? ""
+                attachment.isDownloaded = false
+                attachment.isEncrypted = isEncrypted
+                
+                if let thumb = file.element(forName: "thumbnail"), let dataURI = thumb.attributeStringValue(forName: "uri") {
+                    if let commaIndex = dataURI.firstIndex(of: ","),
+                       dataURI.hasPrefix("data:image/") {
+                        let base64String = String(dataURI[dataURI.index(after: commaIndex)...])
+                        attachment.verySmallThumb = base64String
+                    }
+                }
+                
+                do {
+                    let realm = try WRealm.safe()
+                    if realm.object(ofType: MessageMediaAttachmentStorageItem.self, forPrimaryKey: attachment.primary) == nil {
+                        if realm.isInWriteTransaction {
+                            realm.add(attachment, update: .modified)
+                        } else {
+                            try realm.write {
+                                realm.add(attachment, update: .modified)
+                            }
+                        }
+                    }
+                } catch {
+                    DDLogDebug("MessageReferencePArser: \(#function). \(error.localizedDescription)")
+                }
             case .markup:
                 var styles: [String] = []
                 if ref.element(forName: "bold") != nil { styles.append("bold") }

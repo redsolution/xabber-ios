@@ -356,7 +356,6 @@ class XabberUploadManager: AbstractXMPPManager {
 //                                                }
                                             }
                                         }
-                                        callSuccessCallback()
                                         if encryptedFiles  {
                                             do {
                                                 guard let encryptionKeyb64 = encryptionKeyb64,
@@ -368,18 +367,41 @@ class XabberUploadManager: AbstractXMPPManager {
                                                 guard let decryptedData = try Data.decrypt(data, key: encryptionKey, iv: iv) else {
                                                     return
                                                 }
-                                                if let _ = UIImage(data: decryptedData) {
+                                                if let image = UIImage(data: decryptedData) {
                                                     ImageCache.default.storeToDisk(decryptedData, forKey: getUrl)
+                                                    let thumb = image.resize(targetSize: CGSize(square: 24))
+                                                    if let b64_thumb = thumb.jpegData(compressionQuality: 0.5)?.base64EncodedString() {
+                                                        let realm = try WRealm.safe()
+                                                        if let uploadedReference = realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: referencePrimary) {
+                                                            try realm.write {
+                                                                uploadedReference.metadata?["thumbnail-height"] = thumb.size.height
+                                                                uploadedReference.metadata?["thumbnail-width"] = thumb.size.width
+                                                                uploadedReference.metadata?["thumbnail-uri"] = "data:image/jpeg;base64,\(b64_thumb)"
+                                                            }
+                                                        }
+                                                    }
                                                 }
                                             } catch {
 //                                                print(error)
                                             }
                                             
                                         } else {
-                                            if let _ = UIImage(data: data) {
+                                            if let image = UIImage(data: data) {
                                                 ImageCache.default.storeToDisk(data, forKey: getUrl)
+                                                let thumb = image.resize(targetSize: CGSize(square: 24))
+                                                if let b64_thumb = thumb.jpegData(compressionQuality: 0.5)?.base64EncodedString() {
+                                                    let realm = try WRealm.safe()
+                                                    if let uploadedReference = realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: referencePrimary) {
+                                                        try realm.write {
+                                                            uploadedReference.metadata?["thumbnail-height"] = thumb.size.height
+                                                            uploadedReference.metadata?["thumbnail-width"] = thumb.size.width
+                                                            uploadedReference.metadata?["thumbnail-uri"] = "data:image/jpeg;base64,\(b64_thumb)"
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
+                                        callSuccessCallback()
                                     } catch {
                                         DDLogDebug("XabberUploadManager: \(#function). \(error.localizedDescription)")
                                     }

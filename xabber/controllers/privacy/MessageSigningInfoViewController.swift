@@ -381,8 +381,6 @@ extension MessageSigningInfoViewController: UITableViewDelegate {
                                     session.retract?.deleteMessage(
                                         stream,
                                         primary: self.messagePrimary,
-                                        jid: "",
-                                        conversationType: self.conversationType,
                                         symmetric: result,
                                         callback: { (errorMessage, success) in
                                             DispatchQueue.main.async {
@@ -399,8 +397,6 @@ extension MessageSigningInfoViewController: UITableViewDelegate {
                                         user.msgDeleteManager
                                             .deleteMessage(stream,
                                                            primary: self.messagePrimary,
-                                                           jid: "",
-                                                           conversationType: self.conversationType,
                                                            symmetric: result)
                                             { (errorMessage, success) in
                                                 DispatchQueue.main.async {

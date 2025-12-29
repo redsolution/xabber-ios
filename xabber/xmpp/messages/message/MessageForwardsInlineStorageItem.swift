@@ -56,7 +56,7 @@ class MessageForwardsInlineStorageItem: Object {
     func configureInline(_ messageContainer: XMPPMessage, parentId: String, owner: String, jid: String, opponent: String, outgoing: Bool, date: Date, forwardJid: String?) {
         self.messageId = getUniqueMessageId(messageContainer, owner: self.owner)
         self.primary = [parentId, messageId].prp()
-        self.references.append(objectsIn: parseReferences(messageContainer, jid: jid, owner: owner))
+        self.references.append(objectsIn: parseReferences(messageContainer, primary: self.primary, jid: jid, owner: owner))
         self.subforwards.append(objectsIn: parseInlineMessages(messageContainer, parentId: self.primary, jid: jid, owner: owner))
         let groupchatRef = messageContainer
             .element(forName: "x",xmlns: "https://xabber.com/protocol/groups")?

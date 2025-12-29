@@ -84,6 +84,19 @@ extension UIImage {
         return self
     }
 }
+
+extension UIImage {
+    func blurred(radius: CGFloat, targetSize: CGFloat) -> UIImage? {
+        
+        guard let ciImage = CIImage(image: self.upscale(dimension: targetSize)) else { return nil }
+        let filter = CIFilter(name: "CIGaussianBlur")
+        filter?.setValue(ciImage, forKey: kCIInputImageKey)
+        filter?.setValue(radius, forKey: kCIInputRadiusKey)
+        guard let output = filter?.outputImage,
+              let cgImage = CIContext().createCGImage(output, from: output.extent) else { return nil }
+        return UIImage(cgImage: cgImage)
+    }
+}
 //
 //public extension CGImage
 //{

@@ -111,31 +111,31 @@ extension GroupchatInfoViewController: UITableViewDelegate {
                     navigationController?.pushViewController(vc, animated: true)
                     
                 case "images":
-                    let vc = ChatFilesViewController()
+                    let vc = PhotoGalleryForChatViewController()
                     vc.owner = self.owner
                     vc.jid = self.jid
-                    vc.selectedType = .images
+                    vc.conversationType = .group
                     navigationController?.pushViewController(vc, animated: true)
                     
                 case "videos":
-                    let vc = ChatFilesViewController()
+                    let vc = VideoGalleryForChatViewController()
                     vc.owner = self.owner
                     vc.jid = self.jid
-                    vc.selectedType = .videos
+                    vc.conversationType = .group
                     navigationController?.pushViewController(vc, animated: true)
                     
                 case "voice":
-                    let vc = ChatFilesViewController()
+                    let vc = VoiceGalleryForChatViewController()
                     vc.owner = self.owner
                     vc.jid = self.jid
-                    vc.selectedType = .voice
+                    vc.conversationType = .group
                     navigationController?.pushViewController(vc, animated: true)
                     
                 case "files":
-                    let vc = ChatFilesViewController()
+                    let vc = FilesGalleryForChatViewController()
                     vc.owner = self.owner
                     vc.jid = self.jid
-                    vc.selectedType = .files
+                    vc.conversationType = .group
                     navigationController?.pushViewController(vc, animated: true)
                     
                 default: break

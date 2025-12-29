@@ -48,63 +48,62 @@ extension ContactInfoViewController: UITableViewDelegate {
         let item = datasource[indexPath.section].childs[indexPath.row]
         if let key = item.key {
             switch key {
-            case "jid_field":
-                let shareVC = UIActivityViewController(activityItems: [jid],
-                                                       applicationActivities: [])
-                
-                if UIDevice.current.userInterfaceIdiom == .pad {
-                    if let popoverController = shareVC.popoverPresentationController {
-                        popoverController.sourceView = self.view
-                        popoverController.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 0, height: 0)
-                        popoverController.permittedArrowDirections = []
+                case "jid_field":
+                    let shareVC = UIActivityViewController(activityItems: [jid],
+                                                           applicationActivities: [])
+                    
+                    if UIDevice.current.userInterfaceIdiom == .pad {
+                        if let popoverController = shareVC.popoverPresentationController {
+                            popoverController.sourceView = self.view
+                            popoverController.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 0, height: 0)
+                            popoverController.permittedArrowDirections = []
+                        }
                     }
-                }
-                self.present(shareVC, animated: true, completion: nil)
-            case "chat":
-                openChat()
-            case "notify_chat_button":
-                onChangeNotifications()
-            case "block":
-                onBlock()
-            case "delete_chat_button":
-                onDelete()
-            case "qr_code":
-                onQRCode()
-            case "circles":
-                editCircles()
-            case "fingerprints":
-                showFingerprints()
-            case "encrypted":
-                onStartEncryptedChat()
-            case "images":
-                let vc = ChatFilesViewController()
-                vc.owner = self.owner
-                vc.jid = self.jid
-                vc.selectedType = .images
-                navigationController?.pushViewController(vc, animated: true)
-                
-            case "videos":
-                let vc = ChatFilesViewController()
-                vc.owner = self.owner
-                vc.jid = self.jid
-                vc.selectedType = .videos
-                navigationController?.pushViewController(vc, animated: true)
-                
-            case "voice":
-                let vc = ChatFilesViewController()
-                vc.owner = self.owner
-                vc.jid = self.jid
-                vc.selectedType = .voice
-                navigationController?.pushViewController(vc, animated: true)
-                
-            case "files":
-                let vc = ChatFilesViewController()
-                vc.owner = self.owner
-                vc.jid = self.jid
-                vc.selectedType = .files
-                navigationController?.pushViewController(vc, animated: true)
-                
-            default: break
+                    self.present(shareVC, animated: true, completion: nil)
+                case "chat":
+                    openChat()
+                case "notify_chat_button":
+                    onChangeNotifications()
+                case "block":
+                    onBlock()
+                case "delete_chat_button":
+                    onDelete()
+                case "qr_code":
+                    onQRCode()
+                case "circles":
+                    editCircles()
+                case "fingerprints":
+                    showFingerprints()
+                case "encrypted":
+                    onStartEncryptedChat()
+                case "images":
+                    let vc = PhotoGalleryForChatViewController()
+                    vc.owner = self.owner
+                    vc.jid = self.jid
+                    vc.conversationType = self.conversationType
+                    navigationController?.pushViewController(vc, animated: true)
+                case "videos":
+                    let vc = VideoGalleryForChatViewController()
+                    vc.owner = self.owner
+                    vc.jid = self.jid
+                    vc.conversationType = self.conversationType
+                    navigationController?.pushViewController(vc, animated: true)
+                    
+                case "voice":
+                    let vc = VoiceGalleryForChatViewController()
+                    vc.owner = self.owner
+                    vc.jid = self.jid
+                    vc.conversationType = self.conversationType
+                    navigationController?.pushViewController(vc, animated: true)
+                    
+                case "files":
+                    let vc = FilesGalleryForChatViewController()
+                    vc.owner = self.owner
+                    vc.jid = self.jid
+                    vc.conversationType = self.conversationType
+                    navigationController?.pushViewController(vc, animated: true)
+                    
+                default: break
             }
         }
     }

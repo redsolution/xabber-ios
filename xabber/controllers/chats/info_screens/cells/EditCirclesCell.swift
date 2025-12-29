@@ -110,6 +110,8 @@ class EditCirclesCell: UITableViewCell {
         
         view.register(CircleCollectionItemCell.self, forCellWithReuseIdentifier: CircleCollectionItemCell.cellName)
         
+        view.isUserInteractionEnabled = false
+        
         return view
     }()
     
@@ -147,7 +149,7 @@ class EditCirclesCell: UITableViewCell {
 //            iconView.heightAnchor.constraint(equalToConstant: 24),
 
             tagView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
-            tagView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16), // отступ слева
+            tagView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20), // отступ слева
             tagView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
             tagView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8)
         ])

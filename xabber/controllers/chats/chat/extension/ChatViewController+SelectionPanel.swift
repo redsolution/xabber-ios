@@ -256,35 +256,50 @@ extension ChatViewController: MessagesSelectionPanelActionDelegate {
     }
     
     internal func deleteMessages(forIds toDeleteIds: Set<String>) {
+        var modifiedIds: Set<String> = Set<String>()
+        do {
+            let realm = try WRealm.safe()
+            try toDeleteIds.forEach {
+                primary in
+                try realm.write {
+                    if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
+                        if instance.state == .error {
+                            if instance.isInvalidated { return }
+                            realm.delete(instance)
+                        } else {
+                            instance.isDeleted = true
+                            modifiedIds.insert(primary)
+                        }
+                    }
+                }
+                (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
+                    .invalidateLastMessageCachedSize(primary: primary)
+            }
+            
+//                        self.canUpdateDataset = true
+//                        self.runDatasetUpdateTask()
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        }
+        var messagesQueue = modifiedIds
+        
+        func onSuccessDeleteMessage(errorMessage: String?, primary: String) {
+            DispatchQueue.main.async {
+                self.view.hideToastActivity()
+                if let error = errorMessage {
+                    ToastPresenter().presentError(message: error)
+                } else {
+                    messagesQueue.remove(primary)
+                    if messagesQueue.isEmpty {
+                        ToastPresenter().presentSuccess(message: "Success")
+                    }
+                }
+            }
+        }
         DeleteMessagePresenter(username: self.opponentSender.displayName, groupchat: self.conversationType == .group, sended: true)
             .present(in: self, animated: true) { (result) in
                 if let result = result {
-                    var modifiedIds: Set<String> = Set<String>()
-                    do {
-                        let realm = try WRealm.safe()
-                        try toDeleteIds.forEach {
-                            primary in
-                            try realm.write {
-                                if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
-                                    if instance.state == .error {
-                                        if instance.isInvalidated { return }
-                                        realm.delete(instance)
-                                    } else {
-                                        instance.isDeleted = true
-                                        modifiedIds.insert(primary)
-                                    }
-                                }
-                            }
-                            (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
-                                .invalidateLastMessageCachedSize(primary: primary)
-                        }
-                        
-//                        self.canUpdateDataset = true
-//                        self.runDatasetUpdateTask()
-                    } catch {
-                        DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-                    }
-                    var messagesQueue = modifiedIds
+                    
                     modifiedIds.forEach {
                         primary in
                         DispatchQueue.main.async {
@@ -294,43 +309,19 @@ extension ChatViewController: MessagesSelectionPanelActionDelegate {
                             session.retract?.deleteMessage(
                                 stream,
                                 primary: primary,
-                                jid: self.conversationType == .group ? self.jid : "",
-                                conversationType: self.conversationType,
                                 symmetric: result,
                                 callback: { (errorMessage, success) in
-                                    DispatchQueue.main.async {
-                                        self.view.hideToastActivity()
-                                        if let error = errorMessage {
-                                            ToastPresenter().presentError(message: error)
-                                        } else {
-                                            messagesQueue.remove(primary)
-                                            if messagesQueue.isEmpty {
-                                                ToastPresenter().presentSuccess(message: "Success")
-                                            }
-                                        }
-                                    }
+                                    onSuccessDeleteMessage(errorMessage: errorMessage, primary: primary)
                                 })
                         }, fail: {
                             AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
                                 user.msgDeleteManager
                                     .deleteMessage(stream,
                                                    primary: primary,
-                                                   jid: self.conversationType == .group ? self.jid : "",
-                                                   conversationType: self.conversationType,
                                                    symmetric: result)
                                 {
                                     (errorMessage, success) in
-                                    DispatchQueue.main.async {
-                                        self.view.hideToastActivity()
-                                        if let error = errorMessage {
-                                            ToastPresenter().presentError(message: error)
-                                        } else {
-                                            messagesQueue.remove(primary)
-                                            if messagesQueue.isEmpty {
-                                                ToastPresenter().presentSuccess(message: "Success")
-                                            }
-                                        }
-                                    }
+                                    onSuccessDeleteMessage(errorMessage: errorMessage, primary: primary)
                                 }
                             })
                         })

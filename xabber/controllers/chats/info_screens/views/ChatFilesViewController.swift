@@ -86,7 +86,7 @@ class ChatFilesViewController: SimpleBaseViewController {
         
         do {
             let realm = try WRealm.safe()
-            let collection = realm.objects(MessageReferenceStorageItem.self).filter("owner == %@ AND jid == %@ AND kind_ IN %@ AND hasError == false", self.owner, self.jid, [MessageReferenceStorageItem.Kind.media.rawValue, MessageReferenceStorageItem.Kind.voice.rawValue])
+            let collection = realm.objects(MessageReferenceStorageItem.self).filter("owner == %@ AND jid == %@ AND kind_ IN %@ AND hasError == false AND url != nil", self.owner, self.jid, [MessageReferenceStorageItem.Kind.media.rawValue, MessageReferenceStorageItem.Kind.voice.rawValue])
             
             Observable.collection(from: collection).subscribe { results in
                 self.loadDatasource()
@@ -118,7 +118,7 @@ class ChatFilesViewController: SimpleBaseViewController {
         
         switch selectedType {
         case .images:
-            predicate = NSPredicate(format: "owner == %@ AND jid == %@ AND kind_ == %@ AND mimeType == %@ AND hasError == false", self.owner, self.jid, MessageReferenceStorageItem.Kind.media.rawValue, "image")
+            predicate = NSPredicate(format: "owner == %@ AND jid == %@ AND kind_ == %@ AND mimeType == %@ AND hasError == false AND url != nil", self.owner, self.jid, MessageReferenceStorageItem.Kind.media.rawValue, "image")
             
         case .voice:
             predicate = NSPredicate(format: "owner == %@ AND jid == %@ AND kind_ == %@ AND hasError == false", self.owner, self.jid, MessageReferenceStorageItem.Kind.voice.rawValue)
@@ -136,7 +136,7 @@ class ChatFilesViewController: SimpleBaseViewController {
         
         do {
             let realm = try WRealm.safe()
-            let instances = realm.objects(MessageReferenceStorageItem.self).filter(predicate).sorted(byKeyPath: "sentDate", ascending: false)
+            let instances = realm.objects(MessageReferenceStorageItem.self).filter(predicate).sorted(byKeyPath: "sentDate", ascending: false).toArray()
             
             datasource = instances.compactMap { item in
                 guard let uri = item.metadata?["uri"] as? String else {

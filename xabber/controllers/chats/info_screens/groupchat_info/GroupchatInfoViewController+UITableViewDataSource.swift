@@ -53,9 +53,9 @@ extension GroupchatInfoViewController: UITableViewDataSource {
                 cell.textLabel?.numberOfLines = 0
                 cell.textLabel?.lineBreakMode = .byWordWrapping
                 if #available(iOS 13.0, *) {
-                    cell.textLabel?.textColor = .secondaryLabel
+                    cell.textLabel?.textColor = .label
                 } else {
-                    cell.textLabel?.textColor = .gray
+                    cell.textLabel?.textColor = .black
                 }
                 return cell
             case .contact:

@@ -140,14 +140,29 @@ class ContactsViewController: BaseViewController {
             }
         }
         
-        enum Kind {
-            case contact
-        }
-        
         static func == (lhs: Datasource, rhs: Datasource) -> Bool {
             return lhs.owner == rhs.owner &&
             lhs.jid == rhs.jid
         }
+        
+        func hash(into hasher: inout Hasher) {
+            hasher.combine(owner)
+            hasher.combine(jid)
+            hasher.combine(title)
+        }
+        
+        static func compareContent(_ a: ContactsViewController.Datasource, _ b: ContactsViewController.Datasource) -> Bool {
+            return a.owner == b.owner &&
+            a.jid == b.jid &&
+            a.title == b.title &&
+            a.avatarUrl == b.avatarUrl &&
+            a.groups.sorted().joined() == b.groups.sorted().joined()
+        }
+        
+        enum Kind {
+            case contact
+        }
+        
         var primary: String = ""
         var owner: String
         var jid: String
@@ -193,19 +208,6 @@ class ContactsViewController: BaseViewController {
             self.icon = icon
         }
         
-        func hash(into hasher: inout Hasher) {
-            hasher.combine(owner)
-            hasher.combine(jid)
-            hasher.combine(title)
-        }
-        
-        static func compareContent(_ a: ContactsViewController.Datasource, _ b: ContactsViewController.Datasource) -> Bool {
-            return a.owner == b.owner &&
-            a.jid == b.jid &&
-            a.title == b.title &&
-            a.avatarUrl == b.avatarUrl &&
-            a.groups.sorted().joined() == b.groups.sorted().joined()
-        }
     }
     
     struct EnabledAccount {

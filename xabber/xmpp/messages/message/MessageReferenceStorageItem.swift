@@ -25,6 +25,7 @@ import Kingfisher
 import AVFoundation
 import CryptoSwift
 
+
 class MessageReferenceStorageItem: Object {
     
     enum Kind: String {
@@ -350,45 +351,6 @@ class MessageReferenceStorageItem: Object {
         }
     }
     
-//    static public func prepareVoice(message primary: String) {
-//        do {
-//            let realm = try  WRealm.safe()
-//            if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
-//                instance.references.forEach{ $0.prepare() }
-//                instance.inlineForwards.forEach { $0.references.forEach { $0.prepare() } }
-//            }
-//        } catch {
-//            DDLogDebug("MessageReferenceStorageItem: \(#function). \(error.localizedDescription)")
-//        }
-//    }
-//    
-//    static public func prepareVoice(inline messageId: String) {
-//        do {
-//            let realm = try  WRealm.safe()
-//            realm.objects(MessageForwardsInlineStorageItem.self).filter("messageId == %@", messageId).forEach {
-//                instance in
-//                instance.references.forEach { $0.prepare() }
-//                instance.subforwards.forEach { $0.references.forEach { $0.prepare() } }
-//            }
-//        } catch {
-//            DDLogDebug("MessageReferenceStorageItem: \(#function). \(error.localizedDescription)")
-//        }
-//    }
-    
-//    static public func prepareVoice(for messageId: String, jid: String, metadata: String) {
-//        do {
-//            let realm = try  WRealm.safe()
-//            realm
-//                .objects(MessageReferenceStorageItem.self)
-//                .filter("messageId == %@ AND jid == %@ AND metadata_ == %@", messageId, jid, metadata)
-//                .forEach {
-//                $0.prepare()
-//            }
-//        } catch {
-//            DDLogDebug("MessageReferenceStorageItem: \(#function). \(error.localizedDescription)")
-//        }
-//    }
-    
     static public func prepareVideo(message primary: String) {
         do {
             let realm = try  WRealm.safe()
@@ -409,22 +371,6 @@ class MessageReferenceStorageItem: Object {
         } catch {
             DDLogDebug("MessageReferenceStorageItem: \(#function). \(error.localizedDescription)")
         }
-    }
-    
-    static public func prepareVideo(messageId: String, jid: String, metadata: String) {
-        if CommonConfigManager.shared.config.use_file_enryption_by_default { return }
-        do {
-            let realm = try  WRealm.safe()
-            realm
-                .objects(MessageReferenceStorageItem.self)
-                .filter("messageId == %@ AND jid == %@ AND metadata_ == %@", messageId, jid, metadata)
-                .forEach {
-                    $0.prepare()
-            }
-        } catch {
-            DDLogDebug("MessageReferenceStorageItem: \(#function). \(error.localizedDescription)")
-        }
-        
     }
     
     func prepare() {

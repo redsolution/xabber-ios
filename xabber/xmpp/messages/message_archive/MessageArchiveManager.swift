@@ -33,6 +33,17 @@ protocol TemporaryMessageReceiverProtocol {
 
 class MessageArchiveManager: AbstractXMPPManager {
     
+    enum Tags: String {
+        case image = "image"
+        case audio = "audio"
+        case video = "video"
+        case document = "document"
+        case sticker = "sticker"
+        case voice = "voice"
+        case geo = "geo"
+        case voip = "voip"
+    }
+    
     struct GapItem: Hashable, Equatable {
         
         let left: String
@@ -59,6 +70,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         let queryId: String?
         let afterId: String?
         let max: Int
+        let tags: [Tags]
         let start: Date?
         let end: Date?
         let isNormalSynchronousTask: Bool
@@ -284,7 +296,38 @@ class MessageArchiveManager: AbstractXMPPManager {
         return queryId
     }
     
-    internal func requestArchive(_ stream: XMPPStream, jid: String?, isContinues: Bool, conversationType: ClientSynchronizationManager.ConversationType, queryId: String? = nil, searchText: String? = nil, flipPage: Bool = true, before: String? = nil, beforeId: String? = nil, afterId: String? = nil, start: Date? = nil, end: Date? = nil, nextPage: String? = nil, prevPage: String? = nil, max: Int? = nil, withCounter: Bool = false,isNormalSynchronousTask: Bool = false,callback: (() -> Void)? = nil) {
+    public func getMedia(_ stream: XMPPStream, jid: String?, conversationType: ClientSynchronizationManager.ConversationType, media: [MessageMediaAttachmentStorageItem.Kind], after lastMessageId: String?) {
+        let taskId = ["media", jid ?? "global", conversationType.rawValue].prp()
+        if let continuesTaskID = continuesTaskID {
+            if taskId != continuesTaskID {
+                if let item = self.callbacksQueue.first(where: { $0.task.taskID == continuesTaskID }) {
+                    item.callback?()
+                    DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
+                        self.callbacksQueue.remove(item)
+                    }
+                }
+            }
+        }
+        let queryId = "MAM attach: \(NanoID.new(8))"
+        let tags: [Tags] = media.compactMap { return Tags(rawValue: $0.rawValue) }
+        self.requestArchive(
+            stream,
+            jid: jid,
+            isContinues: false,
+            conversationType: conversationType,
+            queryId: queryId,
+            flipPage: false,
+            nextPage: lastMessageId,
+            max: 150,
+            tags: tags,
+            callback: nil
+        )
+        self.searchResultsQueries.insert(queryId)
+        self.continuesTaskID = taskId
+    }
+    
+    
+    internal func requestArchive(_ stream: XMPPStream, jid: String?, isContinues: Bool, conversationType: ClientSynchronizationManager.ConversationType, queryId: String? = nil, searchText: String? = nil, flipPage: Bool = true, before: String? = nil, beforeId: String? = nil, afterId: String? = nil, start: Date? = nil, end: Date? = nil, nextPage: String? = nil, prevPage: String? = nil, max: Int? = nil, tags: [Tags] = [], withCounter: Bool = false,isNormalSynchronousTask: Bool = false,callback: (() -> Void)? = nil) {
         let isGroupchat = [.group, .channel].contains(conversationType)
         let elementId = queryId ?? "MAM: \(NanoID.new(8))"
         let query = DDXMLElement(name: "query", xmlns: getPrimaryNamespace())
@@ -342,6 +385,14 @@ class MessageArchiveManager: AbstractXMPPManager {
             ctElement.addChild(DDXMLElement(name: "value", stringValue: conversationType.rawValue))
             x.addChild(ctElement)
         }
+        if tags.isNotEmpty {
+            let tElement = DDXMLElement(name: "field")
+            tElement.addAttribute(withName: "var", stringValue: "with-tags")
+            tags.forEach {
+                tElement.addChild(DDXMLElement(name: "value", stringValue: $0.rawValue))
+            }
+            x.addChild(tElement)
+        }
         if let searchText = searchText {
             let stElement = DDXMLElement(name: "field")
             stElement.addAttribute(withName: "var", stringValue: "withtext")
@@ -395,6 +446,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                     queryId: queryId,
                     afterId: afterId,
                     max: max ?? pageSize,
+                    tags: tags,
                     start: start,
                     end: end,
                     isNormalSynchronousTask: isNormalSynchronousTask

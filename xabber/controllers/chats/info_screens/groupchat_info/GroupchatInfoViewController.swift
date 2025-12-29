@@ -290,11 +290,24 @@ class GroupchatInfoViewController: SimpleBaseViewController {
                             newDatasource.append(Datasource(.text, title: "", childs: [Datasource(.button, title: "Members", subtitle: "\(self.contacts?.count ?? 0)", key: "members")]))
                         }
                         
-                        let imagesCount = realm.objects(MessageReferenceStorageItem.self).filter("owner == %@ AND jid == %@ AND kind_ == %@ AND mimeType == %@ AND hasError == false", self.owner, self.jid, MessageReferenceStorageItem.Kind.media.rawValue, "image").count
-                        let videosCount = realm.objects(MessageReferenceStorageItem.self).filter("owner == %@ AND jid == %@ AND kind_ == %@ AND mimeType == %@ AND hasError == false", self.owner, self.jid, MessageReferenceStorageItem.Kind.media.rawValue, "video").count
-                        let audiosCount = realm.objects(MessageReferenceStorageItem.self).filter("owner == %@ AND jid == %@ AND kind_ == %@ AND hasError == false", self.owner, self.jid, MessageReferenceStorageItem.Kind.voice.rawValue).count
-                        let mimeTypes: [String] = ["document", "pdf", "table", "presentation", "archive", "audio", "file"]
-                        let filesCount = realm.objects(MessageReferenceStorageItem.self).filter("owner == %@ AND jid == %@ AND mimeType IN %@ AND hasError == false", self.owner, self.jid, mimeTypes, "image").count
+                        let conversationType = ClientSynchronizationManager.ConversationType.group
+                        
+                        let imagesCount = realm
+                            .objects(MessageMediaAttachmentStorageItem.self)
+                            .filter("owner == %@ AND jid == %@ AND conversationType_ == %@ AND kind_ == %@", self.owner, self.jid, conversationType.rawValue, MessageMediaAttachmentStorageItem.Kind.image.rawValue)
+                            .count
+                        let videosCount = realm
+                            .objects(MessageMediaAttachmentStorageItem.self)
+                            .filter("owner == %@ AND jid == %@ AND conversationType_ == %@ AND kind_ == %@", self.owner, self.jid, conversationType.rawValue, MessageMediaAttachmentStorageItem.Kind.video.rawValue)
+                            .count
+                        let audiosCount = realm
+                            .objects(MessageMediaAttachmentStorageItem.self)
+                            .filter("owner == %@ AND jid == %@ AND conversationType_ == %@ AND kind_ == %@", self.owner, self.jid, conversationType.rawValue, MessageMediaAttachmentStorageItem.Kind.voice.rawValue)
+                            .count
+                        let filesCount = realm
+                            .objects(MessageMediaAttachmentStorageItem.self)
+                            .filter("owner == %@ AND jid == %@ AND conversationType_ == %@ AND kind_ == %@", self.owner, self.jid, conversationType.rawValue, MessageMediaAttachmentStorageItem.Kind.file.rawValue)
+                            .count
                         
                         newDatasource.append(Datasource(.text, title: "", key: "chat_files", childs: [
                             Datasource(.button, title: "Images", subtitle: String(imagesCount), key: "images"),

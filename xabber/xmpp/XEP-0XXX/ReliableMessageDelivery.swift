@@ -246,7 +246,7 @@ class ReliableMessageDeliveryManager: AbstractXMPPManager {
                         instance.sentDate = stamp
                         instance.references.removeAll()
                         instance.references
-                            .append(objectsIn: parseReferences(XMPPMessage(from: messageContainer),
+                            .append(objectsIn: parseReferences(XMPPMessage(from: messageContainer), primary: instance.primary,
                                                                jid: from,
                                                                owner: owner,
                                                                echo: true))

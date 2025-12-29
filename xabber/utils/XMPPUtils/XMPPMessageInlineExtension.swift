@@ -271,9 +271,7 @@ func getDelayedDate(_ message: XMPPMessage) -> Date? {
         }
     }
     if date == nil {
-        if let dateString = message.element(forName: "delay")?.attributeStringValue(forName: "stamp") {
-            date = dateString.xmppDate
-        }
+        date = getDeliveryDate(message)
     }
     return date
 }

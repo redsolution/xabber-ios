@@ -190,7 +190,7 @@ class XMPPFavoritesManager: AbstractXMPPManager {
             instance.legacyBody = message.body ?? ""
             instance.sentDate = sentDate
             
-            instance.references.append(objectsIn: parseReferences(message, jid: instance.opponent, owner: self.owner))
+            instance.references.append(objectsIn: parseReferences(message, primary: instance.primary, jid: instance.opponent, owner: self.owner))
             instance.updateDisplayMode()
             instance.references.forEach { $0.messageId = instance.primary }
             
