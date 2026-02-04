@@ -15,7 +15,7 @@ extension ChatViewController {
         var text: NSAttributedString = NSAttributedString()
         var naturalIndex: Int = 0
         var isPinned: Bool = false
-        var hiddenDate: Bool = false
+        var hiddenDate: Bool? = nil
         let messageLabelInsets = UIEdgeInsets(top: 4, left: 16, bottom: 4, right: 16)
         let contentView: UIStackView = {
             let stack = UIStackView()
@@ -96,7 +96,8 @@ extension ChatViewController {
         }
         
         func show() {
-            if !hiddenDate {
+            if let hiddenDate = hiddenDate,
+               hiddenDate == false {
                 return
             }
             self.hiddenDate = false
@@ -107,7 +108,8 @@ extension ChatViewController {
         }
         
         func hide(fast: Bool = false, withoutAnimation: Bool = false) {
-            if hiddenDate {
+            if let hiddenDate = hiddenDate,
+               hiddenDate == true {
                 return
             }
             self.hiddenDate = true

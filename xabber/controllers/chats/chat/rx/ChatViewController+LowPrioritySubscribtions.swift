@@ -97,6 +97,8 @@ extension ChatViewController {
                     } else {
                         self.pinnedDateView.hide(fast: true)
                     }
+                } else {
+                    print(1)
                 }
             }.disposed(by: self.bag)
         

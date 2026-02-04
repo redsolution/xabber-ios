@@ -87,7 +87,8 @@ class VoIPManager: NSObject {
     public var cameraResolution: BehaviorRelay<CameraResolution> = BehaviorRelay(value: CameraResolution(height: 640, width: 480))
     
     static func providerConfiguration() -> CXProviderConfiguration {
-        let configuration = CXProviderConfiguration(localizedName: CommonConfigManager.shared.config.app_name)
+        let configuration = CXProviderConfiguration()//CXProviderConfiguration(localizedName: CommonConfigManager.shared.config.app_name)
+//        configuration.
         configuration.maximumCallGroups = 1
         configuration.maximumCallsPerCallGroup = 1
         configuration.supportsVideo = true
@@ -239,7 +240,7 @@ class VoIPManager: NSObject {
                 if messageItem.isInStorage() {
                     return
                 }
-//                _ = messageItem.save(commitTransaction: true, silentNotifications: true)
+                _ = messageItem.save(commitTransaction: true, silentNotifications: true)
             }
         }
     }
@@ -341,11 +342,11 @@ class VoIPManager: NSObject {
         self.update = CXCallUpdate()
 
         func updateCall(retry: Int) {
-            if retry > 5 {
+            if retry > 0 {
                 print("INVALIDATE IN \(#function)")
 //                self.provider.invalidate()
                 
-                NotifyManager.shared.showSimpleNotify(withTitle: "FAIL", subtitle: "", body: "-1")
+//                NotifyManager.shared.showSimpleNotify(withTitle: "FAIL", subtitle: "", body: "-1")
                 completion()
                 return
             }
@@ -354,7 +355,7 @@ class VoIPManager: NSObject {
             
             guard let body = payload["body"] as? String else {
                 updateCall(retry: retry + 1)
-                NotifyManager.shared.showSimpleNotify(withTitle: "FAIL", subtitle: "", body: "0")
+//                NotifyManager.shared.showSimpleNotify(withTitle: "FAIL", subtitle: "", body: "0")
                 return
             }
             
@@ -362,14 +363,14 @@ class VoIPManager: NSObject {
             
             guard let target = payload["target"] as? String,
                 let defaults  = UserDefaults.init(suiteName: PushNotificationsManager.suitName) else {
-                NotifyManager.shared.showSimpleNotify(withTitle: "FAIL", subtitle: "", body: "1")
+//                NotifyManager.shared.showSimpleNotify(withTitle: "FAIL", subtitle: "", body: "1")
                 return
             }
             
             guard let creditionals = defaults.dictionary(forKey: target) else {
                 APNSManager.shared.sendDeleteRequest(payload, voip: true)
                 //print("FAIL 2")
-                NotifyManager.shared.showSimpleNotify(withTitle: "FAIL", subtitle: "", body: "2")
+//                NotifyManager.shared.showSimpleNotify(withTitle: "FAIL", subtitle: "", body: "2")
                 
                 updateCall(retry: retry + 1)
                 return
@@ -378,7 +379,7 @@ class VoIPManager: NSObject {
             guard let secret = creditionals["secret"] as? String,
                   secret.isNotEmpty else {
                 //print("FAIL 3")
-                NotifyManager.shared.showSimpleNotify(withTitle: "FAIL", subtitle: "", body: "3")
+//                NotifyManager.shared.showSimpleNotify(withTitle: "FAIL", subtitle: "", body: "3")
                 updateCall(retry: retry + 1)
                 return
             }
@@ -386,7 +387,7 @@ class VoIPManager: NSObject {
             guard let username = creditionals["username"] as? String,
                   let host = creditionals["host"] as? String else {
                 //print("FAIL 4")
-                NotifyManager.shared.showSimpleNotify(withTitle: "FAIL", subtitle: "", body: "4")
+//                NotifyManager.shared.showSimpleNotify(withTitle: "FAIL", subtitle: "", body: "4")
                 updateCall(retry: retry + 1)
                 return
             }
@@ -402,7 +403,7 @@ class VoIPManager: NSObject {
                 updateCall(retry: retry + 1)
                 return
             }
-            NotifyManager.shared.showSimpleNotify(withTitle: "Descrypted", subtitle: "", body: decrypted.prettyXMLString ?? "decsr")
+//            NotifyManager.shared.showSimpleNotify(withTitle: "Descrypted", subtitle: "", body: decrypted.prettyXMLString ?? "decsr")
             print(decrypted)
             guard let bareJid = XMPPJID(string: from)?.bare else { return }
             
@@ -472,10 +473,10 @@ class VoIPManager: NSObject {
                                 forPrimaryKey: messageItem.primary) != nil {
                     return
                 }
-//                try realm.write {
-//                    _ = messageItem.save(commitTransaction: false,
-//                                         silentNotifications: true)
-//                }
+                try realm.write {
+                    _ = messageItem.save(commitTransaction: false,
+                                         silentNotifications: true)
+                }
             } catch {
                 DDLogDebug(error.localizedDescription)
             }
@@ -483,7 +484,6 @@ class VoIPManager: NSObject {
         }
         
         self.update?.localizedCallerName = "Xabber voice call".localizeString(id: "voice_call_message", arguments: [])
-        
         provider.reportNewIncomingCall(with: callUUID, update: update!) { error in
             if let error = error {
                 print("INVALIDATE IN \(#function)")
@@ -513,6 +513,7 @@ class VoIPManager: NSObject {
             if !isCallEnded {
                 self.currentCall?.rejectCall(reason: reason)
             }
+            self.currentCall?.rejectCall(reason: reason)
             var duration: TimeInterval = 0.0
             if let end = call.end,
                let start = call.start {
@@ -625,13 +626,13 @@ class VoIPManager: NSObject {
                     duration: 0,
                     callState: .received
                 )
-//                instance.archivedId = getUniqueMessageId(message as! XMPPMessage, owner: owner)
+                instance.archivedId = getUniqueMessageId(XMPPMessage(from: message), owner: owner)
                 
                 if instance.isInStorage() {
                     return true
                 }
                 
-//                _ = instance.save(commitTransaction: commitTransaction, silentNotifications: true)
+                _ = instance.save(commitTransaction: commitTransaction, silentNotifications: true)
                 
                 return true
             } else if let accept = message.element(forName: "accept", xmlns: VoIPCall.namespace),
@@ -742,14 +743,6 @@ class VoIPManager: NSObject {
                             self.reset()
                         }
                     }
-//                    self.callScreenDelegate?.didChangeState(to: .ended)
-//                    self.controller.request(transaction) { (error) in
-//                        if let error = error {
-//                            //print(error.localizedDescription)
-//                            self.provider.invalidate()dddd
-//                        }
-//                        self.reset()
-//                    }
                 }
                 if let date = archivedDate {
                     guard let fromJidUnwr = message.attributeStringValue(forName: "from"),
@@ -784,8 +777,7 @@ class VoIPManager: NSObject {
                     if instance.isInStorage() {
                         return true
                     }
-                    //TODO: enable
-//                    _ = instance.save(commitTransaction: commitTransaction, silentNotifications: true)
+                    _ = instance.save(commitTransaction: commitTransaction, silentNotifications: true)
                     
                     return true
                 }

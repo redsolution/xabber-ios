@@ -196,7 +196,7 @@ extension ChatViewController {
             .asObservable()
             .debounce(.milliseconds(40), scheduler: MainScheduler.asyncInstance)
             .subscribe { value in
-                self.showFloatingDateObserver.accept(false)
+//                self.showFloatingDateObserver.accept(false)
                 if value > 64 {
                     if !self.shouldShowScrollDownButton.value {
                         if !self.inSearchMode.value {
@@ -229,6 +229,15 @@ extension ChatViewController {
             }
             .disposed(by: bag)
 
+        self.updateFloatingDateObserverSignal
+            .asObservable()
+            .debounce(.milliseconds(50), scheduler: MainScheduler.asyncInstance)
+            .subscribe { _ in
+                self.updateFloatingDate()
+            }
+            .disposed(by: bag)
+
+        
         self.topPanelState
             .asObservable()
             .debounce(.nanoseconds(1), scheduler: MainScheduler.asyncInstance)

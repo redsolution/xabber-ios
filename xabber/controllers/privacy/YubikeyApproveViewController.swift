@@ -80,26 +80,27 @@ class YubikeyApproveViewController: SimpleBaseViewController {
     @objc
     internal func onButtonTouchUpInside(_ sender: UIButton) {
         FeedbackManager.shared.tap()
-        if let yuType = CredentialsManager.shared.getSignatureDeviceType() {
-            switch yuType {
-            case .dongle:
-                if YubiKitDeviceCapabilities.supportsMFIAccessoryKey {
-                    SignatureManager.shared.currentAction = .certificate
-                    YubiKitManager.shared.startAccessoryConnection()
-                    YubiKitManager.shared.delegate = SignatureManager.shared
-                    SignatureManager.shared.delegate = self
-                }
-            case .nfc:
-                if #available(iOS 13.0, *) {
-                    if YubiKitDeviceCapabilities.supportsISO7816NFCTags {
-                        SignatureManager.shared.currentAction = .certificate
-                        YubiKitManager.shared.startNFCConnection()
-                        YubiKitManager.shared.delegate = SignatureManager.shared
-                        SignatureManager.shared.delegate = self
-                    }
-                }
-            }
-        }
+//        #TODO FIX IT
+//        if let yuType = CredentialsManager.shared.getSignatureDeviceType() {
+//            switch yuType {
+//            case .dongle:
+//                if YubiKitDeviceCapabilities.supportsMFIAccessoryKey {
+//                    SignatureManager.shared.currentAction = .certificate
+//                    YubiKitManager.shared.startAccessoryConnection()
+//                    YubiKitManager.shared.delegate = SignatureManager.shared
+//                    SignatureManager.shared.delegate = self
+//                }
+//            case .nfc:
+//                if #available(iOS 13.0, *) {
+//                    if YubiKitDeviceCapabilities.supportsISO7816NFCTags {
+//                        SignatureManager.shared.currentAction = .certificate
+//                        YubiKitManager.shared.startNFCConnection()
+//                        YubiKitManager.shared.delegate = SignatureManager.shared
+//                        SignatureManager.shared.delegate = self
+//                    }
+//                }
+//            }
+//        }
     }
     
 }

@@ -48,8 +48,34 @@ class MessageMediaAttachmentStorageItem: Object {
     @objc dynamic var url_: String = ""
     @objc dynamic var isDownloaded: Bool = false
     @objc dynamic var verySmallThumb: String? = nil
+    @objc dynamic var sizeBytes: Int = 0
     
     @objc dynamic var metadata_: String = ""
+    
+    var metadata: [String: Any]? {
+        get {
+            if self.isInvalidated { return nil }
+            if let data = metadata_.data(using: .utf8) {
+                do {
+                    return try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
+                } catch {
+                    DDLogDebug("MessageMediaAttachmentStorageItem: \(#function). \(error.localizedDescription)")
+                }
+            }
+            return nil
+        } set {
+            if let value = newValue {
+                do {
+                    let data = try JSONSerialization.data(withJSONObject: value, options: [])
+                    metadata_ = String(data: data, encoding: .utf8) ?? ""
+                } catch {
+                    DDLogDebug("MessageMediaAttachmentStorageItem: \(#function). \(error.localizedDescription)")
+                }
+            } else {
+                metadata_ = ""
+            }
+        }
+    }
     
     var conversationType: ClientSynchronizationManager.ConversationType {
         get {
@@ -76,6 +102,22 @@ class MessageMediaAttachmentStorageItem: Object {
     }
     
     func subtitle() -> String {
+        switch kind {
+            case .file:
+                let formatter = ByteCountFormatter()
+                formatter.allowedUnits = [.useKB, .useMB]
+                formatter.countStyle = .binary
+                return formatter
+                    .string(fromByteCount: Int64(self.sizeBytes))
+                    .replacingOccurrences(of: ",", with: ".")
+                    .replacingOccurrences(of: "MB", with: "MiB")
+                    .replacingOccurrences(of: "KB", with: "KiB")
+            case .video:
+                break
+            default:
+                break
+//                let formatter = For
+        }
         return ""
     }
     

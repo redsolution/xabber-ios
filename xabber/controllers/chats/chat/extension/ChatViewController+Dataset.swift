@@ -31,17 +31,21 @@ import MaterialComponents.MDCPalettes
 
 
 extension ChatViewController {
-
+    
+    internal func willUpdateFloatingDate() {
+        self.updateFloatingDateObserverSignal.accept(true)
+    }
+    
     internal func updateFloatingDate() {
         guard let topVisibleReasonableMessageIndex = self.messagesCollectionView.indexPathsForVisibleItems.compactMap ({
             return $0.section
         }).max() else {
             return
         }
-        var pinnOffset: CGFloat = 54
-        if let topInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
-            pinnOffset += topInset
-        }
+        let pinnOffset: CGFloat = 0//54
+//        if let topInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top {
+//            pinnOffset += topInset
+//        }
         let frame = CGRect(
             origin: CGPoint(
                 x: 0,
@@ -55,7 +59,9 @@ extension ChatViewController {
         let index = [topVisibleReasonableMessageIndex, self.datasource.count - 1].min() ?? 0
         if self.datasource.count < 5 {
             self.pinnedDateView.isHidden = true
+//            self.pinnedDateView.hide()
         } else {
+//            self.pinnedDateView.show()
             self.pinnedDateView.isHidden = false
             let text = NSAttributedString(
                 string: sectionsDateFormatter.string(from: self.datasource[index].sentDate),
@@ -216,8 +222,8 @@ extension ChatViewController {
                         )
                     )
                 case .call:
-//                    kind = .call(CallAttachment(primary: ""))
-                    kind = .attributedText(NSAttributedString())
+                    kind = .call(CallAttachment(primary: item.primary, incoming: !item.outgoing, missed: item.references.first?.metadata?["callState"] as? String == "missed"))
+//                    kind = .attributedText(NSAttributedString())
                 case .system:
                     kind = .system(
                         NSAttributedString(
@@ -970,9 +976,12 @@ extension ChatViewController {
                     self.messagesCollectionView.moveItem(at: IndexPath(row: 0, section: $0.fromIndex),
                                                         to: IndexPath(row: 0, section: $0.toIndex))
                 }
-                self.messagesCollectionView.reloadItems(at: updated.compactMap {
+                self.messagesCollectionView.reconfigureItems(at: updated.compactMap {
                     IndexPath(row: 0, section: $0.index)
                 })
+//                self.messagesCollectionView.reloadItems(at: updated.compactMap {
+//                    IndexPath(row: 0, section: $0.index)
+//                })
             }, completion: { _ in
                 self.messagesCollectionView.collectionViewLayout.invalidateLayout()
                 self.messagesCollectionView.layoutIfNeeded()

@@ -48,7 +48,7 @@ class CallScreenViewController: BaseViewController {
         
     var accountPalette: MDCPalette = AccountColorManager.shared.topPalette()
     
-    internal let initialAvatarSize: CGSize = CGSize(square: 152)
+    internal let initialAvatarSize: CGSize = CGSize(square: 128)
     
     open var shouldHideAppTabBar: Bool = false
     
@@ -63,8 +63,8 @@ class CallScreenViewController: BaseViewController {
     public var anyoneVideoEnabled: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     public var previousSpeakerModeState: Bool = false
     
-    internal var localRenderer: RTCEAGLVideoView? = nil
-    internal var remoteRenderer: RTCEAGLVideoView? = nil
+    internal var localRenderer: RTCMTLVideoView? = nil
+    internal var remoteRenderer: RTCMTLVideoView? = nil
     
     internal var player: AVAudioPlayer? = nil
     internal var dualToneData: Data? = nil
@@ -92,7 +92,7 @@ class CallScreenViewController: BaseViewController {
     
     internal var avatarView: UIImageView = {
         let view: UIImageView = UIImageView()
-        view.image = imageLiteral( "dumb_avatar")?.withRenderingMode(.alwaysTemplate)
+        view.image = imageLiteral("dumb_avatar")?.withRenderingMode(.alwaysTemplate)
         view.tintColor = .secondaryLabel
         view.frame = CGRect(origin: .zero, size: CGSize(square: 128))
         view.contentMode = .scaleAspectFill
@@ -208,7 +208,7 @@ class CallScreenViewController: BaseViewController {
         let button = UIButton()
         button.setTitle("xabber call".localizeString(id: "chat_xabber_call_hint", arguments: [])
                             .uppercased(), for: .normal)
-        button.setImage(imageLiteral( "security")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        button.setImage(imageLiteral("shield.pattern.checkered"), for: .normal)
         button.tintColor = UIColor(red:1, green:1, blue:1, alpha:0.0)
         button.titleLabel?.performLayout(as: .vendorLabel)
         return button
@@ -269,28 +269,28 @@ class CallScreenViewController: BaseViewController {
     
     internal var videoModeSwitch: UIButton = {
         let button = UIButton(frame: CGRect(square: 64))
-        button.setImage(imageLiteral( "video-off")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        button.setImage(imageLiteral( "xabber.video"), for: .normal)
         button.performLayout(isEndCall: false)
         return button
     }()
     
     internal var speakerModeSwitch: UIButton = {
         let button = UIButton(frame: CGRect(square: 64))
-        button.setImage(imageLiteral( "volume-high")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        button.setImage(imageLiteral( "speaker.wave.2"), for: .normal)
         button.performLayout(isEndCall: false)
         return button
     }()
     
     internal var micModeSwitch: UIButton = {
         let button  = UIButton(frame: CGRect(square: 64))
-        button.setImage(imageLiteral( "microphone")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        button.setImage(imageLiteral( "mic"), for: .normal)
         button.performLayout(isEndCall: false)
         return button
     }()
     
     internal var cameraModeSwitch: UIButton = {
         let button = UIButton(frame: CGRect(square: 64))
-        button.setImage(imageLiteral( "camera-retake")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        button.setImage(imageLiteral( "arrow.trianglehead.2.clockwise.rotate.90.camera") ?? imageLiteral( "arrow.triangle.2.circlepath.camera"), for: .normal)
         button.performLayout(isEndCall: false)
         button.isHidden = true
         return button
@@ -298,15 +298,15 @@ class CallScreenViewController: BaseViewController {
     
     internal var endCallButton: UIButton = {
         let button = UIButton(frame: CGRect(square: 64))
-        button.setImage(imageLiteral( "phone-hangup")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        button.setImage(imageLiteral( "phone.down.fill"), for: .normal)
         button.performLayout(isEndCall: true)
         return button
     }()
         
     internal var switchCameraButton: UIButton = {
         let button = UIButton(frame: CGRect(square: 44))
-        button.setImage(imageLiteral( "camera-retake")?.withRenderingMode(.alwaysTemplate), for: .normal)
-        button.imageEdgeInsets = UIEdgeInsets(top: 8, bottom: 8, left: 8, right: 8)
+        button.setImage(imageLiteral( "arrow.trianglehead.2.clockwise.rotate.90.camera") ?? imageLiteral( "arrow.triangle.2.circlepath.camera"), for: .normal)
+//        button.imageEdgeInsets = UIEdgeInsets(top: 8, bottom: 8, left: 8, right: 8)
         button.backgroundColor = .clear
         button.tintColor = UIColor.white.withAlphaComponent(0.75)
         button.isHidden = true
@@ -315,8 +315,8 @@ class CallScreenViewController: BaseViewController {
     
     internal var speakerModeSwitchAdd: UIButton = {
         let button = UIButton(frame: CGRect(square: 40))
-        button.setImage(imageLiteral( "baseline_speaker_light_white_48pt")?.withRenderingMode(.alwaysTemplate), for: .normal)
-        button.imageEdgeInsets = UIEdgeInsets(top: 6, bottom: 6, left: 6, right: 6)
+        button.setImage(imageLiteral( "speaker.wave.2"), for: .normal)
+//        button.imageEdgeInsets = UIEdgeInsets(top: 6, bottom: 6, left: 6, right: 6)
         button.tintColor = UIColor.white.withAlphaComponent(0.85)
         button.isHidden = true
         return button
@@ -340,20 +340,35 @@ class CallScreenViewController: BaseViewController {
     }
     
     func loadAvatar() {
-        let avatarImageView = UIImageView(frame: CGRect(x: 4,
-                                                        y: 4,
-                                                        width: initialAvatarSize.width - 8,
-                                                        height: initialAvatarSize.height - 8))
-        avatarImageView.contentMode = .scaleAspectFill
-        DefaultAvatarManager.shared.getAvatar(url: nil, jid: self.jid, owner: self.owner, size: 144) { image in
-            if let image = image {
-                avatarImageView.image = image
-            } else {
-                avatarImageView.image = UIImageView.getDefaultAvatar(for: self.jid, owner: self.owner, size: 144)
+//        let avatarImageView = UIImageView(frame: CGRect(x: 4,
+//                                                        y: 4,
+//                                                        width: initialAvatarSize.width - 8,
+//                                                        height: initialAvatarSize.height - 8))
+//        avatarImageView.contentMode = .scaleAspectFill
+//        DefaultAvatarManager.shared.getAvatar(url: nil, jid: self.jid, owner: self.owner, size: 144) { image in
+//            if let image = image {
+//                avatarImageView.image = image
+//            } else {
+//                avatarImageView.image = UIImageView.getDefaultAvatar(for: self.jid, owner: self.owner, size: 144)
+//            }
+//        }
+//        layoutAvatarSubview(avatarImageView)
+//        avatarView.addSubview(avatarImageView)
+        
+        do {
+            let realm = try WRealm.safe()
+            let avatarUrl = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: self.jid, owner: self.owner))?.avatarUrl
+            DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: self.jid, owner: self.owner, size: 128) { image in
+                if let image = image {
+                    self.avatarView.image = image
+                } else {
+                    self.avatarView.image = UIImageView.getDefaultAvatar(for: self.username, owner: self.owner, size: 128)
+                }
             }
+        } catch {
+            DDLogDebug("CallScreenViewController: \(#function). \(error.localizedDescription)")
         }
-        layoutAvatarSubview(avatarImageView)
-        avatarView.addSubview(avatarImageView)
+        
         layoutAvatar()
     }
     
@@ -448,6 +463,7 @@ class CallScreenViewController: BaseViewController {
     private func updateLocalVideoRenderer(enabled: Bool) {
 //        switchCameraButton.frame = CGRect(x: view.frame.maxX - 60, y: 22, width: 40, height: 40)
 //        switchCameraButton.isHidden = !enabled
+        self.localVideoView.superview?.bringSubviewToFront(self.localVideoView)
         if self.remoteVideoEnabled.value {
             self.localVideoView.isHidden = false
             self.localRenderer?.removeFromSuperview()
@@ -460,14 +476,14 @@ class CallScreenViewController: BaseViewController {
             self.updateLocalVideoView(hide: !enabled)
             if enabled {
                 if self.remoteVideoEnabled.value {
-                    let localRenderer = RTCEAGLVideoView(frame: self.localVideoView.bounds)
+                    let localRenderer = RTCMTLVideoView(frame: self.localVideoView.bounds)
                     localRenderer.contentMode = .scaleAspectFill
                     VoIPManager.shared.enableLocalVideo(localRenderer)
                     self.localVideoView.addSubview(localRenderer)
                     localRenderer.fillSuperview()
                     self.localRenderer = localRenderer
                 } else {
-                    let localRenderer = RTCEAGLVideoView(frame: .zero)
+                    let localRenderer = RTCMTLVideoView(frame: .zero)
                     localRenderer.restorationIdentifier = "videoRenderer"
                     VoIPManager.shared.enableLocalVideo(localRenderer)
                     
@@ -483,11 +499,9 @@ class CallScreenViewController: BaseViewController {
     }
     
     private func updateRemoteVideoRenderer(enabled: Bool) {
-        if self.localVideoEnabled.value {
-            self.updateLocalVideoRenderer(enabled: self.localVideoEnabled.value)
-        }
+        
         if enabled {
-            let remoteRenderer = RTCEAGLVideoView(frame: .zero)
+            let remoteRenderer = RTCMTLVideoView(frame: self.view.bounds)
             remoteRenderer.restorationIdentifier = "videoRenderer"
             VoIPManager.shared.enableRemoteVideo(remoteRenderer)
             self.view.insertSubview(remoteRenderer, aboveSubview: backgroundView)
@@ -498,6 +512,9 @@ class CallScreenViewController: BaseViewController {
                 self.remoteRenderer?.removeFromSuperview()
                 VoIPManager.shared.disableRemoteVideo(self.remoteRenderer!, completionHandler: nil)
             }
+        }
+        if self.localVideoEnabled.value {
+            self.updateLocalVideoRenderer(enabled: self.localVideoEnabled.value)
         }
     }
     
@@ -536,10 +553,10 @@ class CallScreenViewController: BaseViewController {
             .subscribe(onNext: { (value) in
                 if value {
                     VoIPManager.shared.enableAudio()
-                    self.micModeSwitch.setImage(imageLiteral( "microphone")?.withRenderingMode(.alwaysTemplate), for: .normal)
+                    self.micModeSwitch.setImage(imageLiteral( "mic"), for: .normal)
                 } else {
                     VoIPManager.shared.disableAudio()
-                    self.micModeSwitch.setImage(imageLiteral( "microphone-off")?.withRenderingMode(.alwaysTemplate), for: .normal)
+                    self.micModeSwitch.setImage(imageLiteral( "mic.slash"), for: .normal)
                 }
                 UIView.animate(withDuration: 0.33, animations: {
                     self.micModeSwitch.setActive(value)
@@ -555,11 +572,11 @@ class CallScreenViewController: BaseViewController {
                 if value {
                     self.speakerModeSwitchAdd.alpha = 1.0
                     SoundManager.changeAudioPort(.speaker)
-                    self.speakerModeSwitch.setImage(imageLiteral( "volume-high")?.withRenderingMode(.alwaysTemplate), for: .normal)
+                    self.speakerModeSwitch.setImage(imageLiteral( "speaker.wave.2"), for: .normal)
                 } else {
                     self.speakerModeSwitchAdd.alpha = 0.6
                     SoundManager.changeAudioPort(.initial)
-                    self.speakerModeSwitch.setImage(imageLiteral( "volume-low")?.withRenderingMode(.alwaysTemplate), for: .normal)
+                    self.speakerModeSwitch.setImage(imageLiteral( "speaker"), for: .normal)
                 }
             })
             .disposed(by: bag)
@@ -573,10 +590,10 @@ class CallScreenViewController: BaseViewController {
                 })
                 if value {
                     VoIPManager.shared.enableVideo()
-                    self.speakerModeSwitch.setImage(imageLiteral( "video-off")?.withRenderingMode(.alwaysTemplate), for: .normal)
+                    self.speakerModeSwitch.setImage(imageLiteral( "xabber.video"), for: .normal)
                 } else {
                     VoIPManager.shared.disableVideo()
-                    self.speakerModeSwitch.setImage(imageLiteral( "video")?.withRenderingMode(.alwaysTemplate), for: .normal)
+                    self.speakerModeSwitch.setImage(imageLiteral( "xabber.video.fill"), for: .normal)
                 }
             })
             .disposed(by: bag)
@@ -1075,7 +1092,7 @@ extension CallScreenViewController: RTCVideoViewDelegate {
         if let videoView = self.view.subviews.first(where: { $0.restorationIdentifier == "videoRenderer" }) {
             if (self.videoSize.width > 0 && self.videoSize.height > 0) {
                 
-                let frameSize = UIScreen.main.bounds.size//  view.frame.size
+                let frameSize = view.bounds.size//UIScreen.main.bounds.size//  view.frame.size
                 var scale: CGFloat = 1
                 if frameSize.height > videoSize.height {
                     scale = frameSize.height / videoSize.height

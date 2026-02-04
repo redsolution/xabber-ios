@@ -63,15 +63,17 @@ class WebRTCClient: NSObject {
         ]
         // Unified plan is more superior than planB
         config.sdpSemantics = .unifiedPlan
-        config.allowCodecSwitching = true
-        config.disableIPV6 = false
+        config.enableDscp = true
         config.disableIPV6OnWiFi = false
         config.iceTransportPolicy = .all
         
         config.rtcpVideoReportIntervalMs = .min
         
         config.continualGatheringPolicy = .gatherContinually
-        self.peerConnection = self.factory.peerConnection(with: config, constraints: constraints, delegate: nil)
+        guard let connectiion = self.factory.peerConnection(with: config, constraints: constraints, delegate: nil) else {
+            fatalError()
+        }
+        self.peerConnection = connectiion
                 
         super.init()
         self.addAudioTrack()

@@ -40,6 +40,7 @@ extension Account {
     
     func didAuthenticate() {
         registerRegularPushForAccount()
+        registerVoIPPushForAccount()
         self.configureBase()
         XMPPUIActionManager.shared.open(owner: self.jid, force: true)
         if self.sm.didResume {

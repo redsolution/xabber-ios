@@ -22,6 +22,7 @@ import Foundation
 import UIKit
 import Kingfisher
 import MaterialComponents.MDCPalettes
+import CocoaLumberjack
 
 class CallScreenBackgroundView: UIView {
     
@@ -77,16 +78,26 @@ class CallScreenBackgroundView: UIView {
     }()
     
     private func loadImage() {
-        DefaultAvatarManager.shared.getAvatar(url: nil, jid: self.jid, owner: self.owner) { image in
-            if let image = image {
-                self.imageView.image = image
-            } else {
-                self.imageView.image = UIImageView.getDefaultAvatar(for: self.jid, owner: self.owner, size: 256)
-            }
+        guard self.jid.isNotEmpty, self.owner.isNotEmpty else {
+            return
         }
-        self.imageView.contentMode = .scaleAspectFill
-        self.imageView.fillSuperview()
-        self.imageView.setNeedsDisplay()
+        do {
+            let realm = try WRealm.safe()
+            let url = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: self.jid, owner: self.owner))?.avatarUrl
+            DefaultAvatarManager.shared.getAvatar(url: url, jid: self.jid, owner: self.owner) { image in
+                if let image = image {
+                    self.imageView.image = image
+                } else {
+                    self.imageView.image = UIImageView.getDefaultAvatar(for: self.jid, owner: self.owner, size: 256)
+                }
+            }
+            self.imageView.contentMode = .scaleAspectFill
+            self.imageView.fillSuperview()
+            self.imageView.setNeedsDisplay()
+        } catch {
+            DDLogDebug("CallScreenBackgroundView: \(#function). \(error.localizedDescription)")
+        }
+        
     }
     
     open func update(_ state: State, animate: Bool) {

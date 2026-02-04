@@ -165,6 +165,10 @@ class SharedPlayerView: UIView {
             self.stopTimer()
             return
         }
+        if newWidth.isNaN {
+            self.stopTimer()
+            return
+        }
 //        UIView.animate(withDuration: 0.01) {
             self.progressView.frame = CGRect(
                 origin: CGPoint(x: 0, y: 42),
@@ -601,20 +605,23 @@ class LastChatsViewController: BaseViewController {
             let filteredConnectingUsers = AccountManager.shared.connectingUsers.value.filter({ accounts.contains($0) })
             if filteredConnectingUsers.isNotEmpty {
                 self.bottomBar.connectionState = .connecting
+                self.title = "Connecting".localizeString(id: "account_state_connecting", arguments: [])
             } else {
                 self.bottomBar.connectionState = .normal
+                switch value {
+                case .chats, .saved:
+                        self.title = "Chats".localizeString(id: "toolbar__menu_item__chats", arguments: [])
+                    case .unread:
+                        self.title = "Unread".localizeString(id: "unread_chats", arguments: [])
+                    case .archived:
+                        self.title = "Archived".localizeString(id: "archived_chats", arguments: [])
+                }
             }
+            
         } catch {
             DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
         }
-        switch value {
-        case .chats, .saved:
-                self.title = "Chats".localizeString(id: "toolbar__menu_item__chats", arguments: [])
-            case .unread:
-                self.title = "Unread".localizeString(id: "unread_chats", arguments: [])
-            case .archived:
-                self.title = "Archived".localizeString(id: "archived_chats", arguments: [])
-        }
+        
     }
     
     internal func updateDatasource(_ value: Filter) {
@@ -808,7 +815,9 @@ class LastChatsViewController: BaseViewController {
             let realm = try  WRealm.safe()
             let predicate: NSPredicate
             var pinnedChatsSorting: Bool = false
-            let ignoredJids: [String] = AccountManager.shared.users.compactMap { $0.notifications.node }
+            var ignoredJids: [String] = AccountManager.shared.users.compactMap { $0.notifications.node }
+            var ignoredAccounts = realm.objects(AccountStorageItem.self).filter("enabled == true").toArray().compactMap { $0.jid }
+            ignoredJids.append(contentsOf: ignoredAccounts)
             switch self.filter.value {
             case .chats:
                 self.unreadedJids = []
@@ -1145,7 +1154,7 @@ class LastChatsViewController: BaseViewController {
                     status: primaryResource?.status ?? .offline,
                     entity: primaryResource?.entity ?? .contact,
                     conversationType: item.conversationType,
-                    unread: item.unread,//item.lastMessage?.outgoing ?? false ? 0 : item.unread,
+                    unread: item.lastMessage?.outgoing ?? false ? 0 : item.unread,
                     unreadString: nil,
                     color: AccountManager.shared.users.count <= 1 ? .clear : AccountColorManager.shared.primaryColor(for: item.owner),
                     isDraft: isDraft,
@@ -1558,6 +1567,7 @@ class LastChatsViewController: BaseViewController {
     
     @objc
     private func onSidebarButtonTouchUp(_ sender: UIBarButtonItem) {
+        
         if #available(iOS 26.0, *) {
             if self.splitViewController?.isShowing(.primary) ?? false {
                 self.splitViewController?.hide(.primary)
@@ -1578,7 +1588,8 @@ class LastChatsViewController: BaseViewController {
     open var shouldShowBottomBar: Bool = true
     
     internal func configureBars() {
-        self.title = "Chats"
+        //self.title = "Chats"
+        self.updateTitle(self.filter.value)
         if CommonConfigManager.shared.config.use_large_title {
             self.navigationItem.largeTitleDisplayMode = .automatic
         } else {
@@ -1597,7 +1608,7 @@ class LastChatsViewController: BaseViewController {
                     image: UIImage(systemName: "plus")?
                         .upscale(dimension: 24)
                         .withRenderingMode(.alwaysTemplate),
-                    style: .done,
+                    style: .plain,
                     target: self,
                     action: #selector(onAddButtonTouchUpInside)
                 )
@@ -1605,7 +1616,7 @@ class LastChatsViewController: BaseViewController {
                     image: imageLiteral("line.3.horizontal.decrease.circle")?
                         .upscale(dimension: 24)
                         .withRenderingMode(.alwaysTemplate),
-                    style: .done,
+                    style: .plain,
                     target: self,
                     action: #selector(onFilterButtonTouchUpInside)
                 )
@@ -1641,15 +1652,17 @@ class LastChatsViewController: BaseViewController {
                 self.bottomBar.leftButton.setImage(imageLiteral(self.filter.value == .unread ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate), for: .normal)
                 self.bottomBar.titleCallback = self.onTitleBarButtonTapped
                 self.bottomBar.isHidden = !shouldShowBottomBar
+                
                 let addBarButton = UIBarButtonItem(
-                    image: UIImage(systemName: "plus")?
-                        .upscale(dimension: 24)
-                        .withRenderingMode(.alwaysTemplate),
-                    style: .done,
+                    image: imageLiteral("plus"),//UIImage(systemName: "plus"),
+//                        .upscale(dimension: 24)
+//                        .withRenderingMode(.alwaysTemplate),
+                    style: .plain,
                     target: self,
                     action: #selector(onAddButtonTouchUpInside)
                 )
-                self.filterButton = UIBarButtonItem(image: imageLiteral(self.filter.value == .unread ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle"), style: .plain, target: self, action: #selector(onFilterButtonTouchUpInside))
+                self.filterButton = UIBarButtonItem(image: imageLiteral(self.filter.value == .unread ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle"
+                                                                       ), style: .plain, target: self, action: #selector(onFilterButtonTouchUpInside))
 
                 self.navigationItem.setRightBarButtonItems([addBarButton, filterButton!], animated: true)
                 
@@ -1843,7 +1856,7 @@ class LastChatsViewController: BaseViewController {
         }
         AccountManager.shared.users.compactMap { $0.jid }.forEach {
             activeUser in
-            AccountManager.shared.find(for: activeUser)?.delayedAction(delay: 3){ user, stream in
+            AccountManager.shared.find(for: activeUser)?.delayedAction(delay: 0){ user, stream in
                 if stream.isAuthenticated {
                     user.vcards.lazyLoadMissedVCards(stream)
                 }

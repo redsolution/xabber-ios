@@ -476,7 +476,7 @@ class ContactInfoViewController: BaseViewController {
             let call = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
             call.configure(icon: "phone", title: "Call")
             call.addTarget(self, action: #selector(onCallButtonTouchUpInside), for: .touchUpInside)
-            call.isEnabled = false
+            call.isEnabled = true
             
             let write = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
             write.configure(icon: "message", title: "Chat")
@@ -561,6 +561,9 @@ class ContactInfoViewController: BaseViewController {
     
     @objc
     internal func onCallButtonTouchUpInside(_ sender: InfoHeaderButton) {
+        self.dismiss(animated: true) {
+            VoIPManager.shared.startCall(owner: self.owner, jid: self.jid)
+        }
         
     }
     

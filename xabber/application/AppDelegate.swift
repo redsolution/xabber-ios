@@ -80,6 +80,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     
     var credentialsExpiredPresenterShowed: Bool = false
     
+    
+    
     func application(
         _ application: UIApplication,
         configurationForConnecting connectingSceneSession: UISceneSession,
@@ -196,7 +198,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                             NavBarController(rootViewController: archivedVc),
                         ]
                     }
-                    
                     window?.rootViewController = vc
                     instance?.tabController = vc
             }
@@ -383,7 +384,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         }
         let token = tokenParts.joined()
         APNSManager.shared.receive(deviceToken: token)
-//        print("device token: \(token)")
+        print("device token: \(token)")
     }
     
     func application(_ application: UIApplication,

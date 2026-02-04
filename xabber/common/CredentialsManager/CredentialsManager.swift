@@ -298,7 +298,7 @@ class CredentialsManager: NSObject {
             print(#function)
             let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
                                            accessGroup: CredentialsManager.uniqueAccessGroup())
-            let result = keychain.set(value, forKey: key, withAccessibility: .always)
+            let result = keychain.set(value, forKey: key, withAccessibility: .alwaysThisDeviceOnly)
             print(result)
         }
         
@@ -518,24 +518,27 @@ class CredentialsManager: NSObject {
         return keychain.double(forKey: "time_signature_timestamp")
     }
     
-    public final func setSignature(_ signature: String, for timestamp: TimeInterval, deviceType: YUDeviceType) {
-        
-        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
-        _ = keychain.set(signature, forKey: "time_signature", withAccessibility: .always)
-        _ = keychain.set(timestamp, forKey: "time_signature_timestamp", withAccessibility: .always)
-        _ = keychain.set(deviceType.rawValue, forKey: "time_signature_device_type", withAccessibility: .always)
-    }
+//    public final func setSignature(_ signature: String, for timestamp: TimeInterval, deviceType: YUDeviceType) {
+//        
+//        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
+//                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+//        _ = keychain.set(signature, forKey: "time_signature", withAccessibility: .always)
+//        _ = keychain.set(timestamp, forKey: "time_signature_timestamp", withAccessibility: .always)
+//        _ = keychain.set(deviceType.rawValue, forKey: "time_signature_device_type", withAccessibility: .always)
+//    }
     
-    public final func getSignatureDeviceType() -> YUDeviceType? {
-        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
-        guard let raw = keychain.string(forKey: "time_signature_device_type"),
-              let out = YUDeviceType(rawValue: raw) else {
-                  return nil
-              }
-        return out
-    }
+    
+    
+//    public final func getSignatureDeviceType() -> YUDeviceType? {
+//        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
+//                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+//        guard let raw = keychain.string(forKey: "time_signature_device_type"),
+//              let out = YUDeviceType(rawValue: raw) else {
+//                  return nil
+//              }
+//        return out
+//        return nil
+//    }
     
     public final func clearSignature()  {
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),

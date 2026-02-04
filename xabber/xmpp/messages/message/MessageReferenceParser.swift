@@ -240,6 +240,7 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
                 attachment.owner = owner
                 attachment.conversationType = conversationType
                 attachment.archiveId = getStanzaId(message, owner: owner)
+                attachment.metadata = metadata
                 switch reference.mimeType {
                     case "image":
                         attachment.kind = .image
@@ -255,6 +256,8 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
                 attachment.filename = file.element(forName: "name")?.stringValue ?? ""
                 attachment.isDownloaded = false
                 attachment.isEncrypted = isEncrypted
+                attachment.sizeBytes = file.element(forName: "size")?.stringValueAsNSInteger() ?? 0
+                attachment.metadata = metadata
                 
                 if let thumb = file.element(forName: "thumbnail"), let dataURI = thumb.attributeStringValue(forName: "uri") {
                     if let commaIndex = dataURI.firstIndex(of: ","),

@@ -75,6 +75,33 @@ class SystemMessageCell: MessageContentCell {
         self.backgroundColor = .clear
         messageLabel.configure {
             switch message.kind {
+                case .call(let call):
+                    if call.incoming {
+                        if call.missed {
+                            messageLabel.attributedText = NSAttributedString(string: "Missed call", attributes: [
+                                .font: UIFont.preferredFont(forTextStyle: .caption1),
+                                .foregroundColor: UIColor.white,
+                            ])
+                        } else {
+                            messageLabel.attributedText = NSAttributedString(string: "Incoming call", attributes: [
+                                .font: UIFont.preferredFont(forTextStyle: .caption1),
+                                .foregroundColor: UIColor.white,
+                            ])
+                        }
+                    } else {
+                        if call.missed {
+                            messageLabel.attributedText = NSAttributedString(string: "Outgoing call", attributes: [
+                                                                .font: UIFont.preferredFont(forTextStyle: .caption1),
+                                                                .foregroundColor: UIColor.white,
+                                                            ])
+                        } else {
+                            messageLabel.attributedText = NSAttributedString(string: "Outgoing call", attributes: [
+                                .font: UIFont.preferredFont(forTextStyle: .caption1),
+                                .foregroundColor: UIColor.white,
+                            ])
+                        }
+                    }
+                    messageLabel.backgroundColor = .clear
                 case .system(let text):
                     messageLabel.attributedText = text
                     messageLabel.backgroundColor = .clear

@@ -310,6 +310,10 @@ extension ChatViewController: XabberInputBarDelegate {
                             let pcm = self.recordedPCM//try AudioMessageReceiver.shared.getPCM(decoded: decodedUrl)
                             let duration = try AudioMessageReceiver.shared.getDuration(decoded: rawUrl)
                             self.xabberInputView.cancelRecord()
+                            if duration < 1 {
+                                fail(message: nil)
+                                return
+                            }
                             if shouldSend {
                                 self.shouldSendAudioMessage(rawUrl: rawUrl, duration: duration, pcm: pcm) {
                                     self.recordLockIndicator.isHidden = true

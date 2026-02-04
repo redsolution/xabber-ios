@@ -19,17 +19,10 @@
 //
 
 import Foundation
-import UIKit
+import KissXML
 
-extension UIEdgeInsets {
-    init(square value: CGFloat) {
-        self.init(top: value, bottom: value, left: value, right: value)
-    }
-}
-
-
-extension UIEdgeInsets {
-    init(top: CGFloat = 0, bottom: CGFloat = 0, left: CGFloat = 0, right: CGFloat = 0) {
-        self.init(top: top, left: left, bottom: bottom, right: right)
+class AbstractXMPPParser: NSObject {
+    public func read(_ element: DDXMLElement) -> Bool {
+        return false
     }
 }

@@ -260,7 +260,7 @@ final class Account: NSObject {
         self.sm.autoResume = true
         self.sm.activate(self.xmppStream)
         self.sm.addDelegate(self, delegateQueue: self.queue)
-        self.sm.automaticallyRequestAcks(afterStanzaCount: 8, orTimeout: 20)
+        self.sm.automaticallyRequestAcks(afterStanzaCount: 1, orTimeout: 4)
         self.sm.enable(withResumption: true, maxTimeout: 3600)
         if isConfigured {
             return

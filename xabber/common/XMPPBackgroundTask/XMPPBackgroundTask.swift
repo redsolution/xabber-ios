@@ -102,7 +102,7 @@ class XMPPBackgroundTask: NSObject {
             self.stream = XMPPStream()
             self.stream.myJID = XMPPJID(string: self.jid, resource: AccountManager.defaultResource + "_background_task_" + "\(UUID().uuidString.split(separator: "-").first ?? "")".lowercased())
 //            self.stream.hostName = "2ztp3tk75olpu3svugvt3nolvbfbn3aej4qjykqmthw7gd36r4rtmkad.onion"
-            self.stream.startTLSPolicy = XMPPStreamStartTLSPolicy.allowed
+            self.stream.startTLSPolicy = XMPPStreamStartTLSPolicy.preferred
             self.stream.keepAliveInterval = 60
 //            self.stream.addDelegate(self.avatarManager, delegateQueue: self.queue)
             self.stream.addDelegate(self, delegateQueue: self.queue)

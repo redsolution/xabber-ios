@@ -45,6 +45,32 @@ class SystemMessageSizeCalculator: CellSizeCalculator {
         var messageContainerSize: CGSize
         let attributedText: NSAttributedString
         switch message.kind {
+            case .call(let call):
+                if call.incoming {
+                    if call.missed {
+                        attributedText = NSAttributedString(string: "Missed call", attributes: [
+                            .font: UIFont.preferredFont(forTextStyle: .caption1),
+                            .foregroundColor: UIColor.white,
+                            ])
+                    } else {
+                        attributedText = NSAttributedString(string: "Incoming call", attributes: [
+                            .font: UIFont.preferredFont(forTextStyle: .caption1),
+                            .foregroundColor: UIColor.white,
+                            ])
+                    }
+                } else {
+                    if call.missed {
+                        attributedText = NSAttributedString(string: "Outgoing call", attributes: [
+                            .font: UIFont.preferredFont(forTextStyle: .caption1),
+                            .foregroundColor: UIColor.white,
+                            ])
+                    } else {
+                        attributedText = NSAttributedString(string: "Outgoing call", attributes: [
+                            .font: UIFont.preferredFont(forTextStyle: .caption1),
+                            .foregroundColor: UIColor.white,
+                            ])
+                    }
+                }
             case .system(let text):
                 attributedText = text
             case .date(let text):

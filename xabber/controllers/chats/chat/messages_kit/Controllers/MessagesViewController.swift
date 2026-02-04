@@ -188,16 +188,16 @@ UICollectionViewDelegateFlowLayout, UICollectionViewDataSource {
                 cell.configure(with: message, at: indexPath, and: messagesCollectionView)
                 cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
                 return cell
-            case .system(_), .date, .unread:
+            case .system(_), .date, .unread, .call(_):
                 let cell = messagesCollectionView.dequeueReusableCell(SystemMessageCell.self, for: indexPath)
                 cell.configure(with: message, at: indexPath, and: messagesCollectionView)
                 cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
                 return cell
-            case .call(_):
-                let cell = messagesCollectionView.dequeueReusableCell(VoIPCallMessageCell.self, for: indexPath)
-                cell.configure(with: message, at: indexPath, and: messagesCollectionView)
-                cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
-                return cell
+//            case .call(_):
+//                let cell = messagesCollectionView.dequeueReusableCell(VoIPCallMessageCell.self, for: indexPath)
+//                cell.configure(with: message, at: indexPath, and: messagesCollectionView)
+//                cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
+//                return cell
             case .sticker(_):
                 let cell = messagesCollectionView.dequeueReusableCell(StickerMessageCell.self, for: indexPath)
                 cell.configure(with: message, at: indexPath, and: messagesCollectionView)

@@ -28,7 +28,7 @@ class MessagesCollectionViewFlowLayout: UICollectionViewFlowLayout {
     internal final let cache: MessageSizeCache = MessageSizeCache()
     
     override class var layoutAttributesClass: AnyClass {
-        let lay = UICollectionViewLayout()
+//        let lay = UICollectionViewLayout()
         return MessagesCollectionViewLayoutAttributes.self
     }
     
@@ -167,14 +167,14 @@ class MessagesCollectionViewFlowLayout: UICollectionViewFlowLayout {
         switch message.kind {
             case .attributedText, .emoji, .skeleton(_):
                 return commonMessageSizeCalculator
-            case .system, .date, .unread:
+            case .system, .date, .unread, .call(_):
                 return systemMessageSizeCalculator
             case .sticker(_):
                 return callMessageSizeCalculator//stickerMessageSizeCalculator
             case .initial(_):
                 return initialMessageSizeCalculator
-            case .call(_):
-                return callMessageSizeCalculator
+//            case .call(_):
+//                return callMessageSizeCalculator
         }
     }
 
@@ -187,14 +187,14 @@ class MessagesCollectionViewFlowLayout: UICollectionViewFlowLayout {
             switch message.kind {
                 case .attributedText, .emoji, .skeleton(_):
                     calculator = commonMessageSizeCalculator
-                case .system, .date, .unread:
+                case .system, .date, .unread, .call(_):
                     calculator = systemMessageSizeCalculator
                 case .sticker(_):
                     calculator = callMessageSizeCalculator
                 case .initial(_):
                     calculator = initialMessageSizeCalculator
-                case .call(_):
-                    calculator = callMessageSizeCalculator
+//                case .call(_):
+//                    calculator = systemMessageSizeCalculator
             }
             let size = calculator.sizeForItem(at: indexPath)
 //            cache.cache(for: message.primary, size: size)

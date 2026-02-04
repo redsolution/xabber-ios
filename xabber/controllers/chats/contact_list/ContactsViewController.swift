@@ -384,6 +384,7 @@ class ContactsViewController: BaseViewController {
         }
         var ignoredJids: [String] = AccountManager.shared.users.compactMap { $0.notifications.node }
         ignoredJids.append(contentsOf: AccountManager.shared.users.compactMap { $0.favorites.node })
+        ignoredJids.append(contentsOf: jids)
         if CommonConfigManager.shared.config.support_jid.isNotEmpty {
             ignoredJids.append(CommonConfigManager.shared.config.support_jid)
         }
@@ -549,6 +550,7 @@ class ContactsViewController: BaseViewController {
         if CommonConfigManager.shared.config.support_jid.isNotEmpty {
             ignoredJids.append(CommonConfigManager.shared.config.support_jid)
         }
+        ignoredJids.append(contentsOf: jids)
         let contacts = Set(realm
             .objects(RosterStorageItem.self)
             .filter("owner IN %@ AND isHidden == false AND removed == false AND subscription_ IN %@ AND isContact == true AND NOT (jid IN %@)", jids, ["both"], ignoredJids)
@@ -1125,7 +1127,7 @@ class ContactsViewController: BaseViewController {
             
             
             if isGroup {
-                let invitesCollection = realm.objects(GroupchatInvitesStorageItem.self).filter("owner IN %@ AND isGroupInfoLoaded == false", jids)
+                let invitesCollection = realm.objects(GroupchatInvitesStorageItem.self).filter("owner IN %@", jids)
                 invitesCollection.toArray().forEach {
                     item in
 //                    if !item.isGroupInfoLoaded {
@@ -1167,6 +1169,8 @@ class ContactsViewController: BaseViewController {
             if CommonConfigManager.shared.config.support_jid.isNotEmpty {
                 ignoredJids.append(CommonConfigManager.shared.config.support_jid)
             }
+            var ignoredAccounts = realm.objects(AccountStorageItem.self).filter("enabled == true").toArray().compactMap { $0.jid }
+            ignoredJids.append(contentsOf: ignoredAccounts)
             let collection = realm
                 .objects(RosterStorageItem.self)
                 .filter("owner IN %@ AND isHidden == false AND removed == false AND subscription_ IN %@ AND isContact == true AND NOT (jid IN %@)", jids, ["both", "from", "to"], ignoredJids)

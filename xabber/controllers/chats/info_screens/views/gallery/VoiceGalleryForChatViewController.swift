@@ -188,6 +188,11 @@ class VoiceGalleryForChatViewController: BaseMediaGalleryForChatViewController {
         self.collectionView.fillSuperview()
     }
     
+    
+    override func loadDatasource() {
+        self.datasource = []
+    }
+    
     override func configure() {
         super.configure()
         self.title = "Files"

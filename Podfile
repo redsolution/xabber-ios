@@ -17,7 +17,10 @@
 ##
 ##
 ##
-platform :ios, '14.0'
+source 'https://cdn.cocoapods.org'
+source 'https://github.com/webrtc-sdk/Specs.git'   # only if using WebRTC-SDK
+
+platform :ios, '15.0'
 
 use_frameworks!
 
@@ -32,12 +35,13 @@ def main_pods
     pod 'Kingfisher', :git => 'https://github.com/whspr/Klingfisher.git'
     pod 'Cache', :git => 'https://github.com/hyperoslo/Cache.git', :branch => 'master', :tag => '7.4.0'
     pod 'MaterialComponents/Palettes'
-    pod 'GoogleWebRTC'
+#    pod 'GoogleWebRTC'
+    pod 'WebRTC-SDK'#, '~137.7151.12'
     pod 'LetterAvatarKit', '=1.2.3'
     pod 'DeepDiff'
     pod 'Punycode'
-    pod 'XMPPFramework/Swift', :path => '/Users/igor.boldin/projects/xabber/deps/XMPPFramework/'
-#    pod 'XMPPFramework/Swift', :git => 'https://github.com/whspr/XMPPFramework', :branch => 'light'
+#    pod 'XMPPFramework/Swift', :path => '/Users/igor.boldin/projects/xabber/deps/XMPPFramework/'
+    pod 'XMPPFramework/Swift', :git => 'https://github.com/whspr/XMPPFramework', :branch => 'light'
     pod 'CocoaAsyncSocket', :git => 'https://github.com/robbiehanson/CocoaAsyncSocket', :branch => 'master'
     pod 'OpenSSL-Universal'
     pod 'Curve25519Kit', :git => 'https://github.com/whspr/Curve25519Kit.git', :branch => 'mkirk/framework-friendly'
@@ -56,10 +60,11 @@ target 'xabberTests' do
     main_pods
 end
 
-target 'xabber_push_extension' do
+target 'xabber-push-extension' do
     inherit! :search_paths
     pod 'SwiftKeychainWrapper'
     pod 'KissXML'
+#    pod 'YubiKit', :git => 'https://github.com/Yubico/yubikit-ios.git'
     pod 'CryptoSwift', :git => 'https://github.com/krzyzanowskim/CryptoSwift.git', :tag => '1.8.1'
     pod 'Curve25519Kit', :git => 'https://github.com/whspr/Curve25519Kit.git', :branch => 'mkirk/framework-friendly'
 end
@@ -70,7 +75,7 @@ post_install do |installer|
         puts target.name
         target.build_configurations.each do |config|
             config.build_settings['CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF'] = 'NO'
-        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
+        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
         end
     end
 end

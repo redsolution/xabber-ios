@@ -396,6 +396,7 @@ class ChatViewController: MessagesViewController {
 //    var pinnedDateIndex: Int? = nil
 //    var nextPinnedDateIndex: Int? = nil
     
+    internal var updateFloatingDateObserverSignal: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     internal var hideFloatingDateObserver: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     internal var showFloatingDateObserver: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     internal var preventHidingDate: Bool = false
@@ -1207,7 +1208,6 @@ class ChatViewController: MessagesViewController {
         self.view.addSubview(self.messageLoadingActivityIndicator)
         self.messageLoadingActivityIndicator.startAnimating()
         self.messageLoadingActivityIndicator.isHidden = true
-        self.view.addSubview(self.pinnedDateView)
         self.view.addSubview(self.initialMessageOverlayView)
         if self.sharedAudioPlayerPanel != nil {
             self.view.addSubview(self.sharedAudioPlayerPanel!)
@@ -1228,6 +1228,7 @@ class ChatViewController: MessagesViewController {
         
 //        self.self.navigationController?.navigationBar.isTranslucent = true
 //        button./
+        self.view.addSubview(self.pinnedDateView)
     }
     
     @objc
@@ -1285,10 +1286,10 @@ class ChatViewController: MessagesViewController {
     final func configureNavbar() {
         self.navigationItem.setRightBarButtonItems([], animated: false)
         let appearance = UINavigationBarAppearance()
-        appearance.configureWithDefaultBackground()  // Opaque base; overrides iOS 15+ transparency defaults
-        appearance.backgroundColor = .systemBackground  // Solid color (or AccountColorManager.shared.palette(for: owner).primary)
-        appearance.backgroundImage = UIImage()  // Clears tint/gray overlay
-        appearance.shadowImage = UIImage()  // Removes artifacts/gray lines
+        appearance.configureWithDefaultBackground()
+        appearance.backgroundColor = .systemBackground
+        appearance.backgroundImage = UIImage()
+        appearance.shadowImage = UIImage()
         appearance.shadowColor = .clear
 
         let scrollEdgeAppearance = UINavigationBarAppearance()
@@ -1712,7 +1713,7 @@ class ChatViewController: MessagesViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         self.shouldChangeFrame()
-        self.updateFloatingDate()
+        self.willUpdateFloatingDate()
         self.hideFloatingDateObserver.accept(true)
         self.showFloatingDateObserver.accept(false)
         self.pinnedDateView.hide(withoutAnimation: true)

@@ -60,9 +60,13 @@ protocol MessageType {
 
 class CallAttachment {
     var primary: String
+    var incoming: Bool
+    var missed: Bool
     
-    init(primary: String) {
+    init(primary: String, incoming: Bool, missed: Bool) {
         self.primary = primary
+        self.incoming = incoming
+        self.missed = missed
     }
 }
 

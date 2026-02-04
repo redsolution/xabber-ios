@@ -131,7 +131,7 @@ final class VoIPCall: NSObject {
         self.state = .initiated
         super.init()
         
-        self.stream.startTLSPolicy = XMPPStreamStartTLSPolicy.allowed
+        self.stream.startTLSPolicy = XMPPStreamStartTLSPolicy.preferred
         self.stream.keepAliveInterval = 60
         self.stream.addDelegate(self, delegateQueue: self.queue)
         self.stream.asyncSocket.autoDisconnectOnClosedReadStream = true
@@ -850,27 +850,30 @@ extension VoIPCall: XMPPStreamDelegate {
                     invalidate()
                 }
             } catch {
-                invalidate()
+//                reconnect(error)
             }
             break
         case .token:
             creditionalsItem.use {
                 [unowned self] (isInvalidated, item) in
+                
                 if isInvalidated {
                     invalidate()
                 }
                 do {
                     if let token = item.creditionalString {
+                        creditionalsItem.incrementCounter()
                         stream.shouldRequestXToken = false
                         stream.shouldRegisterDevice = false
                         try stream.authenticate(withXabberToken: token, counter: item.counter)
-                        creditionalsItem.incrementCounter()
+                        
                     } else {
+                        item.decrementCounter()
                         invalidate()
                     }
                 } catch {
                     item.decrementCounter()
-                    invalidate()
+//                    reconnect(error)
                 }
             }
             break
@@ -882,16 +885,25 @@ extension VoIPCall: XMPPStreamDelegate {
                 }
                 do {
                     if let secret = item.creditionalString {
+                        creditionalsItem.incrementCounter()
+                        let counter = creditionalsItem.counter
                         stream.shouldRegisterDevice = false
                         stream.shouldRequestXToken = false
-                        item.incrementCounter()
-                        try stream.authenticate(withHOTPSecret: secret, counter: item.counter)
+                        let realm = try WRealm.safe()
+                        let deviceUUID = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: stream.myJID?.bare ?? "")?.deviceUuid
+                        if stream.supportsOCRAAuthentication {
+                            try stream.authenticate(withOCRASecret: secret, validationKey: item.validationKey ?? "", deviceId: deviceUUID ?? "", counter: counter)
+                        } else {
+                            try stream.authenticate(withHOTPSecret: secret, counter: counter)
+                        }
                     } else {
+                        item.decrementCounter()
                         invalidate()
                     }
                 } catch {
+//                    print(error.localizedDescription)
                     item.decrementCounter()
-                    invalidate()
+//                    reconnect(error)
                 }
             }
         }

@@ -48,13 +48,15 @@ extension APNSManager {
         
         
         let params: [String: String] = [
-            "target": [jid, hashString].joined(separator: "/"),
+            "target": [jid, voip ? voipToken : deviceToken].joined(separator: "/"),
             "endpoint_key": voip ? voipToken : deviceToken,
             "provider": voip ? "apns.voip" : "apns",
         ]
+        print(params, "REGJIDPARAMS")
 //        let retrier = RequestRetrier()
         /*SUCCESS: {"action":"regjid","result":"success","jid":"igor.boldin@xmppdev01.xabber.com/3F02F22F-5185-43A9-9116-B1C1E306F6C7","node":"65be5460-5052-4ada-8483-a3a869731e16","service":"pubsub.devpush.xabber.com"}
          */
+//        self.sendDeleteRequest(jid: jid, voip: voip) {
         AF.request(url, method: .post, parameters: params, encoding: JSONEncoding.default, headers: HTTPHeaders(headers)).responseData { response in
             switch response.result {
             case .success(let data):
@@ -75,10 +77,12 @@ extension APNSManager {
                 break
             }
         }
+//        }
+        
         return true
     }
     
-    func sendDeleteRequest(jid: String, voip: Bool) {
+    func sendDeleteRequest(jid: String, voip: Bool, callback: (() -> Void)? = nil) {
         guard let VoIPtoken = self.voipToken,
             let deviceToken = self.deviceToken else {
             DDLogDebug("cant get voip token. \(#function)")
@@ -97,7 +101,9 @@ extension APNSManager {
             "target": [jid, hashString].joined(separator: "/"),
             "endpoint_key": voip ? VoIPtoken : deviceToken
         ]
-        AF.request(url, method: .delete, parameters: params, encoding: JSONEncoding.default, headers: HTTPHeaders(headers))
+        AF.request(url, method: .delete, parameters: params, encoding: JSONEncoding.default, headers: HTTPHeaders(headers)).responseData { _ in
+            callback?()
+        }
     }
     
     func sendDeleteRequest(_ pushData: [AnyHashable: Any], voip: Bool) {

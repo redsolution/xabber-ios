@@ -58,7 +58,8 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
 //                }
 //            }
 //        }
-        self.updateFloatingDate()
+        
+        self.willUpdateFloatingDate()
         if !self.datasource[indexPath.section].isRead {
             var value = self.messagesToReadObserver.value
             value.insert(self.datasource[indexPath.section].primary)
@@ -67,7 +68,7 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
     }
     
     func collectionView(_ collectionView: UICollectionView, didEndDisplaying cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
-        self.updateFloatingDate()
+        self.willUpdateFloatingDate()
         if self.datasource.count > indexPath.section {
             if !self.datasource[indexPath.section].isRead {
                 var value = self.messagesToReadObserver.value

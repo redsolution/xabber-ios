@@ -213,7 +213,7 @@ class LeftMenuViewController: UIViewController {
             let notifications = realm.objects(NotificationStorageItem.self).filter("isRead == false AND shouldShow == true")
             let invitations = realm.objects(GroupchatInvitesStorageItem.self).filter("owner IN %@ AND isRead == false", jids)
             self.datasource = [[
-                Datasource(title: "Chats", icon: "bubble", key: "chat", category: "", subtitle: "\(chats)", showTriangle: false),
+                Datasource(title: "Chats", icon: "custom.bubble", key: "chat", category: "", subtitle: "\(chats)", showTriangle: false),
                 Datasource(title: "Calls", icon: "phone", key: "calls", category: "", subtitle: "\(calls.count)", showTriangle: false),
     //            Datasource(title: "Mentions", icon: "at", key: "mentions"),
                 Datasource(title: "Notifications", icon: "bell", key: "notifications", category: "", subtitle: "\(notifications.count)", showTriangle: false),

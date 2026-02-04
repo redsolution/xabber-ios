@@ -49,66 +49,130 @@ class FilesGalleryForChatViewController: BaseMediaGalleryForChatViewController {
         public static let cellName: String = "GalleryItemCell"
         
         
-        private let stack: UIStackView = {
-           let stack = UIStackView()
-            
-            return stack
-        }()
-        
-        private let labelsStack: UIStackView = {
+        let stack: UIStackView = {
             let stack = UIStackView()
             
+            stack.axis = .horizontal
+            stack.alignment = .center
+            stack.distribution = .fill
+            stack.spacing = 8
+            stack.isLayoutMarginsRelativeArrangement = true
+            stack.layoutMargins = UIEdgeInsets(top: 0, bottom: 0, left: 4, right: 4)
+            
             return stack
         }()
         
-        private let imageView: UIImageView = {
-            let view = UIImageView()
+        let iconButton: UIButton = {
+            let button = UIButton(frame: CGRect(square: 36))
             
-            view.contentMode = .scaleAspectFill
+            button.backgroundColor = MDCPalette.blue.tint500
+            button.tintColor = UIColor.white
+            button.layer.cornerRadius = button.frame.width / 2
+            button.layer.masksToBounds = true
             
-            return view
+            return button
         }()
         
+        let contentStack: UIStackView = {
+            let stack = UIStackView()
+            
+            stack.axis = .vertical
+            stack.alignment = .leading
+            stack.distribution = .fill
+            stack.spacing = 0
+            stack.isLayoutMarginsRelativeArrangement = true
+            stack.layoutMargins = UIEdgeInsets(top: 2, bottom: 2, left: 0, right: 0)
+            
+            return stack
+        }()
         
-        private let titleLabel = {
+        let filenameLabel: UILabel = {
             let label = UILabel()
+            
+            label.font = UIFont.systemFont(ofSize: 14, weight: .medium)
+            label.textColor = UIColor.label
+            label.numberOfLines = 1
+            label.lineBreakMode = .byTruncatingMiddle
             
             return label
         }()
         
-        private let subtitleLabel = {
+        let sizeLabel: UILabel = {
             let label = UILabel()
+            
+            label.font = UIFont.systemFont(ofSize: 13, weight: .regular)
+            label.textColor = MDCPalette.grey.tint500
             
             return label
         }()
-
+        
+                
+        var palette: MDCPalette = .amber
+        
+        internal func setup() {
+            self.contentView.addSubview(stack)
+            stack.fillSuperview()
+            stack.addArrangedSubview(iconButton)
+            stack.addArrangedSubview(contentStack)
+            contentStack.addArrangedSubview(filenameLabel)
+            contentStack.addArrangedSubview(sizeLabel)
+            NSLayoutConstraint.activate([
+                iconButton.widthAnchor.constraint(equalToConstant: 36),
+                iconButton.heightAnchor.constraint(equalToConstant: 36),
+                filenameLabel.heightAnchor.constraint(equalToConstant: 20),
+                sizeLabel.heightAnchor.constraint(equalToConstant: 20)
+            ])
+        }
+        
+        public func configure(owner: String,  url: URL, filename: String, size: String) {
+            self.palette = AccountColorManager.shared.palette(for: owner)
+            iconButton.setImage(imageLiteral("doc.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
+            let mimeType = url.absoluteString
+            switch MimeIconTypes(rawValue: mimeType) {
+                case .image:
+                    iconButton.setImage(imageLiteral("doc.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
+                case .audio:
+                    iconButton.setImage(imageLiteral("doc.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
+                case .video:
+                    iconButton.setImage(imageLiteral("doc.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
+                case .document:
+                    iconButton.setImage(imageLiteral("doc.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
+                case .pdf:
+                    iconButton.setImage(imageLiteral("doc.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
+                case .table:
+                    iconButton.setImage(imageLiteral("doc.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
+                case .presentation:
+                    iconButton.setImage(imageLiteral("doc.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
+                case .archive:
+                    iconButton.setImage(imageLiteral("doc.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
+                case .file:
+                    iconButton.setImage(imageLiteral("doc.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
+                case .none:
+                    iconButton.setImage(imageLiteral("doc.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
+                default:
+                    iconButton.setImage(imageLiteral("doc.fill")?.withRenderingMode(.alwaysTemplate), for: .normal)
+            }
+            self.iconButton.backgroundColor = palette.tint500
+            self.filenameLabel.text = filename
+            self.sizeLabel.text = size
+        }
+        
         override init(frame: CGRect) {
             super.init(frame: frame)
             setup()
         }
         
         required init?(coder: NSCoder) {
-            fatalError()
-        }
-
-        private func setup() {
-            self.contentView.addSubview(self.imageView)
-            self.imageView.fillSuperview()
-            self.contentView.layer.cornerRadius = 4
-            self.contentView.layer.masksToBounds = true
-            self.contentView.layer.borderWidth = 1
-            self.contentView.layer.borderColor = MDCPalette.grey.tint300.cgColor
-        }
-
-        func configure(url: URL, title: String, subtitle: String) {
-            
+            super.init(coder: coder)
         }
         
         override func prepareForReuse() {
             super.prepareForReuse()
-            self.titleLabel.text = nil
-            self.subtitleLabel.text = nil
-            self.imageView.subviews.forEach { $0.removeFromSuperview() }
+            self.filenameLabel.text = nil
+            self.sizeLabel.text = nil
+            self.iconButton.setImage(nil, for: .normal)
+            
+            
         }
     }
     
@@ -179,11 +243,14 @@ class FilesGalleryForChatViewController: BaseMediaGalleryForChatViewController {
         }
     }
     
-    
     override func setupSubviews() {
         super.setupSubviews()
         self.view.addSubview(self.collectionView)
         self.collectionView.fillSuperview()
+    }
+    
+    override func loadDatasource() {
+        self.datasource = []
     }
     
     override func configure() {
@@ -201,26 +268,12 @@ class FilesGalleryForChatViewController: BaseMediaGalleryForChatViewController {
         }
         let item  = self.datasource[indexPath.row]
         
-        cell.configure(url: item.url, title: item.title, subtitle: item.subtitle)
+        cell.configure(owner: self.owner, url: item.url, filename: item.title, size: item.subtitle)
         
         return cell
     }
     
     override func collectionView(_ collectionView: UICollectionView, prefetchItemsAt indexPaths: [IndexPath]) {
-        indexPaths
-            .compactMap({ self.datasource[$0.row].url })
-            .forEach {
-                ImageDownloader
-                    .default
-                    .downloadImage(
-                        with: $0,
-                        options: [
-                            .alsoPrefetchToMemory,
-                            .waitForCache,
-                            .backgroundDecode
-                        ]
-                    )
-            }
         super.collectionView(collectionView, prefetchItemsAt: indexPaths)
     }
 }

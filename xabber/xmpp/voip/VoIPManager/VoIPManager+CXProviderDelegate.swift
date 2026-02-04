@@ -93,15 +93,23 @@ extension VoIPManager: CXProviderDelegate {
                     }
                 }
             }
+            _ = self.currentCall?.acceptCall()
+            self.isCallAccepted = true
+            self.inCallingProcess = true
+            self.webRTC = WebRTCClient()
+            self.webRTC?.delegate = self
+            self.webRTC?.offer(completion: { (sdp) in
+                self.currentCall?.sessionDescription(sessionDescription: sdp)
+            })
         }
-        _ = self.currentCall?.acceptCall()
-        self.isCallAccepted = true
-        self.inCallingProcess = true
-        self.webRTC = WebRTCClient()
-        self.webRTC?.delegate = self
-        self.webRTC?.offer(completion: { (sdp) in
-            self.currentCall?.sessionDescription(sessionDescription: sdp)
-        })
+//        _ = self.currentCall?.acceptCall()
+//        self.isCallAccepted = true
+//        self.inCallingProcess = true
+//        self.webRTC = WebRTCClient()
+//        self.webRTC?.delegate = self
+//        self.webRTC?.offer(completion: { (sdp) in
+//            self.currentCall?.sessionDescription(sessionDescription: sdp)
+//        })
         action.fulfill(withDateConnected: Date())
     }
     

@@ -536,7 +536,12 @@ extension ChatViewController: MessageCellDelegate {
 //        CM.updateWindow(window: self.view)
         
         CM.currentMessagePrimary = primary
-        if item.isOutgoing {
+        if item.state == .error {
+            CM.items = [[
+                ContextMenuItemWithImage(title: "Resend", image: imageLiteral("arrowshape.turn.up.backward")!, value: "retry", danger: false),
+                ContextMenuItemWithImage(title: "Delete", image: imageLiteral("trash")!, value: "delete", danger: true)
+            ],[ContextMenuItemWithImage(title: "Select", image: imageLiteral("checkmark.circle")!, value: "select", danger: false)]]
+        } else if item.isOutgoing {
             CM.items = [[
                 ContextMenuItemWithImage(title: "Reply", image: imageLiteral("arrowshape.turn.up.backward")!, value: "reply", danger: false),
                 ContextMenuItemWithImage(title: "Copy", image: imageLiteral("doc.on.doc")!, value: "copy", danger: false),

@@ -319,7 +319,7 @@ class SignatureManager: NSObject {
     }
     
     private func updateSignature(_ signature: String, for timestamp: TimeInterval, device deviceType: YUDeviceType) {
-        CredentialsManager.shared.setSignature(signature, for: timestamp, deviceType: deviceType)
+//        CredentialsManager.shared.setSignature(signature, for: timestamp, deviceType: deviceType)
         guard let jid = AccountManager.shared.users.first?.jid else {
             return
         }

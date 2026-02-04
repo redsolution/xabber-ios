@@ -74,7 +74,7 @@ class XMPPChangePasswordManager: NSObject {
                 self.endBackgroundUpdateTask()
             })
             self.stream.myJID = XMPPJID(string: jid, resource: AccountManager.defaultResource + "fast_send")
-            self.stream.startTLSPolicy = XMPPStreamStartTLSPolicy.allowed
+            self.stream.startTLSPolicy = XMPPStreamStartTLSPolicy.preferred
             self.stream.keepAliveInterval = 60
             self.stream.addDelegate(self, delegateQueue: self.queue)
             do {

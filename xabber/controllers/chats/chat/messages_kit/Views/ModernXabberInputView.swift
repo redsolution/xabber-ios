@@ -1709,7 +1709,8 @@ class ModernXabberInputView: UIView {
             }
         }
         
-        UIView.animate(withDuration: 0.16, delay: 0.0, options: [.curveEaseIn]) {
+        //UIView.animate(withDuration: 0.16, delay: 0.0, options: [.curveEaseIn]) {
+        UIView.performWithoutAnimation {
             self.textField.frame = CGRect(
                 origin: CGPoint(x: 40, y: 0),
                 size: CGSize(width: self.frame.width - 84, height: self.cachedIntrinsicContentSize.height)

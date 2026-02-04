@@ -33,7 +33,7 @@ extension AppDelegate: PKPushRegistryDelegate {
 //        print("voip \(token)")
 //        print("********* TOKEN VOIP\(token)")
         APNSManager.shared.receive(voipToken: token)
-//        self.voipToken = token
+        
     }
     
     func pushRegistry(_ registry: PKPushRegistry, didInvalidatePushTokenFor type: PKPushType) {

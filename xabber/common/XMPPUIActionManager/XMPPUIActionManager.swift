@@ -197,7 +197,7 @@ class XMPPUIActionManager: NSObject {
 //        self.stream.addDelegate(self, delegateQueue: self.queue)
         queue.async {
             self.stream.myJID = XMPPJID(string: owner, resource: AccountManager.defaultResource + "_ui_upgrade_task")
-            self.stream.startTLSPolicy = XMPPStreamStartTLSPolicy.allowed
+            self.stream.startTLSPolicy = XMPPStreamStartTLSPolicy.preferred
             self.stream.keepAliveInterval = 10
             do {
                 try self.stream.connect(withTimeout: 5)
