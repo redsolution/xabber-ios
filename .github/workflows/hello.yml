@@ -1,0 +1,7 @@
+jobs:
+ hello:
+  runs-on: [self-hosted, macbook]
+  steps:
+   - run: echo "Hello from my MacBook!"
+   - run: pwd
+   - run: node --version
