@@ -1,3 +1,5 @@
+on: [push]
+
 jobs:
  hello:
   runs-on: [self-hosted, macbook]
