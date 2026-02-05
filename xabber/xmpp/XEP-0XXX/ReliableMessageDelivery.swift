@@ -174,7 +174,7 @@ class ReliableMessageDeliveryManager: AbstractXMPPManager {
                     realm.objects(MessageStorageItem.self).filter("owner == %@ AND messageId == %@", self.owner, elementId).forEach {
                         instance in
                         if instance.state == .sending {
-                            instance.state = .sended
+                            instance.state = .sended // .error
                         }
                         if let stamp = received.element(forName: "time")?.attributeStringValue(forName: "stamp")?.xmppDate {
                             instance.date = stamp
@@ -191,7 +191,7 @@ class ReliableMessageDeliveryManager: AbstractXMPPManager {
                             realm.objects(MessageStorageItem.self).filter("owner == %@ AND messageId == %@", self.owner, elementId).forEach {
                                 instance in
                                 if instance.state == .sending {
-                                    instance.state = .sended
+                                    instance.state = .sended //.error
                                 }
                                 if let stamp = received.element(forName: "time")?.attributeStringValue(forName: "stamp")?.xmppDate {
                                     instance.date = stamp
