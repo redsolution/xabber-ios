@@ -1,41 +1,33 @@
-name: iOS Build & E2E Tests (Core Repo)
+name: iOS Build + Remote Appium Test
 
 on:
  push:
   branches: [ main, develop ]
  pull_request:
   branches: [ main, develop ]
- workflow_dispatch: # allows manual run from Actions tab
+ workflow_dispatch:     # ← allows manual trigger from GitHub UI
+  inputs:
+   trigger_reason:
+    description: 'Why are you running this? (optional)'
+    required: false
 
 jobs:
- build-and-test:
-  runs-on: [self-hosted, macbook] # ← your runner labels; change if needed
+ build-ios:
+  runs-on: [self-hosted, macbook]  # ← your runner label
 
   steps:
-   # 1. Checkout the core repo code
-  - name: Checkout core repo
+   # Checkout only the core repo
+  - name: Checkout xabber_ios_core
     uses: actions/checkout@v4
 
-   # 2. Setup Node.js (needed for WDIO/Appium)
-  - name: Setup Node.js
-    uses: actions/setup-node@v4
-    with:
-     node-version: '20'
-     cache: 'npm'
-
-   # 3. Install npm dependencies (WDIO packages, etc.)
-  - name: Install Node dependencies
-    run: npm ci
-
-   # 4. Select Xcode version (use latest stable or pin if needed)
-  - name: Select Xcode version
+   # Setup Xcode
+  - name: Select Xcode
     uses: maxim-lobanov/setup-xcode@v1
     with:
-     xcode-version: 'latest-stable' # or '16.2', '17.0' etc. to match your local
+     xcode-version: 'latest-stable'
 
-   # 5. Build Xabber.app for simulator
-  - name: Build Xabber.app (Debug scheme)
-    working-directory: . # ← root of core repo
+   # Build the app for simulator (adjust scheme/device as needed)
+  - name: Build Xabber.app (debug scheme)
     run: |
      xcodebuild \
       -scheme debug \
@@ -43,35 +35,31 @@ jobs:
       -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.0' \
       clean build
 
-   # 6. Find the freshly built .app path (DerivedData changes every time)
-  - name: Find built .app path
+   # Find the .app path (DerivedData is per-build, so we locate it)
+  - name: Locate built .app
     id: find-app
     run: |
-     APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "xabber.app" -type d \
-      | grep Debug-iphonesimulator | head -n 1)
+     APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData \
+      -name "xabber.app" -type d \
+      | grep -i Debug-iphonesimulator | head -n 1)
      if [ -z "$APP_PATH" ]; then
-      echo "Error: No xabber.app found in DerivedData"
+      echo "Error: xabber.app not found"
       exit 1
      fi
-     echo "APP_PATH=$APP_PATH" >> $GITHUB_OUTPUT
-     echo "Found app at: $APP_PATH"
-
-   # 7. Run WDIO/Appium E2E tests
+     echo "app_path=$APP_PATH" >> $GITHUB_OUTPUT
+     echo "App found: $APP_PATH"
+ # 7. Run WDIO/Appium E2E tests
   - name: Run WDIO tests
     env:
      APP_PATH: ${{ steps.find-app.outputs.APP_PATH }}
     run: |
      # Pass dynamic APP_PATH to WDIO (read in wdio.conf.ts via process.env.APP_PATH)
      npx wdio run test/specs/test.e2e.ts # ← your exact path to spec file
-
-   # 8. Upload artifacts on failure (screenshots, logs)
-  - name: Upload failure artifacts
+   # Optional: Upload .app on failure for debugging
+  - name: Upload .app on failure
     if: failure()
     uses: actions/upload-artifact@v4
     with:
-     name: ios-test-failure
-     path: |
-      **/screenshots/*
-      **/*.log
-      **/*.png
-     retention-days: 7
+     name: xabber-simulator-app-failed
+     path: ${{ steps.find-app.outputs.app_path }}
+     retention-days: 3
