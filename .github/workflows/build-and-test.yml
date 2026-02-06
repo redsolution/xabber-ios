@@ -29,6 +29,11 @@ jobs:
      xcode-version: 'latest-stable'
 
    # 4. Build Xabber.app (debug scheme for simulator)
+  - name: Symlink local swift-ogg for build
+    run: |
+     mkdir -p ~/deps
+     ln -sfn /Users/andrew.nenakhov/deps/swift-ogg ~/deps/swift-ogg
+
   - name: Build Xabber.app
     run: |
      xcodebuild \
