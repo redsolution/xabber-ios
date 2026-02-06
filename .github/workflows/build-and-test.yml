@@ -23,8 +23,8 @@ jobs:
   - name: Copy local swift-ogg package into workspace
     run: |
      mkdir -p deps/swift-ogg
-     cp -r ~/Projects/swift-packages/swift-ogg/* deps/swift-ogg/
-     ls -la deps/swift-ogg # just for debug, shows what was copied
+     cp -r ~/Projects/swift-packages/swift-ogg/* deps/swift-ogg/ || { echo "Copy failed - check path"; exit 1; }
+     ls -la deps/swift-ogg # debug: show what was copied
 
   - name: Build Xabber.app (debug scheme)
     run: |
