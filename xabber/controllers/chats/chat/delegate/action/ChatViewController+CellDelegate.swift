@@ -57,6 +57,10 @@ extension ChatViewController: ContextMenuDelegate {
                 self.editMessageId.accept(primary)
             case "delete":
                 self.deleteMessages(forIds: Set([primary]))
+            case "delete_sending":
+                self.deleteSendingMessage(primary)
+            case "retry":
+                self.retryMessageSend(primary)
             case "select":
                 self.selectMessage(in: cell)
             default: break
@@ -359,7 +363,7 @@ extension ChatViewController: MessageCellDelegate {
         } else {
             let errorMessage = "Unable to send file: \(item.messageError ?? "Unexpected error")"//
             let items = [
-                ActionSheetPresenter.Item(destructive: false, title: "Retry", value: "retry"),
+                ActionSheetPresenter.Item(destructive: false, title: "Resend", value: "retry"),
                 ActionSheetPresenter.Item(destructive: true, title: "Delete", value: "delete"),
             ]
             let itemsWithQuota = [
@@ -539,7 +543,7 @@ extension ChatViewController: MessageCellDelegate {
         if item.state == .error {
             CM.items = [[
                 ContextMenuItemWithImage(title: "Resend", image: imageLiteral("arrowshape.turn.up.backward")!, value: "retry", danger: false),
-                ContextMenuItemWithImage(title: "Delete", image: imageLiteral("trash")!, value: "delete", danger: true)
+                ContextMenuItemWithImage(title: "Delete", image: imageLiteral("trash")!, value: "delete_error", danger: true)
             ],[ContextMenuItemWithImage(title: "Select", image: imageLiteral("checkmark.circle")!, value: "select", danger: false)]]
         } else if item.isOutgoing {
             CM.items = [[

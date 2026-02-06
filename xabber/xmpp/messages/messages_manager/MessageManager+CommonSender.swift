@@ -82,11 +82,11 @@ extension MessageManager {
         do {
             let realm = try WRealm.safe()
             if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
-//                if [.text, .quote].contains(instance.displayAs) {
-//                    self.processSender(item: primary, retry: true)
-//                } else {
+                if instance.displayAs == .text {
+                    self.processSender(item: primary, retry: true)
+                } else {
                     self.uploadMedia(for: primary, retry: true)
-//                }
+                }
             }
         } catch {
             DDLogDebug("MessageManager: \(#function). \(error.localizedDescription)")
