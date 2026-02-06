@@ -29,18 +29,18 @@ jobs:
      xcode-version: 'latest-stable'
 
    # 4. Build Xabber.app (debug scheme for simulator)
-  - name: Symlink local swift-ogg for build
+  - name: Copy local swift-ogg package into workspace
     run: |
-     mkdir -p ~/deps
-     ln -sfn /Users/andrew.nenakhov/deps/swift-ogg ~/deps/swift-ogg
+       mkdir -p deps/swift-ogg
+       cp -r /Users/andrew.nenakhov/deps/swift-ogg/* deps/swift-ogg/
 
-  - name: Build Xabber.app
+  - name: Build Xabber.app (debug scheme)
     run: |
      xcodebuild \
       -scheme debug \
       -sdk iphonesimulator \
       -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.0' \
-      clean build
+      OTHER_SWIFT_FLAGS="-I $(pwd)/deps/swift-ogg/Sources" \ 
 
    # 5. Locate the built .app path
   - name: Find built .app
