@@ -1,4 +1,4 @@
-name: iOS Build + Local Appium Tests
+name: iOS Build (Proof of Concept)
 
 on:
  push:
@@ -8,31 +8,23 @@ on:
  workflow_dispatch:
 
 jobs:
- build-and-test:
+ build:
   runs-on: [self-hosted, macbook]
 
   steps:
-   # 1. Checkout core repo (where we build the app)
-  - name: Checkout xabber_ios_core
+  - name: Checkout core repo
     uses: actions/checkout@v4
 
-   # 2. Setup Node.js (needed for WDIO)
-  - name: Setup Node.js
-    uses: actions/setup-node@v4
-    with:
-     node-version: '20'
-
-   # 3. Setup Xcode
   - name: Select Xcode
     uses: maxim-lobanov/setup-xcode@v1
     with:
      xcode-version: 'latest-stable'
 
-   # 4. Build Xabber.app (debug scheme for simulator)
   - name: Copy local swift-ogg package into workspace
     run: |
-       mkdir -p deps/swift-ogg
-       cp -r /Users/andrew.nenakhov/deps/swift-ogg/* deps/swift-ogg/
+     mkdir -p deps/swift-ogg
+     cp -r ~/Projects/swift-packages/swift-ogg/* deps/swift-ogg/
+     ls -la deps/swift-ogg # just for debug, shows what was copied
 
   - name: Build Xabber.app (debug scheme)
     run: |
@@ -40,41 +32,24 @@ jobs:
       -scheme debug \
       -sdk iphonesimulator \
       -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.0' \
-      OTHER_SWIFT_FLAGS="-I $(pwd)/deps/swift-ogg/Sources" \ 
+      clean build
 
-   # 5. Locate the built .app path
-  - name: Find built .app
+  - name: Locate built .app
     id: find-app
     run: |
      APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData \
       -name "xabber.app" -type d \
       | grep -i Debug-iphonesimulator | head -n 1)
      if [ -z "$APP_PATH" ]; then
-      echo "Error: xabber.app not found"
+      echo "Error: xabber.app not found in DerivedData"
       exit 1
      fi
      echo "app_path=$APP_PATH" >> $GITHUB_OUTPUT
      echo "App built at: $APP_PATH"
 
-   # 6. Switch to your local test folder and run WDIO
-  - name: Run WDIO tests from local folder
-    env:
-     APP_PATH: ${{ steps.find-app.outputs.app_path }}
-    run: |
-     cd ~/Projects/xabber-appium-tests
-     # Make sure deps are up-to-date
-     npm ci
-     # Run tests, passing the built .app path via env var
-     # (your wdio.conf.ts should read process.env.APP_PATH)
-     npx wdio run wdio.conf.js
-
-   # 7. Upload artifacts on failure
-  - name: Upload failure artifacts
-    if: failure()
+  - name: Upload built .app as artifact
     uses: actions/upload-artifact@v4
     with:
-     name: failure-artifacts
-     path: |
-      ~/Projects/xabber-appium-tests/screenshots/*
-      ~/Projects/xabber-appium-tests/**/*.log
+     name: xabber-simulator-app
+     path: ${{ steps.find-app.outputs.app_path }}
      retention-days: 7
