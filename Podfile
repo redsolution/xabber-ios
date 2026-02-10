@@ -64,7 +64,6 @@ target 'xabber-push-extension' do
     inherit! :search_paths
     pod 'SwiftKeychainWrapper'
     pod 'KissXML'
-#    pod 'YubiKit', :git => 'https://github.com/Yubico/yubikit-ios.git'
     pod 'CryptoSwift', :git => 'https://github.com/krzyzanowskim/CryptoSwift.git', :tag => '1.8.1'
     pod 'Curve25519Kit', :git => 'https://github.com/whspr/Curve25519Kit.git', :branch => 'mkirk/framework-friendly'
 end

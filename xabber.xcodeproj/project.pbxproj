@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 77;
+	objectVersion = 70;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -1724,7 +1724,7 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		666162062F1FBA8700FA2CD1 /* Exceptions for "xabber-push-extension" folder in "xabber-push-extension" target */ = {
+		666162062F1FBA8700FA2CD1 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -1734,18 +1734,7 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		666161FF2F1FBA8700FA2CD1 /* xabber-push-extension */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				666162062F1FBA8700FA2CD1 /* Exceptions for "xabber-push-extension" folder in "xabber-push-extension" target */,
-			);
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			path = "xabber-push-extension";
-			sourceTree = "<group>";
-		};
+		666161FF2F1FBA8700FA2CD1 /* xabber-push-extension */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (666162062F1FBA8700FA2CD1 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = "xabber-push-extension"; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -4549,7 +4538,7 @@
 			mainGroup = 66159DE7201EDC7D00B1CF92;
 			packageReferences = (
 				663D1B0C2D94294800EB1169 /* XCRemoteSwiftPackageReference "swift-opus" */,
-				6600EA3B2DA9396000BA2DE6 /* XCLocalSwiftPackageReference "swift-ogg" */,
+				662D88D72F3B11FB003EC7E1 /* XCRemoteSwiftPackageReference "swift-ogg" */,
 			);
 			productRefGroup = 66159DE7201EDC7D00B1CF92;
 			projectDirPath = "";
@@ -4737,7 +4726,8 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "\n";
+			shellScript = "
+";
 		};
 		C9B687BEC5A32CF38B4F1BD7 /* [CP] Embed Pods Frameworks */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -6236,17 +6226,18 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCLocalSwiftPackageReference section */
-		6600EA3B2DA9396000BA2DE6 /* XCLocalSwiftPackageReference "swift-ogg" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = "../../../../../deps/swift-ogg";
-		};
-/* End XCLocalSwiftPackageReference section */
-
 /* Begin XCRemoteSwiftPackageReference section */
 		6611EB2F2D952E0B005C1CC1 /* XCRemoteSwiftPackageReference "swift-ogg" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/element-hq/swift-ogg";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.0.3;
+			};
+		};
+		662D88D72F3B11FB003EC7E1 /* XCRemoteSwiftPackageReference "swift-ogg" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/whspr/swift-ogg";
 			requirement = {
 				kind = upToNextMajorVersion;
 				minimumVersion = 0.0.3;
