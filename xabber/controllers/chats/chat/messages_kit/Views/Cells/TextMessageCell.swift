@@ -424,7 +424,10 @@ public class TextMessageCell: MessageContentCell {
         labelContainer.addSubview(messageLabel)
     }
     
+    var messagePrimary: String = ""
+    
     override func configure(with message: MessageType, at indexPath: IndexPath, and messagesCollectionView: MessagesCollectionView) {
+        self.messagePrimary = message.primary
         super.configure(with: message, at: indexPath, and: messagesCollectionView)
         messageLabel.configure {
             switch message.kind {
@@ -499,8 +502,8 @@ public class TextMessageCell: MessageContentCell {
         }
         if self.imagesView.frame.contains(touchPoint) {
             let translatedPoint = touchPoint.translate(x: -self.imagesView.frame.minX, y: -self.imagesView.frame.minY)
-            if self.imagesView.handleTouch(at: translatedPoint, callback: { (urls, url) in
-                self.delegate?.didTapOnPhoto(urls: urls, url: url)
+            if self.imagesView.handleTouch(at: translatedPoint, callback: { (urls, url, isSensitive) in
+                self.delegate?.didTapOnPhoto(message: self.messagePrimary, urls: urls, url: url, isSensitive: isSensitive)
             }) {
                 return true
             }

@@ -53,7 +53,7 @@ public protocol MessageCellDelegate: MessageLabelDelegate {
     
     func didTapOnFile(url: URL)
     
-    func didTapOnPhoto(urls: [URL], url: URL)
+    func didTapOnPhoto(message messagePrimary: String, urls: [URL], url: URL, isSensitive: Bool)
     func didTapOnVideo(url: URL?)
     
     func didTapOnAudio(_ audioView: InlineAudiosGridView.AudioView?, url: URL?)

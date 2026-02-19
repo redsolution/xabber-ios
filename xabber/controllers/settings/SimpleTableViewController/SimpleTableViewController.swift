@@ -154,7 +154,7 @@ extension SimpleTableViewController: UITableViewDataSource {
                 let cell = ChatBackgroundColorSelectionCell()
                 cell.configure()
                 
-                guard let userDefaults = UserDefaults.init(suiteName: "com.xabber.ios.settings.common") else {
+                guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
                     return UITableViewCell(frame: .zero)
                 }
                 let dict = userDefaults.dictionaryRepresentation()

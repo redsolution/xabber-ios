@@ -233,7 +233,7 @@ class APNSManager: NSObject {
         }
         
         guard let target = target,
-            let defaults  = UserDefaults.init(suiteName: PushNotificationsManager.suitName),
+            let defaults  = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()),
             let creditionals = defaults.dictionary(forKey: target),
             let key = creditionals["secret"] as? String else {
             throw APNSError.invalidPayload

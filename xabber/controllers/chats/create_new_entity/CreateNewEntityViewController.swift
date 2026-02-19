@@ -51,17 +51,30 @@ class CreateNewEntityViewController: UIViewController {
     private func loadDatasource() {
         
         if CommonConfigManager.shared.config.locked_conversation_type == "none" {
-            self.datasource = [
-                [
-                    Datasource(title: "Add contact", iconImage: nil ,icon: "person", key: "add_contact", subtitle: ""),
-                    Datasource(title: "Create group", iconImage: nil, icon: "person.2", key: "create_group", subtitle: ""),
-                    Datasource(title: "Create incognito group", iconImage:  nil, icon: "xabber.incognito.variant", key: "create_incognito", subtitle: ""),
-                    Datasource(title: "Start secret chat", iconImage: nil, icon: "custom.lock.bubble.left", key: "start_secret_chat", subtitle: ""),
-                ],
-                [
-                    Datasource(title: "Scan QR code", iconImage: nil, icon: "qrcode.viewfinder", key: "qr_code", subtitle: ""),
+            if CommonConfigManager.shared.config.support_groupchats {
+                self.datasource = [
+                    [
+                        Datasource(title: "Add contact", iconImage: nil ,icon: "person", key: "add_contact", subtitle: ""),
+                        Datasource(title: "Create group", iconImage: nil, icon: "person.2", key: "create_group", subtitle: ""),
+                        Datasource(title: "Create incognito group", iconImage:  nil, icon: "xabber.incognito.variant", key: "create_incognito", subtitle: ""),
+                        Datasource(title: "Start secret chat", iconImage: nil, icon: "custom.lock.bubble.left", key: "start_secret_chat", subtitle: ""),
+                    ],
+                    [
+                        Datasource(title: "Scan QR code", iconImage: nil, icon: "qrcode.viewfinder", key: "qr_code", subtitle: ""),
+                    ]
                 ]
-            ]
+            } else {
+                self.datasource = [
+                    [
+                        Datasource(title: "Add contact", iconImage: nil ,icon: "person", key: "add_contact", subtitle: ""),
+                        Datasource(title: "Start secret chat", iconImage: nil, icon: "custom.lock.bubble.left", key: "start_secret_chat", subtitle: ""),
+                    ],
+                    [
+                        Datasource(title: "Scan QR code", iconImage: nil, icon: "qrcode.viewfinder", key: "qr_code", subtitle: ""),
+                    ]
+                ]
+            }
+            
         } else {
             self.datasource = [
                 [

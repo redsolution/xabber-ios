@@ -84,6 +84,7 @@ final class Account: NSObject {
     var favorites: XMPPFavoritesManager
     var akeManager: AuthenticatedKeyExchangeManager
     var trustSharingManager: TrustSharingManager
+    var abuse: XMPPAbuseManager
     
     var smStorage: XMPPStreamManagementMemoryStorage
     var sm: XMPPStreamManagement
@@ -174,6 +175,7 @@ final class Account: NSObject {
         self.favorites = XMPPFavoritesManager(withOwner: self.jid)
         self.akeManager = AuthenticatedKeyExchangeManager(withOwner: self.jid)
         self.trustSharingManager = TrustSharingManager(withOwner: self.jid)
+        self.abuse = XMPPAbuseManager(withOwner: self.jid)
         // start init NSObject
         super.init()
         self.registerModules()

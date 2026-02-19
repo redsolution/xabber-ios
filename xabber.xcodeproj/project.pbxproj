@@ -109,6 +109,7 @@
 		660FBBBE2465A3180014B8FD /* UNNotificationAttachment+Download.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660FBBBD2465A3180014B8FD /* UNNotificationAttachment+Download.swift */; };
 		6611EB312D952E0B005C1CC1 /* SwiftOGG in Frameworks */ = {isa = PBXBuildFile; productRef = 6611EB302D952E0B005C1CC1 /* SwiftOGG */; };
 		66128D0024458B860056A8CA /* MessageManager+ChatUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66128CFF24458B860056A8CA /* MessageManager+ChatUpdater.swift */; };
+		6612EAAA2F3DDED00048C471 /* AbuseReportViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6612EAA92F3DDEC80048C471 /* AbuseReportViewController.swift */; };
 		6613EF1D2327793200AA3021 /* MessageManager+CommonReceiver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6613EF1C2327793200AA3021 /* MessageManager+CommonReceiver.swift */; };
 		66153B4A22E1BF87005D4567 /* SearchResultsViewController+SearchResultsUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66153B4922E1BF87005D4567 /* SearchResultsViewController+SearchResultsUpdater.swift */; };
 		66153B4D22E1C59B005D4567 /* GlobalIndexManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66153B4C22E1C59B005D4567 /* GlobalIndexManager.swift */; };
@@ -156,11 +157,15 @@
 		662551CB28730EE7000055BD /* DevicesListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662551CA28730EE7000055BD /* DevicesListViewController.swift */; };
 		662551CD287313D1000055BD /* DevicesAndEncryptionListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662551CC287313D1000055BD /* DevicesAndEncryptionListViewController.swift */; };
 		6625F72F207E2E5F001F3D4F /* RoundedStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6625F72E207E2E5F001F3D4F /* RoundedStatusView.swift */; };
+		662602842F3F368E00FE9439 /* XMPPAbuseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662602832F3F368600FE9439 /* XMPPAbuseManager.swift */; };
+		662602862F3F4D4100FE9439 /* XMPPAbuseConfigStorageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662602852F3F4D3000FE9439 /* XMPPAbuseConfigStorageItem.swift */; };
 		6627A73024BD939B00FB0304 /* InviteSearchViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6627A72F24BD939B00FB0304 /* InviteSearchViewController.swift */; };
 		6627A73224BD93B200FB0304 /* InviteSearchViewController+UITableViewDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6627A73124BD93B200FB0304 /* InviteSearchViewController+UITableViewDataSource.swift */; };
 		6627A73424BD93C200FB0304 /* InviteSearchViewController+UITableViewDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6627A73324BD93C200FB0304 /* InviteSearchViewController+UITableViewDelegate.swift */; };
 		6627A73824BD94F000FB0304 /* InviteSearchViewController+UISearchResultsUpdating.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6627A73724BD94F000FB0304 /* InviteSearchViewController+UISearchResultsUpdating.swift */; };
 		662908D62ABDB9E60027535E /* NickGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662908D52ABDB9E60027535E /* NickGenerator.swift */; };
+		6629C1812F3C6AEB0051C625 /* SharedRosterUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6629C1802F3C6AE10051C625 /* SharedRosterUtils.swift */; };
+		6629C1822F3C6AF10051C625 /* SharedRosterUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6629C1802F3C6AE10051C625 /* SharedRosterUtils.swift */; };
 		662A2CED2E01811500EC9967 /* Notification+NameExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662A2CEC2E01810900EC9967 /* Notification+NameExtension.swift */; };
 		662A2CEF2E019A4B00EC9967 /* ChatViewController+InitialMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662A2CEE2E019A3F00EC9967 /* ChatViewController+InitialMessage.swift */; };
 		662A34592362FB0A00A4A71E /* DeleteConversationPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662A34582362FB0A00A4A71E /* DeleteConversationPresenter.swift */; };
@@ -635,6 +640,7 @@
 		66DF9E582B2B39C400D454A3 /* String+isNotEmpty.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66DF9E572B2B39C400D454A3 /* String+isNotEmpty.swift */; };
 		66E024CF228A8B1F00796184 /* SDPParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66E024CE228A8B1F00796184 /* SDPParser.swift */; };
 		66E0C36B2C060B7D00FEFE13 /* CreateNewEntityViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66E0C36A2C060B7D00FEFE13 /* CreateNewEntityViewController.swift */; };
+		66E1FD192F4479C000F1134E /* SensitiveContentFirstPaneViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66E1FD182F4479A900F1134E /* SensitiveContentFirstPaneViewController.swift */; };
 		66E319102BA8550300F149B1 /* NotificationsListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66E3190F2BA8550300F149B1 /* NotificationsListViewController.swift */; };
 		66E452C32A70390A00E7DF03 /* DeliveryReceiptsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66E452C22A70390A00E7DF03 /* DeliveryReceiptsManager.swift */; };
 		66E46FF12C46475300394F0D /* UnfairLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66E46FF02C46475300394F0D /* UnfairLock.swift */; };
@@ -1093,6 +1099,7 @@
 		660F55FB239A750800252608 /* GroupchatInviteListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupchatInviteListViewController.swift; sourceTree = "<group>"; };
 		660FBBBD2465A3180014B8FD /* UNNotificationAttachment+Download.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UNNotificationAttachment+Download.swift"; sourceTree = "<group>"; };
 		66128CFF24458B860056A8CA /* MessageManager+ChatUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MessageManager+ChatUpdater.swift"; sourceTree = "<group>"; };
+		6612EAA92F3DDEC80048C471 /* AbuseReportViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AbuseReportViewController.swift; sourceTree = "<group>"; };
 		6613EF1C2327793200AA3021 /* MessageManager+CommonReceiver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MessageManager+CommonReceiver.swift"; sourceTree = "<group>"; };
 		66153B4922E1BF87005D4567 /* SearchResultsViewController+SearchResultsUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SearchResultsViewController+SearchResultsUpdater.swift"; sourceTree = "<group>"; };
 		66153B4C22E1C59B005D4567 /* GlobalIndexManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalIndexManager.swift; sourceTree = "<group>"; };
@@ -1142,11 +1149,14 @@
 		662551CA28730EE7000055BD /* DevicesListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicesListViewController.swift; sourceTree = "<group>"; };
 		662551CC287313D1000055BD /* DevicesAndEncryptionListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicesAndEncryptionListViewController.swift; sourceTree = "<group>"; };
 		6625F72E207E2E5F001F3D4F /* RoundedStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoundedStatusView.swift; sourceTree = "<group>"; };
+		662602832F3F368600FE9439 /* XMPPAbuseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XMPPAbuseManager.swift; sourceTree = "<group>"; };
+		662602852F3F4D3000FE9439 /* XMPPAbuseConfigStorageItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XMPPAbuseConfigStorageItem.swift; sourceTree = "<group>"; };
 		6627A72F24BD939B00FB0304 /* InviteSearchViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InviteSearchViewController.swift; sourceTree = "<group>"; };
 		6627A73124BD93B200FB0304 /* InviteSearchViewController+UITableViewDataSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "InviteSearchViewController+UITableViewDataSource.swift"; sourceTree = "<group>"; };
 		6627A73324BD93C200FB0304 /* InviteSearchViewController+UITableViewDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "InviteSearchViewController+UITableViewDelegate.swift"; sourceTree = "<group>"; };
 		6627A73724BD94F000FB0304 /* InviteSearchViewController+UISearchResultsUpdating.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "InviteSearchViewController+UISearchResultsUpdating.swift"; sourceTree = "<group>"; };
 		662908D52ABDB9E60027535E /* NickGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NickGenerator.swift; sourceTree = "<group>"; };
+		6629C1802F3C6AE10051C625 /* SharedRosterUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedRosterUtils.swift; sourceTree = "<group>"; };
 		662A2CEC2E01810900EC9967 /* Notification+NameExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Notification+NameExtension.swift"; sourceTree = "<group>"; };
 		662A2CEE2E019A3F00EC9967 /* ChatViewController+InitialMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewController+InitialMessage.swift"; sourceTree = "<group>"; };
 		662A34582362FB0A00A4A71E /* DeleteConversationPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeleteConversationPresenter.swift; sourceTree = "<group>"; };
@@ -1613,6 +1623,7 @@
 		66DF9E572B2B39C400D454A3 /* String+isNotEmpty.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "String+isNotEmpty.swift"; sourceTree = "<group>"; };
 		66E024CE228A8B1F00796184 /* SDPParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SDPParser.swift; sourceTree = "<group>"; };
 		66E0C36A2C060B7D00FEFE13 /* CreateNewEntityViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateNewEntityViewController.swift; sourceTree = "<group>"; };
+		66E1FD182F4479A900F1134E /* SensitiveContentFirstPaneViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SensitiveContentFirstPaneViewController.swift; sourceTree = "<group>"; };
 		66E3190F2BA8550300F149B1 /* NotificationsListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsListViewController.swift; sourceTree = "<group>"; };
 		66E452C22A70390A00E7DF03 /* DeliveryReceiptsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeliveryReceiptsManager.swift; sourceTree = "<group>"; };
 		66E46FF02C46475300394F0D /* UnfairLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnfairLock.swift; sourceTree = "<group>"; };
@@ -1930,6 +1941,8 @@
 		66021BDD209ADEFD00B4387F /* chats */ = {
 			isa = PBXGroup;
 			children = (
+				66E1FD172F44799E00F1134E /* sensitive */,
+				6612EAA82F3DDEBD0048C471 /* abuse */,
 				6660989B2E2A67CE00820A95 /* modern_contactList */,
 				662B93912B9878A200EBC3EF /* last_chats_list */,
 				66B7991C22E06ADE001589A5 /* search */,
@@ -2051,6 +2064,14 @@
 			path = invited_list;
 			sourceTree = "<group>";
 		};
+		6612EAA82F3DDEBD0048C471 /* abuse */ = {
+			isa = PBXGroup;
+			children = (
+				6612EAA92F3DDEC80048C471 /* AbuseReportViewController.swift */,
+			);
+			path = abuse;
+			sourceTree = "<group>";
+		};
 		66153B4B22E1C579005D4567 /* global_index */ = {
 			isa = PBXGroup;
 			children = (
@@ -2161,6 +2182,7 @@
 		66159E18201EDE4900B1CF92 /* xmpp */ = {
 			isa = PBXGroup;
 			children = (
+				662602822F3F366600FE9439 /* abuse */,
 				844DA7982C6C7FB900D81F33 /* favorites */,
 				66F0AADA2BC00E8600079DA6 /* trust_sharing */,
 				66C28E772BA8706C000AF10B /* notifications */,
@@ -2288,6 +2310,15 @@
 				6679826D24E5769F003C3815 /* InitialMessageSizeCalculator.swift */,
 			);
 			path = calculators;
+			sourceTree = "<group>";
+		};
+		662602822F3F366600FE9439 /* abuse */ = {
+			isa = PBXGroup;
+			children = (
+				662602852F3F4D3000FE9439 /* XMPPAbuseConfigStorageItem.swift */,
+				662602832F3F368600FE9439 /* XMPPAbuseManager.swift */,
+			);
+			path = abuse;
 			sourceTree = "<group>";
 		};
 		6627A72E24BD938F00FB0304 /* search */ = {
@@ -3617,6 +3648,7 @@
 		66B5E7CA204E66A300D80AA2 /* roster */ = {
 			isa = PBXGroup;
 			children = (
+				6629C1802F3C6AE10051C625 /* SharedRosterUtils.swift */,
 				66B5E7CF204E66E300D80AA2 /* RosterUtils.swift */,
 				66B10A2C247D1CF200B0796D /* RosterManager.swift */,
 				6602C24A245AB47800036D8A /* RosterStorageItem.swift */,
@@ -3968,6 +4000,14 @@
 				6681BC7D249A4F33005CAACF /* MessageArchiveManager+Delegate.swift */,
 			);
 			path = message_archive;
+			sourceTree = "<group>";
+		};
+		66E1FD172F44799E00F1134E /* sensitive */ = {
+			isa = PBXGroup;
+			children = (
+				66E1FD182F4479A900F1134E /* SensitiveContentFirstPaneViewController.swift */,
+			);
+			path = sensitive;
 			sourceTree = "<group>";
 		};
 		66E2F4FF2A65654100942F60 /* TranslationManager */ = {
@@ -4888,6 +4928,7 @@
 				AF5FCCC52A84BB0000C7DDC0 /* CloudPhotoGallery.swift in Sources */,
 				662551CB28730EE7000055BD /* DevicesListViewController.swift in Sources */,
 				6667ABF028880A6100B9841A /* PrivacySplashScreenViewController.swift.swift in Sources */,
+				66E1FD192F4479C000F1134E /* SensitiveContentFirstPaneViewController.swift in Sources */,
 				6683C0F1265E06CB00922646 /* AvatarPickerViewController.swift in Sources */,
 				667BC4A8291E617600B07957 /* SubscribtionsPresenter.swift in Sources */,
 				1A93993227D9DAC700CEEBF6 /* AccountQuotaStorageItem.swift in Sources */,
@@ -4923,10 +4964,12 @@
 				6635A05725CC1A6C00EA57FE /* NewCallViewController+ItemCell.swift in Sources */,
 				66502CF72D8D404300984C22 /* NSAttributedString+Extensions.swift in Sources */,
 				66DF9E522B2B384100D454A3 /* SynchronizationArrayCallbackItem.swift in Sources */,
+				662602862F3F4D4100FE9439 /* XMPPAbuseConfigStorageItem.swift in Sources */,
 				6681C7852EFABB6700EF7170 /* FilesGalleryForChatViewController.swift in Sources */,
 				66CB2F7126C533F30085F311 /* vCardInfoViewController.swift in Sources */,
 				665D33CF22D890C50034F74E /* LastCallsViewController+UITableViewDelegate.swift in Sources */,
 				66D7AE8B203EA65B001FC6F3 /* VCard.swift in Sources */,
+				662602842F3F368E00FE9439 /* XMPPAbuseManager.swift in Sources */,
 				66B41956222FDD7200E15D1D /* ChatMarkers.swift in Sources */,
 				661BBA3C238FF59A00BE4A80 /* GroupchatInviteViewController+HeaderView.swift in Sources */,
 				664CF1B522A7FF4D007987B0 /* QuitAccountPresenter.swift in Sources */,
@@ -4947,6 +4990,7 @@
 				665451B322A92DD60077635D /* AccountEditViewController+UITextFieldDelegate.swift in Sources */,
 				AF6CDE1F2AB1B5DF004EBB9F /* CloudStorageDeleteViewController+UICollectionViewDelegateFlowLayout.swift in Sources */,
 				6689B4B624AB183D00A993BD /* LastChatsViewController+PullDownTableHeaderView.swift in Sources */,
+				6629C1812F3C6AEB0051C625 /* SharedRosterUtils.swift in Sources */,
 				6635A05225CC1A5A00EA57FE /* NewCallViewController+Flow.swift in Sources */,
 				66A5232428ED84DE008F7094 /* Data+EncryptionExtension.swift in Sources */,
 				84E7AEFA2C6CC3D90028C22A /* XMPPFavoritesManagerStorageItem.swift in Sources */,
@@ -5009,6 +5053,7 @@
 				1A9EDCCF27A7A26E00DEBE3B /* GroupchatInfoViewController+InfoScreenFooterButtonDelegate.swift in Sources */,
 				66F453AB261C36AE0086983D /* MessageSizeCache.swift in Sources */,
 				6683765822A5342700E520CF /* SettingManager.swift in Sources */,
+				6612EAAA2F3DDED00048C471 /* AbuseReportViewController.swift in Sources */,
 				660F55FC239A750800252608 /* GroupchatInviteListViewController.swift in Sources */,
 				6608562D2071F80A003E0122 /* RealmMigrations.swift in Sources */,
 				66999CBC27DA1D370046CED3 /* ButtonTableViewCell.swift.swift in Sources */,
@@ -5525,6 +5570,7 @@
 				66F339422F1FC73800EFB5B7 /* CredentialsManager.swift in Sources */,
 				66F339432F1FC74800EFB5B7 /* CommonConfigManager.swift in Sources */,
 				665A79612F1FCB0500709663 /* ArrayExtension.swift in Sources */,
+				6629C1822F3C6AF10051C625 /* SharedRosterUtils.swift in Sources */,
 				665A79622F1FCB2200709663 /* CommonContactsMetadataManager.swift in Sources */,
 				665A79602F1FCAE800709663 /* SynchronizationArrayCallbackItem.swift in Sources */,
 			);
@@ -6240,7 +6286,7 @@
 			repositoryURL = "https://github.com/whspr/swift-ogg";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 0.0.3;
+				minimumVersion = 0.0.5;
 			};
 		};
 		663D1B0C2D94294800EB1169 /* XCRemoteSwiftPackageReference "swift-opus" */ = {

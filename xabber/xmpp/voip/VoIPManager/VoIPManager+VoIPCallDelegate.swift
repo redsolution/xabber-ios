@@ -25,132 +25,120 @@ import CocoaLumberjack
 
 extension VoIPManager: VoIPCallDelegate {
     func VoIPCallDidChangeState(_ call: VoIPCall, to state: VoIPCall.State) {
-        //print(#function, state)
         DispatchQueue.main.async {
             self.callScreenDelegate?.didChangeState(to: state)
-            if state == .ended {
+           
+            // Завершаем звонок в CallKit только если он ещё не завершён
+            if state == .ended && self.currentCall?.callUUID != nil {
                 let transaction = CXTransaction(action: CXEndCallAction(call: call.callUUID))
-                self.controller.request(transaction) { (error) in
+                self.controller.request(transaction) { error in
                     if let error = error {
-                        //print(error.localizedDescription)
                         DDLogDebug(error.localizedDescription)
+                        // invalidate только при реальной ошибке транзакции
                         self.provider.invalidate()
                     }
                 }
             }
         }
     }
-    
+   
     func VoIPCallDidAccepted(_ call: VoIPCall) {
-        //print(#function)
-        
+        // Заготовка: можно использовать для дополнительной логики после получения <accept>
+        // (например, обновление UI или статистики)
     }
-    
+   
     func VoIPCallDidExpired(_ call: VoIPCall) {
-        print(#function)
         let transaction = CXTransaction(action: CXEndCallAction(call: call.callUUID))
-        self.controller.request(transaction) { (error) in
+        self.controller.request(transaction) { error in
             if let error = error {
-                //print(error.localizedDescription)
                 DDLogDebug(error.localizedDescription)
                 self.provider.invalidate()
             }
         }
         self.reset()
     }
-    
+   
     func VoIPCallDidHeld(_ call: VoIPCall) {
-        //print(#function)
+        // Заготовка: обработка удержания звонка (hold)
     }
-    
+   
     func VoIPCallDidEndWith(_ call: VoIPCall, error: Error?, byActiveStream: Bool) {
-        //print(#function, error)
         if let error = error {
             NotifyManager.shared.showSimpleNotify(withTitle: #function, subtitle: "fail", body: error.localizedDescription)
             DDLogDebug(error)
             self.provider.invalidate()
-        } else {
-            var duration: TimeInterval = 0.0
-            if let end = call.end,
-               let start = call.start {
-                duration = TimeInterval(Int(end.timeIntervalSince1970 - start.timeIntervalSince1970))
-            }
-            self.updateMessage(
-                call.callId,
-                jid: call.jid,
-                owner: call.owner,
-                callStqte: call.isMade ? .made : (call.outgoing ? .noanswer : .missed),
-                duration: duration > 1 ? duration : nil
-            )
-            
-            let transaction = CXTransaction(action: CXEndCallAction(call: call.callUUID))
-            self.controller.request(transaction) { (error) in
-                if let error = error {
-                    //print(error.localizedDescription)
-                    DDLogDebug(error.localizedDescription)
-                    self.provider.invalidate()
-                }
-            }
-            
-            if byActiveStream {
+        }
+       
+        // Централизованная логика завершения (updateMessage, reject, очистка WebRTC)
+        // Вызываем метод из основного класса, чтобы избежать дублирования
+        self.performEndCallActions()
+       
+        if byActiveStream {
+            DispatchQueue.main.async {
                 self.callScreenDelegate?.didChangeState(to: .ended)
             }
         }
-        
-        print(#function, 1)
-        self.reset()
     }
-    
+   
     func VoIPCallDidReceive(_ call: VoIPCall, sessionDescription: RTCSessionDescription) {
-//        if self.web
         switch sessionDescription.type {
-        case .offer:
-            self.webRTC?.set(remoteSdp: sessionDescription, completion: { (error) in
-                if let error = error {
-                    print(error.localizedDescription)
-//                    self.provider.invalidate()ddddd
-                    self.reset()
-                } else {
-                    self.webRTC?.answer(completion: { (sdp) in
-                        self.currentCall?.sessionDescription(sessionDescription: sdp)
-                    })
+            case .offer:
+                self.webRTC?.set(remoteSdp: sessionDescription) { error in
+                    if let error = error {
+                        DDLogDebug(error.localizedDescription)
+                        self.provider.invalidate()
+                        self.reset()
+                    } else {
+                        self.webRTC?.answer { sdp in
+                            self.currentCall?.sessionDescription(sessionDescription: sdp)
+                        }
+                    }
                 }
-            })
-            
-        case .prAnswer, .answer:
-            self.webRTC?.set(remoteSdp: sessionDescription, completion: { (error) in
-                if let error = error {
-                    print(error.localizedDescription)
-//                    self.provider.invalidate()dddddd
-                    self.reset()
+               
+            case .prAnswer:
+                // prAnswer — временный ответ, просто применяем (аналогично answer)
+                self.webRTC?.set(remoteSdp: sessionDescription) { error in
+                    if let error = error {
+                        DDLogDebug(error.localizedDescription)
+                        self.provider.invalidate()
+                        self.reset()
+                    }
                 }
-            })
-        @unknown default:
-            break
+               
+            case .answer:
+                self.webRTC?.set(remoteSdp: sessionDescription) { error in
+                    if let error = error {
+                        DDLogDebug(error.localizedDescription)
+                        self.provider.invalidate()
+                        self.reset()
+                    }
+                }
+            default:
+                break
         }
     }
-    
+   
     func VoIPCallDidReceive(_ call: VoIPCall, iceCandidate: RTCIceCandidate) {
         self.webRTC?.set(remoteCandidate: iceCandidate)
     }
-    
+   
     func VoIPCallDidChangeVideoState(_ call: VoIPCall, to state: VoIPCall.VideoState, myself: Bool) {
-        //print(state)
         if myself {
             self.callScreenDelegate?.didChangeMyVideoMode(to: state)
         } else {
             self.callScreenDelegate?.didChangeOpponentVideoMode(to: state)
         }
     }
-    
+   
     func VoIPCallDidUpdateContactJid(_ call: VoIPCall) {
         DispatchQueue.main.async {
             if self.shouldChangeVideoModeAfterConnecting {
                 _ = self.currentCall?.changeVideoState(to: self.isVideoEnabled ? .enabled : .disabled)
+                self.shouldChangeVideoModeAfterConnecting = false
             }
         }
     }
-    
+   
     func VoIPCallDidReceiveRejectMessage(_ call: VoIPCall) {
         self.isCallEnded = true
     }

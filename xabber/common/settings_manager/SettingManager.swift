@@ -97,7 +97,7 @@ open class SettingManager: NSObject {
     
     static var logEnabled: Bool {
         get {
-            guard let userDefaults = UserDefaults.init(suiteName: "com.xabber.ios.settings.common") else {
+            guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
                 return false
             }
             return userDefaults.bool(forKey: "developer_logEnabled")
@@ -127,7 +127,7 @@ open class SettingManager: NSObject {
     }
     
     public final func loadSettings() {
-        guard let userDefaults = UserDefaults.init(suiteName: "com.xabber.ios.settings.common") else {
+        guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
             fatalError()
         }
         writeDefault()
@@ -363,7 +363,7 @@ open class SettingManager: NSObject {
     }
     
     public final func writeDefault() {
-        guard let userDefaults = UserDefaults.init(suiteName: "com.xabber.ios.settings.common") else {
+        guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
             fatalError()
         }
         if userDefaults.value(forKey: "default_settingsCached") != nil {
@@ -433,14 +433,14 @@ open class SettingManager: NSObject {
     }
     
     public final func saveItem(key: String, value: Int) {
-        guard let userDefaults = UserDefaults.init(suiteName: "com.xabber.ios.settings.common") else {
+        guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
             fatalError()
         }
         userDefaults.set(value, forKey: key)
     }
     
     public final func saveItem(key: String, bool: Bool) {
-        guard let userDefaults = UserDefaults.init(suiteName: "com.xabber.ios.settings.common") else {
+        guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
             fatalError()
         }
         userDefaults.set(bool, forKey: key)
@@ -452,7 +452,7 @@ open class SettingManager: NSObject {
     }
     
     public final func saveItem(key: String, string: String) {
-        guard let userDefaults = UserDefaults.init(suiteName: "com.xabber.ios.settings.common") else {
+        guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
             fatalError()
         }
         userDefaults.set(string, forKey: key)
@@ -464,7 +464,7 @@ open class SettingManager: NSObject {
     }
     
     public final func removeItem(for jid: String, scope: KeyScope, key: String) {
-        guard let userDefaults = UserDefaults.init(suiteName: "com.xabber.ios.settings.common") else {
+        guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
             fatalError()
         }
         let computedKey: String = [scope.rawValue, key, jid].prp()
@@ -487,7 +487,7 @@ open class SettingManager: NSObject {
     }
     
     public final func getKey(for jid: String, scope: KeyScope, key: String) -> String? {
-        guard let userDefaults = UserDefaults.init(suiteName: "com.xabber.ios.settings.common") else {
+        guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
 //            print("SettingsManager: \(#function). Can`t load UserDefaults")
             return nil
         }
@@ -496,7 +496,7 @@ open class SettingManager: NSObject {
     }
     
     public final func getInt(for jid: String, scope: KeyScope, key: String) -> Int {
-        guard let userDefaults = UserDefaults.init(suiteName: "com.xabber.ios.settings.common") else {
+        guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
 //            print("SettingsManager: \(#function). Can`t load UserDefaults")
             return 0
         }
@@ -505,7 +505,7 @@ open class SettingManager: NSObject {
     }
     
     public final func getKeyBool(for jid: String, scope: KeyScope, key: String) -> Bool? {
-        guard let userDefaults = UserDefaults.init(suiteName: "com.xabber.ios.settings.common") else {
+        guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
 //            print("SettingsManager: \(#function). Can`t load UserDefaults")
             return nil
         }
@@ -514,14 +514,14 @@ open class SettingManager: NSObject {
     }
     
     public final func get(bool key: String) -> Bool {
-        guard let userDefaults = UserDefaults.init(suiteName: "com.xabber.ios.settings.common") else {
+        guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
             fatalError()
         }
         return userDefaults.bool(forKey: key)
     }
     
     public final func getString(for key: String) -> String? {
-        guard let userDefaults = UserDefaults.init(suiteName: "com.xabber.ios.settings.common") else {
+        guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
             fatalError()
         }
         return userDefaults.string(forKey: key)

@@ -22,40 +22,33 @@ import Foundation
 import WebRTC
 
 extension VoIPManager: WebRTCClientDelegate {
-        
     func webRTCClient(_ client: WebRTCClient, didDiscoverLocalCandidate candidate: RTCIceCandidate) {
-        //print(#function, candidate)
         self.currentCall?.candidate(iceCandidate: candidate)
     }
-    
+   
     func webRTCClient(_ client: WebRTCClient, didUpdateState state: RTCIceConnectionState) {
-        //print(#function, state)
         switch state {
         case .new:
             self.currentCall?.state = .connecting
+            // Для исходящих звонков — начинаем «соединение»
+            if let uuid = self.currentCall?.callUUID, self.currentCall?.outgoing == true {
+                self.provider.reportOutgoingCall(with: uuid, startedConnectingAt: Date())
+            }
         case .checking:
             self.currentCall?.state = .connecting
-        case .connected:
+        case .connected, .completed:
             self.currentCall?.state = .connected
-        case .completed:
-            break
-        case .failed:
+            // Только для исходящих звонков — отчёт о полном соединении
+            if let uuid = self.currentCall?.callUUID, self.currentCall?.outgoing == true {
+                self.provider.reportOutgoingCall(with: uuid, connectedAt: Date())
+            }
+            // Для входящих звонков соединение уже отчётовано при answer (dateConnected)
+        case .failed, .disconnected, .closed:
             self.currentCall?.state = .disconnected
-        case .disconnected:
-            self.currentCall?.state = .disconnected
-        case .closed:
-            self.currentCall?.state = .disconnected
-        case .count:
-            break
-        @unknown default:
+        default:
             break
         }
-        
     }
-    
-    func webRTCClient(_ client: WebRTCClient, didUpdateCameraResolution resolution: VoIPManager.CameraResolution) {
-        //print(#function, resolution)
-    }
-    
-    
+   
+    func webRTCClient(_ client: WebRTCClient, didUpdateCameraResolution resolution: CameraResolution) {}
 }

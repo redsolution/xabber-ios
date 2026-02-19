@@ -558,7 +558,7 @@ class SettingsViewController: BaseViewController {
     internal func load() {
         datasource = []
         activeVerificationSessionSid = nil
-        guard let userDefaults = UserDefaults.init(suiteName: "com.xabber.ios.settings.common")
+        guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup())
             else { fatalError() }
         let dict = userDefaults.dictionaryRepresentation()
         

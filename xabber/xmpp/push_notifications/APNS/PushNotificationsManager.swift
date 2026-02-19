@@ -242,14 +242,14 @@ class PushNotificationsManager: AbstractXMPPManager {
     }
     
     static public func removeDefaultsForPush(target: String, jid: String) {
-        if let defaults = UserDefaults.init(suiteName: PushNotificationsManager.suitName) {
+        if let defaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) {
             defaults.removeObject(forKey: target)
             defaults.removeObject(forKey: [jid, "state"].prp())
         }
     }
     
     static public func getDefaultsForPush(for target: String) -> [String: String] {
-        if let defaults = UserDefaults(suiteName: PushNotificationsManager.suitName),
+        if let defaults = UserDefaults(suiteName: CredentialsManager.uniqueAccessGroup()),
            let dict = defaults.dictionary(forKey: target) as? [String: String] {
             return dict
         }
@@ -259,7 +259,7 @@ class PushNotificationsManager: AbstractXMPPManager {
     static public func updateDefaultsForPush(_ target: String, key: String, value: String) {
         var dict = PushNotificationsManager.getDefaultsForPush(for: target)
         dict[key] = value
-        if let defaults = UserDefaults.init(suiteName: PushNotificationsManager.suitName) {
+        if let defaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) {
             defaults.set(dict, forKey: target)
             print("dict", getDefaultsForPush(for: target))
             print("set user defaults for \(key): \(value)")
@@ -267,7 +267,7 @@ class PushNotificationsManager: AbstractXMPPManager {
     }
     
     static public func setAccountStateForPush(jid: String, active: Bool) {
-        if let defaults = UserDefaults.init(suiteName: PushNotificationsManager.suitName) {
+        if let defaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) {
             defaults.set(active, forKey: [jid, "state"].prp())
         }
     }

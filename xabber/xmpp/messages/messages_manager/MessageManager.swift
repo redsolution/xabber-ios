@@ -443,7 +443,7 @@ class MessageManager: AbstractXMPPManager {
             let refs = realm.objects(MessageReferenceStorageItem.self).filter("owner == %@", owner)
             let calls = realm.objects(CallMetadataStorageItem.self).filter("owner == %@", owner)
 
-            let defaults  = UserDefaults.init(suiteName: PushNotificationsManager.suitName)
+            let defaults  = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup())
             defaults?.removeObject(forKey: "com.xabber.messages.temporary.\(owner)")
             
             if commitTransaction {

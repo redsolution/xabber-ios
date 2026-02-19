@@ -260,7 +260,7 @@ class MessageStorageItem: Object {
                     guard let url = item.downloadUrl else {
                         return nil
                     }
-                    return ImageAttachment(primary: item.primary, url: url, size: item.sizeInPx ?? CGSize(square: 128))
+                    return ImageAttachment(primary: item.primary, url: url, size: item.sizeInPx ?? CGSize(square: 128), isSensitive: item.isSensitive)
                 }
                 
                 let videos: [VideoAttachment] = self.references.toArray().filter {
@@ -334,7 +334,7 @@ class MessageStorageItem: Object {
                     guard let url = item.downloadUrl else {
                         return nil
                     }
-                    return ImageAttachment(primary: item.primary, url: url, size: item.sizeInPx ?? CGSize(square: 128))
+                    return ImageAttachment(primary: item.primary, url: url, size: item.sizeInPx ?? CGSize(square: 128), isSensitive: item.isSensitive)
                 }
                 
                 let videos: [VideoAttachment] = self.references.toArray().filter {

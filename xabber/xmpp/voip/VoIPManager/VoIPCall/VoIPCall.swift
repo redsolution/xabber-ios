@@ -330,10 +330,6 @@ extension VoIPCall {
             message.addChild(device)
         }
         
-        if let device = AccountManager.shared.find(for: owner)?.devices.deviceElement {
-            message.addChild(device)
-        }
-        
         if self.stream.isAuthenticated {
             self.stream.send(message)
         } else {

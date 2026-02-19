@@ -55,6 +55,14 @@ extension ChatViewController: ContextMenuDelegate {
                 self.forwardedIds.accept(Set<String>())
                 self.attachedMessagesIds.accept([])
                 self.editMessageId.accept(primary)
+            case "report":
+                let vc = AbuseReportViewController()
+                vc.jid = self.jid
+                vc.owner = self.owner
+                vc.message = primary
+                vc.conversationType = self.conversationType
+                
+                showModal(vc, parent: self)
             case "delete":
                 self.deleteMessages(forIds: Set([primary]))
             case "delete_sending":
@@ -102,6 +110,29 @@ extension ChatViewController: ContextMenuDelegate {
 //    }
 //}
 
+extension ChatViewController: SensitiveContentFirstPaneViewControllerDelegate {
+    func onViewGallery(messagePrimary: String, urls: [URL], url: URL) {
+//        self.showGallery(urls: urls, from: url)
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let realm = try WRealm.safe()
+                let objects = realm.objects(MessageReferenceStorageItem.self)
+                    .filter("owner == %@ AND jid == %@ AND messageId == %@", self.owner, self.jid, messagePrimary)
+                try realm.write {
+                    objects.forEach {
+                        $0.isSensitive = false
+                    }
+                    if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: messagePrimary) {
+                        instance.queryIds = "\(instance.queryIds ?? "") "
+                    }
+                }
+            } catch {
+                DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            }
+        }
+    }
+}
+
 extension ChatViewController: MessageCellDelegate {
     func isInSelection() -> Bool {
         return self.isInSelectionMode.value
@@ -111,8 +142,19 @@ extension ChatViewController: MessageCellDelegate {
         self.openFile(url)
     }
     
-    func didTapOnPhoto(urls: [URL], url: URL) {
-        self.showGallery(urls: urls, from: url)
+    func didTapOnPhoto(message messagePrimary: String, urls: [URL], url: URL, isSensitive: Bool) {
+        if isSensitive {
+            let vc = SensitiveContentFirstPaneViewController()
+            vc.isFirstStep = true
+            vc.urls = urls
+            vc.url = url
+            vc.delegate = self
+            vc.messagePrimary = messagePrimary
+//            let nvc = UINavigationController(rootViewController: vc)
+            showModal(vc)
+        } else {
+            self.showGallery(urls: urls, from: url)
+        }
     }
     
     func didTapOnVideo(url: URL?) {
@@ -542,24 +584,30 @@ extension ChatViewController: MessageCellDelegate {
         CM.currentMessagePrimary = primary
         if item.state == .error {
             CM.items = [[
-                ContextMenuItemWithImage(title: "Resend", image: imageLiteral("arrowshape.turn.up.backward")!, value: "retry", danger: false),
+                ContextMenuItemWithImage(title: "Resend", image: imageLiteral("arrowshape.turn.up.backward")!, value: "retry", danger: false)
+            ],[
                 ContextMenuItemWithImage(title: "Delete", image: imageLiteral("trash")!, value: "delete_error", danger: true)
-            ],[ContextMenuItemWithImage(title: "Select", image: imageLiteral("checkmark.circle")!, value: "select", danger: false)]]
+            ]]
         } else if item.isOutgoing {
             CM.items = [[
                 ContextMenuItemWithImage(title: "Reply", image: imageLiteral("arrowshape.turn.up.backward")!, value: "reply", danger: false),
-                ContextMenuItemWithImage(title: "Copy", image: imageLiteral("doc.on.doc")!, value: "copy", danger: false),
                 ContextMenuItemWithImage(title: "Forward", image: imageLiteral("arrowshape.turn.up.right")!, value: "forward", danger: false),
+                ContextMenuItemWithImage(title: "Copy", image: imageLiteral("doc.on.doc")!, value: "copy", danger: false),
                 ContextMenuItemWithImage(title: "Edit", image: imageLiteral("xabber.pencil.cap")!, value: "edit", danger: false),
+                ContextMenuItemWithImage(title: "Select", image: imageLiteral("checkmark.circle")!, value: "select", danger: false)
+            ],[
                 ContextMenuItemWithImage(title: "Delete", image: imageLiteral("trash")!, value: "delete", danger: true)
-            ],[ContextMenuItemWithImage(title: "Select", image: imageLiteral("checkmark.circle")!, value: "select", danger: false)]]
+            ]]
         } else {
             CM.items = [[
                 ContextMenuItemWithImage(title: "Reply", image: imageLiteral("arrowshape.turn.up.backward")!, value: "reply", danger: false),
-                ContextMenuItemWithImage(title: "Copy", image: imageLiteral("doc.on.doc")!, value: "copy", danger: false),
                 ContextMenuItemWithImage(title: "Forward", image: imageLiteral("arrowshape.turn.up.right")!, value: "forward", danger: false),
+                ContextMenuItemWithImage(title: "Copy", image: imageLiteral("doc.on.doc")!, value: "copy", danger: false),
+                ContextMenuItemWithImage(title: "Select", image: imageLiteral("checkmark.circle")!, value: "select", danger: false),
+                ContextMenuItemWithImage(title: "Report", image: imageLiteral("exclamationmark.circle")!, value: "report", danger: false)
+            ],[
                 ContextMenuItemWithImage(title: "Delete", image: imageLiteral("trash")!, value: "delete", danger: true)
-            ],[ContextMenuItemWithImage(title: "Select", image: imageLiteral("checkmark.circle")!, value: "select", danger: false)]]
+            ]]
         }
         dismissKeyboard()
         CM.showMenu(viewTargeted: cell.contentView, delegate: self, animated: true)

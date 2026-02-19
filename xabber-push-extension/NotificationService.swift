@@ -552,7 +552,7 @@ class NotificationService: UNNotificationServiceExtension {
         }
         
         guard let target = payload["target"] as? String,
-              let defaults  = UserDefaults.init(suiteName: NotificationService.suitName) else {
+              let defaults  = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
             return [:]
         }
         
@@ -570,7 +570,7 @@ class NotificationService: UNNotificationServiceExtension {
     }
     
     internal func updateActiveSession() {
-        if let defaults  = UserDefaults.init(suiteName: NotificationService.suitName) {
+        if let defaults  = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) {
             hasActiveSession = defaults.bool(forKey: [owner, "state"].joined(separator: "_"))
         }
     }
@@ -816,7 +816,7 @@ extension NotificationService: PushPayloadDelegate {
     }
     
     func didReceiveSync(stanza: String) {
-        let defaults  = UserDefaults.init(suiteName: NotificationService.suitName)
+        let defaults  = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup())
         defaults?.set(stanza, forKey: "com.xabber.sync.temporary.\(owner)")
     }
     
@@ -882,16 +882,9 @@ extension NotificationService: PushPayloadDelegate {
 //                self.bestAttemptContent = bestAttemptContent
             } else {
                 bestAttemptContent.title = CommonConfigManager.shared.config.app_name
+                let metadata = CommonContactsMetadataManager.shared.getItem(owner: owner, jid: payload["from"] ?? "none")
                 if let body = payload["body"] {
                     bestAttemptContent.body = body
-                }
-                if let nickname = payload["nickname"] {
-                    if !editMark.isEmpty {
-                        
-                    } else {
-                        bestAttemptContent.subtitle = ["💨", nickname].joined(separator: " ")
-                    }
-                    bestAttemptContent.subtitle = nickname
                 }
                 if let groupchatFrom = payload["groupchatFrom"] {
                     if groupchatFrom == owner {
@@ -914,6 +907,14 @@ extension NotificationService: PushPayloadDelegate {
                         bestAttemptContent.subtitle = ["", bestAttemptContent.title].joined(separator: " ")
                     }
                 }
+                if let nickname = payload["nickname"] ?? metadata.username {
+//                    if !editMark.isEmpty {
+//                        
+//                    } else {
+//                        bestAttemptContent.subtitle = nickname//["💨", nickname].joined(separator: " ")
+//                    }
+                    bestAttemptContent.subtitle = nickname
+                }
                 if let imageUrls = payload["imageUrls"] {
                     let urls = imageUrls
                         .split(separator: " ")
@@ -931,9 +932,7 @@ extension NotificationService: PushPayloadDelegate {
                 
                 bestAttemptContent.sound = .default
                 bestAttemptContent.categoryIdentifier = "com.xabber.ios.message.push"
-                
-                let metadata = CommonContactsMetadataManager.shared.getItem(owner: owner, jid: payload["from"] ?? "none")
-                
+                                
                 let handle = INPersonHandle(value: metadata.jid, type: .emailAddress)
                 
                 var avatar: INImage

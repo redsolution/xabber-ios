@@ -363,7 +363,7 @@ class ApplicationStateManager: NSObject {
     
     public final func prepare() {
         addObservers()
-        VoIPManager.shared.prepare()
+//        VoIPManager.shared.prepare()
         SignatureManager.shared.prepare()
         SubscribtionsManager.shared.prepare()
         AccountColorManager.shared.load()
@@ -391,6 +391,7 @@ class ApplicationStateManager: NSObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
             AuthenticatedKeyExchangeManager.prepare()
         }
+        MessageReferenceStorageItem.checkAllUndefinedForSesitive()
     }
     
     var autoDeleteTaskTimer: Timer? = nil

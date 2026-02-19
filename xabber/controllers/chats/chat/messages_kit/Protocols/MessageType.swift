@@ -74,11 +74,13 @@ class ImageAttachment {
     var primary: String
     var url: URL?
     var size: CGSize
+    var isSensitive: Bool
     
-    init(primary: String, url: URL?, size: CGSize) {
+    init(primary: String, url: URL? = nil, size: CGSize, isSensitive: Bool) {
         self.primary = primary
         self.url = url
         self.size = size
+        self.isSensitive = isSensitive
     }
     
 }

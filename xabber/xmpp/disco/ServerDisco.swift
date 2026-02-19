@@ -249,23 +249,28 @@ class ServerDiscoManager: AbstractXMPPManager {
                 let fieldType = field.attributeStringValue(forName: "var")
                 
                 switch fieldType {
-                case "FORM_TYPE":
-                    if let value = field.element(forName: "value"),
-                        let namespace = value.stringValue {
-                        xDictionary["namespace"] = namespace
-                    }
-                case "urn:xabber:http:url:mediagallery":
-                    if let value = field.element(forName: "value"),
-                        let url = value.stringValue {
-                        xDictionary["galleryURL"] = url
-                    }
-                case "urn:xabber:http:url:clandestino:purchases:products:v1":
-                    if let value = field.element(forName: "value"),
-                        let url = value.stringValue {
-                        xDictionary["productsUrl"] = url
-                    }
-                default:
-                    continue
+                    case "FORM_TYPE":
+                        if let value = field.element(forName: "value"),
+                            let namespace = value.stringValue {
+                            xDictionary["namespace"] = namespace
+                        }
+                    case "urn:xabber:http:url:mediagallery":
+                        if let value = field.element(forName: "value"),
+                            let url = value.stringValue {
+                            xDictionary["galleryURL"] = url
+                        }
+                    case "urn:xabber:http:url:clandestino:purchases:products:v1":
+                        if let value = field.element(forName: "value"),
+                            let url = value.stringValue {
+                            xDictionary["productsUrl"] = url
+                        }
+                    case "abuse-addresses":
+                        if let value = field.element(forName: "value"),
+                           let jid = value.stringValue {
+                            AccountManager.shared.find(for: self.owner)?.abuse.register(address: jid, for: self.owner, isGroup: false)
+                        }
+                    default:
+                        continue
                 }
             }
 

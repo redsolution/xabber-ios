@@ -27,8 +27,7 @@ import RxRealm
 import DeepDiff
 import CocoaLumberjack
 import MaterialComponents.MDCPalettes
-
-
+import SensitiveContentAnalysis
 
 extension ChatViewController {
     
@@ -86,7 +85,8 @@ extension ChatViewController {
         }.compactMap {
             item in
             let url = item.downloadUrl
-            return ImageAttachment(primary: item.primary, url: url, size: item.sizeInPx ?? CGSize(square: 128))
+            var isSensitive: Bool = false
+            return ImageAttachment(primary: item.primary, url: url, size: item.sizeInPx ?? CGSize(square: 128), isSensitive: isSensitive)
         }
         
         let videos: [VideoAttachment] = attachment.references.toArray().filter {
@@ -328,7 +328,7 @@ extension ChatViewController {
 //                guard let url = item.downloadUrl else {
 //                    return nil
 //                }
-                return ImageAttachment(primary: item.primary, url: url, size: item.sizeInPx ?? CGSize(square: 128))
+                return ImageAttachment(primary: item.primary, url: url, size: item.sizeInPx ?? CGSize(square: 128), isSensitive: item.isSensitive)
             }
             
             let videos: [VideoAttachment] = item.references.toArray().filter {

@@ -32,7 +32,7 @@ extension PresenceManager {
             target: nil
         ).asyncAfter(deadline: .now() + 0.3) {
             
-            let defaults  = UserDefaults.init(suiteName: PushNotificationsManager.suitName)
+            let defaults  = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup())
             let collection: [String] = defaults?.object(forKey: "com.xabber.presences.temporary.\(self.owner)") as? [String] ?? []
             collection
                 .compactMap { return try? DDXMLDocument(xmlString: $0, options: 0) }

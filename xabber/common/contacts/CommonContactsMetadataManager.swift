@@ -26,7 +26,7 @@ class CommonContactsMetadataManager: NSObject {
     let key: String = "contacts_metadata"
     
     public func clear(for owner: String) {
-        guard let userDefaults = UserDefaults.init(suiteName: "group.com.xabber") else {
+        guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
             fatalError()
         }
         userDefaults.dictionaryRepresentation().keys.forEach {
@@ -37,7 +37,7 @@ class CommonContactsMetadataManager: NSObject {
     }
     
     public func update(owner: String, jid: String, username: String?, avatarUrl: String?) {
-        guard let userDefaults = UserDefaults.init(suiteName: "group.com.xabber") else {
+        guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
             fatalError()
         }
         var metadata: [String: Any] = userDefaults.dictionary(forKey: [key, owner, jid].prp()) ?? ["username": username ?? "test", "avatarUrl": avatarUrl ?? ""]
@@ -51,7 +51,7 @@ class CommonContactsMetadataManager: NSObject {
     }
     
     public func getItem(owner: String, jid: String) -> Metadata {
-        guard let userDefaults = UserDefaults.init(suiteName: "group.com.xabber") else {
+        guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
             fatalError()
         }
         if let metadata: [String: Any] = userDefaults.dictionary(forKey: [key, owner, jid].prp()) {

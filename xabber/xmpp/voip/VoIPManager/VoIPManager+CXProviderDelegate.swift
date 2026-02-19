@@ -25,125 +25,72 @@ import XMPPFramework
 import AVFoundation
 
 extension VoIPManager: CXProviderDelegate {
-    
-    func providerDidBegin(_ provider: CXProvider) {
-        self.reset()
-    }
-    
-    func providerDidReset(_ provider: CXProvider) {
-//        self.reset()
-    }
-    
+    func providerDidReset(_ provider: CXProvider) {}
+   
     func provider(_ provider: CXProvider, perform action: CXStartCallAction) {
         action.fulfill()
     }
-    
+   
     func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
         print(#function)
-        
-        if self.isCallAccepted {
-            var reason: MessageStorageItem.VoIPCallState = .none
-            if let call = self.currentCall {
-                if !call.isMade {
-                    reason = call.outgoing ? .noanswer : .missed
-                }
-            }
-            self.currentCall?.rejectCall(reason: reason)
-        } else {
-            self.currentCall?.rejectCall(reason: .noanswer)
-        }
-        if let call = currentCall {
-            var duration: TimeInterval = 0.0
-            if let end = call.end,
-               let start = call.start {
-                duration = TimeInterval(Int(end.timeIntervalSince1970 - start.timeIntervalSince1970))
-            }
-            self.updateMessage(
-                call.callId,
-                jid: call.jid,
-                owner: call.owner,
-                callStqte: call.isMade ? .made : (call.outgoing ? .noanswer : .missed),
-                duration: duration > 1 ? duration : nil
-            )
-        }
+        performEndCallActions()
         action.fulfill(withDateEnded: Date())
     }
-        
+       
     func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
         print(#function, action)
         guard let owner = self.currentCall?.owner,
               let jidRaw = self.currentCall?.jid,
               let jid = XMPPJID(string: jidRaw)?.bare else {
-                  action.fail()
-                  print(#function)
-                  self.reset()
-                  return
-              }
-        DispatchQueue.main.async {
-            let callScreenPresenter = CallScreenPresenter(jid: jid, owner: owner, hideAppTabBar: true)
-            if callScreenPresenter.asyncGetPresenter() != nil {
-                self.callScreenDelegate = callScreenPresenter.present(animated: true) {
-                    
-                }
-            } else {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
-                    let callScreenPresenter = CallScreenPresenter(jid: jid, owner: owner, hideAppTabBar: true)
-                    self.callScreenDelegate = callScreenPresenter.present(animated: true) {
-                        
-                    }
-                }
-            }
-            _ = self.currentCall?.acceptCall()
-            self.isCallAccepted = true
-            self.inCallingProcess = true
-            self.webRTC = WebRTCClient()
-            self.webRTC?.delegate = self
-            self.webRTC?.offer(completion: { (sdp) in
-                self.currentCall?.sessionDescription(sessionDescription: sdp)
-            })
+            action.fail()
+            self.reset()
+            return
         }
-//        _ = self.currentCall?.acceptCall()
-//        self.isCallAccepted = true
-//        self.inCallingProcess = true
-//        self.webRTC = WebRTCClient()
-//        self.webRTC?.delegate = self
-//        self.webRTC?.offer(completion: { (sdp) in
-//            self.currentCall?.sessionDescription(sessionDescription: sdp)
-//        })
+       
+        let callScreenPresenter = CallScreenPresenter(jid: jid, owner: owner, hideAppTabBar: true)
+        if callScreenPresenter.asyncGetPresenter() != nil {
+            self.callScreenDelegate = callScreenPresenter.present(animated: true) {}
+        }
+       
+        _ = self.currentCall?.acceptCall()
+        self.isCallAccepted = true
+        self.inCallingProcess = true
+       
+        self.webRTC = WebRTCClient()
+        self.webRTC?.delegate = self
+        self.webRTC?.offer { sdp in
+            self.currentCall?.sessionDescription(sessionDescription: sdp)
+        }
+       
         action.fulfill(withDateConnected: Date())
     }
-    
+   
     func provider(_ provider: CXProvider, perform action: CXSetMutedCallAction) {
-        print(#function, action)
         self.callScreenDelegate?.didChangeMicState(to: !action.isMuted)
         action.fulfill()
     }
-    
+   
     func provider(_ provider: CXProvider, timedOutPerforming action: CXAction) {
-        print(#function, action)
         self.reset()
         action.fulfill()
     }
-    
+   
     func provider(_ provider: CXProvider, perform action: CXSetHeldCallAction) {
-        print(#function, action)
         action.fulfill()
     }
-    
+   
     func provider(_ provider: CXProvider, perform action: CXSetGroupCallAction) {
-        print(#function, action)
         action.fail()
     }
-    
+   
     func provider(_ provider: CXProvider, perform action: CXPlayDTMFCallAction) {
-        print(#function, action)
         action.fulfill()
     }
-    
+   
     func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {
         print(#function)
     }
-    
+   
     func provider(_ provider: CXProvider, didDeactivate audioSession: AVAudioSession) {
         print(#function)
     }

@@ -367,6 +367,7 @@ class RosterManager: AbstractXMPPManager {
                         instance.owner = owner
                         instance.customUsername = item.attributeStringValue(forName: "name", withDefaultValue: "")
                         instance.subscription_ = subscribtion
+//                        SharedRosterUtils.setUsername(jid: jid, owner: owner, username: instance.displayName)
 //                        instance.ask_ = item.attributeStringValue(forName: "ask", withDefaultValue: "none")
                         if let ask = item.attributeStringValue(forName: "ask") {
                             if ask == "subscribe" {

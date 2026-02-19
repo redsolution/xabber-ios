@@ -212,19 +212,33 @@ class LeftMenuViewController: UIViewController {
             let contacts = realm.objects(RosterStorageItem.self).filter("owner IN %@ AND isHidden == false AND removed == false AND ask_ == %@ AND isContact == true AND NOT (jid IN %@)", jids, "in", ignoredJids)
             let notifications = realm.objects(NotificationStorageItem.self).filter("isRead == false AND shouldShow == true")
             let invitations = realm.objects(GroupchatInvitesStorageItem.self).filter("owner IN %@ AND isRead == false", jids)
-            self.datasource = [[
-                Datasource(title: "Chats", icon: "custom.bubble", key: "chat", category: "", subtitle: "\(chats)", showTriangle: false),
-                Datasource(title: "Calls", icon: "phone", key: "calls", category: "", subtitle: "\(calls.count)", showTriangle: false),
-    //            Datasource(title: "Mentions", icon: "at", key: "mentions"),
-                Datasource(title: "Notifications", icon: "bell", key: "notifications", category: "", subtitle: "\(notifications.count)", showTriangle: false),
-                Datasource(title: "Contacts", icon: "person", key: "contacts", category: "contacts", subtitle: "\(contacts.count)", showTriangle: false),
-                Datasource(title: "Groups", icon: "person.2", key: "groups", category: "public", subtitle: "\(invitations.count)", showTriangle: false),
-                Datasource(title: "Archive", icon: "archivebox", key: "archive", category: "", subtitle: "\(archived)", showTriangle: false),
-                Datasource(title: "Saved messages", icon: "bookmark", key: "saved", category: "", subtitle: "0", showTriangle: false),
-            ],[
-               Datasource(title: "Settings", icon: "gearshape", key: "settings", category: "", subtitle: "0", showTriangle: false),
-            ]
-           ]
+            if CommonConfigManager.shared.config.support_groupchats {
+                self.datasource = [[
+                    Datasource(title: "Chats", icon: "custom.bubble", key: "chat", category: "", subtitle: "\(chats)", showTriangle: false),
+                    Datasource(title: "Calls", icon: "phone", key: "calls", category: "", subtitle: "\(calls.count)", showTriangle: false),
+                    Datasource(title: "Notifications", icon: "bell", key: "notifications", category: "", subtitle: "\(notifications.count)", showTriangle: false),
+                    Datasource(title: "Contacts", icon: "person", key: "contacts", category: "contacts", subtitle: "\(contacts.count)", showTriangle: false),
+                    Datasource(title: "Groups", icon: "person.2", key: "groups", category: "public", subtitle: "\(invitations.count)", showTriangle: false),
+                    Datasource(title: "Archive", icon: "archivebox", key: "archive", category: "", subtitle: "\(archived)", showTriangle: false),
+                    Datasource(title: "Saved messages", icon: "bookmark", key: "saved", category: "", subtitle: "0", showTriangle: false),
+                ],[
+                   Datasource(title: "Settings", icon: "gearshape", key: "settings", category: "", subtitle: "0", showTriangle: false),
+                ]
+               ]
+            } else {
+                self.datasource = [[
+                    Datasource(title: "Chats", icon: "custom.bubble", key: "chat", category: "", subtitle: "\(chats)", showTriangle: false),
+                    Datasource(title: "Calls", icon: "phone", key: "calls", category: "", subtitle: "\(calls.count)", showTriangle: false),
+                    Datasource(title: "Notifications", icon: "bell", key: "notifications", category: "", subtitle: "\(notifications.count)", showTriangle: false),
+                    Datasource(title: "Contacts", icon: "person", key: "contacts", category: "contacts", subtitle: "\(contacts.count)", showTriangle: false),
+                    Datasource(title: "Archive", icon: "archivebox", key: "archive", category: "", subtitle: "\(archived)", showTriangle: false),
+                    Datasource(title: "Saved messages", icon: "bookmark", key: "saved", category: "", subtitle: "0", showTriangle: false),
+                ],[
+                   Datasource(title: "Settings", icon: "gearshape", key: "settings", category: "", subtitle: "0", showTriangle: false),
+                ]
+               ]
+            }
+            
         } catch {
             DDLogDebug("LeftMenuViewController: \(#function). \(error.localizedDescription)")
         }

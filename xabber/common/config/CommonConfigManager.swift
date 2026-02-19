@@ -87,6 +87,7 @@ class CommonConfigManager: NSObject {
         var symbol_weight: String
         var chat_avatar_size: Int
         var use_large_title: Bool
+        var default_report_address: String
     }
     
     var interfaceType: InterfaceType {

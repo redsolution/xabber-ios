@@ -265,9 +265,9 @@ class InlineMessageAttachmentView: ModernContainerView {
     }
     
     var palette: MDCPalette = .amber
-    
+    var messagePrimary: String = ""
     func configure(_ message: MessageAttachment, palette: MDCPalette) {
-        
+        self.messagePrimary = message.primary
         imagesView.configure(message.images)
         videosView.configure(message.videos)
         audiosView.delegate = self.delegate
@@ -311,8 +311,11 @@ class InlineMessageAttachmentView: ModernContainerView {
             }
         } else if self.imagesView.frame.contains(touchPoint) {
             let translatedPoint = touchPoint.translate(x: -self.imagesView.frame.minX, y: -self.imagesView.frame.minY)
-            if self.imagesView.handleTouch(at: translatedPoint, callback: { (urls, url) in
-                self.delegate?.didTapOnPhoto(urls: urls, url: url)
+            if self.imagesView.handleTouch(at: translatedPoint, callback: { (urls, url, isSensitive) in
+//                if isSensitive {
+////                    fatalError()
+//                }
+                self.delegate?.didTapOnPhoto(message: self.messagePrimary, urls: urls, url: url, isSensitive: isSensitive)
             }) {
                 return true
             }

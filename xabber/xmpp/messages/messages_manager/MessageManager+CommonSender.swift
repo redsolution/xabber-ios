@@ -342,7 +342,7 @@ extension MessageManager {
         return out.sorted(by: { $0.date.compare($1.date) == .orderedDescending })
     }
     
-    internal func prepareForwards(_ forwardedIds: [String], primary: String, owner: String, jid: String) -> [MessageForwardsInlineStorageItem] {
+    internal func prepareForwards(_ forwardedIds: [String], primary: String, isReport: Bool, owner: String, jid: String) -> [MessageForwardsInlineStorageItem] {
         var out: [MessageForwardsInlineStorageItem] = []
         
         do {
@@ -425,7 +425,7 @@ extension MessageManager {
         }
     }
         
-    public func sendSimpleMessage(_ body: String, to jid: String, childs: [DDXMLElement] = [],  forwarded: [String], conversationType: ClientSynchronizationManager.ConversationType) -> String {
+    public func sendSimpleMessage(_ body: String, to jid: String, childs: [DDXMLElement] = [],  forwarded: [String], conversationType: ClientSynchronizationManager.ConversationType, isReport: Bool = false) -> String {
         let originalId = NanoID.new(8)
         do {
             let realm = try  WRealm.safe()
@@ -445,6 +445,7 @@ extension MessageManager {
                                               references: [],
                                               inlineForwards: prepareForwards(forwarded,
                                                                               primary: instance.primary,
+                                                                              isReport: isReport,
                                                                               owner: owner,
                                                                               jid: jid))
             if realm
@@ -455,15 +456,19 @@ extension MessageManager {
             instance.updatePrimary()
             let prevMessageInstance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: self.owner, conversationType: conversationType))?.lastMessage
             let prevMessageId = prevMessageInstance?.messageId
-            if let prevMessageId = prevMessageId {
+            if let prevMessageId = prevMessageId, isReport == false {
                 if !(prevMessageInstance?.outgoing ?? true) {
                     AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, stream in
                         user.chatMarkers.displayed(stream, message: prevMessageId)
                     })
                 }
             }
+            
             try realm.write {
                 _ = instance.save(commitTransaction: false)
+                if isReport {
+                    instance.isDeleted = true
+                }
                 let chat = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: self.owner, conversationType: conversationType))
                 chat?.lastReadId = nil
                 chat?.draftMessage = nil
@@ -521,6 +526,7 @@ extension MessageManager {
                                               references: attachments,
                                               inlineForwards: prepareForwards(forwarded,
                                                                               primary: instance.primary,
+                                                                              isReport: false,
                                                                               owner: owner,
                                                                               jid: jid))
             instance.conversationType = conversationType
@@ -563,6 +569,7 @@ extension MessageManager {
                                               references: attachments,
                                               inlineForwards: prepareForwards(forwarded,
                                                                               primary: instance.primary,
+                                                                              isReport: false,
                                                                               owner: owner,
                                                                               jid: jid))
             instance.conversationType = conversationType
