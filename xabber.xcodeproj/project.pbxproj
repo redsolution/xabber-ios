@@ -6283,7 +6283,7 @@
 		};
 		662D88D72F3B11FB003EC7E1 /* XCRemoteSwiftPackageReference "swift-ogg" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/whspr/swift-ogg";
+			repositoryURL = "https://github.com/redsolution/swift-ogg";
 			requirement = {
 				kind = upToNextMajorVersion;
 				minimumVersion = 0.0.5;
@@ -6291,7 +6291,7 @@
 		};
 		663D1B0C2D94294800EB1169 /* XCRemoteSwiftPackageReference "swift-opus" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/alta/swift-opus";
+			repositoryURL = "https://github.com/redsolution/swift-opus";
 			requirement = {
 				kind = upToNextMajorVersion;
 				minimumVersion = 0.0.2;

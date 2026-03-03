@@ -166,6 +166,9 @@ class ContactsCategoryViewController: BaseViewController {
         let jids = accounts.toArray().compactMap({ return $0.jid })
         var ignoredJids: [String] = AccountManager.shared.users.compactMap { $0.notifications.node }
         ignoredJids.append(contentsOf: AccountManager.shared.users.compactMap { $0.favorites.node })
+        var ignoredAbuse = Set(realm.objects(XMPPAbuseConfigStorageItem.self).toArray().compactMap({ $0.abuseAddress }))
+        ignoredAbuse.insert(CommonConfigManager.shared.config.default_report_address)
+        ignoredJids.append(contentsOf: Array(ignoredAbuse))
         var ignoredAccounts = realm.objects(AccountStorageItem.self).filter("enabled == true").toArray().compactMap { $0.jid }
         ignoredJids.append(contentsOf: ignoredAccounts)
         if CommonConfigManager.shared.config.support_jid.isNotEmpty {

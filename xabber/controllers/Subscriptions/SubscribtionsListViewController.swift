@@ -227,7 +227,7 @@ class SubscribtionsListViewController: SimpleBaseViewController {
 //                    (UIApplication.shared.delegate as! AppDelegate).window?.rootViewController = vc
 //                    (UIApplication.shared.delegate as! AppDelegate).splitController = vc
                     let appDelegate = UIApplication.shared.delegate as? AppDelegate
-                    AppDelegate.setupRootViewController(instance: appDelegate, window: appDelegate?.window)
+                    AppDelegate.setupRootViewController(instance: appDelegate, window: appDelegate?.window, userInfo: nil)
                 default:
                     self.dismiss(animated: true)
                     self.navigationController?.popViewController(animated: true)

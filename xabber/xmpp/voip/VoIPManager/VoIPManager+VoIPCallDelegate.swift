@@ -24,6 +24,17 @@ import WebRTC
 import CocoaLumberjack
 
 extension VoIPManager: VoIPCallDelegate {
+    
+    func VoIPCallEndCallAnswerElsewhere(_ call: VoIPCall) {
+        self.provider.reportCall(with: call.callUUID, endedAt: Date(), reason: .answeredElsewhere)
+        self.provider.invalidate()
+    }
+    
+    func VoIPCallEndCallRejected(_ call: VoIPCall) {
+        self.provider.reportCall(with: call.callUUID, endedAt: Date(), reason: .remoteEnded)
+        self.provider.invalidate()
+    }
+    
     func VoIPCallDidChangeState(_ call: VoIPCall, to state: VoIPCall.State) {
         DispatchQueue.main.async {
             self.callScreenDelegate?.didChangeState(to: state)
@@ -64,8 +75,9 @@ extension VoIPManager: VoIPCallDelegate {
    
     func VoIPCallDidEndWith(_ call: VoIPCall, error: Error?, byActiveStream: Bool) {
         if let error = error {
-            NotifyManager.shared.showSimpleNotify(withTitle: #function, subtitle: "fail", body: error.localizedDescription)
-            DDLogDebug(error)
+//            NotifyManager.shared.showSimpleNotify(withTitle: #function, subtitle: "fail", body: error.localizedDescription)
+//            DDLogDebug(error)
+            self.provider.reportCall(with: call.callUUID, endedAt: Date(), reason: .failed)
             self.provider.invalidate()
         }
        

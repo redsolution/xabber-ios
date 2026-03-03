@@ -57,8 +57,15 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         let appDelegate = UIApplication.shared.delegate as? AppDelegate
         appDelegate?.window = window
         window?.makeKeyAndVisible()
-        AppDelegate.setupRootViewController(instance: appDelegate, window: window)
+        var userInfo: [AnyHashable: Any]? = nil
+        if let notificationResponse = connectionOptions.notificationResponse {
+            userInfo = notificationResponse.notification.request.content.userInfo
+        }
+        
+        AppDelegate.setupRootViewController(instance: appDelegate, window: window, userInfo: userInfo)
+        
     }
+    
 }
 
 
@@ -116,7 +123,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
     
     
-    static func setupRootViewController(instance: AppDelegate?, window: UIWindow?) {
+    static func setupRootViewController(instance: AppDelegate?, window: UIWindow?, userInfo: [AnyHashable: Any]?) {
         if AccountManager.shared.emptyAccountsList() {
             CredentialsManager.shared.clearKeyachain()
             AccountManager.shared.connectingUsers.accept(Set<String>())
@@ -142,6 +149,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                     let chatsVc = LastChatsViewController()
                     let primaryVc = LeftMenuViewController()
                     let emptyChatVc = EmptyChatViewController()
+                    var chatViewController: ChatViewController? = nil
+                    print("USER INFO: \(userInfo)")
+                    if let jid = userInfo?["jid"] as? String,
+                       let owner = userInfo?["owner"] as? String {
+                        chatViewController = ChatViewController()
+                        chatViewController?.jid = jid
+                        chatViewController?.owner = owner
+                        chatViewController?.conversationType = .regular
+                    }
                     chatsVc.leftMenuSelectRootCategoryDelegate = primaryVc
                     primaryVc.chatsVc = chatsVc
                     chatsVc.splitDelegate = emptyChatVc
@@ -168,10 +184,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                     vc.viewControllers = [
                         primaryVc,
                         chatsNvc,
-                        UINavigationController(rootViewController: emptyChatVc)
+                        UINavigationController(rootViewController: chatViewController ?? emptyChatVc)
                     ]
                     instance?.window?.rootViewController = vc
                     instance?.splitController = vc
+                    NotifyManager.shared.leftMenuDelegate = primaryVc
                 case .tabs:
                     let vc = XabberTabBarViewController()
                     vc.restorationIdentifier = "MainSplitViewController"
@@ -204,7 +221,13 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             
         }
     }
-     
+    
+    var startUserInfo: NSDictionary = NSDictionary() {
+        didSet {
+            print("START USER INFO: \(startUserInfo)")
+        }
+    }
+    
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
                 
         NotifyManager.shared.setLastChats(displayed: true)
@@ -226,6 +249,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             if let id = userInfo["stanzaId"] as? String {
                 NotifyManager.shared.deliveredNotificationsIds.insert(id)
             }
+            self.startUserInfo = userInfo
         }
         
         NotificationCenter.default.addObserver(self,

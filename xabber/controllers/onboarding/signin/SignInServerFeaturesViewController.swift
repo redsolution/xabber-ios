@@ -678,7 +678,7 @@ class SignInServerFeaturesViewController: UIViewController {
 //        (UIApplication.shared.delegate as! AppDelegate).window?.rootViewController = vc
 //        (UIApplication.shared.delegate as! AppDelegate).splitController = vc
         let appDelegate = UIApplication.shared.delegate as? AppDelegate
-        AppDelegate.setupRootViewController(instance: appDelegate, window: appDelegate?.window)
+        AppDelegate.setupRootViewController(instance: appDelegate, window: appDelegate?.window, userInfo: nil)
     }
     
     private final func continuesFeatureAppearing() {
@@ -858,7 +858,7 @@ class SignInServerFeaturesViewController: UIViewController {
                 self.navigationController?.pushViewController(vc, animated: true)
             } else {
                 let appDelegate = UIApplication.shared.delegate as? AppDelegate
-                AppDelegate.setupRootViewController(instance: appDelegate, window: appDelegate?.window)
+                AppDelegate.setupRootViewController(instance: appDelegate, window: appDelegate?.window, userInfo: nil)
             }
         }
     }

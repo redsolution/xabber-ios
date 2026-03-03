@@ -118,7 +118,7 @@ class APNSManager: NSObject {
     
     public func receive(voipToken token: String) {
         self.voipToken = token
-        AccountManager.shared.activeUsers.value.forEach {
+        AccountManager.shared.users.compactMap({ $0.jid }).forEach {
             AccountManager.shared.find(for: $0)?.registerVoIPPushForAccount()
         }        
     }

@@ -385,6 +385,9 @@ class ContactsViewController: BaseViewController {
         var ignoredJids: [String] = AccountManager.shared.users.compactMap { $0.notifications.node }
         ignoredJids.append(contentsOf: AccountManager.shared.users.compactMap { $0.favorites.node })
         ignoredJids.append(contentsOf: jids)
+        var ignoredAbuse = Set(realm.objects(XMPPAbuseConfigStorageItem.self).toArray().compactMap({ $0.abuseAddress }))
+        ignoredAbuse.insert(CommonConfigManager.shared.config.default_report_address)
+        ignoredJids.append(contentsOf: Array(ignoredAbuse))
         if CommonConfigManager.shared.config.support_jid.isNotEmpty {
             ignoredJids.append(CommonConfigManager.shared.config.support_jid)
         }
@@ -550,6 +553,9 @@ class ContactsViewController: BaseViewController {
         if CommonConfigManager.shared.config.support_jid.isNotEmpty {
             ignoredJids.append(CommonConfigManager.shared.config.support_jid)
         }
+        var ignoredAbuse = Set(realm.objects(XMPPAbuseConfigStorageItem.self).toArray().compactMap({ $0.abuseAddress }))
+        ignoredAbuse.insert(CommonConfigManager.shared.config.default_report_address)
+        ignoredJids.append(contentsOf: Array(ignoredAbuse))
         ignoredJids.append(contentsOf: jids)
         let contacts = Set(realm
             .objects(RosterStorageItem.self)
@@ -1169,6 +1175,9 @@ class ContactsViewController: BaseViewController {
             if CommonConfigManager.shared.config.support_jid.isNotEmpty {
                 ignoredJids.append(CommonConfigManager.shared.config.support_jid)
             }
+            var ignoredAbuse = Set(realm.objects(XMPPAbuseConfigStorageItem.self).toArray().compactMap({ $0.abuseAddress }))
+            ignoredAbuse.insert(CommonConfigManager.shared.config.default_report_address)
+            ignoredJids.append(contentsOf: Array(ignoredAbuse))
             var ignoredAccounts = realm.objects(AccountStorageItem.self).filter("enabled == true").toArray().compactMap { $0.jid }
             ignoredJids.append(contentsOf: ignoredAccounts)
             let collection = realm

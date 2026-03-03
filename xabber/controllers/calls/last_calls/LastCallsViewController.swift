@@ -210,7 +210,14 @@ class LastCallsViewController: BaseViewController {
                 .map { (results) -> [Datasource] in
                     return Array(results.compactMap {
                         item in
-                        let name = self.displayNames?.first(where: { $0.primary == RosterDisplayNameStorageItem.genPrimary(jid: item.opponent, owner: item.owner) })?.displayName ?? item.opponent
+                        var name: String = item.opponent
+                        do {
+                            let realm = try WRealm.safe()
+                            name = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: item.opponent, owner: item.owner))?.displayName ?? item.opponent
+                        } catch {
+                            DDLogDebug("LastCallsViewController: \(#function). \(error.localizedDescription)")
+                        }
+//                        let name = self.displayNames?.first(where: { $0.primary == RosterDisplayNameStorageItem.genPrimary(jid: item.opponent, owner: item.owner) })?.displayName ?? item.opponent
                         let stateUnwr = (item.callMetadata?["callState"] as? String) ?? ""
                         let duration = item.callMetadata?["duration"] as? TimeInterval ?? 0
                         

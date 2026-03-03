@@ -467,6 +467,26 @@ class MessageArchiveManager: AbstractXMPPManager {
         )
     }
     
+    public final func getLastMessages(_ stream: XMPPStream, jid: String, conversationType: ClientSynchronizationManager.ConversationType) {
+        do {
+            let realm = try WRealm.safe()
+            if (realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: conversationType))?.isSynced ?? false) == false {
+                self.requestArchive(
+                    stream,
+                    jid: jid,
+                    isContinues: false,
+                    conversationType: conversationType,
+                    nextPage: "",
+                    max: self.pageSize
+                )
+            }
+        } catch {
+            DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
+        }
+        
+    }
+    
+    
     class HistoryGap {
         var newestMessageId: String
         var oldestMessageId: String

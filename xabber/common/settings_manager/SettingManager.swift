@@ -366,6 +366,8 @@ open class SettingManager: NSObject {
         guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
             fatalError()
         }
+        let dict = userDefaults.dictionaryRepresentation()
+        print(dict)
         if userDefaults.value(forKey: "default_settingsCached") != nil {
             return
         }

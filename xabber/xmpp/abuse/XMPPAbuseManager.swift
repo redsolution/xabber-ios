@@ -74,7 +74,7 @@ class XMPPAbuseManager: AbstractXMPPManager {
                     .shared
                     .find(for: self.owner)?
                     .messages
-                    .sendSimpleMessage("report: \(reason)", to: abuseJid ?? self.defaultAdress, forwarded: [primary], conversationType: .regular, isReport: true)
+                    .sendSimpleMessage("Abuse report:\n\(reason)", to: abuseJid ?? self.defaultAdress, forwarded: [primary], conversationType: .regular, isReport: true)
             }
         } catch {
             DDLogDebug("XMPPAbuseManager: \(#function). \(error.localizedDescription)")

@@ -86,6 +86,14 @@ extension ChatViewController {
         self.bag = DisposeBag()
         let realm = try WRealm.safe()
 
+        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+            session.mam?.syncChat(stream, jid: self.jid, conversationType: self.conversationType, callback: nil)
+        } fail: {
+            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                user.mam.syncChat(stream, jid: self.jid, conversationType: self.conversationType, callback: nil)
+            })
+        }
+        
         self.configureDataset()
         Observable
             .collection(from: self.messagesObserver, synchronousStart: true)

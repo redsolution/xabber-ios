@@ -206,6 +206,9 @@ class LeftMenuViewController: UIViewController {
             if CommonConfigManager.shared.config.support_jid.isNotEmpty {
                 ignoredJids.append(CommonConfigManager.shared.config.support_jid)
             }
+            var ignoredAbuse = Set(realm.objects(XMPPAbuseConfigStorageItem.self).toArray().compactMap({ $0.abuseAddress }))
+            ignoredAbuse.insert(CommonConfigManager.shared.config.default_report_address)
+            ignoredJids.append(contentsOf: Array(ignoredAbuse))
             let chats = realm.objects(LastChatsStorageItem.self).filter("isArchived == false AND unread > 0").compactMap({ $0.unread }).reduce(0, +)
             let archived = realm.objects(LastChatsStorageItem.self).filter("isArchived == true AND unread > 0").compactMap({ $0.unread }).reduce(0, +)
             let calls = realm.objects(CallMetadataStorageItem.self)
@@ -271,6 +274,9 @@ class LeftMenuViewController: UIViewController {
             if CommonConfigManager.shared.config.support_jid.isNotEmpty {
                 ignoredJids.append(CommonConfigManager.shared.config.support_jid)
             }
+            var ignoredAbuse = Set(realm.objects(XMPPAbuseConfigStorageItem.self).toArray().compactMap({ $0.abuseAddress }))
+            ignoredAbuse.insert(CommonConfigManager.shared.config.default_report_address)
+            ignoredJids.append(contentsOf: Array(ignoredAbuse))
             let chats = realm.objects(LastChatsStorageItem.self).filter("isArchived == false AND unread > 0")
             let archived = realm.objects(LastChatsStorageItem.self).filter("isArchived == true AND unread > 0")
             let calls = realm.objects(CallMetadataStorageItem.self)

@@ -34,6 +34,8 @@ protocol VoIPCallDelegate {
     func VoIPCallDidChangeVideoState(_ call: VoIPCall, to state: VoIPCall.VideoState, myself: Bool)
     func VoIPCallDidUpdateContactJid(_ call: VoIPCall)
     func VoIPCallDidReceiveRejectMessage(_ call: VoIPCall)
+    func VoIPCallEndCallAnswerElsewhere(_ call: VoIPCall)
+    func VoIPCallEndCallRejected(_ call: VoIPCall)
 }
 
 enum VoIPCallError: Error {
@@ -121,7 +123,7 @@ final class VoIPCall: NSObject {
         self.queue = DispatchQueue(
             label: "com.xabber.voip_signal_queue.\(self.callId)",
             qos: .userInteractive,
-            attributes: [.concurrent],
+            attributes: [],
             autoreleaseFrequency: .workItem,
             target: nil
         )
@@ -385,11 +387,12 @@ extension VoIPCall {
     }
     
     internal func onAccept(_ message: XMPPMessage, carbons: Bool = false) -> Bool {
-        NotifyManager.shared.showSimpleNotify(withTitle: "VOIP", subtitle: "", body: "receive accept from \(message.from?.full ?? "")")
+//        NotifyManager.shared.showSimpleNotify(withTitle: "VOIP", subtitle: "", body: "receive accept from \(message.from?.full ?? "")")
         func closeCall() {
             self.isMade = true
             self.shouldSendReject = false
-            VoIPManager.shared.VoIPCallDidEndWith(self, error: nil, byActiveStream: false)
+            self.delegate?.VoIPCallDidEndWith(self, error: nil, byActiveStream: true)
+            self.delegate?.VoIPCallEndCallAnswerElsewhere(self)
         }
         guard let accept = message.element(forName: "accept", xmlns: VoIPCall.namespace),
               let callId = accept.attributeStringValue(forName: "id"),
@@ -439,6 +442,8 @@ extension VoIPCall {
         print(#function)
         if !self.shouldSendReject {
             self.disconnect()
+            self.delegate?.VoIPCallEndCallRejected(self)
+//            self.delegate?.VoIPCallDidEndWith(self, error: nil, byActiveStream: true)
             return
         }
         guard let jid = XMPPJID(string: self.jid) else { return }
@@ -507,7 +512,7 @@ extension VoIPCall {
     }
     
     public final func onReject(_ message: XMPPMessage) -> Bool {
-        NotifyManager.shared.showSimpleNotify(withTitle: "VOIP", subtitle: "", body: "receive reject from \(message.from?.full ?? "")")
+//        NotifyManager.shared.showSimpleNotify(withTitle: "VOIP", subtitle: "", body: "receive reject from \(message.from?.full ?? "")")
         func closeCall() {
             self.isMade = true
             self.shouldSendReject = false
@@ -544,14 +549,16 @@ extension VoIPCall {
         let jingle = DDXMLElement(name: "jingle", xmlns: "urn:xmpp:jingle:1")
 
         switch sessionDescription.type {
-        case .offer:
-            jingle.addAttribute(withName: "action", stringValue: "session-initiate")
-        case .prAnswer:
-            jingle.addAttribute(withName: "action", stringValue: "session-update")
-        case .answer:
-            jingle.addAttribute(withName: "action", stringValue: "session-accept")
-        @unknown default:
-            break
+            case .offer:
+                jingle.addAttribute(withName: "action", stringValue: "session-initiate")
+            case .prAnswer:
+                jingle.addAttribute(withName: "action", stringValue: "session-update")
+            case .answer:
+                jingle.addAttribute(withName: "action", stringValue: "session-accept")
+            case .rollback:
+                break
+            @unknown default:
+                break
         }
         
         if self.state == .ended { return }
@@ -945,13 +952,15 @@ extension VoIPCall: XMPPStreamDelegate {
             return true
         }
         switch true {
-        case onConfirmRequest(iq): return true
-        case onConfirmResponse(iq): return true
-        case onSessionDescription(iq): return true
-        case onCandidate(iq): return true
-        case onChangeVideoState(iq): return true
-        case onPing(iq): return true
-        default: return false
+            case onSessionDescription(iq): return true
+            case onCandidate(iq): return true
+            case onChangeVideoState(iq): return true
+            case onConfirmRequest(iq): return true
+            case onConfirmResponse(iq): return true
+            case onPing(iq): return true
+            default:
+                print("VOIP FAIL STANZA \(iq.prettyXMLString)")
+                return false
         }
     }
     
@@ -978,9 +987,9 @@ extension VoIPCall: XMPPStreamDelegate {
             bareMessage = message
         }
         switch true {
-        case onAccept(bareMessage, carbons: isCarbon): return
-        case onReject(bareMessage): return
-        default: return
+            case onAccept(bareMessage, carbons: isCarbon): return
+            case onReject(bareMessage): return
+            default: return
         }
     }
     

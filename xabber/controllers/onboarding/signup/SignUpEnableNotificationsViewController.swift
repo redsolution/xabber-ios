@@ -52,14 +52,14 @@ class SignUpEnableNotificationsViewController: SignUpBaseViewController {
                 DispatchQueue.main.async {
                     let appDelegate = UIApplication.shared.delegate as? AppDelegate
                     appDelegate?.getNotificationSettings()
-                    AppDelegate.setupRootViewController(instance: appDelegate, window: appDelegate?.window)
+                    AppDelegate.setupRootViewController(instance: appDelegate, window: appDelegate?.window, userInfo: nil)
                 }
             } else {
                 DispatchQueue.main.async {
                     let alert = UIAlertController(title: " ", message: "You can enable notifications later in settings".localizeString(id: "title_register_enable_notifications", arguments: []), preferredStyle: .alert)
                     alert.addAction(UIAlertAction(title: "Continue".localizeString(id: "title_register_continue", arguments: []), style: .cancel, handler: { _ in
                         let appDelegate = UIApplication.shared.delegate as? AppDelegate
-                        AppDelegate.setupRootViewController(instance: appDelegate, window: appDelegate?.window)
+                        AppDelegate.setupRootViewController(instance: appDelegate, window: appDelegate?.window, userInfo: nil)
                     }))
                     if UIDevice.current.userInterfaceIdiom == .pad {
                         if let popoverController = alert.popoverPresentationController {

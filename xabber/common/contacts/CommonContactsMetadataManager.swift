@@ -7,6 +7,8 @@
 //
 
 import Foundation
+import Contacts
+import Intents
 
 class CommonContactsMetadataManager: NSObject {
     open class var shared: CommonContactsMetadataManager {
@@ -21,6 +23,7 @@ class CommonContactsMetadataManager: NSObject {
         let owner: String
         let username: String?
         let avatarUrl: String?
+        let contactID: String?
     }
     
     let key: String = "contacts_metadata"
@@ -36,6 +39,44 @@ class CommonContactsMetadataManager: NSObject {
         }
     }
     
+    func saveFakeContact(jid: String, owner: String, name: String?, avatarUrl: String?) -> String? {
+        let store = CNContactStore()
+        
+        let contact = CNMutableContact()
+        contact.givenName = name ?? jid.components(separatedBy: "@").first ?? jid
+        
+        contact.note = "xabber:\(owner.lowercased()):\(jid.lowercased())"
+        
+        if let urlString = avatarUrl, let url = URL(string: urlString) {
+            do {
+                let data = try Data(contentsOf: url)
+                contact.imageData = data
+            } catch {
+                print("Failed to load avatar", error)
+            }
+        }
+        
+        let saveRequest = CNSaveRequest()
+        saveRequest.add(contact, toContainerWithIdentifier: nil)  // nil = default container
+        
+        do {
+            try store.execute(saveRequest)
+            
+            let predicate = CNContact.predicateForContacts(matchingName: contact.givenName)
+            let keys = [CNContactIdentifierKey, CNContactNoteKey] as [CNKeyDescriptor]
+            
+            if let found = try? store.unifiedContacts(matching: predicate, keysToFetch: keys),
+               let matching = found.first(where: { $0.note == contact.note }) {
+                let request = CNSaveRequest()
+                return matching.identifier  // ← вот этот identifier отдаём в INPerson
+            }
+            return nil
+        } catch {
+            print("Cannot save contact", error)
+            return nil
+        }
+    }
+    
     public func update(owner: String, jid: String, username: String?, avatarUrl: String?) {
         guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
             fatalError()
@@ -47,6 +88,9 @@ class CommonContactsMetadataManager: NSObject {
         if let avatarUrl = avatarUrl {
             metadata["avatarUrl"] = avatarUrl
         }
+//        if let contactId = saveFakeContact(jid: jid, owner: owner, name: username, avatarUrl: avatarUrl) {
+//            metadata["contactId"] = contactId
+//        }
         userDefaults.setValue(metadata, forKey: [key, owner, jid].prp())
     }
     
@@ -54,14 +98,15 @@ class CommonContactsMetadataManager: NSObject {
         guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
             fatalError()
         }
-        if let metadata: [String: Any] = userDefaults.dictionary(forKey: [key, owner, jid].prp()) {
+        if let metadata: [String: Any] = userDefaults.dictionary(forKey: ["contacts_metadata", owner, jid].prp()) {
             return Metadata(
                 jid: jid,
                 owner: owner,
                 username: metadata["username"] as? String,
-                avatarUrl: metadata["avatarUrl"] as? String
+                avatarUrl: metadata["avatarUrl"] as? String,
+                contactID: metadata["contactId"] as? String
             )
         }
-        return Metadata(jid: jid, owner: owner, username: nil, avatarUrl: nil)
+        return Metadata(jid: jid, owner: owner, username: nil, avatarUrl: nil, contactID: nil)
     }
 }

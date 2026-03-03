@@ -107,7 +107,7 @@ extension AppDelegate : UNUserNotificationCenterDelegate {
             _ = NotifyManager.shared.onDeclineGroupNotification(response: response, handler: completionHandler)
         default:
             switch content.categoryIdentifier {
-            case NotifyManager.notificationMessageCategory:
+                case NotifyManager.notificationMessageCategory, NotifyManager.notificationPushMessageCategory:
                 if let id = content.userInfo["stanzaId"] as? String {
                     NotifyManager.shared.deliveredNotificationsIds.insert(id)
                 }

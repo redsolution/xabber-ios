@@ -1651,8 +1651,12 @@ class ChatViewController: MessagesViewController {
         print(#function)
         do {
             try self.subscribe()
-            try self.groupSubscribtions()
-            try self.encryptedSubscribtions()
+            if self.conversationType == .group {
+                try self.groupSubscribtions()
+            }
+            if self.conversationType.isEncrypted {
+                try self.encryptedSubscribtions()
+            }
             self.addObservers()
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")

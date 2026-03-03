@@ -196,7 +196,7 @@ class ApplicationStateManager: NSObject {
         DispatchQueue.main.async {
             if AccountManager.shared.emptyAccountsList() {
                 let appDelegate = UIApplication.shared.delegate as? AppDelegate
-                AppDelegate.setupRootViewController(instance: appDelegate, window: appDelegate?.window)
+                AppDelegate.setupRootViewController(instance: appDelegate, window: appDelegate?.window, userInfo: nil)
                 show()
             } else {
                 show()

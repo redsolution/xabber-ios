@@ -816,7 +816,10 @@ class LastChatsViewController: BaseViewController {
             let predicate: NSPredicate
             var pinnedChatsSorting: Bool = false
             var ignoredJids: [String] = AccountManager.shared.users.compactMap { $0.notifications.node }
-            var ignoredAccounts = realm.objects(AccountStorageItem.self).filter("enabled == true").toArray().compactMap { $0.jid }
+            let ignoredAccounts = realm.objects(AccountStorageItem.self).filter("enabled == true").toArray().compactMap { $0.jid }
+            var ignoredAbuse = Set(realm.objects(XMPPAbuseConfigStorageItem.self).toArray().compactMap({ $0.abuseAddress }))
+            ignoredAbuse.insert(CommonConfigManager.shared.config.default_report_address)
+            ignoredJids.append(contentsOf: Array(ignoredAbuse))
             ignoredJids.append(contentsOf: ignoredAccounts)
             switch self.filter.value {
             case .chats:

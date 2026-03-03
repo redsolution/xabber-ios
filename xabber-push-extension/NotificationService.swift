@@ -17,307 +17,6 @@
 //
 //
 //
-/*
-import UserNotifications
-import SwiftKeychainWrapper
-import KissXML
-import CryptoSwift
-import Intents
-
-class NotificationService: UNNotificationServiceExtension {
-    
-    enum InviteKind: String {
-        case group = "group"
-        case incognito = "incognito"
-        case peerToPeer = "peer-to-peer"
-    }
-    
-    enum Actions: String {
-        case message = "message"
-        case marker = "displayed"
-        case update = "update"
-        case subscribe = "subscribe"
-        case invite = "invite"
-        case none = "none"
-    }
-    
-    var pushData: CredentialsManager.PushSecretData? = nil
-    
-    var contentHandler: ((UNNotificationContent) -> Void)?
-    var bestAttemptContent: UNMutableNotificationContent = UNMutableNotificationContent()
-    
-    var creditionals: [String: Any] = [:]
-    var owner: String = ""
-    var identifier: String = ""
-    var deviceId: String? = nil
-    
-    var notificationType: Actions = .none
-    
-    var payload: String = ""
-    
-    var hasActiveSession: Bool = false
-    
-    var editMark: String = ""
-    
-    var retryCount: Int = 0
-    
-    class PayloadData {
-        
-        struct StanzaId {
-            let id: String
-            let by: String
-        }
-        
-        let actionElement: String
-        let encrypted: String?
-        
-        /*
-         <encrypted iv-length='16' xmlns='https://xabber.com/protocol/push'>FLseKbZ+lBteKbuakiw2e2YPtXGdbSNLkV1hXre2JrGswI7MX+4c79LjKr6gsXhKpYPgyiubH6mA/HFAvqIDaBvTgN1ewwsqdCzqV3rwGaPM1QkhkM76ZWycaURmVGdAhAc03stxtW6FdcAREZwAVQ==</encrypted><x type='result' xmlns='jabber:x:data'><field var='FORM_TYPE' type='hidden'><value>https://xabber.com/protocol/push#info</value></field><field var='type'><value>message</value></field></x>
-         */
-        init(_ body: String) {
-            let documentBody = "<root>\(body)</root>"
-            guard let document = try? DDXMLDocument(xmlString: documentBody, options: 0),
-                  let root = document.rootElement(),
-                  let encrypted = root.elements(forName: "encrypted").first?.xmlString,
-                  let xForm = root.elements(forName: "x").first,
-                  let action = xForm.elements(forName: "field").first(where: { $0.attribute(forName: "var")?.stringValue == "type"})?.elements(forName: "value").first?.stringValue else {
-                fatalError()
-            }
-            self.encrypted = encrypted
-            self.actionElement = action
-        }
-        
-        var action: Actions {
-            get {
-                return Actions(rawValue: actionElement) ?? .none
-            }
-        }
-        
-        var rootElement: DDXMLElement? {
-            get {
-                guard let encrypted = encrypted,
-                    let document = try? DDXMLDocument(xmlString: encrypted, options: 0),
-                    let root = document.rootElement() else {
-                        return nil
-                }
-                return root
-            }
-        }
-        
-        var iv: ArraySlice<UInt8>? {
-            get {
-                guard let encrypted = encrypted,
-                    let document = try? DDXMLDocument(xmlString: encrypted, options: 0),
-                    let root = document.rootElement(),
-                    let encryptedStr = root.stringValue,
-                    let data = Data(base64Encoded: encryptedStr, options: .ignoreUnknownCharacters),
-                    let ivCountRaw = root.attribute(forName: "iv-length")?.stringValue,
-                    let ivCount = Int(ivCountRaw),
-                    ivCount < data.count else {
-                    return nil
-                }
-                return data.bytes.prefix(upTo: ivCount)
-            }
-        }
-        
-        var encryptedData: Array<UInt8>? {
-            get {
-                guard let root = rootElement,
-                    let encryptedStr = root.stringValue,
-                    let data = Data(base64Encoded: encryptedStr),
-                    let ivCountRaw = root.attribute(forName: "iv-length")?.stringValue,
-                    let ivCount = Int(ivCountRaw),
-                    ivCount < data.count else {
-                    return nil
-                }
-                return Padding.zeroPadding.add(to: Array(data.bytes.suffix(from: ivCount)), blockSize: 16)
-            }
-        }
-        
-        var encryptedLen: Int {
-            get {
-                guard let root = rootElement,
-                    let encryptedStr = root.stringValue,
-                    let data = Data(base64Encoded: encryptedStr),
-                    let ivCountRaw = root.attribute(forName: "iv-length")?.stringValue,
-                    let ivCount = Int(ivCountRaw),
-                    ivCount < data.count else {
-                    return 0
-                }
-                return data.bytes.suffix(from: ivCount).count
-            }
-        }
-        
-        public func subscribtionRequestStanza(key: String) -> String? {
-            if let decrypted = decrypt(by: key),
-                let document = try? DDXMLDocument(xmlString: decrypted, options: 0),
-                let presenceElement = document.rootElement(),
-                let presenceType = presenceElement.attribute(forName: "type")?.stringValue,
-                presenceType == "subscribe" {
-                return presenceElement.compactXMLString()
-            }
-            return nil
-        }
-        
-        public func subscribtionRequestFrom(key: String) -> String? {
-            if let decrypted = decrypt(by: key),
-                let document = try? DDXMLDocument(xmlString: decrypted, options: 0),
-                let presenceElement = document.rootElement(),//?.elements(forName: "stanza-id").first,
-                let from = presenceElement.attribute(forName: "from")?.stringValue,
-                let presenceType = presenceElement.attribute(forName: "type")?.stringValue,
-                presenceType == "subscribe" {
-                return from
-            }
-            return nil
-        }
-        
-        public func decryptedPayload(key: String) -> String? {
-            if let decrypted = decrypt(by: key),
-                let document = try? DDXMLDocument(xmlString: decrypted, options: 0),
-                let rootElement = document.rootElement()?.stringValue {
-                return rootElement
-            }
-            return nil
-        }
-        
-        public func messageStanzaID(key: String) -> StanzaId? {
-            if let decrypted = decrypt(by: key),
-                let document = try? DDXMLDocument(xmlString: decrypted, options: 0),
-                let stanzaIdElement = document.rootElement(),//?.elements(forName: "stanza-id").first,
-                let settedBy = stanzaIdElement.attribute(forName: "by")?.stringValue,
-                let id = stanzaIdElement.attribute(forName: "id")?.stringValue {
-                return StanzaId(id: id, by: settedBy)
-            }
-            return nil
-        }
-        
-        public func updateStanzaID(key: String) -> StanzaId? {
-            if let decrypted = decrypt(by: key),
-                let document = try? DDXMLDocument(xmlString: decrypted, options: 0),
-                let stanzaIdElement = document.rootElement(),//?.elements(forName: "stanza-id").first,
-                let settedBy = stanzaIdElement.attribute(forName: "by")?.stringValue,
-                let id = stanzaIdElement.attribute(forName: "id")?.stringValue {
-                return StanzaId(id: id, by: settedBy)
-            }
-            return nil
-        }
-        
-        public func markerStanzaIDs(key: String, owner: String) -> [StanzaId] {
-            if let decrypted = decrypt(by: key),
-                let document = try? DDXMLDocument(xmlString: decrypted, options: 0),
-                let displayedElement = document.rootElement() {
-                return displayedElement
-                    .elements(forName: "stanza-id")
-                    .compactMap {
-                        stanzaIdElement in
-                        if let settedBy = stanzaIdElement.attribute(forName: "by")?.stringValue,
-                            let id = stanzaIdElement.attribute(forName: "id")?.stringValue {
-                            return StanzaId(id: id, by: settedBy)
-                        }
-                        return nil
-                    }
-            }
-            return []
-        }
-        
-        public func decrypt(by key: String) -> String? {
-            do {
-                guard let encrypted = encryptedData,
-                    let iv = iv else {
-                    return nil
-                }
-                let decrypted = try AES(key: Array(key.utf8),
-                                        blockMode: CBC(iv: Array(iv)),
-                                        padding: .zeroPadding).decrypt(encrypted)
-//                print(decrypted)
-//                print("decrypted:", String(bytes: decrypted.prefix(upTo: encryptedLen), encoding: .utf8))
-                
-//                print(decrypted)
-//                print(String(bytes: decrypted.prefix(upTo: encryptedLen), encoding: .utf8))
-                return String(bytes: decrypted.prefix(upTo: encryptedLen), encoding: .utf8)
-            } catch {
-//                print(error.localizedDescription)
-            }
-            return nil
-        }
-    }
-    
-    func loadCredentials(for node: String, payload: PayloadData, retry: Int = 0) {
-        do {
-            let pushSecrets = try CredentialsManager.staticGetPushCredentials(for: node)
-            self.owner = pushSecrets.jid
-            self.pushData = pushSecrets
-            self.deviceId = CredentialsManager.getXabberDeviceId(for: self.owner)
-            self.notificationType = payload.action
-            self.action(for: payload)
-        } catch {
-            if retry > 100 {
-                bestAttemptContent.title = CommonConfigManager.shared.config.app_name
-                bestAttemptContent.body = "node:\(node), bad secret: \(error)"
-                self.contentHandler?(bestAttemptContent)
-            } else {
-                self.loadCredentials(for: node, payload: payload, retry: retry + 1)
-            }
-        }
-    }
-    
-    internal func action(for payload: PayloadData) {
-        switch payload.action {
-            case .message: onMessage(payload)
-            default:
-                bestAttemptContent.title = CommonConfigManager.shared.config.app_name
-                bestAttemptContent.body = "Unknown action"
-                self.contentHandler?(bestAttemptContent)
-//        case .marker:       onMarker(payload)
-//        case .update:       onUpdate(payload)
-//        case .subscribe:    onSubscribe(payload)
-//        case .invite:       onMessage(payload)
-//        case .none:         onHide(payload)
-        }
-    }
-    
-    internal func onMessage(_ payload: PayloadData) {
-        guard let pushData = pushData else {
-            bestAttemptContent.title = CommonConfigManager.shared.config.app_name
-            bestAttemptContent.body = "Bad cred"
-            self.contentHandler?(bestAttemptContent)
-            return
-        }
-        let stanzaId = payload.messageStanzaID(key: pushData.secret)
-        let remoteArchiveJid = stanzaId?.by == pushData.jid ? nil : stanzaId?.by
-        bestAttemptContent.title = CommonConfigManager.shared.config.app_name
-        bestAttemptContent.body = "message"
-        self.contentHandler?(bestAttemptContent)
-    }
-    
-    override func didReceive(_ request: UNNotificationRequest, withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
-        guard let bestAttemptContent = (request.content.mutableCopy() as? UNMutableNotificationContent) else {
-            fatalError()
-        }
-        bestAttemptContent.sound = .default
-        bestAttemptContent.title = "APP NAME"
-        bestAttemptContent.body = "TESTTTT"
-        guard let body = bestAttemptContent.userInfo["body"] as? String else {
-            self.bestAttemptContent.title = CommonConfigManager.shared.config.app_name
-            self.bestAttemptContent.body = "fail to parse"
-            contentHandler(bestAttemptContent)
-            return
-        }
-        
-        let payload_decoded = PayloadData(body)
-        guard let node = bestAttemptContent.userInfo["target"] as? String else {
-            bestAttemptContent.title = CommonConfigManager.shared.config.app_name
-            bestAttemptContent.body = "bad node: \(request.content.userInfo["target"] as? String ?? "")"
-            contentHandler(bestAttemptContent)
-            return
-        }
-        
-        loadCredentials(for: node, payload: payload_decoded)
-        contentHandler(bestAttemptContent)
-        
-    }
-}*/
-
 import UserNotifications
 import SwiftKeychainWrapper
 import KissXML
@@ -891,10 +590,11 @@ extension NotificationService: PushPayloadDelegate {
                         bestAttemptContent.subtitle = "Group carbons"//.localizeString(id: "group_carbons", arguments: [])
                     }
                 }
+                let conversationId = "xabber:\(owner.lowercased()):\(metadata.jid.lowercased())"
                 if let from = payload["from"] {
                     bestAttemptContent.userInfo["jid"] = from
                     bestAttemptContent.userInfo["owner"] = owner
-                    bestAttemptContent.threadIdentifier = [owner, from].joined(separator: "_")
+                    bestAttemptContent.threadIdentifier = conversationId
                     if from == owner {
                         bestAttemptContent.subtitle = "Carbon message"//.localizeString(id: "carbon_message", arguments: [])
                     }
@@ -933,7 +633,7 @@ extension NotificationService: PushPayloadDelegate {
                 bestAttemptContent.sound = .default
                 bestAttemptContent.categoryIdentifier = "com.xabber.ios.message.push"
                                 
-                let handle = INPersonHandle(value: metadata.jid, type: .emailAddress)
+                let handle = INPersonHandle(value: metadata.jid, type: .unknown)
                 
                 var avatar: INImage
                 if let avatarUrl = metadata.avatarUrl,
@@ -943,20 +643,20 @@ extension NotificationService: PushPayloadDelegate {
                 } else {
                     avatar = INImage(named: "person.2.circle.fill")
                 }
-                
-                let sender = INPerson(personHandle: handle,
-                                      nameComponents: nil,
-                                      displayName: metadata.username ?? metadata.jid,
-                                      image: avatar,
-                                      contactIdentifier: nil,
-                                      customIdentifier: nil
+                let sender = INPerson(
+                    personHandle: handle,
+                    nameComponents: nil,
+                    displayName: metadata.username ?? metadata.jid,
+                    image: avatar,
+                    contactIdentifier: nil,//metadata.contactID,   // ← здесь главное
+                    customIdentifier: nil
                 )
                 
                 let intent = INSendMessageIntent(recipients: nil,
                                                  outgoingMessageType: .outgoingMessageText,
                                                  content: payload["body"] ?? "body",
                                                  speakableGroupName: nil,
-                                                 conversationIdentifier: "\(owner)\(metadata.jid)",
+                                                 conversationIdentifier: conversationId,
                                                  serviceName: nil,
                                                  sender: sender,
                                                  attachments: nil)

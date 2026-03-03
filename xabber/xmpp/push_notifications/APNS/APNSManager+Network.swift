@@ -44,11 +44,11 @@ extension APNSManager {
             "Content-Type" : "application/json"
         ]
         
-        let hashString = [String(describing: UIDevice.current.identifierForVendor!), CommonConfigManager.shared.config.bundle_id, "prod"].prp()
+        let hashString = [String(describing: UIDevice.current.identifierForVendor!), CommonConfigManager.shared.config.bundle_id, "dev"].prp()
         
         
         let params: [String: String] = [
-            "target": [jid, voip ? voipToken : deviceToken].joined(separator: "/"),
+            "target": [jid, hashString].joined(separator: "/"),
             "endpoint_key": voip ? voipToken : deviceToken,
             "provider": voip ? "apns.voip" : "apns",
         ]
@@ -57,26 +57,27 @@ extension APNSManager {
         /*SUCCESS: {"action":"regjid","result":"success","jid":"igor.boldin@xmppdev01.xabber.com/3F02F22F-5185-43A9-9116-B1C1E306F6C7","node":"65be5460-5052-4ada-8483-a3a869731e16","service":"pubsub.devpush.xabber.com"}
          */
 //        self.sendDeleteRequest(jid: jid, voip: voip) {
-        AF.request(url, method: .post, parameters: params, encoding: JSONEncoding.default, headers: HTTPHeaders(headers)).responseData { response in
-            switch response.result {
-            case .success(let data):
-                guard let json = try? JSONDecoder().decode(NodeData.self, from: data) else {
-                    return
+            AF.request(url, method: .post, parameters: params, encoding: JSONEncoding.default, headers: HTTPHeaders(headers)).responseData { response in
+                switch response.result {
+                    case .success(let data):
+                        guard let json = try? JSONDecoder().decode(NodeData.self, from: data) else {
+                            return
+                        }
+                        switch json.action{
+                            case "regjid":
+                                if !voip {
+                                    try? self.register(json, completionHandler: nil)
+                                }
+                                break
+                            default: break
+                        }
+                        
+                        break
+                    case .failure(let error):
+                        print(error.localizedDescription)
+                        break
                 }
-                switch json.action{
-                case "regjid":
-                    if !voip {
-                        try? self.register(json, completionHandler: nil)
-                    }
-                    break
-                default: break
-                }
-                break
-            case .failure(let error):
-                print(error.localizedDescription)
-                break
             }
-        }
 //        }
         
         return true
@@ -95,8 +96,8 @@ extension APNSManager {
             "Authorization" : APNSManager.authKey(),
             "Content-Type" : "application/json"
         ]
-        let hashString = [String(describing: UIDevice.current.identifierForVendor!), CommonConfigManager.shared.config.bundle_id, "prod"].prp()
-        
+//        let hashString = [String(describing: UIDevice.current.identifierForVendor!), CommonConfigManager.shared.config.bundle_id, "prod"].prp()
+        let hashString = [voip ? VoIPtoken : deviceToken, CommonConfigManager.shared.config.bundle_id, "dev"].prp()
         let params = [
             "target": [jid, hashString].joined(separator: "/"),
             "endpoint_key": voip ? VoIPtoken : deviceToken
@@ -134,10 +135,10 @@ extension APNSManager {
             .responseJSON {
                 response in
                 switch response.result {
-                case .success(let value):
-                    DDLogError("Send delete endpoint request. Success. \(value)")
-                case .failure(let error):
-                    DDLogError("Send delete endpoint request. Failure. \(error.localizedDescription)")
+                    case .success(let value):
+                        DDLogError("Send delete endpoint request. Success. \(value)")
+                    case .failure(let error):
+                        DDLogError("Send delete endpoint request. Failure. \(error.localizedDescription)")
                 }
         }
     }

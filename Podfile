@@ -29,10 +29,10 @@ def main_pods
     pod 'RealmSwift', :git => 'https://github.com/realm/realm-swift.git', :tag => 'v10.46.0'
     pod 'RxSwift'
     pod 'RxCocoa'
-    pod 'RxRealm', :git => 'https://github.com/whspr/RxRealm.git', :branch => 'update_podspec'
+    pod 'RxRealm', :git => 'https://github.com/redsolution/RxRealm.git', :branch => 'update_podspec'
     pod 'CryptoSwift', :git => 'https://github.com/krzyzanowskim/CryptoSwift.git', :tag => '1.8.1'
     pod 'SwiftKeychainWrapper'
-    pod 'Kingfisher', :git => 'https://github.com/whspr/Klingfisher.git'
+    pod 'Kingfisher', :git => 'https://github.com/redsolution/Klingfisher.git'
     pod 'Cache', :git => 'https://github.com/hyperoslo/Cache.git', :branch => 'master', :tag => '7.4.0'
     pod 'MaterialComponents/Palettes'
 #    pod 'GoogleWebRTC'
@@ -41,10 +41,10 @@ def main_pods
     pod 'DeepDiff'
     pod 'Punycode'
 #    pod 'XMPPFramework/Swift', :path => '/Users/igor.boldin/projects/xabber/deps/XMPPFramework/'
-    pod 'XMPPFramework/Swift', :git => 'https://github.com/whspr/XMPPFramework', :branch => 'light'
+    pod 'XMPPFramework/Swift', :git => 'https://github.com/redsolution/XMPPFramework', :branch => 'light'
     pod 'CocoaAsyncSocket', :git => 'https://github.com/robbiehanson/CocoaAsyncSocket', :branch => 'master'
     pod 'OpenSSL-Universal'
-    pod 'Curve25519Kit', :git => 'https://github.com/whspr/Curve25519Kit.git', :branch => 'mkirk/framework-friendly'
+    pod 'Curve25519Kit', :git => 'https://github.com/redsolution/Curve25519Kit.git', :branch => 'mkirk/framework-friendly'
     pod 'SignalProtocolObjC', :git => 'https://github.com/redsolution/SignalProtocol-ObjC.git', :branch => 'master'
     pod 'YubiKit', :git => 'https://github.com/Yubico/yubikit-ios.git'
     
@@ -65,7 +65,7 @@ target 'xabber-push-extension' do
     pod 'SwiftKeychainWrapper'
     pod 'KissXML'
     pod 'CryptoSwift', :git => 'https://github.com/krzyzanowskim/CryptoSwift.git', :tag => '1.8.1'
-    pod 'Curve25519Kit', :git => 'https://github.com/whspr/Curve25519Kit.git', :branch => 'mkirk/framework-friendly'
+    pod 'Curve25519Kit', :git => 'https://github.com/redsolution/Curve25519Kit.git', :branch => 'mkirk/framework-friendly'
 end
 
 # to silence warning in comments in XMPPFramework

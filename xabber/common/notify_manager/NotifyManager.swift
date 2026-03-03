@@ -193,6 +193,8 @@ class NotifyManager {
     var openViewControllerPayload: [String: String]? = nil
     
     internal var lastChatsDisplayedState: Bool = false
+    
+    open var leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil
 
     public static let notificationCategories: [String] = [
         NotifyManager.notificationMessageCategory,
@@ -1013,7 +1015,13 @@ class NotifyManager {
 //                    showStacked(vc, in: presenterVc.presentingViewController)
 //                }
 //            }
-            completionHandler?()
+//            let stanzaId = userInfo["stanzaId"]  as? String
+//            self.leftMenuDelegate?.openChatlistWithChat(owner: owner, jid: jid, conversationType: conversationType) { vc in
+//                if let stanzaId = stanzaId {
+//                    vc?.scrollToMessageAtIndex(archivedId: stanzaId, date: Date())
+//                }
+//            }
+//            completionHandler?()
         } else {
             if atStart {
                 self.openViewControllerPayload = ["owner": owner, "jid": jid, "action": "initialChat"]
@@ -1029,7 +1037,13 @@ class NotifyManager {
 //                        showStacked(vc, in: presenterVc.presentingViewController)
 //                    }
 //                }
-                completionHandler?()
+//                let stanzaId = userInfo["stanzaId"]  as? String
+//                self.leftMenuDelegate?.openChatlistWithChat(owner: owner, jid: jid, conversationType: conversationType) { vc in
+//                    if let stanzaId = stanzaId {
+//                        vc?.scrollToMessageAtIndex(archivedId: stanzaId, date: Date())
+//                    }
+//                }
+//                completionHandler?()
             }
             do {
                 let realm = try WRealm.safe()
@@ -1051,6 +1065,12 @@ class NotifyManager {
                 DDLogDebug("NotifyManager: \(#function). \(error.localizedDescription)")
             }
             
+            let stanzaId = userInfo["stanzaId"]  as? String
+            self.leftMenuDelegate?.openChatlistWithChat(owner: owner, jid: jid, conversationType: conversationType) { vc in
+                if let stanzaId = stanzaId {
+                    vc?.scrollToMessageAtIndex(archivedId: stanzaId, date: Date())
+                }
+            }
             Timer.scheduledTimer(withTimeInterval: 3, repeats: false) { (_) in
                 completionHandler?()
             }

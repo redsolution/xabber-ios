@@ -44,7 +44,7 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
 //            if (self.messagesCollectionView.contentSize.height - self.messagesCollectionView.contentOffset.y) < self.view.bounds.height {
 //                self.canLoadDatasource = false
 //                self.onTouchEndPage(direction: .up)
-//            }
+//            } 
 //        }
 //        if self.canLoadDatasource {
 //            if self.currentPage.minIndex > 0 {

@@ -200,7 +200,7 @@ class AbuseReportViewController: SimpleBaseViewController {
     internal var changesObserver: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     
     internal let saveBarButton: UIBarButtonItem = {
-        let button = UIBarButtonItem(systemItem: .save)
+        let button = UIBarButtonItem(title: "Send")
         
         return button
     }()
@@ -374,7 +374,7 @@ extension AbuseReportViewController: UITableViewDataSource {
     
     
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        return "This report will go to the abuse service of \(XMPPJID(string: jid)?.domain ?? jid) — the server that hosts this \(self.conversationType == .group ? "group" : "user"). It will include your XMPP address, so the administrators can handle it properly. Choose one or more reasons below to assist with keeping things safe:"
+        return "This report will go to the abuse service of \(XMPPJID(string: jid)?.domain ?? jid) — the server that hosts this \(self.conversationType == .group ? "group" : "user"). It will include your XMPP address, so the administrators can handle it properly.\nChoose one or more reasons below to assist with keeping things safe:"
     }
     internal func onAddNewGroup(_ textField: UITextField?, key: String, value: String?) {
 //        if let value = value {
@@ -386,12 +386,13 @@ extension AbuseReportViewController: UITableViewDataSource {
 //            self.tableView.selectRow(at: IndexPath(row: 1, section: 0), animated: true, scrollPosition: .none)
 //            textField?.text = nil
 //            textField?.resignFirstResponder()
-            if let index = self.datasource.firstIndex(where: { $0.kind == .field }) {
-                self.datasource[index].isChanged = value != nil
-                self.datasource[index].isChecked = value != nil
-                self.datasource[index].value = value ?? ""
-            }
-            self.updateChanges()
+        if let index = self.datasource.firstIndex(where: { $0.kind == .field }) {
+            self.datasource[index].isChanged = value != nil
+            self.datasource[index].isChecked = value != nil
+            self.datasource[index].value = value ?? ""
+        }
+        self.updateChanges()
+        self.dismissKeyboard()
     }
     
     func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
