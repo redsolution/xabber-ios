@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 70;
+	objectVersion = 90;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -770,14 +770,12 @@
 /* Begin PBXCopyFilesBuildPhase section */
 		666FAB0420C6AFAA0057C352 /* Embed App Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 12;
 			dstPath = "";
-			dstSubfolderSpec = 13;
+			dstSubfolder = PlugIns;
 			files = (
 				663F04322F238E8B0078F2ED /* xabber-push-extension.appex in Embed App Extensions */,
 			);
 			name = "Embed App Extensions";
-			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
 
@@ -1735,7 +1733,7 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		666162062F1FBA8700FA2CD1 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+		666162062F1FBA8700FA2CD1 /* Exceptions for "xabber-push-extension" folder in "xabber-push-extension" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -1745,13 +1743,19 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		666161FF2F1FBA8700FA2CD1 /* xabber-push-extension */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (666162062F1FBA8700FA2CD1 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = "xabber-push-extension"; sourceTree = "<group>"; };
+		666161FF2F1FBA8700FA2CD1 /* xabber-push-extension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				666162062F1FBA8700FA2CD1 /* Exceptions for "xabber-push-extension" folder in "xabber-push-extension" target */,
+			);
+			path = "xabber-push-extension";
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		66159DED201EDC7D00B1CF92 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
 			files = (
 				66898065265B84A400E13ED1 /* AuthenticationServices.framework in Frameworks */,
 				663D1B0E2D94294800EB1169 /* Copus in Frameworks */,
@@ -1761,23 +1765,18 @@
 				663D1B102D94294800EB1169 /* Opus in Frameworks */,
 				AAB5E63AE9D89AF3794725AD /* Pods_xabber.framework in Frameworks */,
 			);
-			runOnlyForDeploymentPostprocessing = 0;
 		};
 		666161FB2F1FBA8700FA2CD1 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
 			files = (
 				07941069B60A1AB982322937 /* Pods_xabber_push_extension.framework in Frameworks */,
 			);
-			runOnlyForDeploymentPostprocessing = 0;
 		};
 		66AE4E7224E12F7C00FF11DC /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
 			files = (
 				0FBECCA69A94E385D67A5669 /* Pods_xabberTests.framework in Frameworks */,
 			);
-			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
@@ -4427,8 +4426,6 @@
 			);
 			buildRules = (
 			);
-			dependencies = (
-			);
 			fileSystemSynchronizedGroups = (
 				666161FF2F1FBA8700FA2CD1 /* xabber-push-extension */,
 			);
@@ -4497,7 +4494,6 @@
 				};
 			};
 			buildConfigurationList = 66159DEB201EDC7D00B1CF92 /* Build configuration list for PBXProject "xabber" */;
-			compatibilityVersion = "Xcode 8.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -4580,6 +4576,7 @@
 				663D1B0C2D94294800EB1169 /* XCRemoteSwiftPackageReference "swift-opus" */,
 				662D88D72F3B11FB003EC7E1 /* XCRemoteSwiftPackageReference "swift-ogg" */,
 			);
+			preferredProjectObjectVersion = 90;
 			productRefGroup = 66159DE7201EDC7D00B1CF92;
 			projectDirPath = "";
 			projectRoot = "";
@@ -4594,7 +4591,6 @@
 /* Begin PBXResourcesBuildPhase section */
 		66159DEE201EDC7D00B1CF92 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
 			files = (
 				66F34A352D8AF95F008D2BC3 /* bubblecorners.json in Resources */,
 				66159E00201EDC7D00B1CF92 /* LaunchScreen.storyboard in Resources */,
@@ -4617,11 +4613,9 @@
 				669C5FEE27F2DE48008BADC2 /* Backgrounds.xcassets in Resources */,
 				6604C7682E49D60400763779 /* PrivacyInfo.xcprivacy in Resources */,
 			);
-			runOnlyForDeploymentPostprocessing = 0;
 		};
 		666161FC2F1FBA8700FA2CD1 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
 			files = (
 				663F04382F23A6570078F2ED /* emojis.json in Resources */,
 				663F04372F23A64F0078F2ED /* bubblecorners.json in Resources */,
@@ -4630,46 +4624,42 @@
 				663F04342F2395E40078F2ED /* credential_store.plist in Resources */,
 				663F04362F2396130078F2ED /* subscribtions_secret.plist in Resources */,
 			);
-			runOnlyForDeploymentPostprocessing = 0;
 		};
 		66AE4E7324E12F7C00FF11DC /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
 			files = (
 				66D2B580253ECBD200299578 /* icons.xcassets in Resources */,
 			);
-			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
 		280976B467CAB9897D1522D8 /* [CP] Check Pods Manifest.lock */ = {
 			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
 			inputPaths = (
 				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
 				"${PODS_ROOT}/Manifest.lock",
 			);
 			name = "[CP] Check Pods Manifest.lock";
-			outputFileListPaths = (
-			);
 			outputPaths = (
 				"$(DERIVED_FILE_DIR)/Pods-xabber-checkManifestLockResult.txt",
 			);
-			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			shellScript = (
+				"diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null",
+				"if [ $? != 0 ] ; then",
+				"    # print error to STDERR",
+				"    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2",
+				"    exit 1",
+				"fi",
+				"# This output is used by Xcode 'outputs' to avoid re-running this script phase.",
+				"echo \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"",
+				"",
+			);
 			showEnvVarsInLog = 0;
 		};
 		3656408388A21CEAE648671A /* [CP] Embed Pods Frameworks */ = {
 			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
 			inputPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-xabberTests/Pods-xabberTests-frameworks.sh",
 				"${BUILT_PRODUCTS_DIR}/Alamofire/Alamofire.framework",
@@ -4728,52 +4718,47 @@
 				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/OpenSSL.framework",
 				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/WebRTC.framework",
 			);
-			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-xabberTests/Pods-xabberTests-frameworks.sh\"\n";
+			shellScript = (
+				"\"${PODS_ROOT}/Target Support Files/Pods-xabberTests/Pods-xabberTests-frameworks.sh\"",
+				"",
+			);
 			showEnvVarsInLog = 0;
 		};
 		5F5903A856D28F2B5B43CD3D /* [CP] Check Pods Manifest.lock */ = {
 			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
 			inputPaths = (
 				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
 				"${PODS_ROOT}/Manifest.lock",
 			);
 			name = "[CP] Check Pods Manifest.lock";
-			outputFileListPaths = (
-			);
 			outputPaths = (
 				"$(DERIVED_FILE_DIR)/Pods-xabber-push-extension-checkManifestLockResult.txt",
 			);
-			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			shellScript = (
+				"diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null",
+				"if [ $? != 0 ] ; then",
+				"    # print error to STDERR",
+				"    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2",
+				"    exit 1",
+				"fi",
+				"# This output is used by Xcode 'outputs' to avoid re-running this script phase.",
+				"echo \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"",
+				"",
+			);
 			showEnvVarsInLog = 0;
 		};
 		66E41512207737A700489C8E /* ShellScript */ = {
 			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "
-";
+			shellScript = (
+				"",
+				"",
+			);
 		};
 		C9B687BEC5A32CF38B4F1BD7 /* [CP] Embed Pods Frameworks */ = {
 			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
 			inputPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-xabber/Pods-xabber-frameworks.sh",
 				"${BUILT_PRODUCTS_DIR}/Alamofire/Alamofire.framework",
@@ -4832,31 +4817,35 @@
 				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/OpenSSL.framework",
 				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/WebRTC.framework",
 			);
-			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-xabber/Pods-xabber-frameworks.sh\"\n";
+			shellScript = (
+				"\"${PODS_ROOT}/Target Support Files/Pods-xabber/Pods-xabber-frameworks.sh\"",
+				"",
+			);
 			showEnvVarsInLog = 0;
 		};
 		CBA9A6E80D9626033CD8F0D6 /* [CP] Check Pods Manifest.lock */ = {
 			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
 			inputPaths = (
 				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
 				"${PODS_ROOT}/Manifest.lock",
 			);
 			name = "[CP] Check Pods Manifest.lock";
-			outputFileListPaths = (
-			);
 			outputPaths = (
 				"$(DERIVED_FILE_DIR)/Pods-xabberTests-checkManifestLockResult.txt",
 			);
-			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			shellScript = (
+				"diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null",
+				"if [ $? != 0 ] ; then",
+				"    # print error to STDERR",
+				"    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2",
+				"    exit 1",
+				"fi",
+				"# This output is used by Xcode 'outputs' to avoid re-running this script phase.",
+				"echo \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"",
+				"",
+			);
 			showEnvVarsInLog = 0;
 		};
 /* End PBXShellScriptBuildPhase section */
@@ -4864,7 +4853,6 @@
 /* Begin PBXSourcesBuildPhase section */
 		66159DEC201EDC7D00B1CF92 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
 			files = (
 				6696B4432239068300F646B9 /* UIApplicationExtension+topVC.swift in Sources */,
 				6678F08C268F1D7900A716AA /* QRCodeScannerViewController.swift in Sources */,
@@ -5561,11 +5549,9 @@
 				AF6ADC052ABABFE40048BEF6 /* FileDeletionConfirmation.swift in Sources */,
 				669DC92C23A216F00072891B /* GroupchatEditContactViewController+TextEditCell.swift in Sources */,
 			);
-			runOnlyForDeploymentPostprocessing = 0;
 		};
 		666161FA2F1FBA8700FA2CD1 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
 			files = (
 				66F339422F1FC73800EFB5B7 /* CredentialsManager.swift in Sources */,
 				66F339432F1FC74800EFB5B7 /* CommonConfigManager.swift in Sources */,
@@ -5574,18 +5560,15 @@
 				665A79622F1FCB2200709663 /* CommonContactsMetadataManager.swift in Sources */,
 				665A79602F1FCAE800709663 /* SynchronizationArrayCallbackItem.swift in Sources */,
 			);
-			runOnlyForDeploymentPostprocessing = 0;
 		};
 		66AE4E7124E12F7C00FF11DC /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
 			files = (
 				66AE4E8024E189EF00FF11DC /* XabberXMPPTests.swift in Sources */,
 				66B48FDA26F858EC0088D6A4 /* Base64Extras.swift in Sources */,
 				66AE4E7824E12F7C00FF11DC /* xabberTests.swift in Sources */,
 				66D2B585253EFED100299578 /* XabberAssetsTests.swift in Sources */,
 			);
-			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
@@ -5843,7 +5826,7 @@
 /* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
-		66159E0D201EDC7D00B1CF92 /* Debug */ = {
+		66159E0D201EDC7D00B1CF92 /* Debug configuration for PBXProject "xabber" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -5912,7 +5895,7 @@
 			};
 			name = Debug;
 		};
-		66159E0E201EDC7D00B1CF92 /* Release */ = {
+		66159E0E201EDC7D00B1CF92 /* Release configuration for PBXProject "xabber" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -5976,7 +5959,7 @@
 			};
 			name = Release;
 		};
-		66159E10201EDC7D00B1CF92 /* Debug */ = {
+		66159E10201EDC7D00B1CF92 /* Debug configuration for PBXNativeTarget "xabber" */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 13FA59D6BD2F4739A7ACFD3D /* Pods-xabber.debug.xcconfig */;
 			buildSettings = {
@@ -6037,7 +6020,7 @@
 			};
 			name = Debug;
 		};
-		66159E11201EDC7D00B1CF92 /* Release */ = {
+		66159E11201EDC7D00B1CF92 /* Release configuration for PBXNativeTarget "xabber" */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 5A01438B65BCB76802280911 /* Pods-xabber.release.xcconfig */;
 			buildSettings = {
@@ -6096,7 +6079,7 @@
 			};
 			name = Release;
 		};
-		666162082F1FBA8700FA2CD1 /* Debug */ = {
+		666162082F1FBA8700FA2CD1 /* Debug configuration for PBXNativeTarget "xabber-push-extension" */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = F54E5ADC3FB322BED1BAE53C /* Pods-xabber-push-extension.debug.xcconfig */;
 			buildSettings = {
@@ -6139,7 +6122,7 @@
 			};
 			name = Debug;
 		};
-		666162092F1FBA8700FA2CD1 /* Release */ = {
+		666162092F1FBA8700FA2CD1 /* Release configuration for PBXNativeTarget "xabber-push-extension" */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = FDACF194DE8E5E850756F0ED /* Pods-xabber-push-extension.release.xcconfig */;
 			buildSettings = {
@@ -6179,7 +6162,7 @@
 			};
 			name = Release;
 		};
-		66AE4E7D24E12F7C00FF11DC /* Debug */ = {
+		66AE4E7D24E12F7C00FF11DC /* Debug configuration for PBXNativeTarget "xabberTests" */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = D05C36853A02E2364B392717 /* Pods-xabberTests.debug.xcconfig */;
 			buildSettings = {
@@ -6206,7 +6189,7 @@
 			};
 			name = Debug;
 		};
-		66AE4E7E24E12F7C00FF11DC /* Release */ = {
+		66AE4E7E24E12F7C00FF11DC /* Release configuration for PBXNativeTarget "xabberTests" */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 240D4DFE72446DEA57DC5EF9 /* Pods-xabberTests.release.xcconfig */;
 			buildSettings = {
@@ -6237,37 +6220,33 @@
 		66159DEB201EDC7D00B1CF92 /* Build configuration list for PBXProject "xabber" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				66159E0D201EDC7D00B1CF92 /* Debug */,
-				66159E0E201EDC7D00B1CF92 /* Release */,
+				66159E0D201EDC7D00B1CF92 /* Debug configuration for PBXProject "xabber" */,
+				66159E0E201EDC7D00B1CF92 /* Release configuration for PBXProject "xabber" */,
 			);
-			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 		66159E0F201EDC7D00B1CF92 /* Build configuration list for PBXNativeTarget "xabber" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				66159E10201EDC7D00B1CF92 /* Debug */,
-				66159E11201EDC7D00B1CF92 /* Release */,
+				66159E10201EDC7D00B1CF92 /* Debug configuration for PBXNativeTarget "xabber" */,
+				66159E11201EDC7D00B1CF92 /* Release configuration for PBXNativeTarget "xabber" */,
 			);
-			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 		666162072F1FBA8700FA2CD1 /* Build configuration list for PBXNativeTarget "xabber-push-extension" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				666162082F1FBA8700FA2CD1 /* Debug */,
-				666162092F1FBA8700FA2CD1 /* Release */,
+				666162082F1FBA8700FA2CD1 /* Debug configuration for PBXNativeTarget "xabber-push-extension" */,
+				666162092F1FBA8700FA2CD1 /* Release configuration for PBXNativeTarget "xabber-push-extension" */,
 			);
-			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 		66AE4E7C24E12F7C00FF11DC /* Build configuration list for PBXNativeTarget "xabberTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				66AE4E7D24E12F7C00FF11DC /* Debug */,
-				66AE4E7E24E12F7C00FF11DC /* Release */,
+				66AE4E7D24E12F7C00FF11DC /* Debug configuration for PBXNativeTarget "xabberTests" */,
+				66AE4E7E24E12F7C00FF11DC /* Release configuration for PBXNativeTarget "xabberTests" */,
 			);
-			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
