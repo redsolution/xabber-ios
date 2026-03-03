@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="16px" height="16px" viewBox="0 0 16 16" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>badge/circle-big/bell</title>
+    <g id="badge/circle-big/bell" stroke="none" fill="none">
+        <rect id="Bounds" x="0" y="0" width="16" height="16"></rect>
+        <circle id="Oval" fill="#000000" fill-rule="nonzero" cx="8" cy="8" r="8"></circle>
+        <g id="badge/icon/bell">
+            <rect id="Bounds" x="0" y="0" width="16" height="16"></rect>
+            <path d="M12.5,11 L12.5,11.5 L3.5,11.5 L3.5,11 L4.5,10 L4.5,7 C4.5,5.45 5.515,4.085 7,3.645 L7,3.5 C7,2.94771525 7.44771525,2.5 8,2.5 C8.55228475,2.5 9,2.94771525 9,3.5 L9,3.645 C10.485,4.085 11.5,5.45 11.5,7 L11.5,10 L12.5,11 M9,12 C9,12.5522847 8.55228475,13 8,13 C7.44771525,13 7,12.5522847 7,12" id="Shape" fill="#FFFFFF" fill-rule="nonzero"></path>
+        </g>
+    </g>
+</svg>

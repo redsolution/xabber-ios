@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="16px" height="16px" viewBox="0 0 16 16" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>badge/circle-big/plus</title>
+    <g id="badge/circle-big/plus" stroke="none" fill="none">
+        <rect id="Bounds" x="0" y="0" width="16" height="16"></rect>
+        <circle id="circle-big" fill="#000000" fill-rule="nonzero" cx="8" cy="8" r="8"></circle>
+        <g id="badge/icon/plus">
+            <rect id="Bounds" x="0" y="0" width="16" height="16"></rect>
+            <polygon id="xabber:plus" fill="#FFFFFF" fill-rule="nonzero" points="9 3 9 7 13 7 13 9 9 9 9 13 7 13 7 9 3 9 3 7 7 7 7 3"></polygon>
+        </g>
+    </g>
+</svg>

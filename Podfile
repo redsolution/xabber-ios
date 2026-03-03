@@ -18,7 +18,7 @@
 ##
 ##
 source 'https://cdn.cocoapods.org'
-source 'https://github.com/webrtc-sdk/Specs.git'   # only if using WebRTC-SDK
+source 'https://github.com/webrtc-sdk/Specs.git'
 
 platform :ios, '15.0'
 

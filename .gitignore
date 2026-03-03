@@ -5,7 +5,6 @@ xabber/Info.plist
 xabber/Masks.xcassets
 xabber/common_config.plist
 xabber/credential_store.plist
-xabber/icons.xcassets
 xabber/proofreading.json
 xabber/push_service.plist
 xabber/subscribtions_secret.plist

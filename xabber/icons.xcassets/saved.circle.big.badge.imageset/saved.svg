@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="16px" height="16px" viewBox="0 0 16 16" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>badge/circle-big/saved</title>
+    <g id="badge/circle-big/saved" stroke="none" fill="none">
+        <rect id="Bounds" x="0" y="0" width="16" height="16"></rect>
+        <circle id="Oval" fill="#000000" fill-rule="nonzero" cx="8" cy="8" r="8"></circle>
+        <g id="badge/icon/saved">
+            <rect id="Bounds" x="0" y="0" width="16" height="16"></rect>
+            <path d="M10,4 L6,4 C5.44771525,4 5,4.44771525 5,5 L5,13 L8,10 L11,13 L11,5 C11,4.44771525 10.5522847,4 10,4 Z" id="mdi:bookmark" fill="#FFFFFF" fill-rule="nonzero"></path>
+        </g>
+    </g>
+</svg>

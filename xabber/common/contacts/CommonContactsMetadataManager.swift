@@ -57,7 +57,7 @@ class CommonContactsMetadataManager: NSObject {
         }
         
         let saveRequest = CNSaveRequest()
-        saveRequest.add(contact, toContainerWithIdentifier: nil)  // nil = default container
+        saveRequest.add(contact, toContainerWithIdentifier: nil)
         
         do {
             try store.execute(saveRequest)
@@ -68,7 +68,7 @@ class CommonContactsMetadataManager: NSObject {
             if let found = try? store.unifiedContacts(matching: predicate, keysToFetch: keys),
                let matching = found.first(where: { $0.note == contact.note }) {
                 let request = CNSaveRequest()
-                return matching.identifier  // ← вот этот identifier отдаём в INPerson
+                return matching.identifier
             }
             return nil
         } catch {
@@ -88,9 +88,6 @@ class CommonContactsMetadataManager: NSObject {
         if let avatarUrl = avatarUrl {
             metadata["avatarUrl"] = avatarUrl
         }
-//        if let contactId = saveFakeContact(jid: jid, owner: owner, name: username, avatarUrl: avatarUrl) {
-//            metadata["contactId"] = contactId
-//        }
         userDefaults.setValue(metadata, forKey: [key, owner, jid].prp())
     }
     
