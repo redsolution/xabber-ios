@@ -1,0 +1,2420 @@
+
+
+"web_client__screen_about__preamble_1" = "%1$@ é um mensageiro XMPP de código aberto para plataformas Android, iOS e Web. É construída em torno de padrões abertos, interoperabilidade, design e ótima experiência de usuário. Versões de %2$@ para cada plataforma são criadas para proporcionar uma experiência de bate-papo contínua entre elas.";
+
+
+"web_client__screen_about__preamble_2" = "Você encontrará mais informações em nosso site oficial %@";
+
+
+"web_client__screen_about__preamble_2__link" = "https://www.xabber.com";
+
+
+"web_client__screen_about__block_1__header" = "Protocolo XMPP";
+
+
+"web_client__screen_about__block_1__text" = "Extensible Messaging and Presence Protocol (XMPP) é um protocolo de comunicação para um middleware orientado a mensagens baseado em XML (Extensible Markup Language). Permite o intercâmbio quase em tempo real de dados estruturados, mas extensíveis, entre duas ou mais entidades de rede. O protocolo foi originalmente nomeado como Jabber e foi desenvolvido pela comunidade de código aberto Jabber em 1999 para mensagens instantâneas quase em tempo real (IM), informação de presença e manutenção da lista de contatos.";
+
+
+"web_client__screen_about__block_2__header" = "Protocolos de extensão XMPP";
+
+
+"web_client__screen_about__block_2__text" = "XMPP é altamente extensível, por meio de extensões conhecidas como XEPs (protocolo de extensão XMPP). %@ suporta uma série de XEPs populares que são essenciais para fornecer uma ótima experiência de bate-papo para nossos usuários.";
+
+
+"web_client__screen_about__block_3__header" = "Desenvolvedores";
+
+
+"client_developer_company_name" = "Redsolution";
+
+
+"web_client__screen_about__block_3__text_1" = "%1$@ foi originalmente desenvolvida por %2$@ — uma empresa internacional de software e serviços atualmente localizada na Estônia. Desde então, um número de indivíduos ingressou em %3$@ como desenvolvedores, testadores e tradutores.";
+
+
+"web_client__screen_about__block_3__text_2" = "Nosso objetivo é criar um ambiente estável, confiável ecossistema interoperável e amigo do utilizador para mensagens instantâneas que não dependem de serviços de propriedade e silos de dados. Saudamos qualquer pessoa que acredite em padrões abertos e intercâmbios de informações gratuitas para participar do progresso de %@.";
+
+
+"web_client__screen_about__block_3__text_3" = "Siga-nos no Twitter e no Github.";
+
+
+"web_client__screen_about__block_4__header" = "Tradutores";
+
+
+"web_client__screen_about__block_4__text_1" = "%@ está disponível em vários idiomas graças a muitas pessoas de todo o mundo. Criámos uma página especial no nosso sítio Web para reconhecer os seus esforços.";
+
+
+"web_client__screen_about__block_4__text_2" = "Você pode se juntar a eles e nos ajudar a melhorar a qualidade da tradução, contribuindo com suas traduções para %@";
+
+
+"web_client__screen_about__block_4__text_2__link__text" = "Projeto de %@";
+
+
+"web_client__screen_about__block_5__header" = "Licença";
+
+
+"web_client__screen_about__block_5__text_1__link__text" = "GitHub";
+
+
+"web_client__screen_about__block_5__text_1" = "O código-fonte %1$@ está licenciado sob a licença GNU AGPL v.3 e está disponível em %2$@";
+
+
+"web_client__screen_about__block_5__text_2" = "Imagens gráficas são licenciadas sob a licença Creative Commons Attribution Share-Alike (CC BY-SA).";
+
+
+"web_client__screen_about__block_5__text_3" = "%1$@ & %2$@ logotipo são propriedade de %3$@";
+
+
+"client_developer_company_full_name" = "Redsolution, OÜ";
+
+
+"web_client__screen_about__block_5__text_4" = "Veja %1$@ %2$@ para mais informações.";
+
+
+"web_client__screen_about__block_5__text_4__link__text" = "Arquivo de Licença";
+
+
+
+"account_compression" = "Ativar compressão de dados";
+
+
+"account_host" = "Host";
+
+
+"account_password" = "Senha";
+
+
+"confirm_password" = "Confirme a Senha";
+
+
+"account_port" = "Porta";
+
+
+"account_priority" = "Prioridade";
+
+
+"account_resource" = "Recurso";
+
+
+"account_server_name" = "Servidor";
+
+
+"account_xmpp_register_warning.a_0" = "criar uma conta XMPP";
+
+
+"account_compression_summary" = "Seleção para ativar a compactação de dados";
+
+
+"account_custom" = "Host personalizado";
+
+
+"account_custom_summary" = "Usar configurações de host personalizado em vez de registro SRV";
+
+
+"account_invalid_port" = "A porta deve ser um número (padrão: 5222)";
+
+
+"account_invalid_port_range" = "A porta deve ser um número entre 1 e 65535 (o padrão é: 5222)";
+
+
+"account_invalid_priority" = "O valor da prioridade deve ser um número entre -128 e 127 (padrão: 0)";
+
+
+"account_proxy_host" = "Servidor proxy";
+
+
+"account_proxy_invalid_port_range" = "A porta de proxy deve ser um número entre 1 e 65535 (o padrão é: 8080)";
+
+
+"account_proxy_invalid_port" = "A porta de proxy deve ser um número (o padrão é: 8080)";
+
+
+"account_proxy_password" = "Senha do proxy";
+
+
+"account_proxy_port" = "Porta do proxy";
+
+
+"account_proxy_type" = "Tipo de proxy";
+
+
+"account_proxy_type_none" = "Desabilitado";
+
+
+"account_proxy_user" = "Usuário do proxy";
+
+
+"account_sasl" = "Usar autenticação SASL (recomendado)";
+
+
+"account_sasl_summary" = "Desabilitar para servidor muito antigo";
+
+
+"account_store_password" = "Armazenar senha";
+
+
+"account_store_password_summary" = "Desabilitar esta opção para solicitar a senha cada vez que você conectar";
+
+
+"account_tls_enable" = "Habilitar TLS";
+
+
+"account_tls_enable_summary" = "Use criptografia TLS quando possível para conectar ao servidor";
+
+
+"account_tls_legacy" = "SSL legado";
+
+
+"account_tls_legacy_summary" = "Use criptografia SSL legada quando conectar ao servidor";
+
+
+"account_tls_mode" = "Usar TLS/SSL";
+
+
+"account_tls_require" = "Requerer TLS";
+
+
+"account_tls_require_summary" = "Requerer criptografia TLS quando conectar ao servidor";
+
+
+"account_use_tor" = "Usar rede TOR de anonimato (requer proxy Orbot)";
+
+
+"orbot_required_message" = "Para usar o TOR você deve possuir o Orbot instalado e ativado para tráfego de proxy nele. Você gostaria de instalá-lo pelo Google Play?";
+
+
+"orbot_required_title" = "Instalar Orbot?";
+
+
+"install_orbot" = "Instalar Orbot";
+
+
+"account_color" = "Cor da conta";
+
+
+"account_color_name_green" = "Verde";
+
+
+"account_color_name_orange" = "Laranja";
+
+
+"account_color_name_red" = "Vermelho";
+
+
+"account_color_name_blue" = "Azul";
+
+
+"account_color_name_indigo" = "Azul indigo";
+
+
+"account_color_name_teal" = "Verde-azulado";
+
+
+"account_color_name_blue_grey" = "Azul-cinzento";
+
+
+"account_color_name_cyan" = "Ciano";
+
+
+"account_color_name_deep_purple" = "Roxo escuro";
+
+
+"account_color_name_lime" = "Limão";
+
+
+"account_color_name_pink" = "Rosa";
+
+
+"account_color_name_purple" = "Roxo";
+
+
+"account_color_name_light_blue" = "Azul Claro";
+
+
+"account_color_name_light_green" = "Verde claro";
+
+
+"account_color_name_amber" = "Âmbar";
+
+
+"account_color_name_deep_orange" = "Laranja escuro";
+
+
+"account_color_name_brown" = "Marrom";
+
+
+"account_connection_settings" = "Configurações de conexão";
+
+
+"blocked_contacts" = "Contatos bloqueados";
+
+
+"blocked_contacts_empty" = "Sem contatos bloqueados.";
+
+
+"account_chat_history" = "Histórico de chats";
+
+
+"account_history_options_summary" = "Opções de armazenamento para mensagens";
+
+
+"account_chat_history_unknown" = "Ainda não existe suporte para armazenamento de histórico no servidor";
+
+
+"account_mam_default_behavior_title" = "Gerenciamento do arquivo de mensagens";
+
+
+"account_mam_default_behavior_always" = "Armazenar todas as mensagens no servidor";
+
+
+"account_mam_default_behavior_roster" = "Armazenar mensagens de contatos salvos na lista no servidor";
+
+
+"account_mam_default_behavior_never" = "Não armazenar as mensagens no servidor";
+
+
+"account_mam_sync_title" = "Carregar histórico de mensagens";
+
+
+"account_mam_sync_all" = "Carregar histórico para todos os contatos";
+
+
+"account_mam_sync_current" = "Carregar histórico apenas para chats abertos";
+
+
+"account_mam_sync_none" = "Não carregar a histórico para ninguém";
+
+
+"account_clear_history_on_exit_title" = "Limpar o histórico ao sair";
+
+
+"account_bookmarks" = "Favoritos";
+
+
+"account_bookmarks_summary" = "Lista de favoritos para esta conta";
+
+
+"account_sync" = "Sincronização";
+
+
+"account_sync_summary" = "Sincronização com a conta Xabber";
+
+
+"bookmark_not_supported" = "Servidor não oferece suporte a favoritos";
+
+
+"plurals.blocked_contacts_number.item_0" = "%d contato bloqueado.";
+
+
+"plurals.blocked_contacts_number.item_1" = "%d contatos bloqueados.";
+
+
+
+"account_add" = "Adicionar conta";
+
+
+"account_register" = "Cadastrar Nova Conta";
+
+
+"account_delete" = "Apagar conta";
+
+
+"account_editor" = "Configurações da conta";
+
+
+"account_state_registration" = "Registrar";
+
+
+"account_state_connected" = "Conectado";
+
+
+"account_state_disconnecting" = "Desconectando";
+
+
+"account_state_offline" = "Desconectado";
+
+
+"account_state_waiting" = "Aguardando reconexão";
+
+
+
+"add_contact" = "Adicionar contato";
+
+
+"create_group" = "Criar Grupo";
+
+
+"create_incognito_group" = "Criar Grupo Anônimo";
+
+
+"choose_account" = "Selecionar conta";
+
+
+"add_to" = "Adicionar para";
+
+
+"create_to" = "Criar para";
+
+
+"motivating_oneliner" = "Pronto para arrasar?\n
+Legal!\n
+Seja a mudança!\n
+Acredite em si mesmo!\n
+Mudar é bom!\n
+Carpe Diem!\n
+Concentre-se e vença!\n
+A especiaria deve fluir!\n
+Conhecimento é poder!\n
+Viva seu potencial!\n
+Faça acontecer!\n
+Nunca desista!\n
+O sucesso é seu!\n
+Sim, você pode!\n
+Trilhas felizes!\n
+Fique atento!\n
+Mantenha a simplicidade!\n
+Felicidade é escolha!\n
+Amigos são tesouros!\n
+Citius, Altius, Fortius!\n
+Mire alto!\n
+Seja você mesmo!\n
+Sonhe grande!\n
+Haverá dragões!\n
+Olá linda!\n
+Possibilidades infinitas!\n
+Impressionante!v
+Levante-se!v
+Woo hoo!\n
+Agora ou nunca!\n
+Sem amarras!\n
+O tempo cura tudo!\n
+Palavras podem machucar!\n
+Experimente coisas novas!\n
+Menos é mais!\n
+Confie na sua intuição!\n
+Você é linda!\n
+Direto para o sucesso!\n
+Faça isso!\n
+Por que não agora?\n
+Teve um sonho?\n
+Continue!\n
+Eles vivem! 😎\n
+Quebre a rotina!\n
+Olá!\n
+A paixão nunca falha!\n
+Mais café, por favor!\n
+Espere grandes coisas!\n
+Flexione aquele sorriso)\n
+Lembre-se de viver!\n
+Veja o mundo!\n
+Um novo começo!\n
+O real é raro!\n
+Ouse falhar!\n
+Aqui e agora!\n
+Apenas seja feliz!\n
+Com ❤️\n
+Siga esse sonho!\n
+Isso é bom.\n
+Tudo bem, eu ainda te amo 💖\n
+Use sua imaginação!\n
+Porque você pode!\n
+Faça valer a pena!\n
+Que dia!\n
+Abrace o amor!\n
+Atitude é tudo!\n
+Flutue como uma borboleta!\n
+Pique como uma abelha!\n
+Normal é chato!\n
+A vida é boa!\n
+Aqui está olhando para você, garoto!\n
+Sempre teremos Paris!\n
+Toque, Sam!\n
+Você não pode tirar o céu de mim!\n
+TANSTAAFL\n
+Livre como em liberdade!\n
+Sempre tem terreno elevado!\n
+Zed está morto, baby.\n
+É uma oferta irrecusável!\n
+Irradie vibrações positivas!\n
+A hora é agora!\n
+Inconcebível!\n
+En Taro Adun, Executor!\n
+Minha vida por Auir!\n
+Eu faço isso por Aiur!\n
+Relatório Kirov!\n
+Você é quem bate!\n
+Deve ser feito!\n
+Isso deve ser bom!\n
+Vá em frente, comandante!\n
+Parece divertido!\n
+Depósitos de suprimentos adicionais necessários!\n
+Minerais insuficientes!\n
+Relatório de todas as equipes!\n
+Apertem os cintos!\n
+Transmita pedidos!\n
+Reportando para o dever!\n
+Transmita coordenadas!\n
+Seria um prazer!\n
+Qual é a tua ordem, meu mestre?\n
+Nós somos os Borgs!\n
+Prepare-se para ser assimilado!\n
+É apenas uma ferida superficial!\n
+Tudo mudou quando a Nação do Fogo atacou!\n
+Eu costumava ser um usuário como você!\n
+O Boulder parece estar em conflito!\n
+Tudo está conectado!\n
+Siga o Coelho Branco!\n
+Pílula vermelha ou azul?\n
+Acorde, Neo!\n
+Stannis é um verdadeiro rei!\n
+O adormecido deve despertar!\n
+O medo é o assassino da mente!\n
+Abalado, não mexido!\n
+Nosso objetivo é agradar!\n
+Aproveite enquanto dura!\n
+Desabafar!\n
+Vejo você na festa!\n
+Fim de jogo homem! Fim do jogo!\n
+Francamente, minha querida, não dou a mínima!\n
+Vá em frente, faça meu dia!\n
+Que a Força esteja com você!\n
+Você está falando comigo?\n
+Rosebud.\n
+E.T. telefone para casa!\n
+Você consegue lidar com a verdade?\n
+Amanhã é outro dia!\n
+Eu volto!\n
+Está vivo! Está vivo!\n
+Bem, ninguém é perfeito!\n
+Houston, tivemos um problema!\n
+Tivemos uma subtensão do barramento B principal!\n
+Você me teve em \'olá!\n
+Aqui está Johnny!\n
+Soylent Green é gente!\n
+Abra as portas do compartimento do pod, HAL!\n
+Sinto muito, Dave, infelizmente não posso fazer isso!\n
+Quem entra primeiro?\n
+Ninguém coloca o bebê em um canto!\n
+Não fale sobre o Fight Club!\n
+Por que tão sério?\n
+Para o infinito e além!\n
+Deixe a arma. Pegue o cannoli!\n
+Isso vai para onze!\n
+É perigoso ir sozinho. Pegue isso!\n
+Bolo é uma mentira!\n
+Nossa princesa está em outro castelo!\n
+Faça um rolo de barril!\n
+Guerra. A guerra nunca muda.\n
+Esta unidade tem alma?\n
+Dany meio que se esqueceu da Frota de Ferro!\n
+Este é o principal Tom para o controle de solo!\n
+Precisaremos de um barco maior!\n
+Meu precioso!\n
+Este é SPARTA !!!\n
+Eu terei o que ela está tendo!\n
+Todos nós ficamos um pouco loucos às vezes!\n
+Você não está se divertindo?\n
+Viva muito e prospere 🖖\n
+Vingadores, reúnam-se!\n
+Quer saber como consegui essas cicatrizes?\n
+A noite é mais escura antes do amanhecer\n
+Que tal outra piada, Murray?\n
+Eu, por exemplo, gosto de algarismos romanos\n
+Vamos bater, ok?\n
+Jogue-o fora da eclusa de ar\n
+Eu não preciso de sorte. Eu tenho munição.";
+
+
+"dialog_add__label_add_account" = "Adicionar Conta";
+
+
+"toolbar__button_add_tooltip" = "Adicionar grupo, contato ou conta";
+
+
+"dialog_add_contact__error__text_no_accounts" = "Nenhuma conta conectada foi encontrada.";
+
+
+"dialog_add_contact__error__text_input_username" = "Usuário de entrada!";
+
+
+"dialog_add_contact__error__text_can_not_add_youself" = "Não é possível adicionar você mesmo aos contatos!";
+
+
+"dialog_add_contact__error__text_invalid_jid" = "Jid inválido";
+
+
+"dialog_add_contact__error__text_already_in_roster" = "O contato já está em sua lista";
+
+
+
+"intro_regular_chat" = "Bate-papo normal";
+
+
+"intro_regular_chat_text" = "As mensagens neste chat não são criptografadas. Os servidores geralmente armazenam mensagens temporárias em um arquivo. Isso permite a sincronização fácil do dispositivo e a pesquisa de histórico do lado do servidor, mas adiciona riscos de privacidade.";
+
+
+"intro_regular_chat_learn" = "Saiba mais sobre mensagens";
+
+
+"intro_regular_chat_link" = "https://www.xabber.com/learn/regular";
+
+
+"intro_encrypted_chat" = "Bate-papo normal";
+
+
+"intro_encrypted_chat_text" = "As mensagens nesse chat são criptografadas com criptografia de ponta a ponta. Você deve sempre confirmar a identidade de seu contato, verificando as impressões digitais das chaves de criptografia.";
+
+
+"intro_encrypted_chat_learn" = "Saiba mais sobre bate-papos criptografados";
+
+
+"intro_encrypted_chat_link" = "https://www.xabber.com/learn/regular";
+
+
+"intro_public_group" = "Grupo público";
+
+
+"intro_public_group_text" = "As identidades dos usuários neste grupo são públicas, então qualquer membro pode contatá-lo usando seu ID XMPP real.";
+
+
+"intro_public_group_learn" = "Saiba mais sobre grupos públicos";
+
+
+"intro_public_group_link" = "https://www.xabber.com/learn/groups";
+
+
+"intro_incognito_group" = "Grupo anónimo";
+
+
+"intro_incognito_group_text" = "As identidades dos usuários neste grupo são mantidas ocultas, apenas os administradores do grupo podem acessar seu ID XMPP real. Esteja vigilante, não se exponha sendo descuidado.";
+
+
+"intro_incognito_group_learn" = "Saiba mais sobre grupos anónimos";
+
+
+"intro_incognito_group_link" = "https://www.xabber.com/learn/incognito";
+
+
+"intro_private_chat" = "Bate-papo privado";
+
+
+"intro_private_chat_text" = "Bate-papo privado com usuário anônimo. As mensagens são encaminhadas através do servidor de grupo e suas identidades são mantidas em segredo umas das outras. Esteja vigilante, não se exponha sendo descuidado.";
+
+
+"intro_private_chat_learn" = "Saiba mais sobre conversas privadas";
+
+
+"intro_private_chat_link" = "https://www.xabber.com/learn/private";
+
+
+
+"action_status_text" = "%1$@ mudou o status: %2$@";
+
+
+"action_status_text_none" = "%1$@ limpou status";
+
+
+"action_join" = "%1$@ entrou na conferência";
+
+
+"action_kick" = "%1$@ foi expulso";
+
+
+"chat_delay" = "enviado em %@";
+
+
+"chat_input_hint" = "Digite sua mensagem aqui";
+
+
+"chat_send" = "Enviar";
+
+
+"clear_history" = "Limpar histórico";
+
+
+"clear_chat_history_dialog_button" = "Limpar";
+
+
+"contact_is_offline" = "O destinatário está desconectado. As mensagens que você enviar serão entregues quando ele estiver conectado.";
+
+
+"ENTRY_IS_NOT_AVAILABLE" = "O contato não está disponível";
+
+
+"FILE_NOT_FOUND" = "Arquivo não encontrado";
+
+
+"message_copy" = "Copiar";
+
+
+"message_appeal" = "Referência";
+
+
+"message_quote" = "Citação";
+
+
+"message_remove" = "Remover do histórico";
+
+
+"message_repeat" = "Tente reenviar";
+
+
+"save_history" = "Salvar histórico local\nArmazenar mensagem no histórico localmente";
+
+
+"action_attention_called" = "Chamada de atenção enviada";
+
+
+"action_attention_requested" = "Atenção solicitada";
+
+
+"action_ban" = "%1$@ foi banido";
+
+
+"action_ban_by" = "%1$@ foi banido por %2$@";
+
+
+"action_invite_error" = "Convite não recebido por %@";
+
+
+"action_invite_sent" = "Convite enviado para %@";
+
+
+"action_join_complete" = "Você entrou na conversa como %1$@";
+
+
+"action_join_complete_to" = "Você entrou no chat %1$@";
+
+
+"action_kick_by" = "%1$@ foi expulso por %2$@";
+
+
+"action_leave" = "%1$@ deixou o chat";
+
+
+"action_nickname" = "%1$@ mudou o apelido para %2$@";
+
+
+"action_otr_encryption" = "A criptografia foi habilitada mas este contato não foi verificado. Você pode verificá-lo no menu Criptografia OTR.";
+
+
+"action_otr_error" = "Erro no OTR: %1$@";
+
+
+"action_otr_finish" = "O outro deixou a conversa. Você deve fazer o mesmo ou reiniciá-lo.";
+
+
+"action_otr_finished_session" = "A mensagem não foi enviada. Deixe a conversa ou a reinicie.";
+
+
+"action_otr_plain" = "Você deixou a conversa criptografada";
+
+
+"action_otr_smp_cheated" = "O outro tentou trapacear durante a verificação";
+
+
+"action_otr_smp_failed" = "A verificação falhou";
+
+
+"action_otr_smp_not_approved" = "Sua resposta para a pergunta secreta foi verificada. Você também deve perguntar ao seu oponente ou verificar o segredo compartilhado.";
+
+
+"action_otr_smp_unverified" = "A verificação falhou";
+
+
+"action_otr_smp_verified" = "A verificação foi concluída com sucesso";
+
+
+"action_otr_unreadable" = "A mensagem criptografada recebida é ilegível";
+
+
+"action_otr_verified" = "Criptografia habilitada";
+
+
+"action_status_available" = "%1$@ está online";
+
+
+"action_status_away" = "%1$@ está ausente";
+
+
+"action_status_chat" = "%1$@ está disponível para conversar";
+
+
+"action_status_dnd" = "%1$@ não quer ser perturbado/a";
+
+
+"action_status_unavailable" = "%1$@ está indisponível";
+
+
+"action_status_xa" = "%1$@ fora por um longo tempo";
+
+
+"action_subject" = "%1$@ mudou o assunto para: %2$@";
+
+
+"ATTENTION_IS_NOT_SUPPORTED" = "Contato não oferece suporte ou desativou a atenção";
+
+
+"call_attention" = "Chamar a atenção";
+
+
+"chat_settings" = "Definições de conversa";
+
+
+"chat_typed" = "entrou em %@";
+
+
+"export_chat_done" = "O histórico foi exportado para o Cartão SD";
+
+
+"export_chat_mask" = "De %2$@ para %1$@.html";
+
+
+"export_chat_send" = "Enviar após exportação";
+
+
+"export_chat_title" = "Digite o nome do arquivo";
+
+
+"muc_invite" = "Convidar para a conversa";
+
+
+"muc_is_unavailable" = "As mensagens não puderam ser entregues. Por favor entre na conversa";
+
+
+"occupant_list" = "Lista de participantes";
+
+
+"otr_encryption" = "Criptografia OTR";
+
+
+"otr_end" = "Para a criptografia";
+
+
+"otr_refresh" = "Reiniciar a criptografia";
+
+
+"otr_request" = "Uma conversa privada Off-the-Record foi solicitada, mas você não tem suporte. Use o Pidgin, Gajim ou Adium para PC/Mac e Xabber ou ChatSecure para Android. Vá em http://otr.cypherpunks.ca/ para mais informações.";
+
+
+"otr_start" = "Iniciar a criptografia";
+
+
+"otr_unreadable_message" = "A mensagem criptografada que você enviou é ilegível";
+
+
+"otr_verification" = "Verificação de OTR";
+
+
+"otr_verify_fingerprint" = "Verificar com impressão digital";
+
+
+"otr_verify_question" = "Verificar com a pergunta";
+
+
+"otr_verify_secret" = "Verificar com segredo";
+
+
+"otr_verification_notify_button" = "Aberto";
+
+
+"otr_verification_notify_button_cancel" = "Cancelar";
+
+
+"chat_events_show_text_global" = "Configurações gerais";
+
+
+"chat_events_show_text_always" = "Mostrar mensagem de texto";
+
+
+"chat_events_show_text_never" = "Esconder o texto da mensagem";
+
+
+"error_sending_file" = "Erro ao enviar arquivo %@";
+
+
+"could_not_get_path_to_file" = "Não foi possível obter o caminho para o arquivo";
+
+
+"message_open_private_chat" = "Chat privado aberto";
+
+
+"no_permission_to_read_files" = "Sem permissão para ler arquivos";
+
+
+"no_permission_to_write_files" = "Nenhuma permissão para gravar arquivos";
+
+
+"message_status_sent" = "Enviado";
+
+
+"message_status_error" = "Erro";
+
+
+"message_status_not_sent" = "Enviando";
+
+
+"muc_role_visitor" = "Visitante";
+
+
+"action_download" = "Baixar";
+
+
+
+"contact_account" = "Conta";
+
+
+"contact_group" = "Escolher grupos";
+
+
+"contact_name" = "Apelido (opcional)";
+
+
+"contact_subscribe_confirm" = "Compartilhe seu status de conta %1$@ com contato?";
+
+
+"contact_user" = "Nome de usuário do contato";
+
+
+"ENTRY_IS_NOT_FOUND" = "Contacto não encontrado";
+
+
+"group_is_empty" = "Definir nome do grupo";
+
+
+"group_name" = "Nome do grupo";
+
+
+"EMPTY_ACCOUNT" = "Por favor selecione uma conta";
+
+
+"accept_contact" = "Autorizar";
+
+
+"decline_contact" = "Eliminar";
+
+
+"processing_image" = "Processando imagem...";
+
+
+"error_during_crop" = "Erro durante o recorte da imagem";
+
+
+"error_during_image_processing" = "Erro durante o processamento da imagem";
+
+
+"account_server_info" = "Info do servidor";
+
+
+"account_server_info_description" = "Lista de recursos do servidor";
+
+
+"conference_private_chat_invitation" = "%1$@ de %2$@ quer começar uma conversação particular";
+
+
+"accept_muc_private_chat" = "Aceitar";
+
+
+
+"accept_subscription" = "Aceitar contato";
+
+
+"account_reconnect" = "Reconectar";
+
+
+"application_action_disabled" = "Gerenciar contas";
+
+
+"application_action_empty" = "Adicionar conta";
+
+
+"application_action_no_contacts" = "Adicionar contato";
+
+
+"application_action_no_online" = "Exibir contatos offline";
+
+
+"application_action_offline" = "Ficar Online";
+
+
+"application_action_waiting" = "Reconectar";
+
+
+"application_state_connecting" = "Conectando...";
+
+
+"application_state_empty" = "Você não possui nenhuma conta";
+
+
+"application_state_no_contacts" = "Sem contatos";
+
+
+"application_state_no_online" = "Ninguém on-line";
+
+
+"application_state_offline" = "Sem contas online";
+
+
+"application_state_roster" = "Conectado.";
+
+
+"application_state_starting" = "Carregando aplicação... ";
+
+
+"application_state_waiting" = "Aguardando conexão...";
+
+
+"chat_viewer" = "Conversa";
+
+
+"CONNECTION_FAILED" = "Erro de conexão";
+
+
+"contact_add" = "Adicionar contato";
+
+
+"contact_delete" = "Apagar";
+
+
+"contact_block" = "Bloquear contato";
+
+
+"contact_delete_confirm" = "Você realmente deseja apagar o contato %1$@ da conta %2$@?";
+
+
+"discard_subscription" = "Recusar contato";
+
+
+"archive_chat" = "Arquivo";
+
+
+"mute_chat" = "Mudo";
+
+
+"unmute_chat" = "Reativar sons";
+
+
+"exit" = "Sair";
+
+
+"group_active_chat" = "Conversas ativas";
+
+
+"group_none" = "Sem grupos";
+
+
+"group_remove" = "Apagar grupo";
+
+
+"group_remove_confirm" = "Você realmente deseja excluir o grupo %@?";
+
+
+"group_rename" = "Renomear grupo";
+
+
+"NO_SUCH_ACCOUNT" = "A conta não foi encontrada";
+
+
+"NOT_CONNECTED" = "Conexão não estabelecida";
+
+
+"request_subscription" = "Solicitar assinatura";
+
+
+"XMPP_EXCEPTION" = "Erro de fluxo de dados";
+
+
+"application_state_closing" = "Salvando alterações...\nAplicação será fechada em breve.";
+
+
+"group_room" = "Conferências";
+
+
+"OTR_ERROR" = "Erro no OTR";
+
+
+"select_contact" = "Por favor clique para selecionar o contato";
+
+
+"show_offline_always" = "Exibir sempre";
+
+
+"show_offline_never" = "Nunca exibir";
+
+
+"show_offline_normal" = "Usar configurações gerais";
+
+
+"show_offline_settings" = "Exibir contatos offiline";
+
+
+"start_at_boot" = "Executar na inicialização";
+
+
+"start_at_boot_suggest" = "Você que executar o Xabber ao iniciar o sistema?\nIsso pode ser alterado em \"Opções\" → \"Oções de conexão\" → \"Executar ao iniciar sistema\"";
+
+
+"contact_search_hint" = "Pesquisar contatos";
+
+
+"xmpp_accounts" = "Contas XMPP";
+
+
+"block_list" = "Lista de bloqueados";
+
+
+"contact_blocked_successfully" = "Contato bloqueado com sucesso";
+
+
+"error_blocking_contact" = "Erro ao bloquear contato";
+
+
+"contacts_unblocked_successfully" = "Contatos desbloqueados com sucesso";
+
+
+"error_unblocking_contacts" = "Erro ao desbloquear os contatos";
+
+
+"block_contact_confirm" = "Deseja bloquear o contato %1$@ da conta %2$@?";
+
+
+"unblock_all_contacts_confirm" = "Deseja desbloquear todos os contatos da conta %1$@?";
+
+
+"unblock_all" = "Desbloquear tudo";
+
+
+"unblock_selected" = "Desbloquear selecionados";
+
+
+"dark_theme_suggest_dialog_title" = "Escolha o seu destino";
+
+
+"dark_theme_suggest_dialog_message" = "Novo tema escuro agora está disponível para Xabber. Junte-se ao lado escuro ou fique do lado claro?";
+
+
+"dark_theme_suggest_dialog_join_dark_side" = "Escuro";
+
+
+"dark_theme_suggest_dialog_stay_on_light_side" = "Claro";
+
+
+"open_log_file" = "Abrir";
+
+
+"send_log_file" = "Enviar";
+
+
+"undo" = "DESFAZER";
+
+
+"category_title_contacts" = "Contatos";
+
+
+
+"contact_viewer" = "Informação de contato";
+
+
+"contact_viewer_client" = "Cliente";
+
+
+"contact_viewer_this_device" = "Este Dispositivo";
+
+
+"vcard_nick_name" = "Apelido";
+
+
+"vcard_formatted_name" = "Nome completo";
+
+
+"vcard_prefix_name" = "Tratamento";
+
+
+"vcard_given_name" = "Nome próprio";
+
+
+"vcard_middle_name" = "Segundo nome";
+
+
+"vcard_family_name" = "Sobrenome";
+
+
+"vcard_suffix_name" = "Último nome";
+
+
+"vcard_birth_date" = "Aniversário";
+
+
+"vcard_url" = "Site";
+
+
+"vcard_organization" = "Empresa";
+
+
+"vcard_organization_unit" = "Unidade da organização";
+
+
+"vcard_title" = "Emprego";
+
+
+"vcard_role" = "Cargo";
+
+
+"vcard_decsription" = "Descrição";
+
+
+"vcard_note" = "Notas";
+
+
+"vcard_address_pobox" = "Caixa postal";
+
+
+"vcard_address_extadr" = "Endereço completo";
+
+
+"vcard_address_street" = "Rua";
+
+
+"vcard_address_locality" = "Cidade";
+
+
+"vcard_address_region" = "Estado";
+
+
+"vcard_address_pcode" = "CEP";
+
+
+"vcard_address_ctry" = "País";
+
+
+"vcard_telephone" = "Telefone";
+
+
+"vcard_email" = "E-mail";
+
+
+"vcard_type_home" = "Casa";
+
+
+"vcard_type_work" = "Emprego";
+
+
+"vcard_type_postal" = "Código postal";
+
+
+"vcard_type_parcel" = "Remessa";
+
+
+"vcard_type_dom" = "Doméstico";
+
+
+"vcard_type_intl" = "Internacional";
+
+
+"vcard_type_pref" = "Preferido";
+
+
+"vcard_type_voice" = "Voz";
+
+
+"vcard_type_fax" = "Fax";
+
+
+"vcard_type_pager" = "Pager";
+
+
+"vcard_type_cell" = "Celular";
+
+
+"vcard_type_video" = "Vídeo";
+
+
+"vcard_type_modem" = "Modem";
+
+
+"vcard_type_msg" = "Mensagem de voz";
+
+
+"vcard_type_internet" = "Internet";
+
+
+"please_wait" = "Por favor aguarde...";
+
+
+"unknown" = "Desconhecido";
+
+
+"edit_alias" = "Editar alias";
+
+
+"edit_contact_groups" = "Editar Grupos";
+
+
+"edit_account_user_info" = "Editar info. pessoais";
+
+
+"edit_vcard" = "Editar";
+
+
+"account_user_info_save_success" = "Informações pessoais salvas com sucesso";
+
+
+"account_user_info_save_fail" = "Não foi possível salvar informações pessoais";
+
+
+"saving" = "Salvando…";
+
+
+"choose_from_gallery" = "Usar foto da galeria";
+
+
+"take_photo" = "Tirar foto";
+
+
+"remove_avatar" = "Remover avatar";
+
+
+"change" = "Alterar foto";
+
+
+"could_not_get_room_info" = "Não foi possível obter a informação da conferência";
+
+
+"conference_name" = "Nome";
+
+
+"conference_description" = "Descrição";
+
+
+"conference_subject" = "Assunto";
+
+
+"message_info_occupants_number" = "Participantes: %d";
+
+
+"contact_info_connected_clients_header" = "Dispositivos conectados";
+
+
+"contact_info_visiting_card_header" = "vCard";
+
+
+
+"quick_contacts" = "Contatos rápidos";
+
+
+"recent_searches" = "Pesquisas recentes";
+
+
+"type_here_to_search" = "Digite aqui para pesquisar";
+
+
+"nothing_was_searched" = "Sem resultados";
+
+
+"placeholder_no_matches" = "Nenhuma correspondência";
+
+
+"placeholder_loading" = "Carregando...";
+
+
+"discover__no_matches" = "Nao há resultados para";
+
+
+"discover__text_discovered_groups" = "%1$d grupos descobertos por %2$@";
+
+
+
+"otr_fingerprint_description" = "Para confirmar a identidade do seu contato, peça para que envie sua assinatura e compare-a com a de abaixo. Você não deve usar a conversa XMPP para este propósito.";
+
+
+"otr_is_verified" = "Este contato é confiável";
+
+
+"otr_local_fingerprint" = "Sua assinatura:";
+
+
+"otr_remote_fingerprint" = "A assinatura do seu contato:";
+
+
+"otr_scan_fingerprint" = "Escanear QR code com a assinatura de seu contato";
+
+
+"otr_show_fingerprint" = "Exibir QR code com sua assinatura";
+
+
+"otr_copy_fingerprint" = "Copiar sua assinatura para área de transferência";
+
+
+
+"groupchat_group" = "Grupo";
+
+
+"groupchat_info" = "INFORMAÇÃO";
+
+
+"create_groupchat" = "Cria grupo";
+
+
+"create_incognito_groupchat" = "Criar grupo anônimo";
+
+
+"groupchat_group_settings" = "Configurações do grupo";
+
+
+"groupchat_invite_members" = "Convidar membros";
+
+
+"groupchat_name" = "Nome do grupo";
+
+
+"groupchat_xmpp_jid" = "ID Grupo";
+
+
+"groupchat_description" = "Descrição";
+
+
+"groupchat_status" = "Status";
+
+
+"groupchat_index" = "Índice";
+
+
+"groupchat_group_type" = "Tipo de Grupo";
+
+
+"groupchat_membership" = "Filiação";
+
+
+"groupchat_default_restrictions" = "Restrições padrão";
+
+
+"groupchat_invitations" = "Convites";
+
+
+"groupchat_blocked" = "Bloqueado";
+
+
+"groupchat_settings" = "Configurações";
+
+
+"groupchat_role" = "Cargo";
+
+
+"groupchat_member_permissions" = "Permissões";
+
+
+"groupchat_search_members" = "Procurar membros";
+
+
+"groupchat_join" = "Participar";
+
+
+"groupchat_decline" = "Negar";
+
+
+"groupchat_joining" = "Juntando-se…";
+
+
+"groupchat_invitation_to_group_chat" = "Convite para o grupo %1$@";
+
+
+"groupchat_member_of_group_name" = "%1$@ de %2$@ grupo %3$@";
+
+
+"member_info" = "Informações do membro";
+
+
+"groupchat_direct_chat" = "Chat direto";
+
+
+"groupchat_member_messages" = "Mensagens";
+
+
+"groupchat_set_member_badge" = "Definir selo";
+
+
+"groupchat_set_member_nickname" = "Definir apelido";
+
+
+"groupchat_member_edit" = "Editar";
+
+
+"groupchat_save_member_settings" = "Salvar";
+
+
+"groupchat_edit_member" = "Editar membro";
+
+
+"groupchat_member_nickname" = "Apelido";
+
+
+"groupchat_member_badge" = "Distintivo";
+
+
+"groupchat_member_edit_change_avatar" = "Alterar avatar";
+
+
+"groupchat_member_edit_choose_from_gallery" = "Escolher da galeria";
+
+
+"groupchat_member_edit_remove_avatar" = "Remover avatar";
+
+
+"groupchat_kick_member" = "Expulsar membro";
+
+
+"groupchat_do_you_really_want_to_kick_membername" = "Você realmente deseja expulsar o membro %1$@?";
+
+
+"groupchat_kick" = "Expulsar";
+
+
+"groupchat_kick_and_block" = "Expulsar e bloquear";
+
+
+"groupchat_example_name" = "Meu grupo";
+
+
+"groupchat_example_description" = "Melhor grupo de sempre!";
+
+
+"groupchat_custom_server" = "personalizado…";
+
+
+"groupchat_custom_group_server" = "Servidor de grupo personalizado";
+
+
+"groupchat_provided_by_xabber" = "Servidor de grupo fornecido por Xabber.chat";
+
+
+"groupchat_provided_by_your_server" = "Fornecido pelo seu servidor";
+
+
+"groupchat_incognito_reply" = "Resposta anónima";
+
+
+"groupchat_reply_as" = "Responder como %@";
+
+
+"groupchat_membership_type_none" = "Nenhum";
+
+
+"groupchat_membership_type_open" = "Abrir";
+
+
+"groupchat_membership_type_members_only" = "Apenas membros";
+
+
+"groupchat_index_type_none" = "Nenhum";
+
+
+"groupchat_index_type_global" = "Global";
+
+
+"groupchat_index_type_local" = "Local";
+
+
+"groupchat_privacy_type_none" = "Nenhum";
+
+
+"groupchat_privacy_type_incognito" = "Anônimo";
+
+
+"groupchat_privacy_type_public" = "Público";
+
+
+"groupchat_public_group" = "Grupo público";
+
+
+"groupchat_incognito_group" = "Grupo anónimo";
+
+
+"groupchat_none_group" = "Nenhum grupo";
+
+
+"groupchat_invite_reason_dialog_title" = "Razão";
+
+
+"groupchat_invite_reason_dialog_message" = "Escreva um motivo para aceitar o convite";
+
+
+"groupchat_blocklist_empty" = "Lista de bloqueio vazia";
+
+
+"groupchat_invite_lis_empty" = "Lista de convites está vazia";
+
+
+"groupchat_this_is_you" = "este é você";
+
+
+"groupchat_revoke" = "Revogar";
+
+
+"groupchat_unblock" = "Desbloquear";
+
+
+"groupchat_invite" = "Convidar";
+
+
+"groupchat_invalid_group_id" = "ID de grupo inválido";
+
+
+"groupchat_failed_to_create_groupchat_with_unknown_reason" = "Falha ao criar grupo por motivo desconhecido!";
+
+
+"groupchat_jid_already_exists" = "Este ID de grupo já existe!";
+
+
+"groupchat_failed_to_revoke_invitation" = "Falha ao revogar um convite para";
+
+
+"groupchat_failed_to_unblock" = "Falha ao desbloquear";
+
+
+"groupchat_failed_to_pin_message" = "Falha ao fixar mensagem";
+
+
+"groupchat_failed_to_unpin_message" = "Falha ao desafixar mensagem";
+
+
+"groupchat_failed_to_change_groupchat_settings" = "Falha ao atualizar as configurações do grupo";
+
+
+"groupchat_failed_to_retrieve_settings_data_form" = "Falha ao recuperar as configurações do formulário de dados";
+
+
+"groupchat_permissions_successfully_changed" = "Configurações do grupo alteradas com sucesso";
+
+
+"groupchat_set_duration" = "Definir duração";
+
+
+"groupchat_you_have_no_permissions_to_do_it" = "Você não tem permissão para fazer isso!";
+
+
+"groupchat_error" = "Erro!";
+
+
+"groupchat_legacy_invitation_body" = "Para entrar no grupo, adicione %@ à sua lista de contatos";
+
+
+"dialog_default_restrictions__placeholder" = "Estas restrições serão aplicadas automaticamente a todos os novos membros do grupo";
+
+
+"group_settings__button_leave" = "Sair";
+
+
+"group_settings__button_delete_group" = "Apagar grupo";
+
+
+"group_settings__members_list__header" = "Membros";
+
+
+"group_settings__properties__button_edit" = "editar";
+
+
+"group_settings__properties__label_jid" = "ID XMPP";
+
+
+"group_settings__properties__label_indexed" = "Indexado";
+
+
+"group_settings__members__status_online" = "Online";
+
+
+"groupchat_block" = "Bloquear";
+
+
+"groupchat_private_chat" = "Bate-papo privado";
+
+
+"settings_group_member__placeholder_not_a_member" = "Não é membro?";
+
+
+"group_settings__members__label_last_seen" = "Visto por último";
+
+
+"group_chat__pinned_message__tooltip_unpin" = "Desfixar";
+
+
+"group_settings__properties__tooltip_copy_by_click" = "Clique para copiar";
+
+
+"dialog_rights__button_set_timer" = "Ajuste o cronômetro";
+
+
+"dialog_set_status__header" = "Definir status";
+
+
+"groupchat_invite_users" = "Convidar usuários";
+
+
+"searching__chat_properties__header" = "Propriedades do Grupo";
+
+
+"searching__search_panel__label_title" = "Título";
+
+
+"searching__search_panel__label_sort_by" = "Ordenar por";
+
+
+"searching__search_panel__label_account" = "Conta";
+
+
+"searching__placeholder_search_by_domain" = "Pesquisar por domínio";
+
+
+"set_group_status__error__service_unavailable" = "Serviço indisponível";
+
+
+"group_settings__error__avatar_too_large" = "O arquivo é muito grande";
+
+
+"group_settings__error__wrong_image" = "Imagem errada";
+
+
+"group_settings__invitations__no_pending_invitations" = "Sem convites pendentes";
+
+
+"groupchat__dialog_block_member__header" = "Bloquear membro";
+
+
+"groupchat__dialog_block_member__confirm" = "Deseja realmente bloquear o membro %@?";
+
+
+"groupchat__private_chat__text_message_init" = "Iniciando bate-papo privado com %1$@ de %2$@. Se o convite for aceito, vocês não verão os IDs XMPP reais uns dos outros.";
+
+
+"groupchat__set_badge__error_length" = "Emblema não pode ser maior que 32 símbolos";
+
+
+"groupchat__rights_timer__indefinitely" = "Indefinidamente";
+
+
+"groupchat__rights_timer__text_expire" = "Por %d";
+
+
+"groupchat__public_group__text_invitation" = "Você foi convidado para o chat em grupo. Se você aceitar, %@ ID XMPP será visível para os membros do chat em grupo";
+
+
+"dialog_delete_user_messages__header" = "Excluir mensagens de usuário";
+
+
+"dialog_delete_user_messages__confirm.b_0" = "%@";
+
+
+"groupchat__invitation__error_already_invited" = " %@ já foi convidado no grupo";
+
+
+"groupchat__hint_domain" = "domínio";
+
+
+"group_settings_edit__setting_privacy__text_public" = "Grupo público. Os membros podem ver IDs XMPP reais de outros participantes";
+
+
+"group_settings_edit__setting_privacy__text_incognito" = "Grupo anônimo. Os membros não podem ver IDs XMPP reais de outros participantes";
+
+
+"group_settings_edit__setting_index__text" = "Bate-papos indexados localmente podem ser descobertos pesquisando no servidor hospedeiro. Bate-papos indexados globalmente podem ser descobertos pesquisando no índice global";
+
+
+"group_settings_edit__setting_membership__text" = "Os chats somente para membros podem ser acessados ​​apenas por convite";
+
+
+"group_settings_edit__setting_name__hint" = "Digitar Nome do Chat";
+
+
+"public_group_settings__header" = "Configurações Grupos Públicos";
+
+
+"incognito_group_settings__header" = "Configurações Grupo Anônimo";
+
+
+"group_settings__block_list__header" = "Bloqueado";
+
+
+"plurals.groupchat_number_of_members.item_0" = "%1$d membro";
+
+
+"plurals.groupchat_number_of_members.item_1" = "%1$d membros";
+
+
+"plurals.estimated_in_seconds.item_0" = "em %1$d segundo";
+
+
+"plurals.estimated_in_seconds.item_1" = "em %1d$ segundos";
+
+
+"plurals.estimated_in_minutes.item_0" = "em %1$d minuto";
+
+
+"plurals.estimated_in_minutes.item_1" = "em %1$d minutos";
+
+
+"plurals.estimated_in_hours.item_0" = "em %d hora";
+
+
+"plurals.estimated_in_hours.item_1" = "em %d horas";
+
+
+"plurals.estimated_in_days.item_0" = "em %1$d dia";
+
+
+"plurals.estimated_in_days.item_1" = "em %1$d dias";
+
+
+"plurals.groupchat__toast__invitations_sent.item_0" = "Convite enviado";
+
+
+"plurals.groupchat__toast__invitations_sent.item_1" = "Convites enviados";
+
+
+"plurals.groupchat__toast_failed_to_sent_invitations.item_0" = "Falha ao enviar convite";
+
+
+"plurals.groupchat__toast_failed_to_sent_invitations.item_1" = "Falha ao enviar convites";
+
+
+
+"dialog_jingle_message__header" = "Chamada de voz %@";
+
+
+"jingle__error__call_in_progress" = "Chamada de voz em andamento";
+
+
+"dialog_jingle_message__status_calling" = "Chamando…";
+
+
+"dialog_jingle_message__status_network_error" = "Falha de rede: ";
+
+
+"dialog_jingle_message__status_search" = "Procurar…";
+
+
+"jingle__text_body_message" = "Você recebeu uma chamada de voz. Se estiver vendo isto, sua plantaforma provavelmente não suporta esta funcionalidade. Para obter mais informações, consulte https://xabber.com/voice/";
+
+
+"dialog_jingle_message__status_connecting" = "Conectando...";
+
+
+"jingle__system_message__outgoing_call" = "Chamada realizada, %@";
+
+
+"jingle__system_message__incoming_call" = "Chamada recebida, %@";
+
+
+"jingle__system_message__cancelled_call" = "Chamada Cancelada";
+
+
+"jingle__system_message__no_devices_to_answer" = "Chamada recebida. Você não tem dispositivos necessários para atender";
+
+
+"jingle__error__audio_not_supported" = "Este tipo de áudio não é suportado em seu navegador";
+
+
+"dialog_jingle_message__status_busy" = "Linha ocupada";
+
+
+"dialog_jingle_message__status_disconnected" = "Desconectado";
+
+
+"dialog_jingle_message__button_switch_video__tooltip" = "Ligar/desligar vídeo";
+
+
+"dialog_jingle_message__button_mute_microphone__tooltip" = "Silenciar microfone";
+
+
+"dialog_jingle_message__button_mute__tooltip" = "Mudo";
+
+
+"dialog_jingle_message__button_share_screen__tooltip" = "Compartilhar tela";
+
+
+"dialog_jingle_message__button_accept_call__tooltip" = "Aceitar chamada";
+
+
+"dialog_jingle_message__button_decline_call__tooltip" = "Recusar chamada";
+
+
+
+"AUTHENTICATION_FAILED" = "Erro de autorização";
+
+
+"otr_verification_in_progress" = "Clique aqui para abortar.";
+
+
+"PASSWORD_REQUIRED" = "Senha obrigatória";
+
+
+"pay_attention" = "Atenção";
+
+
+"subscription_request_message" = "Pedido de autorização";
+
+
+"action_reply" = "Responder";
+
+
+"action_snooze" = "Suspender";
+
+
+"channel_events_title" = "Eventos";
+
+
+
+"omemo__alert_enable__link_text" = "Habilitar";
+
+
+"omemo__alert_enable__tooltip" = "Isso permitirá que você e seus contatos troquem mensagens privadas usando bate-papos criptografados. Lembre-se de sempre verificar a identidade dos seus parceiros do chat verificando impressões digitais de seus dispositivos.";
+
+
+"omemo__alert_enable__text.b_0" = "%@";
+
+
+"omemo__dialog_fingerprints__button_ignore" = "Ignorar";
+
+
+"omemo__dialog_fingerprints__button_trust" = "Confiar";
+
+
+"omemo__dialog_fingerprints__button_delete" = "Apagar";
+
+
+"omemo__dialog_fingerprints__button_error" = "Erro";
+
+
+"omemo__dialog_fingerprints__button_unknown" = "Desconhecido";
+
+
+"omemo__dialog_fingerprints__text_description" = "Você deve verificar cuidadosamente se as impressões digitais deste dispositivo correspondem ao que já foi visível para o seu parceiro de bate-papo. Para segurança máxima, isso deve ser feito por meio de outro canal de comunicação. De preferência, pessoalmente.";
+
+
+"omemo__dialog_fingerprints__text_learn_more" = "Saiba mais sobre criptografia e troca de chave segura";
+
+
+"omemo__dialog_fingerprints__link_learn_more" = "https://www.xabber.com/encryption/";
+
+
+"omemo__dialog_fingerprints__text_this_device" = "este dispositivo";
+
+
+"omemo__dialog_fingerprints__textfield_device_id_tooltip" = "ID do dispositivo: %@\nMarcador: %@\nID do dispositivo é um identificador exclusivo para o seu dispositivo de contato. Você mantém a sessão de criptografia separada com cada dispositivo.";
+
+
+"omemo__dialog_fingerprints__label_set_label" = "definir etiqueta";
+
+
+"omemo__dialog_fingerprints__label_device_id" = "ID do dispositivo";
+
+
+"omemo__alert_new_device__button_manage_devices" = "Gerenciar dispositivos";
+
+
+"omemo__settings__section_header" = "Configurações OMEMO";
+
+
+"omemo__settings__toggle_enable_encryption" = "Criptografia OMEMO";
+
+
+"omemo__settings__toggle_send_typing_notifications" = "Enviar notificações de digitação";
+
+
+"omemo__settings__button_manage_devices" = "Gerenciar dispositivos";
+
+
+"omemo__settings__button_purge_keys" = "Limpar chaves";
+
+
+"omemo__settings__menu_item" = "OMEMO";
+
+
+"omemo__alert_new_device_yours__text_new_device" = "O novo dispositivo publicou chaves de criptografia para sua conta. Se não foi você, parece que você tem um problema.";
+
+
+"omemo__alert_keys_changed_yours__text_keys_changed.i_0" = "não deveria";
+
+
+"omemo__alert_keys_changed_partner__text_keys_changed.i_0" = "não deveria";
+
+
+"omemo__alert_new_device_partner__text_new_device.u_0" = ". É muito";
+
+
+"omemo__dialog_fingerprints__text_no_fingerprints" = "Nenhuma impressão digital ainda";
+
+
+"omemo__chat__placeholder_encryption_disabled" = "A criptografia OMEMO está desativada";
+
+
+"omemo__dialog_fingerprints__header" = "%@ impressões digitais";
+
+
+"omemo__dialog_purge_keys__header" = "Limpar chaves de criptografia";
+
+
+"omemo__dialog_purge_keys__text" = "Isto irá cancelar a publicação de todas as chaves de criptografia e removê-las do seu servidor e deste dispositivo. Todos os chats descriptografados serão permanentemente excluídos, você não poderá recuperá-los no futuro. Para retomar a mensagem criptografada, você terá que executar os procedimentos de verificação de impressão digital novamente, com cada um dos seus contatos.\n\nUse esta medida apenas como um último recurso.";
+
+
+"omemo__dialog_purge_keys__button_purge_keys" = "Limpar chaves";
+
+
+"omemo__dialog_delete_device__header" = "Excluir dispositivo";
+
+
+"omemo__dialog_delete_device__text" = "Você realmente deseja excluir o dispositivo %@?";
+
+
+"omemo__dialog_delete_device__button_delete" = "Apagar";
+
+
+"omemo__chat_settings__button_start_encrypted_chat" = "Iniciar conversa criptografada";
+
+
+"omemo__chat_settings__button_open_encrypted_chat" = "Iniciar conversa criptografada";
+
+
+"omemo__chat_settings__button_open_regular_chat" = "Abrir bate-papo normal";
+
+
+"plurals.omemo__dialog_fingerprints__text_devices_count.item_0" = "%@, %d dispositivo";
+
+
+"plurals.omemo__dialog_fingerprints__text_devices_count.item_1" = "%@, %d dispositivos";
+
+
+
+"phrase_add" = "Adicionar frase";
+
+
+"phrase_delete" = "Excluir a frase";
+
+
+"phrase_delete_confirm" = "Tem a certeza que deseja apagar a frase: %@?";
+
+
+"phrase_empty" = "< Qualquer texto >";
+
+
+"phrase_group" = "Parte do grupo de contato";
+
+
+"phrase_regexp" = "Expressão regular";
+
+
+"phrase_sound" = "Som\nEscolha um som para notificação";
+
+
+"phrase_text" = "Texto para buscar";
+
+
+"phrase_user" = "Parte do ID XMPP do contato";
+
+
+
+"cache_clear" = "Limpar a cache\nApaga todos os dados locais. Isto pode liberar algum espaço.";
+
+
+"cache_clear_warning" = "Você realmente quer remover o histórico de bate-papo e outros dados locais? \nAccount e lista de dados não são afetados. O app irá fechar.";
+
+
+"chats_send_by_enter" = "Enviar com Enter\nA mensagem pode ser enviada ao pressionar a tecla \"Enter\"";
+
+
+"connection_go_away" = "Ausência automática\nAutomaticamente definir estado de ausente ao bloquear a tela";
+
+
+"contacts_order_alphabet" = "Alfabético";
+
+
+"contacts_order_status" = "Pelo status";
+
+
+"contacts_show_accounts" = "Agrupar por conta\nAgrupa os contatos na lista de contatos por conta";
+
+
+"contacts_show_avatars" = "Exibir avatares\nExibi os avatares dos usuários na lista de contatos";
+
+
+"contacts_show_empty_groups" = "Mostrar grupos vazios\nMostrar grupos sem contatos online";
+
+
+"contacts_show_groups" = "Mostrar grupos\nExibir grupos na lista de contatos";
+
+
+"contacts_show_offline" = "Exibir contatos offiline";
+
+
+"debug_connection_errors_title" = "Mostrar erros de conexão\nMostrar pop-up de exceções de conexão";
+
+
+"debug_crash_reports_dialog_settings_button" = "Configurações";
+
+
+"events_persistent" = "Ícone da barra de tarefas\nMostrar notificação persistente. Esta opção evita que o Android descarregue o aplicativo da memória";
+
+
+"events_sound" = "Som";
+
+
+"events_vibro" = "Vibrar";
+
+
+"interface_theme" = "Tema";
+
+
+"interface_theme_dark" = "Escuro";
+
+
+"interface_theme_light" = "Claro";
+
+
+"interface_smiles_android" = "Emoticons do Android";
+
+
+"interface_smiles_none" = "Sem emoticons gráficos";
+
+
+"preference_connection" = "Configurações de conexão\nConfigurações de conexão";
+
+
+"preference_contacts" = "Lista de contatos\nPersonalizar a aparência da lista de contatos";
+
+
+"preference_debug" = "Configurações de depuração\nConfigurações para ajudar os desenvolvedores a melhorar o Xabber";
+
+
+"preference_editor" = "Configurações";
+
+
+"preference_events" = "Notificações\nOpções de notificação";
+
+
+"preference_interface" = "Opções do tema\nOpções de aparência";
+
+
+"about_viewer" = "Sobre";
+
+
+"chats_show_background" = "Mostrar imagem de fundo\nDesativar pode melhorar o desempenho";
+
+
+"chats_font_size_large" = "Grande";
+
+
+"chats_font_size_normal" = "Normal";
+
+
+"chats_font_size_small" = "Pequena";
+
+
+"chats_font_size_xlarge" = "Enorme";
+
+
+"chats_hide_keyboard_landscape" = "Em modo paisagem";
+
+
+"chats_show_status_change_muc" = "Em conferências";
+
+
+"chats_state_notification" = "Mostrar notificação da escrita\nNotifica o interlocutor quando você está escrevendo";
+
+
+"connection_adjust_priority" = "Ajuste a prioridade\nConfigura as prioridades de acordo com o estado selecionado. A prioridade da conta será substituída.";
+
+
+"connection_go_away_immediately" = "Imediatamente quando bloquear a tela";
+
+
+"connection_go_xa" = "\"Extendido\" quando inativo\nDefina \"Extendido\" no bloqueio de tela";
+
+
+"connection_priority" = "Configurações de prioridade";
+
+
+"connection_start_at_boot" = "Executar ao iniciar o sistema\nInicia o Xabber quando o Android inicia. Não funciona se o Xabber estiver instalado no cartão SD.";
+
+
+"connection_wake_lock" = "Prevenir o modo de suspensão\nPrevine que o dispositivo entre em modo de suspensão. Aumenta o consumo de energia.";
+
+
+"connection_wifi_lock" = "Manter o Wi-Fi ligado\nMantém a ligação à Internet ligada em modo de espera. Aumenta o consumo de energia";
+
+
+"contacts_reset_offline" = "Redefinir as configurações offline\nLimpar configurações individuais para grupos e contas";
+
+
+"contacts_reset_offline_warning" = "Você deseja realmente limpar as configurações individuais para grupos e contas?";
+
+
+"events_suppress_100" = "Suprimir algumas mensagens de status\nNão receber a mensagem \'Essa sala não é anônima\"";
+
+
+"negative_priotiry_summary" = "%@ (você não receberá mensagens de nenhuma conversa)";
+
+
+"preference_accounts" = "Contas XMPP\nGerenciar contas";
+
+
+"preference_security" = "Segurança\nConfigurações de segurança";
+
+
+"security_check_certificate" = "Verifique o certificado do servidor\nNotificar quando houver problemas de certificado em conexões criptografadas";
+
+
+"security_otr_mode" = "Modo OTR";
+
+
+"connection_load_vcard" = "Carregar vCard\nCarrega e atualiza informação pessoal e avatar do contato. Desative para reduzir o uso de tráfego.";
+
+
+"connection_load_images" = "Carregar imagens\nCarregar imagens do URL do arquivo automaticamente. Desative para reduzir o uso de tráfego.";
+
+
+"connection_use_carbons" = "Modo partilhado / duplicar conta  cliente\nPode ser instável! Partilhará outras sessões abertas da mesma conta neste cliente. Desligar para reduzir o tráfego de rede.";
+
+
+"account_error_settings" = "Configurações";
+
+
+"category_settings" = "Configurações";
+
+
+"category_about" = "Sobre";
+
+
+"category_behavior" = "Comportamento";
+
+
+"category_advanced" = "Avançado";
+
+
+"events_on_chat_title" = "Aviso";
+
+
+"events_on_muc_title" = "Aviso";
+
+
+"vibro_default" = "Predefinido";
+
+
+"events_reset_title" = "Redefinir";
+
+
+
+"otr_answer" = "Resposta secreta:";
+
+
+"otr_question" = "Pergunta secreta";
+
+
+"otr_question_description" = "Use a pergunta secreta para verificar o outro.";
+
+
+"otr_secret" = "Segredo compartilhado:";
+
+
+"otr_secret_description" = "Use segredo compartilhado para verificar o outro.";
+
+
+
+"spam_filter_limit_message" = "Este usuário limitou o recebimento de mensagens de contatos sem autorização";
+
+
+"spam_filter_limit_subscription" = "Este usuário tem solicitações de assinatura limitadas. Para solicitar uma assinatura, resolva o captcha:";
+
+
+"spam_filter_ban_subscription" = "Esse usuário não aceita assinaturas. Você só pode conversar com ele se ele mesmo adicionar você.";
+
+
+"spam_filter_captcha_correct" = "Resposta correta. Solicitação de assinatura mostrada para o usuário.";
+
+
+"spam_filter_captcha_incorrect" = "Resposta incorreta. Você não é um spambot, é?";
+
+
+"spam_filter_captcha_many_attempts" = "Para várias tentativas. Tente solicitar a assinatura novamente para gerar o novo captcha";
+
+
+
+"available" = "Disponível";
+
+
+"away" = "Ausente";
+
+
+"chat" = "Disponível para bate-papo!";
+
+
+"dnd" = "Não perturbe";
+
+
+"edit_status" = "Editar status";
+
+
+"empty_status" = "<Status vazio>";
+
+
+"invisible" = "Invisível";
+
+
+"remove_status" = "Apagar status";
+
+
+"status_editor" = "Definir status";
+
+
+"status_text_hint" = "Digite a mensagem de status";
+
+
+"unavailable" = "Desconectado";
+
+
+"unsubscribed" = "Não autorizado";
+
+
+"xa" = "Ausente por um longo período";
+
+
+"new_status" = "Novo status";
+
+
+"saved_statuses" = "Status salvos";
+
+
+"clear_status_history" = "Limpar histórico de status";
+
+
+"status_message" = "Mensagem de status";
+
+
+
+"in10m" = "Em 10 minutos";
+
+
+"in15m" = "Em 15 minutos";
+
+
+"in1h" = "Em uma hora";
+
+
+"in1m" = "Em um minuto";
+
+
+"in2m" = "Em 2 minutos";
+
+
+"in30m" = "Em 30 minutos";
+
+
+"in5m" = "Em 5 minutos";
+
+
+"always" = "Sempre";
+
+
+"disabled" = "Desabilitado";
+
+
+"manual" = "Manual";
+
+
+"never" = "Nunca";
+
+
+"required" = "Obrigatório";
+
+
+"auto" = "Automático";
+
+
+"save" = "Salvar";
+
+
+"cancel" = "Cancelar";
+
+
+"remove" = "Remover";
+
+
+"skip" = "Pular";
+
+
+"skip_anyway" = "Pular mesmo assim";
+
+
+"warning" = "Aviso!";
+
+
+"settings" = "Configurações";
+
+
+"ok" = "OK";
+
+
+"login" = "Login ";
+
+
+"share" = "Compartilhar";
+
+
+"send_to" = "Enviar para:";
+
+
+"got_it" = "Entendi";
+
+
+"search" = "Busca";
+
+
+"free" = "grátis";
+
+
+
+"email_hint" = "E-mail";
+
+
+"progress_title_quit" = "Sair";
+
+
+"progress_title_login" = "Login ";
+
+
+"hint_username" = "Usuário";
+
+
+"title_login_xabber_account" = "Entrar";
+
+
+"title_register_xabber_account" = "Cadastre-se";
+
+
+"button_connect" = "CONECTAR";
+
+
+"button_quit" = "Sair";
+
+
+"button_login" = "ENTRAR";
+
+
+"button_registration" = "CADASTRAR";
+
+
+"button_confirm" = "verificar";
+
+
+"button_sync" = "Sincronizar agora";
+
+
+"btn_done" = "Concluído";
+
+
+"last_sync_date_never" = "nunca";
+
+
+"action_connect" = "VINCULAR";
+
+
+"action_disconnect" = "DESVINCULAR";
+
+
+"action_verify" = "VERIFICAR";
+

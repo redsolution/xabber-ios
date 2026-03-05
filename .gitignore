@@ -1,15 +1,8 @@
-xabber/*.lproj
-xabber/Backgrounds.xcassets
 xabber/Info.plist
-xabber/Masks.xcassets
 xabber/common_config.plist
 xabber/credential_store.plist
-xabber/proofreading.json
 xabber/push_service.plist
 xabber/subscribtions_secret.plist
-xabber/translations
-xabber/translations.json
-xabber/whitelabel_res.xcassets
 xabber/xabber.entitlements
 xabber/XASettingsDebug.plist
 xabber/subscribtions_secret.plist

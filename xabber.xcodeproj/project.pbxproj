@@ -111,6 +111,7 @@
 		66128D0024458B860056A8CA /* MessageManager+ChatUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66128CFF24458B860056A8CA /* MessageManager+ChatUpdater.swift */; };
 		6612EAAA2F3DDED00048C471 /* AbuseReportViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6612EAA92F3DDEC80048C471 /* AbuseReportViewController.swift */; };
 		6613EF1D2327793200AA3021 /* MessageManager+CommonReceiver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6613EF1C2327793200AA3021 /* MessageManager+CommonReceiver.swift */; };
+		6614411A2F596EC000D2D9A7 /* XabberAccountWebViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 661441192F596EB500D2D9A7 /* XabberAccountWebViewController.swift */; };
 		66153B4A22E1BF87005D4567 /* SearchResultsViewController+SearchResultsUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66153B4922E1BF87005D4567 /* SearchResultsViewController+SearchResultsUpdater.swift */; };
 		66153B4D22E1C59B005D4567 /* GlobalIndexManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66153B4C22E1C59B005D4567 /* GlobalIndexManager.swift */; };
 		66153B4F22E1C6C2005D4567 /* GroupChatIndexStorageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66153B4E22E1C6C2005D4567 /* GroupChatIndexStorageItem.swift */; };
@@ -1101,6 +1102,7 @@
 		66128CFF24458B860056A8CA /* MessageManager+ChatUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MessageManager+ChatUpdater.swift"; sourceTree = "<group>"; };
 		6612EAA92F3DDEC80048C471 /* AbuseReportViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AbuseReportViewController.swift; sourceTree = "<group>"; };
 		6613EF1C2327793200AA3021 /* MessageManager+CommonReceiver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MessageManager+CommonReceiver.swift"; sourceTree = "<group>"; };
+		661441192F596EB500D2D9A7 /* XabberAccountWebViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XabberAccountWebViewController.swift; sourceTree = "<group>"; };
 		66153B4922E1BF87005D4567 /* SearchResultsViewController+SearchResultsUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SearchResultsViewController+SearchResultsUpdater.swift"; sourceTree = "<group>"; };
 		66153B4C22E1C59B005D4567 /* GlobalIndexManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalIndexManager.swift; sourceTree = "<group>"; };
 		66153B4E22E1C6C2005D4567 /* GroupChatIndexStorageItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupChatIndexStorageItem.swift; sourceTree = "<group>"; };
@@ -2077,6 +2079,14 @@
 				6612EAA92F3DDEC80048C471 /* AbuseReportViewController.swift */,
 			);
 			path = abuse;
+			sourceTree = "<group>";
+		};
+		661441182F596BAA00D2D9A7 /* xabber_account */ = {
+			isa = PBXGroup;
+			children = (
+				661441192F596EB500D2D9A7 /* XabberAccountWebViewController.swift */,
+			);
+			path = xabber_account;
 			sourceTree = "<group>";
 		};
 		66153B4B22E1C579005D4567 /* global_index */ = {
@@ -3423,6 +3433,7 @@
 		669F726E209C223600E757DB /* settings */ = {
 			isa = PBXGroup;
 			children = (
+				661441182F596BAA00D2D9A7 /* xabber_account */,
 				84FF7F5F2C77144100C9D3E8 /* interface */,
 				661D8E102ACADD0600990FDF /* device_privacy */,
 				4DFF74FF2851E5170036AE0D /* SelectorViewController */,
@@ -5241,6 +5252,7 @@
 				66C9FFAF283271E600376AF6 /* YUDeviceTypeEnum.swift in Sources */,
 				660951A92833C18800FDEAAF /* PincodePresenter.swift in Sources */,
 				1A24A7C927B292B60052F12B /* VideosMediaCollectionCell.swift in Sources */,
+				6614411A2F596EC000D2D9A7 /* XabberAccountWebViewController.swift in Sources */,
 				66022FA023E16AA300E88473 /* BaseNibView.swift in Sources */,
 				4DC843CB28AA22BC00F61AEE /* PasscodeViewController.swift in Sources */,
 				66FF657B21FF347500BFDC22 /* DeleteContactPresenter.swift in Sources */,

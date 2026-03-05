@@ -148,13 +148,13 @@ extension SettingsViewController: UITableViewDataSource {
                         cell.accessoryType = .disclosureIndicator
                         if let icon = item.icon,
                            let color = item.color {
-                            cell.imageView?.image = UIImage(named: icon)?.upscale(dimension: 32).withRenderingMode(.alwaysTemplate)
+                            cell.imageView?.image = imageLiteral(icon, dimension: 24)
                             cell.tintColor = color
                         }
                         return cell
                 
                 case .manageStorage:
-                    let cell = UITableViewCell()
+                    let cell = tableView.dequeueReusableCell(withIdentifier: "manageStorage", for: indexPath)
                     cell.textLabel?.text = item.title
                     if self.quota.isNotEmpty {
                         cell.detailTextLabel?.text = "\(used) of \(quota)"
@@ -166,13 +166,14 @@ extension SettingsViewController: UITableViewDataSource {
                     cell.accessoryType = .disclosureIndicator
                     if let icon = item.icon,
                        let color = item.color {
-                        cell.imageView?.image = UIImage(named: icon)?.upscale(dimension: 32).withRenderingMode(.alwaysTemplate)
+                        cell.imageView?.image = imageLiteral(icon, dimension: 24)
                         cell.tintColor = color
                     }
                     return cell
                 
                 case .subscriptions:
-                    let cell = UITableViewCell(style: .value1, reuseIdentifier: "value1CellReuseID")
+                    let cell = tableView.dequeueReusableCell(withIdentifier: "manageStorage", for: indexPath)
+//                    let cell = UITableViewCell(style: .value1, reuseIdentifier: "value1CellReuseID")
                     cell.textLabel?.text = item.title
                     switch SubscribtionsManager.shared.getState(account: self.jid) {
                         case .active:
@@ -185,19 +186,20 @@ extension SettingsViewController: UITableViewDataSource {
                     cell.accessoryType = .disclosureIndicator
                     if let icon = item.icon,
                        let color = item.color {
-                        cell.imageView?.image = UIImage(named: icon)?.upscale(dimension: 32).withRenderingMode(.alwaysTemplate)
+                        cell.imageView?.image = imageLiteral(icon, dimension: 24)
                         cell.tintColor = color
                     }
                     return cell
                 
                 case .passcode:
-                    let cell = UITableViewCell(style: .value1, reuseIdentifier: "value1CellReuseID")
+                    let cell = tableView.dequeueReusableCell(withIdentifier: "manageStorage", for: indexPath)
+//                    let cell = UITableViewCell(style: .value1, reuseIdentifier: "value1CellReuseID")
                     cell.textLabel?.text = item.title
                     cell.detailTextLabel?.text = CredentialsManager.shared.isPincodeSetted() ? "On" : "Off"
                     cell.accessoryType = .disclosureIndicator
                     if let icon = item.icon,
                        let color = item.color {
-                        cell.imageView?.image = UIImage(named: icon)?.upscale(dimension: 32).withRenderingMode(.alwaysTemplate)
+                        cell.imageView?.image = imageLiteral(icon, dimension: 24)
                         cell.tintColor = color
                     }
                     return cell
@@ -211,7 +213,7 @@ extension SettingsViewController: UITableViewDataSource {
             cell.accessoryType = .disclosureIndicator
             if let icon = item.icon,
                let color = item.color {
-                cell.imageView?.image = UIImage(named: icon)?.upscale(dimension: 32).withRenderingMode(.alwaysTemplate)
+                cell.imageView?.image = imageLiteral(icon, dimension: 24)
                 cell.tintColor = color
             }
             return cell

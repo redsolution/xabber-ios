@@ -1,0 +1,27 @@
+
+/* Class = "UINavigationController"; title = "Chats"; ObjectID = "5Td-4f-rk4"; */
+"5Td-4f-rk4.title" = "Chats";
+
+/* Class = "UITabBarItem"; title = "Calls"; ObjectID = "DWB-EN-Ghs"; */
+"DWB-EN-Ghs.title" = "Calls";
+
+/* Class = "UINavigationController"; title = "Settings"; ObjectID = "F61-hp-mAL"; */
+"F61-hp-mAL.title" = "Settings";
+
+/* Class = "UITabBarItem"; title = "Settings"; ObjectID = "WPS-gd-j8K"; */
+"WPS-gd-j8K.title" = "Settings";
+
+/* Class = "UITabBarItem"; title = "Contacts"; ObjectID = "YqP-KI-1X9"; */
+"YqP-KI-1X9.title" = "Contacts";
+
+/* Class = "UITabBarItem"; title = "Discover"; ObjectID = "hAP-ZD-dLP"; */
+"hAP-ZD-dLP.title" = "Discover";
+
+/* Class = "UINavigationController"; title = "Contacts"; ObjectID = "uRa-JJ-lEf"; */
+"uRa-JJ-lEf.title" = "Contacts";
+
+/* Class = "UINavigationController"; title = "Discover"; ObjectID = "v1J-YX-V7X"; */
+"v1J-YX-V7X.title" = "Discover";
+
+/* Class = "UITabBarItem"; title = "Chats"; ObjectID = "v9l-7H-qYr"; */
+"v9l-7H-qYr.title" = "Chats";

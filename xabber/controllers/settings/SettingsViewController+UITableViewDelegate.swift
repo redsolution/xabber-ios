@@ -75,7 +75,9 @@ extension SettingsViewController: UITableViewDelegate {
                 vc.configure(for: jid)
                 navigationController?.pushViewController(vc, animated: true)
                 return
-                
+            
+            case .premium:
+                break
             case .manageStorage:
                 let vc = CloudStorageViewController()
                 vc.configure(jid: jid)

@@ -34,6 +34,7 @@ class SettingsViewController: BaseViewController {
     
     class Datasource {
         enum Keys: String {
+            case premium = "premium"
             case accountStatus = "account_status"
             case accountVcard = "account_vcard"
             case accountColor = "account_color"
@@ -71,6 +72,7 @@ class SettingsViewController: BaseViewController {
         
         enum Section: Int {
             case xAccount = 0
+            case premium
             case xmppAccounts
             case interface
             case settings
@@ -101,6 +103,8 @@ class SettingsViewController: BaseViewController {
             func description() -> String {
                 switch self {
                 case .xAccount:
+                    return ""
+                case .premium:
                     return ""
                 case .xmppAccounts:
                     return "XMPP Accounts".localizeString(id: "xmpp_accounts", arguments: [])
@@ -622,6 +626,11 @@ class SettingsViewController: BaseViewController {
                     Datasource(section: .profile, title: "Password", viewController: ChangePasswordTableViewController.self),
                     Datasource(section: .profile, title: "Blocked contacts", key: .accountBlockedContacts),
                 ]
+            }
+            if CommonConfigManager.shared.config.support_xabber_account {
+                datasource.append(Datasource(section: .premium, childs: [
+                    Datasource(section: .accountSettings, title: "Premium", icon: "star.square.fill", color: MDCPalette.deepPurple.tint500, key: .premium),
+                ]))
             }
             if CommonConfigManager.shared.config.should_block_application_when_subscribtion_end {
                 datasource.append(Datasource(section: .accountSettings, childs: [
