@@ -7,6 +7,7 @@ xabber/xabber.entitlements
 xabber/XASettingsDebug.plist
 xabber/subscribtions_secret.plist
 xabber.xcworkspace
+build
 Pods
 Podfile.lock
 OptimizationProfiles
