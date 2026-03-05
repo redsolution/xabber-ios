@@ -215,37 +215,38 @@ extension Account: XMPPStreamDelegate {
 
     func xmppStream(_ sender: XMPPStream, didReceive iq: XMPPIQ) -> Bool {
         switch true {
-        case self.syncManager.read(withIQ: iq):
-            AccountManager.shared.markAsConnected(jid: jid)
-            _ = self.syncManager.checkNextPage(sender, in: iq)
-            break
-        case self.avatarManager.read(withIQ: iq): break
-        case self.roster.read(withIQ: iq): break
-        case self.mam.read(sender, withIQ: iq):
-            self.messages.storeMessagesNow()
-            break
-        case self.push.read(withIQ: iq):
-            break
-        case self.devices.read(withIQ: iq):
-            self.omemo.checkInfo()
-            break
-        case self.cloudStorage.read(withIQ: iq): break
-        case self.xTokens.read(withIQ: iq): break
-        case self.groupchats.read(sender, withIQ: iq): break
-        case self.blocked.read(withIQ: iq): break
-        case self.msgDeleteManager.read(withIQ: iq): break
-        case self.vcards.read(withIQ: iq):
-            _ = self.avatarManager.readFromVcard(iq)
-            break
-        case self.ping.read(withIQ: iq): break
-        case self.disco.read(withIQ: iq):
-            AccountManager.shared.markAsConnected(jid: jid)
-            break
-        case self.omemo.read(withIQ: iq): break
-        case self.notifications.read(withIQ: iq): break
-        case self.x509Manager.read(withIQ: iq): break
-        case self.trustSharingManager.read(withIQ: iq): break
-        default: return false
+            case self.syncManager.read(withIQ: iq):
+                AccountManager.shared.markAsConnected(jid: jid)
+                _ = self.syncManager.checkNextPage(sender, in: iq)
+                break
+            case self.avatarManager.read(withIQ: iq): break
+            case self.roster.read(withIQ: iq): break
+            case self.mam.read(sender, withIQ: iq):
+                self.messages.storeMessagesNow()
+                break
+            case self.push.read(withIQ: iq):
+                break
+            case self.devices.read(withIQ: iq):
+                self.omemo.checkInfo()
+                break
+            case XabberAccountManager.shared.read(sender, with: iq): break
+            case self.cloudStorage.read(withIQ: iq): break
+            case self.xTokens.read(withIQ: iq): break
+            case self.groupchats.read(sender, withIQ: iq): break
+            case self.blocked.read(withIQ: iq): break
+            case self.msgDeleteManager.read(withIQ: iq): break
+            case self.vcards.read(withIQ: iq):
+                _ = self.avatarManager.readFromVcard(iq)
+                break
+            case self.ping.read(withIQ: iq): break
+            case self.disco.read(withIQ: iq):
+                AccountManager.shared.markAsConnected(jid: jid)
+                break
+            case self.omemo.read(withIQ: iq): break
+            case self.notifications.read(withIQ: iq): break
+            case self.x509Manager.read(withIQ: iq): break
+            case self.trustSharingManager.read(withIQ: iq): break
+            default: return false
         }
         return true
     }

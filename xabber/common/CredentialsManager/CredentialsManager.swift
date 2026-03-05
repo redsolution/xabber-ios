@@ -341,6 +341,42 @@ class CredentialsManager: NSObject {
         }
     }
     
+    public func setXabberAccountToken(for jid: String, token: String) {
+        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
+                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+        keychain.set(token, forKey: [jid, "xabberAccountToken"].prp(), withAccessibility: .always)
+    }
+    
+    public static func getXabberAccountToken(for jid: String) -> String? {
+        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
+                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+        return keychain.string(forKey: [jid, "xabberAccountToken"].prp())
+    }
+    
+    public func removeXabberAccountToken(for jid: String) {
+        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
+                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+        keychain.removeObject(forKey: [jid, "xabberAccountToken"].prp())
+    }
+    
+    public func setXabberAccountTokenExpire(for jid: String, expire: Double) {
+        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
+                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+        keychain.set(expire, forKey: [jid, "xabberAccountTokenExpire"].prp(), withAccessibility: .always)
+    }
+    
+    public static func getXabberAccountTokenExpire(for jid: String) -> Double? {
+        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
+                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+        return keychain.double(forKey: [jid, "xabberAccountTokenExpire"].prp())
+    }
+    
+    public func removeXabberAccountTokenExpire(for jid: String) {
+        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
+                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+        keychain.removeObject(forKey: [jid, "xabberAccountTokenExpire"].prp())
+    }
+    
     public func setXabberDeviceId(for jid: String, deviceId: String) {
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
                                        accessGroup: CredentialsManager.uniqueAccessGroup())

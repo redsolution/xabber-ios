@@ -70,74 +70,77 @@ extension SettingsViewController: UITableViewDelegate {
 
         if let key = menuItem.key {
             switch key {
-            case .accountSessions:
-                let vc = DevicesListViewController()
-                vc.configure(for: jid)
-                navigationController?.pushViewController(vc, animated: true)
-                return
-            
-            case .premium:
-                break
-            case .manageStorage:
-                let vc = CloudStorageViewController()
-                vc.configure(jid: jid)
-                navigationController?.pushViewController(vc, animated: true)
-                return
-            
-            case .accountEncryption:
-                let vc = AccountEncryptionInfoViewController()
-                vc.owner = self.jid
-                navigationController?.pushViewController(vc, animated: true)
-                return
-                
-            case .subscriptions:
-                let vc = SubscribtionsListViewController()
-                vc.owner = self.jid
-                vc.controllerCloseReason = .navigationStack
-                navigationController?.pushViewController(vc, animated: true)
-                return
-                
-            case .developer:
-                guard let datasource = SettingManager.shared.getDatasource(by: key.rawValue) else {
-                    return
-                }
-                let vc = SettingsItemDetailViewController()
-                self.hidesBottomBarWhenPushed = false
-                vc.hidesBottomBarWhenPushed = true
-                vc.configure(for: datasource)
-                navigationController?.pushViewController(vc, animated: true)
-                return
-            
-            case .yubikey:
-                if SignatureManager.shared.certificate != nil {
-                    let vc = YubikeySetupViewController()
-                    vc.isFromOnboarding = false
-                    vc.isModal = true
-                    vc.owner = AccountManager.shared.users.first?.jid ?? ""
-                    self.navigationController?.pushViewController(vc, animated: true)
-                } else {
-                    SignatureManager.shared.delegate = self
-                    FeedbackManager.shared.tap()
-                    if YubiKitDeviceCapabilities.supportsISO7816NFCTags {
-                        YubiKitExternalLocalization.nfcScanAlertMessage = "Register Yubikey for account"
-                        YubiKitManager.shared.startNFCConnection()
-                        YubiKitManager.shared.delegate = SignatureManager.shared
-                        SignatureManager.shared.currentAction = .certificate
-                    }
-                }
-                return
-            
-            case .passcode:
-                if !CredentialsManager.shared.isPincodeSetted() {
-                    let vc = PasscodeViewController()
+                case .accountSessions:
+                    let vc = DevicesListViewController()
+                    vc.configure(for: jid)
                     navigationController?.pushViewController(vc, animated: true)
                     return
-                } else {
-                    ApplicationStateManager.shared.isPincodeShowed = true
-                    PincodePresenter().present(animated: true)
-                }
                 
-            default: break
+                case .premium:
+                    let vc = XabberAccountWebViewController()
+                    vc.owner = self.jid
+                    vc.jid = self.jid
+                    navigationController?.pushViewController(vc, animated: true)
+                case .manageStorage:
+                    let vc = CloudStorageViewController()
+                    vc.configure(jid: jid)
+                    navigationController?.pushViewController(vc, animated: true)
+                    return
+                
+                case .accountEncryption:
+                    let vc = AccountEncryptionInfoViewController()
+                    vc.owner = self.jid
+                    navigationController?.pushViewController(vc, animated: true)
+                    return
+                    
+                case .subscriptions:
+                    let vc = SubscribtionsListViewController()
+                    vc.owner = self.jid
+                    vc.controllerCloseReason = .navigationStack
+                    navigationController?.pushViewController(vc, animated: true)
+                    return
+                    
+                case .developer:
+                    guard let datasource = SettingManager.shared.getDatasource(by: key.rawValue) else {
+                        return
+                    }
+                    let vc = SettingsItemDetailViewController()
+                    self.hidesBottomBarWhenPushed = false
+                    vc.hidesBottomBarWhenPushed = true
+                    vc.configure(for: datasource)
+                    navigationController?.pushViewController(vc, animated: true)
+                    return
+                
+                case .yubikey:
+                    if SignatureManager.shared.certificate != nil {
+                        let vc = YubikeySetupViewController()
+                        vc.isFromOnboarding = false
+                        vc.isModal = true
+                        vc.owner = AccountManager.shared.users.first?.jid ?? ""
+                        self.navigationController?.pushViewController(vc, animated: true)
+                    } else {
+                        SignatureManager.shared.delegate = self
+                        FeedbackManager.shared.tap()
+                        if YubiKitDeviceCapabilities.supportsISO7816NFCTags {
+                            YubiKitExternalLocalization.nfcScanAlertMessage = "Register Yubikey for account"
+                            YubiKitManager.shared.startNFCConnection()
+                            YubiKitManager.shared.delegate = SignatureManager.shared
+                            SignatureManager.shared.currentAction = .certificate
+                        }
+                    }
+                    return
+                
+                case .passcode:
+                    if !CredentialsManager.shared.isPincodeSetted() {
+                        let vc = PasscodeViewController()
+                        navigationController?.pushViewController(vc, animated: true)
+                        return
+                    } else {
+                        ApplicationStateManager.shared.isPincodeShowed = true
+                        PincodePresenter().present(animated: true)
+                    }
+                    
+                default: break
             }
         }
         

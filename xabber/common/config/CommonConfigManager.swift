@@ -90,6 +90,7 @@ class CommonConfigManager: NSObject {
         var default_report_address: String
         var support_xabber_account: Bool
         var xabber_account_url: String
+        var xabber_account_api_url: String
     }
     
     var interfaceType: InterfaceType {
