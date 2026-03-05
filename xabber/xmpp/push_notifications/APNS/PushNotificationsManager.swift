@@ -138,7 +138,7 @@ class PushNotificationsManager: AbstractXMPPManager {
         
         let elementId = xmppStream.generateUUID
         
-        let secret = "iAPfsdcpEduGqwPBQTPpPQroMYlCNhUA" //String.randomString(length: 32, includeNumber: false)
+        let secret = String.randomString(length: 32, includeNumber: false)
         print("secret key: \(secret)")
         let enable: DDXMLElement
         if isAvailable(jid.domain) {
