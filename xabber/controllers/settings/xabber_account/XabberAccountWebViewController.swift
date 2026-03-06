@@ -10,39 +10,101 @@ import UIKit
 import CocoaLumberjack
 import WebKit
 
-class XabberAccountWebViewController: SimpleBaseViewController, WKNavigationDelegate /* or WKScriptMessageHandler if needed */ {
-    
+class XabberAccountWebViewController: SimpleBaseViewController, WKNavigationDelegate {
+
     var webView: WKWebView!
-    
-    func createWebViewWithPreSavedLocalStorage() -> WKWebView {
+    private var canGoBackObservation: NSKeyValueObservation?
+    private var urlObservation: NSKeyValueObservation?
+
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        setupNavigationBar()
+
+        if let expiresTs = CredentialsManager.getXabberAccountTokenExpire(for: self.owner),
+           expiresTs > Date().timeIntervalSince1970 {
+            setupAndLoadWebView()
+        } else {
+            let _ = XabberAccountManager.shared.requestToken(for: self.owner) { [weak self] token in
+                DispatchQueue.main.async {
+                    self?.setupAndLoadWebView()
+                }
+            }
+        }
+    }
+
+    deinit {
+        canGoBackObservation?.invalidate()
+        urlObservation?.invalidate()
+    }
+
+    private func setupNavigationBar() {
+        navigationItem.hidesBackButton = true
+        navigationItem.leftBarButtonItem = UIBarButtonItem(
+            image: UIImage(systemName: "chevron.left"),
+            style: .plain,
+            target: self,
+            action: #selector(backButtonTapped)
+        )
+    }
+
+    @objc private func backButtonTapped() {
+        if webView?.canGoBack == true {
+            webView.goBack()
+        } else {
+            navigationController?.popViewController(animated: true)
+        }
+    }
+
+    private func setupAndLoadWebView() {
+        webView = createWebViewWithPreSavedLocalStorage()
+        view.addSubview(webView)
+
+        webView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            webView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            webView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            webView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+
+        webView.allowsBackForwardNavigationGestures = true
+        
+        canGoBackObservation = webView.observe(\.canGoBack, options: .new) { [weak self] _, _ in
+            self?.updateInteractivePopGesture()
+        }
+
+        urlObservation = webView.observe(\.url, options: .new) { [weak self] _, _ in
+            self?.updateTitleFromRoute()
+        }
+
+        if let url = URL(string: CommonConfigManager.shared.config.xabber_account_url) {
+            webView.load(URLRequest(url: url))
+        }
+    }
+
+    private func createWebViewWithPreSavedLocalStorage() -> WKWebView {
         let config = WKWebViewConfiguration()
-        
-        // 1. (Опционально) очистить старый localStorage, если нужно
-         let clearScript = WKUserScript(
-             source: "localStorage.clear();",
-             injectionTime: .atDocumentStart,
-             forMainFrameOnly: true
-         )
-         config.userContentController.addUserScript(clearScript)
-        
-        // 2. Подготовь данные, которые хочешь сохранить
-        let token = CredentialsManager.getXabberAccountToken(for: self.owner) ?? ""//"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."   // твой токен
-//        let userId = "12345"
-//        let role    = "admin"
-        
-        // 3. Важно: правильно экранируем строку для вставки в JS
-        // Лучше использовать JSON-сериализацию — это безопаснее
+        config.websiteDataStore = WKWebsiteDataStore.nonPersistent()
+
+        let clearScript = WKUserScript(
+            source: "localStorage.clear();",
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        )
+        config.userContentController.addUserScript(clearScript)
+
+        let token = CredentialsManager.getXabberAccountToken(for: self.owner) ?? ""
         let data: [String: String] = [
-            "token": token
+            "token": token,
+            "platform": "ios"
         ]
-        
+
         guard let jsonData = try? JSONSerialization.data(withJSONObject: data),
               let jsonString = String(data: jsonData, encoding: .utf8) else {
-            print("Ошибка сериализации данных")
             return WKWebView(frame: .zero, configuration: config)
         }
-        
-        // 4. Сам скрипт — выполняем максимально рано
+
         let jsSource = """
         (function() {
             const data = \(jsonString);
@@ -51,119 +113,42 @@ class XabberAccountWebViewController: SimpleBaseViewController, WKNavigationDele
             }
         })();
         """
-        
+
         let script = WKUserScript(
             source: jsSource,
-            injectionTime: .atDocumentStart,      // ← ключевой момент!
+            injectionTime: .atDocumentStart,
             forMainFrameOnly: true
         )
-        
         config.userContentController.addUserScript(script)
-        
-        // 5. Создаём webView с этой конфигурацией
-        let webView = WKWebView(frame: view.bounds, configuration: config)
-        
-        // (опционально) shared process pool — чтобы localStorage был общим между несколькими webview
-        // static let sharedPool = WKProcessPool()
-        // webView.configuration.processPool = Self.sharedPool
-        
+
+        let webView = WKWebView(frame: .zero, configuration: config)
+        webView.navigationDelegate = self
         return webView
     }
-    
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        
-        let config = WKWebViewConfiguration()
-        config.userContentController.add(self, name: "REQUEST_TOKEN")
-        config.websiteDataStore = WKWebsiteDataStore.nonPersistent()
-        
-        if let expiresTs = CredentialsManager.getXabberAccountTokenExpire(for: self.owner),
-           expiresTs < Date().timeIntervalSince1970 {
-            webView = createWebViewWithPreSavedLocalStorage()
-            webView.navigationDelegate = self
-            view.addSubview(webView)
-            
-            if let url = URL(string: CommonConfigManager.shared.config.xabber_account_url) {
-                webView.load(URLRequest(url: url))
-            }
-        } else {
-            
-            let _ = XabberAccountManager.shared.requestToken(for: self.owner) { token in
-                
-                DispatchQueue.main.async {
-                    self.webView = self.createWebViewWithPreSavedLocalStorage()
-                    self.webView.navigationDelegate = self
-                    self.view.addSubview(self.webView)
-                    
-                    if let url = URL(string: CommonConfigManager.shared.config.xabber_account_url) {
-                        self.webView.load(URLRequest(url: url))
-                    }
-                }
-            }
-            
-        }
-//        let result = XabberAccountManager.shared.requestToken(for: self.owner) { token in
-//            if let token = token {
-//                self.injectToken(token: token)
-//            }
-//        }
-//        print(result)
-    }
-    
-    func injectToken(token: String) {
-        let escaped = token.replacingOccurrences(of: "\"", with: "\\\"")
-        let js = "window.postMessage({ type: 'TOKEN_RESPONSE', token: \"\(escaped)\" }, '*');"
-        webView.evaluateJavaScript(js) { _, err in
-            if let err { print(err) }
-        }
-    }
-    
-    func sendTokenToWebView(token: String) {
-        let escapedToken = token.replacingOccurrences(of: "\\", with: "\\\\")
-                                 .replacingOccurrences(of: "\"", with: "\\\"")
-                                 .replacingOccurrences(of: "\n", with: "\\n")
-        
-        let js = """
-        if (window.parent && window.parent !== window) {
-            window.parent.postMessage(
-                {
-                    type: 'TOKEN_RESPONSE',
-                    token: "\(escapedToken)"
-                },
-                '*'
-            );
-        } else {
-            window.postMessage(
-                {
-                    type: 'TOKEN_RESPONSE',
-                    token: "\(escapedToken)"
-                },
-                '*'
-            );
-        }
-        """
-        
-        webView.evaluateJavaScript(js) { (result, error) in
-            if let error = error {
-                print("Error sending token to webview: \(error)")
-            } else {
-                print("Token sent successfully")
-            }
-        }
-    }
-}
 
-extension XabberAccountWebViewController: WKScriptMessageHandler {
-    func userContentController(_ userContentController: WKUserContentController,
-                               didReceive message: WKScriptMessage) {
-        if message.name == "REQUEST_TOKEN" {
-            let result = XabberAccountManager.shared.requestToken(for: self.owner) { token in
-                if let token = token {
-                    self.sendTokenToWebView(token: token)
-                }
-            }
-//            let token = getCurrentTokenSomehow()   // your logic
-//            sendTokenToWebView(token: token)
+    private func updateInteractivePopGesture() {
+        navigationController?.interactivePopGestureRecognizer?.isEnabled = !(webView?.canGoBack ?? false)
+    }
+
+    private func updateTitleFromRoute() {
+        title = self.webView?.title
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
+                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        guard let url = navigationAction.request.url else {
+            decisionHandler(.allow)
+            return
         }
+
+        let baseHost = URL(string: CommonConfigManager.shared.config.xabber_account_url)?.host
+
+        if url.host == baseHost || url.scheme == "about" {
+            decisionHandler(.allow)
+            return
+        }
+
+        UIApplication.shared.open(url)
+        decisionHandler(.cancel)
     }
 }
