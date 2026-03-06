@@ -327,6 +327,7 @@
 		6662AA93291BCC4E001A6D59 /* credential_store.plist in Resources */ = {isa = PBXBuildFile; fileRef = 6662AA92291BCC4E001A6D59 /* credential_store.plist */; };
 		6663CC772382A6A500BE1FA5 /* DatePickerModalViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6663CC762382A6A500BE1FA5 /* DatePickerModalViewController.swift */; };
 		6663CC792382D7F100BE1FA5 /* ListItemChoicePresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6663CC782382D7F100BE1FA5 /* ListItemChoicePresenter.swift */; };
+		6664E0AE2F5B017200FBA1FC /* PremiumSubscribtionViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6664E0AD2F5B016200FBA1FC /* PremiumSubscribtionViewController.swift */; };
 		666520DF237174120095D5B1 /* SystemMessageSizeCalculator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 666520DE237174120095D5B1 /* SystemMessageSizeCalculator.swift */; };
 		6665D4322D7199830053D982 /* MessageSide.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6665D4312D71997B0053D982 /* MessageSide.swift */; };
 		6665EBEB2D673CBE00537C92 /* CGPoint+offset.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6665EBEA2D673CB600537C92 /* CGPoint+offset.swift */; };
@@ -1312,6 +1313,7 @@
 		6662AA92291BCC4E001A6D59 /* credential_store.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = credential_store.plist; sourceTree = "<group>"; };
 		6663CC762382A6A500BE1FA5 /* DatePickerModalViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatePickerModalViewController.swift; sourceTree = "<group>"; };
 		6663CC782382D7F100BE1FA5 /* ListItemChoicePresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListItemChoicePresenter.swift; sourceTree = "<group>"; };
+		6664E0AD2F5B016200FBA1FC /* PremiumSubscribtionViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PremiumSubscribtionViewController.swift; sourceTree = "<group>"; };
 		666520DE237174120095D5B1 /* SystemMessageSizeCalculator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemMessageSizeCalculator.swift; sourceTree = "<group>"; };
 		6665D4312D71997B0053D982 /* MessageSide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageSide.swift; sourceTree = "<group>"; };
 		6665EBEA2D673CB600537C92 /* CGPoint+offset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CGPoint+offset.swift"; sourceTree = "<group>"; };
@@ -2905,6 +2907,14 @@
 			path = date_picker;
 			sourceTree = "<group>";
 		};
+		6664E0AC2F5B015700FBA1FC /* premium */ = {
+			isa = PBXGroup;
+			children = (
+				6664E0AD2F5B016200FBA1FC /* PremiumSubscribtionViewController.swift */,
+			);
+			path = premium;
+			sourceTree = "<group>";
+		};
 		6665D4302D718F910053D982 /* old */ = {
 			isa = PBXGroup;
 			children = (
@@ -3444,6 +3454,7 @@
 		669F726E209C223600E757DB /* settings */ = {
 			isa = PBXGroup;
 			children = (
+				6664E0AC2F5B015700FBA1FC /* premium */,
 				661441182F596BAA00D2D9A7 /* xabber_account */,
 				84FF7F5F2C77144100C9D3E8 /* interface */,
 				661D8E102ACADD0600990FDF /* device_privacy */,
@@ -5065,6 +5076,7 @@
 				6643F32121C2650E00333229 /* SeparatorLine.swift in Sources */,
 				666B06D728323C9700B2F991 /* YubikeyApproveViewController.swift in Sources */,
 				6686A7F422BB901B0014376A /* AboutXabberViewController+UITableViewDatasource.swift in Sources */,
+				6664E0AE2F5B017200FBA1FC /* PremiumSubscribtionViewController.swift in Sources */,
 				1A99C71927C4A59F00ECCB51 /* VideoMessageCell.swift in Sources */,
 				66A573752200306F00FBAA4C /* BlockManager.swift in Sources */,
 				66022FA623E16ADC00E88473 /* AudioVisualizationView.swift in Sources */,

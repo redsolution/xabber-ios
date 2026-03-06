@@ -6,6 +6,7 @@
 //  Copyright © 2026 Igor Boldin. All rights reserved.
 //
 
+import Foundation
 import UIKit
 import CocoaLumberjack
 import WebKit

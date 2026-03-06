@@ -165,7 +165,7 @@ class InfoScreenHeaderView: UIView {
         self.titleButton.center = CGPoint(x: self.frame.width / 2, y: 204 - offset)
         self.subtitleLabel.frame = CGRect(width: self.frame.width, height: 18)
         self.subtitleLabel.center = CGPoint(x: self.frame.width / 2, y: 232 - offset)
-        self.buttonsStack.frame = CGRect(width: self.frame.width, height: 56)
+        self.buttonsStack.frame = CGRect(width: self.frame.width, height: 44)
         self.buttonsStack.center = CGPoint(x: self.frame.width / 2, y: 278 - offset)
     }
     
@@ -177,8 +177,40 @@ class InfoScreenHeaderView: UIView {
         }
     }
     
+    internal let xabberAccountButton: GradientBorderButton = {
+        let button = GradientBorderButton()
+
+        var conf = UIButton.Configuration.plain()
+        conf.title = "Xabber account"
+        conf.baseForegroundColor = .label
+        conf.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 24, bottom: 12, trailing: 24)
+        conf.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+            var outgoing = incoming
+            outgoing.font = UIFont.systemFont(ofSize: 17, weight: .medium)
+            return outgoing
+        }
+        button.configuration = conf
+
+        return button
+    }()
+
+    public final func setupXabberAccountButton() {
+        self.showButtons = true
+        self.buttonsStack.subviews.forEach { $0.removeFromSuperview() }
+        self.buttonsStack.addArrangedSubview(xabberAccountButton)
+        NSLayoutConstraint.activate([
+            xabberAccountButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 224),
+            xabberAccountButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
+        ])
+        
+        self.xabberAccountButton.addTarget(self, action: #selector(self.onXabberAccountButtonTouchUpInside), for: .touchUpInside)
+    }
     
-    
+    @objc
+    private func onXabberAccountButtonTouchUpInside(_ sender: UIButton) {
+        self.delegate?.onXabberAccount()
+    }
+
     override init(frame: CGRect) {
         self.showButtons = false
         super.init(frame: frame)
@@ -202,5 +234,65 @@ class InfoScreenHeaderView: UIView {
     @objc
     private func onAvatarButtonTouchUpInside(_ sender: UIButton) {
         self.delegate?.onImageButtonPressed()
+    }
+}
+
+// MARK: - Gradient Border Button
+
+internal class GradientBorderButton: UIButton {
+
+    private let gradientLayer: CAGradientLayer = {
+        let layer = CAGradientLayer()
+        layer.colors = [
+            UIColor(red: 224/255, green: 32/255, blue: 32/255, alpha: 1).cgColor,   // #E02020
+            UIColor(red: 250/255, green: 100/255, blue: 0, alpha: 1).cgColor,       // #FA6400
+            UIColor(red: 247/255, green: 181/255, blue: 0, alpha: 1).cgColor,       // #F7B500
+            UIColor(red: 109/255, green: 212/255, blue: 0, alpha: 1).cgColor,       // #6DD400
+            UIColor(red: 0, green: 145/255, blue: 1, alpha: 1).cgColor,             // #0091FF
+            UIColor(red: 98/255, green: 54/255, blue: 1, alpha: 1).cgColor,         // #6236FF
+            UIColor(red: 182/255, green: 32/255, blue: 224/255, alpha: 1).cgColor   // #B620E0
+        ]
+        layer.locations = [0, 0.17, 0.33, 0.50, 0.67, 0.83, 1.0]
+        layer.startPoint = CGPoint(x: 0, y: 0)
+        layer.endPoint = CGPoint(x: 1, y: 1)
+        return layer
+    }()
+
+    private let borderMask = CAShapeLayer()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        commonInit()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        commonInit()
+    }
+
+    private func commonInit() {
+        backgroundColor = .clear
+        layer.cornerRadius = 16
+        clipsToBounds = true
+
+        borderMask.fillRule = .evenOdd
+        gradientLayer.mask = borderMask
+        layer.insertSublayer(gradientLayer, at: 0)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+
+        let borderWidth: CGFloat = 3
+        let cornerRadius: CGFloat = 16
+
+        gradientLayer.frame = bounds
+
+        let outer = UIBezierPath(roundedRect: bounds, cornerRadius: cornerRadius)
+        let inner = UIBezierPath(roundedRect: bounds.insetBy(dx: borderWidth, dy: borderWidth),
+                                 cornerRadius: cornerRadius - borderWidth)
+        outer.append(inner)
+        outer.usesEvenOddFillRule = true
+        borderMask.path = outer.cgPath
     }
 }

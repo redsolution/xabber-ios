@@ -25,4 +25,6 @@ protocol InfoScreenHeaderDelegate {
     func onImageButtonPressed()
     func onTitleButtonPressed()
     func shouldUpdateAvatar() -> UIImage?
+    
+    func onXabberAccount()
 }

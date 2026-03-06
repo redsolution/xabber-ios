@@ -34,6 +34,7 @@ class SettingsViewController: BaseViewController {
     
     class Datasource {
         enum Keys: String {
+            case xabberAccount = "xabberAccount"
             case premium = "premium"
             case accountStatus = "account_status"
             case accountVcard = "account_vcard"
@@ -322,7 +323,7 @@ class SettingsViewController: BaseViewController {
     }()
     
 //    var scrollViewContentOffsetYCopy: CGFloat = 0
-    var headerHeightMax: CGFloat = 188
+    var headerHeightMax: CGFloat = 232//188
 //    var headerHeightMin: CGFloat = 0
     var nickname = ""
     
@@ -601,6 +602,7 @@ class SettingsViewController: BaseViewController {
                         subtitle: self.jid,
                         thirdLine: nil
                     )
+                    self.headerView.setupXabberAccountButton()
                 }
                 
                 if let sessionInstance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.owner).first {
@@ -626,11 +628,6 @@ class SettingsViewController: BaseViewController {
                     Datasource(section: .profile, title: "Password", viewController: ChangePasswordTableViewController.self),
                     Datasource(section: .profile, title: "Blocked contacts", key: .accountBlockedContacts),
                 ]
-            }
-            if CommonConfigManager.shared.config.support_xabber_account {
-                datasource.append(Datasource(section: .premium, childs: [
-                    Datasource(section: .accountSettings, title: "Premium", icon: "star.square.fill", color: MDCPalette.deepPurple.tint500, key: .premium),
-                ]))
             }
             if CommonConfigManager.shared.config.should_block_application_when_subscribtion_end {
                 datasource.append(Datasource(section: .accountSettings, childs: [
@@ -766,6 +763,12 @@ class SettingsViewController: BaseViewController {
             Datasource(section: .settings, title: "Debug", icon:"custom.ant.square.fill", color: UIColor.systemGreen, key: .developer),
             Datasource(section: .settings, title: "Language", icon:"xabber.translate.square.fill", color: UIColor.systemPurple, key: .languages)
             ]))
+        
+        if CommonConfigManager.shared.config.support_xabber_account {
+            datasource.append(Datasource(section: .premium, childs: [
+                Datasource(section: .accountSettings, title: "Premium", icon: "star.square.fill", color: MDCPalette.deepPurple.tint500, key: .premium)
+            ]))
+        }
         if CommonConfigManager.shared.config.use_yubikey {
             datasource.append(Datasource(section: .security, title: Datasource.Section.security.description(), subtitle: Datasource.Section.security.secondaryDescription(), childs: [
                 Datasource(section: .security, title: "Passcode lock *", icon:"custom.hand.raised.square.fill", color: UIColor.systemOrange, premiumOnly: true, viewController: SimpleTableViewController.self, childs: [

@@ -38,6 +38,10 @@ extension ContactInfoViewController: InfoScreenHeaderDelegate {
         
     }
     
+    func onXabberAccount() {
+        
+    }
+    
     @objc
     internal func showFullVCard(_ sender: AnyObject) {
         let vc = vCardInfoViewController()

@@ -31,6 +31,9 @@ extension AccountInfoViewController: InfoScreenHeaderDelegate {
         onChangeNickname()
     }
     
+    func onXabberAccount() {
+        
+    }
     
     func shouldUpdateAvatar() -> UIImage? {
 //        AccountManager.shared.find(for: jid)?.action({ (user, stream) in

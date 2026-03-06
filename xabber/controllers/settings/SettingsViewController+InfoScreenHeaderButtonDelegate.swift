@@ -27,6 +27,14 @@ import MaterialComponents.MDCPalettes
 import AVFoundation
 
 extension SettingsViewController: InfoScreenHeaderDelegate {
+    
+    func onXabberAccount() {
+        let vc = XabberAccountWebViewController()
+        vc.owner = self.jid
+        vc.jid = self.jid
+        navigationController?.pushViewController(vc, animated: true)
+    }
+    
     func shouldUpdateAvatar() -> UIImage? {
         AccountManager.shared.find(for: jid)?.action({ (user, stream) in
 //            user.PEPAvatars.refreshAvatar(jid: self.jid)

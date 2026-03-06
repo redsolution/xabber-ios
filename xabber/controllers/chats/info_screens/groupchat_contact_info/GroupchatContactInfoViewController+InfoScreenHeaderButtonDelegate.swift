@@ -28,6 +28,10 @@ import AVFoundation
 
 extension GroupchatContactInfoViewController: InfoScreenHeaderDelegate {
     
+    func onXabberAccount() {
+        
+    }
+    
     func shouldUpdateAvatar() -> UIImage? {
 //        AccountManager.shared.find(for: owner)?.action({ (user, stream) in
 //            user.PEPAvatars.refreshAvatar(groupchat: self.jid, userId: self.userId)

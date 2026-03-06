@@ -75,9 +75,13 @@ extension SettingsViewController: UITableViewDelegate {
                     vc.configure(for: jid)
                     navigationController?.pushViewController(vc, animated: true)
                     return
-                
-                case .premium:
+                case .xabberAccount:
                     let vc = XabberAccountWebViewController()
+                    vc.owner = self.jid
+                    vc.jid = self.jid
+                    navigationController?.pushViewController(vc, animated: true)
+                case .premium:
+                    let vc = PremiumSubscribtionViewController()
                     vc.owner = self.jid
                     vc.jid = self.jid
                     navigationController?.pushViewController(vc, animated: true)
