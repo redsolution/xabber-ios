@@ -357,6 +357,9 @@ public class AccountManager: NSObject {
         self.find(for: jid)?.dropData()
         
         XabberUploadManager.removeToken(for: jid)
+        CredentialsManager.shared.removeXabberAccountUUID(for: jid)
+        CredentialsManager.shared.removeXabberAccountToken(for: jid)
+        CredentialsManager.shared.removeXabberAccountTokenExpire(for: jid)
         CredentialsManager.shared.clearSignature()
         CredentialsManager.shared.clearPincodes()
         CredentialsManager.shared.removeDeviceId(for: jid)
@@ -401,6 +404,7 @@ public class AccountManager: NSObject {
                     XMPPNotificationsManager.remove(for: jid, commitTransaction: false)
                     XMPPFavoritesManager.remove(for: jid, commitTransaction: false)
                     AuthenticatedKeyExchangeManager.remove(for: jid, commitTransaction: false)
+                    SubscribtionsManager.shared.remove(for: jid, commitTransaction: false)
                 }
             }
         } catch {

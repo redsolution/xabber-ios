@@ -341,6 +341,24 @@ class CredentialsManager: NSObject {
         }
     }
     
+    public func setXabberAccountUUID(for jid: String, uuid uuidString: String) {
+        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
+                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+        keychain.set(uuidString, forKey: [jid, "xabberAccountUUID"].prp(), withAccessibility: .always)
+    }
+    
+    public static func getXabberAccountUUID(for jid: String) -> String? {
+        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
+                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+        return keychain.string(forKey: [jid, "xabberAccountUUID"].prp())
+    }
+    
+    public func removeXabberAccountUUID(for jid: String) {
+        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
+                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+        keychain.removeObject(forKey: [jid, "xabberAccountUUID"].prp())
+    }
+    
     public func setXabberAccountToken(for jid: String, token: String) {
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
                                        accessGroup: CredentialsManager.uniqueAccessGroup())

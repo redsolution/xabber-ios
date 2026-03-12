@@ -28,6 +28,7 @@ import RxCocoa
 import StoreKit
 import CocoaLumberjack
 import Alamofire
+import RealmSwift
 
 public struct SubscribtionsSecretStore: Codable {
     var uuid_ns: String
@@ -76,8 +77,6 @@ class SubscribtionsManager: NSObject {
         }
     }
     
-    private var lockedAccounts: Set<String> = Set()
-    
     open class var shared: SubscribtionsManager {
         struct SubscribtionsManagerSingleton {
             static let instance = SubscribtionsManager()
@@ -94,8 +93,6 @@ class SubscribtionsManager: NSObject {
     open var subscribtionsList: Set<AppSubscribtions> = Set()
     
     open var accounts: Set<AccountSubscriptions> = Set()
-    
-    private var nearlyBuyedSubscribtionId: String? = nil
     
     var products: [Product] = []
 
@@ -114,24 +111,59 @@ class SubscribtionsManager: NSObject {
         }
     }
     
+    func remove(for owner: String, commitTransaction: Bool) {
+        do {
+            let realm = try WRealm.safe()
+            let collection = realm.objects(SubsriptionInfoRealmStorage.self)
+                .filter("jid == %@", owner)
+            if commitTransaction {
+                try realm.write {
+                    realm.delete(collection)
+                }
+            } else {
+                realm.delete(collection)
+            }
+        } catch {
+            DDLogDebug("XMPPNotificationsManager: \(#function). \(error.localizedDescription)")
+        }
+    }
+    
     func prepare() {
         self.loadProductList()
+        self.restoreSubscriptions()
+    }
+
+    /// Sync active App Store entitlements into Realm so the app knows about
+    /// subscriptions purchased outside the current session (e.g. on another device,
+    /// or when no Xabber Account was used).
+    func restoreSubscriptions() {
+        Task {
+            for await result in Transaction.currentEntitlements {
+                switch result {
+                case .verified(let transaction):
+                    guard let expiration = transaction.expirationDate,
+                          expiration.timeIntervalSince1970 > Date().timeIntervalSince1970 else {
+                        continue
+                    }
+                    self.saveSubscriptionInfo(
+                        productId: transaction.productID,
+                        jid: "",
+                        accountUUID: transaction.appAccountToken?.uuidString ?? "",
+                        expires: expiration,
+                        purchaseDate: transaction.purchaseDate,
+                        transactionId: "\(transaction.id)"
+                    )
+                default:
+                    break
+                }
+            }
+        }
     }
     
     
     
     func getState(account jid: String) -> AccountState {
-        self.checkSubscriptionStateForAccount(jid: jid)
         return .trial
-//        if let item = self.accounts.first(where: { $0.jid == jid }),
-//           item.date.timeIntervalSince1970 > Date().timeIntervalSince1970 {
-//            if subscribtionsList.filter ({ $0.uuid == jid.uuid() }).isEmpty {
-//                return .trial
-//            } else {
-//                return .active
-//            }
-//        }
-//        return .expired
     }
 
     fileprivate func loadProductList() {
@@ -141,13 +173,6 @@ class SubscribtionsManager: NSObject {
         Task {
             self.products = try await Product.products(for: products_ids)
         }
-    }
-    
-    var anotherAccountHasSubscribtion: Bool = false
-    
-    public func hasSubscribtionToAnotherAccount(jid: String) -> Bool {
-//        self.products.first.
-        return anotherAccountHasSubscribtion
     }
     
     public final func updateXMPPAccountsState() {
@@ -218,123 +243,119 @@ class SubscribtionsManager: NSObject {
             }
     }
     
-    func checkSubscriptionStateForAccount(jid: String, callback: ((Bool) -> Void)? = nil) {
-        Task {
-            var accounts: Set<String> = Set()
-            self.anotherAccountHasSubscribtion = false
-            for await entitlement in Transaction.currentEntitlements {
-                switch entitlement {
-                    case .verified(let transaction):
-                        if let expiration = transaction.expirationDate ?? transaction.revocationDate {
-                            if Date().timeIntervalSince1970 < expiration.timeIntervalSince1970 {
-                                if let token = transaction.appAccountToken?.uuidString {
-                                    accounts.insert(token)
-                                }
-                            }
-                        }
-                    default:
-                        break
-                }
-            }
-            if accounts.contains(jid.uuid().uuidString) {
-                if accounts.count > 1 {
-                    self.anotherAccountHasSubscribtion = true
-                }
-                callback?(true)
-            } else {
-                if accounts.isNotEmpty {
-                    self.anotherAccountHasSubscribtion = true
-                }
-                callback?(false)
-            }
-        }
-    }
-    
-    private final func recursivelyCheckXMPPState(jid: String, retry: Int = 0, callback: ((Bool) -> Void)? = nil) {
-        if retry > 30 {
-            callback?(false)
-            return
-        }
-        DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
-            self.checkXMPPAccountState(jid: jid) {
-                result in
-                if result {
-                    callback?(true)
-                    return
-                } else {
-                    self.recursivelyCheckXMPPState(jid: jid, retry: retry + 1, callback: callback)
-                }
-            }
-        }
-    }
-    
-    public final func confirmPurchaise(jid: String, productId: String, callback: ((Bool) -> Void)? = nil) {
-        self.updatePurchaisedStatus(jid: jid, productId: productId) {
-            result in
-            if result {
-                self.recursivelyCheckXMPPState(jid: jid, callback: callback)
-            } else {
-                callback?(false)
-            }
-        }
-    }
-    
-    func updatePurchaisedStatus(jid: String, productId: String, callback: ((Bool) -> Void)? = nil) {
-        Task {
-            var purchaisedProducts: Set<String> = Set()
-            for await entitlement in Transaction.currentEntitlements {
-                switch entitlement {
-                    case .verified(let transaction):
-//                        print(transaction.jsonRepresentation)
-                        if let expiration = transaction.expirationDate {
-                            if Date().timeIntervalSince1970 < expiration.timeIntervalSince1970 {
-                                purchaisedProducts.insert(transaction.productID)
-                            }
-                        }
-                    default:
-                        break
-                }
-            }
-            if purchaisedProducts.contains(productId) {
-                callback?(true)
-            } else {
-                callback?(false)
-            }
-        }
-    }
-    
-    public final func purchase(jid: String, subscribtion id: String, callback: ((Bool) -> Void)?) {
+    // MARK: - Purchase
+
+    public final func purchase(
+        subscribtion id: String,
+        accountUUID: String? = nil,
+        callback: ((Bool, Transaction?) -> Void)?
+    ) {
         guard let product = self.products.first(where: { $0.id == id }) else {
-            callback?(false)
+            callback?(false, nil)
             return
         }
+
+        var options: Set<Product.PurchaseOption> = []
+        if let accountUUID = accountUUID, let uuid = UUID(uuidString: accountUUID) {
+            options.insert(.appAccountToken(uuid))
+        }
+
         Task {
             do {
-                let result = try await product.purchase(options:[.appAccountToken(jid.uuid())])
+                let result = try await product.purchase(options: options)
                 switch result {
-                    case .success(let verification):
-                        switch verification {
-                            case .verified(let transaction):
-//                                transaction.
-                                await transaction.finish()
-                                if (transaction.expirationDate?.timeIntervalSince1970 ?? 0) > Date().timeIntervalSince1970 {
-                                    callback?(true)
-                                } else {
-                                    callback?(false)
-                                }
-                            default:
-                                callback?(false)
+                case .success(let verification):
+                    switch verification {
+                    case .verified(let transaction):
+                        await transaction.finish()
+                        if (transaction.expirationDate?.timeIntervalSince1970 ?? 0) > Date().timeIntervalSince1970 {
+                            callback?(true, transaction)
+                        } else {
+                            callback?(false, transaction)
                         }
                     default:
-                        callback?(false)
+                        callback?(false, nil)
+                    }
+                case .userCancelled:
+                    callback?(false, nil)
+                case .pending:
+                    callback?(false, nil)
+                @unknown default:
+                    callback?(false, nil)
                 }
             } catch {
-                callback?(false)
+                callback?(false, nil)
                 DDLogDebug("SubscribtionsManager: \(#function). \(error.localizedDescription)")
             }
         }
     }
+
+    // MARK: - Realm Persistence
+
+    func hasActiveSubsription() -> Bool {
+        do {
+            let realm = try WRealm.safe()
+            realm.refresh()
+            let instances = realm.objects(SubsriptionInfoRealmStorage.self).filter("expires > %@", Date())
+            return !instances.isEmpty
+        } catch {
+            DDLogDebug("SubscribtionsManager: \(#function). \(error.localizedDescription)")
+        }
+        return false
+    }
+
+    func getExpiresDate() -> Date? {
+        do {
+            let realm = try WRealm.safe()
+            realm.refresh()
+            let instances = realm.objects(SubsriptionInfoRealmStorage.self)
+                .filter("expires > %@", Date())
+                .sorted(byKeyPath: "expires", ascending: false)
+            return instances.first?.expires
+        } catch {
+            DDLogDebug("SubscribtionsManager: \(#function). \(error.localizedDescription)")
+        }
+        return nil
+    }
+
+    func getPurchasedProductIds() -> Set<String> {
+        do {
+            let realm = try WRealm.safe()
+            realm.refresh()
+            let instances = realm.objects(SubsriptionInfoRealmStorage.self)
+                .filter("expires > %@", Date())
+            return Set(instances.map { $0.productId })
+        } catch {
+            DDLogDebug("SubscribtionsManager: \(#function). \(error.localizedDescription)")
+        }
+        return Set()
+    }
     
+    func saveSubscriptionInfo(
+        productId: String,
+        jid: String,
+        accountUUID: String,
+        expires: Date,
+        purchaseDate: Date,
+        transactionId: String
+    ) {
+        do {
+            let realm = try WRealm.safe()
+            let item = SubsriptionInfoRealmStorage()
+            item.transactionId = transactionId
+            item.productId = productId
+            item.jid = jid
+            item.accountUUID = accountUUID
+            item.expires = expires
+            item.purchaseDate = purchaseDate
+            try realm.write {
+                realm.add(item, update: .modified)
+            }
+        } catch {
+            DDLogDebug("SubscribtionsManager: Failed to save subscription info: \(error.localizedDescription)")
+        }
+    }
+
 }
 
 

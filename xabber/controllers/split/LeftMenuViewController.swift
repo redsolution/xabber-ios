@@ -195,8 +195,11 @@ class LeftMenuViewController: UIViewController {
     }()
     
     var previousSelectedKey: String? = "chat"
-    
+
+    private var isPremiumActive: Bool = false
+
     private func loadDatasource() {
+        isPremiumActive = SubscribtionsManager.shared.hasActiveSubsription()
         do {
             let realm = try WRealm.safe()
             let accounts = realm.objects(AccountStorageItem.self).filter("enabled == true").sorted(byKeyPath: "order")
@@ -463,7 +466,7 @@ class LeftMenuViewController: UIViewController {
     
     public func configure() {
         self.title = CommonConfigManager.shared.config.app_name.capitalized
-        
+
         navigationItem.largeTitleDisplayMode = .automatic
         navigationController?.navigationBar.prefersLargeTitles = true
         self.navigationItem.backButtonDisplayMode = .minimal
@@ -473,17 +476,36 @@ class LeftMenuViewController: UIViewController {
 //            navigationItem.largeTitleDisplayMode = .never
 //        }
 //        navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
-        
+
         view.addSubview(tableView)
         tableView.fillSuperview()
         tableView.delegate = self
         tableView.dataSource = self
         loadDatasource()
-        
+        updatePremiumBarButton()
+
         let tapGesture = UITapGestureRecognizer(target: self, action: #selector(onTableViewEmptySpaceTap))
         tapGesture.cancelsTouchesInView = false
 //        tableView.addGestureRecognizer(tapGesture)
-        
+
+    }
+
+    private func updatePremiumBarButton() {
+        let iconName = isPremiumActive ? "star.fill" : "star"
+        let image = UIImage(systemName: iconName)
+        let button = UIBarButtonItem(image: image, style: .plain, target: self, action: #selector(onPremiumButton))
+        button.tintColor = isPremiumActive ? .systemYellow : .label
+        navigationItem.rightBarButtonItem = button
+    }
+
+    @objc
+    private func onPremiumButton() {
+        let vc = PremiumSubscribtionViewController()
+        vc.jid = AccountManager.shared.users.first?.jid ?? ""
+        vc.owner = AccountManager.shared.users.first?.jid ?? ""
+        showModal(vc, parent: self)
+        self.splitViewController?.show(.supplementary)
+        self.splitViewController?.hide(.primary)
     }
     
     @objc
@@ -542,7 +564,11 @@ class LeftMenuViewController: UIViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        
+        let newPremiumState = SubscribtionsManager.shared.hasActiveSubsription()
+        if newPremiumState != isPremiumActive {
+            isPremiumActive = newPremiumState
+            updatePremiumBarButton()
+        }
     }
 
     override func viewDidAppear(_ animated: Bool) {

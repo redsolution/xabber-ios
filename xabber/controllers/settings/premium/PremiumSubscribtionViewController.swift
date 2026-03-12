@@ -8,6 +8,8 @@
 
 import Foundation
 import UIKit
+import StoreKit
+import CocoaLumberjack
 
 class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewDelegate {
 
@@ -25,7 +27,7 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         ("Monthly",   "",                    "$4.99/month", nil,    "Subscribe for $4.99/month"),
     ]
 
-    private let featureData: [(icon: String, color: UIColor, title: String, desc: String)] = [
+    private let fullFeatureData: [(icon: String, color: UIColor, title: String, desc: String)] = [
         ("archivebox.fill",     .systemBlue,   "Message Archive",          "Complete message history stored securely without automatic deletion."),
         ("cloud.fill",          .systemOrange, "Extended Cloud Storage",   "Upload and store larger files with increased cloud storage capacity."),
         ("checkmark.seal.fill", .systemGreen,  "Verification Certificate", "Personal digital certificate to verify your identity in conversations."),
@@ -33,6 +35,11 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         ("lock.shield.fill",    .systemPurple, "Passcode Lock",            "Protect the app with a passcode and option to erase all data on failed attempts."),
     ]
 
+    private let basicFeatureData: [(icon: String, color: UIColor, title: String, desc: String)] = [
+        ("flame.fill",          .systemRed,    "Burn Messages",            "Set messages to automatically disappear after a chosen time period."),
+        ("lock.shield.fill",    .systemPurple, "Passcode Lock",            "Protect the app with a passcode and option to erase all data on failed attempts."),
+    ]
+    
     private let aboutText = """
     Xabber has always been a free, open-source messenger committed to user privacy and security. \
     Premium features require additional server resources — persistent message archives need dedicated \
@@ -60,7 +67,31 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
 
     private let subscribeButton = PremiumGradientButton()
     private var periodRadioImages: [UIImageView] = []
+    private var lockedPeriodIndices: Set<Int> = Set()
     private var isNavBarOpaque = false
+    private var isProcessing = false
+
+    // Premium state (re-evaluated on each setupSubviews)
+    private var isPremiumActive = false
+    private var hasXabberAccount = false
+    private var purchasedProductIds: Set<String> = Set()
+    private var expiresDate: Date? = nil
+
+    private lazy var loadingOverlay: UIView = {
+        let overlay = UIView()
+        overlay.backgroundColor = UIColor.black.withAlphaComponent(0.3)
+        overlay.isHidden = true
+        let spinner = UIActivityIndicatorView(style: .large)
+        spinner.color = .white
+        spinner.startAnimating()
+        spinner.translatesAutoresizingMaskIntoConstraints = false
+        overlay.addSubview(spinner)
+        NSLayoutConstraint.activate([
+            spinner.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
+            spinner.centerYAnchor.constraint(equalTo: overlay.centerYAnchor),
+        ])
+        return overlay
+    }()
 
     // MARK: - Lifecycle
 
@@ -76,8 +107,21 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         navigationItem.scrollEdgeAppearance = appearance
         navigationController?.navigationBar.tintColor = .white
     }
-
+    
+    func clearViews() {
+        view.subviews.forEach({ $0.removeFromSuperview() })
+        contentStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+    }
+    
     override func setupSubviews() {
+        clearViews()
+
+        // Evaluate subscription state
+        isPremiumActive = SubscribtionsManager.shared.hasActiveSubsription()
+        hasXabberAccount = CredentialsManager.getXabberAccountUUID(for: self.jid) != nil
+        purchasedProductIds = SubscribtionsManager.shared.getPurchasedProductIds()
+        expiresDate = SubscribtionsManager.shared.getExpiresDate()
+
         scrollView.delegate = self
         view.addSubview(scrollView)
         scrollView.addSubview(contentStack)
@@ -87,16 +131,45 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         bottomBar.backgroundColor = .systemGroupedBackground
         view.addSubview(bottomBar)
 
-        subscribeButton.addTarget(self, action: #selector(subscribeTapped), for: .touchUpInside)
-        bottomBar.addSubview(subscribeButton)
-
         // Top separator on bottom bar
         let topSep = UIView()
         topSep.backgroundColor = .separator
         bottomBar.addSubview(topSep)
 
-        for v in [scrollView, contentStack, bottomBar, subscribeButton, topSep] as [UIView] {
-            v.translatesAutoresizingMaskIntoConstraints = false
+        if isPremiumActive {
+            // "Manage Subscription" plain button
+            let manageButton = UIButton(type: .system)
+            manageButton.setTitle("Manage Subscription", for: .normal)
+            manageButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .medium)
+            manageButton.tintColor = accentColor
+            manageButton.addTarget(self, action: #selector(manageSubscriptionTapped), for: .touchUpInside)
+            bottomBar.addSubview(manageButton)
+            manageButton.translatesAutoresizingMaskIntoConstraints = false
+
+            for v in [scrollView, contentStack, bottomBar, topSep] as [UIView] {
+                v.translatesAutoresizingMaskIntoConstraints = false
+            }
+
+            NSLayoutConstraint.activate([
+                manageButton.topAnchor.constraint(equalTo: bottomBar.topAnchor, constant: 12),
+                manageButton.centerXAnchor.constraint(equalTo: bottomBar.centerXAnchor),
+                manageButton.bottomAnchor.constraint(equalTo: bottomBar.safeAreaLayoutGuide.bottomAnchor, constant: -12),
+            ])
+        } else {
+            subscribeButton.addTarget(self, action: #selector(subscribeTapped), for: .touchUpInside)
+            bottomBar.addSubview(subscribeButton)
+
+            for v in [scrollView, contentStack, bottomBar, subscribeButton, topSep] as [UIView] {
+                v.translatesAutoresizingMaskIntoConstraints = false
+            }
+
+            NSLayoutConstraint.activate([
+                subscribeButton.topAnchor.constraint(equalTo: bottomBar.topAnchor, constant: 12),
+                subscribeButton.leadingAnchor.constraint(equalTo: bottomBar.leadingAnchor, constant: 16),
+                subscribeButton.trailingAnchor.constraint(equalTo: bottomBar.trailingAnchor, constant: -16),
+                subscribeButton.bottomAnchor.constraint(equalTo: bottomBar.safeAreaLayoutGuide.bottomAnchor, constant: -12),
+                subscribeButton.heightAnchor.constraint(equalToConstant: 50),
+            ])
         }
 
         NSLayoutConstraint.activate([
@@ -119,12 +192,6 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
             topSep.leadingAnchor.constraint(equalTo: bottomBar.leadingAnchor),
             topSep.trailingAnchor.constraint(equalTo: bottomBar.trailingAnchor),
             topSep.heightAnchor.constraint(equalToConstant: 1 / UIScreen.main.scale),
-
-            subscribeButton.topAnchor.constraint(equalTo: bottomBar.topAnchor, constant: 12),
-            subscribeButton.leadingAnchor.constraint(equalTo: bottomBar.leadingAnchor, constant: 16),
-            subscribeButton.trailingAnchor.constraint(equalTo: bottomBar.trailingAnchor, constant: -16),
-            subscribeButton.bottomAnchor.constraint(equalTo: bottomBar.safeAreaLayoutGuide.bottomAnchor, constant: -12),
-            subscribeButton.heightAnchor.constraint(equalToConstant: 50),
         ])
 
         // Sections
@@ -137,7 +204,19 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         contentStack.addArrangedSubview(padHorizontally(buildAboutCard()))
         contentStack.addArrangedSubview(buildFooter())
 
-        updateSelection()
+        // Loading overlay (on top of everything)
+        view.addSubview(loadingOverlay)
+        loadingOverlay.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            loadingOverlay.topAnchor.constraint(equalTo: view.topAnchor),
+            loadingOverlay.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            loadingOverlay.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            loadingOverlay.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+
+        if !isPremiumActive {
+            updateSelection()
+        }
     }
 
     // MARK: - UIScrollViewDelegate
@@ -169,8 +248,92 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         updateSelection()
     }
 
+    @objc private func manageSubscriptionTapped() {
+        if let url = URL(string: "https://apps.apple.com/account/subscriptions") {
+            UIApplication.shared.open(url)
+        }
+    }
+
     @objc private func subscribeTapped() {
-        // TODO: Integrate with SubscribtionsManager
+        guard !isProcessing else { return }
+
+        guard let productId = productIdForSelectedPeriod() else {
+            showAlert(title: "Error", message: "Product configuration not found.")
+            return
+        }
+
+        setLoading(true)
+
+        // Check if Xabber Account UUID is available (already stored in keychain)
+        let accountUUID = CredentialsManager.getXabberAccountUUID(for: self.jid)
+
+        // Purchase via StoreKit 2 (with or without appAccountToken)
+        SubscribtionsManager.shared.purchase(
+            subscribtion: productId,
+            accountUUID: accountUUID
+        ) { [weak self] success, transaction in
+            guard let self = self else { return }
+
+            guard success, let transaction = transaction else {
+                self.setLoading(false)
+                self.showAlert(title: "Error", message: "Purchase failed. To manage your subscriptions, go to App Store → Settings → Subscriptions.")
+                return
+            }
+
+            // Save to Realm + rebuild UI on main thread to avoid cross-thread Realm visibility issues
+            DispatchQueue.main.async {
+                SubscribtionsManager.shared.saveSubscriptionInfo(
+                    productId: transaction.productID,
+                    jid: self.jid,
+                    accountUUID: accountUUID ?? "",
+                    expires: transaction.expirationDate ?? Date(),
+                    purchaseDate: transaction.purchaseDate,
+                    transactionId: "\(transaction.id)"
+                )
+
+                self.isProcessing = false
+                self.loadingOverlay.isHidden = true
+                self.setupSubviews()
+
+                if accountUUID != nil {
+                    self.showAlert(title: "Success", message: "Your premium subscription is now active!") {
+                        _ = XabberAccountManager.shared.requestToken(for: self.jid) { token in
+                            DDLogDebug("PremiumSubscription: token request result: \(token != nil ? "success" : "failed")")
+                        }
+                    }
+                } else {
+                    self.showAlert(title: "Success", message: "Your premium subscription is now active!")
+                }
+            }
+        }
+    }
+
+    // MARK: - Subscription Helpers
+
+    private func productIdForSelectedPeriod() -> String? {
+        guard let productList = SubscribtionsSecretStore.bundle?.product_list,
+              selectedPeriodIndex < productList.count else {
+            return nil
+        }
+        return productList[selectedPeriodIndex]
+    }
+
+    private func setLoading(_ loading: Bool) {
+        DispatchQueue.main.async {
+            self.isProcessing = loading
+            self.loadingOverlay.isHidden = !loading
+            self.subscribeButton.isEnabled = !loading
+        }
+    }
+
+    private func showAlert(title: String, message: String, completion: (() -> Void)? = nil) {
+        DispatchQueue.main.async {
+            let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "OK", style: .default) { _ in
+                completion?()
+            })
+            self.present(alert, animated: true)
+        }
     }
 
     // MARK: - Selection State
@@ -180,6 +343,9 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         subscribeButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
 
         for (i, radio) in periodRadioImages.enumerated() {
+            // Skip locked rows — they keep their green checkmark
+            guard !lockedPeriodIndices.contains(i) else { continue }
+
             if i == selectedPeriodIndex {
                 radio.image = UIImage(systemName: "checkmark.circle.fill")
                 radio.tintColor = accentColor
@@ -204,12 +370,19 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         header.gradientLayer.endPoint = CGPoint(x: 0.5, y: 1)
         header.clipsToBounds = true
 
-        // Star
+        // Star / Checkmark icon
         let starConfig = UIImage.SymbolConfiguration(pointSize: 72, weight: .thin)
-        let starView = UIImageView(image: UIImage(systemName: "star.fill", withConfiguration: starConfig))
-        starView.tintColor = UIColor(red: 1, green: 0.84, blue: 0.32, alpha: 1)
+        let starView: UIImageView
+        if isPremiumActive {
+            starView = UIImageView(image: UIImage(systemName: "checkmark.seal.fill", withConfiguration: starConfig))
+            starView.tintColor = UIColor(red: 0.3, green: 1.0, blue: 0.6, alpha: 1)
+            starView.layer.shadowColor = UIColor(red: 0.3, green: 1.0, blue: 0.6, alpha: 0.8).cgColor
+        } else {
+            starView = UIImageView(image: UIImage(systemName: "star.fill", withConfiguration: starConfig))
+            starView.tintColor = UIColor(red: 1, green: 0.84, blue: 0.32, alpha: 1)
+            starView.layer.shadowColor = UIColor(red: 1, green: 0.84, blue: 0.32, alpha: 0.8).cgColor
+        }
         starView.contentMode = .scaleAspectFit
-        starView.layer.shadowColor = UIColor(red: 1, green: 0.84, blue: 0.32, alpha: 0.8).cgColor
         starView.layer.shadowRadius = 24
         starView.layer.shadowOpacity = 0.6
         starView.layer.shadowOffset = .zero
@@ -240,14 +413,23 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
 
         // Title
         let titleLabel = UILabel()
-        titleLabel.text = "Xabber Premium"
         titleLabel.font = .systemFont(ofSize: 28, weight: .bold)
         titleLabel.textColor = .white
         titleLabel.textAlignment = .center
 
         // Subtitle
         let subtitleLabel = UILabel()
-        subtitleLabel.text = "Unlock premium features and support\nopen-source development."
+        if isPremiumActive {
+            titleLabel.text = "You're Premium"
+            if let expires = expiresDate {
+                subtitleLabel.text = "Your subscription is active until\n\(expires.formatted(date: .long, time: .omitted))"
+            } else {
+                subtitleLabel.text = "All premium features are unlocked.\nThank you for your support!"
+            }
+        } else {
+            titleLabel.text = "Xabber Premium"
+            subtitleLabel.text = "Unlock premium features and support\nopen-source development."
+        }
         subtitleLabel.font = .systemFont(ofSize: 15)
         subtitleLabel.textColor = UIColor.white.withAlphaComponent(0.8)
         subtitleLabel.textAlignment = .center
@@ -316,15 +498,22 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         ])
 
         periodRadioImages.removeAll()
+        lockedPeriodIndices.removeAll()
+
+        // Determine which period indices are already purchased
+        let productList = SubscribtionsSecretStore.bundle?.product_list ?? []
 
         for (i, period) in periodData.enumerated() {
+            let isLocked = i < productList.count && purchasedProductIds.contains(productList[i])
+            if isLocked { lockedPeriodIndices.insert(i) }
             let row = buildPeriodRow(
                 index: i,
                 title: period.title,
                 subtitle: period.subtitle,
                 price: period.price,
                 discount: period.discount,
-                isLast: i == periodData.count - 1
+                isLast: i == periodData.count - 1,
+                locked: isLocked
             )
             stack.addArrangedSubview(row)
         }
@@ -333,15 +522,27 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
     }
 
     private func buildPeriodRow(index: Int, title: String, subtitle: String,
-                                price: String, discount: String?, isLast: Bool) -> UIView {
+                                price: String, discount: String?, isLast: Bool,
+                                locked: Bool = false) -> UIView {
         let row = UIView()
         row.tag = index
-        row.isUserInteractionEnabled = true
-        row.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(periodTapped)))
+
+        if locked {
+            // Locked row: no tap, dimmed appearance
+            row.isUserInteractionEnabled = false
+            row.alpha = 0.5
+        } else {
+            row.isUserInteractionEnabled = true
+            row.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(periodTapped)))
+        }
 
         // Radio
         let radio = UIImageView()
         radio.contentMode = .scaleAspectFit
+        if locked {
+            radio.image = UIImage(systemName: "checkmark.circle.fill")
+            radio.tintColor = .systemGreen
+        }
         periodRadioImages.append(radio)
 
         // Title label
@@ -349,21 +550,34 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         titleLabel.text = title
         titleLabel.font = .systemFont(ofSize: 17, weight: .medium)
 
-        // Price
-        let priceLabel = UILabel()
-        priceLabel.text = price
-        priceLabel.font = .systemFont(ofSize: 17)
-        priceLabel.textColor = .secondaryLabel
-        priceLabel.setContentHuggingPriority(.required, for: .horizontal)
-        priceLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        // Price / Active badge
+        let trailingView: UIView
+        if locked {
+            let activeBadge = PaddedLabel()
+            activeBadge.text = "Active"
+            activeBadge.font = .systemFont(ofSize: 13, weight: .semibold)
+            activeBadge.textColor = .white
+            activeBadge.backgroundColor = .systemGreen
+            activeBadge.layer.cornerRadius = 4
+            activeBadge.clipsToBounds = true
+            trailingView = activeBadge
+        } else {
+            let priceLabel = UILabel()
+            priceLabel.text = price
+            priceLabel.font = .systemFont(ofSize: 17)
+            priceLabel.textColor = .secondaryLabel
+            trailingView = priceLabel
+        }
+        trailingView.setContentHuggingPriority(.required, for: .horizontal)
+        trailingView.setContentCompressionResistancePriority(.required, for: .horizontal)
 
-        // Title row: title + optional badge
+        // Title row: title + optional discount badge
         let titleRow = UIStackView(arrangedSubviews: [titleLabel])
         titleRow.axis = .horizontal
         titleRow.spacing = 8
         titleRow.alignment = .center
 
-        if let discount = discount {
+        if !locked, let discount = discount {
             let badge = PaddedLabel()
             badge.text = discount
             badge.font = .systemFont(ofSize: 12, weight: .bold)
@@ -381,7 +595,7 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         subLabel.font = .systemFont(ofSize: 14)
         subLabel.textColor = .tertiaryLabel
 
-        for v in [radio, titleRow, priceLabel, subLabel] as [UIView] {
+        for v in [radio, titleRow, trailingView, subLabel] as [UIView] {
             v.translatesAutoresizingMaskIntoConstraints = false
             row.addSubview(v)
         }
@@ -395,9 +609,9 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
             titleRow.leadingAnchor.constraint(equalTo: radio.trailingAnchor, constant: 12),
             titleRow.topAnchor.constraint(equalTo: row.topAnchor, constant: 14),
 
-            priceLabel.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -16),
-            priceLabel.centerYAnchor.constraint(equalTo: titleRow.centerYAnchor),
-            priceLabel.leadingAnchor.constraint(greaterThanOrEqualTo: titleRow.trailingAnchor, constant: 8),
+            trailingView.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -16),
+            trailingView.centerYAnchor.constraint(equalTo: titleRow.centerYAnchor),
+            trailingView.leadingAnchor.constraint(greaterThanOrEqualTo: titleRow.trailingAnchor, constant: 8),
         ])
 
         if subtitle.isEmpty {
@@ -447,11 +661,12 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
             stack.bottomAnchor.constraint(equalTo: card.bottomAnchor),
         ])
 
-        for (i, feat) in featureData.enumerated() {
+        let features = hasXabberAccount ? fullFeatureData : basicFeatureData
+        for (i, feat) in features.enumerated() {
             stack.addArrangedSubview(
                 buildFeatureRow(icon: feat.icon, color: feat.color,
                                 title: feat.title, desc: feat.desc,
-                                isLast: i == featureData.count - 1)
+                                isLast: i == features.count - 1)
             )
         }
 
@@ -555,20 +770,37 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
 
     private func buildFooter() -> UIView {
         let container = UIView()
-        let label = UILabel()
-        label.text = "To manage your subscription, go to\nApp Store → Settings → Subscriptions."
-        label.font = .systemFont(ofSize: 13)
-        label.textColor = .tertiaryLabel
-        label.textAlignment = .center
-        label.numberOfLines = 0
-        container.addSubview(label)
-        label.translatesAutoresizingMaskIntoConstraints = false
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.spacing = 6
+        stack.alignment = .center
+        container.addSubview(stack)
+        stack.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            label.topAnchor.constraint(equalTo: container.topAnchor, constant: 20),
-            label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 32),
-            label.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -32),
-            label.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -24),
+            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 20),
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 32),
+            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -32),
+            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -24),
         ])
+
+        if isPremiumActive, let expires = expiresDate {
+            let expiresLabel = UILabel()
+            expiresLabel.text = "Expires: \(expires.formatted(date: .long, time: .shortened))"
+            expiresLabel.font = .systemFont(ofSize: 14, weight: .medium)
+            expiresLabel.textColor = .secondaryLabel
+            expiresLabel.textAlignment = .center
+            expiresLabel.numberOfLines = 0
+            stack.addArrangedSubview(expiresLabel)
+        }
+
+        let manageLabel = UILabel()
+        manageLabel.text = "To manage your subscription, go to\nApp Store → Settings → Subscriptions."
+        manageLabel.font = .systemFont(ofSize: 13)
+        manageLabel.textColor = .tertiaryLabel
+        manageLabel.textAlignment = .center
+        manageLabel.numberOfLines = 0
+        stack.addArrangedSubview(manageLabel)
+
         return container
     }
 

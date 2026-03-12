@@ -257,7 +257,7 @@ class SettingsViewController: BaseViewController {
         override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
             super.init(style: style, reuseIdentifier: reuseIdentifier)
             contentView.addSubview(stack)
-            stack.fillSuperviewWithOffset(top: 4, bottom: 4, left: 72, right: 8)
+            stack.fillSuperviewWithOffset(top: 4, bottom: 4, left: 62, right: 8)
             stack.addArrangedSubview(self.titleLabel)
             stack.addArrangedSubview(self.subtitleButton)
             self.subtitleButton.isUserInteractionEnabled = false
@@ -323,7 +323,7 @@ class SettingsViewController: BaseViewController {
     }()
     
 //    var scrollViewContentOffsetYCopy: CGFloat = 0
-    var headerHeightMax: CGFloat = 232//188
+    var headerHeightMax: CGFloat = CommonConfigManager.shared.config.support_xabber_account ? 232 : 188
 //    var headerHeightMin: CGFloat = 0
     var nickname = ""
     
@@ -602,7 +602,9 @@ class SettingsViewController: BaseViewController {
                         subtitle: self.jid,
                         thirdLine: nil
                     )
-                    self.headerView.setupXabberAccountButton()
+                    if CommonConfigManager.shared.config.support_xabber_account {
+                        self.headerView.setupXabberAccountButton()
+                    }
                 }
                 
                 if let sessionInstance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.owner).first {
@@ -841,6 +843,12 @@ class SettingsViewController: BaseViewController {
                                                selector: #selector(reloadDatasource),
                                                name: .newMaskSelected,
                                                object: nil)
+        AccountManager.shared.find(for: self.jid)?.action { user, stream in
+            if CredentialsManager.getXabberAccountUUID(for: self.jid) == nil {
+                XabberAccountManager.shared.registerAccount(stream, callback: nil)
+            }
+        }
+            
     }
     
     @objc

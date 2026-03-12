@@ -449,7 +449,7 @@ class LastCallsViewController: BaseViewController {
         tableView.delegate = self
         
         emptyView.configure(image: (UIImage(systemName: "phone")?.upscale(dimension: 160).withRenderingMode(.alwaysTemplate))!,
-                            title: "Under construction",
+                            title: "No calls yet",
                             subtitle: "",
                             buttonTitle: "Make a call".localizeString(id: "chat_make_call_hint", arguments: [])) {
             self.showAddDialog()

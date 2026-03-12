@@ -178,6 +178,17 @@ extension String
 }
 
 extension String {
+    
+    func uuidString() -> String {
+        return UUID(namespaceString: UUID.getNSForXMPPUUIDV5(), name: self)!.uuidString
+    }
+    
+    func uuid() -> UUID {
+        return UUID(namespaceString: UUID.getNSForXMPPUUIDV5(), name: self)!
+    }
+}
+
+extension String {
     static func membersAndContactsString(members: Int, contacts: Int) -> String {
         var memberStr: String = ""
         var contactStr: String = ""

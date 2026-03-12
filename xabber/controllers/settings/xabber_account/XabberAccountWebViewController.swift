@@ -50,6 +50,9 @@ class XabberAccountWebViewController: SimpleBaseViewController, WKNavigationDele
     }
 
     @objc private func backButtonTapped() {
+        if let components = webView?.url?.absoluteString.contains("confirm") {
+            navigationController?.popViewController(animated: true)
+        }
         if webView?.canGoBack == true {
             webView.goBack()
         } else {

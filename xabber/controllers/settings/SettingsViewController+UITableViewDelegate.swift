@@ -98,9 +98,9 @@ extension SettingsViewController: UITableViewDelegate {
                     return
                     
                 case .subscriptions:
-                    let vc = SubscribtionsListViewController()
+                    let vc = PremiumSubscribtionViewController()
                     vc.owner = self.jid
-                    vc.controllerCloseReason = .navigationStack
+                    vc.jid = self.jid
                     navigationController?.pushViewController(vc, animated: true)
                     return
                     

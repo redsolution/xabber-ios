@@ -91,6 +91,7 @@ class CommonConfigManager: NSObject {
         var support_xabber_account: Bool
         var xabber_account_url: String
         var xabber_account_api_url: String
+        var xabber_account_xmpp_jid: String
     }
     
     var interfaceType: InterfaceType {

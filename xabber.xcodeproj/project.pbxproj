@@ -61,13 +61,9 @@
 		4D683D24285DE04200FFCB25 /* AccountInfoViewController+QuotaCellDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D683D23285DE04200FFCB25 /* AccountInfoViewController+QuotaCellDelegate.swift */; };
 		4D784637288E57AB00DB706A /* ChangePasswordTableViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D784636288E57AB00DB706A /* ChangePasswordTableViewController.swift */; };
 		4D9C8FD928534E45003E35BE /* SettingsViewController+InfoScreenHeaderButtonDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D9C8FD828534E45003E35BE /* SettingsViewController+InfoScreenHeaderButtonDelegate.swift */; };
-		4DB3259B290FAE8D005364DD /* SubscriptionsTableViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DB3259A290FAE8D005364DD /* SubscriptionsTableViewController.swift */; };
-		4DB325A1290FB186005364DD /* ProductCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DB325A0290FB186005364DD /* ProductCell.swift */; };
 		4DB4A4672850BDF600B3BB20 /* SelectorViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DB4A4662850BDF600B3BB20 /* SelectorViewController.swift */; };
 		4DB7851628911DDA007B9911 /* XMPPChangePasswordManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DB7851528911DDA007B9911 /* XMPPChangePasswordManager.swift */; };
 		4DB785182893E2B6007B9911 /* XMPPAccountDeleteManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DB785172893E2B6007B9911 /* XMPPAccountDeleteManager.swift */; };
-		4DC31469291A20D4004B6C9D /* DeliveryAddressViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DC31468291A20D4004B6C9D /* DeliveryAddressViewController.swift */; };
-		4DC3146D291A96DD004B6C9D /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DC3146C291A96DD004B6C9D /* Store.swift */; };
 		4DC337EB285062E300D300B9 /* SimpleTableViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DC337EA285062E300D300B9 /* SimpleTableViewController.swift */; };
 		4DC843C528A9FAD200F61AEE /* PasscodeEdtitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DC843C428A9FAD200F61AEE /* PasscodeEdtitView.swift */; };
 		4DC843CB28AA22BC00F61AEE /* PasscodeViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DC843CA28AA22BC00F61AEE /* PasscodeViewController.swift */; };
@@ -88,6 +84,7 @@
 		6604C7682E49D60400763779 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 6604C7672E49D60300763779 /* PrivacyInfo.xcprivacy */; };
 		6604C76C2E49F82000763779 /* badges.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6604C76B2E49F82000763779 /* badges.xcassets */; };
 		6606BAB62D65A04C00DBC877 /* ModernMessageContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6606BAB52D65A04A00DBC877 /* ModernMessageContainerView.swift */; };
+		66070FC22F618A1300B5286C /* SubsriptionInfoRealmStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66070FC12F618A1300B5286C /* SubsriptionInfoRealmStorage.swift */; };
 		6608523520D7DD8C00B3ECF6 /* MessageManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6608523420D7DD8C00B3ECF6 /* MessageManager.swift */; };
 		6608562D2071F80A003E0122 /* RealmMigrations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6608562C2071F80A003E0122 /* RealmMigrations.swift */; };
 		660951A72833B10700FDEAAF /* ApplicationStateManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660951A62833B10700FDEAAF /* ApplicationStateManager.swift */; };
@@ -271,7 +268,6 @@
 		66471C1A2C4FE1B500F3F126 /* UIImageLiteral.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66471C192C4FE1B500F3F126 /* UIImageLiteral.swift */; };
 		6648841C26EA068F00323013 /* ChatViewController+SearchBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6648841B26EA068F00323013 /* ChatViewController+SearchBar.swift */; };
 		664CF1B522A7FF4D007987B0 /* QuitAccountPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 664CF1B422A7FF4D007987B0 /* QuitAccountPresenter.swift */; };
-		664CFF31291E788900CDB62C /* SubscribtionTopInfoTableViewCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 664CFF30291E788900CDB62C /* SubscribtionTopInfoTableViewCell.swift */; };
 		664D9A2F22B26B3200CCA995 /* InvalidPasswordPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 664D9A2E22B26B3200CCA995 /* InvalidPasswordPresenter.swift */; };
 		664E3D7823978BB000E2CBCF /* PickerViewPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 664E3D7723978BB000E2CBCF /* PickerViewPresenter.swift */; };
 		664F18A721B92FBD0006D63C /* ReliableMessageDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 664F18A621B92FBD0006D63C /* ReliableMessageDelivery.swift */; };
@@ -603,7 +599,6 @@
 		66CB16C321F9C9D100CB03C2 /* ChatViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66CB16C221F9C9D100CB03C2 /* ChatViewController.swift */; };
 		66CB2F7126C533F30085F311 /* vCardInfoViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66CB2F7026C533F30085F311 /* vCardInfoViewController.swift */; };
 		66CC78272613495400482F08 /* MessageArchiveManager+BackgroundHistoryLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66CC78262613495400482F08 /* MessageArchiveManager+BackgroundHistoryLoader.swift */; };
-		66CD4D512ACD937900F53799 /* SubscribtionsListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66CD4D502ACD937900F53799 /* SubscribtionsListViewController.swift */; };
 		66CDBEDC279EBE2900B2CC6F /* NewSecretChatViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66CDBEDB279EBE2900B2CC6F /* NewSecretChatViewController.swift */; };
 		66CDBEDE279EC0C400B2CC6F /* ContactListTableViewCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66CDBEDD279EC0C400B2CC6F /* ContactListTableViewCell.swift */; };
 		66CDFFEC2C63524100BF5DCC /* UIColor+TraitCollectionExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66CDFFEB2C63524100BF5DCC /* UIColor+TraitCollectionExtension.swift */; };
@@ -678,7 +673,6 @@
 		66ED0D4C2488FA700053CBEF /* InfoScreenHeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66ED0D4B2488FA700053CBEF /* InfoScreenHeaderView.swift */; };
 		66EF49A92BCEAADD00984187 /* EmptyChatViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66EF49A82BCEAADD00984187 /* EmptyChatViewController.swift */; };
 		66EF49AB2BCEAB7B00984187 /* SplitViewControllerDelegateProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66EF49AA2BCEAB7B00984187 /* SplitViewControllerDelegateProtocol.swift */; };
-		66EFC5B92923C98700398D77 /* SubscribtionsListViewControllerTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66EFC5B82923C98700398D77 /* SubscribtionsListViewControllerTest.swift */; };
 		66F034022C33D9ED00E4D40A /* ChatViewController+VerifyFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F034012C33D9ED00E4D40A /* ChatViewController+VerifyFlow.swift */; };
 		66F034042C340EB600E4D40A /* ChatViewController+ContactSubscribtionsFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F034032C340EB600E4D40A /* ChatViewController+ContactSubscribtionsFlow.swift */; };
 		66F0AADC2BC00E8600079DA6 /* TrustSharingManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66F0AADB2BC00E8600079DA6 /* TrustSharingManager.swift */; };
@@ -1052,13 +1046,9 @@
 		4D683D23285DE04200FFCB25 /* AccountInfoViewController+QuotaCellDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AccountInfoViewController+QuotaCellDelegate.swift"; sourceTree = "<group>"; };
 		4D784636288E57AB00DB706A /* ChangePasswordTableViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangePasswordTableViewController.swift; sourceTree = "<group>"; };
 		4D9C8FD828534E45003E35BE /* SettingsViewController+InfoScreenHeaderButtonDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SettingsViewController+InfoScreenHeaderButtonDelegate.swift"; sourceTree = "<group>"; };
-		4DB3259A290FAE8D005364DD /* SubscriptionsTableViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionsTableViewController.swift; sourceTree = "<group>"; };
-		4DB325A0290FB186005364DD /* ProductCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductCell.swift; sourceTree = "<group>"; };
 		4DB4A4662850BDF600B3BB20 /* SelectorViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelectorViewController.swift; sourceTree = "<group>"; };
 		4DB7851528911DDA007B9911 /* XMPPChangePasswordManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XMPPChangePasswordManager.swift; sourceTree = "<group>"; };
 		4DB785172893E2B6007B9911 /* XMPPAccountDeleteManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XMPPAccountDeleteManager.swift; sourceTree = "<group>"; };
-		4DC31468291A20D4004B6C9D /* DeliveryAddressViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeliveryAddressViewController.swift; sourceTree = "<group>"; };
-		4DC3146C291A96DD004B6C9D /* Store.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Store.swift; sourceTree = "<group>"; };
 		4DC337EA285062E300D300B9 /* SimpleTableViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimpleTableViewController.swift; sourceTree = "<group>"; };
 		4DC843C428A9FAD200F61AEE /* PasscodeEdtitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasscodeEdtitView.swift; sourceTree = "<group>"; };
 		4DC843CA28AA22BC00F61AEE /* PasscodeViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasscodeViewController.swift; sourceTree = "<group>"; };
@@ -1082,6 +1072,7 @@
 		6604C7672E49D60300763779 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		6604C76B2E49F82000763779 /* badges.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = badges.xcassets; sourceTree = "<group>"; };
 		6606BAB52D65A04A00DBC877 /* ModernMessageContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModernMessageContainerView.swift; sourceTree = "<group>"; };
+		66070FC12F618A1300B5286C /* SubsriptionInfoRealmStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubsriptionInfoRealmStorage.swift; sourceTree = "<group>"; };
 		6608523420D7DD8C00B3ECF6 /* MessageManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageManager.swift; sourceTree = "<group>"; };
 		6608562C2071F80A003E0122 /* RealmMigrations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealmMigrations.swift; sourceTree = "<group>"; };
 		660951A62833B10700FDEAAF /* ApplicationStateManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationStateManager.swift; sourceTree = "<group>"; };
@@ -1259,7 +1250,6 @@
 		66471C192C4FE1B500F3F126 /* UIImageLiteral.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIImageLiteral.swift; sourceTree = "<group>"; };
 		6648841B26EA068F00323013 /* ChatViewController+SearchBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewController+SearchBar.swift"; sourceTree = "<group>"; };
 		664CF1B422A7FF4D007987B0 /* QuitAccountPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuitAccountPresenter.swift; sourceTree = "<group>"; };
-		664CFF30291E788900CDB62C /* SubscribtionTopInfoTableViewCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscribtionTopInfoTableViewCell.swift; sourceTree = "<group>"; };
 		664D9A2E22B26B3200CCA995 /* InvalidPasswordPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InvalidPasswordPresenter.swift; sourceTree = "<group>"; };
 		664E3D7723978BB000E2CBCF /* PickerViewPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PickerViewPresenter.swift; sourceTree = "<group>"; };
 		664F18A621B92FBD0006D63C /* ReliableMessageDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReliableMessageDelivery.swift; sourceTree = "<group>"; };
@@ -1590,7 +1580,6 @@
 		66CB16C221F9C9D100CB03C2 /* ChatViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatViewController.swift; sourceTree = "<group>"; };
 		66CB2F7026C533F30085F311 /* vCardInfoViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = vCardInfoViewController.swift; sourceTree = "<group>"; };
 		66CC78262613495400482F08 /* MessageArchiveManager+BackgroundHistoryLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MessageArchiveManager+BackgroundHistoryLoader.swift"; sourceTree = "<group>"; };
-		66CD4D502ACD937900F53799 /* SubscribtionsListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscribtionsListViewController.swift; sourceTree = "<group>"; };
 		66CDBEDB279EBE2900B2CC6F /* NewSecretChatViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewSecretChatViewController.swift; sourceTree = "<group>"; };
 		66CDBEDD279EC0C400B2CC6F /* ContactListTableViewCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactListTableViewCell.swift; sourceTree = "<group>"; };
 		66CDFFEB2C63524100BF5DCC /* UIColor+TraitCollectionExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIColor+TraitCollectionExtension.swift"; sourceTree = "<group>"; };
@@ -1664,7 +1653,6 @@
 		66ED0D4B2488FA700053CBEF /* InfoScreenHeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InfoScreenHeaderView.swift; sourceTree = "<group>"; };
 		66EF49A82BCEAADD00984187 /* EmptyChatViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmptyChatViewController.swift; sourceTree = "<group>"; };
 		66EF49AA2BCEAB7B00984187 /* SplitViewControllerDelegateProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitViewControllerDelegateProtocol.swift; sourceTree = "<group>"; };
-		66EFC5B82923C98700398D77 /* SubscribtionsListViewControllerTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscribtionsListViewControllerTest.swift; sourceTree = "<group>"; };
 		66F034012C33D9ED00E4D40A /* ChatViewController+VerifyFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewController+VerifyFlow.swift"; sourceTree = "<group>"; };
 		66F034032C340EB600E4D40A /* ChatViewController+ContactSubscribtionsFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewController+ContactSubscribtionsFlow.swift"; sourceTree = "<group>"; };
 		66F0AADB2BC00E8600079DA6 /* TrustSharingManager.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = TrustSharingManager.swift; sourceTree = "<group>"; };
@@ -1897,20 +1885,6 @@
 				4DFF74FD2851E4550036AE0D /* SimpleTableViewController+SwitchCell.swift */,
 			);
 			path = SimpleTableViewController;
-			sourceTree = "<group>";
-		};
-		4DB32599290FAA18005364DD /* Subscriptions */ = {
-			isa = PBXGroup;
-			children = (
-				4DB3259A290FAE8D005364DD /* SubscriptionsTableViewController.swift */,
-				4DC3146C291A96DD004B6C9D /* Store.swift */,
-				4DC31468291A20D4004B6C9D /* DeliveryAddressViewController.swift */,
-				4DB325A0290FB186005364DD /* ProductCell.swift */,
-				664CFF30291E788900CDB62C /* SubscribtionTopInfoTableViewCell.swift */,
-				66EFC5B82923C98700398D77 /* SubscribtionsListViewControllerTest.swift */,
-				66CD4D502ACD937900F53799 /* SubscribtionsListViewController.swift */,
-			);
-			path = Subscriptions;
 			sourceTree = "<group>";
 		};
 		4DC843CC28AA77A200F61AEE /* Passcode */ = {
@@ -2192,7 +2166,6 @@
 				66DB6E032BFF277F00AAEA94 /* notifications */,
 				66EF49A72BCEAAD300984187 /* split */,
 				8491422A2BB1A89B00FC474C /* ake */,
-				4DB32599290FAA18005364DD /* Subscriptions */,
 				660B4A4A28C8A70700C39903 /* credentials */,
 				669BA4AD281012BC0029276D /* privacy */,
 				66459578265185BB00FB5490 /* onboarding */,
@@ -3060,6 +3033,7 @@
 		667BC4A9291E63CF00B07957 /* SubscribtionsManager */ = {
 			isa = PBXGroup;
 			children = (
+				66070FC12F618A1300B5286C /* SubsriptionInfoRealmStorage.swift */,
 				667BC4AA291E640400B07957 /* SubscribtionsManager.swift */,
 			);
 			path = SubscribtionsManager;
@@ -5021,7 +4995,6 @@
 				66D48869221EA4C80011CDB2 /* PulseLayer.swift in Sources */,
 				66BA99C32420D46600D20CE2 /* PushMessageTemporaryStorageItem.swift in Sources */,
 				1A9ED078279FFCFB00F3543D /* InfoScreenFooterView+UICollectionViewDataSource.swift in Sources */,
-				4DC31469291A20D4004B6C9D /* DeliveryAddressViewController.swift in Sources */,
 				66E319102BA8550300F149B1 /* NotificationsListViewController.swift in Sources */,
 				6699599A27ED8D4400976591 /* ContactInfoViewController.swift in Sources */,
 				66AA8DBE2864D9CC00B7547C /* TrustedDevicesViewController.swift in Sources */,
@@ -5098,7 +5071,6 @@
 				660F55FC239A750800252608 /* GroupchatInviteListViewController.swift in Sources */,
 				6608562D2071F80A003E0122 /* RealmMigrations.swift in Sources */,
 				66999CBC27DA1D370046CED3 /* ButtonTableViewCell.swift.swift in Sources */,
-				66CD4D512ACD937900F53799 /* SubscribtionsListViewController.swift in Sources */,
 				6643F33221C2650E00333229 /* MessagesDataSource.swift in Sources */,
 				6642D71E2D88418300762865 /* TimeMarkerView.swift in Sources */,
 				665D33D522D8A2F40034F74E /* LastCallsViewController+XabberTabBarDelegate.swift in Sources */,
@@ -5131,7 +5103,6 @@
 				66DED55522AA60BF008E5710 /* AccountColorViewController+UITableViewDelegate.swift in Sources */,
 				66A8350126C14E6000DCB1E0 /* BaseTableCell.swift in Sources */,
 				66B32D4123C63B3A00FA102C /* XTokenInvalidatePresenter.swift in Sources */,
-				66EFC5B92923C98700398D77 /* SubscribtionsListViewControllerTest.swift in Sources */,
 				1A93993D27DA11C600CEEBF6 /* QuotaInfoCell.swift in Sources */,
 				4D63943E286090620063A07E /* AccountInfoViewController+CenterButtonTableViewCell.swift in Sources */,
 				6643F31721C2650E00333229 /* MessageReusableView.swift in Sources */,
@@ -5353,9 +5324,7 @@
 				66DA9F0B2237944400A98A05 /* RTCStates.swift in Sources */,
 				66C9FD6B2227F21200120A54 /* AudioManager.swift in Sources */,
 				660F505E2C91B10A00BB48F3 /* SearchChatListViewController.swift in Sources */,
-				664CFF31291E788900CDB62C /* SubscribtionTopInfoTableViewCell.swift in Sources */,
 				66BDBB252C37CB0600A86F6E /* ChatViewController+OpenChatDelegate.swift in Sources */,
-				4DB3259B290FAE8D005364DD /* SubscriptionsTableViewController.swift in Sources */,
 				6619537222A68DFF00BE7190 /* SettingsItemSelectorViewController+Cell.swift in Sources */,
 				6643F31621C2650E00333229 /* TextMessageCell.swift in Sources */,
 				6683883226B2DABD0071C472 /* GroupchatInfoViewControllerSecondary.swift in Sources */,
@@ -5436,7 +5405,6 @@
 				662D4A792489371D009E2B22 /* RoundedAvatarButton.swift in Sources */,
 				6643F31A21C2650E00333229 /* InputTextView.swift in Sources */,
 				66B5F2D723FEA68A00A22F64 /* MessageForwardsInlineStorageItem.swift in Sources */,
-				4DC3146D291A96DD004B6C9D /* Store.swift in Sources */,
 				1A9D9956279AB8B700E5FB74 /* InfoScreenFooterView.swift in Sources */,
 				66FD8EFC22B371B600693944 /* AccountConnectionViewController+UITextFieldDelegate.swift in Sources */,
 				1A9B584127B39489004DD787 /* FilesMediaCollectionCell.swift in Sources */,
@@ -5475,7 +5443,6 @@
 				1AA9F787279EAE8000DF15C6 /* InfoScreenFooterButtonDelegate.swift in Sources */,
 				66B41958222FDEAA00E15D1D /* ClientDisco.swift in Sources */,
 				666201FA22B3E1D800FB2A44 /* AccountBlockListViewController+UITableViewDelegate.swift in Sources */,
-				4DB325A1290FB186005364DD /* ProductCell.swift in Sources */,
 				66B6E9682419208300602626 /* SubforwardsViewController+DataSource.swift in Sources */,
 				4D683D1E285DDFF000FFCB25 /* AccountInfoViewController+UITableViewDelegate.swift in Sources */,
 				66D27DB6235842C400130FE0 /* ClientSynchronizationManager.swift in Sources */,
@@ -5512,6 +5479,7 @@
 				66802906205A58B8005F0C9A /* AccountStreamDelegate.swift in Sources */,
 				665451BC22A9451A0077635D /* AccountNewStatusViewController.swift in Sources */,
 				664FB83123D9AF170073CA39 /* ChatViewController+ToolsButton.swift in Sources */,
+				66070FC22F618A1300B5286C /* SubsriptionInfoRealmStorage.swift in Sources */,
 				66DA02E326412A45004EC921 /* ContactsViewController+Search.swift in Sources */,
 				66B4D09C23A8AC4B008B2C64 /* GroupchatDefaultRightsViewController+UITableViewDelegate.swift in Sources */,
 				666E26742475222E00E316DE /* QuoteMessageCell.swift in Sources */,
