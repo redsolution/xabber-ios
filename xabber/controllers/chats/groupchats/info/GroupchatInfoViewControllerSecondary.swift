@@ -127,56 +127,41 @@ class GroupchatInfoViewControllerSecondary: SimpleBaseViewController {
     
     @objc
     internal func saveChanges(_ sender: AnyObject) {
-        
+
         let descrModified = self.descrObserver.value ?? ""
         let nameModified = self.nameObserver.value ?? ""
-        
-        if let modifiedIndex = formData.firstIndex(where: { $0["var"] as? String == "name" }) {
-            formData[modifiedIndex]["value"] = nameModified
-        }
-        
-        if let modifiedIndex = formData.firstIndex(where: { $0["var"] as? String == "description" }) {
-            formData[modifiedIndex]["value"] = descrModified
-        }
-        
+
+        // V3: update name/description via <info xmlns='...'>
+        let info: [String: Any] = [
+            "name": nameModified,
+            "description": descrModified
+        ]
+
         XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-            _ = session.groupchat?
-                .updateForm(stream,
-                            formType: .settings,
-                            groupchat: self.jid,
-                            userData: self.formData,
-                            callback: { error in
-//                                print(error)
-                                if error != nil {
-                                    DispatchQueue.main.async {
-                                        self.view.makeToast("Internal server error".localizeString(id: "error_internal_server", arguments: []))
-                                    }
-                                } else {
-                                    DispatchQueue.main.async {
-                                        self.close(self)
-                                    }
-                                }
-                            }
-                )
+            session.groupchat?.updateInfo(stream, groupchat: self.jid, info: info) { error in
+                if error != nil {
+                    DispatchQueue.main.async {
+                        self.view.makeToast("Internal server error".localizeString(id: "error_internal_server", arguments: []))
+                    }
+                } else {
+                    DispatchQueue.main.async {
+                        self.close(self)
+                    }
+                }
+            }
         } fail: {
             AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                _ = user.groupchats
-                    .updateForm(stream,
-                                formType: .settings,
-                                groupchat: self.jid,
-                                userData: self.formData,
-                                callback: { error in
-                                    if error != nil {
-                                        DispatchQueue.main.async {
-                                            self.view.makeToast("Internal server error".localizeString(id: "error_internal_server", arguments: []))
-                                        }
-                                    } else {
-                                        DispatchQueue.main.async {
-                                            self.close(self)
-                                        }
-                                    }
-                                }
-                    )
+                user.groupchats.updateInfo(stream, groupchat: self.jid, info: info) { error in
+                    if error != nil {
+                        DispatchQueue.main.async {
+                            self.view.makeToast("Internal server error".localizeString(id: "error_internal_server", arguments: []))
+                        }
+                    } else {
+                        DispatchQueue.main.async {
+                            self.close(self)
+                        }
+                    }
+                }
             })
         }
     }
@@ -590,48 +575,34 @@ extension GroupchatInfoViewControllerSecondary: UITableViewDelegate {
 extension GroupchatInfoViewControllerSecondary: GroupchatInfoEditItemViewControllerDelegate {
     
     func didSelect(section: String, value: String) {
-        guard let modifiedIndex = formData.firstIndex(where: { $0["var"] as? String == section }) else {
-            fatalError()
-        }
-        formData[modifiedIndex]["value"] = value
-        
+        // V3: update settings via <settings xmlns='...'>
+        let settings: [String: Any] = [section: value]
+
         XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-            _ = session.groupchat?
-                .updateForm(stream,
-                            formType: .settings,
-                            groupchat: self.jid,
-                            userData: self.formData,
-                            callback: { error in
-                                if error != nil {
-                                    DispatchQueue.main.async {
-                                        self.view.makeToast("Internal server error".localizeString(id: "error_internal_server", arguments: []))
-                                    }
-                                } else {
-                                    DispatchQueue.main.async {
-                                        self.close(self)
-                                    }
-                                }
-                            }
-                )
+            session.groupchat?.updateSettings(stream, groupchat: self.jid, settings: settings) { error in
+                if error != nil {
+                    DispatchQueue.main.async {
+                        self.view.makeToast("Internal server error".localizeString(id: "error_internal_server", arguments: []))
+                    }
+                } else {
+                    DispatchQueue.main.async {
+                        self.close(self)
+                    }
+                }
+            }
         } fail: {
             AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                _ = user.groupchats
-                    .updateForm(stream,
-                                formType: .settings,
-                                groupchat: self.jid,
-                                userData: self.formData,
-                                callback: { error in
-                                    if error != nil {
-                                        DispatchQueue.main.async {
-                                            self.view.makeToast("Internal server error".localizeString(id: "error_internal_server", arguments: []))
-                                        }
-                                    } else {
-                                        DispatchQueue.main.async {
-                                            self.close(self)
-                                        }
-                                    }
-                                }
-                    )
+                user.groupchats.updateSettings(stream, groupchat: self.jid, settings: settings) { error in
+                    if error != nil {
+                        DispatchQueue.main.async {
+                            self.view.makeToast("Internal server error".localizeString(id: "error_internal_server", arguments: []))
+                        }
+                    } else {
+                        DispatchQueue.main.async {
+                            self.close(self)
+                        }
+                    }
+                }
             })
         }
     }
@@ -1037,13 +1008,20 @@ extension GroupchatInfoViewControllerSecondary {
         DispatchQueue.main.async {
             self.view.makeToastActivity(.center)
         }
-        AccountManager.shared.find(for: owner)?.action({ (user, stream) in
-            user.groupchats.publishAvatar(stream,
-                                          groupchat: self.jid,
-                                          groupAvatar: true,
-                                          image: image,
-                                          callback: self.onUpdateAvatarCallback)
-        })
+        // V3: update avatar via <info xmlns='...'><avatar>...</avatar></info>
+        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+            session.groupchat?.updateGroupAvatar(stream,
+                                                 groupchat: self.jid,
+                                                 image: image,
+                                                 callback: self.onUpdateAvatarCallback)
+        } fail: {
+            AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
+                user.groupchats.updateGroupAvatar(stream,
+                                                  groupchat: self.jid,
+                                                  image: image,
+                                                  callback: self.onUpdateAvatarCallback)
+            })
+        }
     }
     
     func onUpdateAvatarCallback(_ error: String?) {

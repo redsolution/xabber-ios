@@ -47,8 +47,29 @@ public struct SubscribtionsSecretStore: Codable {
     }
 }
 
+struct APIProductPrice {
+    let name: String
+    let price: String
+    let priceId: String
+    let priceDescription: String?
+    let period: String
+}
+
+struct APIProduct {
+    let id: Int
+    let productId: String
+    let displayName: String
+    let group: String
+    let weight: Int
+    let description: String?
+    let priceDescription: String?
+    let isDefault: Bool
+    let includes: [String]?
+    let prices: [APIProductPrice]
+}
+
 class SubscribtionsManager: NSObject {
-    
+
     struct AppSubscribtions: Hashable {
         static func == (lhs: AppSubscribtions, rhs: AppSubscribtions) -> Bool {
             return lhs.product_id == rhs.product_id && lhs.uuid == rhs.uuid
@@ -95,8 +116,8 @@ class SubscribtionsManager: NSObject {
     open var accounts: Set<AccountSubscriptions> = Set()
     
     var products: [Product] = []
+    var apiProduct: APIProduct? = nil
 
-    
     override init() {
         super.init()
         Task.detached {
@@ -166,15 +187,106 @@ class SubscribtionsManager: NSObject {
         return .trial
     }
 
+    /// Fallback: load product IDs from plist. Only used if fetchProducts() hasn't run yet.
     fileprivate func loadProductList() {
-        guard let products_ids = SubscribtionsSecretStore.bundle?.product_list else {
+        guard self.products.isEmpty,
+              let products_ids = SubscribtionsSecretStore.bundle?.product_list else {
             return
         }
         Task {
-            self.products = try await Product.products(for: products_ids)
+            let fetched = try await Product.products(for: products_ids)
+            // Only set if fetchProducts() hasn't populated them in the meantime
+            if self.products.isEmpty {
+                self.products = fetched
+            }
         }
     }
     
+    func fetchProducts(jid: String, completion: @escaping (APIProduct?) -> Void) {
+        guard let apiUrl = SubscribtionsSecretStore.bundle?.api_url else {
+            completion(nil)
+            return
+        }
+
+        let domain = jid.components(separatedBy: "@").last ?? ""
+        let group = domain == "xabber.com" ? "basic" : "third_party"
+        let url = apiUrl + "accounts/products/"
+
+        AF.request(
+            url,
+            method: .get,
+            parameters: ["group": group],
+            encoding: URLEncoding.default,
+            headers: HTTPHeaders(["Cache-Control": "no-cache"])
+        ).responseJSON { [weak self] response in
+            guard let self = self else { return }
+            switch response.result {
+            case .success(let value):
+                guard let dict = value as? NSDictionary,
+                      let results = dict["results"] as? [NSDictionary] else {
+                    completion(nil)
+                    return
+                }
+
+                // Find first non-default product
+                var foundProduct: APIProduct? = nil
+                for item in results {
+                    let isDefault = item["default"] as? Bool ?? false
+                    if isDefault { continue }
+
+                    let prices: [APIProductPrice] = (item["prices"] as? [NSDictionary] ?? []).compactMap { p in
+                        guard let name = p["name"] as? String,
+                              let priceId = p["price_id"] as? String,
+                              let period = p["period"] as? String else { return nil }
+                        return APIProductPrice(
+                            name: name,
+                            price: p["price"] as? String ?? "",
+                            priceId: priceId,
+                            priceDescription: p["price_description"] as? String,
+                            period: period
+                        )
+                    }
+
+                    foundProduct = APIProduct(
+                        id: item["id"] as? Int ?? 0,
+                        productId: item["product_id"] as? String ?? "",
+                        displayName: item["display_name"] as? String ?? "",
+                        group: item["group"] as? String ?? "",
+                        weight: item["weight"] as? Int ?? 0,
+                        description: item["description"] as? String,
+                        priceDescription: item["price_description"] as? String,
+                        isDefault: false,
+                        includes: item["includes"] as? [String],
+                        prices: prices
+                    )
+                    break
+                }
+
+                self.apiProduct = foundProduct
+
+                guard let product = foundProduct else {
+                    completion(nil)
+                    return
+                }
+
+                // Extract price_ids and fetch StoreKit products
+                let priceIds = product.prices.map { $0.priceId }
+                Task {
+                    do {
+                        self.products = try await Product.products(for: priceIds)
+                    } catch {
+                        DDLogDebug("SubscribtionsManager: Failed to fetch StoreKit products: \(error.localizedDescription)")
+                    }
+                    completion(foundProduct)
+                }
+
+            case .failure(let error):
+                DDLogDebug("SubscribtionsManager: fetchProducts failed: \(error.localizedDescription)")
+                completion(nil)
+            }
+        }
+    }
+
     public final func updateXMPPAccountsState() {
         if CommonConfigManager.shared.config.should_block_application_when_subscribtion_end {
             AccountManager.shared.users.forEach {

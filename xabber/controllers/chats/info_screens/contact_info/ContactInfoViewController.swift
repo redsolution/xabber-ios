@@ -487,7 +487,7 @@ class ContactInfoViewController: BaseViewController {
             mute.addTarget(self, action: #selector(onNotifyButtonTouchUpInside), for: .touchUpInside)
             
             let more = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
-            more.configure(icon: "ellipsis", title: "More", forceStrong: false)
+            more.configure(icon: "ellipsis", title: "More", forceStrong: true)
             var childs: [UIMenuElement] = []
             if self.conversationType.isEncrypted {
                 childs = [
@@ -656,7 +656,7 @@ class ContactInfoViewController: BaseViewController {
         tableView.fillSuperview()
         headerView.frame = CGRect(
             width: view.frame.width,
-            height: headerHeightMax
+            height: headerView.preferredHeight
         )
         self.headerView.updateSubviews()
         

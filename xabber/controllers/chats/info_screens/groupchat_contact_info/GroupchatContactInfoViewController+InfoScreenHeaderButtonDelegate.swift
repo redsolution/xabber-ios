@@ -716,26 +716,25 @@ extension GroupchatContactInfoViewController: InfoScreenHeaderDelegate {
         DispatchQueue.main.async {
             self.view.makeToastActivity(.center)
         }
+        // V3: update member avatar via <members xmlns='...'><user id='...'><avatar>...</avatar></user></members>
+        let memberId = self.isMyProfile ? "" : self.userId
         XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
-            session.groupchat?.publishAvatar(
+            session.groupchat?.updateMemberAvatar(
                 stream,
                 groupchat: self.jid,
-                groupAvatar: false,
-                userId: self.isMyProfile ? "" : self.userId,
+                userId: memberId,
                 image: image,
                 callback: self.onUpdateAvatarCallback
             )
         }) {
             AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                user.groupchats.publishAvatar(stream,
-                                              groupchat: self.jid,
-                                              groupAvatar: false,
-                                              userId: self.isMyProfile ? "" : self.userId,
-                                              image: image,
-                                              callback: self.onUpdateAvatarCallback)
+                user.groupchats.updateMemberAvatar(stream,
+                                                   groupchat: self.jid,
+                                                   userId: memberId,
+                                                   image: image,
+                                                   callback: self.onUpdateAvatarCallback)
             })
         }
-        
     }
     
     func onUpdateAvatarCallback(_ error: String?) {

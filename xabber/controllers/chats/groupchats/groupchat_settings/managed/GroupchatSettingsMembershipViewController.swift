@@ -145,13 +145,10 @@ extension GroupchatSettingsMembershipViewController: UITableViewDelegate {
             }
         }
         
-        let data: [[String: Any]] = [
-            ["type": "hidden", "var": "'FORM_TYPE'", "value": "https://xabber.com/protocol/groups"],
-            ["var": "membership", "value": item.value],
-        ]
+        let settings: [String: Any] = ["membership": item.value]
 
         XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-            _ = session.groupchat?.updateForm(stream, formType: .settings, groupchat: self.jid, userData: data) { error in
+            session.groupchat?.updateSettings(stream, groupchat: self.jid, settings: settings) { error in
                 do {
                     let realm = try WRealm.safe()
                     if let instance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
@@ -172,7 +169,7 @@ extension GroupchatSettingsMembershipViewController: UITableViewDelegate {
             }
         } fail: {
             AccountManager.shared.find(for: self.owner)?.action { user, stream in
-                _ = user.groupchats.updateForm(stream, formType: .settings, groupchat: self.jid, userData: data) { error in
+                user.groupchats.updateSettings(stream, groupchat: self.jid, settings: settings) { error in
                     do {
                         let realm = try WRealm.safe()
                         if let instance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {

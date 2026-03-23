@@ -603,13 +603,6 @@ class GroupchatInfoViewController: SimpleBaseViewController {
             session.groupchat?.requestUsers(stream, groupchat: self.jid)
             session.groupchat?.requestInvitedUsers(stream, groupchat: self.jid)
             session.groupchat?.blockList(stream, groupchat: self.jid)
-            _ = session
-                .groupchat?
-                .requestChatSettingsForm(
-                    stream,
-                    groupchat: self.jid,
-                    callback: self.onChatSettingsFormResponse
-                )
         }, fail: {
             AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
                 user.groupchats.requestUserPermissions(stream, groupchat: self.jid, user: "0")
@@ -617,12 +610,6 @@ class GroupchatInfoViewController: SimpleBaseViewController {
                 user.groupchats.requestUsers(stream, groupchat: self.jid)
                 user.groupchats.requestInvitedUsers(stream, groupchat: self.jid)
                 user.groupchats.blockList(stream, groupchat: self.jid)
-                _ = user.groupchats
-                    .requestChatSettingsForm(
-                        stream,
-                        groupchat: self.jid,
-                        callback: self.onChatSettingsFormResponse
-                    )
             })
         })
         
@@ -651,7 +638,7 @@ class GroupchatInfoViewController: SimpleBaseViewController {
         tableView.fillSuperview()
         headerView.frame = CGRect(
             width: view.frame.width,
-            height: headerHeightMax
+            height: headerView.preferredHeight
         )
         self.headerView.updateSubviews()
         
@@ -680,4 +667,3 @@ class GroupchatInfoViewController: SimpleBaseViewController {
         super.didReceiveMemoryWarning()
     }
 }
-

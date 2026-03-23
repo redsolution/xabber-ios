@@ -24,8 +24,36 @@ import RealmSwift
 
 func parseSystemMessageMetadata(_ message: XMPPMessage) -> [String: Any]? {
 //    print(message.prettyXMLString())
-    for item in message.elements(forName: "x") {//}.forEach {
-//        item in
+    // V3: <x xmlns='https://xabber.com/protocol/groups'><system-message type='...'/>
+    if let x = message.element(forName: "x", xmlns: "https://xabber.com/protocol/groups"),
+       let systemMessage = x.element(forName: "system-message"),
+       let type = systemMessage.attributeStringValue(forName: "type") {
+        switch type {
+        case "create":
+            return ["type": "create"]
+        case "join":
+            return ["type": "join"]
+        case "left":
+            return ["type": "left"]
+        case "kick":
+            return ["type": "kick",
+                    "count": x.elements(forName: "user").count,
+                    "users": x
+                        .elements(forName: "user")
+                        .compactMap { return $0.attributeStringValue(forName: "id")}
+                        .joined(separator: ",") ]
+        case "update":
+            return ["type": "update"]
+        case "user-updated", "user-update":
+            return ["type": "user-update"]
+        case "pinned":
+            return ["type": "update"]
+        default:
+            return ["type": type]
+        }
+    }
+    // Old format: separate xmlns per type
+    for item in message.elements(forName: "x") {
         switch item.xmlns() {
         case "https://xabber.com/protocol/groups#create":
             return ["type": "create"]
@@ -310,7 +338,10 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
                 metadata["nickname"] = user.element(forName: "nickname")?.stringValue ?? ""
                 metadata["role"] = user.element(forName: "role")?.stringValue ?? ""
                 metadata["badge"] = user.element(forName: "badge")?.stringValue ?? ""
-                if let avatarInfo = user.element(forName: "metadata", xmlns: "urn:xmpp:avatar:metadata")?.element(forName: "info") {
+                // V3: <avatar><info xmlns='urn:xmpp:avatar:metadata' url='...'/>
+                // Old: <metadata xmlns='urn:xmpp:avatar:metadata'><info url='...'/>
+                if let avatarInfo = user.element(forName: "avatar")?.element(forName: "info")
+                    ?? user.element(forName: "metadata", xmlns: "urn:xmpp:avatar:metadata")?.element(forName: "info") {
                     metadata["avatar_uri"] = avatarInfo.attributeStringValue(forName: "url", withDefaultValue: "")
                     metadata["avatar_id"] = avatarInfo.attributeStringValue(forName: "id", withDefaultValue: "")
                 }
@@ -324,8 +355,33 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
     if let referenceElement = groupchatRef,
         let reference = parse(referenceElement) {
         out = [reference]
+    } else if let v3User = message
+        .element(forName: "x", xmlns: "https://xabber.com/protocol/groups")?
+        .element(forName: "user") {
+        // V3: user card is directly in <x>, not wrapped in <reference>
+        let reference = MessageReferenceStorageItem()
+        reference.conversationType = conversationTypeByMessage(message)
+        reference.jid = jid
+        reference.owner = owner
+        reference.kind_ = "groupchat"
+        reference.sentDate = messageDate
+        var metadata: [String: Any] = [:]
+        metadata["id"] = v3User.attributeStringValue(forName: "id", withDefaultValue: "")
+        metadata["jid"] = v3User.element(forName: "jid")?.stringValue ?? ""
+        metadata["nickname"] = v3User.element(forName: "nickname")?.stringValue ?? ""
+        metadata["role"] = v3User.element(forName: "role")?.stringValue ?? ""
+        metadata["badge"] = v3User.element(forName: "badge")?.stringValue ?? ""
+        // V3 avatar: <avatar><info xmlns='urn:xmpp:avatar:metadata' .../>
+        // Old fallback: <metadata xmlns='urn:xmpp:avatar:metadata'><info .../>
+        if let avatarInfo = v3User.element(forName: "avatar")?.element(forName: "info")
+            ?? v3User.element(forName: "metadata", xmlns: "urn:xmpp:avatar:metadata")?.element(forName: "info") {
+            metadata["avatar_uri"] = avatarInfo.attributeStringValue(forName: "url", withDefaultValue: "")
+            metadata["avatar_id"] = avatarInfo.attributeStringValue(forName: "id", withDefaultValue: "")
+        }
+        reference.metadata = metadata
+        out = [reference]
     }
-    
+
     out.append(contentsOf: references.compactMap{ return parse($0) })
     return out
 }

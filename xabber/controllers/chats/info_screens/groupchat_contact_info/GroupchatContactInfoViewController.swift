@@ -491,7 +491,7 @@ class GroupchatContactInfoViewController: SimpleBaseViewController {
 //        })
         headerView.frame = CGRect(
             width: view.frame.width,
-            height: headerHeightMax
+            height: headerView.preferredHeight
         )
         headerView.updateSubviews()
     }

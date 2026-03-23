@@ -318,6 +318,7 @@ class SettingsViewController: BaseViewController {
     
     internal let headerView: InfoScreenHeaderView = {
         let view = InfoScreenHeaderView(frame: .zero)
+        view.bottomPadding = 16
         
         return view
     }()
@@ -933,13 +934,13 @@ class SettingsViewController: BaseViewController {
         if self.multiAccounts {
             return
         }
+        headerView.showButtons = false
         
         headerView.frame = CGRect(
             width: view.frame.width,
-            height: headerHeightMax
+            height: headerView.preferredHeight
         )
         headerView.updateSubviews()
-        
         tableView.tableHeaderView = headerView
         self.headerView.delegate = self
     }

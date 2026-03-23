@@ -686,14 +686,14 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
         }
         self.tableView.reconfigureRows(at: self.datasource[0].enumerated().compactMap({ return IndexPath(row: $0.offset, section: 0) }))
         
-        let data: [[String: Any]] = [
-            ["type": "hidden", "var": "'FORM_TYPE'", "value": "https://xabber.com/protocol/groups"],
-            ["var": "name", "value": self.titleObserver.value ?? ""],
-            ["var": "description", "value": self.descriptionObserver.value ?? ""]
+        // V3: update name/description via <info xmlns='...'>
+        let info: [String: Any] = [
+            "name": self.titleObserver.value ?? "",
+            "description": self.descriptionObserver.value ?? ""
         ]
 
         XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-            _ = session.groupchat?.updateForm(stream, formType: .settings, groupchat: self.jid, userData: data) { error in
+            session.groupchat?.updateInfo(stream, groupchat: self.jid, info: info) { error in
                 do {
                     let realm = try WRealm.safe()
                     if let instance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
@@ -717,13 +717,13 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
                     if let error {
                         ToastPresenter().presentError(message: "Error: \(error)")
                     } else {
-                        ToastPresenter().presentSuccess(message: "Membership updated")
+                        ToastPresenter().presentSuccess(message: "Info updated")
                     }
                 }
             }
         } fail: {
             AccountManager.shared.find(for: self.owner)?.action { user, stream in
-                _ = user.groupchats.updateForm(stream, formType: .settings, groupchat: self.jid, userData: data) { error in
+                user.groupchats.updateInfo(stream, groupchat: self.jid, info: info) { error in
                     do {
                         let realm = try WRealm.safe()
                         if let instance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
@@ -748,7 +748,7 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
                         if let error {
                             ToastPresenter().presentError(message: "Error: \(error)")
                         } else {
-                            ToastPresenter().presentSuccess(message: "Membership updated")
+                            ToastPresenter().presentSuccess(message: "Info updated")
                         }
                     }
                 }

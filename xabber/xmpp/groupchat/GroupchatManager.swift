@@ -27,16 +27,11 @@ class GroupchatManager: AbstractXMPPManager {
     
     static let requestTimeoutSeconds: TimeInterval = 15.0
     
-    enum FormType {
-        case settings
-        case status
-    }
-    
     class QueueItem: Hashable {
         static func == (lhs: GroupchatManager.QueueItem, rhs: GroupchatManager.QueueItem) -> Bool {
             return lhs.elementId == rhs.elementId
         }
-        
+
         enum Action {
             case create
             case delete
@@ -45,41 +40,34 @@ class GroupchatManager: AbstractXMPPManager {
             case unblock
             case cancelJoin
             case leave
-            case requestForm
-            case updateForm
             case invite
             case revokeInvite
-            case publishAvatar
-            case publishAvatarMeta
-            case resetAvatar
             case changeData
             case kick
             case pin
             case userCard
+            case updateSettings
+            case updateInfo
         }
-        
+
         var action: Action
         var elementId: String
         var value: String = ""
         var values: [String] = []
         var payload: [[String: String]]
         var callback: ((String?) -> Void)?
-        var formCallback: (([[String: Any]]?, [[String: Any]]?, [[String: Any]]?, String?) -> Void)?
-        var settingsCallback: (([[String: Any]]?, String?) -> Void)?
         var invitesCallback: ((String, String?) -> Void)?
-        
-        init(_ action: Action, elementId: String, callback: ((String?) -> Void)? = nil, formCallback: (([[String: Any]]?, [[String: Any]]?, [[String: Any]]?, String?) -> Void)? = nil, settingsCallback: (([[String: Any]]?, String?) -> Void)? = nil, inviteCallback: ((String, String?) -> Void)? = nil, payload: [[String: String]] = [], value: String = "", values: [String] = []) {
+
+        init(_ action: Action, elementId: String, callback: ((String?) -> Void)? = nil, inviteCallback: ((String, String?) -> Void)? = nil, payload: [[String: String]] = [], value: String = "", values: [String] = []) {
             self.action = action
             self.elementId = elementId
             self.callback = callback
-            self.settingsCallback = settingsCallback
-            self.formCallback = formCallback
             self.invitesCallback = inviteCallback
             self.payload = payload
             self.value = value
             self.values = values
         }
-        
+
         func hash(into hasher: inout Hasher) {
             hasher.combine(elementId)
         }
@@ -112,7 +100,7 @@ class GroupchatManager: AbstractXMPPManager {
     }
     
     public final func fullJid(_ bareJid: String) -> XMPPJID? {
-        return XMPPJID(string: bareJid, resource: "Group")
+        return XMPPJID(string: bareJid, resource: nil)
 //        do {
 //            let realm = try  WRealm.safe()
 //            let resource = realm
@@ -153,12 +141,13 @@ class GroupchatManager: AbstractXMPPManager {
     
     public final func createPeerToPeer(_ xmppStream: XMPPStream, groupchat: String, user userId: String, callback: @escaping ((String?) -> Void)) {
         let elementId = "GC: \(NanoID.new(6))"
-        let query = DDXMLElement(name: "query", xmlns: xmlns("create"))
+        // V3: <create xmlns='...'><peer-to-peer parent='...' with='...'/></create>
+        let create = DDXMLElement(name: "create", xmlns: getPrimaryNamespace())
         let peerToPeer = DDXMLElement(name: "peer-to-peer")
-        peerToPeer.addAttribute(withName: "jid", stringValue: groupchat)
-        peerToPeer.addAttribute(withName: "id", stringValue: userId)
-        query.addChild(peerToPeer)
-        xmppStream.send(XMPPIQ(iqType: .set, to: XMPPJID(string: groupchat)?.domainJID, elementID: elementId, child: query))
+        peerToPeer.addAttribute(withName: "parent", stringValue: groupchat)
+        peerToPeer.addAttribute(withName: "with", stringValue: userId)
+        create.addChild(peerToPeer)
+        xmppStream.send(XMPPIQ(iqType: .set, to: XMPPJID(string: groupchat)?.domainJID, elementID: elementId, child: create))
         queryIds.insert(elementId)
         queueItems.insert(QueueItem(.create, elementId: elementId, callback: callback, value: "peer-to-peer"))
         let item = QueueItem(.join, elementId: [groupchat, "join"].prp(), callback: nil)
@@ -168,24 +157,31 @@ class GroupchatManager: AbstractXMPPManager {
     
     public final func create(_ xmppStream: XMPPStream, server: String, name: String, localPart: String?, privacy: GroupChatStorageItem.Privacy?, membership: GroupChatStorageItem.Membership?,  index: GroupChatStorageItem.Index?, description: String?, callback: @escaping ((String?) -> Void)) {
         let elementId = "GC: \(NanoID.new(6))"
-        let query = DDXMLElement(name: "query", xmlns: xmlns("create"))
-        query.addChild(DDXMLElement(name: "name", stringValue: name))
-        if let localPart = localPart {
-            query.addChild(DDXMLElement(name: "localpart", stringValue: localPart))
-        }
+        // V3: <create xmlns='...'><group privacy='...'><localpart>...<info><name>...</info><settings>...</settings></group></create>
+        let create = DDXMLElement(name: "create", xmlns: getPrimaryNamespace())
+        let group = DDXMLElement(name: "group")
         if let privacy = privacy {
-            query.addChild(DDXMLElement(name: "privacy", stringValue: privacy.rawValue))
+            group.addAttribute(withName: "privacy", stringValue: privacy.rawValue)
         }
+        if let localPart = localPart {
+            group.addChild(DDXMLElement(name: "localpart", stringValue: localPart))
+        }
+        let info = DDXMLElement(name: "info")
+        info.addChild(DDXMLElement(name: "name", stringValue: name))
+        if let descr = description {
+            info.addChild(DDXMLElement(name: "description", stringValue: descr))
+        }
+        group.addChild(info)
+        let settings = DDXMLElement(name: "settings")
         if let membership = membership {
-            query.addChild(DDXMLElement(name: "membership", stringValue: membership.rawValue))
+            settings.addChild(DDXMLElement(name: "membership", stringValue: membership.rawValue))
         }
         if let index = index {
-            query.addChild(DDXMLElement(name: "index", stringValue: index.rawValue))
+            settings.addChild(DDXMLElement(name: "index", stringValue: index.rawValue))
         }
-        if let descr = description {
-            query.addChild(DDXMLElement(name: "description", stringValue: descr))
-        }
-        xmppStream.send(XMPPIQ(iqType: .set, to: XMPPJID(string: server), elementID: elementId, child: query))
+        group.addChild(settings)
+        create.addChild(group)
+        xmppStream.send(XMPPIQ(iqType: .set, to: XMPPJID(string: server), elementID: elementId, child: create))
         queryIds.insert(elementId)
         queueItems.insert(QueueItem(.create, elementId: elementId, callback: callback))
         if let localPart = localPart {
@@ -197,9 +193,10 @@ class GroupchatManager: AbstractXMPPManager {
     
     public final func delete(_ xmppStream: XMPPStream, groupchat: String, callback: @escaping ((String?) -> Void)) {
         let elementId = "GC: \(NanoID.new(6))"
-        let query = DDXMLElement(name: "query", xmlns: xmlns("delete"))
-        query.addChild(DDXMLElement(name: "localpart", stringValue: XMPPJID(string: groupchat)?.user ?? "\(groupchat.split(separator: "@").first ?? "")"))
-        xmppStream.send(XMPPIQ(iqType: .set, to: XMPPJID(string: groupchat)?.domainJID, elementID: elementId, child: query))
+        // V3: <delete xmlns='...'>jid</delete>
+        let delete = DDXMLElement(name: "delete", xmlns: getPrimaryNamespace())
+        delete.stringValue = groupchat
+        xmppStream.send(XMPPIQ(iqType: .set, to: XMPPJID(string: groupchat)?.domainJID, elementID: elementId, child: delete))
         queryIds.insert(elementId)
         queueItems.insert(QueueItem(.delete, elementId: elementId, callback: callback))
     }
@@ -208,8 +205,6 @@ class GroupchatManager: AbstractXMPPManager {
         
         let timer = Timer.scheduledTimer(withTimeInterval: GroupchatManager.requestTimeoutSeconds, repeats: false) { (timer) in
             if let item = self.queueItems.first(where: { $0.elementId ==  elementId }) {
-                item.formCallback?(nil, nil, nil, "timeout")
-                item.settingsCallback?(nil, "timeout")
                 item.callback?("timeout")
                 item.invitesCallback?(item.value, "timeout")
                 self.queueItems.remove(item)
@@ -241,11 +236,12 @@ class GroupchatManager: AbstractXMPPManager {
     
     public final func decline(_ xmppStream: XMPPStream, groupchat: String, callback: @escaping ((String?) -> Void)) {
         let elementId = "GC: \(NanoID.new(6))"
+        // V3: uses primary namespace
         xmppStream.send(XMPPIQ(iqType: .set,
                                to: fullJid(groupchat),
                                elementID: elementId,
                                child: DDXMLElement(name: "decline",
-                                                   xmlns: xmlns("invite"))))
+                                                   xmlns: getPrimaryNamespace())))
         queueItems.insert(QueueItem(.cancelJoin, elementId: elementId, callback: callback))
         addRequestTimeoutHandler(for: elementId )
     }
@@ -293,7 +289,8 @@ class GroupchatManager: AbstractXMPPManager {
         if let badge = badge {
             user.addChild(DDXMLElement(name: "badge", stringValue: badge))
         }
-        let query = DDXMLElement(name: "query", xmlns: xmlns("members"))
+        // V3: <members xmlns='...'>, Old: <query xmlns='...#members'>
+        let query = DDXMLElement(name: "members", xmlns: getPrimaryNamespace())
         query.addChild(user)
         xmppStream.send(XMPPIQ(iqType: .set, to: fullJid(groupchat), elementID: elementId, child: query))
         queryIds.insert(elementId)
@@ -302,17 +299,19 @@ class GroupchatManager: AbstractXMPPManager {
     
     public final func willInvite(_ xmppStream: XMPPStream, groupchat: String, jid: String, callback: @escaping ((String, String?) -> Void)) {
         let elementId = "GC: \(NanoID.new(6))"
-        let invite = DDXMLElement(name: "invite", xmlns: xmlns("invite"))
+        // V3: uses primary namespace
+        let invite = DDXMLElement(name: "invite", xmlns: getPrimaryNamespace())
         invite.addChild(DDXMLElement(name: "jid", stringValue: jid))
         invite.addChild(DDXMLElement(name: "send", stringValue: "false"))
         xmppStream.send(XMPPIQ(iqType: .set, to: fullJid(groupchat), elementID: elementId, child: invite))
         queryIds.insert(elementId)
         queueItems.insert(QueueItem(.invite, elementId: elementId, inviteCallback: callback, value: jid))
     }
-    
+
     public final func didInvite(_ xmppStream: XMPPStream, groupchat: String, jid: String, reason: String? = nil) {
         let elementId = "GC: \(NanoID.new(6))"
-        let invite = DDXMLElement(name: "invite", xmlns: xmlns("invite"))
+        // V3: uses primary namespace
+        let invite = DDXMLElement(name: "invite", xmlns: getPrimaryNamespace())
         invite.addAttribute(withName: "jid", stringValue: groupchat)
         if let reason = reason {
             invite.addChild(DDXMLElement(name: "reason", stringValue: reason))
@@ -347,7 +346,8 @@ class GroupchatManager: AbstractXMPPManager {
     
     public final func revokeInvites(_ xmppStream: XMPPStream, groupchat: String, jids: [String], callback: @escaping ((String?) -> Void)) {
         let elementId = "GC: \(NanoID.new(6))"
-        let revoke = DDXMLElement(name: "revoke", xmlns: xmlns("invite"))
+        // V3: uses primary namespace
+        let revoke = DDXMLElement(name: "revoke", xmlns: getPrimaryNamespace())
         jids.forEach { revoke.addChild(DDXMLElement(name: "jid", stringValue: $0)) }
         xmppStream.send(XMPPIQ(iqType: .set,
                                to: fullJid(groupchat),
@@ -356,10 +356,11 @@ class GroupchatManager: AbstractXMPPManager {
         queryIds.insert(elementId)
         queueItems.insert(QueueItem(.revokeInvite, elementId: elementId, callback: callback, values: jids))
     }
-    
+
     public final func revokeInvite(_ xmppStream: XMPPStream, groupchat: String, jid: String, callback: @escaping ((String, String?) -> Void)) {
         let elementId = "GC: \(NanoID.new(6))"
-        let revoke = DDXMLElement(name: "revoke", xmlns: xmlns("invite"))
+        // V3: uses primary namespace
+        let revoke = DDXMLElement(name: "revoke", xmlns: getPrimaryNamespace())
         revoke.addChild(DDXMLElement(name: "jid", stringValue: jid))
         xmppStream.send(XMPPIQ(iqType: .set,
                                to: fullJid(groupchat),
@@ -368,10 +369,11 @@ class GroupchatManager: AbstractXMPPManager {
         queryIds.insert(elementId)
         queueItems.insert(QueueItem(.revokeInvite, elementId: elementId, inviteCallback: callback, value: jid))
     }
-    
+
     public final func cancelInvite(_ xmppStream: XMPPStream, groupchat: String, jid: String) {
         let elementId = "GC: \(NanoID.new(6))"
-        let revoke = DDXMLElement(name: "revoke", xmlns: xmlns("invite"))
+        // V3: uses primary namespace
+        let revoke = DDXMLElement(name: "revoke", xmlns: getPrimaryNamespace())
         revoke.addChild(DDXMLElement(name: "jid", stringValue: jid))
         xmppStream.send(XMPPIQ(iqType: .set,
                                to: fullJid(groupchat),
@@ -401,18 +403,20 @@ class GroupchatManager: AbstractXMPPManager {
     
     public final func requestInvitedUsers(_ xmppStream: XMPPStream, groupchat: String) {
         let elementId = "GC: \(NanoID.new(6))"
+        // V3: <invites xmlns='...'/>, Old: <query xmlns='...#invite'>
         xmppStream.send(XMPPIQ(iqType: .get,
                                to: fullJid(groupchat),
                                elementID: elementId,
-                               child: DDXMLElement(name: "query",
-                                                   xmlns: xmlns("invite"))))
+                               child: DDXMLElement(name: "invites",
+                                                   xmlns: getPrimaryNamespace())))
         queryIds.insert(elementId)
     }
     
     //<iq from='igor.boldin@redsolution.com' to='xabber@xmppdev01.xabber.com' type='get' xmlns='jabber:client' id='d15f14fa-cc9d-4368-a075-2b691642b219:sendIQ'><query xmlns='https://xabber.com/protocol/groups#members' version='0'/></iq>
     public final func requestUsers(_ xmppStream: XMPPStream, groupchat: String, userId: String? = nil) {
         let elementId = "GC: \(NanoID.new(6))"
-        let query = DDXMLElement(name: "query", xmlns: xmlns("members"))
+        // V3: <members xmlns='...'/>, Old: <query xmlns='...#members'/>
+        let query = DDXMLElement(name: "members", xmlns: getPrimaryNamespace())
         if let userId = userId {
             if userId == "" {
                 self.queueItems.insert(QueueItem(.userCard, elementId: elementId, value: "my-card"))
@@ -731,102 +735,163 @@ class GroupchatManager: AbstractXMPPManager {
         }
     }
     
-    public final func requestChatSettingsForm(_ xmppStream: XMPPStream, groupchat: String, callback: (([[String: Any]]?, String?) -> Void)?) -> String {
-        let elementId = "GC: \(NanoID.new(6))"
-        xmppStream.send(XMPPIQ(iqType: .get,
-                               to: fullJid(groupchat),
-                               elementID: elementId,
-                               child: DDXMLElement(name: "query",
-                                                   xmlns: getPrimaryNamespace())))
-        queryIds.insert(elementId)
-        queueItems.insert(QueueItem(.requestForm, elementId: elementId, settingsCallback: callback))
-        return elementId
-    }
-    
-    public final func requestChatStatusForm(_ xmppStream: XMPPStream, groupchat: String, callback: (([[String: Any]]?, String?) -> Void)?) -> String {
-        let elementId = "GC: \(NanoID.new(6))"
-        xmppStream.send(XMPPIQ(iqType: .get,
-                               to: fullJid(groupchat),
-                               elementID: elementId,
-                               child: DDXMLElement(name: "query",
-                                                   xmlns: xmlns("status"))))
-        queryIds.insert(elementId)
-        queueItems.insert(QueueItem(.requestForm, elementId: elementId, settingsCallback: callback))
-        return elementId
-    }
     
     
     public final func getGroupInfo(_ xmppStream: XMPPStream, groupchat: String) {
         let elementId = "GC: \(NanoID.new(6))"
-        let query = DDXMLElement(name: "query", xmlns: xmlns("info"))
+        // V3: <query xmlns='...'>, get general group info
+        let query = DDXMLElement(name: "query", xmlns: getPrimaryNamespace())
         xmppStream.send(XMPPIQ(iqType: .get, to: fullJid(groupchat), elementID: elementId, child: query))
         self.queryIds.insert(elementId)
     }
-    
-    public final func updateForm(_ xmppStream: XMPPStream, formType: FormType, groupchat: String, userData: [[String: Any]], callback: @escaping ((String?) -> Void)) -> String {
+
+    // MARK: - V3 Update Settings
+    // V3: <settings xmlns='https://xabber.com/protocol/groups'><membership>open</membership>...</settings>
+
+    public final func updateSettings(_ xmppStream: XMPPStream, groupchat: String, settings: [String: Any], callback: ((String?) -> Void)?) {
         let elementId = "GC: \(NanoID.new(6))"
-        let query = DDXMLElement(name: "query")
-        switch formType {
-        case .settings:
-            query.setXmlns(getPrimaryNamespace())
-        case .status:
-            query.setXmlns(xmlns("status"))
+        let settingsElement = DDXMLElement(name: "settings", xmlns: getPrimaryNamespace())
+
+        if let membership = settings["membership"] as? String {
+            settingsElement.addChild(DDXMLElement(name: "membership", stringValue: membership))
         }
-        let x = DDXMLElement(name: "x", xmlns: "jabber:x:data")
-        x.addAttribute(withName: "type", stringValue: "submit")
-        for item in userData {
-            let field = DDXMLElement(name: "field")
-            if let type = item["type"] as? String {
-                field.addAttribute(withName: "type", stringValue: type)
-            }
-            if let varName = item["var"] as? String {
-                field.addAttribute(withName: "var", stringValue: varName)
-            }
-            if let label = item["label"] as? String {
-                field.addAttribute(withName: "label", stringValue: label)
-            }
-            if let values = item["values"] as? [String] {
-                values.forEach { field.addChild(DDXMLElement(name: "value", stringValue: $0)) }
-            }
-            if let value = item["value"] as? String {
-                if value.isNotEmpty {
-                    field.addChild(DDXMLElement(name: "value", stringValue: value))
-                }
-            }
-            x.addChild(field)
+        if let index = settings["index"] as? String {
+            settingsElement.addChild(DDXMLElement(name: "index", stringValue: index))
         }
-        query.addChild(x)
-        xmppStream.send(XMPPIQ(iqType: .set, to: fullJid(groupchat), elementID: elementId, child: query))
+        if let contacts = settings["contacts"] as? [String] {
+            let contactsElement = DDXMLElement(name: "contacts")
+            for contact in contacts {
+                contactsElement.addChild(DDXMLElement(name: "contact", stringValue: contact))
+            }
+            settingsElement.addChild(contactsElement)
+        }
+        if let domains = settings["domains"] as? [String] {
+            let domainsElement = DDXMLElement(name: "domains")
+            for domain in domains {
+                domainsElement.addChild(DDXMLElement(name: "domain", stringValue: domain))
+            }
+            settingsElement.addChild(domainsElement)
+        }
+
+        xmppStream.send(XMPPIQ(iqType: .set, to: fullJid(groupchat), elementID: elementId, child: settingsElement))
         queryIds.insert(elementId)
-        queueItems.insert(QueueItem(.updateForm, elementId: elementId, callback: callback, value: "save"))
-        return elementId
+        queueItems.insert(QueueItem(.updateSettings, elementId: elementId, callback: callback))
     }
-    
+
+    // MARK: - V3 Update Info
+    // V3: <info xmlns='https://xabber.com/protocol/groups'><name>New name</name>...</info>
+
+    public final func updateInfo(_ xmppStream: XMPPStream, groupchat: String, info: [String: Any], callback: ((String?) -> Void)?) {
+        let elementId = "GC: \(NanoID.new(6))"
+        let infoElement = DDXMLElement(name: "info", xmlns: getPrimaryNamespace())
+
+        if let name = info["name"] as? String {
+            infoElement.addChild(DDXMLElement(name: "name", stringValue: name))
+        }
+        if let description = info["description"] as? String {
+            infoElement.addChild(DDXMLElement(name: "description", stringValue: description))
+        }
+        if let statusString = info["status"] as? String {
+            let status = DDXMLElement(name: "status", xmlns: "jabber:client")
+            status.stringValue = statusString
+            infoElement.addChild(status)
+        }
+
+        xmppStream.send(XMPPIQ(iqType: .set, to: fullJid(groupchat), elementID: elementId, child: infoElement))
+        queryIds.insert(elementId)
+        queueItems.insert(QueueItem(.updateInfo, elementId: elementId, callback: callback))
+    }
+
+    // MARK: - V3 Update Group Avatar
+    // V3: <info xmlns='https://xabber.com/protocol/groups'><avatar><info xmlns='urn:xmpp:avatar:metadata' .../></avatar></info>
+
+    public final func updateGroupAvatar(_ xmppStream: XMPPStream, groupchat: String, image: UIImage?, callback: ((String?) -> Void)?) {
+        let elementId = "GC: \(NanoID.new(6))"
+        let infoElement = DDXMLElement(name: "info", xmlns: getPrimaryNamespace())
+        let avatarElement = DDXMLElement(name: "avatar")
+
+//        if let image = image,
+//           let imageData = image.pngData() {
+//            let base64String = imageData.base64EncodedString()
+//            let hash = imageData.sha1().toHexString()
+//            let dataElement = DDXMLElement(name: "data", xmlns: "urn:xmpp:avatar:data", stringValue: base64String)
+////            dataElement,
+//            avatarElement.addChild(dataElement)
+//            let metaInfo = DDXMLElement(name: "info", xmlns: "urn:xmpp:avatar:metadata")
+//            metaInfo.addAttribute(withName: "bytes", stringValue: "\(imageData.count)")
+//            metaInfo.addAttribute(withName: "id", stringValue: hash)
+//            metaInfo.addAttribute(withName: "type", stringValue: "image/png")
+//            metaInfo.addAttribute(withName: "height", stringValue: "\(Int(image.size.height))")
+//            metaInfo.addAttribute(withName: "width", stringValue: "\(Int(image.size.width))")
+//            avatarElement.addChild(metaInfo)
+//        }
+
+        infoElement.addChild(avatarElement)
+        xmppStream.send(XMPPIQ(iqType: .set, to: fullJid(groupchat), elementID: elementId, child: infoElement))
+        queryIds.insert(elementId)
+        queueItems.insert(QueueItem(.updateInfo, elementId: elementId, callback: callback))
+    }
+
+    // MARK: - V3 Update Member Avatar
+    // V3: <members xmlns='...'><user id='...'><avatar><info xmlns='urn:xmpp:avatar:metadata' .../></avatar></user></members>
+
+    public final func updateMemberAvatar(_ xmppStream: XMPPStream, groupchat: String, userId: String, image: UIImage?, callback: ((String?) -> Void)?) {
+        let elementId = "GC: \(NanoID.new(6))"
+        let membersElement = DDXMLElement(name: "members", xmlns: getPrimaryNamespace())
+        let userElement = DDXMLElement(name: "user", xmlns: getPrimaryNamespace())
+        userElement.addAttribute(withName: "id", stringValue: userId)
+        let avatarElement = DDXMLElement(name: "avatar", xmlns: getPrimaryNamespace())
+
+        if let image = image,
+           let imageData = image.pngData() {
+            let hash = imageData.sha1().toHexString()
+            let metaInfo = DDXMLElement(name: "info", xmlns: "urn:xmpp:avatar:metadata")
+            metaInfo.addAttribute(withName: "bytes", stringValue: "\(imageData.count)")
+            metaInfo.addAttribute(withName: "id", stringValue: hash)
+            metaInfo.addAttribute(withName: "type", stringValue: "image/png")
+            metaInfo.addAttribute(withName: "height", stringValue: "\(Int(image.size.height))")
+            metaInfo.addAttribute(withName: "width", stringValue: "\(Int(image.size.width))")
+            avatarElement.addChild(metaInfo)
+        }
+
+        userElement.addChild(avatarElement)
+        membersElement.addChild(userElement)
+        xmppStream.send(XMPPIQ(iqType: .set, to: fullJid(groupchat), elementID: elementId, child: membersElement))
+        queryIds.insert(elementId)
+        queueItems.insert(QueueItem(.changeData, elementId: elementId, callback: callback))
+    }
+
+
     public final func blockList(_ xmppStream: XMPPStream, groupchat: String) {
         let elementId = "GC: \(NanoID.new(6))"
+        // V3: <block xmlns='...'>, Old: <query xmlns='...#block'>
         xmppStream.send(XMPPIQ(iqType: .get,
                                to: fullJid(groupchat),
                                elementID: elementId,
-                               child: DDXMLElement(name: "query",
-                                                   xmlns: xmlns("block"))))
+                               child: DDXMLElement(name: "block",
+                                                   xmlns: getPrimaryNamespace())))
         queryIds.insert(elementId)
     }
-    
+
     public final func kickUser(_ xmppStream: XMPPStream, groupchat: String, userId: String, callback: ((String?) -> Void)?) {
         let elementId = "GC: \(NanoID.new(6))"
+        // V3: <kick xmlns='...'><jid>user@domain</jid></kick>
         let kick = DDXMLElement(name: "kick", xmlns: getPrimaryNamespace())
-        kick.addChild(DDXMLElement(name: "id", stringValue: userId))
+        kick.addChild(DDXMLElement(name: "jid", stringValue: userId))
         xmppStream.send(XMPPIQ(iqType: .set, to: fullJid(groupchat), elementID: elementId, child: kick))
         queueItems.insert(QueueItem(.kick, elementId: elementId, callback: callback))
         queryIds.insert(elementId)
     }
-    
+
     public final func blockUser(_ xmppStream: XMPPStream, groupchat: String, ids: [String] = [], jids: [String] = [], domains: [String] = [], callback: @escaping ((String?) -> Void)) {
         let elementId = "GC: \(NanoID.new(6))"
-        let block = DDXMLElement(name: "block", xmlns: xmlns("block"))
-        ids.forEach { block.addChild(DDXMLElement(name: "id", stringValue: $0)) }
+        // V3: <block xmlns='...'> with <jid> children only
+        let block = DDXMLElement(name: "block", xmlns: getPrimaryNamespace())
+        // V3 uses <jid> for all block types
         jids.forEach { block.addChild(DDXMLElement(name: "jid", stringValue: $0)) }
-        domains.forEach { block.addChild(DDXMLElement(name: "domain", stringValue: $0)) }
+        // ids and domains mapped to jid elements for V3 compatibility
+        ids.forEach { block.addChild(DDXMLElement(name: "jid", stringValue: $0)) }
+        domains.forEach { block.addChild(DDXMLElement(name: "jid", stringValue: $0)) }
         xmppStream.send(XMPPIQ(iqType: .set, to: fullJid(groupchat), elementID: elementId, child: block))
         queryIds.insert(elementId)
         var toBlock: [[String: String]] = []
@@ -835,13 +900,14 @@ class GroupchatManager: AbstractXMPPManager {
         toBlock.append(contentsOf: domains.compactMap { return ["type": "domain", "value": $0] })
         queueItems.insert(QueueItem(.block, elementId: elementId, callback: callback, payload: toBlock))
     }
-    
+
     public final func unblockUser(_ xmppStream: XMPPStream, groupchat: String, ids: [String] = [], jids: [String] = [], domains: [String] = [], callback: @escaping ((String?) -> Void)) {
         let elementId = "GC: \(NanoID.new(6))"
-        let block = DDXMLElement(name: "unblock", xmlns: xmlns("block"))
-        ids.forEach { block.addChild(DDXMLElement(name: "id", stringValue: $0)) }
+        // V3: <unblock xmlns='...'> with <jid> children only
+        let block = DDXMLElement(name: "unblock", xmlns: getPrimaryNamespace())
         jids.forEach { block.addChild(DDXMLElement(name: "jid", stringValue: $0)) }
-        domains.forEach { block.addChild(DDXMLElement(name: "domain", stringValue: $0)) }
+        ids.forEach { block.addChild(DDXMLElement(name: "jid", stringValue: $0)) }
+        domains.forEach { block.addChild(DDXMLElement(name: "jid", stringValue: $0)) }
         xmppStream.send(XMPPIQ(iqType: .set, to: fullJid(groupchat), elementID: elementId, child: block))
         queryIds.insert(elementId)
         var toUnblock: [[String: String]] = []
@@ -852,14 +918,23 @@ class GroupchatManager: AbstractXMPPManager {
     }
     
     public final func unpinMessage(_ xmppStream: XMPPStream, groupchat: String, callback: @escaping ((String?) -> Void)) {
-        pinMessage(xmppStream, groupchat: groupchat, message: "0", callback: callback)
+        // V3: <pinned-message id='...' status='remove'/>
+        let elementId = "GC: \(NanoID.new(6))"
+        let pinnedMessage = DDXMLElement(name: "pinned-message", xmlns: getPrimaryNamespace())
+        pinnedMessage.addAttribute(withName: "id", stringValue: "0")
+        pinnedMessage.addAttribute(withName: "status", stringValue: "remove")
+        xmppStream.send(XMPPIQ(iqType: .set, to: fullJid(groupchat), elementID: elementId, child: pinnedMessage))
+        queryIds.insert(elementId)
+        queueItems.insert(QueueItem(.pin, elementId: elementId, callback: callback))
     }
-    
+
     public final func pinMessage(_ xmppStream: XMPPStream, groupchat: String, message stanzaId: String, callback: @escaping ((String?) -> Void)) {
         let elementId = "GC: \(NanoID.new(6))"
-        let update = DDXMLElement(name: "update", xmlns: getPrimaryNamespace())
-        update.addChild(DDXMLElement(name: "pinned-message", stringValue: stanzaId))
-        xmppStream.send(XMPPIQ(iqType: .set, to: fullJid(groupchat), elementID: elementId, child: update))
+        // V3: <pinned-message id='stanzaId' status='pinned'/>
+        let pinnedMessage = DDXMLElement(name: "pinned-message", xmlns: getPrimaryNamespace())
+        pinnedMessage.addAttribute(withName: "id", stringValue: stanzaId)
+        pinnedMessage.addAttribute(withName: "status", stringValue: "pinned")
+        xmppStream.send(XMPPIQ(iqType: .set, to: fullJid(groupchat), elementID: elementId, child: pinnedMessage))
         queryIds.insert(elementId)
         queueItems.insert(QueueItem(.pin, elementId: elementId, callback: callback))
     }
@@ -889,373 +964,50 @@ class GroupchatManager: AbstractXMPPManager {
 //                                      stanzaId: stanzaId)
     }
     
-    public final func publishAvatar(_ xmppStream: XMPPStream, groupchat: String, groupAvatar: Bool, userId: String = "", image: UIImage?, callback: @escaping ((String?) -> Void)) {
-        let elementId = "GC: \(NanoID.new(6))"
-        
-        
-        
-        if let image = image {
-            let jpegData = image.jpegData(compressionQuality: 0.7)
-            let hash = jpegData?.sha1().toHexString() ?? ""
-            
-            if groupAvatar {
-//                DefaultAvatarManager.shared.storeAvatar(jid: groupchat, owner: owner, hash: hash, images: [DefaultAvatarManager.SizedImage(image: image, size: .original)], kind: .xabber)
-            } else {
-                do {
-                    let realm = try  WRealm.safe()
-                    var effectiveUserID = userId
-                    if userId.isEmpty {
-                        effectiveUserID = realm.objects(GroupchatUserStorageItem.self).filter("groupchatId == %@ AND isMe == true", [groupchat, owner].prp()).first?.userId ?? ""
-                    }
-//                    DefaultAvatarManager.shared.storeGroupAvatar(user: effectiveUserID, jid: groupchat, owner: owner, hash: hash, images: [DefaultAvatarManager.SizedImage(image: image, size: .original)], kind: .xabber)
-                } catch {
-                    DDLogDebug("GroupchatManager: \(#function). \(error.localizedDescription)")
-                }
-            }
-            
-            let binval = image.toBase64(.jpeg(0.7))
-            let pubsub = DDXMLElement(name: "pubsub", xmlns: "http://jabber.org/protocol/pubsub")
-            let publish = DDXMLElement(name: "publish")
-            if groupAvatar {
-                publish.addAttribute(withName: "node", stringValue: "urn:xmpp:avatar:data")
-            } else {
-                publish.addAttribute(withName: "node", stringValue: ["urn:xmpp:avatar:data", userId].joined(separator: "#"))
-            }
-            
-            let item = DDXMLElement(name: "item")
-            item.addAttribute(withName: "id", stringValue: hash)
-            let data = DDXMLElement(name: "data", xmlns: "urn:xmpp:avatar:data")
-            data.stringValue = binval
-            item.addChild(data)
-            publish.addChild(item)
-            pubsub.addChild(publish)
-            xmppStream.send(XMPPIQ(iqType: .set, to: fullJid(groupchat)?.bareJID, elementID: elementId, child: pubsub))
-            queryIds.insert(elementId)
-            queueItems.insert(QueueItem(.publishAvatar,
-                                        elementId: elementId,
-                                        callback: callback,
-                                        payload: [["bytes": "\(jpegData?.count ?? 0)",
-                                                   "id": hash,
-                                                   "type": "image/jpeg",
-                                                   "userId": userId]],
-                                        value: groupAvatar ? "groupchat" : "member"))
-        } else {
-            let pubsub = DDXMLElement(name: "pubsub", xmlns: "http://jabber.org/protocol/pubsub")
-            let publish = DDXMLElement(name: "publish")
-            publish.addAttribute(withName: "node", stringValue: ["urn:xmpp:avatar:metadata", userId].joined(separator: "#"))
-            let item = DDXMLElement(name: "item")
-            item.addChild(DDXMLElement(name: "metadata", xmlns: "urn:xmpp:avatar:metadata"))
-            publish.addChild(item)
-            pubsub.addChild(publish)
-            xmppStream.send(XMPPIQ(iqType: .set, to: fullJid(groupchat)?.bareJID, elementID: elementId, child: pubsub))
-            queryIds.insert(elementId)
-            queueItems.insert(QueueItem(.resetAvatar, elementId: elementId, callback: callback))
-            if groupAvatar {
-//                DefaultAvatarManager.shared.deleteAvatar(jid: groupchat, owner: owner)
-            } else {
-                do {
-                    let realm = try  WRealm.safe()
-                    if userId.isNotEmpty {
-//                        DefaultAvatarManager.shared.deleteGroupAvatar(user: userId, jid: groupchat, owner: owner)
-                    } else if let userId = realm.objects(GroupchatUserStorageItem.self).filter("groupchatId == %@ AND isMe == true", [groupchat, owner].prp()).first?.userId {
-//                        DefaultAvatarManager.shared.deleteGroupAvatar(user: userId, jid: groupchat, owner: owner)
-                    }
-                } catch {
-                    DDLogDebug("GroupchatManager: \(#function). \(error.localizedDescription)")
-                }
-            }
-        }
-    }
-    
-    private final func publishAvatarMetadata(_ xmppStream: XMPPStream, elementId: String, groupchat: String) {
-        if let item = queueItems.first(where: { $0.elementId == elementId }),
-            let bytes = item.payload.first?["bytes"],
-            let imageId = item.payload.first?["id"],
-            let mimeType = item.payload.first?["type"],
-            let userId = item.payload.first?["userId"] {
-            let elementId = "GC: \(NanoID.new(6))"
-            let info = DDXMLElement(name: "info")
-            info.addAttribute(withName: "bytes", stringValue: bytes)
-            info.addAttribute(withName: "id", stringValue: imageId)
-            info.addAttribute(withName: "type", stringValue: mimeType)
-            let metadata = DDXMLElement(name: "metadata", xmlns: "urn:xmpp:avatar:metadata")
-            let itemXml = DDXMLElement(name: "item")
-            itemXml.addAttribute(withName: "id", stringValue: imageId)
-            let publish = DDXMLElement(name: "publish")
-            if item.value == "groupchat" {
-                publish.addAttribute(withName: "node", stringValue: "urn:xmpp:avatar:metadata")
-            } else {
-                publish.addAttribute(withName: "node", stringValue: ["urn:xmpp:avatar:metadata", userId].joined(separator: "#"))
-            }
-            let pubsub = DDXMLElement(name: "pubsub", xmlns: "http://jabber.org/protocol/pubsub")
-            metadata.addChild(info)
-            itemXml.addChild(metadata)
-            publish.addChild(itemXml)
-            pubsub.addChild(publish)
-            xmppStream.send(XMPPIQ(iqType: .set, to: fullJid(groupchat)?.bareJID, elementID: elementId, child: pubsub))
-            item.elementId = elementId
-            item.action = .publishAvatarMeta
-            queryIds.insert(elementId)
-        }
-    }
     
     
-    private final func onEditChatSettingsForm(_ iq: XMPPIQ) -> Bool {
-        guard let elementId = iq.elementID,
-            queryIds.contains(elementId),
-            let from = iq.from?.bare,
-            let query = iq.element(forName: "query", xmlns: getPrimaryNamespace()),
-            let x = query.element(forName: "x", xmlns: "jabber:x:data"),
-            x.attributeStringValue(forName: "type", withDefaultValue: "none") == "form" else {
-            return false
-        }
-        updateStatusStateFromForm(iq)
-        queryIds.remove(elementId)
-        var out: [[String: Any]] = []
-        x.elements(forName: "field").forEach {
-            field in
-            var item: [String: Any] = [:]
-            if let varName = field.attributeStringValue(forName: "var") {
-                item["var"] = varName
-            }
-            if let type = field.attributeStringValue(forName: "type") {
-                item["type"] = type
-            }
-            if let label = field.attributeStringValue(forName: "label") {
-                item["label"] = label
-            }
-            if field.elements(forName: "value").count > 1 {
-                item["values"] = field.elements(forName: "value").compactMap { return $0.stringValue }
-            } else {
-                if let value = field.element(forName: "value")?.stringValue {
-                    item["value"] = value
-                }
-            }
-            if field.elements(forName: "option").isNotEmpty {
-                item["options"] = field.elements(forName: "option").compactMap { return ["label": $0.attributeStringValue(forName: "label"), "value": $0.element(forName: "value")?.stringValue ?? ""] }
-            }
-            out.append(item)
-        }
-        if let item = queueItems.first(where: { $0.elementId == elementId }) {
-            item.settingsCallback?(out, nil)
-            queueItems.remove(item)
-        }
-        do {
-            let realm = try  WRealm.safe()
-            if let instance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: [self.owner, from].prp()) {
-                try realm.write {
-                    instance.defaultRestrictions.removeAll()
-                    instance.defaultRestrictions.append(objectsIn: out.compactMap { return $0["label"] as? String })
-                }
-            }
-        } catch {
-            DDLogDebug("GroupchatManager: \(#function). \(error.localizedDescription)")
-        }
-        return true
-    }
-    
-    private final func onEditStatusForm(_ iq: XMPPIQ) -> Bool {
-        guard let elementId = iq.elementID,
-            queryIds.contains(elementId),
-            let query = iq.element(forName: "query", xmlns: xmlns("status")),
-            let x = query.element(forName: "x", xmlns: "jabber:x:data"),
-            x.attributeStringValue(forName: "type", withDefaultValue: "none") == "form",
-            let item = queueItems.first(where: { $0.elementId == elementId }),
-            item.value != "save" else {
-            return false
-        }
-        updateStatusStateFromForm(iq)
-        queryIds.remove(elementId)
-        var out: [[String: Any]] = []
-        x.elements(forName: "field").forEach {
-            field in
-            var item: [String: Any] = [:]
-            if let varName = field.attributeStringValue(forName: "var"),
-                varName == "status" {
-                item["var"] = varName
-                if let value = field.element(forName: "value")?.stringValue {
-                    item["value"] = value
-                }
-                item["type"] = "list-single"
-                if let label = field.attributeStringValue(forName: "label") {
-                    item["label"] = label
-                }
-                if field.elements(forName: "option").isNotEmpty {
-                    let options: [[String: String]] = field
-                        .elements(forName: "option")
-                        .compactMap { item in
-                            guard let label = item.attributeStringValue(forName: "label"),
-                                let value = item.element(forName: "value")?.stringValue,
-                                let description = x
-                                    .elements(forName: "field")
-                                    .first(where: { $0.attributeStringValue(forName: "var") == value })?
-                                    .element(forName: "desc")?
-                                    .stringValue,
-                                let show_status = x
-                                    .elements(forName: "field")
-                                    .first(where: { $0.attributeStringValue(forName: "var") == value })?
-                                    .element(forName: "value")?
-                                    .stringValue else {
-                                return nil
-                            }
-                            return [
-                                "label": label,
-                                "value": value,
-                                "description": description,
-                                "show_status": show_status
-                            ]
-                    }
-                    item["options"] = options
-                }
-            }
-            out.append(item)
-        }
-        item.settingsCallback?(out, nil)
-        queueItems.remove(item)
-        return true
-    }
-    
-    private final func onEditUserForm(_ iq: XMPPIQ) -> Bool {
-        guard let elementId = iq.elementID,
-            queryIds.contains(elementId),
-            let query = iq.element(forName: "query", xmlns: xmlns("rights")),
-            let x = query.element(forName: "x", xmlns: "jabber:x:data"),
-            x.attributeStringValue(forName: "type", withDefaultValue: "none") == "form" else {
-            return false
-        }
-        
-        var isPermission: Bool = true
-        var out: [[String: Any]] = []
-        var permissions: [[String: Any]] = []
-        var restrictions: [[String: Any]] = []
-        x.elements(forName: "field").forEach {
-            field in
-            if  isPermission
-                && field.attributeStringValue(forName: "type") == "fixed"
-                && field.attributeStringValue(forName: "var") == "restriction" {
-                isPermission = false
-            }
-            var item: [String: Any] = [:]
-            if let varName = field.attributeStringValue(forName: "var") {
-                item["var"] = varName
-            }
-            if let type = field.attributeStringValue(forName: "type") {
-                item["type"] = type
-            }
-            if let label = field.attributeStringValue(forName: "label") {
-                item["label"] = label
-            }
-            if let value = field.element(forName: "value")?.stringValue {
-                item["value"] = value
-            }
-            item["values"] = field.elements(forName: "option").compactMap {
-                return ["label": $0.attributeStringValue(forName: "label"), "value": $0.stringValue]}
-            if isPermission {
-                permissions.append(item)
-            } else {
-                restrictions.append(item)
-            }
-            out.append(item)
-        }
-        if let item = queueItems.first(where: { $0.elementId == elementId }) {
-            item.formCallback?(out, permissions, restrictions, nil)
-            queueItems.remove(item)
-        }
-        return true
-    }
-    
-    private final func onSuccessSettingsUpdatedForm(_ iq: XMPPIQ) -> Bool {
-        guard let elementId = iq.elementID,
-            queryIds.contains(elementId),
-            let query = iq.element(forName: "query",
-                                   xmlns: getPrimaryNamespace()),
-            let x = query.element(forName: "x", xmlns: "jabber:x:data"),
-            x.attributeStringValue(forName: "type", withDefaultValue: "none") == "result" else {
-            return false
-        }
-        queryIds.remove(elementId)
-        
-        updateStatusStateFromForm(iq)
-        
-        if let item = queueItems.first(where: { $0.elementId == elementId }) {
-            item.callback?(nil)
-            queueItems.remove(item)
-        }
-        return true
-    }
-    
-    private final func onSuccessStatusUpdatedForm(_ iq: XMPPIQ) -> Bool {
-        guard let elementId = iq.elementID,
-            queryIds.contains(elementId),
-            let query = iq.element(forName: "query",
-                                   xmlns: xmlns("status")),
-            let x = query.element(forName: "x", xmlns: "jabber:x:data"),
-            x.attributeStringValue(forName: "type", withDefaultValue: "none") == "form",
-            let item = queueItems.first(where: { $0.elementId == elementId }),
-            item.value == "save" else {
-            return false
-        }
-        queryIds.remove(elementId)
-        
-        updateStatusStateFromForm(iq)
-        
-        item.callback?(nil)
-        queueItems.remove(item)
-        
-        return true
-    }
-    
-    private final func updateStatusStateFromForm(_ iq: XMPPIQ) {
-        guard let from = iq.from?.bare else { return }
-        
-        if let statusField = iq.element(forName: "query", xmlns: getPrimaryNamespace())?
-            .element(forName: "x", xmlns: "jabber:x:data")?
-            .elements(forName: "field")
-            .first(where: { $0.attributeStringValue(forName: "var") == "status" }) {
-            
-            guard let statusValue = statusField.element(forName: "value")?.stringValue,
-                  let statusMessageValue = statusField
-                    .elements(forName: "option")
-                    .first(where: { $0.element(forName: "value")?.stringValue == statusValue })?
-                    .attributeStringValue(forName: "label") else {
-                return
-            }
-            
-            do {
-                let realm = try  WRealm.safe()
-                let collection = realm
-                    .objects(ResourceStorageItem.self)
-                    .filter("owner == %@ AND jid == %@", owner, from)
-                try realm.write {
-                    collection.forEach {
-                        $0.isTemporary = false
-                        $0.status_ = statusValue
-                        $0.statusMessage = statusMessageValue
-                    }
-                }
-            } catch {
-                DDLogDebug("GroupchatManager: \(#function). \(error.localizedDescription)")
-            }
-        }
-    }
     
     private final func onInfo(_ presence: XMPPPresence) -> Bool {
-        guard let from = presence.from?.bare,
-            let x = presence.element(forName: "x", xmlns: getPrimaryNamespace()) else {
-            return false
-        }
+        guard let from = presence.from?.bare else { return false }
+        // V3: <group xmlns='...' privacy='...' members='N'>
+        //   <info><name/><description/><status/></info>
+        //   <settings><index/><membership/></settings>
+        //   <pinned><pinned-message id='...'/></pinned>
+        //   <present>N</present>
+        // Old: <x xmlns='...'> with flat children
+        let v3Group = presence.element(forName: "group", xmlns: getPrimaryNamespace())
+        let x = v3Group ?? presence.element(forName: "x", xmlns: getPrimaryNamespace())
+        guard let x = x else { return false }
+        let isV3 = v3Group != nil
         let resource: String = presence.from?.resource ?? "groupchat"
-        
+
         func update(_ instance: GroupChatStorageItem) {
             if instance.isInvalidated { return }
-            instance.name = x.element(forName: "name")?.stringValue ?? instance.name
-            instance.privacy_ = x.element(forName: "privacy")?.stringValue ?? instance.privacy_
-            instance.index_ = x.element(forName: "index")?.stringValue ?? instance.index_
-            instance.membership_ = x.element(forName: "membership")?.stringValue ?? instance.membership_
-            instance.descr = x.element(forName: "description")?.stringValue ?? instance.descr
-            instance.members = x.attributeIntegerValue(forName: "members", withDefaultValue: instance.members)
-            instance.status = x.element(forName: "status")?.stringValue ?? ""
-            if let pinnedMessage = x.element(forName: "pinned-message")?.stringValue {
+            if isV3 {
+                let info = x.element(forName: "info")
+                let settings = x.element(forName: "settings")
+                instance.name = info?.element(forName: "name")?.stringValue ?? instance.name
+                instance.privacy_ = x.attributeStringValue(forName: "privacy") ?? instance.privacy_
+                instance.index_ = settings?.element(forName: "index")?.stringValue ?? instance.index_
+                instance.membership_ = settings?.element(forName: "membership")?.stringValue ?? instance.membership_
+                instance.descr = info?.element(forName: "description")?.stringValue ?? instance.descr
+                instance.members = x.attributeIntegerValue(forName: "members", withDefaultValue: instance.members)
+                instance.status = info?.element(forName: "status")?.stringValue ?? ""
+            } else {
+                instance.name = x.element(forName: "name")?.stringValue ?? instance.name
+                instance.privacy_ = x.element(forName: "privacy")?.stringValue ?? instance.privacy_
+                instance.index_ = x.element(forName: "index")?.stringValue ?? instance.index_
+                instance.membership_ = x.element(forName: "membership")?.stringValue ?? instance.membership_
+                instance.descr = x.element(forName: "description")?.stringValue ?? instance.descr
+                instance.members = x.attributeIntegerValue(forName: "members", withDefaultValue: instance.members)
+                instance.status = x.element(forName: "status")?.stringValue ?? ""
+            }
+            // V3 pinned: <pinned><pinned-message id='...'/>
+            // Old pinned: <pinned-message>stanzaId</pinned-message>
+            let pinnedMessageId: String? = isV3
+                ? x.element(forName: "pinned")?.element(forName: "pinned-message")?.attributeStringValue(forName: "id")
+                : x.element(forName: "pinned-message")?.stringValue
+            if let pinnedMessage = pinnedMessageId {
                 if pinnedMessage != "0" {
                     if instance.pinnedMessage != pinnedMessage {
                         AccountManager.shared.find(for: owner)?.action({ (user, stream) in
@@ -1267,7 +1019,7 @@ class GroupchatManager: AbstractXMPPManager {
                     instance.pinnedMessage = ""
                 }
             }
-            if let members = x.element(forName: "members") {
+            if !isV3, let members = x.element(forName: "members") {
                 instance.members = members.stringValueAsNSInteger()
             }
             if let present = x.element(forName: "present") {
@@ -1293,15 +1045,19 @@ class GroupchatManager: AbstractXMPPManager {
                     realm.add(instance, update: .modified)
                 }
             }
+            // V3: name in <info><name>, Old: name in <x><name>
+            let groupName: String? = isV3
+                ? x.element(forName: "info")?.element(forName: "name")?.stringValue
+                : x.element(forName: "name")?.stringValue
             let instance = realm.object(ofType: RosterStorageItem.self,
                                             forPrimaryKey: [from, owner].prp())
             try realm.write {
-                instance?.username = x.element(forName: "name")?.stringValue ?? ""
+                instance?.username = groupName ?? ""
                 instance?.isContact = false
             }
-            
-            
-            
+
+
+
             if let instnace = realm.object(
                 ofType: LastChatsStorageItem.self,
                 forPrimaryKey: LastChatsStorageItem.genPrimary(
@@ -1316,12 +1072,28 @@ class GroupchatManager: AbstractXMPPManager {
                     }
                 }
             }
-            
+
+            // V3: privacy is attribute on <group>, Old: <privacy> element in <x>
+            let privacyValue: String? = isV3
+                ? x.attributeStringValue(forName: "privacy")
+                : x.element(forName: "privacy")?.stringValue
+
+            func resolveEntity() -> RosterItemEntity {
+                if x.element(forName: "parent-chat") != nil {
+                    return .privateChat
+                } else if privacyValue == "incognito" {
+                    return .incognitoChat
+                } else if privacyValue == "public" {
+                    return .groupchat
+                }
+                return .groupchat
+            }
+
             if let instance = realm.object(ofType: ResourceStorageItem.self,
                                            forPrimaryKey: [from, resource, owner].prp())  {
                 try realm.write {
                     if instance.isInvalidated { return }
-                    
+
                     if presence.attributeStringValue(forName: "type") == "unavailable" {
                         if presence.presenceType == .subscribe {
                             instance.status = .online
@@ -1333,41 +1105,26 @@ class GroupchatManager: AbstractXMPPManager {
                     } else {
                         instance.status = .online
                     }
-                    
+
                     instance.timestamp = Date()
-                    
+
                     instance.statusMessage = presence.element(forName: "status")?.stringValue ?? ""
-                    
-                    if x.element(forName: "parent-chat") != nil {
-                        instance.entity = .privateChat
-                    } else if x.element(forName: "privacy")?.stringValue == "incognito" {
-                        instance.entity = .incognitoChat
-                    } else if x.element(forName: "privacy")?.stringValue == "public" {
-                        instance.entity = .groupchat
-                    } else {
-                        instance.entity = .groupchat
-                    }
-                    
+
+                    instance.entity = resolveEntity()
                     instance.type = .groupchat
                 }
-                
+
             } else {
                 let instance = ResourceStorageItem()
                 instance.owner = owner
                 instance.jid = from
                 instance.resource = resource
-                if let statusValue = x.element(forName: "show")?.stringValue {
+                if let statusValue = presence.element(forName: "show")?.stringValue {
                     instance.status = RosterUtils.shared.convertShowStatus(statusValue)
                 } else {
                     instance.status = .online
                 }
-                if x.element(forName: "parent-chat") != nil {
-                    instance.entity = .privateChat
-                } else if x.element(forName: "privacy")?.stringValue == "incognito" {
-                    instance.entity = .incognitoChat
-                } else if x.element(forName: "privacy")?.stringValue == "public" {
-                    instance.entity = .groupchat
-                }
+                instance.entity = resolveEntity()
                 instance.type = .groupchat
                 instance.isTemporary = false
                 instance.primary = ResourceStorageItem.genPrimary(jid: from, owner: owner, resource: resource)
@@ -1468,38 +1225,55 @@ class GroupchatManager: AbstractXMPPManager {
     
     private final func onCreate(_ iq: XMPPIQ) -> Bool {
         guard let elementId = iq.elementID,
-            let query = iq.element(forName: "query", xmlns: xmlns("create")),
             queryIds.contains(elementId),
             let from = iq.from?.domain,
             iq.element(forName: "error") == nil else {
             return false
         }
-        
-        var unwrappedJid: String? = query.element(forName: "jid")?.stringValue
-        if unwrappedJid == nil {
-            if let localPart = query.element(forName: "localpart")?.stringValue {
-                unwrappedJid = XMPPJID(string: [localPart, from].joined(separator: "@"))?.bare
+
+        // V3: <group xmlns='...' privacy='...' jid='...'><info><name>...</info><settings>...</settings></group>
+        // Old: <query xmlns='...#create'><jid>...<name>...<privacy>...</query>
+        let v3Group = iq.element(forName: "group", xmlns: getPrimaryNamespace())
+        let oldQuery = iq.element(forName: "query", xmlns: xmlns("create"))
+        guard v3Group != nil || oldQuery != nil else { return false }
+        let isV3 = v3Group != nil
+        let query = v3Group ?? oldQuery!
+
+        var unwrappedJid: String?
+        if isV3 {
+            unwrappedJid = query.attributeStringValue(forName: "jid")
+        } else {
+            unwrappedJid = query.element(forName: "jid")?.stringValue
+            if unwrappedJid == nil {
+                if let localPart = query.element(forName: "localpart")?.stringValue {
+                    unwrappedJid = XMPPJID(string: [localPart, from].joined(separator: "@"))?.bare
+                }
             }
         }
-        
+
         guard let jid = unwrappedJid else { return false }
-        
+
         queryIds.remove(elementId)
         if let item = queueItems.first(where: { $0.elementId == elementId }) {
             if item.value == "peer-to-peer" {
                 AccountManager.shared.find(for: self.owner)?.unsafeAction({ (user, stream) in
                     user.groupchats.join(stream, uiConnection: false, groupchat: jid) { (_) in
-                        
+
                     }
                 })
             }
             item.callback?("success")
             queueItems.remove(item)
         }
-        
+
+        // Extract name for roster
+        let groupName: String? = isV3
+            ? query.element(forName: "info")?.element(forName: "name")?.stringValue
+            : query.element(forName: "name")?.stringValue
+
         queueItems.insert(QueueItem(.join, elementId: [jid, "create"].prp(), callback: nil))
         AccountManager.shared.find(for: owner)?.unsafeAction({ (user, stream) in
-            user.roster.setContact(stream, jid: jid, nickname: query.element(forName: "name")?.stringValue)
+            user.roster.setContact(stream, jid: jid, nickname: groupName)
             stream.send(XMPPPresence(type: .subscribe, to: XMPPJID(string: jid)))
             stream.send(XMPPPresence(type: .subscribed, to: XMPPJID(string: jid)))
         })
@@ -1511,20 +1285,38 @@ class GroupchatManager: AbstractXMPPManager {
                 instance.primary = GroupChatStorageItem.genPrimary(jid: jid, owner: owner)
                 instance.jid = jid
                 instance.owner = owner
-                if let name = query.element(forName: "name")?.stringValue {
-                    instance.name = name
-                }
-                if let privacy = query.element(forName: "privacy")?.stringValue {
-                    instance.privacy_ = privacy
-                }
-                if let index = query.element(forName: "index")?.stringValue {
-                    instance.index_ = index
-                }
-                if let membership = query.element(forName: "membership")?.stringValue {
-                    instance.membership_ = membership
-                }
-                if let descr = query.element(forName: "description")?.stringValue {
-                    instance.descr = descr
+                if isV3 {
+                    let info = query.element(forName: "info")
+                    let settings = query.element(forName: "settings")
+                    if let name = info?.element(forName: "name")?.stringValue {
+                        instance.name = name
+                    }
+                    instance.privacy_ = query.attributeStringValue(forName: "privacy") ?? instance.privacy_
+                    if let index = settings?.element(forName: "index")?.stringValue {
+                        instance.index_ = index
+                    }
+                    if let membership = settings?.element(forName: "membership")?.stringValue {
+                        instance.membership_ = membership
+                    }
+                    if let descr = info?.element(forName: "description")?.stringValue {
+                        instance.descr = descr
+                    }
+                } else {
+                    if let name = query.element(forName: "name")?.stringValue {
+                        instance.name = name
+                    }
+                    if let privacy = query.element(forName: "privacy")?.stringValue {
+                        instance.privacy_ = privacy
+                    }
+                    if let index = query.element(forName: "index")?.stringValue {
+                        instance.index_ = index
+                    }
+                    if let membership = query.element(forName: "membership")?.stringValue {
+                        instance.membership_ = membership
+                    }
+                    if let descr = query.element(forName: "description")?.stringValue {
+                        instance.descr = descr
+                    }
                 }
                 try realm.write {
                     realm.add(instance, update: .modified)
@@ -1565,21 +1357,15 @@ class GroupchatManager: AbstractXMPPManager {
 
                 }
             }
-            switch item.action {
-            case .requestForm:
-                item.formCallback?(nil, nil, nil, "error")
-                item.settingsCallback?(nil, "error")
-            default:
-                if error.element(forName: "conflict") != nil {
-                    item.callback?("conflict")
-                    item.invitesCallback?(item.value, "conflict")
-                } else if error.element(forName: "not-allowed") != nil {
-                    item.callback?("not-allowed")
-                    item.invitesCallback?(item.value, "not-allowed")
-                } else {
-                    item.callback?("error")
-                    item.invitesCallback?(item.value, "error")
-                }
+            if error.element(forName: "conflict") != nil {
+                item.callback?("conflict")
+                item.invitesCallback?(item.value, "conflict")
+            } else if error.element(forName: "not-allowed") != nil {
+                item.callback?("not-allowed")
+                item.invitesCallback?(item.value, "not-allowed")
+            } else {
+                item.callback?("error")
+                item.invitesCallback?(item.value, "error")
             }
             queueItems.remove(item)
         }
@@ -1589,9 +1375,13 @@ class GroupchatManager: AbstractXMPPManager {
     private final func onUser(_ iq: XMPPIQ) -> Bool {
         guard let elementId = iq.elementID,
             queryIds.contains(elementId),
-            let from = iq.from?.bare,
-            let query = iq.element(forName: "query", xmlns: xmlns("members")) else {
+            let from = iq.from?.bare else {
                 return false
+        }
+        // V3: <members xmlns='...'>, Old: <query xmlns='...#members'>
+        guard let query = iq.element(forName: "members", xmlns: getPrimaryNamespace())
+                ?? iq.element(forName: "query", xmlns: xmlns("members")) else {
+            return false
         }
         queryIds.remove(elementId)
         let isMyCard = queueItems.first(where: { $0.elementId == elementId })?.value == "my-card"
@@ -1656,7 +1446,10 @@ class GroupchatManager: AbstractXMPPManager {
             instance.restrictions = card.elements(forName: "restriction").compactMap { return $0.attributesAsDictionary()}
             
             instance.isTemporary = !trustedSource
-            if let avatarUrl = card.element(forName: "metadata", xmlns: "urn:xmpp:avatar:metadata")?.element(forName: "info")?.attributeStringValue(forName: "url") {
+            // V3: <avatar><info xmlns='urn:xmpp:avatar:metadata' url='...'/>
+            // Old: <metadata xmlns='urn:xmpp:avatar:metadata'><info url='...'/>
+            if let avatarUrl = card.element(forName: "avatar")?.element(forName: "info")?.attributeStringValue(forName: "url")
+                ?? card.element(forName: "metadata", xmlns: "urn:xmpp:avatar:metadata")?.element(forName: "info")?.attributeStringValue(forName: "url") {
                 instance.avatarURI = avatarUrl
             }
             if let subscribtion = card.element(forName: "subscription")?.stringValue {
@@ -1730,46 +1523,8 @@ class GroupchatManager: AbstractXMPPManager {
         return nil
     }
     
-    private final func onPublishData(_ stream: XMPPStream, iq: XMPPIQ) -> Bool {
-        guard let elementId = iq.elementID,
-            queryIds.contains(elementId),
-            queueItems.contains(where: { $0.elementId == elementId && $0.action == .publishAvatar }),
-            let from = iq.from?.bare else {
-                return false
-        }
-        queryIds.remove(elementId)
-        self.publishAvatarMetadata(stream, elementId: elementId, groupchat: from)
-        
-        return true
-    }
     
-    private final func onPublishMetadata(_ iq: XMPPIQ) -> Bool {
-        guard let elementId = iq.elementID,
-            queryIds.contains(elementId),
-            queueItems.contains(where: { $0.elementId == elementId && $0.action == .publishAvatarMeta }) else {
-                return false
-        }
-        queryIds.remove(elementId)
-        if let item = queueItems.first(where: { $0.elementId == elementId }) {
-            item.callback?(nil)
-            queueItems.remove(item)
-        }
-        return true
-    }
     
-    private final func onResetAvatar(_ iq: XMPPIQ) -> Bool {
-        guard let elementId = iq.elementID,
-            queryIds.contains(elementId),
-            queueItems.contains(where: { $0.elementId == elementId && $0.action == .resetAvatar }) else {
-                return false
-        }
-        queryIds.remove(elementId)
-        if let item = queueItems.first(where: { $0.elementId == elementId }) {
-            item.callback?(nil)
-            queueItems.remove(item)
-        }
-        return true
-    }
     
     private final func onRevoke(_ iq: XMPPIQ) -> Bool {
         guard let elementId = iq.elementID,
@@ -1860,16 +1615,22 @@ class GroupchatManager: AbstractXMPPManager {
     private final func onBlockList(_ iq: XMPPIQ) -> Bool {
         guard let elementId = iq.elementID,
             let from = iq.from?.bare,
-            let query = iq.element(forName: "query", xmlns: xmlns("block")),
             queryIds.contains(elementId) else {
                 return false
         }
-        
+        // V3: <block xmlns='...'>, Old: <query xmlns='...#block'>
+        guard let query = iq.element(forName: "block", xmlns: getPrimaryNamespace())
+                ?? iq.element(forName: "query", xmlns: xmlns("block")) else {
+            return false
+        }
+
         do {
             let realm = try  WRealm.safe()
-            
+
             try realm.write {
-                query.elements(forName: "user").forEach {
+                // V3: <jid> children, Old: <user> children
+                let blockedItems = query.elements(forName: "jid") + query.elements(forName: "user")
+                blockedItems.forEach {
                     user in
                     guard let userId = user.stringValue else { return }
                     let jid = user.attributeStringValue(forName: "jid") ?? ""
@@ -1937,22 +1698,44 @@ class GroupchatManager: AbstractXMPPManager {
     
     private func onGroupInfo(_ iq: XMPPIQ) -> Bool {
         guard let fromRaw = iq.from,
-              let from = iq.from?.bare,
-            let x = iq.element(forName: "x", xmlns: getPrimaryNamespace()) else {
+              let from = iq.from?.bare else {
             return false
         }
+        // V3: <group xmlns='...' privacy='...'> with <info>/<settings>/<pinned>
+        // Old: <x xmlns='...'> with flat children
+        let v3Group = iq.element(forName: "group", xmlns: getPrimaryNamespace())
+        let x = v3Group ?? iq.element(forName: "x", xmlns: getPrimaryNamespace())
+        guard let x = x else { return false }
+        let isV3 = v3Group != nil
         let resource: String = fromRaw.resource ?? "groupchat"
-        
+
         func update(_ instance: GroupChatStorageItem) {
             if instance.isInvalidated { return }
-            instance.name = x.element(forName: "name")?.stringValue ?? instance.name
-            instance.privacy_ = x.element(forName: "privacy")?.stringValue ?? instance.privacy_
-            instance.index_ = x.element(forName: "index")?.stringValue ?? instance.index_
-            instance.membership_ = x.element(forName: "membership")?.stringValue ?? instance.membership_
-            instance.descr = x.element(forName: "description")?.stringValue ?? instance.descr
-            instance.members = x.attributeIntegerValue(forName: "members", withDefaultValue: instance.members)
-            instance.status = x.element(forName: "status")?.stringValue ?? ""
-            if let pinnedMessage = x.element(forName: "pinned-message")?.stringValue {
+            if isV3 {
+                let info = x.element(forName: "info")
+                let settings = x.element(forName: "settings")
+                instance.name = info?.element(forName: "name")?.stringValue ?? instance.name
+                instance.privacy_ = x.attributeStringValue(forName: "privacy") ?? instance.privacy_
+                instance.index_ = settings?.element(forName: "index")?.stringValue ?? instance.index_
+                instance.membership_ = settings?.element(forName: "membership")?.stringValue ?? instance.membership_
+                instance.descr = info?.element(forName: "description")?.stringValue ?? instance.descr
+                instance.members = x.attributeIntegerValue(forName: "members", withDefaultValue: instance.members)
+                instance.status = info?.element(forName: "status")?.stringValue ?? ""
+            } else {
+                instance.name = x.element(forName: "name")?.stringValue ?? instance.name
+                instance.privacy_ = x.element(forName: "privacy")?.stringValue ?? instance.privacy_
+                instance.index_ = x.element(forName: "index")?.stringValue ?? instance.index_
+                instance.membership_ = x.element(forName: "membership")?.stringValue ?? instance.membership_
+                instance.descr = x.element(forName: "description")?.stringValue ?? instance.descr
+                instance.members = x.attributeIntegerValue(forName: "members", withDefaultValue: instance.members)
+                instance.status = x.element(forName: "status")?.stringValue ?? ""
+            }
+            // V3 pinned: <pinned><pinned-message id='...'/>
+            // Old pinned: <pinned-message>stanzaId</pinned-message>
+            let pinnedMessageId: String? = isV3
+                ? x.element(forName: "pinned")?.element(forName: "pinned-message")?.attributeStringValue(forName: "id")
+                : x.element(forName: "pinned-message")?.stringValue
+            if let pinnedMessage = pinnedMessageId {
                 if pinnedMessage != "0" {
                     if instance.pinnedMessage != pinnedMessage {
                         AccountManager.shared.find(for: owner)?.action({ (user, stream) in
@@ -1964,7 +1747,7 @@ class GroupchatManager: AbstractXMPPManager {
                     instance.pinnedMessage = ""
                 }
             }
-            if let members = x.element(forName: "members") {
+            if !isV3, let members = x.element(forName: "members") {
                 instance.members = members.stringValueAsNSInteger()
             }
             if let present = x.element(forName: "present") {
@@ -1990,10 +1773,14 @@ class GroupchatManager: AbstractXMPPManager {
                     realm.add(instance, update: .modified)
                 }
             }
+            // V3: name in <info><name>, Old: name in <x><name>
+            let groupName: String? = isV3
+                ? x.element(forName: "info")?.element(forName: "name")?.stringValue
+                : x.element(forName: "name")?.stringValue
             let instance = realm.object(ofType: RosterStorageItem.self,
                                         forPrimaryKey: [from, owner].prp())
             try realm.write {
-                instance?.username = x.element(forName: "name")?.stringValue ?? ""
+                instance?.username = groupName ?? ""
                 instance?.isContact = false
             }
             
@@ -2064,9 +1851,13 @@ class GroupchatManager: AbstractXMPPManager {
     
     private final func onInviteList(_ iq: XMPPIQ) -> Bool {
         guard let elementId = iq.elementID,
-            let from = iq.from?.bare,
-            let query = iq.element(forName: "query", xmlns: xmlns("invite")) else {
+            let from = iq.from?.bare else {
                 return false
+        }
+        // V3: <invites xmlns='...'>, Old: <query xmlns='...#invite'>
+        guard let query = iq.element(forName: "invites", xmlns: getPrimaryNamespace())
+                ?? iq.element(forName: "query", xmlns: xmlns("invite")) else {
+            return false
         }
 //        queryIds.remove(elementId)
 //        do {
@@ -2089,7 +1880,10 @@ class GroupchatManager: AbstractXMPPManager {
         let groupchatId = GroupChatStorageItem.genPrimary(jid: from, owner: self.owner)
         do {
             let realm = try WRealm.safe()
-            let jids = Set(query.elements(forName: "user").compactMap { $0.attributeStringValue(forName: "jid") })
+            // V3: <jid> children with text content, Old: <user jid='...'> children
+            let oldJids = query.elements(forName: "user").compactMap { $0.attributeStringValue(forName: "jid") }
+            let v3Jids = query.elements(forName: "jid").compactMap { $0.stringValue }
+            let jids = Set(oldJids + v3Jids)
             
             try jids.forEach {
                 jid in
@@ -2146,11 +1940,15 @@ class GroupchatManager: AbstractXMPPManager {
     }
     
     public final func isInvite(_ message: XMPPMessage) -> Bool {
-        return message.element(forName: "invite", xmlns: xmlns("invite")) != nil
+        // V3: <invite xmlns='...'>, Old: <invite xmlns='...#invite'>
+        return message.element(forName: "invite", xmlns: getPrimaryNamespace()) != nil
+            || message.element(forName: "invite", xmlns: xmlns("invite")) != nil
     }
-    
+
     public final func readInvite(in message: XMPPMessage, date: Date, isRead: Bool?, commit: Bool = true) -> Bool {
-        guard let invite = message.element(forName: "invite", xmlns: xmlns("invite")),
+        // V3: <invite xmlns='...'>, Old: <invite xmlns='...#invite'>
+        guard let invite = message.element(forName: "invite", xmlns: getPrimaryNamespace())
+                ?? message.element(forName: "invite", xmlns: xmlns("invite")),
             let groupchat = invite.attributeStringValue(forName: "jid"),
             let elementId = getUniqueMessageId(message, owner: self.owner).isEmpty ? nil : getUniqueMessageId(message, owner: self.owner) else {
             return false
@@ -2197,11 +1995,13 @@ class GroupchatManager: AbstractXMPPManager {
             instance.date = date
             instance.jid = from == owner ? to : from
 //            instance.temporary = true
-            instance.isAnonymous = message
-                .element(forName: "x", xmlns: getPrimaryNamespace())?
-                .element(forName: "privacy")?
-                .stringValue == "incognito"
-            
+            // V3: <group xmlns='...' privacy='incognito'>, Old: <x xmlns='...'><privacy>incognito</privacy>
+            let v3Group = message.element(forName: "group", xmlns: getPrimaryNamespace())
+            let oldX = message.element(forName: "x", xmlns: getPrimaryNamespace())
+            let invitePrivacy: String? = v3Group?.attributeStringValue(forName: "privacy")
+                ?? oldX?.element(forName: "privacy")?.stringValue
+            instance.isAnonymous = invitePrivacy == "incognito"
+
             let rosterItem = RosterStorageItem()
             rosterItem.jid = groupchat
             rosterItem.owner = self.owner
@@ -2209,13 +2009,14 @@ class GroupchatManager: AbstractXMPPManager {
             rosterItem.isContact = false
             rosterItem.subscribtion = .none
             rosterItem.ask = .none
-            
-            if let x = message.element(forName: "x", xmlns: getPrimaryNamespace()) {
+
+            let groupInfoElement = v3Group ?? oldX
+            if let x = groupInfoElement {
                 var entity: RosterItemEntity = .groupchat
-                
+
                 if x.element(forName: "parent-chat") != nil {
                     entity = .privateChat
-                } else if x.element(forName: "privacy")?.stringValue == "incognito" {
+                } else if (v3Group?.attributeStringValue(forName: "privacy") ?? x.element(forName: "privacy")?.stringValue) == "incognito" {
                     entity = .incognitoChat
                 }
                 
@@ -2629,7 +2430,77 @@ class GroupchatManager: AbstractXMPPManager {
         }
     }
     
+    /// V3: Handle headline messages containing group info updates
+    /// Format: <message type='headline'><group privacy='...' members='N'>
+    ///           <info><name/><description/></info>
+    ///           <settings>...</settings>
+    ///           <pinned><pinned-message id='...'/></pinned>
+    ///           <present>N</present>
+    ///         </group></message>
+    public final func readHeadlineMessage(_ message: XMPPMessage) -> Bool {
+        guard message.attributeStringValue(forName: "type") == "headline",
+              let from = message.from?.bare,
+              let group = message.element(forName: "group", xmlns: getPrimaryNamespace()) else {
+            return false
+        }
+
+        let info = group.element(forName: "info")
+        let settings = group.element(forName: "settings")
+
+        do {
+            let realm = try WRealm.safe()
+            let primary = GroupChatStorageItem.genPrimary(jid: from, owner: owner)
+            if let instance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: primary) {
+                try realm.write {
+                    if instance.isInvalidated { return }
+                    instance.name = info?.element(forName: "name")?.stringValue ?? instance.name
+                    instance.privacy_ = group.attributeStringValue(forName: "privacy") ?? instance.privacy_
+                    instance.index_ = settings?.element(forName: "index")?.stringValue ?? instance.index_
+                    instance.membership_ = settings?.element(forName: "membership")?.stringValue ?? instance.membership_
+                    instance.descr = info?.element(forName: "description")?.stringValue ?? instance.descr
+                    instance.members = group.attributeIntegerValue(forName: "members", withDefaultValue: instance.members)
+                    instance.status = info?.element(forName: "status")?.stringValue ?? instance.status
+
+                    // Pinned message
+                    if let pinnedMessage = group.element(forName: "pinned")?.element(forName: "pinned-message")?.attributeStringValue(forName: "id") {
+                        if pinnedMessage != "0" {
+                            if instance.pinnedMessage != pinnedMessage {
+                                AccountManager.shared.find(for: owner)?.action({ (user, stream) in
+                                    user.groupchats.requestPinnedMessage(stream, groupchat: from, message: pinnedMessage)
+                                })
+                                instance.pinnedMessage = pinnedMessage
+                            }
+                        } else {
+                            instance.pinnedMessage = ""
+                        }
+                    }
+
+                    if let present = group.element(forName: "present") {
+                        instance.present = present.stringValueAsNSInteger()
+                    }
+                }
+            }
+            // Update roster display name
+            if let name = info?.element(forName: "name")?.stringValue {
+                let rosterInstance = realm.object(ofType: RosterStorageItem.self,
+                                                 forPrimaryKey: [from, owner].prp())
+                try realm.write {
+                    rosterInstance?.username = name
+                }
+            }
+        } catch {
+            DDLogDebug("GroupchatManager: \(#function). \(error.localizedDescription)")
+        }
+
+        return true
+    }
+
     public final func readMessage(withMessage message: XMPPMessage, commitTransaction: Bool = true) -> Bool {
+        // V3: headline messages carry group info updates, not chat messages
+        if readHeadlineMessage(message) {
+            return true
+        }
+
         func transaction(_ commit: Bool, transaction: (() -> Void)) {
             do {
                 let realm = try  WRealm.safe()
@@ -2644,7 +2515,7 @@ class GroupchatManager: AbstractXMPPManager {
                 DDLogDebug("GroupchatManager: \(#function). \(error.localizedDescription)")
             }
         }
-        
+
         var bareMessage: XMPPMessage = message
         
         var isTrustedSource: Bool = true
@@ -2659,9 +2530,12 @@ class GroupchatManager: AbstractXMPPManager {
         
         guard let groupchat = bareMessage.from?.bare else { return false }
         
-        if let info = bareMessage.element(forName: "x", xmlns: getPrimaryNamespace()),
-           let pinnedMessage = info.element(forName: "pinned-message")?.stringValue {
-            if isTrustedSource {
+        // V3: <x><pinned><pinned-message id='...'/></pinned></x>
+        // Old: <x><pinned-message>stanzaId</pinned-message></x>
+        if let info = bareMessage.element(forName: "x", xmlns: getPrimaryNamespace()) {
+            let pinnedMessage: String? = info.element(forName: "pinned")?.element(forName: "pinned-message")?.attributeStringValue(forName: "id")
+                ?? info.element(forName: "pinned-message")?.stringValue
+            if let pinnedMessage = pinnedMessage, isTrustedSource {
                 do {
                     let realm = try  WRealm.safe()
                     transaction(commitTransaction) {
@@ -2673,20 +2547,31 @@ class GroupchatManager: AbstractXMPPManager {
             }
         }
         
-        let actionType = bareMessage
+        // V3: <x xmlns='https://xabber.com/protocol/groups'><system-message type='...'/>
+        // Old: <x xmlns='https://xabber.com/protocol/groups#system-message' type='...'/>
+        let actionType: String? = bareMessage
+            .element(forName: "x", xmlns: getPrimaryNamespace())?
+            .element(forName: "system-message")?
+            .attributeStringValue(forName: "type")
+            ?? bareMessage
             .element(forName: "x", xmlns: xmlns("system-message"))?
             .attributeStringValue(forName: "type")
-        
+
+        // V3 or old: the element containing system message metadata (name, privacy, etc.)
+        let systemMessageContainer: DDXMLElement? = bareMessage
+            .element(forName: "x", xmlns: getPrimaryNamespace())
+            ?? bareMessage
+            .element(forName: "x", xmlns: xmlns("system-message"))
+
         if actionType == "block" { return true }
-        
+
         if actionType == "update" {
             AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
                 user.vcards.requestItem(stream, jid: groupchat)
             })
         }
-        
-        if actionType == "create", let query = bareMessage
-            .element(forName: "x", xmlns: xmlns("system-message")) {
+
+        if actionType == "create", let query = systemMessageContainer {
             do {
                 let realm = try  WRealm.safe()
                 if let name = query.element(forName: "name")?.stringValue {
@@ -2738,15 +2623,28 @@ class GroupchatManager: AbstractXMPPManager {
             }
         }
         
-        if let userCard = bareMessage
+        // Old format: <reference type='mutable'><user>...</user></reference>
+        // V3 format: <x xmlns='https://xabber.com/protocol/groups'><user>...</user></x>
+        var messageUserCard: DDXMLElement? = bareMessage
             .elements(forName: "reference")
             .filter({ return $0.attributeStringValue(forName: "type") == "mutable" })
             .first(where: { $0.element(forName: "user") != nil })?
-            .element(forName: "user"){
+            .element(forName: "user")
+        var isV3UserCard = false
+        if messageUserCard == nil {
+            messageUserCard = bareMessage
+                .element(forName: "x", xmlns: getPrimaryNamespace())?
+                .element(forName: "user")
+            if messageUserCard != nil { isV3UserCard = true }
+        }
+        if let userCard = messageUserCard {
+            // V3: if <system-message> is present alongside <user>, pass actionType
+            // Old format reference: always pass nil (sender identity only)
+            let cardAction: String? = isV3UserCard ? actionType : nil
             let card = updateUserCard(userCard,
                                       groupchat: groupchat,
                                       trustedSource: isTrustedSource,
-                                      messageAction: nil,
+                                      messageAction: cardAction,
                                       commitTransaction: commitTransaction,
                                       cardDate: getDelayedDate(message) ?? Date())
             if card?.isMe ?? false {
@@ -2755,11 +2653,12 @@ class GroupchatManager: AbstractXMPPManager {
 //                })
             }
         }
+        // Old format system message user card: <x xmlns='...#system-message'><user>
         if let userCard = bareMessage
             .element(forName: "x", xmlns: xmlns("system-message"))?
             .element(forName: "user"),
             let groupchat = bareMessage.from?.bare {
-            
+
             let card = updateUserCard(userCard,
                                       groupchat: groupchat,
                                       trustedSource: isTrustedSource,
@@ -2782,19 +2681,13 @@ class GroupchatManager: AbstractXMPPManager {
         }
         queryIds.remove(elementId)
         if let item = queueItems.first(where: { $0.elementId == elementId }) {
-            switch item.action {
-            case .requestForm:
-                item.formCallback?(nil, nil, nil, "fail")
-                item.settingsCallback?(nil, "fail")
-            default:
-                item.callback?("fail")
-                item.invitesCallback?(item.value, "fail")
-            }
+            item.callback?("fail")
+            item.invitesCallback?(item.value, "fail")
             queueItems.remove(item)
         }
         return true
     }
-        
+
     public final func fail(presence: XMPPPresence) -> Bool {
         guard let to = presence.to?.bare,
             let item = queueItems.first(where: { [[to, "join"].prp(),
@@ -2828,20 +2721,12 @@ class GroupchatManager: AbstractXMPPManager {
             case onReceiveUserPermissionssList(iq): return true
             case onReceiveDefaultPermissionsList(iq): return true
             case onReceiveNewbiesPermissionsList(iq): return true
-            case onEditChatSettingsForm(iq): return true
-            case onEditStatusForm(iq): return true
-            case onEditUserForm(iq): return true
-            case onSuccessSettingsUpdatedForm(iq): return true
-            case onSuccessStatusUpdatedForm(iq): return true
             case onSuccesInvite(iq): return true
             case onInviteList(iq): return true
             case onRevoke(iq): return true
             case onBlockList(iq): return true
             case onBlock(iq): return true
             case onUnblock(iq): return true
-            case onPublishData(stream, iq: iq): return true
-            case onPublishMetadata(iq): return true
-            case onResetAvatar(iq): return true
             case onSuccess(iq): return true
             case onDecline(iq): return true
             default: return false

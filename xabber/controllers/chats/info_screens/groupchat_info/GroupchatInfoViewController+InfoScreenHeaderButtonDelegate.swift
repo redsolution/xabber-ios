@@ -404,51 +404,16 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
         vc.owner = self.owner
         vc.jid = self.jid
         vc.isViewForAdmin = self.canBeChanged
-        if self.canBeChanged && self.groupEditFormValues == nil {
-            XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-                _ = session
-                    .groupchat?
-                    .requestChatSettingsForm(
-                        stream,
-                        groupchat: self.jid,
-                        callback: self.onChatSettingsFormResponse
-                    )
-            } fail: {
-                AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                    _ = user.groupchats
-                        .requestChatSettingsForm(
-                            stream,
-                            groupchat: self.jid,
-                            callback: self.onChatSettingsFormResponse
-                        )
-                })
-            }
-            return
-        }
-        if let dict = self.groupEditFormValues {
-            if let membershipValues = (dict.first(where: { ($0["var"] as? String) == "membership" })?["options"] as? [[String: String?]])?
-                .compactMap ({
-                    item -> [String: String] in
-                    return ["label": item["label"]!!, "value": item["value"]!!]
-                }) {
-                vc.membershipValues = membershipValues
-            }
-            if let indexValues = (dict.first(where: { ($0["var"] as? String) == "index" })?["options"] as? [[String: String?]])?
-                .compactMap ({
-                    item -> [String: String] in
-                    return ["label": item["label"]!!, "value": item["value"]!!]
-                }) {
-                vc.indexValues = indexValues
-            }
-            if let privacyValues = (dict.first(where: { ($0["var"] as? String) == "privacy" })?["options"] as? [[String: String?]])?
-                .compactMap ({
-                    item -> [String: String] in
-                    return ["label": item["label"]!!, "value": item["value"]!!]
-                }) {
-                vc.privacyValues = privacyValues
-            }
-            vc.formData = dict
-        }
+        // V3: membership/index/privacy are well-known protocol values, no form request needed
+        vc.membershipValues = [
+            ["label": GroupChatStorageItem.Membership.open.localized ?? "Open", "value": GroupChatStorageItem.Membership.open.rawValue],
+            ["label": GroupChatStorageItem.Membership.memberOnly.localized ?? "Member only", "value": GroupChatStorageItem.Membership.memberOnly.rawValue],
+        ]
+        vc.indexValues = [
+            ["label": GroupChatStorageItem.Index.none.localized ?? "None", "value": GroupChatStorageItem.Index.none.rawValue],
+            ["label": GroupChatStorageItem.Index.local.localized ?? "Local", "value": GroupChatStorageItem.Index.local.rawValue],
+            ["label": GroupChatStorageItem.Index.global.localized ?? "Global", "value": GroupChatStorageItem.Index.global.rawValue],
+        ]
         self.navigationController?.pushViewController(vc, animated: true)
     }
     
@@ -564,13 +529,20 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
         DispatchQueue.main.async {
             self.view.makeToastActivity(.center)
         }
-        AccountManager.shared.find(for: owner)?.action({ (user, stream) in
-            user.groupchats.publishAvatar(stream,
-                                          groupchat: self.jid,
-                                          groupAvatar: true,
-                                          image: image,
-                                          callback: self.onUpdateAvatarCallback)
-        })
+        // V3: update avatar via <info xmlns='...'><avatar>...</avatar></info>
+        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+            session.groupchat?.updateGroupAvatar(stream,
+                                                 groupchat: self.jid,
+                                                 image: image,
+                                                 callback: self.onUpdateAvatarCallback)
+        } fail: {
+            AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
+                user.groupchats.updateGroupAvatar(stream,
+                                                  groupchat: self.jid,
+                                                  image: image,
+                                                  callback: self.onUpdateAvatarCallback)
+            })
+        }
     }
     
     func onUpdateAvatarCallback(_ error: String?) {

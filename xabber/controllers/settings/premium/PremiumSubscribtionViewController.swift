@@ -19,13 +19,9 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
 
     // MARK: - Data
 
-    private var selectedPeriodIndex = 2
+    private var selectedPeriodIndex = 0
 
-    private let periodData: [(title: String, subtitle: String, price: String, discount: String?, buttonTitle: String)] = [
-        ("Yearly",    "12 months · $35.88",  "$2.99/month", "-40%", "Subscribe for $35.88"),
-        ("Six Months","6 months · $23.94",   "$3.99/month", "-20%", "Subscribe for $23.94"),
-        ("Monthly",   "",                    "$4.99/month", nil,    "Subscribe for $4.99/month"),
-    ]
+    private var periodItems: [(name: String, period: String, priceId: String, storeProduct: Product?)] = []
 
     private let fullFeatureData: [(icon: String, color: UIColor, title: String, desc: String)] = [
         ("archivebox.fill",     .systemBlue,   "Message Archive",          "Complete message history stored securely without automatic deletion."),
@@ -35,6 +31,14 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         ("lock.shield.fill",    .systemPurple, "Passcode Lock",            "Protect the app with a passcode and option to erase all data on failed attempts."),
     ]
 
+    private let fullWithoutHostedByXabberFeatureData: [(icon: String, color: UIColor, title: String, desc: String)] = [
+        ("archivebox.fill",     .systemBlue,   "Message Archive",          "Complete message history stored securely without automatic deletion."),
+        ("cloud.fill",          .systemOrange, "Extended Cloud Storage",   "Upload and store larger files with increased cloud storage capacity."),
+        ("checkmark.seal.fill", .systemGreen,  "Verification Certificate", "Personal digital certificate to verify your identity in conversations."),
+        ("flame.fill",          .systemRed,    "Burn Messages",            "Set messages to automatically disappear after a chosen time period."),
+        ("lock.shield.fill",    .systemPurple, "Passcode Lock",            "Protect the app with a passcode and option to erase all data on failed attempts."),
+    ]
+    
     private let basicFeatureData: [(icon: String, color: UIColor, title: String, desc: String)] = [
         ("flame.fill",          .systemRed,    "Burn Messages",            "Set messages to automatically disappear after a chosen time period."),
         ("lock.shield.fill",    .systemPurple, "Passcode Lock",            "Protect the app with a passcode and option to erase all data on failed attempts."),
@@ -99,7 +103,7 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         super.configure()
         title = "Xabber Premium"
         view.backgroundColor = .systemGroupedBackground
-
+        
         let appearance = UINavigationBarAppearance()
         appearance.configureWithTransparentBackground()
         appearance.titleTextAttributes = [.foregroundColor: UIColor.clear]
@@ -122,6 +126,46 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         purchasedProductIds = SubscribtionsManager.shared.getPurchasedProductIds()
         expiresDate = SubscribtionsManager.shared.getExpiresDate()
 
+        // Show loading state while fetching products
+        view.addSubview(loadingOverlay)
+        loadingOverlay.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            loadingOverlay.topAnchor.constraint(equalTo: view.topAnchor),
+            loadingOverlay.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            loadingOverlay.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            loadingOverlay.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+        loadingOverlay.isHidden = false
+
+        SubscribtionsManager.shared.fetchProducts(jid: self.jid) { [weak self] apiProduct in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.populatePeriodItems(from: apiProduct)
+                self.buildUI()
+            }
+        }
+    }
+
+    private func populatePeriodItems(from apiProduct: APIProduct?) {
+        periodItems.removeAll()
+        guard let product = apiProduct else { return }
+        for price in product.prices {
+            let storeProduct = SubscribtionsManager.shared.products.first(where: { $0.id == price.priceId })
+            periodItems.append((
+                name: price.name,
+                period: price.period,
+                priceId: price.priceId,
+                storeProduct: storeProduct
+            ))
+        }
+        if selectedPeriodIndex >= periodItems.count {
+            selectedPeriodIndex = 0
+        }
+    }
+
+    private func buildUI() {
+        clearViews()
+
         scrollView.delegate = self
         view.addSubview(scrollView)
         scrollView.addSubview(contentStack)
@@ -137,7 +181,6 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         bottomBar.addSubview(topSep)
 
         if isPremiumActive {
-            // "Manage Subscription" plain button
             let manageButton = UIButton(type: .system)
             manageButton.setTitle("Manage Subscription", for: .normal)
             manageButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .medium)
@@ -213,8 +256,9 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
             loadingOverlay.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             loadingOverlay.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
+        loadingOverlay.isHidden = true
 
-        if !isPremiumActive {
+        if !isPremiumActive && !periodItems.isEmpty {
             updateSelection()
         }
     }
@@ -264,10 +308,8 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
 
         setLoading(true)
 
-        // Check if Xabber Account UUID is available (already stored in keychain)
-        let accountUUID = CredentialsManager.getXabberAccountUUID(for: self.jid)
+        let accountUUID = self.jid.uuid().uuidString
 
-        // Purchase via StoreKit 2 (with or without appAccountToken)
         SubscribtionsManager.shared.purchase(
             subscribtion: productId,
             accountUUID: accountUUID
@@ -280,12 +322,11 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
                 return
             }
 
-            // Save to Realm + rebuild UI on main thread to avoid cross-thread Realm visibility issues
             DispatchQueue.main.async {
                 SubscribtionsManager.shared.saveSubscriptionInfo(
                     productId: transaction.productID,
                     jid: self.jid,
-                    accountUUID: accountUUID ?? "",
+                    accountUUID: accountUUID,
                     expires: transaction.expirationDate ?? Date(),
                     purchaseDate: transaction.purchaseDate,
                     transactionId: "\(transaction.id)"
@@ -293,16 +334,17 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
 
                 self.isProcessing = false
                 self.loadingOverlay.isHidden = true
-                self.setupSubviews()
 
-                if accountUUID != nil {
-                    self.showAlert(title: "Success", message: "Your premium subscription is now active!") {
-                        _ = XabberAccountManager.shared.requestToken(for: self.jid) { token in
-                            DDLogDebug("PremiumSubscription: token request result: \(token != nil ? "success" : "failed")")
-                        }
+                // Re-evaluate premium state and rebuild UI without re-fetching products
+                self.isPremiumActive = SubscribtionsManager.shared.hasActiveSubsription()
+                self.purchasedProductIds = SubscribtionsManager.shared.getPurchasedProductIds()
+                self.expiresDate = SubscribtionsManager.shared.getExpiresDate()
+                self.buildUI()
+
+                self.showAlert(title: "Success", message: "Your premium subscription is now active!") {
+                    _ = XabberAccountManager.shared.requestToken(for: self.jid) { token in
+                        DDLogDebug("PremiumSubscription: token request result: \(token != nil ? "success" : "failed")")
                     }
-                } else {
-                    self.showAlert(title: "Success", message: "Your premium subscription is now active!")
                 }
             }
         }
@@ -311,11 +353,10 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
     // MARK: - Subscription Helpers
 
     private func productIdForSelectedPeriod() -> String? {
-        guard let productList = SubscribtionsSecretStore.bundle?.product_list,
-              selectedPeriodIndex < productList.count else {
+        guard selectedPeriodIndex < periodItems.count else {
             return nil
         }
-        return productList[selectedPeriodIndex]
+        return periodItems[selectedPeriodIndex].priceId
     }
 
     private func setLoading(_ loading: Bool) {
@@ -339,11 +380,18 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
     // MARK: - Selection State
 
     private func updateSelection() {
-        subscribeButton.setTitle(periodData[selectedPeriodIndex].buttonTitle, for: .normal)
+        guard selectedPeriodIndex < periodItems.count else { return }
+        let item = periodItems[selectedPeriodIndex]
+        let buttonTitle: String
+        if let product = item.storeProduct {
+            buttonTitle = "Subscribe for \(product.displayPrice)"
+        } else {
+            buttonTitle = "Subscribe"
+        }
+        subscribeButton.setTitle(buttonTitle, for: .normal)
         subscribeButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
 
         for (i, radio) in periodRadioImages.enumerated() {
-            // Skip locked rows — they keep their green checkmark
             guard !lockedPeriodIndices.contains(i) else { continue }
 
             if i == selectedPeriodIndex {
@@ -500,25 +548,77 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         periodRadioImages.removeAll()
         lockedPeriodIndices.removeAll()
 
-        // Determine which period indices are already purchased
-        let productList = SubscribtionsSecretStore.bundle?.product_list ?? []
+        // Find the monthly price for discount calculation
+        let monthlyPrice = monthlyUnitPrice()
 
-        for (i, period) in periodData.enumerated() {
-            let isLocked = i < productList.count && purchasedProductIds.contains(productList[i])
+        for (i, item) in periodItems.enumerated() {
+            let isLocked = purchasedProductIds.contains(item.priceId)
             if isLocked { lockedPeriodIndices.insert(i) }
+
+            let title = item.name
+            let price = item.storeProduct?.displayPrice ?? ""
+            let subtitle = buildPeriodSubtitle(for: item)
+            let discount = buildDiscount(for: item, monthlyUnitPrice: monthlyPrice)
+
             let row = buildPeriodRow(
                 index: i,
-                title: period.title,
-                subtitle: period.subtitle,
-                price: period.price,
-                discount: period.discount,
-                isLast: i == periodData.count - 1,
+                title: title,
+                subtitle: subtitle,
+                price: price,
+                discount: discount,
+                isLast: i == periodItems.count - 1,
                 locked: isLocked
             )
             stack.addArrangedSubview(row)
         }
 
         return card
+    }
+
+    private func monthlyUnitPrice() -> Decimal? {
+        for item in periodItems {
+            guard let product = item.storeProduct,
+                  let sub = product.subscription else { continue }
+            if sub.subscriptionPeriod.unit == .month && sub.subscriptionPeriod.value == 1 {
+                return product.price
+            }
+        }
+        return nil
+    }
+
+    private func buildPeriodSubtitle(for item: (name: String, period: String, priceId: String, storeProduct: Product?)) -> String {
+        guard let product = item.storeProduct,
+              let sub = product.subscription else { return "" }
+        let period = sub.subscriptionPeriod
+        switch period.unit {
+        case .year:
+            let months = period.value * 12
+            return "\(months) months · \(product.displayPrice)"
+        case .month where period.value > 1:
+            return "\(period.value) months · \(product.displayPrice)"
+        default:
+            return ""
+        }
+    }
+
+    private func buildDiscount(for item: (name: String, period: String, priceId: String, storeProduct: Product?), monthlyUnitPrice: Decimal?) -> String? {
+        guard let product = item.storeProduct,
+              let sub = product.subscription,
+              let monthly = monthlyUnitPrice else { return nil }
+        let period = sub.subscriptionPeriod
+        let totalMonths: Int
+        switch period.unit {
+        case .year: totalMonths = period.value * 12
+        case .month: totalMonths = period.value
+        default: return nil
+        }
+        guard totalMonths > 1 else { return nil }
+        let fullPrice = monthly * Decimal(totalMonths)
+        guard fullPrice > 0 else { return nil }
+        let discount = ((fullPrice - product.price) / fullPrice * 100) as NSDecimalNumber
+        let percent = discount.intValue
+        guard percent > 0 else { return nil }
+        return "-\(percent)%"
     }
 
     private func buildPeriodRow(index: Int, title: String, subtitle: String,
@@ -660,8 +760,11 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
             stack.trailingAnchor.constraint(equalTo: card.trailingAnchor),
             stack.bottomAnchor.constraint(equalTo: card.bottomAnchor),
         ])
-
-        let features = hasXabberAccount ? fullFeatureData : basicFeatureData
+        var features = hasXabberAccount ? fullFeatureData : basicFeatureData
+        if !self.jid.contains("xabber.com") {
+            features = hasXabberAccount ? fullWithoutHostedByXabberFeatureData : basicFeatureData
+        }
+        
         for (i, feat) in features.enumerated() {
             stack.addArrangedSubview(
                 buildFeatureRow(icon: feat.icon, color: feat.color,
