@@ -22,6 +22,9 @@ class XMPPNotificationsManagerStorageItem: Object {
     @objc dynamic var unread: Int = 0
     
     @objc dynamic var node: String? = nil
+    @objc dynamic var archiveSyncCompleted: Bool = false
+    @objc dynamic var lastSyncedNotificationId: String? = nil
+    @objc dynamic var lastSyncAt: Date? = nil
     
     static func genPrimary(owner: String) -> String {
         return [owner].prp()
@@ -48,6 +51,9 @@ class NotificationStorageItem: Object {
     @objc dynamic var text: String? = nil
     @objc dynamic var metadata_: String? = nil
     @objc dynamic var date: Date = Date()
+    @objc dynamic var notificationType: String? = nil
+    @objc dynamic var originalSenderJid: String? = nil
+    @objc dynamic var fallbackText: String? = nil
     
     @objc dynamic var shouldShow: Bool = false
     

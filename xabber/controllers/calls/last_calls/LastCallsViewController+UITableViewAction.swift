@@ -26,19 +26,33 @@ import MaterialComponents.MDCPalettes
 
 extension LastCallsViewController {
     
+    internal func showContactInfo(for item: Datasource) {
+        let vc = ContactInfoViewController()
+        vc.owner = item.owner
+        vc.jid = item.jid
+        self.navigationItem.title = " "
+        self.title = " "
+        navigationController?.pushViewController(vc, animated: true)
+    }
+    
     func tableView(_ tableView: UITableView, editActionsForRowAt indexPath: IndexPath) -> [UITableViewRowAction]? {
+        let item = self.datasource[indexPath.row]
+        let infoAction = UITableViewRowAction(style: .normal,
+                                              title: "Info".localizeString(id: "info", arguments: [])) {
+            (action, indexPath) in
+            self.showContactInfo(for: item)
+        }
         
         let deleteAction = UITableViewRowAction(style: .destructive,
                                                 title: "Delete".localizeString(id: "contact_delete", arguments: [])) {
             (action, indexPath) in
-//            guard let item = self.calls?[indexPath.row] else { return }
-//            var sid = item.sid
-//            self.onDelete(sid)
+            self.onDelete(item)
         }
         
+        infoAction.backgroundColor = MDCPalette.blue.tint500
         deleteAction.backgroundColor = MDCPalette.red.tint500
         
-        return [deleteAction]
+        return [deleteAction, infoAction]
     }
     
 }
@@ -47,21 +61,30 @@ extension LastCallsViewController {
 extension LastCallsViewController {
     
     func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
-        let deleteAction = UIContextualAction(style: .destructive,
-                                              title: "Archive".localizeString(id: "archive_chat", arguments: [])) {
+        let item = self.datasource[indexPath.row]
+        let infoAction = UIContextualAction(style: .normal,
+                                            title: "Info".localizeString(id: "info", arguments: [])) {
             (action, view, callback) in
-//            guard let item = self.calls?[indexPath.row] else { return }
-//            var sid = item.sid
-//            self.onDelete(sid)
+            self.showContactInfo(for: item)
+            callback(true)
+        }
+        let deleteAction = UIContextualAction(style: .destructive,
+                                              title: "Delete".localizeString(id: "contact_delete", arguments: [])) {
+            (action, view, callback) in
+            self.onDelete(item)
+            callback(true)
         }
         
+        if let image = UIImage(systemName: "info.circle")?.withRenderingMode(.alwaysTemplate) {
+            infoAction.image = image
+        }
         if let image = imageLiteral( "trash")?.withRenderingMode(.alwaysTemplate) {
             deleteAction.image = image
         }
+        infoAction.backgroundColor = MDCPalette.blue.tint500
         deleteAction.backgroundColor = MDCPalette.red.tint500
             
-        return UISwipeActionsConfiguration(actions: [deleteAction])
+        return UISwipeActionsConfiguration(actions: [deleteAction, infoAction])
         
     }
 }
-

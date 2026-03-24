@@ -26,6 +26,30 @@ import Kingfisher
 class ChatListTableViewCell: UITableViewCell {
     static let cellName = "ChatListTableViewCell"
     
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
+    
+    private static let weekdayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "E"
+        return formatter
+    }()
+    
+    private static let monthDayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM dd"
+        return formatter
+    }()
+    
+    private static let fullDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "d MMM yyyy"
+        return formatter
+    }()
+    
     public var badgeColor : UIColor = UIColor(red: 0, green: 0.478, blue: 1, alpha: 1.0)
     public var badgeColorHighlighted : UIColor = .darkGray
     public var badgeFontSize : Float = 13.0
@@ -304,6 +328,21 @@ class ChatListTableViewCell: UITableViewCell {
     public var badgeString: String = ""
     var oldAvatarUrl: String? = "-1"
     
+    private static func formattedDate(from date: Date) -> String {
+        let today = Date()
+        if NSCalendar.current.isDateInToday(date) {
+            return Self.timeFormatter.string(from: date)
+        } else if abs(today.timeIntervalSince(date)) < 12 * 60 * 60 {
+            return Self.timeFormatter.string(from: date)
+        } else if (NSCalendar.current.dateComponents([.day], from: date, to: today).day ?? 0) <= 7 {
+            return Self.weekdayFormatter.string(from: date)
+        } else if (NSCalendar.current.dateComponents([.year], from: date, to: today).year ?? 0) < 1 {
+            return Self.monthDayFormatter.string(from: date)
+        } else {
+            return Self.fullDateFormatter.string(from: date)
+        }
+    }
+    
     public final func configure(_ jid: String,
                                 owner: String,
                                 username: String,
@@ -336,19 +375,20 @@ class ChatListTableViewCell: UITableViewCell {
             self.avatarView.tintColor = AccountColorManager.shared.palette(for: owner).tint900
             self.avatarView.backgroundColor = AccountColorManager.shared.palette(for: owner).tint100
         } else {
-//            if self.oldAvatarUrl != avatarUrl {
+            self.avatarView.contentMode = .scaleAspectFill
+            self.avatarView.tintColor = nil
+            self.avatarView.backgroundColor = MDCPalette.grey.tint200
+            if self.oldAvatarUrl != avatarUrl || self.avatarView.image == nil {
                 self.oldAvatarUrl = avatarUrl
                 DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 64) { image in
+                    guard self.oldAvatarUrl == avatarUrl else { return }
                     if let image = image {
                         self.avatarView.image = image
                     } else {
-                        if avatarUrl != nil {
-                            self.oldAvatarUrl = nil
-                        }
                         self.avatarView.image = UIImageView.getDefaultAvatar(for: username, owner: owner, size: 64)
                     }
                 }
-//            }
+            }
         }
         
         messageLabel.layoutFor(
@@ -380,20 +420,7 @@ class ChatListTableViewCell: UITableViewCell {
             messageLabel.numberOfLines = 2
         }
         if let date = date {
-            let dateFormatter = DateFormatter()
-            let today = Date()
-            if NSCalendar.current.isDateInToday(date) {
-                dateFormatter.dateFormat = "HH:mm"
-            } else if abs(today.timeIntervalSince(date)) < 12 * 60 * 60 {
-                dateFormatter.dateFormat = "HH:mm"
-            } else if (NSCalendar.current.dateComponents([.day], from: date, to: today).day ?? 0) <= 7 {
-                dateFormatter.dateFormat = "E"
-            } else if (NSCalendar.current.dateComponents([.year], from: date, to: today).year ?? 0) < 1 {
-                dateFormatter.dateFormat = "MMM dd"
-            } else {
-                dateFormatter.dateFormat = "d MMM yyyy"
-            }
-            dateLabel.text = dateFormatter.string(from: date)
+            dateLabel.text = Self.formattedDate(from: date)
         }
         muteIndicator.isHidden = !isMute
         syncedIndicator.alpha = isSynced ? 0.0 : 0.87
@@ -500,6 +527,11 @@ class ChatListTableViewCell: UITableViewCell {
         badgeView.isHidden = true
         subBadgeView.isHidden = true
         verificationBadgeView.isHidden = true
+        oldAvatarUrl = "-1"
+        avatarView.image = nil
+        avatarView.contentMode = .scaleAspectFill
+        avatarView.tintColor = nil
+        avatarView.backgroundColor = MDCPalette.grey.tint200
         avatarView.image = nil
         errorIndicator.isHidden = true
         self.avatarView.contentMode = .scaleAspectFill

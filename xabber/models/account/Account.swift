@@ -123,6 +123,10 @@ final class Account: NSObject {
     var deviceName: String = ""
     
     public var isNewAccount: Bool = false
+
+    static func username(from jid: String) -> String {
+        String(jid.split(separator: "@").first ?? "")
+    }
     
     init(jid: String, queue: DispatchQueue) {
         // set default connection fields
@@ -130,7 +134,7 @@ final class Account: NSObject {
         self.host = ""
         self.port = 5222
         // try to set default username
-        self.username = "\(self.jid.split(separator: "@").first!)"
+        self.username = Account.username(from: jid)
         // default push variables
         self.pushWasReceived = false
         self.pushLastMAMId = ""

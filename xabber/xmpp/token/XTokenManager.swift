@@ -28,14 +28,18 @@ class XTokenManager: AbstractXMPPManager {
     
     internal var tokensSupport: Bool = false
     internal var tokens: Results<DeviceStorageItem>? = nil
-    internal var server: XMPPJID
+    internal var server: XMPPJID?
     internal var bag: DisposeBag = DisposeBag()
+
+    static func serverJID(from owner: String) -> XMPPJID? {
+        guard let jid = XMPPJID(string: owner), jid.user != nil else {
+            return nil
+        }
+        return jid.domainJID
+    }
     
     override init(withOwner owner: String) {
-        guard let serverJid = XMPPJID(string: owner)?.domainJID else {
-            fatalError()
-        }
-        server = serverJid
+        server = XTokenManager.serverJID(from: owner)
         super.init(withOwner: owner)
         load()
         subscribe()
@@ -73,7 +77,7 @@ class XTokenManager: AbstractXMPPManager {
     }
     
     open func revokeAll(_ xmppStream: XMPPStream) {
-        if !tokensSupport { return }
+        guard tokensSupport, let server else { return }
         let elementId = xmppStream.generateUUID
         let revokeAll = DDXMLElement(name: "revoke-all", xmlns: getPrimaryNamespace())
         xmppStream.send(XMPPIQ(iqType: .set, to: server, elementID: elementId, child: revokeAll))
@@ -93,7 +97,7 @@ class XTokenManager: AbstractXMPPManager {
     }
     
     open func revoke(_ xmppStream: XMPPStream, uids: [String]) {
-        if !tokensSupport { return }
+        guard tokensSupport, let server else { return }
         let elementId = xmppStream.generateUUID
         let revoke = DDXMLElement(name: "revoke", xmlns: getPrimaryNamespace())
         uids.compactMap {
@@ -134,7 +138,7 @@ class XTokenManager: AbstractXMPPManager {
     }
     
     open func requestElement() -> XMPPIQ? {
-        if !tokensSupport { return nil}
+        guard tokensSupport, let server else { return nil }
         let elementId = UUID().uuidString
         return XMPPIQ(iqType: .set, to: server, elementID: elementId, child: genTokenBody())
     }
@@ -161,7 +165,7 @@ class XTokenManager: AbstractXMPPManager {
     }
     
     open func requestList(_ xmppStream: XMPPStream) {
-        if !tokensSupport { return }
+        guard tokensSupport, let server else { return }
         let elementID = xmppStream.generateUUID
         xmppStream.send(
             XMPPIQ(
@@ -371,6 +375,7 @@ class XTokenManager: AbstractXMPPManager {
     }
     
     public final func update(_ xmppStream: XMPPStream, descr newDescr: String?) {
+        guard let server else { return }
         let deviceInfo = [[UIDevice.modelName, ","].joined(),  "iOS", UIDevice.current.systemVersion].joined(separator: " ")
         let clientInfo = CommonConfigManager.shared.config.app_name
         let client = DDXMLElement(name: "client", stringValue: clientInfo)

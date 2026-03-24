@@ -181,13 +181,13 @@ class SharedPlayerView: UIView {
     private final func startTimer() {
         self.stopTimer()
         self.timer = Timer.scheduledTimer(
-            timeInterval: 0.01,
+            timeInterval: 0.05,
             target: self,
             selector: #selector(updateProgressBar),
             userInfo: nil,
             repeats: true
         )
-        RunLoop.current.add(self.timer!, forMode: .default)
+        RunLoop.current.add(self.timer!, forMode: .common)
     }
     
     public final func stopTimer() {
@@ -535,6 +535,7 @@ class LastChatsViewController: BaseViewController {
     internal var isAppeared: Bool = false
     
     internal var datasource: [Datasource] = []
+    internal var datasourceIndexByKey: [String: Int] = [:]
     
     internal var bag: DisposeBag = DisposeBag()
     internal var datasetBag: DisposeBag = DisposeBag()
@@ -560,6 +561,8 @@ class LastChatsViewController: BaseViewController {
     internal var topAccountJid: String = ""
     
     internal let updateQueue: DispatchQueue = DispatchQueue(label: "com.xabber.background.lastchats", qos: .background)
+    internal var isDatasetUpdateInFlight: Bool = false
+    internal var needsDatasetRefresh: Bool = false
     
     internal var isSkeletonShowed: Bool = false
     
@@ -776,6 +779,24 @@ class LastChatsViewController: BaseViewController {
     
     var unreadedJids: [String] = []
     
+    private final func datasourceKey(jid: String, owner: String) -> String {
+        [jid, owner].prp()
+    }
+    
+    private final func setDatasource(_ newDatasource: [Datasource]) {
+        self.datasource = newDatasource
+        self.datasourceIndexByKey = Dictionary(
+            newDatasource.enumerated().map { (index, item) in
+                (self.datasourceKey(jid: item.jid, owner: item.owner), index)
+            },
+            uniquingKeysWith: { _, new in new }
+        )
+    }
+    
+    private final func excludedDomains(from accounts: Set<String>) -> [String] {
+        accounts.compactMap { XMPPJID(string: $0)?.domain }
+    }
+    
     private final func mapDataset() -> [Datasource] {
         if self.showSkeleton.value {
             return (0..<(self.chatsObserver?.count ?? 10)).compactMap {
@@ -825,7 +846,7 @@ class LastChatsViewController: BaseViewController {
             case .chats:
                 self.unreadedJids = []
                 if let lockedType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) {
-                    var excludedJids = Array(enabledAccounts.value).compactMap({XMPPJID(string: $0)!.domain})
+                    var excludedJids = self.excludedDomains(from: enabledAccounts.value)
                     excludedJids.append(CommonConfigManager.shared.config.support_jid)
                     
                     predicate = NSPredicate(
@@ -845,7 +866,7 @@ class LastChatsViewController: BaseViewController {
             case .unread:
                 if let lockedType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) {
                     
-                    var excludedJids = Array(enabledAccounts.value).compactMap({XMPPJID(string: $0)!.domain})
+                    var excludedJids = self.excludedDomains(from: enabledAccounts.value)
                     excludedJids.append(CommonConfigManager.shared.config.support_jid)
                     let basePredicate = NSPredicate(
                         format: "isArchived == %@ AND owner IN %@ AND (conversationType_ == %@ OR jid IN %@) AND unread > %@ AND NOT (jid IN %@)",
@@ -902,7 +923,7 @@ class LastChatsViewController: BaseViewController {
             case .archived:
                 self.unreadedJids = []
                 if let lockedType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) {
-                    var excludedJids = Array(enabledAccounts.value).compactMap({XMPPJID(string: $0)!.domain})
+                    var excludedJids = self.excludedDomains(from: enabledAccounts.value)
                     excludedJids.append(CommonConfigManager.shared.config.support_jid)
                     predicate = NSPredicate(
                         format: "isArchived == %@ AND owner IN %@ AND (conversationType_ == %@ OR jid IN %@) AND NOT (jid IN %@)",
@@ -937,6 +958,7 @@ class LastChatsViewController: BaseViewController {
             }
             
             var out: [Datasource] = []
+            let collectionItems = collection.toArray()
             
             let jids = realm.objects(AccountStorageItem.self).filter("enabled == true").toArray().compactMap { $0.jid }
             
@@ -1023,7 +1045,30 @@ class LastChatsViewController: BaseViewController {
                     ))
                 }
             }
-            out.append(contentsOf: collection.compactMap {
+            let encryptedChatItems = collectionItems.filter { $0.conversationType.isEncrypted }
+            let encryptedOwners = Array(Set(encryptedChatItems.map { $0.owner }))
+            let encryptedJids = Array(Set(encryptedChatItems.map { $0.jid }))
+            let signalDevices = encryptedOwners.isEmpty || encryptedJids.isEmpty
+                ? []
+                : realm.objects(SignalDeviceStorageItem.self)
+                    .filter("owner IN %@ AND jid IN %@", encryptedOwners, encryptedJids)
+                    .toArray()
+            let signalDeviceStateByKey = Dictionary(grouping: signalDevices, by: { self.datasourceKey(jid: $0.jid, owner: $0.owner) })
+            let verificationSessions = encryptedOwners.isEmpty || encryptedJids.isEmpty
+                ? []
+                : realm.objects(VerificationSessionStorageItem.self)
+                    .filter("owner IN %@ AND jid IN %@", encryptedOwners, encryptedJids)
+                    .toArray()
+            let verificationRequiredKeys = Set(
+                verificationSessions.compactMap { session -> String? in
+                    guard [.receivedRequest, .receivedRequestAccept].contains(session.state) else {
+                        return nil
+                    }
+                    return self.datasourceKey(jid: session.jid, owner: session.owner)
+                }
+            )
+            
+            out.append(contentsOf: collectionItems.compactMap {
                 item in
                 let blankMessageText: String = "Start messaging here".localizeString(id: "chat_message_start_messaging", arguments: [])
                 
@@ -1101,42 +1146,31 @@ class LastChatsViewController: BaseViewController {
                     let attributedTitle: NSMutableAttributedString = NSMutableAttributedString()
                     let indicatorAttach = NSTextAttachment()
                     var color: UIColor = .label
-                    do {
-                        let realm = try WRealm.safe()
-                        let collectionJid = realm
-                            .objects(SignalDeviceStorageItem.self)
-                            .filter("jid == %@ AND owner == %@", item.jid, item.owner)
-                        if collectionJid.count == 0 {
-                            color = .secondaryLabel
-                            indicatorAttach.image = UIImage(systemName: "lock.fill")?.withTintColor(.secondaryLabel)
-                            attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
-                        } else if collectionJid.toArray().filter({ $0.state == .fingerprintChanged || $0.state == .revoked }).count > 0 {
-                            color = .systemRed
-                            indicatorAttach.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withTintColor(.systemRed)
-                            attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
-                        } else if collectionJid.toArray().filter({ $0.state != .trusted }).count > 0 {
-                            color = .systemOrange
-                            indicatorAttach.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withTintColor(.systemOrange)
-                            attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
-                        } else if collectionJid.toArray().filter({ $0.isTrustedByCertificate }).count > 0 {
-                            color = .systemGreen
-                            indicatorAttach.image = UIImage(systemName: "lock.circle.fill")?.withTintColor(.systemGreen)
-                            attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
-                        } else {
-                            color = .systemGreen
-                            indicatorAttach.image = UIImage(systemName: "lock.fill")?.withTintColor(.systemGreen)
-                            attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
-                        }
-                        
-                        let verificationInstance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", item.owner, item.jid).first
-                        if verificationInstance != nil &&
-                            [.receivedRequest, .receivedRequestAccept].contains((verificationInstance! as VerificationSessionStorageItem).state) {
-                           isVerificationActionRequired = true
-                        }
-                        
-                    } catch {
-                        DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+                    let key = self.datasourceKey(jid: item.jid, owner: item.owner)
+                    let collectionJid = signalDeviceStateByKey[key] ?? []
+                    if collectionJid.isEmpty {
+                        color = .secondaryLabel
+                        indicatorAttach.image = UIImage(systemName: "lock.fill")?.withTintColor(.secondaryLabel)
+                        attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
+                    } else if collectionJid.contains(where: { $0.state == .fingerprintChanged || $0.state == .revoked }) {
+                        color = .systemRed
+                        indicatorAttach.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withTintColor(.systemRed)
+                        attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
+                    } else if collectionJid.contains(where: { $0.state != .trusted }) {
+                        color = .systemOrange
+                        indicatorAttach.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withTintColor(.systemOrange)
+                        attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
+                    } else if collectionJid.contains(where: { $0.isTrustedByCertificate }) {
+                        color = .systemGreen
+                        indicatorAttach.image = UIImage(systemName: "lock.circle.fill")?.withTintColor(.systemGreen)
+                        attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
+                    } else {
+                        color = .systemGreen
+                        indicatorAttach.image = UIImage(systemName: "lock.fill")?.withTintColor(.systemGreen)
+                        attributedTitle.append(NSAttributedString(attachment: indicatorAttach))
                     }
+                    
+                    isVerificationActionRequired = verificationRequiredKeys.contains(key)
                     
                     attributedTitle.append(NSAttributedString(string: username, attributes: [
                         .foregroundColor: color,
@@ -1210,41 +1244,51 @@ class LastChatsViewController: BaseViewController {
     }
     
     public final func runDatasetUpdateTask() {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async {
+                self.runDatasetUpdateTask()
+            }
+            return
+        }
         preprocessDataset()
         postprocessDataset()
     }
     
     private final func preprocessDataset() {
         if !canUpdateDataset { return }
-        self.canUpdateDataset = false
+        self.needsDatasetRefresh = true
+        guard !self.isDatasetUpdateInFlight else { return }
+        self.needsDatasetRefresh = false
         if showSkeleton.value {
-            self.canUpdateDataset = false
-            self.datasource = self.mapDataset()
+            self.setDatasource(self.mapDataset())
             self.tableView.reloadData()
             self.canUpdateDataset = true
             return
         }
-        self.updateQueue.sync {
+        self.isDatasetUpdateInFlight = true
+        let oldDatasource = self.datasource
+        let shouldAnimate = self.isFirstLayout
+        self.updateQueue.async {
             let newDataset = self.mapDataset()
-            let changes = diff(old: self.datasource, new: newDataset)
+            let changes = diff(old: oldDatasource, new: newDataset)
             let indexPaths = self.convertChangeset(changes: changes)
             DispatchQueue.main.async {
-                if !self.isFirstLayout {
+                if !shouldAnimate {
                     UIView.performWithoutAnimation {
                         self.apply(changes: indexPaths) {
-                            self.datasource = newDataset
+                            self.setDatasource(newDataset)
                         }
                     }
                 } else {
                     let updatesCount = indexPaths.deletes.count + indexPaths.inserts.count + indexPaths.moves.count
                     if updatesCount < 4 {
                         self.apply(changes: indexPaths) {
-                            self.datasource = newDataset
+                            self.setDatasource(newDataset)
                         }
                     } else {
                         UIView.performWithoutAnimation {
                             self.apply(changes: indexPaths) {
-                                self.datasource = newDataset
+                                self.setDatasource(newDataset)
                             }
                         }
                     }
@@ -1257,6 +1301,13 @@ class LastChatsViewController: BaseViewController {
         
     }
     
+    private final func finishDatasetUpdateCycle() {
+        self.isDatasetUpdateInFlight = false
+        self.canUpdateDataset = true
+        guard self.needsDatasetRefresh else { return }
+        self.preprocessDataset()
+    }
+    
     private final func apply(changes: ChangesWithIndexPath, prepare: @escaping (() -> Void)) {
         
         if changes.deletes.isEmpty &&
@@ -1264,7 +1315,7 @@ class LastChatsViewController: BaseViewController {
             changes.moves.isEmpty &&
             changes.replaces.isEmpty {
             prepare()
-            self.canUpdateDataset = true
+            self.finishDatasetUpdateCycle()
             return
         }
         
@@ -1283,7 +1334,7 @@ class LastChatsViewController: BaseViewController {
                 }
             }
         }, completion: { result in
-            self.canUpdateDataset = true
+            self.finishDatasetUpdateCycle()
             if changes.replaces.isEmpty { return }
             UIView.performWithoutAnimation {
                 //may be increase performance
@@ -1439,7 +1490,7 @@ class LastChatsViewController: BaseViewController {
                 func updateDatasource() {
                     self.tableView.reloadRows(at: result.compactMap {
                         item in
-                        if let row = self.datasource.firstIndex(where: { $0.jid == item.jid && $0.owner == item.owner }) {
+                        if let row = self.datasourceIndexByKey[self.datasourceKey(jid: item.jid, owner: item.owner)] {
                             return IndexPath(row: row, section: 0)
                         }
                         return nil

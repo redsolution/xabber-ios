@@ -32,14 +32,16 @@ class NotificationsCategoriesViewController: BaseViewController {
     
     
     private let tableView: UITableView = {
-        let view = UITableView(frame: .zero, style: .grouped)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(UITableViewCell.self, forCellReuseIdentifier: "tablecell")
         view.register(MenuItemTableCell.self, forCellReuseIdentifier: MenuItemTableCell.cellName)
         view.register(MenuItemHeaderTableCell.self, forCellReuseIdentifier: MenuItemHeaderTableCell.cellName)
         view.separatorStyle = .none
         view.backgroundColor = .systemBackground
-        view.allowsMultipleSelection = true
+        view.allowsMultipleSelection = false
+        view.rowHeight = UITableView.automaticDimension
+        view.estimatedRowHeight = 52
         
         return view
     }()
@@ -64,26 +66,18 @@ class NotificationsCategoriesViewController: BaseViewController {
                 do {
                     let realm = try WRealm.safe()
                     let jids = results.toArray().compactMap({ return $0.jid })
-                    let notifications = realm.objects(NotificationStorageItem.self).filter("isRead == false AND shouldShow == true AND owner IN %@", jids).toArray()
-                    
-//                    let accountsDatsource: [Datasource] = results.compactMap {
-//                        let notificationsCount = notifications.filter({ $0.owner == $0.jid }).count
-//                        return Datasource(title: $0.username, icon: "person.crop.circle", key: $0.jid, subtitle: "\(notificationsCount)", color: AccountColorManager.shared.palette(for: $0.jid).tint500)
-//                    }
-                    let securityCount = notifications.filter({ $0.category == .device }).count
-                    let mentionsCount = notifications.filter({ $0.category == .mention }).count
-                    let infoCount = notifications.filter({ $0.category == .info }).count
+                    let counters = NotificationsSupport.unreadCounters(in: realm, owners: jids)
                     self.datasource = [
                         [
                             Datasource(title: "Notifications", icon: "bell.fill", key: "all", subtitle: "Manage security alerts, information updates, mentions, and other notifications.", color: .tintColor, isHeader: true),
                         ],
                         [
-                            Datasource(title: "Notifications", icon: "bell", key: "all", subtitle: "\(notifications.count)", color: .tintColor, isHeader: false),
+                            Datasource(title: "Notifications", icon: "bell", key: "all", subtitle: "\(counters.total)", color: .tintColor, isHeader: false),
                         ],
                         [
-                            Datasource(title: "Security", icon: "checkerboard.shield", key: "security", subtitle: "\(securityCount)", color: .tintColor, isHeader: false),
-                            Datasource(title: "Information", icon: "info.circle", key: "info", subtitle: "\(infoCount)", color: .tintColor, isHeader: false),
-                            Datasource(title: "Mentions", icon: "at", key: "mentions", subtitle: "\(mentionsCount)", color: .tintColor, isHeader: false),
+                            Datasource(title: "Security", icon: "checkerboard.shield", key: "security", subtitle: "\(counters.security)", color: .tintColor, isHeader: false),
+                            Datasource(title: "Information", icon: "info.circle", key: "info", subtitle: "\(counters.info)", color: .tintColor, isHeader: false),
+                            Datasource(title: "Mentions", icon: "at", key: "mentions", subtitle: "\(counters.mentions)", color: .tintColor, isHeader: false),
                         ]
                     ]
                 } catch {
@@ -250,15 +244,11 @@ extension NotificationsCategoriesViewController: UITableViewDataSource {
             }
             
             cell.configure(title: item.title, badge: item.subtitle, icon: item.icon, isImportant: true)
-
-            let view = UIView()
-            let containerView: UIView = UIView()
-            containerView.addSubview(view)
-            view.fillSuperviewWithOffset(top: 2, bottom: 2, left: 8, right: 8)
-            view.layer.cornerRadius = 16
-            view.layer.masksToBounds = true
-            view.backgroundColor = AccountColorManager.shared.topPalette().tint50 | AccountColorManager.shared.topPalette().tint900
-            cell.selectedBackgroundView = containerView
+            let selectionBackground = UIView()
+            selectionBackground.backgroundColor = AccountColorManager.shared.topPalette().tint50 | AccountColorManager.shared.topPalette().tint900
+            selectionBackground.layer.cornerRadius = 16
+            selectionBackground.clipsToBounds = true
+            cell.selectedBackgroundView = selectionBackground
             
             return cell
         }
@@ -285,7 +275,7 @@ extension NotificationsCategoriesViewController: UITableViewDelegate {
     }
     
     func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {
-        return 0
+        return .leastNormalMagnitude
     }
     
     func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
@@ -314,17 +304,15 @@ extension NotificationsCategoriesViewController: UITableViewDelegate {
 //            }
 //            selectedInSection.forEach { tableView.deselectRow(at: $0, animated: false) }
 //        }
-        let paths = tableView.indexPathsForSelectedRows?.filter({ $0 != indexPath }).filter({ $0.section != 3 })
+        let paths = tableView.indexPathsForSelectedRows?.filter({ $0 != indexPath })
         paths?.forEach { tableView.deselectRow(at: $0, animated: false) }
         
         
         switch indexPath.section {
-            case 1, 2:
-                self.filterDelegate?.shouldFilterBy(category: self.datasource[indexPath.section][indexPath.row].key)
-            case 3:
-                self.filterDelegate?.shouldFilterBy(account: self.datasource[indexPath.section][indexPath.row].key)
-            default:
-                break
+        case 1, 2:
+            self.filterDelegate?.shouldFilterBy(category: self.datasource[indexPath.section][indexPath.row].key)
+        default:
+            break
         }
     }
 }

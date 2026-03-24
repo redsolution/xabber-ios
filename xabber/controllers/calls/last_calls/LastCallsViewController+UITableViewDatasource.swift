@@ -31,14 +31,12 @@ extension LastCallsViewController: UITableViewDataSource {
         cell.configure(
             owner: item.owner,
             jid: item.jid,
-            body: item.body,
+            avatarUrl: item.avatarUrl,
             username: item.username,
             date: item.date,
-            outgoing: item.outgoing,
-            state: item.state,
-            duration: item.duration
+            direction: item.direction,
+            outgoing: item.outgoing
         )
-        cell.onCallButtonPress = onCall
         cell.setMask()
         return cell
     }

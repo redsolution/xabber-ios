@@ -58,20 +58,24 @@ extension LastCallsViewController {
 //        CallManager.shared.startCall(self, owner: owner, to: jid, type: .audio)
     }
     
-    internal func onDelete(_ sid: String) {
-//        DispatchQueue.global(qos: .utility).async {
-            do {
-                let realm = try WRealm.safe()
-                if !realm.isInWriteTransaction {
-                    try realm.write {
-                        realm
-                            .object(ofType: CallMetadataStorageItem.self, forPrimaryKey: sid)?
-                            .isDeleted = true
+    internal func onDelete(_ item: Datasource) {
+        AccountManager.shared.find(for: item.owner)?.action({ user, stream in
+            user.msgDeleteManager.deleteMessage(stream, primary: item.messagePrimary, symmetric: false, callback: nil)
+        })
+        do {
+            let realm = try WRealm.safe()
+            if !realm.isInWriteTransaction {
+                try realm.write {
+                    realm.object(ofType: MessageStorageItem.self, forPrimaryKey: item.messagePrimary)?.isDeleted = true
+                    if let referencePrimary = item.referencePrimary,
+                       referencePrimary.hasPrefix(item.owner + "_") {
+                        let callId = String(referencePrimary.dropFirst(item.owner.count + 1))
+                        realm.object(ofType: CallMetadataStorageItem.self, forPrimaryKey: callId)?.isDeleted = true
                     }
                 }
-            } catch {
-                DDLogDebug("cant delete call")
             }
-//        }
+        } catch {
+            DDLogDebug("cant delete call")
+        }
     }
 }

@@ -16,115 +16,337 @@
 //  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 //
 //
-//
 
 import XCTest
-import Security
+import UIKit
 import RealmSwift
+import XMPPFramework
 @testable import xabber
 
-class xabberTests: XCTestCase {
+@MainActor
+final class InfoScreenHeaderViewTests: XCTestCase {
 
-    override func setUpWithError() throws {}
-    override func tearDownWithError() throws {}
-
-    func testExample() throws {}
-
-    func testPerformanceExample() throws {
-        measure {}
+    private func makeButton(icon: String, title: String) -> InfoHeaderButton {
+        let button = InfoHeaderButton()
+        button.configure(icon: icon, title: title)
+        return button
     }
 
-    /// Snapshot the InfoScreenHeaderView in different contexts
-    func testSnapshotInfoHeaderView() throws {
-        let expectation = self.expectation(description: "UI rendering")
+    private func makeHeader(
+        width: CGFloat = 390,
+        subtitle: String? = "redsolution.com",
+        thirdLine: String? = nil,
+        buttons: [UIButton] = []
+    ) -> InfoScreenHeaderView {
+        let header = InfoScreenHeaderView(frame: .zero)
+        header.additionalTopOffset = 56
+        header.titleButton.setTitle("Igor Boldin", for: .normal)
+        header.titleButton.setTitleColor(.label, for: .normal)
 
-        DispatchQueue.main.async {
-            defer { expectation.fulfill() }
-
-            func snapshotHeader(width: CGFloat, title: String, subtitle: String, thirdLine: String?, hasButtons: Bool, filename: String) {
-                let header = InfoScreenHeaderView(frame: .zero)
-                header.additionalTopOffset = 56
-
-                // Add some buttons if needed
-                if hasButtons {
-                    let b1 = InfoHeaderButton()
-                    b1.configure(icon: "message.fill", title: "message")
-                    let b2 = InfoHeaderButton()
-                    b2.configure(icon: "phone.fill", title: "call")
-                    let b3 = InfoHeaderButton()
-                    b3.configure(icon: "bell.fill", title: "mute")
-                    let b4 = InfoHeaderButton()
-                    b4.configure(icon: "ellipsis", title: "more")
-                    header.configureButtons { [b1, b2, b3, b4] }
-                }
-
-                header.configure(avatarUrl: nil, owner: "", jid: title,
-                                  titleColor: .label, title: title,
-                                  subtitle: subtitle, thirdLine: thirdLine)
-
-                let h = header.preferredHeight
-                header.frame = CGRect(x: 0, y: 0, width: width, height: h)
-                header.updateSubviews()
-                header.backgroundColor = .systemGroupedBackground
-                header.layoutIfNeeded()
-
-                let renderer = UIGraphicsImageRenderer(size: CGSize(width: width, height: h))
-                let img = renderer.image { _ in
-                    header.drawHierarchy(in: header.bounds, afterScreenUpdates: true)
-                }
-                let path = "/tmp/\(filename).png"
-                try? img.pngData()?.write(to: URL(fileURLWithPath: path))
-                print("✓ Saved \(filename): w=\(Int(width)) h=\(Int(h))")
-            }
-
-            // iPhone 16e width (390pt)
-            snapshotHeader(width: 390, title: "igor.boldin@redsolution.com", subtitle: "redsolution.com", thirdLine: nil, hasButtons: true, filename: "header_account_iphone")
-            snapshotHeader(width: 390, title: "Andrew Nenakhov", subtitle: "andrew.nenakhov@redsolution.com", thirdLine: "redsolution.com", hasButtons: true, filename: "header_contact_iphone")
-            snapshotHeader(width: 390, title: "xabber developers", subtitle: "groupchat@conference.redsolution.com", thirdLine: "5 members", hasButtons: true, filename: "header_groupchat_iphone")
-            snapshotHeader(width: 390, title: "igor.boldin@redsolution.com", subtitle: "redsolution.com", thirdLine: nil, hasButtons: false, filename: "header_settings_iphone")
-
-            // iPad width (1024pt)
-            snapshotHeader(width: 1024, title: "igor.boldin@redsolution.com", subtitle: "redsolution.com", thirdLine: nil, hasButtons: true, filename: "header_account_ipad")
-            snapshotHeader(width: 1024, title: "xabber developers", subtitle: "groupchat@conference.redsolution.com", thirdLine: "5 members", hasButtons: true, filename: "header_groupchat_ipad")
+        if !buttons.isEmpty {
+            header.configureButtons { buttons }
+        } else {
+            header.showButtons = false
         }
 
-        waitForExpectations(timeout: 5)
+        header.subtitleLabel.text = subtitle
+        header.subtitleLabel.isHidden = subtitle?.isEmpty ?? true
+
+        if let thirdLine {
+            header.thirdLineLabel.text = thirdLine
+            header.thirdLineLabel.isHidden = false
+        } else {
+            header.thirdLineLabel.text = nil
+            header.thirdLineLabel.isHidden = true
+        }
+
+        header.frame = CGRect(x: 0, y: 0, width: width, height: header.preferredHeight)
+        header.updateSubviews()
+        header.layoutIfNeeded()
+        return header
     }
 
-    /// Injects XMPP account into Realm and credentials into keychain using the app's CredentialsManager.
-    func testInjectXMPPCredentials() throws {
-        let jid = ""
-        let password = ""
+    func testCompactActionButtonsUseTheConfiguredSize() {
+        let header = makeHeader(buttons: [
+            makeButton(icon: "message.fill", title: "message"),
+            makeButton(icon: "phone.fill", title: "call"),
+            makeButton(icon: "bell.fill", title: "mute"),
+            makeButton(icon: "ellipsis", title: "more"),
+        ])
 
-        // Use the app's CredentialsManager to store the password (correct service/access group)
-        CredentialsManager.shared.setItem(for: jid, password: password)
+        XCTAssertFalse(header.buttonsStack.isHidden)
+        XCTAssertEqual(header.buttons.count, 4)
 
-        // Verify via CredentialsManager read
-        let stored = CredentialsManager.shared.getItem(for: jid)
-        let readPass = stored.creditionalString
-        print("Keychain read back: \(readPass != nil ? "OK" : "FAILED")")
-        XCTAssertNotNil(readPass, "Password not readable via CredentialsManager")
-        if let p = readPass { XCTAssertEqual(p, password) }
-        print("✓ Credentials injected for \(jid)")
+        for button in header.buttons {
+            XCTAssertEqual(button.frame.size.width, 76, accuracy: 0.5)
+            XCTAssertEqual(button.frame.size.height, 56, accuracy: 0.5)
+        }
 
-        // Add account to Realm
+        XCTAssertEqual(header.buttonsStack.frame.height, 56, accuracy: 0.5)
+    }
+
+    func testSubtitleAndThirdLineSpacingStaysAtEightPoints() {
+        let header = makeHeader(thirdLine: "5 members")
+
+        XCTAssertEqual(header.subtitleLabel.frame.minY - header.titleButton.frame.maxY, 8, accuracy: 0.5)
+        XCTAssertEqual(header.thirdLineLabel.frame.minY - header.subtitleLabel.frame.maxY, 8, accuracy: 0.5)
+
+        let thirdLineOnlyHeader = makeHeader(subtitle: nil, thirdLine: "5 members")
+        XCTAssertEqual(thirdLineOnlyHeader.thirdLineLabel.frame.minY - thirdLineOnlyHeader.titleButton.frame.maxY, 8, accuracy: 0.5)
+    }
+
+    func testPreferredHeightGrowsWhenButtonsAreVisible() {
+        let headerWithoutButtons = makeHeader()
+        let headerWithButtons = makeHeader(buttons: [
+            makeButton(icon: "message.fill", title: "message"),
+            makeButton(icon: "phone.fill", title: "call"),
+            makeButton(icon: "bell.fill", title: "mute"),
+            makeButton(icon: "ellipsis", title: "more"),
+        ])
+
+        XCTAssertTrue(headerWithoutButtons.buttonsStack.isHidden)
+        XCTAssertFalse(headerWithButtons.buttonsStack.isHidden)
+        XCTAssertEqual(headerWithButtons.preferredHeight - headerWithoutButtons.preferredHeight, 64, accuracy: 0.5)
+    }
+
+    func testEllipsisButtonUsesASymbolImage() {
+        let button = makeButton(icon: "ellipsis", title: "more")
+
+        XCTAssertEqual(button.title.text, "more")
+        XCTAssertNotNil(button.icon.image)
+        XCTAssertTrue(button.icon.image?.isSymbolImage ?? false)
+    }
+}
+
+final class AccountBootstrapTests: XCTestCase {
+
+    private let testLoginJid = "igor.boldin@xmppdev01.xabber.com"
+    private let testLoginPassword = "1234"
+
+    func testAccountUsernameFromJIDHandlesEmptyAndMalformedValues() {
+        XCTAssertEqual(Account.username(from: ""), "")
+        XCTAssertEqual(Account.username(from: "xmppdev01.xabber.com"), "xmppdev01.xabber.com")
+        XCTAssertEqual(Account.username(from: testLoginJid), "igor.boldin")
+    }
+
+    func testNotifyManagerExcludedDomainsIgnoresMalformedJIDs() {
+        let domains = NotifyManager.excludedDomains(
+            from: [
+                "",
+                "not a jid",
+                testLoginJid,
+                "room@conference.xabber.com/resource"
+            ]
+        )
+
+        XCTAssertEqual(domains, [
+            "xmppdev01.xabber.com",
+            "conference.xabber.com"
+        ])
+    }
+
+    func testXTokenManagerServerJIDIgnoresMalformedOwners() {
+        XCTAssertNil(XTokenManager.serverJID(from: ""))
+        XCTAssertNil(XTokenManager.serverJID(from: "not a jid"))
+        XCTAssertEqual(XTokenManager.serverJID(from: testLoginJid)?.domain, "xmppdev01.xabber.com")
+    }
+
+    func testInjectXMPPCredentials() {
+        CredentialsManager.shared.setItem(for: testLoginJid, password: testLoginPassword)
+
+        let stored = CredentialsManager.shared.getItem(for: testLoginJid)
+        XCTAssertEqual(stored.kind, .password)
+        XCTAssertEqual(stored.creditionalString, testLoginPassword)
+    }
+}
+
+final class NotificationsFeatureTests: XCTestCase {
+
+    private let owner = "igor.boldin@xmppdev01.xabber.com"
+
+    override func setUp() {
+        super.setUp()
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(inMemoryIdentifier: "NotificationsFeatureTests-\(name)")
+        let realm = try! WRealm.safe()
+        try! realm.write {
+            realm.deleteAll()
+        }
+    }
+
+    private func makeMessage(xml: String) throws -> XMPPMessage {
+        let document = try DDXMLDocument(xmlString: xml, options: 0)
+        guard let root = document.rootElement() else {
+            throw NSError(domain: "NotificationsFeatureTests", code: 1)
+        }
+        return XMPPMessage(from: root)
+    }
+
+    func testParsePayloadUsesOriginalSenderAndFallbackText() throws {
+        let message = try makeMessage(xml: """
+        <message type='chat' from='notifications.xmppdev01.xabber.com' to='\(owner)' id='notif-1'>
+          <notification xmlns='urn:xabber:xen:0' type='alert' category='security'>
+            <forwarded xmlns='urn:xmpp:forward:0'>
+              <message type='chat' from='security@xmppdev01.xabber.com' to='\(owner)'>
+                <nick xmlns='http://jabber.org/protocol/nick'>Security Bot</nick>
+                <body>Login from Chrome on macOS</body>
+                <device id='device-1'/>
+              </message>
+            </forwarded>
+          </notification>
+          <body>Fallback security text</body>
+          <addresses xmlns='http://jabber.org/protocol/address'>
+            <address type='ofrom' jid='security@xmppdev01.xabber.com'/>
+          </addresses>
+          <time xmlns='https://xabber.com/protocol/delivery' by='\(owner)' stamp='2026-03-24T10:15:30Z'/>
+        </message>
+        """)
+
+        let payload = XMPPNotificationsManager.parsePayload(from: message, owner: owner)
+
+        XCTAssertEqual(payload?.jid, "security@xmppdev01.xabber.com")
+        XCTAssertEqual(payload?.originalSenderJid, "security@xmppdev01.xabber.com")
+        XCTAssertEqual(payload?.category, .device)
+        XCTAssertEqual(payload?.notificationType, "alert")
+        XCTAssertEqual(payload?.fallbackText, "Fallback security text")
+        XCTAssertEqual(payload?.displayNick, "Security Bot")
+        XCTAssertEqual(payload?.text, "Login from Chrome on macOS")
+    }
+
+    func testParsePayloadRejectsMismatchedOriginalSender() throws {
+        let message = try makeMessage(xml: """
+        <message type='chat' from='notifications.xmppdev01.xabber.com' to='\(owner)' id='notif-2'>
+          <notification xmlns='urn:xabber:xen:0' type='alert' category='security'>
+            <forwarded xmlns='urn:xmpp:forward:0'>
+              <message type='chat' from='wrong@xmppdev01.xabber.com' to='\(owner)'>
+                <body>Suspicious login</body>
+                <device id='device-2'/>
+              </message>
+            </forwarded>
+          </notification>
+          <addresses xmlns='http://jabber.org/protocol/address'>
+            <address type='ofrom' jid='security@xmppdev01.xabber.com'/>
+          </addresses>
+          <time xmlns='https://xabber.com/protocol/delivery' by='\(owner)' stamp='2026-03-24T10:15:30Z'/>
+        </message>
+        """)
+
+        XCTAssertNil(XMPPNotificationsManager.parsePayload(from: message, owner: owner))
+    }
+
+    func testReadStoresNewNotificationsAsUnread() throws {
         let realm = try WRealm.safe()
         try realm.write {
-            if realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid) == nil {
-                let account = AccountStorageItem()
-                account.jid = jid
-                account.node = String(jid.split(separator: "@").first ?? "")
-                account.service = String(jid.split(separator: "@").last ?? "")
-                account.host = account.service
-                account.savePassword = true
-                account.enabled = true
-                account.order = 0
-                realm.add(account)
-                print("✓ Account added to Realm: \(jid)")
-            } else {
-                print("ℹ Account already in Realm: \(jid)")
-            }
+            let oldNotification = NotificationStorageItem()
+            oldNotification.primary = NotificationStorageItem.genPrimary(owner: owner, jid: "security@xmppdev01.xabber.com", uniqueId: "old")
+            oldNotification.owner = owner
+            oldNotification.jid = "security@xmppdev01.xabber.com"
+            oldNotification.uniqueId = "old"
+            oldNotification.messageId = "old"
+            oldNotification.category = .device
+            oldNotification.isRead = true
+            oldNotification.shouldShow = true
+            oldNotification.date = ISO8601DateFormatter().date(from: "2026-03-23T10:00:00Z")!
+            realm.add(oldNotification)
         }
+
+        let manager = XMPPNotificationsManager(withOwner: owner)
+        let message = try makeMessage(xml: """
+        <message type='chat' from='notifications.xmppdev01.xabber.com' to='\(owner)' id='notif-3'>
+          <notification xmlns='urn:xabber:xen:0' type='alert' category='security'>
+            <forwarded xmlns='urn:xmpp:forward:0'>
+              <message type='chat' from='security@xmppdev01.xabber.com' to='\(owner)'>
+                <body>New login</body>
+                <device id='device-3'/>
+              </message>
+            </forwarded>
+          </notification>
+          <addresses xmlns='http://jabber.org/protocol/address'>
+            <address type='ofrom' jid='security@xmppdev01.xabber.com'/>
+          </addresses>
+          <time xmlns='https://xabber.com/protocol/delivery' by='\(owner)' stamp='2026-03-24T10:15:30Z'/>
+        </message>
+        """)
+
+        XCTAssertTrue(manager.read(withMessage: message))
+
+        let stored = try WRealm.safe()
+            .objects(NotificationStorageItem.self)
+            .filter("owner == %@ AND uniqueId != %@", owner, "old")
+            .first
+        XCTAssertNotNil(stored)
+        XCTAssertEqual(stored?.isRead, false)
+        XCTAssertEqual(stored?.notificationType, "alert")
+        XCTAssertEqual(stored?.originalSenderJid, "security@xmppdev01.xabber.com")
     }
 
+    func testCountersAndDatasourceIncludeMentions() throws {
+        let realm = try WRealm.safe()
+        try realm.write {
+            let mention = NotificationStorageItem()
+            mention.primary = NotificationStorageItem.genPrimary(owner: owner, jid: "romeo@xmppdev01.xabber.com", uniqueId: "mention-1")
+            mention.owner = owner
+            mention.jid = "romeo@xmppdev01.xabber.com"
+            mention.originalSenderJid = "romeo@xmppdev01.xabber.com"
+            mention.uniqueId = "mention-1"
+            mention.messageId = "mention-1"
+            mention.category = .mention
+            mention.isRead = false
+            mention.shouldShow = true
+            mention.text = "You have been mentioned"
+            mention.date = ISO8601DateFormatter().date(from: "2026-03-24T11:00:00Z")!
+            realm.add(mention)
+
+            let roster = RosterStorageItem()
+            roster.primary = RosterStorageItem.genPrimary(jid: "romeo@xmppdev01.xabber.com", owner: owner)
+            roster.owner = owner
+            roster.jid = "romeo@xmppdev01.xabber.com"
+            roster.username = "Romeo"
+            realm.add(roster)
+        }
+
+        let counters = NotificationsSupport.unreadCounters(in: try WRealm.safe(), owners: [owner])
+        XCTAssertEqual(counters.total, 1)
+        XCTAssertEqual(counters.mentions, 1)
+
+        let controller = NotificationsListViewController()
+        let snapshot = controller.buildDatasourceSnapshot(filter: .mentions, filterAccount: owner)
+        let rows = snapshot.flatMap(\.childs).filter { !$0.isHeader }
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.category, .mention)
+        XCTAssertEqual(rows.first?.title.string, "Romeo mentioned you")
+    }
+
+    func testAccountFilteringUsesOnlySelectedOwnersNotifications() throws {
+        let realm = try WRealm.safe()
+        try realm.write {
+            let first = NotificationStorageItem()
+            first.primary = NotificationStorageItem.genPrimary(owner: owner, jid: "first@xmppdev01.xabber.com", uniqueId: "first")
+            first.owner = owner
+            first.jid = "first@xmppdev01.xabber.com"
+            first.uniqueId = "first"
+            first.messageId = "first"
+            first.category = .info
+            first.isRead = false
+            first.shouldShow = true
+            first.date = ISO8601DateFormatter().date(from: "2026-03-24T08:00:00Z")!
+            realm.add(first)
+
+            let secondOwner = "second@xmppdev01.xabber.com"
+            let second = NotificationStorageItem()
+            second.primary = NotificationStorageItem.genPrimary(owner: secondOwner, jid: "second@xmppdev01.xabber.com", uniqueId: "second")
+            second.owner = secondOwner
+            second.jid = "second@xmppdev01.xabber.com"
+            second.uniqueId = "second"
+            second.messageId = "second"
+            second.category = .info
+            second.isRead = false
+            second.shouldShow = true
+            second.date = ISO8601DateFormatter().date(from: "2026-03-24T09:00:00Z")!
+            realm.add(second)
+        }
+
+        let filtered = NotificationsSupport.notifications(in: try WRealm.safe(), owners: [owner], filter: .all, unreadOnly: true).toArray()
+        XCTAssertEqual(filtered.count, 1)
+        XCTAssertEqual(filtered.first?.owner, owner)
+    }
 }

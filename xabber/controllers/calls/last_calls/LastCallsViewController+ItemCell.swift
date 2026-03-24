@@ -27,18 +27,43 @@ extension LastCallsViewController {
     class ItemCell: CellWithBadge {
         static let cellName = "ItemCell"
         
+        private static let timeFormatter: DateFormatter = {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "HH:mm:ss"
+            return formatter
+        }()
+        
+        private static let weekdayFormatter: DateFormatter = {
+            let formatter = DateFormatter()
+            formatter.setLocalizedDateFormatFromTemplate("EEE")
+            return formatter
+        }()
+        
+        private static let monthDayFormatter: DateFormatter = {
+            let formatter = DateFormatter()
+            formatter.setLocalizedDateFormatFromTemplate("MMM d")
+            return formatter
+        }()
+        
+        private static let fullDateFormatter: DateFormatter = {
+            let formatter = DateFormatter()
+            formatter.setLocalizedDateFormatFromTemplate("d MMM yyyy")
+            return formatter
+        }()
+        
         internal var jid: String = ""
         internal var owner: String = ""
+        internal var avatarUrl: String? = "-1"
         
         var stack: UIStackView = {
             let stack = UIStackView()
             
             stack.axis = .horizontal
-            stack.alignment = .center
-            stack.spacing = 8
+            stack.alignment = .top
+            stack.spacing = 12
             stack.distribution = .fill
             stack.isLayoutMarginsRelativeArrangement = true
-            stack.layoutMargins = UIEdgeInsets(top: 0, bottom: 0, left: 0, right: 12)
+            stack.layoutMargins = UIEdgeInsets(top: 12, bottom: 8, left: 16, right: 16)
             
             return stack
         }()
@@ -48,22 +73,32 @@ extension LastCallsViewController {
             
             stack.axis = .vertical
             stack.distribution = .fill
-//            stack.spacing = 4
+            stack.alignment = .fill
+            stack.spacing = 2
             
             return stack
         }()
         
-        let infoStack: UIStackView = {
+        let titleRow: UIStackView = {
+            let stack = UIStackView()
+            
+            stack.axis = .horizontal
+            stack.alignment = .firstBaseline
+            stack.spacing = 8
+            stack.distribution = .fill
+            
+            return stack
+        }()
+        
+        let subtitleRow: UIStackView = {
             let stack = UIStackView()
             
             stack.axis = .horizontal
             stack.alignment = .center
-//            stack.distribution = .
             stack.spacing = 6
             
             return stack
         }()
-        
         
         let avatarView: UIImageView = {
             let view = UIImageView(frame: CGRect(square: 48))
@@ -73,6 +108,7 @@ extension LastCallsViewController {
                 view.mask = nil
             }
             view.contentMode = .scaleAspectFill
+            view.backgroundColor = MDCPalette.grey.tint200
             
             return view
         }()
@@ -80,7 +116,9 @@ extension LastCallsViewController {
         let titleLabel: UILabel = {
             let label = UILabel()
             
-            label.font = UIFont.preferredFont(forTextStyle: .body)
+            label.font = UIFont.systemFont(ofSize: 17, weight: .regular)
+            label.numberOfLines = 1
+            label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
             
             return label
         }()
@@ -88,12 +126,13 @@ extension LastCallsViewController {
         let subtitleLabel: UILabel = {
             let label = UILabel()
             
-            label.font = UIFont.preferredFont(forTextStyle: .caption1)
+            label.font = UIFont.systemFont(ofSize: 13, weight: .regular)
             if #available(iOS 13.0, *) {
                 label.textColor = .secondaryLabel
             } else {
                 label.textColor = MDCPalette.grey.tint500//.systemGray
             }
+            label.numberOfLines = 1
             
             return label
         }()
@@ -102,8 +141,10 @@ extension LastCallsViewController {
             let label = UILabel()
             
             label.textColor = UIColor(red:0.56, green:0.56, blue:0.58, alpha:1)
-            label.font = UIFont.systemFont(ofSize: 14)
+            label.font = UIFont.systemFont(ofSize: 13, weight: .regular)
             label.textAlignment = .right
+            label.setContentCompressionResistancePriority(.required, for: .horizontal)
+            label.setContentHuggingPriority(.required, for: .horizontal)
             
             return label
         }()
@@ -112,94 +153,55 @@ extension LastCallsViewController {
             let view = UIImageView()
             
             view.isHidden = true
-            
-            
-            return view
-        }()
-        
-        let accountIndicator: UIView = {
-            let view = UIView()
-            
-            view.backgroundColor = .clear
+            view.contentMode = .scaleAspectFit
             
             return view
         }()
-        
-        let callButton: UIButton = {
-            let button = UIButton(frame: CGRect(square: 36))
-            
-            button.backgroundColor = MDCPalette.grey.tint100
-            button.setImage(imageLiteral("phone.fill"), for: .normal)
-            button.tintColor = .systemGray
-            button.layer.cornerRadius = button.frame.width / 2
-            button.layer.masksToBounds = true
-            
-            return button
-        }()
-        
-        internal var onCallButtonPress: ((String, String) -> Void)? = nil
         
         
         private func activateConstraints() {
             let constraints: [NSLayoutConstraint] = [
-                dateLabel.widthAnchor.constraint(equalToConstant: 48),
+                dateLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 56),
                 avatarView.widthAnchor.constraint(equalToConstant: 48),
                 avatarView.heightAnchor.constraint(equalToConstant: 48),
-                titleLabel.heightAnchor.constraint(equalToConstant: 20),
-                infoStack.heightAnchor.constraint(equalToConstant: 20),
-                callButton.widthAnchor.constraint(equalToConstant: 36),
-                callButton.heightAnchor.constraint(equalToConstant: 36),
-                stateIndicator.widthAnchor.constraint(equalToConstant: 18),
-                stateIndicator.heightAnchor.constraint(equalToConstant: 18),
-                accountIndicator.widthAnchor.constraint(equalToConstant: 2),
-                accountIndicator.heightAnchor.constraint(equalTo: stack.heightAnchor, multiplier: 1)]
+                stateIndicator.widthAnchor.constraint(equalToConstant: 12),
+                stateIndicator.heightAnchor.constraint(equalToConstant: 12)]
             NSLayoutConstraint.activate(constraints)
             
         }
         
-        func configure(owner: String, jid: String, body: String, username: String, date: Date, outgoing: Bool, state: MessageStorageItem.VoIPCallState, duration: TimeInterval) {
-            self.jid = jid
-            self.owner = owner
-            DefaultAvatarManager.shared.getAvatar(url: nil, jid: jid, owner: owner, size: 48) { image in
-                if let image = image {
-                    self.avatarView.image = image
-                } else {
-                    self.avatarView.image = UIImageView.getDefaultAvatar(for: jid, owner: owner, size: 48)
-                }
-            }
-            titleLabel.text = JidManager.shared.prepareJid(jid: username)
-            
-            let dateFormatter = DateFormatter()
+        private static func formattedDate(from date: Date) -> String {
             let today = Date()
             if NSCalendar.current.isDateInToday(date) {
-                dateFormatter.dateFormat = "HH:mm"
+                return Self.timeFormatter.string(from: date)
             } else if abs(today.timeIntervalSince(date)) < 12 * 60 * 60 {
-                dateFormatter.dateFormat = "HH:mm"
+                return Self.timeFormatter.string(from: date)
             } else if (NSCalendar.current.dateComponents([.day], from: date, to: today).day ?? 0) <= 7 {
-                dateFormatter.dateFormat = "E"
+                return Self.weekdayFormatter.string(from: date)
             } else if (NSCalendar.current.dateComponents([.year], from: date, to: today).year ?? 0) < 1 {
-                dateFormatter.dateFormat = "MMM dd"
+                return Self.monthDayFormatter.string(from: date)
             } else {
-                dateFormatter.dateFormat = "d MMM yyyy"
+                return Self.fullDateFormatter.string(from: date)
             }
-            dateLabel.text = dateFormatter.string(from: date)
-            
-            switch state {
-            case .missed, .busy:
-                self.subtitleLabel.text = "Missed".localizeString(id: "chat_message_missed_call", arguments: [])
-                titleLabel.textColor = .systemRed
-            default:
-                if outgoing {
-                    self.subtitleLabel.text = "Outgoing".localizeString(id: "chat_message_outgoing", arguments: []) + (duration > 1 ? ", \(duration.prettyMinuteFormatedString)" : "")
-                } else {
-                    self.subtitleLabel.text = "Incoming".localizeString(id: "chat_message_incoming", arguments: []) + (duration > 1 ? ", \(duration.prettyMinuteFormatedString)" : "")
-                }
-                if #available(iOS 13.0, *) {
-                    titleLabel.textColor = .label
-                } else {
-                    titleLabel.textColor = .darkText
-                }
+        }
+        
+        func configure(owner: String, jid: String, avatarUrl: String?, username: String, date: Date, direction: LastCallsViewController.DisplayCallDirection, outgoing: Bool) {
+            self.jid = jid
+            self.owner = owner
+            self.avatarUrl = avatarUrl
+            DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 48) { image in
+                guard self.avatarUrl == avatarUrl else { return }
+                self.avatarView.image = image ?? UIImageView.getDefaultAvatar(for: username, owner: owner, size: 48)
             }
+            titleLabel.text = JidManager.shared.prepareJid(jid: username)
+            dateLabel.text = Self.formattedDate(from: date)
+            titleLabel.textColor = direction.titleColor
+            subtitleLabel.text = direction.title
+            subtitleLabel.textColor = direction.subtitleTintColor
+            let config = UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
+            stateIndicator.image = UIImage(systemName: direction.iconName(outgoing: outgoing), withConfiguration: config)
+            stateIndicator.tintColor = direction.subtitleTintColor
+            stateIndicator.isHidden = false
                        
         }
         
@@ -215,19 +217,20 @@ extension LastCallsViewController {
             super.init(style: style, reuseIdentifier: reuseIdentifier)
             contentView.addSubview(stack)
             stack.fillSuperview()
-            stack.addArrangedSubview(accountIndicator)
             stack.addArrangedSubview(avatarView)
             stack.addArrangedSubview(middleStack)
             stack.addArrangedSubview(dateLabel)
-            stack.addArrangedSubview(callButton)
             
-            middleStack.addArrangedSubview(titleLabel)
-            middleStack.addArrangedSubview(infoStack)
+            middleStack.addArrangedSubview(titleRow)
+            middleStack.addArrangedSubview(subtitleRow)
             
-            infoStack.addArrangedSubview(stateIndicator)
-            infoStack.addArrangedSubview(subtitleLabel)
-            separatorInset = UIEdgeInsets(top: 0, bottom: 0, left: 66, right: 0)
-            callButton.addTarget(self, action: #selector(onButtonPress), for: .touchUpInside)
+            titleRow.addArrangedSubview(titleLabel)
+            titleRow.addArrangedSubview(UIView())
+            subtitleRow.addArrangedSubview(stateIndicator)
+            subtitleRow.addArrangedSubview(subtitleLabel)
+            separatorInset = UIEdgeInsets(top: 0, bottom: 0, left: 76, right: 16)
+            preservesSuperviewLayoutMargins = true
+            contentView.preservesSuperviewLayoutMargins = true
             activateConstraints()
         }
         
@@ -239,13 +242,27 @@ extension LastCallsViewController {
             super.awakeFromNib()
         }
         
-        override func setSelected(_ selected: Bool, animated: Bool) {
-            super.setSelected(selected, animated: animated)
+        override func prepareForReuse() {
+            super.prepareForReuse()
+            avatarUrl = "-1"
+            avatarView.image = nil
+            avatarView.backgroundColor = MDCPalette.grey.tint200
+            titleLabel.text = nil
+            subtitleLabel.text = nil
+            dateLabel.text = nil
+            stateIndicator.image = nil
+            stateIndicator.isHidden = true
+            titleLabel.textColor = {
+                if #available(iOS 13.0, *) {
+                    return .label
+                } else {
+                    return .darkText
+                }
+            }()
         }
         
-        @objc
-        internal func onButtonPress(_ sender: UIButton) {
-            onCallButtonPress?(jid, owner)
+        override func setSelected(_ selected: Bool, animated: Bool) {
+            super.setSelected(selected, animated: animated)
         }
     }
 }

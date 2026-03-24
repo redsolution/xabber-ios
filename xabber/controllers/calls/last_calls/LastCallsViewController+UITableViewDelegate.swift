@@ -23,16 +23,12 @@ import UIKit
 
 extension LastCallsViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return 64
+        return 68
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         let item = datasource[indexPath.row]
-        let vc = ContactInfoViewController()
-        vc.owner = item.owner
-        vc.jid = item.jid
-        self.navigationItem.title = " "
-        self.title = " "
-        navigationController?.pushViewController(vc, animated: true)
+        tableView.deselectRow(at: indexPath, animated: true)
+        self.onCall(jid: item.jid, owner: item.owner)
     }
 }

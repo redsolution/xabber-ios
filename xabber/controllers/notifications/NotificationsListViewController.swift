@@ -16,6 +16,160 @@ import RxCocoa
 import RxRealm
 import XMPPFramework.XMPPJID
 
+enum NotificationsSupport {
+    struct Counters {
+        let total: Int
+        let security: Int
+        let mentions: Int
+        let info: Int
+    }
+
+    static func rosterKey(owner: String, jid: String) -> String {
+        [owner, jid].prp()
+    }
+
+    static func categoryStrings(for filter: NotificationsListViewController.Filter) -> [String] {
+        switch filter {
+        case .all:
+            return [
+                XMPPNotificationsManager.Category.device.rawValue,
+                XMPPNotificationsManager.Category.mention.rawValue,
+                XMPPNotificationsManager.Category.info.rawValue,
+            ]
+        case .security:
+            return [XMPPNotificationsManager.Category.device.rawValue]
+        case .mentions:
+            return [XMPPNotificationsManager.Category.mention.rawValue]
+        case .info:
+            return [XMPPNotificationsManager.Category.info.rawValue]
+        }
+    }
+
+    static func notifications(
+        in realm: Realm,
+        owners: [String],
+        filter: NotificationsListViewController.Filter = .all,
+        unreadOnly: Bool = false,
+        visibleOnly: Bool = true
+    ) -> Results<NotificationStorageItem> {
+        var results = realm.objects(NotificationStorageItem.self)
+            .filter("owner IN %@ AND category_ IN %@", owners, categoryStrings(for: filter))
+
+        if visibleOnly {
+            results = results.filter("shouldShow == true")
+        }
+
+        if unreadOnly {
+            results = results.filter("isRead == false")
+        }
+
+        return results.sorted(byKeyPath: "date", ascending: false)
+    }
+
+    static func unreadCounters(in realm: Realm, owners: [String]) -> Counters {
+        let notifications = notifications(in: realm, owners: owners, unreadOnly: true)
+        return Counters(
+            total: notifications.count,
+            security: notifications.filter("category_ == %@", XMPPNotificationsManager.Category.device.rawValue).count,
+            mentions: notifications.filter("category_ == %@", XMPPNotificationsManager.Category.mention.rawValue).count,
+            info: notifications.filter("category_ == %@", XMPPNotificationsManager.Category.info.rawValue).count
+        )
+    }
+
+    static func unreadVisibleCount(in realm: Realm, owners: [String]) -> Int {
+        unreadCounters(in: realm, owners: owners).total
+    }
+
+    static func rosterMap(in realm: Realm, for items: [NotificationStorageItem]) -> [String: RosterStorageItem] {
+        let owners = Array(Set(items.map(\.owner)))
+        let jids = Array(Set(items.compactMap { $0.originalSenderJid ?? $0.associatedJid ?? $0.jid }))
+
+        guard owners.isNotEmpty, jids.isNotEmpty else {
+            return [:]
+        }
+
+        return realm.objects(RosterStorageItem.self)
+            .filter("owner IN %@ AND jid IN %@", owners, jids)
+            .reduce(into: [String: RosterStorageItem]()) { partialResult, item in
+                partialResult[rosterKey(owner: item.owner, jid: item.jid)] = item
+            }
+    }
+
+    static func displayJid(for item: NotificationStorageItem) -> String {
+        item.originalSenderJid ?? item.associatedJid ?? item.jid
+    }
+
+    static func displayName(for item: NotificationStorageItem, rosterMap: [String: RosterStorageItem]) -> String {
+        let jid = displayJid(for: item)
+        if let rosterItem = rosterMap[rosterKey(owner: item.owner, jid: jid)] {
+            return rosterItem.displayName
+        }
+        if let nick = item.displayedNick?.trimmingCharacters(in: .whitespacesAndNewlines), nick.isNotEmpty {
+            return nick
+        }
+        return JidManager.shared.prepareJid(jid: jid)
+    }
+
+    static func avatarUrl(for item: NotificationStorageItem, rosterMap: [String: RosterStorageItem]) -> String? {
+        let jid = displayJid(for: item)
+        return rosterMap[rosterKey(owner: item.owner, jid: jid)]?.avatarUrl
+    }
+
+    static func badgeIcon(for category: XMPPNotificationsManager.Category) -> String {
+        switch category {
+        case .device:
+            return "badge-circle-big-security"
+        case .mention:
+            return "badge-circle-big-mention"
+        case .info:
+            return "badge-circle-big-info"
+        case .contact:
+            return "badge-circle-big-bell"
+        }
+    }
+
+    static func titleText(for item: NotificationStorageItem, rosterMap: [String: RosterStorageItem]) -> String {
+        let name = displayName(for: item, rosterMap: rosterMap)
+        switch item.category {
+        case .device:
+            return "New login to server \(name)"
+        case .mention:
+            return "\(name) mentioned you"
+        case .info:
+            return "Information from \(name)"
+        case .contact:
+            return name
+        }
+    }
+
+    static func messageText(for item: NotificationStorageItem) -> String? {
+        switch item.category {
+        case .device:
+            if let device = item.metadata?["device"] as? String,
+               let client = item.metadata?["client"] as? String,
+               device.isNotEmpty || client.isNotEmpty {
+                return [client, device].filter(\.isNotEmpty).joined(separator: " • ")
+            }
+            return item.text ?? item.fallbackText
+        case .mention:
+            return item.text ?? item.fallbackText
+        case .info:
+            return (item.metadata?["text"] as? String) ?? item.text ?? item.fallbackText
+        case .contact:
+            return item.text ?? item.fallbackText
+        }
+    }
+
+    static func sectionTitle(for date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        formatter.doesRelativeDateFormatting = true
+        return formatter.string(from: date)
+    }
+
+}
+
 class NotificationsListViewController: SimpleBaseViewController {
     
     class EmptyView: UIView {
@@ -101,9 +255,10 @@ class NotificationsListViewController: SimpleBaseViewController {
     
     internal let tableView: UITableView = {
         let view = UITableView(frame: .zero, style: .insetGrouped)
-        
-//        view.backgroundColor = .systemBackground
         view.separatorStyle = .singleLine
+        view.rowHeight = UITableView.automaticDimension
+        view.estimatedRowHeight = 88
+        view.cellLayoutMarginsFollowReadableWidth = true
         
         view.register(NotificationItemCell.self, forCellReuseIdentifier: NotificationItemCell.cellName)
         view.register(NotificationsSubscribtionsListViewController.ContactItemCell.self, forCellReuseIdentifier: NotificationsSubscribtionsListViewController.ContactItemCell.cellName)
@@ -183,7 +338,7 @@ class NotificationsListViewController: SimpleBaseViewController {
     
     override func loadDatasource() {
         super.loadDatasource()
-        self.getAndMapDatasource()
+        self.scheduleDatasourceReload()
     }
     
     var emptyScreenShowObserver: BehaviorRelay<Bool> = BehaviorRelay(value: false)
@@ -198,9 +353,11 @@ class NotificationsListViewController: SimpleBaseViewController {
     var filter: BehaviorRelay<Filter> = BehaviorRelay(value: .all)
     var filterAccount: BehaviorRelay<String?> = BehaviorRelay(value: nil)
     var filterMenu: UIMenu = UIMenu()
+    private let datasourceQueue = DispatchQueue(label: "com.xabber.notifications.datasource", qos: .userInitiated)
+    private var datasourceGeneration: Int = 0
     
     func configureBars() {
-        let button = UIBarButtonItem(image: UIImage(systemName: "ellipsis.circle"), style: .done, target: self, action: nil)
+        let button = UIBarButtonItem(image: UIImage(systemName: "ellipsis.circle"), style: .plain, target: self, action: nil)
         var childs: [UIMenuElement] = [
             UIAction(
                 title: "All",
@@ -232,18 +389,28 @@ class NotificationsListViewController: SimpleBaseViewController {
                 handler: { action in
                     self.shouldFilterBy(category: Filter.mentions.rawValue)
                 }),
+            UIAction(
+                title: "Information",
+                image: imageLiteral("info.circle"),
+                identifier: .none,
+                discoverabilityTitle: nil,
+                attributes: [],
+                state: filter.value == .info ? .on : .off,
+                handler: { action in
+                    self.shouldFilterBy(category: Filter.info.rawValue)
+                }),
         ]
         switch CommonConfigManager.shared.interfaceType {
-            case .tabs:
-                break
-            case .split:
-                if UIDevice.current.userInterfaceIdiom == .pad {
-                    childs = []
-                }
+        case .tabs:
+            break
+        case .split:
+            if UIDevice.current.userInterfaceIdiom == .pad {
+                childs = []
+            }
         }
         do {
             let realm = try WRealm.safe()
-            let accounts: [UIMenuElement] = realm
+            let accountActions: [UIMenuElement] = realm
                 .objects(AccountStorageItem.self)
                 .filter("enabled == true")
                 .toArray()
@@ -255,25 +422,31 @@ class NotificationsListViewController: SimpleBaseViewController {
                         identifier: .none,
                         discoverabilityTitle: nil,
                         attributes: [],
-                        state: filter.value == .info ? .on : .off,
+                        state: self.filterAccount.value == item.jid ? .on : .off,
                         handler: { action in
                             self.shouldFilterBy(account: item.jid)
                         }
                     )
                 })
-            
-            if accounts.count > 1 {
-                childs.append(contentsOf: accounts)
+
+            if accountActions.count > 1 {
+                childs.append(
+                    UIMenu(
+                        title: "Accounts",
+                        options: [.displayInline],
+                        children: accountActions
+                    )
+                )
             }
         } catch {
             DDLogDebug("NotificationsListViewController: \(#function). \(error.localizedDescription)")
         }
         
-        filterMenu = UIMenu(options: [.singleSelection], children: childs)
+        filterMenu = UIMenu(children: childs)
         
         button.menu = filterMenu
         
-        var readAllNotificationsButton = UIBarButtonItem(image: imageLiteral("checkmark"), style: .plain, target: self, action: #selector(onReadAllNotifications))
+        let readAllNotificationsButton = UIBarButtonItem(image: imageLiteral("checkmark"), style: .plain, target: self, action: #selector(onReadAllNotifications))
         if childs.count <= 1 {
             self.navigationItem.setRightBarButtonItems([readAllNotificationsButton], animated: true)
         } else {
@@ -283,7 +456,6 @@ class NotificationsListViewController: SimpleBaseViewController {
         
     @objc
     private func onReadAllNotifications(_ sender: UIBarButtonItem) {
-        print("read")
         self.datasource.forEach {
             $0.childs.forEach {
                 $0.isRead = true
@@ -295,323 +467,188 @@ class NotificationsListViewController: SimpleBaseViewController {
         }
         do {
             let realm = try WRealm.safe()
-            var jids: [String] = []
-            if let filteredJid = filterAccount.value {
-                jids = [filteredJid]
-            } else {
-                jids = AccountManager.shared.users.map { $0.jid }
-            }
-            var categories: [String] = []
-            switch self.filter.value {
-                case .all:
-                    categories = [
-                        XMPPNotificationsManager.Category.device.rawValue,
-                        XMPPNotificationsManager.Category.mention.rawValue,
-                        XMPPNotificationsManager.Category.info.rawValue
-                    ]
-                case .security:
-                    categories = [
-                        XMPPNotificationsManager.Category.device.rawValue
-                    ]
-                case .mentions:
-                    categories = [
-                        XMPPNotificationsManager.Category.mention.rawValue,
-                    ]
-                case .info:
-                    categories = [
-                        XMPPNotificationsManager.Category.info.rawValue,
-                    ]
-            }
-            let allNotifications = realm
-                .objects(NotificationStorageItem.self)
-                .filter("shouldShow == true AND owner IN %@ AND category_ IN %@", jids, categories).sorted(byKeyPath: "date", ascending: false)
+            let owners = filterAccount.value.map { [$0] } ?? AccountManager.shared.users.map { $0.jid }
+            let allNotifications = NotificationsSupport.notifications(
+                in: realm,
+                owners: owners,
+                filter: self.filter.value
+            )
             try realm.write {
                 allNotifications.forEach { $0.isRead = true }
             }
+            AccountManager.shared.users.forEach { user in
+                if user.xmppStream.isAuthenticated {
+                    user.action { user, stream in
+                        user.notifications.readAll(stream)
+                    }
+                }
+            }
         } catch {
             DDLogDebug("NotificationsListViewController: \(#function). \(error.localizedDescription)")
         }
+        scheduleDatasourceReload()
     }
-    
-    func getAndMapDatasource() {
-        
-        do {
-            var jids: [String] = []
-            if let filteredJid = filterAccount.value {
-                jids = [filteredJid]
-            } else {
-                jids = AccountManager.shared.users.map { $0.jid }
-            }
-            var categories: [String] = []
-            switch self.filter.value {
-                case .all:
-                    categories = [
-                        XMPPNotificationsManager.Category.device.rawValue,
-                        XMPPNotificationsManager.Category.mention.rawValue,
-                        XMPPNotificationsManager.Category.info.rawValue
-                    ]
-                case .security:
-                    categories = [
-                        XMPPNotificationsManager.Category.device.rawValue
-                    ]
-                case .mentions:
-                    categories = [
-                        XMPPNotificationsManager.Category.mention.rawValue,
-                    ]
-                case .info:
-                    categories = [
-                        XMPPNotificationsManager.Category.info.rawValue,
-                    ]
-            }
-            let realm = try WRealm.safe()
-            let allNotifications = realm
-                .objects(NotificationStorageItem.self)
-                .filter("shouldShow == true AND owner IN %@ AND category_ IN %@", jids, categories).sorted(byKeyPath: "date", ascending: false)
-//            let contactNotifications = realm
-//                .objects(NotificationStorageItem.self)
-//                .filter(
-//                    "shouldShow == true AND owner IN %@ AND category_ == %@",
-//                    jids,
-//                    XMPPNotificationsManager.Category.contact.rawValue
-//                )
-            
-            if self.filter.value == .all {
-                
-                self.datasource = [
-                    //mapResult(contactNotifications, title: "Subscription requests", key: "subscribtion_requests")
+
+    private func headerSection(for filter: Filter) -> Datasource? {
+        switch filter {
+        case .all:
+            return nil
+        case .security:
+            return Datasource(title: "", key: "", childs: [
+                DatasourceChild(
+                    primary: "security_item_header",
+                    category: .device,
+                    owner: "",
+                    jid: "",
+                    title: NSAttributedString(string: "Security"),
+                    message: NSAttributedString(string: "Notifications about new logins, device changes, and activity on your account."),
+                    key: nil,
+                    date: Date(),
+                    avatarUrl: nil,
+                    badgeIcon: "custom.shield.pattern.checkered.square.fill",
+                    isRead: true,
+                    isHeader: true
+                )
+            ])
+        case .mentions:
+            return Datasource(title: "", key: "", childs: [
+                DatasourceChild(
+                    primary: "mention_item_header",
+                    category: .mention,
+                    owner: "",
+                    jid: "",
+                    title: NSAttributedString(string: "Mentions"),
+                    message: NSAttributedString(string: "Alerts when you are tagged in conversations, helping you stay aware of relevant discussions."),
+                    key: nil,
+                    date: Date(),
+                    avatarUrl: nil,
+                    badgeIcon: "custom.at.square.fill",
+                    isRead: true,
+                    isHeader: true
+                )
+            ])
+        case .info:
+            return Datasource(title: "", key: "", childs: [
+                DatasourceChild(
+                    primary: "info_item_header",
+                    category: .info,
+                    owner: "",
+                    jid: "",
+                    title: NSAttributedString(string: "Information"),
+                    message: NSAttributedString(string: "Updates, tips, and system messages from server operators and various contacts to keep you informed about features, maintenance, and app-related news."),
+                    key: nil,
+                    date: Date(),
+                    avatarUrl: nil,
+                    badgeIcon: "info.square.fill",
+                    isRead: true,
+                    isHeader: true
+                )
+            ])
+        }
+    }
+
+    private func notificationItemToDatasourceChild(_ item: NotificationStorageItem, rosterMap: [String: RosterStorageItem]) -> DatasourceChild? {
+        guard item.category != .contact else {
+            return nil
+        }
+
+        let title = NSAttributedString(
+            string: NotificationsSupport.titleText(for: item, rosterMap: rosterMap),
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 16, weight: .semibold),
+                .foregroundColor: UIColor.label
+            ]
+        )
+        let message = NotificationsSupport.messageText(for: item).map {
+            NSAttributedString(
+                string: $0,
+                attributes: [
+                    .font: UIFont.systemFont(ofSize: 14, weight: .regular),
+                    .foregroundColor: UIColor.secondaryLabel
                 ]
-            } else {
-                self.datasource = []
-            }
-            switch self.filter.value {
-                    
-                case .all:
-                    self.datasource = []
-                case .security:
-                    self.datasource = [
-                        Datasource(title: "", key: "", childs: [
-                            DatasourceChild(
-                                primary: "security_item_header",
-                                category: .device,
-                                owner: "",
-                                jid: "",
-                                title: NSAttributedString(string: "Security"),
-                                message: NSAttributedString(string: "Notifications about new logins, device changes, and activity on your account."),
-                                key: nil,
-                                date: Date(),
-                                avatarUrl: nil,
-                                badgeIcon: "custom.shield.pattern.checkered.square.fill",
-                                isRead: true,
-                                isHeader: true
-                            )
-                        ])
-                    ]
-                case .mentions:
-                    self.datasource = [
-                        Datasource(title: "", key: "", childs: [
-                            DatasourceChild(
-                                primary: "mention_item_header",
-                                category: .device,
-                                owner: "",
-                                jid: "",
-                                title: NSAttributedString(string: "Mentions"),
-                                message: NSAttributedString(string: "Alerts when you are tagged in conversations, helping you stay aware of relevant discussions."),
-                                key: nil,
-                                date: Date(),
-                                avatarUrl: nil,
-                                badgeIcon: "custom.at.square.fill",
-                                isRead: true,
-                                isHeader: true
-                            )
-                        ])
-                    ]
-                case .info:
-                    self.datasource = [
-                        Datasource(title: "", key: "", childs: [
-                            DatasourceChild(
-                                primary: "info_item_header",
-                                category: .device,
-                                owner: "",
-                                jid: "",
-                                title: NSAttributedString(string: "Information"),
-                                message: NSAttributedString(string: "Updates, tips, and system messages from server operators and various contacts to keep you informed about features, maintenance, and app-related news."),
-                                key: nil,
-                                date: Date(),
-                                avatarUrl: nil,
-                                badgeIcon: "info.square.fill",
-                                isRead: true,
-                                isHeader: true
-                            )
-                        ])
-                    ]
-            }
-            mapResultByDate(allNotifications).forEach {
-                self.datasource.append($0)
-            }
-            
-            self.datasource = self.datasource.compactMap { return $0.childs.isNotEmpty ? $0 : nil }
-            
-            self.emptyScreenShowObserver.accept(self.datasource.isEmpty)
-        } catch {
-            DDLogDebug("NotificationsListViewController: \(#function). \(error.localizedDescription)")
+            )
         }
+
+        return DatasourceChild(
+            primary: item.primary,
+            category: item.category,
+            owner: item.owner,
+            jid: item.jid,
+            title: title,
+            message: message,
+            key: item.jid,
+            date: item.date,
+            avatarUrl: NotificationsSupport.avatarUrl(for: item, rosterMap: rosterMap),
+            badgeIcon: NotificationsSupport.badgeIcon(for: item.category),
+            isRead: item.isRead,
+            isHeader: false
+        )
     }
-    
-    private func notificationItemToDatasourceChild(_ item: NotificationStorageItem) -> DatasourceChild? {
-        switch item.category {
-            case .contact:
-                return nil
-            case .device:
-                let title = NSMutableAttributedString()
-                title.append(NSAttributedString(string: "New login", attributes: [
-                    .font: UIFont.boldSystemFont(ofSize: 14),
-                    .foregroundColor: UIColor.label
-                ]))
-                title.append(NSAttributedString(string: " to server ", attributes: [
-                    .font: UIFont.systemFont(ofSize: 14),
-                    .foregroundColor: UIColor.label
-                ]))
-                title.append(NSAttributedString(string: item.associatedJid ?? item.jid, attributes: [
-                    .font: UIFont.boldSystemFont(ofSize: 14),
-                    .foregroundColor: UIColor.label
-                ]))
-                var message: NSAttributedString? = nil
-                if let text = item.text {
-                    message = NSAttributedString(string: text, attributes: [
-                        .font: UIFont.systemFont(ofSize: 13, weight: .regular),
-                        .foregroundColor: UIColor.secondaryLabel
-                    ])
-                }
-                return DatasourceChild(
-                    primary: item.primary,
-                    category: item.category,
-                    owner: item.owner,
-                    jid: item.jid,
-                    title: title,
-                    message: message,
-                    key: item.jid,
-                    date: item.date,
-                    avatarUrl: nil,
-                    badgeIcon: "badge-circle-big-security",
-                    isRead: item.isRead,
-                    isHeader: false
-                )
-            case .mention:
-                return nil
-//                let title = NSMutableAttributedString()
-//                title.append(NSAttributedString(string: "Juliet", attributes: [
-//                    .font: UIFont.boldSystemFont(ofSize: 14),
-//                    .foregroundColor: UIColor.label
-//                ]))
-//                title.append(NSAttributedString(string: " mentioned you in ", attributes: [
-//                    .font: UIFont.systemFont(ofSize: 14),
-//                    .foregroundColor: UIColor.label
-//                ]))
-//                title.append(NSAttributedString(string: "mychat@capulet.it: ", attributes: [
-//                    .font: UIFont.boldSystemFont(ofSize: 14),
-//                    .foregroundColor: UIColor.label
-//                ]))
-//                title.append(NSAttributedString(string: "... the clock strook nine when I did send the nurse...", attributes: [
-//                    .font: UIFont.italicSystemFont(ofSize: 14),
-//                    .foregroundColor: UIColor.secondaryLabel
-//                ]))
-//                return DatasourceChild(
-//                    primary: item.primary,
-//                    category: item.category,
-//                    owner: item.owner,
-//                    jid: item.jid,
-//                    title: title,
-//                    message: nil,
-//                    key: item.jid,
-//                    date: item.date,
-//                    avatarUrl: nil,
-//                    badgeIcon: "at.circle.fill",
-//                    isRead: item.isRead
-//                )
-                
-            case .info:
-                let title = NSMutableAttributedString()
-                title.append(NSAttributedString(string: "New information message", attributes: [
-                    .font: UIFont.boldSystemFont(ofSize: 14),
-                    .foregroundColor: UIColor.label
-                ]))
-                title.append(NSAttributedString(string: " from server ", attributes: [
-                    .font: UIFont.systemFont(ofSize: 14),
-                    .foregroundColor: UIColor.label
-                ]))
-                title.append(NSAttributedString(string: "\(item.associatedJid ?? item.jid): ", attributes: [
-                    .font: UIFont.boldSystemFont(ofSize: 14),
-                    .foregroundColor: UIColor.label
-                ]))
-                if let message = item.metadata?["text"] as? String {
-                    title.append(NSAttributedString(string: message, attributes: [
-                        .font: UIFont.italicSystemFont(ofSize: 14),
-                        .foregroundColor: UIColor.secondaryLabel
-                    ]))
-                }
-                return DatasourceChild(
-                    primary: item.primary,
-                    category: item.category,
-                    owner: item.owner,
-                    jid: item.jid,
-                    title: title,
-                    message: nil,
-                    key: item.jid,
-                    date: item.date,
-                    avatarUrl: nil,
-                    badgeIcon: "badge-circle-big-info",
-                    isRead: item.isRead,
-                    isHeader: false
-                )
-        }
-    }
-    
-    private func mapResultByDate(_ results: Results<NotificationStorageItem>) -> [Datasource] {
+
+    private func mapResultByDate(_ items: [NotificationStorageItem], rosterMap: [String: RosterStorageItem]) -> [Datasource] {
         var currentDate: String? = nil
-        
         var out: [Datasource] = []
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateStyle = .medium
-        dateFormatter.timeStyle = .none
-        dateFormatter.doesRelativeDateFormatting = true
-        results.forEach {
-            item in
-            let calendarDate = Calendar.current.dateComponents([.day, .year, .month], from: item.date)
-            let newDate = "\(calendarDate.day ?? 0).\(calendarDate.month ?? 0).\(calendarDate.year ?? 0)"
+
+        items.forEach { item in
+            let newDate = NotificationsSupport.sectionTitle(for: item.date)
+            guard let child = notificationItemToDatasourceChild(item, rosterMap: rosterMap) else {
+                return
+            }
+
             if newDate != currentDate {
                 currentDate = newDate
-                let child = notificationItemToDatasourceChild(item)
-                
-                if let child = child {
-                    let title = dateFormatter.string(from: item.date)//string(from: item.date)
-//                    if NSCalendar.current.isDateInToday(item.date) {
-//                        title = "Today"
-//                    } else if NSCalendar.current.isDateInYesterday(item.date) {
-//                        title = "Yesterday"
-//                    }
-                    out.append(Datasource(
-                            title: title,
-                            key: "notifications",
-                            childs: [child]
-                        )
+                out.append(
+                    Datasource(
+                        title: newDate,
+                        key: "notifications",
+                        childs: [child]
                     )
-                }
+                )
             } else {
-                let child = notificationItemToDatasourceChild(item)
-                
-                if let child = child {
-                    out.last?.childs.append(child)
-                }
+                out.last?.childs.append(child)
             }
         }
-        
+
         return out
     }
-    
-    private func mapResult(_ results: Results<NotificationStorageItem>, title: String, key: String) -> Datasource {
-        return Datasource(title: title, key: key, childs: results.compactMap({
-            return notificationItemToDatasourceChild($0)
-        }))
+
+    func buildDatasourceSnapshot(filter: Filter, filterAccount: String?) -> [Datasource] {
+        do {
+            let realm = try WRealm.safe()
+            let owners = filterAccount.map { [$0] } ?? AccountManager.shared.users.map { $0.jid }
+            let notifications = NotificationsSupport.notifications(in: realm, owners: owners, filter: filter).toArray()
+            let rosterMap = NotificationsSupport.rosterMap(in: realm, for: notifications)
+
+            var sections: [Datasource] = []
+            if let header = headerSection(for: filter) {
+                sections.append(header)
+            }
+            sections.append(contentsOf: mapResultByDate(notifications, rosterMap: rosterMap))
+            return sections.filter { !$0.childs.isEmpty }
+        } catch {
+            DDLogDebug("NotificationsListViewController: \(#function). \(error.localizedDescription)")
+            return []
+        }
+    }
+
+    private func scheduleDatasourceReload() {
+        datasourceGeneration += 1
+        let generation = datasourceGeneration
+        let filter = self.filter.value
+        let filterAccount = self.filterAccount.value
+
+        datasourceQueue.async {
+            let snapshot = self.buildDatasourceSnapshot(filter: filter, filterAccount: filterAccount)
+            DispatchQueue.main.async {
+                guard generation == self.datasourceGeneration else {
+                    return
+                }
+                self.datasource = snapshot
+                self.emptyScreenShowObserver.accept(snapshot.isEmpty)
+                self.configureBars()
+                self.tableView.reloadData()
+            }
+        }
     }
     
     override func viewDidLoad() {
@@ -697,20 +734,10 @@ class NotificationsListViewController: SimpleBaseViewController {
             let collectionObserver = realm.objects(NotificationStorageItem.self).filter("owner IN %@ AND shouldShow == true", jids)
             self.filter
                 .asObservable()
-                .debounce(.milliseconds(5), scheduler: MainScheduler.asyncInstance)
-                .subscribe { value in
-//                    switch value {
-//                        case .all:
-//                            self.title = "All"
-//                        case .security:
-//                            self.title = "Security"
-//                        case .mentions:
-//                            self.title = "Mentions"
-//                        case .info:
-//                            self.title = "Information"
-//                    }
-                    self.loadDatasource()
-                    self.tableView.reloadData()
+                .distinctUntilChanged()
+                .debounce(.milliseconds(50), scheduler: MainScheduler.asyncInstance)
+                .subscribe { _ in
+                    self.scheduleDatasourceReload()
                 } onError: { _ in
                     
                 } onCompleted: {
@@ -721,11 +748,10 @@ class NotificationsListViewController: SimpleBaseViewController {
             
             self.filterAccount
                 .asObservable()
-                .debounce(.milliseconds(5), scheduler: MainScheduler.asyncInstance)
-                .skip(1)
+                .distinctUntilChanged { $0 == $1 }
+                .debounce(.milliseconds(50), scheduler: MainScheduler.asyncInstance)
                 .subscribe { _ in
-                    self.loadDatasource()
-                    self.tableView.reloadData()
+                    self.scheduleDatasourceReload()
                 } onError: { _ in
                     
                 } onCompleted: {
@@ -740,8 +766,7 @@ class NotificationsListViewController: SimpleBaseViewController {
                 .debounce(.milliseconds(200), scheduler: MainScheduler.asyncInstance)
                 .skip(1)
                 .subscribe { _ in
-                    self.loadDatasource()
-                    self.tableView.reloadData()
+                    self.scheduleDatasourceReload()
                 } onError: { _ in
                     
                 } onCompleted: {
@@ -827,6 +852,9 @@ extension NotificationsListViewController: UITableViewDataSource {
 //    }
     
     func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+        if section == 0 && self.filter.value != .all {
+            return .leastNormalMagnitude
+        }
         return 34
     }
     
@@ -914,7 +942,7 @@ extension NotificationsListViewController: UITableViewDataSource {
 
 extension NotificationsListViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return tableView.estimatedRowHeight
+        return UITableView.automaticDimension
     }
     
     func tableView(_ tableView: UITableView, willSelectRowAt indexPath: IndexPath) -> IndexPath? {
@@ -1038,10 +1066,6 @@ extension NotificationsListViewController: NotificationsControllerFilterProtocol
 
 extension NotificationsListViewController {
     func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
-        let index = indexPath.row
-//        let index = showArchivedSection.value ? indexPath.row - 1 : indexPath.row
-//        if index < 0 { return nil }
-        
         let item = self.datasource[indexPath.section].childs[indexPath.row]
         let deleteAction = UIContextualAction(style: .destructive,
                                               title: "Delete".localizeString(id: "delete", arguments: [])) {

@@ -200,6 +200,15 @@ class NotifyManager {
         NotifyManager.notificationMessageCategory,
         NotifyManager.notificationPushMessageCategory,
     ]
+
+    static func excludedDomains(from accounts: [String]) -> [String] {
+        accounts.compactMap {
+            guard let jid = XMPPJID(string: $0), jid.user != nil else {
+                return nil
+            }
+            return jid.domain
+        }
+    }
     
     init() {
         self.message = NotifyItem(from: "", to: "", message: "", date: self.lastOpen, conversationType: "")
@@ -236,7 +245,7 @@ class NotifyManager {
                             let realm = try WRealm.safe()
                             let predicate: NSPredicate
                             if CommonConfigManager.shared.config.locked_conversation_type.isNotEmpty {
-                                var excludedJids = accounts.compactMap({XMPPJID(string: $0)!.domain})
+                                var excludedJids = NotifyManager.excludedDomains(from: accounts)
                                 excludedJids.append(CommonConfigManager.shared.config.support_jid)
                                 predicate = NSPredicate(
                                     format: "(conversationType_ == %@ OR jid IN %@) AND muteExpired < 0 AND isArchived == false AND owner IN %@",
@@ -285,7 +294,7 @@ class NotifyManager {
                                         let realm = try WRealm.safe()
                                         let predicate: NSPredicate
                                         if CommonConfigManager.shared.config.locked_conversation_type.isNotEmpty {
-                                            var excludedJids = accounts.compactMap({XMPPJID(string: $0)!.domain})
+                                            var excludedJids = NotifyManager.excludedDomains(from: accounts)
                                             excludedJids.append(CommonConfigManager.shared.config.support_jid)
                                             predicate = NSPredicate(
                                                 format: "(conversationType_ == %@ OR jid IN %@) AND muteExpired < 0 AND isArchived == false AND owner IN %@",
@@ -1142,4 +1151,3 @@ class NotifyManager {
         return lastChatsDisplayedState
     }
 }
-

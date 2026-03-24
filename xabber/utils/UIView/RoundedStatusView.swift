@@ -25,6 +25,35 @@ class RoundedStatusView: UIView {
 
     var color: UIColor = UIColor.gray
     var borderColor: UIColor = UIColor.gray
+    private let iconImageView: UIImageView = {
+        let view = UIImageView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.tintColor = .white
+        view.contentMode = .scaleAspectFit
+        view.isHidden = true
+        return view
+    }()
+    private var iconName: String?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setupIconView()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setupIconView()
+    }
+
+    private func setupIconView() {
+        addSubview(iconImageView)
+        NSLayoutConstraint.activate([
+            iconImageView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 1),
+            iconImageView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -1),
+            iconImageView.topAnchor.constraint(equalTo: topAnchor, constant: 1),
+            iconImageView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -1),
+        ])
+    }
     
     private func callNeedsDisplay() {
         DispatchQueue.main.async {
@@ -43,17 +72,17 @@ class RoundedStatusView: UIView {
         self.backgroundColor = .clear
         self.borderColor = .systemBackground
         self.color = color
-        subviews
-            .forEach { $0.removeFromSuperview() }
+        self.iconName = iconName
         if let iconName = iconName {
-            let view = UIImageView(image: imageLiteral(iconName))
-            view.frame = CGRect(x: 1, y: 1, width: bounds.width - 2, height: bounds.height - 2)
-            view.tintColor = .white
-            view.contentMode = .scaleAspectFit
-            view.backgroundColor = self.color
+            iconImageView.image = imageLiteral(iconName)
+            iconImageView.backgroundColor = self.color
+            iconImageView.isHidden = false
             self.backgroundColor = .systemBackground
-            addSubview(view)
-            bringSubviewToFront(view)
+            bringSubviewToFront(iconImageView)
+        } else {
+            iconImageView.image = nil
+            iconImageView.backgroundColor = .clear
+            iconImageView.isHidden = true
         }
         layer.borderColor = borderColor.cgColor
         setNeedsDisplay()
@@ -81,64 +110,52 @@ class RoundedStatusView: UIView {
             case .xa:
                 self.color = MDCPalette.blue.tint500 | .systemBlue
         }
-        subviews
-            .forEach { $0.removeFromSuperview() }
-        print(imageLiteral("badge-circle-big-group-incognito-variant") == nil)
+        iconImageView.image = nil
+        iconImageView.backgroundColor = .clear
+        iconImageView.isHidden = true
         switch entity {
             case .privateChat:
-                let view = UIImageView(image: imageLiteral("badge-circle-big-group-incognito-variant"))
-                view.frame = CGRect(x: 1, y: 1, width: bounds.width - 2, height: bounds.height - 2)
-                view.tintColor = .white
-                view.contentMode = .scaleAspectFit
-                view.backgroundColor = self.color
+                iconImageView.image = imageLiteral("badge-circle-big-group-incognito-variant")
+                iconImageView.tintColor = .white
+                iconImageView.backgroundColor = self.color
+                iconImageView.isHidden = false
                 self.backgroundColor = .systemBackground
-                addSubview(view)
-                bringSubviewToFront(view)
+                bringSubviewToFront(iconImageView)
             case .groupchat:
-                let view = UIImageView(image: UIImage(imageLiteralResourceName: "badge-circle-big-group-public").withRenderingMode(.alwaysTemplate))// imageLiteral("badge-circle-big-group-public", dimension: 0)?.withRenderingMode(.alwaysTemplate))
-                
-                view.frame = CGRect(x: 1, y: 1, width: bounds.width - 2, height: bounds.height - 2)
-                view.tintColor = .white
-                view.contentMode = .scaleAspectFit
-                view.backgroundColor = self.color
+                iconImageView.image = UIImage(imageLiteralResourceName: "badge-circle-big-group-public").withRenderingMode(.alwaysTemplate)
+                iconImageView.tintColor = .white
+                iconImageView.backgroundColor = self.color
+                iconImageView.isHidden = false
                 self.backgroundColor = .systemBackground
-                addSubview(view)
-                bringSubviewToFront(view)
+                bringSubviewToFront(iconImageView)
             case .bot:
-                let view = UIImageView(image: imageLiteral("badge-circle-big-bot-variant"))
-                view.frame = CGRect(x: 1, y: 1, width: bounds.width - 2, height: bounds.height - 2)
-                view.tintColor = self.color
-                view.contentMode = .scaleAspectFit
+                iconImageView.image = imageLiteral("badge-circle-big-bot-variant")
+                iconImageView.tintColor = self.color
+                iconImageView.backgroundColor = .clear
+                iconImageView.isHidden = false
                 self.backgroundColor = .systemBackground
-                addSubview(view)
-                bringSubviewToFront(view)
+                bringSubviewToFront(iconImageView)
             case .server:
-                let view = UIImageView(image: imageLiteral("badge-circle-big-server"))
-                view.frame = CGRect(x: 1, y: 1, width: bounds.width - 2, height: bounds.height - 2)
-                view.tintColor = .white
-                view.contentMode = .scaleAspectFit
-                view.backgroundColor = self.color
+                iconImageView.image = imageLiteral("badge-circle-big-server")
+                iconImageView.tintColor = .white
+                iconImageView.backgroundColor = self.color
+                iconImageView.isHidden = false
                 self.backgroundColor = .systemBackground
-                addSubview(view)
-                bringSubviewToFront(view)
+                bringSubviewToFront(iconImageView)
             case .incognitoChat:
-                let view = UIImageView(image: imageLiteral("badge-circle-big-group-incognito"))
-                view.frame = CGRect(x: 1, y: 1, width: bounds.width - 2, height: bounds.height - 2)
-                view.tintColor = .white
-                view.contentMode = .scaleAspectFit
-                view.backgroundColor = self.color
+                iconImageView.image = imageLiteral("badge-circle-big-group-incognito")
+                iconImageView.tintColor = .white
+                iconImageView.backgroundColor = self.color
+                iconImageView.isHidden = false
                 self.backgroundColor = .systemBackground
-                addSubview(view)
-                bringSubviewToFront(view)
+                bringSubviewToFront(iconImageView)
             case .issue:
-                let view = UIImageView(image: imageLiteral("badge-circle-big-task"))
-                view.frame = CGRect(x: 1, y: 1, width: bounds.width - 2, height: bounds.height - 2)
-                view.tintColor = .white
-                view.contentMode = .scaleAspectFit
-                view.backgroundColor = self.color
+                iconImageView.image = imageLiteral("badge-circle-big-task")
+                iconImageView.tintColor = .white
+                iconImageView.backgroundColor = self.color
+                iconImageView.isHidden = false
                 self.backgroundColor = .systemBackground
-                addSubview(view)
-                bringSubviewToFront(view)
+                bringSubviewToFront(iconImageView)
             default:
                 break
         }
@@ -160,5 +177,10 @@ class RoundedStatusView: UIView {
         layer.cornerRadius = frame.height / 2
         layer.borderWidth = width
         layer.masksToBounds = true
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layer.cornerRadius = bounds.height / 2
     }
 }

@@ -27,35 +27,112 @@ import RxRealm
 import DeepDiff
 import YubiKit
 import CocoaLumberjack
+import MaterialComponents.MDCPalettes
 
 class LastCallsViewController: BaseViewController {
+    
+    enum DisplayCallDirection: Equatable {
+        case missed
+        case outgoing
+        case incoming
+        case rejected
+        
+        var title: String {
+            switch self {
+            case .missed:
+                return "Missed".localizeString(id: "chat_message_missed_call", arguments: [])
+            case .outgoing:
+                return "Outgoing".localizeString(id: "chat_message_outgoing", arguments: [])
+            case .incoming:
+                return "Incoming".localizeString(id: "chat_message_incoming", arguments: [])
+            case .rejected:
+                return "Cancelled"
+            }
+        }
+        
+        func iconName(outgoing: Bool) -> String {
+            switch self {
+            case .missed:
+                return "phone.arrow.down.left"
+            case .outgoing:
+                return "phone.arrow.up.right"
+            case .incoming:
+                return "phone.arrow.down.left"
+            case .rejected:
+                return outgoing ? "phone.arrow.up.right" : "phone.arrow.down.left"
+            }
+        }
+        
+        var titleColor: UIColor {
+            switch self {
+            case .missed:
+                return .systemRed
+            default:
+                if #available(iOS 13.0, *) {
+                    return .label
+                } else {
+                    return .darkText
+                }
+            }
+        }
+        
+        var subtitleTintColor: UIColor {
+            switch self {
+            case .missed:
+                return .systemRed
+            default:
+                if #available(iOS 13.0, *) {
+                    return .secondaryLabel
+                } else {
+                    return MDCPalette.grey.tint500
+                }
+            }
+        }
+    }
+    
+    static func displayDirection(for state: MessageStorageItem.VoIPCallState, outgoing: Bool) -> DisplayCallDirection {
+        switch state {
+        case .missed:
+            return .missed
+        case .busy, .noanswer:
+            return .rejected
+        case .received:
+            return .incoming
+        case .made:
+            return outgoing ? .outgoing : .incoming
+        case .none:
+            return outgoing ? .outgoing : .incoming
+        }
+    }
     
     struct Datasource: DiffAware {
         
         var diffId: String {
             get {
-                return [jid, owner].prp()
+                return messagePrimary
             }
         }
         
         let owner: String
         let jid: String
         let username: String
-        let body: String
+        let avatarUrl: String?
         let date: Date
+        let direction: DisplayCallDirection
         let outgoing: Bool
-        let state: MessageStorageItem.VoIPCallState
-        let duration: TimeInterval
+        let messagePrimary: String
+        let referencePrimary: String?
         
         static func compareContent(_ a: LastCallsViewController.Datasource, _ b: LastCallsViewController.Datasource) -> Bool {
             return a.owner == b.owner &&
                 a.jid == b.jid &&
                 a.username == b.username &&
-                a.body == b.body &&
+                a.avatarUrl == b.avatarUrl &&
                 a.date == b.date &&
+                a.direction == b.direction &&
                 a.outgoing == b.outgoing &&
-                a.state == b.state &&
-                a.duration == b.duration
+                a.messagePrimary == b.messagePrimary &&
+                a.referencePrimary == b.referencePrimary
             
         }
     }
@@ -71,11 +148,11 @@ class LastCallsViewController: BaseViewController {
     internal var topAccountJid: String = ""
     
     internal let tableView: UITableView = {
-        let view = UITableView(frame: .zero, style: .plain)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
-        view.backgroundColor = .white
         view.register(ItemCell.self, forCellReuseIdentifier: ItemCell.cellName)
-        
+        view.separatorStyle = .singleLine
+        view.cellLayoutMarginsFollowReadableWidth = true
         view.tableFooterView = UIView(frame: .zero)
         
         return view
@@ -202,36 +279,53 @@ class LastCallsViewController: BaseViewController {
             Observable
                 .collection(from: realm
                     .objects(MessageStorageItem.self)
-                    .filter("owner IN %@ AND messageType == %@",
+                    .filter("owner IN %@ AND messageType == %@ AND isDeleted == false",
                             Array(enabledAccounts.value),
                             MessageStorageItem.MessageDisplayType.call.rawValue)
                     .sorted(byKeyPath: "date", ascending: false))
 //                .debounce(.milliseconds(50), scheduler: MainScheduler.asyncInstance)
                 .map { (results) -> [Datasource] in
-                    return Array(results.compactMap {
+                    let items = Array(results.prefix(50))
+                    let owners = Array(Set(items.map { $0.owner }))
+                    let jids = Array(Set(items.map { $0.opponent }))
+                    let rosterByKey: [String: RosterStorageItem]
+                    do {
+                        let realm = try WRealm.safe()
+                        let rosterItems = owners.isEmpty || jids.isEmpty
+                            ? []
+                            : realm.objects(RosterStorageItem.self)
+                                .filter("owner IN %@ AND jid IN %@", owners, jids)
+                                .toArray()
+                        rosterByKey = Dictionary(
+                            uniqueKeysWithValues: rosterItems.map { item in
+                                (RosterStorageItem.genPrimary(jid: item.jid, owner: item.owner), item)
+                            }
+                        )
+                    } catch {
+                        DDLogDebug("LastCallsViewController: \(#function). \(error.localizedDescription)")
+                        rosterByKey = [:]
+                    }
+                    return items.compactMap {
                         item in
-                        var name: String = item.opponent
-                        do {
-                            let realm = try WRealm.safe()
-                            name = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: item.opponent, owner: item.owner))?.displayName ?? item.opponent
-                        } catch {
-                            DDLogDebug("LastCallsViewController: \(#function). \(error.localizedDescription)")
-                        }
-//                        let name = self.displayNames?.first(where: { $0.primary == RosterDisplayNameStorageItem.genPrimary(jid: item.opponent, owner: item.owner) })?.displayName ?? item.opponent
+                        let rosterItem = rosterByKey[RosterStorageItem.genPrimary(jid: item.opponent, owner: item.owner)]
                         let stateUnwr = (item.callMetadata?["callState"] as? String) ?? ""
-                        let duration = item.callMetadata?["duration"] as? TimeInterval ?? 0
+                        let displayState = Self.displayDirection(
+                            for: MessageStorageItem.VoIPCallState(rawValue: stateUnwr) ?? .none,
+                            outgoing: item.outgoing
+                        )
                         
                         return Datasource(
                             owner: item.owner,
                             jid: item.opponent,
-                            username: name,
-                            body: item.displayedBody(),
+                            username: rosterItem?.displayName ?? item.opponent,
+                            avatarUrl: rosterItem?.avatarMinUrl ?? rosterItem?.avatarMaxUrl ?? rosterItem?.oldschoolAvatarKey,
                             date: item.date,
+                            direction: displayState,
                             outgoing: item.outgoing,
-                            state: MessageStorageItem.VoIPCallState(rawValue: stateUnwr) ?? .none,
-                            duration: duration
+                            messagePrimary: item.primary,
+                            referencePrimary: item.references.first?.primary
                         )
-                    }.prefix(50))
+                    }
                 }
                 .subscribe { (results) in
                     if results.isEmpty {

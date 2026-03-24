@@ -216,13 +216,13 @@ class LeftMenuViewController: UIViewController {
             let archived = realm.objects(LastChatsStorageItem.self).filter("isArchived == true AND unread > 0").compactMap({ $0.unread }).reduce(0, +)
             let calls = realm.objects(CallMetadataStorageItem.self)
             let contacts = realm.objects(RosterStorageItem.self).filter("owner IN %@ AND isHidden == false AND removed == false AND ask_ == %@ AND isContact == true AND NOT (jid IN %@)", jids, "in", ignoredJids)
-            let notifications = realm.objects(NotificationStorageItem.self).filter("isRead == false AND shouldShow == true")
+            let notificationsCount = NotificationsSupport.unreadVisibleCount(in: realm, owners: jids)
             let invitations = realm.objects(GroupchatInvitesStorageItem.self).filter("owner IN %@ AND isRead == false", jids)
             if CommonConfigManager.shared.config.support_groupchats {
                 self.datasource = [[
                     Datasource(title: "Chats", icon: "custom.bubble", key: "chat", category: "", subtitle: "\(chats)", showTriangle: false),
                     Datasource(title: "Calls", icon: "phone", key: "calls", category: "", subtitle: "\(calls.count)", showTriangle: false),
-                    Datasource(title: "Notifications", icon: "bell", key: "notifications", category: "", subtitle: "\(notifications.count)", showTriangle: false),
+                    Datasource(title: "Notifications", icon: "bell", key: "notifications", category: "", subtitle: "\(notificationsCount)", showTriangle: false),
                     Datasource(title: "Contacts", icon: "person", key: "contacts", category: "contacts", subtitle: "\(contacts.count)", showTriangle: false),
                     Datasource(title: "Groups", icon: "person.2", key: "groups", category: "public", subtitle: "\(invitations.count)", showTriangle: false),
                     Datasource(title: "Archive", icon: "archivebox", key: "archive", category: "", subtitle: "\(archived)", showTriangle: false),
@@ -235,7 +235,7 @@ class LeftMenuViewController: UIViewController {
                 self.datasource = [[
                     Datasource(title: "Chats", icon: "custom.bubble", key: "chat", category: "", subtitle: "\(chats)", showTriangle: false),
                     Datasource(title: "Calls", icon: "phone", key: "calls", category: "", subtitle: "\(calls.count)", showTriangle: false),
-                    Datasource(title: "Notifications", icon: "bell", key: "notifications", category: "", subtitle: "\(notifications.count)", showTriangle: false),
+                    Datasource(title: "Notifications", icon: "bell", key: "notifications", category: "", subtitle: "\(notificationsCount)", showTriangle: false),
                     Datasource(title: "Contacts", icon: "person", key: "contacts", category: "contacts", subtitle: "\(contacts.count)", showTriangle: false),
                     Datasource(title: "Archive", icon: "archivebox", key: "archive", category: "", subtitle: "\(archived)", showTriangle: false),
                     Datasource(title: "Saved messages", icon: "bookmark", key: "saved", category: "", subtitle: "0", showTriangle: false),
@@ -284,7 +284,7 @@ class LeftMenuViewController: UIViewController {
             let archived = realm.objects(LastChatsStorageItem.self).filter("isArchived == true AND unread > 0")
             let calls = realm.objects(CallMetadataStorageItem.self)
             let contacts = realm.objects(RosterStorageItem.self).filter("owner IN %@ AND isHidden == false AND removed == false AND ask_ == %@ AND isContact == true AND NOT (jid IN %@)", jids, "in", ignoredJids)
-            let notifications = realm.objects(NotificationStorageItem.self).filter("isRead == false AND shouldShow == true")
+            let notifications = realm.objects(NotificationStorageItem.self).filter("owner IN %@ AND isRead == false AND shouldShow == true", jids)
             let invitations = realm.objects(GroupchatInvitesStorageItem.self).filter("owner IN %@ AND isRead == false", jids)
             let section = 0
             
