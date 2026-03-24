@@ -42,10 +42,11 @@ class ContactsCategoryViewController: BaseViewController {
     
     var isGroup: Bool = false
     
+    var filteredAccounts: Set<String> = Set()
     var filteredGroups: Set<String> = Set()
     
     private let tableView: UITableView = {
-        let view = UITableView(frame: .zero, style: .grouped)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(UITableViewCell.self, forCellReuseIdentifier: "tablecell")
         view.register(MenuItemTableCell.self, forCellReuseIdentifier: MenuItemTableCell.cellName)
@@ -59,7 +60,14 @@ class ContactsCategoryViewController: BaseViewController {
     }()
     
     private func loadDatasource() {
-        
+        do {
+            let realm = try WRealm.safe()
+            let context = ContactsListSupport.makeContext(realm: realm, state: currentFilterState())
+            datasource = ContactsListSupport.categoryDatasource(context: context)
+        } catch {
+            datasource = []
+            DDLogDebug("ContactsCategoryViewController: \(#function). \(error.localizedDescription)")
+        }
     }
     
     @objc
@@ -69,16 +77,10 @@ class ContactsCategoryViewController: BaseViewController {
     
     func subscribe() {
         self.bag = DisposeBag()
-        do {
-            if isGroup {
-                try self.subscribeGroups()
-            } else {
-                try self.subscribeContacts()
-            }
-        } catch {
-            DDLogDebug("NotificationsCategoriesViewController: \(#function). \(error.localizedDescription)")
-        }
+        loadDatasource()
+        subscribeToCollections()
         self.filterDidSelect(category: self.filterCategory)
+        self.filterDidSelect(groups: Array(self.filteredGroups))
     }
     
     var filterCategory: String? = nil
@@ -88,136 +90,63 @@ class ContactsCategoryViewController: BaseViewController {
         super.resetState()
         
         self.filteredGroups.removeAll()
-//        self.filteredAccounts.removeAll()
         self.tableView
             .indexPathsForSelectedRows?
             .filter({ $0.section == 3 })
             .forEach { self.tableView.deselectRow(at: $0, animated: false) }
     }
     
-    func subscribeGroups() throws {
-        let realm = try WRealm.safe()
-        let accounts = realm.objects(AccountStorageItem.self).filter("enabled == true")
-        let jids = accounts.toArray().compactMap({ return $0.jid })
-        let contacts = realm
-            .objects(RosterStorageItem.self)
-            .filter("subscription_ == %@ AND removed == false AND isHidden == false AND isContact == false AND owner IN %@", "both", jids)
-            .toArray()
-        
-        var groupsDatasource: [Datasource] = []
-        
-        let publicGroups = realm.objects(GroupChatStorageItem.self).filter("owner IN %@ AND privacy_ == %@ AND peerToPeer == false", jids, GroupChatStorageItem.Privacy.publicChat.rawValue).toArray().compactMap({ $0.jid })
-        let publicCount = realm.objects(RosterStorageItem.self).filter("subscription_ == %@ AND jid IN %@ AND removed == false AND isHidden == false AND isContact == false", "both", publicGroups).count
-        let incognito = realm.objects(GroupChatStorageItem.self).filter("owner IN %@ AND privacy_ == %@ AND peerToPeer == false", jids, GroupChatStorageItem.Privacy.incognito.rawValue).toArray().compactMap({ $0.jid })
-        let incognitoCount = realm.objects(RosterStorageItem.self).filter("subscription_ == %@ AND jid IN %@ AND removed == false AND isHidden == false AND isContact == false", "both", incognito).count
-        let privateGroups = realm.objects(GroupChatStorageItem.self).filter("owner IN %@ AND peerToPeer == true", jids).compactMap { $0.jid }
-        let privateCount = privateGroups.count
-        let requests = realm
-            .objects(GroupchatInvitesStorageItem.self)
-            .filter("owner IN %@ AND isRead == false", jids)
-            .toArray()
-        let invitationsCount = requests.count
-        
-        
-        
-        requests.forEach {
-            request in
-            let owner = request.owner
-            let groupchat = request.groupchat
-            AccountManager.shared.find(for: owner)?.action { user, stream in
-                user.groupchats.getGroupInfo(stream, groupchat: groupchat)
-                user.groupchats.requestUsers(stream, groupchat: groupchat)
-            }
-        }
-        
-        let groupsRaw = realm
-            .objects(RosterGroupStorageItem.self)
-            .filter("owner IN %@ AND isSystemGroup == false", jids)
-
-        groupsRaw.forEach {
-            group in
-            let count = contacts.filter({ Set($0.groups).contains(group.name) }).count
-            groupsDatasource.append(Datasource(title: group.name, icon: "tag", key: group.name, subtitle: "\(count)", color: .tintColor, isImportant: false, value: count, isHeader: false))
-        }
-        
-        self.datasource = [
-            [
-                Datasource(title: "Groups", icon: "person.2.fill", key: "all", subtitle: "Text about groups, incognito groups and private chats", color: .tintColor, isImportant: false, value: 0, isHeader: true),
-            ],
-            [
-                Datasource(title: "Public Groups", icon: "person.2", key: "public", subtitle: "\(publicCount)", color: .tintColor, isImportant: false, value: publicCount, isHeader: false),
-                Datasource(title: "Incognito Groups", icon: "xabber.incognito.variant", key: "incognito", subtitle: "\(incognitoCount)", color: .tintColor, isImportant: false, value: incognitoCount, isHeader: false),
-                Datasource(title: "Private Chats", icon: "bubble", key: "private", subtitle: "\(privateCount)", color: .tintColor, isImportant: false, value: privateCount, isHeader: false)
-            ],
-            [
-                Datasource(title: "Invitations", icon: "xabber.invite", key: "invitations", subtitle: "\(invitationsCount)", color: .tintColor, isImportant: true, value: invitationsCount, isHeader: false)
-            ],
-            groupsDatasource.sorted(by: { $0.value > $1.value })
-        ]
-
-        self.tableView.reloadData()
-    }
-    
-    func subscribeContacts() throws {
-        
-        let realm = try WRealm.safe()
-        let accounts = realm.objects(AccountStorageItem.self).filter("enabled == true")
-
-        let jids = accounts.toArray().compactMap({ return $0.jid })
-        var ignoredJids: [String] = AccountManager.shared.users.compactMap { $0.notifications.node }
-        ignoredJids.append(contentsOf: AccountManager.shared.users.compactMap { $0.favorites.node })
-        var ignoredAbuse = Set(realm.objects(XMPPAbuseConfigStorageItem.self).toArray().compactMap({ $0.abuseAddress }))
-        ignoredAbuse.insert(CommonConfigManager.shared.config.default_report_address)
-        ignoredJids.append(contentsOf: Array(ignoredAbuse))
-        var ignoredAccounts = realm.objects(AccountStorageItem.self).filter("enabled == true").toArray().compactMap { $0.jid }
-        ignoredJids.append(contentsOf: ignoredAccounts)
-        if CommonConfigManager.shared.config.support_jid.isNotEmpty {
-            ignoredJids.append(CommonConfigManager.shared.config.support_jid)
-        }
-        let contacts = realm
-            .objects(RosterStorageItem.self)
-            .filter("subscription_ IN %@ AND removed == false AND isHidden == false AND isContact == true AND owner IN %@", ["both", "from", "to"], jids)
-            .toArray()
-        
-        let contactsCount = contacts.filter({ ($0.getPrimaryResource()?.entity ?? .contact) == .contact }).count
-        var groupsDatasource: [Datasource] = []
-        
-        let groupsRaw = realm
-            .objects(RosterGroupStorageItem.self)
-            .filter("owner IN %@ AND isSystemGroup == false", jids)
-//            .sorted(byKeyPath: "name")
-        
-        groupsRaw.forEach {
-            group in
-            let count = contacts.filter({ Set($0.groups).contains(group.name) }).count
-            groupsDatasource.append(Datasource(title: group.name, icon: "tag", key: group.name, subtitle: "\(count)", color: .tintColor, isImportant: false, value: count, isHeader: false))
-        }
-        
-        
-        let subscribtionsCount = realm
-            .objects(RosterStorageItem.self)
-            .filter("owner IN %@ AND isHidden == false AND removed == false AND ask_ == %@ AND isContact == true AND NOT (jid IN %@)", jids, "in", ignoredJids).count
-        let requestsCount = realm
-            .objects(RosterStorageItem.self)
-            .filter("owner IN %@ AND isHidden == false AND removed == false AND ask_ == %@ AND isContact == true AND NOT (jid IN %@)", jids, "out", ignoredJids).count
-        self.datasource = [
-            [
-                Datasource(title: "Contacts", icon: "person.fill", key: "all", subtitle: "Text about contacts, circles and other", color: .tintColor, isImportant: false, value: 0, isHeader: true),
-            ],
-            [
-                Datasource(title: "Contacts", icon: "person.crop.rectangle.stack", key: "all", subtitle: "\(contactsCount)", color: .tintColor, isImportant: false, value: contactsCount, isHeader: false),
-            ],
-            [
-                Datasource(title: "Contact Requests", icon: "person.text.rectangle", key: "subscribtions", subtitle: "\(subscribtionsCount)", color: .tintColor, isImportant: true, value: subscribtionsCount, isHeader: false),
-                Datasource(title: "Outgoing Requests", icon: "xabber.person.plus", key: "requests", subtitle: "\(requestsCount)", color: .tintColor, isImportant: false, value: requestsCount, isHeader: false)
-            ],
-            groupsDatasource.sorted(by: { $0.value > $1.value })
-        ]
-        self.tableView.reloadData()
-    }
-    
     func unsubscribe() {
         self.bag = DisposeBag()
+    }
+
+    private func currentFilterState() -> ContactsFilterState {
+        ContactsFilterState(
+            category: filterCategory,
+            filteredAccounts: filteredAccounts,
+            filteredGroups: filteredGroups,
+            showOffline: true,
+            isGroup: isGroup
+        )
+    }
+
+    private func reloadDataAndSelection() {
+        loadDatasource()
+        tableView.reloadData()
+        filterDidSelect(category: filterCategory)
+        filterDidSelect(groups: Array(filteredGroups))
+    }
+
+    private func subscribeToCollections() {
+        do {
+            let realm = try WRealm.safe()
+            let enabledJids = realm.objects(AccountStorageItem.self).filter("enabled == true").toArray().compactMap(\.jid)
+            let rosterCollection = realm.objects(RosterStorageItem.self).filter("owner IN %@", enabledJids)
+            let groupsCollection = realm.objects(RosterGroupStorageItem.self).filter("owner IN %@ AND isSystemGroup == false", enabledJids)
+
+            var invalidations: [Observable<Void>] = [
+                Observable.collection(from: rosterCollection).map { _ in () },
+                Observable.collection(from: groupsCollection).map { _ in () }
+            ]
+
+            if isGroup {
+                let invitesCollection = realm.objects(GroupchatInvitesStorageItem.self).filter("owner IN %@", enabledJids)
+                let groupchatCollection = realm.objects(GroupChatStorageItem.self).filter("owner IN %@", enabledJids)
+                let groupUsersCollection = realm.objects(GroupchatUserStorageItem.self).filter("isHidden == false")
+                invalidations.append(Observable.collection(from: invitesCollection).map { _ in () })
+                invalidations.append(Observable.collection(from: groupchatCollection).map { _ in () })
+                invalidations.append(Observable.collection(from: groupUsersCollection).map { _ in () })
+            }
+
+            Observable.merge(invalidations)
+                .debounce(.milliseconds(150), scheduler: MainScheduler.asyncInstance)
+                .subscribe(onNext: { [weak self] in
+                    self?.reloadDataAndSelection()
+                })
+                .disposed(by: bag)
+        } catch {
+            DDLogDebug("ContactsCategoryViewController: \(#function). \(error.localizedDescription)")
+        }
     }
     
     
@@ -236,6 +165,7 @@ class ContactsCategoryViewController: BaseViewController {
         tableView.fillSuperview()
         tableView.delegate = self
         tableView.dataSource = self
+        tableView.allowsMultipleSelectionDuringEditing = false
     }
     
     @objc
@@ -340,13 +270,20 @@ extension ContactsCategoryViewController: UITableViewDataSource {
                 fatalError()
             }
             cell.configure(title: item.title, badge: item.subtitle, icon: item.icon, isImportant: item.isImportant)
-            let view = UIView()
-            let containerView: UIView = UIView()
-            containerView.addSubview(view)
-            view.fillSuperviewWithOffset(top: 2, bottom: 2, left: 8, right: 8)
-            view.layer.cornerRadius = 16
-            view.layer.masksToBounds = true
-            view.backgroundColor = AccountColorManager.shared.topPalette().tint50 | AccountColorManager.shared.topPalette().tint900
+            let selectionView = UIView()
+            selectionView.backgroundColor = AccountColorManager.shared.topPalette().tint50 | AccountColorManager.shared.topPalette().tint900
+            selectionView.layer.cornerRadius = 16
+            selectionView.layer.masksToBounds = true
+
+            let containerView = UIView()
+            containerView.addSubview(selectionView)
+            selectionView.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                selectionView.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 2),
+                selectionView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -2),
+                selectionView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 8),
+                selectionView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -8)
+            ])
             cell.selectedBackgroundView = containerView
             
             return cell
@@ -414,7 +351,6 @@ extension ContactsCategoryViewController: UITableViewDelegate {
         switch indexPath.section {
             case 1:
                 self.filterCategory = self.datasource[indexPath.section][indexPath.row].key
-                self.filterDelegate?.shouldFilterBy(category: self.datasource[indexPath.section][indexPath.row].key)
                 if self.filteredGroups.isNotEmpty {
                     self.filteredGroups.removeAll()
                     self.filterDelegate?.shouldFilterBy(groups: Array(self.filteredGroups))
@@ -422,6 +358,7 @@ extension ContactsCategoryViewController: UITableViewDelegate {
                         self.tableView.deselectRow(at: $0, animated: false)
                     }
                 }
+                self.filterDelegate?.shouldFilterBy(category: self.datasource[indexPath.section][indexPath.row].key)
             case 2:
                 if filteredGroups.isNotEmpty {
                     self.filteredGroups.removeAll()
@@ -491,16 +428,32 @@ extension ContactsCategoryViewController: ContactsCategoryDelegate {
                 self.tableView.selectRow(at: indexPath, animated: true, scrollPosition: .none)
             }
         } else {
-            
+            self.filterCategory = nil
+            self.tableView.indexPathsForSelectedRows?.filter({ $0.section < 3 }).forEach {
+                self.tableView.deselectRow(at: $0, animated: false)
+            }
         }
     }
     
     func filterDidSelect(account: String?) {
-        
+        if let account = account {
+            filteredAccounts = [account]
+        } else {
+            filteredAccounts.removeAll()
+        }
+        reloadDataAndSelection()
     }
     
     func filterDidSelect(groups: [String]) {
-        
+        filteredGroups = Set(groups)
+        tableView.indexPathsForSelectedRows?.filter({ $0.section == 3 }).forEach {
+            tableView.deselectRow(at: $0, animated: false)
+        }
+        guard datasource.indices.contains(3) else { return }
+        datasource[3].enumerated().forEach { row, item in
+            guard filteredGroups.contains(item.key) else { return }
+            tableView.selectRow(at: IndexPath(row: row, section: 3), animated: false, scrollPosition: .none)
+        }
     }
     
     

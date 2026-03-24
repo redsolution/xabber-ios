@@ -26,19 +26,15 @@ extension ContactsViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         let item = datasource[indexPath.section][indexPath.row]
         if item.isHeader {
-            return tableView.estimatedRowHeight
+            return UITableView.automaticDimension
         }
         if item.isButton {
             return 40
         }
         if item.isInvite {
-            return tableView.estimatedRowHeight
-//            return 92
+            return UITableView.automaticDimension
         }
-        if isGroup {
-            return 92
-        }
-        return 86
+        return UITableView.automaticDimension
     }
     
 //    func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {
@@ -106,4 +102,3 @@ extension ContactsViewController: UITableViewDelegate {
         }
     }
 }
-

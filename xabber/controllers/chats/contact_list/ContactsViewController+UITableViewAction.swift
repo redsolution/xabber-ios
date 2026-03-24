@@ -118,7 +118,7 @@ extension ContactsViewController {
                         if error != nil {
                             DispatchQueue.main.async {
                                 ToastPresenter().presentError(message: "Unexpected error".localizeString(id: "unexpected_error", arguments: []))
-                                self.preprocessDataset(changeCategory: false)
+                                self.runDatasetUpdateTask(force: true)
                             }
                         }
                     }
@@ -142,7 +142,7 @@ extension ContactsViewController {
                     user.blocked.blockContact(stream, jid: jid)
                     DispatchQueue.main.async {
                         ToastPresenter().presentError(message: "Unexpected error".localizeString(id: "unexpected_error", arguments: []))
-                        self.preprocessDataset(changeCategory: false)
+                        self.runDatasetUpdateTask(force: true)
                     }
                 }
             }
@@ -164,13 +164,13 @@ extension ContactsViewController {
                     user.groupchats.leave(stream, groupchat: jid) { _ in
                         DispatchQueue.main.async {
                             ToastPresenter().presentError(message: "Unexpected error".localizeString(id: "unexpected_error", arguments: []))
-                            self.preprocessDataset(changeCategory: false)
+                            self.runDatasetUpdateTask(force: true)
                         }
                     }
                     user.groupchats.afterLeave(groupchat: jid)
                     DispatchQueue.main.async {
                         ToastPresenter().presentError(message: "Unexpected error".localizeString(id: "unexpected_error", arguments: []))
-                        self.preprocessDataset(changeCategory: false)
+                        self.runDatasetUpdateTask(force: true)
                     }
                 }
             }
@@ -201,7 +201,7 @@ extension ContactsViewController {
                         }
                         DispatchQueue.main.async {
                             ToastPresenter().presentError(message: "Unexpected error".localizeString(id: "unexpected_error", arguments: []))
-                            self.preprocessDataset(changeCategory: false)
+                            self.runDatasetUpdateTask(force: true)
                         }
                     }
                 }

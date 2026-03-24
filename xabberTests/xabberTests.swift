@@ -350,3 +350,90 @@ final class NotificationsFeatureTests: XCTestCase {
         XCTAssertEqual(filtered.first?.owner, owner)
     }
 }
+
+final class ContactsListSupportTests: XCTestCase {
+
+    override func setUp() {
+        super.setUp()
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(inMemoryIdentifier: "ContactsListSupportTests-\(name)")
+        let realm = try! WRealm.safe()
+        try! realm.write {
+            realm.deleteAll()
+        }
+    }
+
+    private func makeAccount(jid: String, username: String) -> AccountStorageItem {
+        let account = AccountStorageItem()
+        account.jid = jid
+        account.username = username
+        account.enabled = true
+        return account
+    }
+
+    private func makeCircle(name: String, owner: String) -> RosterGroupStorageItem {
+        let circle = RosterGroupStorageItem()
+        circle.primary = RosterGroupStorageItem.genPrimary(name: name, owner: owner)
+        circle.owner = owner
+        circle.name = name
+        return circle
+    }
+
+    private func makeContact(owner: String, jid: String, subscription: RosterStorageItem.Subsccribtion, ask: RosterStorageItem.Ask, groups: [String]) -> RosterStorageItem {
+        let contact = RosterStorageItem()
+        contact.primary = RosterStorageItem.genPrimary(jid: jid, owner: owner)
+        contact.owner = owner
+        contact.jid = jid
+        contact.username = jid
+        contact.isContact = true
+        contact.subscribtion = subscription
+        contact.ask = ask
+        contact.groups.append(objectsIn: groups)
+        return contact
+    }
+
+    func testContactCategoryDatasourceCountsJoinedContactsAndRequestsSeparately() throws {
+        let realm = try WRealm.safe()
+        try realm.write {
+            realm.add(makeAccount(jid: "owner-1@example.com", username: "Owner 1"))
+            realm.add(makeCircle(name: "Friends", owner: "owner-1@example.com"))
+            realm.add(makeContact(owner: "owner-1@example.com", jid: "alice@example.com", subscription: .both, ask: .none, groups: ["Friends"]))
+            realm.add(makeContact(owner: "owner-1@example.com", jid: "bob@example.com", subscription: .none, ask: .out, groups: ["Friends"]))
+            realm.add(makeContact(owner: "owner-1@example.com", jid: "carol@example.com", subscription: .none, ask: .in, groups: []))
+        }
+
+        let context = ContactsListSupport.makeContext(
+            realm: realm,
+            state: ContactsFilterState(category: "all", filteredAccounts: [], filteredGroups: [], showOffline: true, isGroup: false)
+        )
+        let datasource = ContactsListSupport.categoryDatasource(context: context)
+
+        XCTAssertEqual(datasource[1].first?.subtitle, "1")
+        XCTAssertEqual(datasource[2].first?.subtitle, "1")
+        XCTAssertEqual(datasource[2].last?.subtitle, "1")
+        XCTAssertEqual(datasource[3].first?.subtitle, "1")
+    }
+
+    func testCircleCountsRespectSelectedAccountFilter() throws {
+        let realm = try WRealm.safe()
+        try realm.write {
+            realm.add(makeAccount(jid: "owner-1@example.com", username: "Owner 1"))
+            realm.add(makeAccount(jid: "owner-2@example.com", username: "Owner 2"))
+            realm.add(makeCircle(name: "Friends", owner: "owner-1@example.com"))
+            realm.add(makeCircle(name: "Friends", owner: "owner-2@example.com"))
+            realm.add(makeContact(owner: "owner-1@example.com", jid: "alice@example.com", subscription: .both, ask: .none, groups: ["Friends"]))
+            realm.add(makeContact(owner: "owner-2@example.com", jid: "bob@example.com", subscription: .both, ask: .none, groups: ["Friends"]))
+        }
+
+        let allContext = ContactsListSupport.makeContext(
+            realm: realm,
+            state: ContactsFilterState(category: "all", filteredAccounts: [], filteredGroups: [], showOffline: true, isGroup: false)
+        )
+        let filteredContext = ContactsListSupport.makeContext(
+            realm: realm,
+            state: ContactsFilterState(category: "all", filteredAccounts: ["owner-1@example.com"], filteredGroups: [], showOffline: true, isGroup: false)
+        )
+
+        XCTAssertEqual(ContactsListSupport.circleCounts(context: allContext).first?.count, 2)
+        XCTAssertEqual(ContactsListSupport.circleCounts(context: filteredContext).first?.count, 1)
+    }
+}

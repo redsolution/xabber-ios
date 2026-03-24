@@ -124,7 +124,6 @@ extension ContactsViewController {
 //                return EnabledAccount(jid: $0.jid, isCollapsed: $0.isCollapsed, contactsCount: 0)
 //            })
 //            self.updateSectionHeaders(for: self.enabledAccounts.value)
-            self.canUpdateDataset = true
             self.runDatasetUpdateTask(force: true)
         } catch {
             DDLogDebug("ContactsViewController: \(#function). \(error.localizedDescription)")
