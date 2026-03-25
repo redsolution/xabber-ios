@@ -495,7 +495,9 @@ class LeftMenuViewController: UIViewController {
         let image = UIImage(systemName: iconName)
         let button = UIBarButtonItem(image: image, style: .plain, target: self, action: #selector(onPremiumButton))
         button.tintColor = isPremiumActive ? .systemYellow : .label
-        navigationItem.rightBarButtonItem = button
+        if CommonConfigManager.shared.config.support_subscribtions {
+            navigationItem.rightBarButtonItem = button
+        }
     }
 
     @objc

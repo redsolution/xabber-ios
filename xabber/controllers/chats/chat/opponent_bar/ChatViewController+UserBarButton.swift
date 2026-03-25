@@ -29,6 +29,85 @@ import CocoaLumberjack
 
 
 extension ChatViewController {
+    final class ChatNavbarHeaderView: UIView {
+        private let titleButton: UIButton
+        private let titleStack: UIStackView
+        private let avatarView: UserBarButton
+        private var widthConstraint: NSLayoutConstraint?
+        private let avatarSize: CGFloat = 42
+        private let avatarSpacing: CGFloat = 12
+
+        init(titleButton: UIButton, titleStack: UIStackView, avatarView: UserBarButton) {
+            self.titleButton = titleButton
+            self.titleStack = titleStack
+            self.avatarView = avatarView
+            super.init(frame: .zero)
+            setupSubviews()
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        private func setupSubviews() {
+            translatesAutoresizingMaskIntoConstraints = false
+            backgroundColor = .clear
+
+            titleButton.translatesAutoresizingMaskIntoConstraints = false
+            titleButton.backgroundColor = .clear
+
+            titleStack.translatesAutoresizingMaskIntoConstraints = false
+            if titleStack.superview !== titleButton {
+                titleButton.addSubview(titleStack)
+            }
+
+            avatarView.translatesAutoresizingMaskIntoConstraints = false
+
+            addSubview(titleButton)
+            addSubview(avatarView)
+
+            titleButton.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            titleButton.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            avatarView.setContentCompressionResistancePriority(.required, for: .horizontal)
+            avatarView.setContentHuggingPriority(.required, for: .horizontal)
+
+            widthConstraint = widthAnchor.constraint(equalToConstant: 220)
+            widthConstraint?.priority = .required
+            widthConstraint?.isActive = true
+
+            NSLayoutConstraint.activate([
+                heightAnchor.constraint(equalToConstant: avatarSize),
+
+                avatarView.trailingAnchor.constraint(equalTo: trailingAnchor),
+                avatarView.topAnchor.constraint(equalTo: topAnchor),
+                avatarView.widthAnchor.constraint(equalToConstant: avatarSize),
+                avatarView.heightAnchor.constraint(equalToConstant: avatarSize),
+
+                titleButton.leadingAnchor.constraint(equalTo: leadingAnchor),
+                titleButton.trailingAnchor.constraint(equalTo: trailingAnchor),
+                titleButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+                titleButton.heightAnchor.constraint(equalToConstant: avatarSize),
+
+                titleStack.leadingAnchor.constraint(greaterThanOrEqualTo: titleButton.leadingAnchor, constant: 8),
+                titleStack.trailingAnchor.constraint(lessThanOrEqualTo: titleButton.trailingAnchor, constant: -8),
+                titleStack.centerXAnchor.constraint(equalTo: titleButton.centerXAnchor),
+                titleStack.topAnchor.constraint(greaterThanOrEqualTo: titleButton.topAnchor),
+                titleStack.bottomAnchor.constraint(lessThanOrEqualTo: titleButton.bottomAnchor),
+                titleStack.centerYAnchor.constraint(equalTo: titleButton.centerYAnchor)
+            ])
+        }
+
+        func updateAvailableWidth(_ width: CGFloat) {
+            widthConstraint?.constant = max(160, width)
+            invalidateIntrinsicContentSize()
+            frame.size = CGSize(width: max(160, width), height: avatarSize)
+        }
+
+        override var intrinsicContentSize: CGSize {
+            CGSize(width: widthConstraint?.constant ?? 220, height: avatarSize)
+        }
+    }
+
     class UserBarButton: UIView {
 
         static let initialAvatarSize: CGSize = CGSize(square: 42)
@@ -215,6 +294,7 @@ extension ChatViewController {
         }
 
         private final func setupSubviews() {
+            backgroundColor = .clear
             addSubview(gradientMask)
             gradientMask.addSubview(gradientView)
             addSubview(avatar)
@@ -237,13 +317,21 @@ extension ChatViewController {
         }
 
         override init(frame: CGRect) {
-            super.init(frame: frame)
+            super.init(frame: CGRect(origin: frame.origin, size: UserBarButton.initialAvatarSize))
             setupSubviews()
         }
 
         required init?(coder aDecoder: NSCoder) {
             super.init(coder: aDecoder)
             setupSubviews()
+        }
+
+        override var intrinsicContentSize: CGSize {
+            UserBarButton.initialAvatarSize
+        }
+
+        override func sizeThatFits(_ size: CGSize) -> CGSize {
+            UserBarButton.initialAvatarSize
         }
 
         deinit {

@@ -459,8 +459,17 @@ class ChatViewController: MessagesViewController {
     
     var titleButton: UIButton = {
         let button = UIButton(frame: .zero)
-        
+
         button.backgroundColor = .clear
+        button.layer.cornerRadius = 0
+        if #available(iOS 15.0, *) {
+            var configuration = UIButton.Configuration.plain()
+            configuration.contentInsets = .zero
+            configuration.background.backgroundColor = .clear
+            configuration.baseBackgroundColor = .clear
+            configuration.baseForegroundColor = .label
+            button.configuration = configuration
+        }
         
         return button
     }()
@@ -469,7 +478,7 @@ class ChatViewController: MessagesViewController {
         let stack = UIStackView()
         
         stack.axis = .vertical
-        stack.alignment = .center
+        stack.alignment = .leading
         stack.spacing = 2
         
         return stack
@@ -479,6 +488,8 @@ class ChatViewController: MessagesViewController {
         let label = UILabel()
         
         label.font = UIFont.preferredFont(forTextStyle: .body).bold()
+        label.numberOfLines = 1
+        label.lineBreakMode = .byTruncatingTail
         
         return label
     }()
@@ -487,6 +498,8 @@ class ChatViewController: MessagesViewController {
         let label = UILabel()
         
         label.font = UIFont.preferredFont(forTextStyle: .caption2)
+        label.numberOfLines = 1
+        label.lineBreakMode = .byTruncatingTail
         if #available(iOS 13.0, *) {
             label.textColor = .secondaryLabel
         } else {
@@ -560,7 +573,7 @@ class ChatViewController: MessagesViewController {
         
         return button
     }()
-    
+
     internal let chatViewLoadingOverlay: UIView = {
         let view = UIView()
         
@@ -1094,6 +1107,7 @@ class ChatViewController: MessagesViewController {
     
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        updateNavbarTitleWidth()
 //        updateInsets()  // Recompute and apply as above
     }
     
@@ -1315,39 +1329,48 @@ class ChatViewController: MessagesViewController {
 
         navigationItem.largeTitleDisplayMode = .never
         
-        // Custom title setup (use constraints instead of frame for better layout)
         userBarButton.gradient.colors = [UIColor.white.cgColor,
                                          AccountColorManager.shared.palette(for: self.owner).tint700.cgColor]
-        
-        titleStack.addArrangedSubview(titleLabel)
-        titleStack.addArrangedSubview(statusLabel)
-        titleButton.addSubview(titleStack)
-        titleStack.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            titleStack.topAnchor.constraint(equalTo: titleButton.topAnchor),
-            titleStack.leadingAnchor.constraint(equalTo: titleButton.leadingAnchor),
-            titleStack.trailingAnchor.constraint(equalTo: titleButton.trailingAnchor),
-            titleStack.bottomAnchor.constraint(equalTo: titleButton.bottomAnchor)
-        ])
-        
-        navigationItem.setLeftBarButton(nil, animated: true)
-        let gesture = UITapGestureRecognizer(target: self, action: #selector(showInfo))
-        userBarButton.addGestureRecognizer(gesture)
-        let accountButton = UIBarButtonItem(customView: userBarButton)
-        if #available(iOS 26.0, *) {  // Fixed: iOS 16+, not 26 (typo?)
-            accountButton.hidesSharedBackground = true
+        if titleStack.arrangedSubviews.isEmpty {
+            titleStack.addArrangedSubview(titleLabel)
+            titleStack.addArrangedSubview(statusLabel)
         }
-        navigationItem.setRightBarButtonItems([accountButton], animated: false)
+        if titleStack.superview !== titleButton {
+            titleButton.addSubview(titleStack)
+            titleStack.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                titleStack.leadingAnchor.constraint(equalTo: titleButton.leadingAnchor),
+                titleStack.trailingAnchor.constraint(equalTo: titleButton.trailingAnchor),
+                titleStack.topAnchor.constraint(greaterThanOrEqualTo: titleButton.topAnchor),
+                titleStack.bottomAnchor.constraint(lessThanOrEqualTo: titleButton.bottomAnchor),
+                titleStack.centerYAnchor.constraint(equalTo: titleButton.centerYAnchor)
+            ])
+        }
+
+        navigationItem.setLeftBarButton(nil, animated: true)
+        if userBarButton.gestureRecognizers?.isEmpty ?? true {
+            let gesture = UITapGestureRecognizer(target: self, action: #selector(showInfo))
+            userBarButton.addGestureRecognizer(gesture)
+        }
         navigationItem.backButtonDisplayMode = .minimal
         navigationItem.leftItemsSupplementBackButton = true
         titleStack.isUserInteractionEnabled = false
+        titleStack.alignment = .center
+        titleButton.contentHorizontalAlignment = .center
+        titleButton.contentVerticalAlignment = .center
         
+        titleButton.removeTarget(self, action: #selector(onTitleButtonTouchUp(_:)), for: .touchUpInside)
         titleButton.addTarget(self, action: #selector(onTitleButtonTouchUp(_:)), for: .touchUpInside)
+        let accountButton = UIBarButtonItem(customView: userBarButton)
+        if #available(iOS 26.0, *) {
+            accountButton.hidesSharedBackground = true
+        }
+        navigationItem.setRightBarButtonItems([accountButton], animated: false)
         navigationItem.titleView = titleButton
-        
-        // Remove manual frame; let Auto Layout handle (titleButton will size to content + available width)
+
         titleLabel.attributedText = updateTitle()
         initStatus()
+        updateNavbarTitleWidth()
         
         userBarButton.configure(owner: owner, jid: jid)
         if conversationType == .saved {
@@ -1356,6 +1379,15 @@ class ChatViewController: MessagesViewController {
             userBarButton.avatar.backgroundColor = AccountColorManager.shared.palette(for: owner).tint100
             userBarButton.avatar.contentMode = .center
         }
+    }
+
+    private func updateNavbarTitleWidth() {
+        guard navigationItem.titleView === titleButton else { return }
+        let navBarWidth = navigationController?.navigationBar.bounds.width ?? view.bounds.width
+        let leftReserved: CGFloat = UIDevice.current.userInterfaceIdiom == .pad ? 120 : 88
+        let rightReserved: CGFloat = UIDevice.current.userInterfaceIdiom == .pad ? 120 : 88
+        let sideReserve = max(leftReserved, rightReserved)
+        titleButton.frame = CGRect(x: 0, y: 0, width: max(140, navBarWidth - sideReserve * 2), height: 42)
     }
     
     final func configureInputBar() {
@@ -1882,4 +1914,3 @@ extension ChatViewController: TappedPhotoInMediaGalleryDelegate {
     }
     
 }
-

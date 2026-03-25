@@ -1960,6 +1960,10 @@ class GroupchatManager: AbstractXMPPManager {
         }
         do {
             let realm = try  WRealm.safe()
+            let primary = [elementId, owner].prp()
+            if realm.object(ofType: GroupchatInvitesStorageItem.self, forPrimaryKey: primary) != nil {
+                return false
+            }
             
             var lastInviteDate: Date = Date(timeIntervalSince1970: 1)
             
@@ -1986,7 +1990,7 @@ class GroupchatManager: AbstractXMPPManager {
             let instance = GroupchatInvitesStorageItem()
 //            instance.inviteId = elementId
             instance.owner = owner
-            instance.primary = [elementId, owner].prp()
+            instance.primary = primary
             instance.groupchat = groupchat
             instance.outgoing = from == owner
             instance.reason = reason

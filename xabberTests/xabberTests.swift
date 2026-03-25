@@ -437,3 +437,89 @@ final class ContactsListSupportTests: XCTestCase {
         XCTAssertEqual(ContactsListSupport.circleCounts(context: filteredContext).first?.count, 1)
     }
 }
+
+final class ClientSynchronizationManagerTests: XCTestCase {
+
+    private let owner = "igor.boldin@xmppdev01.xabber.com"
+
+    override func setUp() {
+        super.setUp()
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(inMemoryIdentifier: "ClientSynchronizationManagerTests-\(name)")
+        let realm = try! WRealm.safe()
+        try! realm.write {
+            realm.deleteAll()
+        }
+    }
+
+    private func makeElement(xml: String) throws -> DDXMLElement {
+        let document = try DDXMLDocument(xmlString: xml, options: 0)
+        guard let root = document.rootElement() else {
+            throw NSError(domain: "ClientSynchronizationManagerTests", code: 1)
+        }
+        return root
+    }
+
+    private func makeMessage(xml: String) throws -> XMPPMessage {
+        XMPPMessage(from: try makeElement(xml: xml))
+    }
+
+    private func makeIQ(xml: String) throws -> XMPPIQ {
+        XMPPIQ(from: try makeElement(xml: xml))
+    }
+
+    func testArchivedMessageDatePrefersMessageTimeStamp() throws {
+        let message = try makeElement(xml: """
+        <message from='romeo@xmppdev01.xabber.com' to='\(owner)'>
+          <time xmlns='https://xabber.com/protocol/delivery' stamp='2026-03-24T12:34:56Z'/>
+        </message>
+        """)
+
+        let normalizedStamp = ClientSynchronizationManager.syncStamp(from: message, fallback: 1_700_000_000_000_000)
+        let archivedDate = ClientSynchronizationManager.archivedMessageDate(from: message, fallbackSyncStamp: 1_700_000_000_000_000)
+
+        XCTAssertEqual(normalizedStamp, 1_774_355_696_000_000, accuracy: 1)
+        XCTAssertEqual(archivedDate.timeIntervalSince1970, 1_774_355_696, accuracy: 0.001)
+    }
+
+    func testReadSnapshotRejectsNonHttpsNamespace() throws {
+        let manager = ClientSynchronizationManager(withOwner: owner)
+        let iq = try makeIQ(xml: """
+        <iq type='result' id='sync-1'>
+          <query xmlns='http://xabber.com/protocol/synchronization' stamp='1711283296000000'>
+          </query>
+        </iq>
+        """)
+
+        XCTAssertFalse(manager.read(withIQ: iq))
+    }
+
+    func testDuplicateInviteIsIgnored() throws {
+        let realm = try WRealm.safe()
+        try realm.write {
+            let account = AccountStorageItem()
+            account.jid = owner
+            account.username = "igor.boldin"
+            account.enabled = true
+            realm.add(account, update: .modified)
+        }
+
+        let manager = GroupchatManager(withOwner: owner)
+        let inviteMessage = try makeMessage(xml: """
+        <message from='romeo@xmppdev01.xabber.com' to='\(owner)' id='invite-1'>
+          <invite xmlns='https://xabber.com/protocol/groups' jid='group@conference.xabber.com'>
+            <reason>Join us</reason>
+          </invite>
+          <group xmlns='https://xabber.com/protocol/groups' privacy='public'/>
+        </message>
+        """)
+        let inviteDate = ISO8601DateFormatter().date(from: "2026-03-24T12:34:56Z")!
+
+        XCTAssertTrue(manager.readInvite(in: inviteMessage, date: inviteDate, isRead: false))
+        XCTAssertFalse(manager.readInvite(in: inviteMessage, date: inviteDate, isRead: false))
+
+        let storedInvites = try WRealm.safe()
+            .objects(GroupchatInvitesStorageItem.self)
+            .filter("owner == %@", owner)
+        XCTAssertEqual(storedInvites.count, 1)
+    }
+}

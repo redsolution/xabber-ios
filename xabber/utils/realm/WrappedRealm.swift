@@ -23,30 +23,9 @@ import RealmSwift
 import Realm
 
 class WRealm {
-//    var bgtask: UIBackgroundTaskIdentifier?
-    
     static func safe() throws -> Realm {
         return try Realm()
-//        do {
-//            let realm = try Realm()
-//            WRealm().bgtask = UIApplication.shared.beginBackgroundTask(withName: "com.clandestino.realm.bg_task.\(String.randomString(length: 8, includeNumber: true))", expirationHandler: nil)
-//            return realm
-//        } catch {
-//            throw(error)
-//
-//        }
     }
-    
-//    @objc
-//    private func onExpire() {
-//        if let id = self.bgtask {
-//            UIApplication.shared.endBackgroundTask(id)
-//        }
-//    }
-//
-//    deinit {
-//        if let id = self.bgtask {
-//            UIApplication.shared.endBackgroundTask(id)
-//        }
-//    }
 }
+
+// let realm = try WRealm.safe()
