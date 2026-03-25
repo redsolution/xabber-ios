@@ -22,6 +22,53 @@ import Foundation
 import XMPPFramework
 import RealmSwift
 
+struct ClientSyncPageParser {
+    struct SnapshotPage {
+        let stamp: String
+        let isFinalPage: Bool
+        let conversations: [DDXMLElement]
+    }
+
+    static func parseSnapshotPage(from iq: XMPPIQ, pageSize: Int, namespace: String, updateOmemo: (DDXMLElement) -> DDXMLElement) -> SnapshotPage? {
+        guard let query = iq.element(forName: "query", xmlns: namespace),
+              let stamp = query.attributeStringValue(forName: "stamp") else {
+            return nil
+        }
+        let count = query.element(forName: "set")?.element(forName: "count")?.stringValueAsNSInteger() ?? 0
+        let isFinalPage = count < pageSize
+        let conversations = updateOmemo(query).elements(forName: "conversation").compactMap { $0.copy() as? DDXMLElement }
+        return SnapshotPage(stamp: stamp, isFinalPage: isFinalPage, conversations: conversations)
+    }
+}
+
+struct ClientSyncPageApplier {
+    static func apply(
+        realm: Realm,
+        conversations: [DDXMLElement],
+        accountCreateDate: Date?,
+        readInvites: (DDXMLElement, Realm) -> Bool,
+        readConversation: (DDXMLElement, Realm, Date?) -> MessageManager.MessageQueueItem?,
+        readMarkers: (DDXMLElement, Realm) -> Void,
+        readPresence: (DDXMLElement, Realm) -> Void,
+        onInviteDetected: () -> Void
+    ) throws -> Set<MessageManager.MessageQueueItem> {
+        var queueItems = Set<MessageManager.MessageQueueItem>()
+        try realm.write {
+            conversations.forEach { conversation in
+                if readInvites(conversation, realm) {
+                    onInviteDetected()
+                }
+                if let item = readConversation(conversation, realm, accountCreateDate) {
+                    queueItems.insert(item)
+                }
+                readMarkers(conversation, realm)
+                readPresence(conversation, realm)
+            }
+        }
+        return queueItems
+    }
+}
+
 class ClientSynchronizationManager: AbstractXMPPManager {
     enum SyncPhase {
         case idle
@@ -412,7 +459,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             let realm = try WRealm.safe()
             try realm.write {
                 query.elements(forName: "conversation").forEach {
-                    _ = readConversationMetadata($0)
+                    _ = readConversationMetadata($0, realm: realm)
                     readPresence($0, realm: realm)
                 }
             }
@@ -424,47 +471,30 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         return true
     }
     
-    private final func readConversationMetadata(_ conversation: DDXMLElement, commitTransaction: Bool = false) -> Bool {
-        func transaction(_ block: (() -> Void)) throws {
-            let realm = try WRealm.safe()
-            if commitTransaction {
-                try realm.write(block)
-            } else {
-                block()
-            }
-        }
+    private final func readConversationMetadata(_ conversation: DDXMLElement, realm: Realm) -> Bool {
         guard let jid = conversation.attributeStringValue(forName: "jid")
                else {
             return false
         }
         let conversationType = ConversationType(rawValue: conversation.attributeStringValue(forName: "type") ?? "none") ?? ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
         do {
-            let realm = try  WRealm.safe()
             if let instance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: conversationType)) {
                 if let statusRaw = conversation.attributeStringValue(forName: "status"),
                    let status = ConversationStatus(rawValue: statusRaw) {
                     let pinned = conversation.attributeDoubleValue(forName: "pinned", withDefaultValue: 0)
                     if instance.pinnedPosition != pinned {
-                        try transaction {
-                            instance.pinnedPosition = pinned
-                            instance.isPinned = pinned != 0
-                        }
+                        instance.pinnedPosition = pinned
+                        instance.isPinned = pinned != 0
                     }
                     let muteExpired = conversation.attributeDoubleValue(forName: "mute", withDefaultValue: 0)
                     if instance.muteExpired != muteExpired {
-                        try transaction {
-                            instance.muteExpired = muteExpired
-                        }
+                        instance.muteExpired = muteExpired
                     }
                     switch status {
                     case .archived:
-                        try transaction {
-                            instance.isArchived = true
-                        }
+                        instance.isArchived = true
                     case .active:
-                        try transaction {
-                            instance.isArchived = false
-                        }
+                        instance.isArchived = false
                     case .deleted:
                         let messages = realm
                             .objects(MessageStorageItem.self)
@@ -479,22 +509,18 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                         
                         let conversationType = instance.conversationType
                         
-                        try transaction {
-                            instance.rosterItem?.associatedLastChat = nil
-                            realm.delete(instance)
-                            realm.delete(messages)
-                            realm.delete(messagesReference)
-                            realm.delete(messagesInlines)
-                        }
+                        instance.rosterItem?.associatedLastChat = nil
+                        realm.delete(instance)
+                        realm.delete(messages)
+                        realm.delete(messagesReference)
+                        realm.delete(messagesInlines)
                         
                         if conversationType == .saved {
                             let savedMessages = realm.objects(MessageStorageItem.self).filter("owner == %@ AND conversationType_ == %@", owner, ClientSynchronizationManager.ConversationType.saved.rawValue)
                             
-                            try transaction {
-                                realm.delete(savedMessages)
-                            }
+                            realm.delete(savedMessages)
                             
-                            try AccountManager.shared.find(for: owner)?.favorites.createLastChatsStorageItem(commitTransaction: commitTransaction)
+                            try AccountManager.shared.find(for: owner)?.favorites.createLastChatsStorageItem(commitTransaction: false)
                         }
                     }
                 }
@@ -515,16 +541,17 @@ class ClientSynchronizationManager: AbstractXMPPManager {
 //    </iq>
     
     internal func readSnapshot(_ iq: XMPPIQ) -> Bool {
-        guard let query = iq.element(forName: "query", xmlns: ClientSynchronizationManager.primaryNamespace),
-              let stamp = query.attributeStringValue(forName: "stamp") else {
+        guard let page = ClientSyncPageParser.parseSnapshotPage(
+            from: iq,
+            pageSize: self.pageSize,
+            namespace: ClientSynchronizationManager.primaryNamespace,
+            updateOmemo: updateOmemoMessages(_:)
+        ) else {
                 return false
         }
 
         AccountManager.shared.changeNewUserState(for: self.owner, to: .dataLoaded)
-        let countElement = query.element(forName: "set")?.element(forName: "count")?.stringValueAsNSInteger() ?? 0
-        let isFinalPage = countElement < self.pageSize
-        let conversationsItems = updateOmemoMessages(query).elements(forName: "conversation").compactMap { $0.copy() as? DDXMLElement }
-        beginApplyingPage(snapshotStamp: stamp)
+        beginApplyingPage(snapshotStamp: page.stamp)
 
         if !isPresenceSended && self.version.isNotEmpty {
             isPresenceSended = true
@@ -542,19 +569,16 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             do {
                 let realm = try WRealm.safe()
                 let accountCreateDate = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: self.owner)?.createdAt
-                var queueItems = Set<MessageManager.MessageQueueItem>()
-                try realm.write {
-                    conversationsItems.forEach { conversation in
-                        if self.readInvites(conversation, realm: realm) {
-                            self.noteInviteFallbackNeeded()
-                        }
-                        if let item = self.readConversation(conversation, realm: realm, accountCreateDate: accountCreateDate) {
-                            queueItems.insert(item)
-                        }
-                        self.readMessageMarkers(conversation, realm: realm)
-                        self.readPresence(conversation, realm: realm)
-                    }
-                }
+                let queueItems = try ClientSyncPageApplier.apply(
+                    realm: realm,
+                    conversations: page.conversations,
+                    accountCreateDate: accountCreateDate,
+                    readInvites: self.readInvites(_:realm:),
+                    readConversation: self.readConversation(_:realm:accountCreateDate:),
+                    readMarkers: self.readMessageMarkers(_:realm:),
+                    readPresence: self.readPresence(_:realm:),
+                    onInviteDetected: self.noteInviteFallbackNeeded
+                )
 
                 if !queueItems.isEmpty {
                     AccountManager
@@ -568,10 +592,10 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                         }
                 }
 
-                let shouldRunInviteFallback = self.finishApplyingPage(snapshotStamp: stamp, isFinalPage: isFinalPage)
-                if isFinalPage {
-                    self.lastCompletedSnapshotStamp = stamp
-                    self.markLastRecognizedEventStamp(stamp)
+                let shouldRunInviteFallback = self.finishApplyingPage(snapshotStamp: page.stamp, isFinalPage: page.isFinalPage)
+                if page.isFinalPage {
+                    self.lastCompletedSnapshotStamp = page.stamp
+                    self.markLastRecognizedEventStamp(page.stamp)
                     self.firstSync = false
                     self.acountSynced = true
                     self.temporaryVer = nil
@@ -583,7 +607,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                     }
                 }
             } catch {
-                _ = self.finishApplyingPage(snapshotStamp: stamp, isFinalPage: isFinalPage)
+                _ = self.finishApplyingPage(snapshotStamp: page.stamp, isFinalPage: page.isFinalPage)
                 DDLogDebug("ClientSynchronizationManager: \(#function). \(error.localizedDescription)")
             }
         }

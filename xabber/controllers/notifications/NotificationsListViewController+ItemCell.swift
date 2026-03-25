@@ -84,7 +84,13 @@ extension NotificationsListViewController {
             return view
         }()
 
-        var currentUrl: String?
+        private var avatarRequestKey: String?
+        private var appliedAvatarRequestKey: String?
+        private var defaultAvatarImage: UIImage?
+
+        private func makeAvatarRequestKey(owner: String, jid: String, avatarUrl: String?, size: CGFloat) -> String {
+            [owner, jid, avatarUrl ?? "", String(Int(size))].joined(separator: "|")
+        }
 
         public func configure(jid: String, owner: String, avatarUrl: String?, icon: String, title: NSAttributedString, message: NSAttributedString?, date: Date, isRead: Bool) {
             titleLabel.attributedText = title
@@ -98,14 +104,23 @@ extension NotificationsListViewController {
             badgeIndicator.layer.cornerRadius = Self.badgeSize / 2
             badgeIndicator.layer.masksToBounds = true
 
-            let requestUrl = avatarUrl ?? [owner, jid].prp()
-            currentUrl = requestUrl
-            avatarView.image = UIImageView.getDefaultAvatar(for: jid, owner: owner, size: 56)
-            DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 56) { [weak self] image in
-                guard let self, self.currentUrl == requestUrl else {
-                    return
+            let requestKey = makeAvatarRequestKey(owner: owner, jid: jid, avatarUrl: avatarUrl, size: 56)
+            let defaultAvatar = UIImageView.getDefaultAvatar(for: jid, owner: owner, size: 56)
+            defaultAvatarImage = defaultAvatar
+
+            if appliedAvatarRequestKey == requestKey, let currentImage = avatarView.image {
+                avatarRequestKey = requestKey
+                avatarView.image = currentImage
+            } else {
+                avatarRequestKey = requestKey
+                avatarView.image = defaultAvatar
+                DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 56) { [weak self] image in
+                    guard let self, self.avatarRequestKey == requestKey else {
+                        return
+                    }
+                    self.appliedAvatarRequestKey = requestKey
+                    self.avatarView.image = image ?? self.defaultAvatarImage ?? defaultAvatar
                 }
-                self.avatarView.image = image ?? UIImageView.getDefaultAvatar(for: jid, owner: owner, size: 56)
             }
         }
 
@@ -121,7 +136,9 @@ extension NotificationsListViewController {
 
         override func prepareForReuse() {
             super.prepareForReuse()
-            currentUrl = nil
+            avatarRequestKey = nil
+            appliedAvatarRequestKey = nil
+            defaultAvatarImage = nil
             titleLabel.attributedText = nil
             messageLabel.attributedText = nil
             messageLabel.isHidden = false

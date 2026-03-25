@@ -43,6 +43,25 @@ struct ContactsFilterState: Equatable {
     let isGroup: Bool
 }
 
+struct ContactsListCoordinator {
+    struct DerivedState {
+        let context: ContactsListSupport.Context
+        let datasource: [[ContactsViewController.Datasource]]
+        let categoryDatasource: [[ContactsCategoryViewController.Datasource]]
+        let circleCounts: [(name: String, count: Int)]
+    }
+
+    static func deriveState(realm: Realm, state: ContactsFilterState, datasourceBuilder: (ContactsFilterState, ContactsListSupport.Context) -> [[ContactsViewController.Datasource]]) -> DerivedState {
+        let context = ContactsListSupport.makeContext(realm: realm, state: state)
+        return DerivedState(
+            context: context,
+            datasource: datasourceBuilder(state, context),
+            categoryDatasource: ContactsListSupport.categoryDatasource(context: context),
+            circleCounts: ContactsListSupport.circleCounts(context: context)
+        )
+    }
+}
+
 enum ContactsListSupport {
 
     struct Context {
@@ -555,6 +574,7 @@ class ContactsViewController: BaseViewController {
     
     internal var datasource: [[Datasource]] = []
     internal var datasetGeneration: Int = 0
+    internal var lastRequestedInviteGroupKeys: Set<String> = []
     
     var pinnedAccount: Int = 0
     
@@ -1102,8 +1122,13 @@ class ContactsViewController: BaseViewController {
         updateQueue.async { [weak self] in
             guard let self = self else { return }
             let realm = try? WRealm.safe()
-            let context = realm.map { ContactsListSupport.makeContext(realm: $0, state: state) }
-            let newDatasource = context.map { self.mapDataset(state: state, context: $0) } ?? [[]]
+            let newDatasource = realm.map {
+                ContactsListCoordinator.deriveState(
+                    realm: $0,
+                    state: state,
+                    datasourceBuilder: self.mapDataset(state:context:)
+                ).datasource
+            } ?? [[]]
             
             DispatchQueue.main.async {
                 guard self.datasetGeneration == generation else { return }
@@ -1139,6 +1164,13 @@ class ContactsViewController: BaseViewController {
             self.datasource = newDatasource
             self.tableView.reloadData()
         }
+        func reloadCompatibleSections(_ sections: IndexSet) {
+            self.datasource = newDatasource
+            guard !sections.isEmpty else { return }
+            UIView.performWithoutAnimation {
+                self.tableView.reloadSections(sections, with: .none)
+            }
+        }
         if forceFullReload {
             forceReload()
         } else if newDatasource.isEmpty {
@@ -1155,12 +1187,36 @@ class ContactsViewController: BaseViewController {
             }
             let changes = diff(old: lastPartOldDatasource, new: lastPartNewDatasource)
             let indexPaths = self.convertChangeset(changes: changes, section: newDatasource.count - 1)
+            let changedPrefixSections = self.changedNonContentSections(newDatasource: newDatasource)
             UIView.performWithoutAnimation {
                 self.apply(changes: indexPaths) {
                     self.datasource = newDatasource
                 }
             }
+            if !changedPrefixSections.isEmpty {
+                reloadCompatibleSections(changedPrefixSections)
+            }
         }
+    }
+
+    private final func changedNonContentSections(newDatasource: [[Datasource]]) -> IndexSet {
+        guard datasource.count == newDatasource.count, datasource.count > 1 else {
+            return []
+        }
+
+        var changedSections = IndexSet()
+        for section in 0..<(newDatasource.count - 1) {
+            let oldSection = datasource[section]
+            let newSection = newDatasource[section]
+            guard oldSection.count == newSection.count else {
+                changedSections.insert(section)
+                continue
+            }
+            if zip(oldSection, newSection).contains(where: { $0 != $1 || !ContactsViewController.Datasource.compareContent($0, $1) }) {
+                changedSections.insert(section)
+            }
+        }
+        return changedSections
     }
     
     private final func apply(changes: ChangesWithIndexPath, prepare: @escaping (() -> Void)) {
@@ -1248,7 +1304,13 @@ class ContactsViewController: BaseViewController {
                 Observable.collection(from: invitesCollection)
                     .debounce(.milliseconds(250), scheduler: MainScheduler.asyncInstance)
                     .subscribe(onNext: { invites in
+                        let currentKeys = Set(invites.map { [$0.owner, $0.groupchat].prp() })
+                        let pendingKeys = currentKeys.subtracting(self.lastRequestedInviteGroupKeys)
+                        self.lastRequestedInviteGroupKeys = currentKeys
+
                         invites.forEach { invite in
+                            let inviteKey = [invite.owner, invite.groupchat].prp()
+                            guard pendingKeys.contains(inviteKey) else { return }
                             let groupchat = invite.groupchat
                             AccountManager.shared.find(for: invite.owner)?.action { user, stream in
                                 user.groupchats.getGroupInfo(stream, groupchat: groupchat)
@@ -1549,7 +1611,11 @@ class ContactsViewController: BaseViewController {
         }
         do {
             let realm = try WRealm.safe()
-            let context = ContactsListSupport.makeContext(realm: realm, state: currentFilterState())
+            let derivedState = ContactsListCoordinator.deriveState(
+                realm: realm,
+                state: currentFilterState(),
+                datasourceBuilder: self.mapDataset(state:context:)
+            )
             let accounts: [UIMenuElement] = realm
                 .objects(AccountStorageItem.self)
                 .filter("enabled == true")
@@ -1578,7 +1644,7 @@ class ContactsViewController: BaseViewController {
             
             
             if !(CommonConfigManager.shared.interfaceType == .split && UIDevice.current.userInterfaceIdiom == .pad) {
-                let groups : [UIMenuElement] = ContactsListSupport.circleCounts(context: context).compactMap({
+                let groups : [UIMenuElement] = derivedState.circleCounts.compactMap({
                     group in
                     return UIAction(
                         title: group.name,

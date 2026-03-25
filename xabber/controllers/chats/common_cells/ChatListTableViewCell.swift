@@ -326,7 +326,13 @@ class ChatListTableViewCell: UITableViewCell {
     }()
     
     public var badgeString: String = ""
-    var oldAvatarUrl: String? = "-1"
+    private var avatarRequestKey: String?
+    private var appliedAvatarRequestKey: String?
+    private var defaultAvatarImage: UIImage?
+
+    private func makeAvatarRequestKey(owner: String, jid: String, avatarUrl: String?, size: CGFloat) -> String {
+        [owner, jid, avatarUrl ?? "", String(Int(size))].joined(separator: "|")
+    }
     
     private static func formattedDate(from date: Date) -> String {
         let today = Date()
@@ -378,15 +384,20 @@ class ChatListTableViewCell: UITableViewCell {
             self.avatarView.contentMode = .scaleAspectFill
             self.avatarView.tintColor = nil
             self.avatarView.backgroundColor = MDCPalette.grey.tint200
-            if self.oldAvatarUrl != avatarUrl || self.avatarView.image == nil {
-                self.oldAvatarUrl = avatarUrl
-                DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 64) { image in
-                    guard self.oldAvatarUrl == avatarUrl else { return }
-                    if let image = image {
-                        self.avatarView.image = image
-                    } else {
-                        self.avatarView.image = UIImageView.getDefaultAvatar(for: username, owner: owner, size: 64)
-                    }
+            let requestKey = makeAvatarRequestKey(owner: owner, jid: jid, avatarUrl: avatarUrl, size: 64)
+            let defaultAvatar = UIImageView.getDefaultAvatar(for: username, owner: owner, size: 64)
+            self.defaultAvatarImage = defaultAvatar
+
+            if self.appliedAvatarRequestKey == requestKey, let currentImage = self.avatarView.image {
+                self.avatarRequestKey = requestKey
+                self.avatarView.image = currentImage
+            } else {
+                self.avatarRequestKey = requestKey
+                self.avatarView.image = defaultAvatar
+                DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 64) { [weak self] image in
+                    guard let self = self, self.avatarRequestKey == requestKey else { return }
+                    self.appliedAvatarRequestKey = requestKey
+                    self.avatarView.image = image ?? self.defaultAvatarImage ?? defaultAvatar
                 }
             }
         }
@@ -527,7 +538,9 @@ class ChatListTableViewCell: UITableViewCell {
         badgeView.isHidden = true
         subBadgeView.isHidden = true
         verificationBadgeView.isHidden = true
-        oldAvatarUrl = "-1"
+        avatarRequestKey = nil
+        appliedAvatarRequestKey = nil
+        defaultAvatarImage = nil
         avatarView.image = nil
         avatarView.contentMode = .scaleAspectFill
         avatarView.tintColor = nil

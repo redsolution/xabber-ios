@@ -62,8 +62,11 @@ class ContactsCategoryViewController: BaseViewController {
     private func loadDatasource() {
         do {
             let realm = try WRealm.safe()
-            let context = ContactsListSupport.makeContext(realm: realm, state: currentFilterState())
-            datasource = ContactsListSupport.categoryDatasource(context: context)
+            datasource = ContactsListCoordinator.deriveState(
+                realm: realm,
+                state: currentFilterState(),
+                datasourceBuilder: { _, _ in [] }
+            ).categoryDatasource
         } catch {
             datasource = []
             DDLogDebug("ContactsCategoryViewController: \(#function). \(error.localizedDescription)")

@@ -29,7 +29,103 @@ import CocoaLumberjack
 import MaterialComponents.MDCPalettes
 import SensitiveContentAnalysis
 
+struct ChatDatasourceSnapshot {
+    static let empty = ChatDatasourceSnapshot(items: [], primaryIndex: [:], archivedIdIndex: [:])
+
+    let items: [ChatViewController.Datasource]
+    let primaryIndex: [String: Int]
+    let archivedIdIndex: [String: Int]
+
+    init(items: [ChatViewController.Datasource]) {
+        self.items = items
+        self.primaryIndex = Dictionary(uniqueKeysWithValues: items.enumerated().map { ($0.element.primary, $0.offset) })
+        self.archivedIdIndex = Dictionary(uniqueKeysWithValues: items.enumerated().compactMap {
+            guard let archivedId = $0.element.archivedId else { return nil }
+            return (archivedId, $0.offset)
+        })
+    }
+
+    init(items: [ChatViewController.Datasource], primaryIndex: [String: Int], archivedIdIndex: [String: Int]) {
+        self.items = items
+        self.primaryIndex = primaryIndex
+        self.archivedIdIndex = archivedIdIndex
+    }
+}
+
+enum ChatDatasourceApplyMode {
+    case fullReload(keepOffset: Bool = false)
+    case targetedDiff
+}
+
+struct ChatDatasourceCoordinator {
+    struct DiffResult {
+        let inserts: IndexSet
+        let deletes: IndexSet
+        let reloads: [IndexPath]
+        let moves: [(from: IndexPath, to: IndexPath)]
+
+        var isEmpty: Bool {
+            inserts.isEmpty && deletes.isEmpty && reloads.isEmpty && moves.isEmpty
+        }
+    }
+
+    static func makeSnapshot(items: [ChatViewController.Datasource]) -> ChatDatasourceSnapshot {
+        ChatDatasourceSnapshot(items: items)
+    }
+
+    static func diff(old: ChatDatasourceSnapshot, new: ChatDatasourceSnapshot) -> DiffResult {
+        let changes = DeepDiff.diff(old: old.items, new: new.items)
+        let inserts = IndexSet(changes.compactMap { $0.insert?.index })
+        let deletes = IndexSet(changes.compactMap { $0.delete?.index })
+        let reloads = changes.compactMap { change -> IndexPath? in
+            guard let replace = change.replace else { return nil }
+            return IndexPath(row: 0, section: replace.index)
+        }
+        let moves = changes.compactMap { change -> (from: IndexPath, to: IndexPath)? in
+            guard let move = change.move else { return nil }
+            return (IndexPath(row: 0, section: move.fromIndex), IndexPath(row: 0, section: move.toIndex))
+        }
+        return DiffResult(inserts: inserts, deletes: deletes, reloads: reloads, moves: moves)
+    }
+
+    static func compatibleForTargetedApply(old: ChatDatasourceSnapshot, new: ChatDatasourceSnapshot) -> Bool {
+        guard !old.items.isEmpty else { return false }
+        guard old.items.count == new.items.count else { return false }
+        return zip(old.items, new.items).allSatisfy { $0.primary == $1.primary }
+    }
+}
+
 extension ChatViewController {
+    internal static let attachmentTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    internal static func mapReferenceAttachments(_ references: [MessageReferenceStorageItem]) -> (images: [ImageAttachment], videos: [VideoAttachment], audio: [AudioAttachment], files: [FileAttachment]) {
+        var images: [ImageAttachment] = []
+        var videos: [VideoAttachment] = []
+        var audio: [AudioAttachment] = []
+        var files: [FileAttachment] = []
+
+        references.forEach { item in
+            switch item.mimeType {
+            case MimeIconTypes.image.rawValue:
+                images.append(ImageAttachment(primary: item.primary, url: item.downloadUrl ?? item.videoPreviewUrl, size: item.sizeInPx ?? CGSize(square: 128), isSensitive: item.isSensitive))
+            case MimeIconTypes.video.rawValue:
+                videos.append(VideoAttachment(primary: item.primary, url: item.downloadUrl, size: item.sizeInPx ?? CGSize(square: 128), previewUrl: item.videoPreviewUrl, duration: 0, downloaded: item.isDownloaded))
+            default:
+                if item.kind_ == "voice" {
+                    audio.append(AudioAttachment(primary: item.primary, url: item.decodedUrl, size: 10, name: "name", duration: Double(item.duration ?? 0), downloaded: item.isDownloaded, pcm: item.meteringLevels ?? []))
+                } else if item.kind == .media && ![MimeIconTypes.image.rawValue, MimeIconTypes.video.rawValue, MimeIconTypes.audio.rawValue].contains(item.mimeType) && item.kind_ != "groupchat" {
+                    files.append(FileAttachment(primary: item.primary, url: item.downloadUrl, size: Double(item.sizeInBytesRaw), name: item.filename ?? item.name ?? "file", downloaded: item.isDownloaded))
+                }
+            }
+        }
+
+        return (images, videos, audio, files)
+    }
     
     internal func willUpdateFloatingDate() {
         self.updateFloatingDateObserverSignal.accept(true)
@@ -75,46 +171,9 @@ extension ChatViewController {
     }
     
     internal func mapAttachment(_ attachment: MessageForwardsInlineStorageItem) -> MessageAttachment {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .none
-        formatter.timeStyle = .short
-        
-        let images: [ImageAttachment] = attachment.references.toArray().filter {
-            item in
-            item.mimeType == MimeIconTypes.image.rawValue
-        }.compactMap {
-            item in
-            let url = item.downloadUrl
-            var isSensitive: Bool = false
-            return ImageAttachment(primary: item.primary, url: url, size: item.sizeInPx ?? CGSize(square: 128), isSensitive: isSensitive)
-        }
-        
-        let videos: [VideoAttachment] = attachment.references.toArray().filter {
-            $0.mimeType == MimeIconTypes.video.rawValue
-        } .compactMap {
-            item in
-            let url = item.downloadUrl
-            return VideoAttachment(primary: item.primary, url: url, size: item.sizeInPx ?? CGSize(square: 128), previewUrl: item.videoPreviewUrl, duration: 0, downloaded: item.isDownloaded)
-        }
-        
-        let audio: [AudioAttachment] = attachment.references.toArray().filter {
-            $0.kind_ == "voice"
-        } .compactMap {
-            item in
-            guard let url = item.decodedUrl else {
-                return nil
-            }
-            return AudioAttachment(primary: item.primary, url: url, size: 10, name: "name", duration: 0, downloaded: item.isDownloaded, pcm: item.meteringLevels ?? [])
-        }
-        
-        let files: [FileAttachment] = attachment.references.toArray().filter {
-            return $0.kind == .media && ![MimeIconTypes.image.rawValue, MimeIconTypes.video.rawValue, MimeIconTypes.audio.rawValue].contains($0.mimeType)
-        } .compactMap {
-            item in
-            let url = item.downloadUrl
-            return FileAttachment(primary: item.primary, url: url, size: Double(item.sizeInBytesRaw), name: item.filename ?? item.name ?? "file", downloaded: item.isDownloaded)
-        }
-        let timeString = formatter.string(from: attachment.originalDate ?? Date())
+        let references = attachment.references.toArray()
+        let mappedReferences = Self.mapReferenceAttachments(references)
+        let timeString = Self.attachmentTimeFormatter.string(from: attachment.originalDate ?? Date())
         let timeMarkerString = NSAttributedString(
             string: timeString,
             attributes: [
@@ -135,13 +194,77 @@ extension ChatViewController {
                 searchedText: self.searchTextObserver.value,
                 searchedTextColor: .systemGreen
             ),
-            images: images,
-            videos: videos,
-            files: files,
-            audios: audio,
+            images: mappedReferences.images,
+            videos: mappedReferences.videos,
+            files: mappedReferences.files,
+            audios: mappedReferences.audio,
             timeMarker: timeMarkerString,
             subforwards: attachment.subforwards.toArray().compactMap({ return mapAttachment($0) })
         )
+    }
+
+    internal func applyChatDatasource(
+        _ items: [Datasource],
+        mode: ChatDatasourceApplyMode,
+        invalidateLayout: Bool = false,
+        completion: (() -> Void)? = nil
+    ) {
+        let newSnapshot = ChatDatasourceCoordinator.makeSnapshot(items: items)
+        let previousSnapshot = datasourceSnapshot
+
+        let finish: () -> Void = {
+            if invalidateLayout {
+                self.messagesCollectionView.collectionViewLayout.invalidateLayout()
+                self.messagesCollectionView.layoutIfNeeded()
+            }
+            completion?()
+        }
+
+        switch mode {
+        case .fullReload(let keepOffset):
+            self.datasource = items
+            self.datasourceSnapshot = newSnapshot
+            if keepOffset {
+                self.messagesCollectionView.reloadDataAndKeepOffset()
+            } else {
+                self.messagesCollectionView.reloadData()
+            }
+            finish()
+        case .targetedDiff:
+            guard ChatDatasourceCoordinator.compatibleForTargetedApply(old: previousSnapshot, new: newSnapshot) else {
+                self.datasource = items
+                self.datasourceSnapshot = newSnapshot
+                self.messagesCollectionView.reloadData()
+                finish()
+                return
+            }
+
+            let diff = ChatDatasourceCoordinator.diff(old: previousSnapshot, new: newSnapshot)
+            self.datasource = items
+            self.datasourceSnapshot = newSnapshot
+
+            guard !diff.isEmpty else {
+                finish()
+                return
+            }
+
+            self.messagesCollectionView.performBatchUpdates({
+                if !diff.deletes.isEmpty {
+                    self.messagesCollectionView.deleteSections(diff.deletes)
+                }
+                if !diff.inserts.isEmpty {
+                    self.messagesCollectionView.insertSections(diff.inserts)
+                }
+                diff.moves.forEach {
+                    self.messagesCollectionView.moveItem(at: $0.from, to: $0.to)
+                }
+                if !diff.reloads.isEmpty {
+                    self.messagesCollectionView.reconfigureItems(at: diff.reloads)
+                }
+            }, completion: { _ in
+                finish()
+            })
+        }
     }
     
     internal final func mapDataset(dataset: Array<MessageStorageItem>) -> [Datasource] {
@@ -319,56 +442,8 @@ extension ChatViewController {
             }
             
             
-            let images: [ImageAttachment] = item.references.toArray().filter {
-                item in
-                item.mimeType == MimeIconTypes.image.rawValue
-            }.compactMap {
-                item in
-                let url = item.downloadUrl ?? item.videoPreviewUrl
-//                guard let url = item.downloadUrl else {
-//                    return nil
-//                }
-                return ImageAttachment(primary: item.primary, url: url, size: item.sizeInPx ?? CGSize(square: 128), isSensitive: item.isSensitive)
-            }
-            
-            let videos: [VideoAttachment] = item.references.toArray().filter {
-                $0.mimeType == MimeIconTypes.video.rawValue
-            } .compactMap {
-                item in
-                let url = item.downloadUrl
-//                guard let url = item.downloadUrl else {
-//                    return nil
-//                }
-                return VideoAttachment(primary: item.primary, url: url, size: item.sizeInPx ?? CGSize(square: 128), previewUrl: item.videoPreviewUrl, duration: 0, downloaded: item.isDownloaded)
-            }
-            
-            let audio: [AudioAttachment] = item.references.toArray().filter {
-                $0.kind_ == "voice"
-            } .compactMap {
-                item in
-                return AudioAttachment(primary: item.primary, url: item.decodedUrl, size: 10, name: "name", duration: Double(item.duration ?? 0), downloaded: item.isDownloaded, pcm: item.meteringLevels ?? [])
-            }
-            
-            let files: [FileAttachment] = item.references.toArray().filter {
-                return $0.kind == .media && ![MimeIconTypes.image.rawValue, MimeIconTypes.video.rawValue, MimeIconTypes.audio.rawValue].contains($0.mimeType)
-            } .compactMap {
-                item in
-                if item.kind_ == "groupchat" {
-                    return nil
-                }
-                let url = item.downloadUrl
-//                guard let url = item.downloadUrl else {
-//                    return nil
-//                }
-                return FileAttachment(primary: item.primary, url: url, size: Double(item.sizeInBytesRaw), name: item.filename ?? item.name ?? "file", downloaded: item.isDownloaded)
-            }
-            
-            
-            
-            
-            let formatter = DateFormatter()
-            formatter.dateStyle = .none
-            formatter.timeStyle = .short
+            let references = item.references.toArray()
+            let mappedReferences = Self.mapReferenceAttachments(references)
             let forwards: [MessageAttachment] = item.inlineForwards.toArray().compactMap({ return mapAttachment($0) })
             var indicator: IndicatorType = .none
             if item.outgoing {
@@ -393,7 +468,7 @@ extension ChatViewController {
                 }
             }
             
-            var timeString = formatter.string(from: item.date)
+            var timeString = Self.attachmentTimeFormatter.string(from: item.date)
             if item.afterburnInterval > 0 {
                 timeString = "\(timeString) ⦁ \(item.afterburnInterval.prettyMinuteFormatedString)"
             }
@@ -506,10 +581,10 @@ extension ChatViewController {
                 selectedSearchResultId: nil,//item.archivedId == self.selectedSearchResultId ? self.selectedSearchResultId : nil,
                 isHadHistoryGap: false,
                 tailed: tailed,
-                images: images,
-                videos: videos,
-                files: files,
-                audios: audio,
+                    images: mappedReferences.images,
+                    videos: mappedReferences.videos,
+                    files: mappedReferences.files,
+                    audios: mappedReferences.audio,
                 timeMarkerText: timeMarkerString,
                 indicator: indicator,
                 avatarUrl: withAvatar ? item.groupchatCard?.avatarURI : nil,
@@ -608,8 +683,9 @@ extension ChatViewController {
                 self.showLoadingIndicator.accept(false)
                 if addditional.isNotEmpty {
                     (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?.cache.invalidate()
-                    self.datasource.insert(contentsOf: self.mapDataset(dataset: addditional), at: 0)
-                    self.messagesCollectionView.reloadDataAndKeepOffset()
+                    var updatedDatasource = self.datasource
+                    updatedDatasource.insert(contentsOf: self.mapDataset(dataset: addditional), at: 0)
+                    self.applyChatDatasource(updatedDatasource, mode: .fullReload(keepOffset: true))
                 }
                 self.messagesCollectionView.isUserInteractionEnabled = true
                 self.loadDatasourceObserver.accept(true)
@@ -637,10 +713,11 @@ extension ChatViewController {
                 if addditional.isNotEmpty {
                     let newDatasource = self.mapDataset(dataset: addditional)
                     if newDatasource.isNotEmpty {
-                        let _ = self.datasource.popLast()
-                        self.datasource.append(contentsOf: newDatasource)
+                        var updatedDatasource = self.datasource
+                        let _ = updatedDatasource.popLast()
+                        updatedDatasource.append(contentsOf: newDatasource)
+                        self.applyChatDatasource(updatedDatasource, mode: .fullReload())
                     }
-                    self.messagesCollectionView.reloadData()
                 }
                 self.loadDatasourceObserver.accept(true)
                 self.currentPage.unlock()
@@ -688,8 +765,7 @@ extension ChatViewController {
                                                                conversationType: self.conversationType))
             if !(chatInstance?.isSynced ?? false) {
                 self.showSkeletonObserver.accept(true)
-                self.datasource = self.mapDataset(dataset: [])
-                self.messagesCollectionView.reloadData()
+                self.applyChatDatasource(self.mapDataset(dataset: []), mode: .fullReload())
                 var dateLimit: Date? = nil
                 if !self.messagesObserver.isEmpty {
                     let slice = self.messagesObserver.prefix(self.datasourcePageSize)
@@ -963,29 +1039,7 @@ extension ChatViewController {
         if updated.isEmpty && inserted.isEmpty && deleted.isEmpty && moved.isEmpty { return }
         self.messagesCollectionView.collectionViewLayout.invalidateLayout()
         DispatchQueue.main.async {
-            self.messagesCollectionView.performBatchUpdates ({
-                let validDeleted = deleted.compactMap { $0.index < self.messagesCollectionView.numberOfSections ? $0.index : nil }
-                self.messagesCollectionView.deleteSections(IndexSet(validDeleted))
-                
-                let validInserted = inserted.compactMap { $0.index >= 0 ? $0.index : nil }
-                self.messagesCollectionView.insertSections(IndexSet(validInserted))
-                
-                self.datasource = newDatasource
-                
-                moved.forEach {
-                    self.messagesCollectionView.moveItem(at: IndexPath(row: 0, section: $0.fromIndex),
-                                                        to: IndexPath(row: 0, section: $0.toIndex))
-                }
-                self.messagesCollectionView.reconfigureItems(at: updated.compactMap {
-                    IndexPath(row: 0, section: $0.index)
-                })
-//                self.messagesCollectionView.reloadItems(at: updated.compactMap {
-//                    IndexPath(row: 0, section: $0.index)
-//                })
-            }, completion: { _ in
-                self.messagesCollectionView.collectionViewLayout.invalidateLayout()
-                self.messagesCollectionView.layoutIfNeeded()
-            })
+            self.applyChatDatasource(newDatasource, mode: .targetedDiff, invalidateLayout: true)
         }
     }
     
@@ -1003,9 +1057,7 @@ extension ChatViewController {
                 self.currentPage.maxIndex = maxIndex
                 
                 self.currentPage.unlock()
-                self.datasource = self.mapDataset(dataset: slice)
-                self.messagesCollectionView.reloadData()
-                self.messagesCollectionView.layoutIfNeeded()
+                self.applyChatDatasource(self.mapDataset(dataset: slice), mode: .fullReload(), invalidateLayout: true)
                 if let index = self.unreadMessagePositionId {
                     if Set(self.messagesCollectionView.indexPathsForVisibleItems.compactMap({ return $0.section })).contains(index) {
                         self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: 0), at: .top, animated: false)

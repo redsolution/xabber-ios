@@ -1246,7 +1246,8 @@ class LastChatsViewController: BaseViewController {
     public final func runDatasetUpdateTask() {
         if !Thread.isMainThread {
             DispatchQueue.main.async {
-                self.runDatasetUpdateTask()
+                self.preprocessDataset()
+                self.postprocessDataset()
             }
             return
         }
@@ -1259,12 +1260,6 @@ class LastChatsViewController: BaseViewController {
         self.needsDatasetRefresh = true
         guard !self.isDatasetUpdateInFlight else { return }
         self.needsDatasetRefresh = false
-        if showSkeleton.value {
-            self.setDatasource(self.mapDataset())
-            self.tableView.reloadData()
-            self.canUpdateDataset = true
-            return
-        }
         self.isDatasetUpdateInFlight = true
         let oldDatasource = self.datasource
         let shouldAnimate = self.isFirstLayout

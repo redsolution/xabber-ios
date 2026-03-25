@@ -16,7 +16,63 @@ import RxCocoa
 import RxRealm
 import XMPPFramework.XMPPJID
 
+struct NotificationsListCoordinator {
+    struct CategoryItem {
+        let title: String
+        let icon: String
+        let key: String
+        let subtitle: String
+        let color: UIColor
+        let isHeader: Bool
+    }
+
+    struct DerivedState {
+        let listDatasource: [NotificationsListViewController.Datasource]
+        let categoriesDatasource: [[CategoryItem]]
+        let counters: NotificationsSupport.Counters
+    }
+
+    static func deriveState(
+        realm: Realm,
+        owners: [String],
+        filter: NotificationsListViewController.Filter,
+        filterAccount: String?,
+        headerBuilder: (NotificationsListViewController.Filter) -> NotificationsListViewController.Datasource?,
+        listMapper: ([NotificationStorageItem], [String: RosterStorageItem]) -> [NotificationsListViewController.Datasource]
+    ) -> DerivedState {
+        let selectedOwners = filterAccount.map { [$0] } ?? owners
+        let notifications = NotificationsSupport.notifications(in: realm, owners: selectedOwners, filter: filter).toArray()
+        let rosterMap = NotificationsSupport.rosterMap(in: realm, for: notifications)
+        var sections: [NotificationsListViewController.Datasource] = []
+        if let header = headerBuilder(filter) {
+            sections.append(header)
+        }
+        sections.append(contentsOf: listMapper(notifications, rosterMap))
+
+        let counters = NotificationsSupport.unreadCounters(in: realm, owners: owners)
+        let categoriesDatasource = [
+            [CategoryItem(title: "Notifications", icon: "bell.fill", key: "all", subtitle: "Manage security alerts, information updates, mentions, and other notifications.", color: .tintColor, isHeader: true)],
+            [CategoryItem(title: "Notifications", icon: "bell", key: "all", subtitle: "\(counters.total)", color: .tintColor, isHeader: false)],
+            [
+                CategoryItem(title: "Security", icon: "checkerboard.shield", key: "security", subtitle: "\(counters.security)", color: .tintColor, isHeader: false),
+                CategoryItem(title: "Information", icon: "info.circle", key: "info", subtitle: "\(counters.info)", color: .tintColor, isHeader: false),
+                CategoryItem(title: "Mentions", icon: "at", key: "mentions", subtitle: "\(counters.mentions)", color: .tintColor, isHeader: false),
+            ]
+        ]
+
+        return DerivedState(listDatasource: sections.filter { !$0.childs.isEmpty }, categoriesDatasource: categoriesDatasource, counters: counters)
+    }
+}
+
 enum NotificationsSupport {
+    private static let sectionTitleFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        formatter.doesRelativeDateFormatting = true
+        return formatter
+    }()
+
     struct Counters {
         let total: Int
         let security: Int
@@ -161,11 +217,7 @@ enum NotificationsSupport {
     }
 
     static func sectionTitle(for date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .none
-        formatter.doesRelativeDateFormatting = true
-        return formatter.string(from: date)
+        sectionTitleFormatter.string(from: date)
     }
 
 }
@@ -355,8 +407,10 @@ class NotificationsListViewController: SimpleBaseViewController {
     var filterMenu: UIMenu = UIMenu()
     private let datasourceQueue = DispatchQueue(label: "com.xabber.notifications.datasource", qos: .userInitiated)
     private var datasourceGeneration: Int = 0
+    private var lastConfiguredBarsState: (filter: Filter, account: String?)?
     
     func configureBars() {
+        lastConfiguredBarsState = (filter: filter.value, account: filterAccount.value)
         let button = UIBarButtonItem(image: UIImage(systemName: "ellipsis.circle"), style: .plain, target: self, action: nil)
         var childs: [UIMenuElement] = [
             UIAction(
@@ -615,20 +669,75 @@ class NotificationsListViewController: SimpleBaseViewController {
     func buildDatasourceSnapshot(filter: Filter, filterAccount: String?) -> [Datasource] {
         do {
             let realm = try WRealm.safe()
-            let owners = filterAccount.map { [$0] } ?? AccountManager.shared.users.map { $0.jid }
-            let notifications = NotificationsSupport.notifications(in: realm, owners: owners, filter: filter).toArray()
-            let rosterMap = NotificationsSupport.rosterMap(in: realm, for: notifications)
-
-            var sections: [Datasource] = []
-            if let header = headerSection(for: filter) {
-                sections.append(header)
-            }
-            sections.append(contentsOf: mapResultByDate(notifications, rosterMap: rosterMap))
-            return sections.filter { !$0.childs.isEmpty }
+            let owners = AccountManager.shared.users.map { $0.jid }
+            return NotificationsListCoordinator.deriveState(
+                realm: realm,
+                owners: owners,
+                filter: filter,
+                filterAccount: filterAccount,
+                headerBuilder: self.headerSection(for:),
+                listMapper: self.mapResultByDate(_:rosterMap:)
+            ).listDatasource
         } catch {
             DDLogDebug("NotificationsListViewController: \(#function). \(error.localizedDescription)")
             return []
         }
+    }
+
+    private func childNeedsReload(old: DatasourceChild, new: DatasourceChild) -> Bool {
+        old.primary != new.primary ||
+        old.category != new.category ||
+        old.owner != new.owner ||
+        old.jid != new.jid ||
+        old.title.string != new.title.string ||
+        old.message?.string != new.message?.string ||
+        old.key != new.key ||
+        old.date != new.date ||
+        old.avatarUrl != new.avatarUrl ||
+        old.badgeIcon != new.badgeIcon ||
+        old.isRead != new.isRead ||
+        old.isHeader != new.isHeader
+    }
+
+    private func compatibleSectionShape(old: [Datasource], new: [Datasource]) -> Bool {
+        guard old.count == new.count else { return false }
+        return zip(old, new).allSatisfy { oldSection, newSection in
+            oldSection.key == newSection.key &&
+            oldSection.childs.count == newSection.childs.count &&
+            zip(oldSection.childs, newSection.childs).allSatisfy { $0.primary == $1.primary }
+        }
+    }
+
+    private func changedSectionsAndRows(old: [Datasource], new: [Datasource]) -> (sections: IndexSet, rows: [IndexPath]) {
+        var changedSections = IndexSet()
+        var changedRows: [IndexPath] = []
+
+        for (sectionIndex, pair) in zip(old.indices, zip(old, new)) {
+            let oldSection = pair.0
+            let newSection = pair.1
+
+            if oldSection.title != newSection.title || oldSection.key != newSection.key {
+                changedSections.insert(sectionIndex)
+                continue
+            }
+
+            for (rowIndex, childPair) in zip(oldSection.childs.indices, zip(oldSection.childs, newSection.childs)) {
+                if childNeedsReload(old: childPair.0, new: childPair.1) {
+                    changedRows.append(IndexPath(row: rowIndex, section: sectionIndex))
+                }
+            }
+        }
+
+        return (changedSections, changedRows)
+    }
+
+    private func updateBarsIfNeeded(filter: Filter, filterAccount: String?) {
+        let state = (filter: filter, account: filterAccount)
+        guard lastConfiguredBarsState?.filter != state.filter || lastConfiguredBarsState?.account != state.account else {
+            return
+        }
+        lastConfiguredBarsState = state
+        configureBars()
     }
 
     private func scheduleDatasourceReload() {
@@ -643,10 +752,30 @@ class NotificationsListViewController: SimpleBaseViewController {
                 guard generation == self.datasourceGeneration else {
                     return
                 }
+                let previousDatasource = self.datasource
+                let isCompatible = self.compatibleSectionShape(old: previousDatasource, new: snapshot)
                 self.datasource = snapshot
                 self.emptyScreenShowObserver.accept(snapshot.isEmpty)
-                self.configureBars()
-                self.tableView.reloadData()
+                self.updateBarsIfNeeded(filter: filter, filterAccount: filterAccount)
+                guard isCompatible else {
+                    self.tableView.reloadData()
+                    return
+                }
+
+                let changes = self.changedSectionsAndRows(old: previousDatasource, new: snapshot)
+                if changes.sections.isEmpty && changes.rows.isEmpty {
+                    return
+                }
+
+                UIView.performWithoutAnimation {
+                    if !changes.sections.isEmpty {
+                        self.tableView.reloadSections(changes.sections, with: .none)
+                    }
+                    let rowReloads = changes.rows.filter { !changes.sections.contains($0.section) }
+                    if rowReloads.isNotEmpty {
+                        self.tableView.reloadRows(at: rowReloads, with: .none)
+                    }
+                }
             }
         }
     }

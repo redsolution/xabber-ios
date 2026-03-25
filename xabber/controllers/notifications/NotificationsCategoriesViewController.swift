@@ -47,7 +47,28 @@ class NotificationsCategoriesViewController: BaseViewController {
     }()
     
     private func loadDatasource() {
-        
+        do {
+            let realm = try WRealm.safe()
+            let owners = realm.objects(AccountStorageItem.self).filter("enabled == true").toArray().compactMap(\.jid)
+            datasource = NotificationsListCoordinator
+                .deriveState(
+                    realm: realm,
+                    owners: owners,
+                    filter: .all,
+                    filterAccount: nil,
+                    headerBuilder: { _ in nil },
+                    listMapper: { _, _ in [] }
+                )
+                .categoriesDatasource
+                .map { section in
+                    section.map {
+                        Datasource(title: $0.title, icon: $0.icon, key: $0.key, subtitle: $0.subtitle, color: $0.color, isHeader: $0.isHeader)
+                    }
+                }
+        } catch {
+            datasource = []
+            DDLogDebug("NotificationsCategoriesViewController: \(#function). \(error.localizedDescription)")
+        }
     }
     
     @objc
@@ -62,30 +83,7 @@ class NotificationsCategoriesViewController: BaseViewController {
             let realm = try WRealm.safe()
             let accounts = realm.objects(AccountStorageItem.self).filter("enabled == true")
             Observable.collection(from: accounts).subscribe { results in
-                
-                do {
-                    let realm = try WRealm.safe()
-                    let jids = results.toArray().compactMap({ return $0.jid })
-                    let counters = NotificationsSupport.unreadCounters(in: realm, owners: jids)
-                    self.datasource = [
-                        [
-                            Datasource(title: "Notifications", icon: "bell.fill", key: "all", subtitle: "Manage security alerts, information updates, mentions, and other notifications.", color: .tintColor, isHeader: true),
-                        ],
-                        [
-                            Datasource(title: "Notifications", icon: "bell", key: "all", subtitle: "\(counters.total)", color: .tintColor, isHeader: false),
-                        ],
-                        [
-                            Datasource(title: "Security", icon: "checkerboard.shield", key: "security", subtitle: "\(counters.security)", color: .tintColor, isHeader: false),
-                            Datasource(title: "Information", icon: "info.circle", key: "info", subtitle: "\(counters.info)", color: .tintColor, isHeader: false),
-                            Datasource(title: "Mentions", icon: "at", key: "mentions", subtitle: "\(counters.mentions)", color: .tintColor, isHeader: false),
-                        ]
-                    ]
-                } catch {
-                    DDLogDebug("NotificationsCategoriesViewController: \(#function). \(error.localizedDescription)")
-                }
-                
-                
-                
+                self.loadDatasource()
                 self.tableView.reloadData()
             } onError: { _ in
                 
@@ -268,7 +266,7 @@ extension NotificationsCategoriesViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         let item = self.datasource[indexPath.section][indexPath.row]
         if item.isHeader {
-            return tableView.estimatedRowHeight
+            return UITableView.automaticDimension
         } else {
             return 44
         }

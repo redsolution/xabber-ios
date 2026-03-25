@@ -317,8 +317,10 @@ class ChatViewController: MessagesViewController {
     var datasource: [Datasource] = [] {
         didSet {
             print("SETTED")
+            self.datasourceSnapshot = ChatDatasourceCoordinator.makeSnapshot(items: datasource)
         }
     }
+    var datasourceSnapshot: ChatDatasourceSnapshot = .empty
     
     
     var sharedPlayerPaneldelegae: SharedAudioPlayerPanelDelegate? = nil
@@ -1675,7 +1677,7 @@ class ChatViewController: MessagesViewController {
     override func reloadDatasource() {
         updateCornerStyle()
         userBarButton.setMask()
-        self.messagesCollectionView.reloadData()
+        self.applyChatDatasource(self.datasource, mode: .fullReload())
     }
     
     override func viewWillAppear(_ animated: Bool) {
@@ -1710,8 +1712,7 @@ class ChatViewController: MessagesViewController {
         if self.datasource.isEmpty {
             self.showFloatingDateObserver.accept(false)
             self.loadInitialDatasource { array in
-                self.datasource = self.mapDataset(dataset: array)
-                self.messagesCollectionView.reloadData()
+                self.applyChatDatasource(self.mapDataset(dataset: array), mode: .fullReload())
             }
         }
         self.configureNavbar()

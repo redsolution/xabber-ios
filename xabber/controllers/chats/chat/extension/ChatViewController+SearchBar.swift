@@ -108,7 +108,7 @@ extension ChatViewController {
     public final func showSearchResultFromExternalSource(message archivedId: String, date: Date) {
         self.chatScrollDirection = .up
         self.scrollToMessage(archivedId: archivedId, date: date, direction: .up) { array, index in
-            self.datasource = self.mapDataset(dataset: array)
+            self.applyChatDatasource(self.mapDataset(dataset: array), mode: .fullReload())
             self.scrollToSearchedMessage(archivedId: archivedId)
         }
     }
@@ -134,7 +134,7 @@ extension ChatViewController {
         let date = searchMessagesQueue[newIndex].date
         self.chatScrollDirection = .up
         self.scrollToMessage(archivedId: archivedId, date: date, direction: .up) { array, index in
-            self.datasource = self.mapDataset(dataset: array)
+            self.applyChatDatasource(self.mapDataset(dataset: array), mode: .fullReload())
             self.scrollToSearchedMessage(archivedId: archivedId)
         }
     }
@@ -161,7 +161,7 @@ extension ChatViewController {
         let archivedId = searchMessagesQueue[newIndex].archivedId
         let date = searchMessagesQueue[newIndex].date
         self.scrollToMessage(archivedId: archivedId, date: date, direction: .down) { array, index in
-            self.datasource = self.mapDataset(dataset: array)
+            self.applyChatDatasource(self.mapDataset(dataset: array), mode: .fullReload())
             self.scrollToSearchedMessage(archivedId: archivedId)
         }
     }
@@ -173,9 +173,9 @@ extension ChatViewController {
     internal func scrollToSearchedMessage(primary: String) {
         self.preventHidingDate = true
         (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?.cache.invalidate()
-        self.messagesCollectionView.reloadData()
+        self.applyChatDatasource(self.datasource, mode: .fullReload())
         self.messagesCollectionView.layoutIfNeeded()
-        let scrollIndex = self.datasource.firstIndex(where: { $0.primary == primary }) ?? 0
+        let scrollIndex = self.datasourceSnapshot.primaryIndex[primary] ?? 0
         let cell = self.messagesCollectionView.cellForItem(at: IndexPath(row: 0, section: scrollIndex)) as? MessageContentCell
         cell?.setSelected(state: true)
         self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: scrollIndex), at: .centeredVertically, animated: false)
@@ -193,9 +193,9 @@ extension ChatViewController {
     internal func scrollToSearchedMessage(archivedId: String) {
         self.preventHidingDate = true
         (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?.cache.invalidate()
-        self.messagesCollectionView.reloadData()
+        self.applyChatDatasource(self.datasource, mode: .fullReload())
         self.messagesCollectionView.layoutIfNeeded()
-        let scrollIndex = self.datasource.firstIndex(where: { $0.archivedId == archivedId }) ?? 0
+        let scrollIndex = self.datasourceSnapshot.archivedIdIndex[archivedId] ?? 0
         
         self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: scrollIndex), at: .centeredVertically, animated: false)
 //        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
@@ -234,7 +234,7 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
             let date = searchMessagesQueue[newIndex].date
             self.chatScrollDirection = .up
             self.scrollToMessage(archivedId: archivedId, date: date, direction: .up) { array, index in
-                self.datasource = self.mapDataset(dataset: array)
+                self.applyChatDatasource(self.mapDataset(dataset: array), mode: .fullReload())
                 self.scrollToSearchedMessage(archivedId: archivedId)
                 self.preventHidingDate = false
             }

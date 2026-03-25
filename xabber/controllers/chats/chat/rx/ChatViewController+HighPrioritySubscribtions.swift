@@ -148,7 +148,7 @@ extension ChatViewController {
                     self.searchTextObserver.accept(nil)
                     self.configureNavbar()
                     self.xabberInputView.changeState(to: self.xabberInputView.state)
-                    self.messagesCollectionView.reloadData()
+                    self.applyChatDatasource(self.datasource, mode: .fullReload())
                 }
             })
             .disposed(by: bag)

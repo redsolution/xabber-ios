@@ -351,6 +351,149 @@ final class NotificationsFeatureTests: XCTestCase {
     }
 }
 
+final class ChatDatasetPerformanceHelpersTests: XCTestCase {
+
+    func testMapReferenceAttachmentsPartitionsReferencesInOnePass() {
+        let image = MessageReferenceStorageItem()
+        image.primary = "image"
+        image.mimeType = MimeIconTypes.image.rawValue
+        image.kind = .media
+
+        let video = MessageReferenceStorageItem()
+        video.primary = "video"
+        video.mimeType = MimeIconTypes.video.rawValue
+        video.kind = .media
+
+        let audio = MessageReferenceStorageItem()
+        audio.primary = "audio"
+        audio.kind = .voice
+        audio.kind_ = "voice"
+
+        let file = MessageReferenceStorageItem()
+        file.primary = "file"
+        file.mimeType = "application/pdf"
+        file.kind = .media
+        file.name = "spec.pdf"
+
+        let groupchatFile = MessageReferenceStorageItem()
+        groupchatFile.primary = "group-file"
+        groupchatFile.mimeType = "application/pdf"
+        groupchatFile.kind = .media
+        groupchatFile.kind_ = "groupchat"
+
+        let result = ChatViewController.mapReferenceAttachments([image, video, audio, file, groupchatFile])
+
+        XCTAssertEqual(result.images.map(\.primary), ["image"])
+        XCTAssertEqual(result.videos.map(\.primary), ["video"])
+        XCTAssertEqual(result.audio.map(\.primary), ["audio"])
+        XCTAssertEqual(result.files.map(\.primary), ["file"])
+    }
+
+    func testChatDatasourceSnapshotBuildsLookupMaps() {
+        let first = ChatViewController.Datasource(
+            primary: "first",
+            jid: "romeo@example.com",
+            owner: "owner@example.com",
+            outgoing: false,
+            sender: Sender(id: "1", displayName: "Romeo"),
+            messageId: "m1",
+            sentDate: Date(),
+            editDate: nil,
+            kind: .attributedText(NSAttributedString(string: "one")),
+            withAuthor: false,
+            withAvatar: false,
+            error: false,
+            errorType: "",
+            canPinMessage: false,
+            canEditMessage: false,
+            canDeleteMessage: false,
+            forwards: [],
+            isOutgoing: false,
+            isEdited: false,
+            groupchatAuthorRole: "",
+            groupchatAuthorId: "",
+            groupchatAuthorNickname: "",
+            groupchatAuthorBadge: "",
+            isHasAttachedMessages: false,
+            isDownloaded: true,
+            state: .read,
+            searchString: nil,
+            errorMetadata: nil,
+            burnDate: -1,
+            afterburnInterval: -1,
+            archivedId: "a1",
+            queryIds: nil,
+            isRead: true,
+            selectedSearchResultId: nil,
+            isHadHistoryGap: false,
+            tailed: false,
+            isFakeMessage: false,
+            images: [],
+            videos: [],
+            files: [],
+            audios: [],
+            timeMarkerText: NSAttributedString(string: ""),
+            indicator: .none,
+            avatarUrl: nil,
+            attributedAuthor: nil
+        )
+        let second = ChatViewController.Datasource(
+            primary: "second",
+            jid: "juliet@example.com",
+            owner: "owner@example.com",
+            outgoing: true,
+            sender: Sender(id: "2", displayName: "Juliet"),
+            messageId: "m2",
+            sentDate: Date(),
+            editDate: nil,
+            kind: .attributedText(NSAttributedString(string: "two")),
+            withAuthor: false,
+            withAvatar: false,
+            error: false,
+            errorType: "",
+            canPinMessage: false,
+            canEditMessage: false,
+            canDeleteMessage: false,
+            forwards: [],
+            isOutgoing: true,
+            isEdited: false,
+            groupchatAuthorRole: "",
+            groupchatAuthorId: "",
+            groupchatAuthorNickname: "",
+            groupchatAuthorBadge: "",
+            isHasAttachedMessages: false,
+            isDownloaded: true,
+            state: .read,
+            searchString: nil,
+            errorMetadata: nil,
+            burnDate: -1,
+            afterburnInterval: -1,
+            archivedId: "a2",
+            queryIds: nil,
+            isRead: true,
+            selectedSearchResultId: nil,
+            isHadHistoryGap: false,
+            tailed: false,
+            isFakeMessage: false,
+            images: [],
+            videos: [],
+            files: [],
+            audios: [],
+            timeMarkerText: NSAttributedString(string: ""),
+            indicator: .none,
+            avatarUrl: nil,
+            attributedAuthor: nil
+        )
+
+        let snapshot = ChatDatasourceCoordinator.makeSnapshot(items: [first, second])
+
+        XCTAssertEqual(snapshot.primaryIndex["first"], 0)
+        XCTAssertEqual(snapshot.primaryIndex["second"], 1)
+        XCTAssertEqual(snapshot.archivedIdIndex["a1"], 0)
+        XCTAssertEqual(snapshot.archivedIdIndex["a2"], 1)
+    }
+}
+
 final class ContactsListSupportTests: XCTestCase {
 
     override func setUp() {
@@ -493,6 +636,30 @@ final class ClientSynchronizationManagerTests: XCTestCase {
         XCTAssertFalse(manager.read(withIQ: iq))
     }
 
+    func testClientSyncPageParserParsesSnapshotPage() throws {
+        let iq = try makeIQ(xml: """
+        <iq type='result' id='sync-2'>
+          <query xmlns='https://xabber.com/protocol/synchronization' stamp='1711283296000000'>
+            <conversation jid='romeo@example.com' type='regular' status='active'/>
+            <set xmlns='http://jabber.org/protocol/rsm'>
+              <count>1</count>
+            </set>
+          </query>
+        </iq>
+        """)
+
+        let page = ClientSyncPageParser.parseSnapshotPage(
+            from: iq,
+            pageSize: 200,
+            namespace: ClientSynchronizationManager.primaryNamespace,
+            updateOmemo: { $0 }
+        )
+
+        XCTAssertEqual(page?.stamp, "1711283296000000")
+        XCTAssertEqual(page?.conversations.count, 1)
+        XCTAssertEqual(page?.isFinalPage, true)
+    }
+
     func testDuplicateInviteIsIgnored() throws {
         let realm = try WRealm.safe()
         try realm.write {
@@ -521,5 +688,21 @@ final class ClientSynchronizationManagerTests: XCTestCase {
             .objects(GroupchatInvitesStorageItem.self)
             .filter("owner == %@", owner)
         XCTAssertEqual(storedInvites.count, 1)
+    }
+}
+
+final class GroupchatRequestSchedulerTests: XCTestCase {
+
+    func testCancelPreventsScheduledTimeoutCallback() {
+        let scheduler = GroupchatRequestScheduler()
+        let invertedExpectation = expectation(description: "timeout should be cancelled")
+        invertedExpectation.isInverted = true
+
+        scheduler.schedule(elementId: "timeout-1", timeout: 0.05) {
+            invertedExpectation.fulfill()
+        }
+        scheduler.cancel(elementId: "timeout-1")
+
+        wait(for: [invertedExpectation], timeout: 0.15)
     }
 }

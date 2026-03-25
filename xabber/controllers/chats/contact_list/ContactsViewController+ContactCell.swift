@@ -110,6 +110,13 @@ extension ContactsViewController {
         private var statusWidthConstraint: NSLayoutConstraint?
         private var statusHeightConstraint: NSLayoutConstraint?
         private var avatarRequestKey: String?
+        private var appliedAvatarRequestKey: String?
+        private var defaultAvatarImage: UIImage?
+        private var tagViews: [MessageLabel] = []
+
+        private func makeAvatarRequestKey(owner: String, jid: String, avatarUrl: String?, size: CGFloat) -> String {
+            [owner, jid, avatarUrl ?? "", String(Int(size))].joined(separator: "|")
+        }
 
         private func activateConstraints() {
             let statusWidthConstraint = statusIndicator.widthAnchor.constraint(equalToConstant: 12)
@@ -142,14 +149,10 @@ extension ContactsViewController {
         }
 
         private func updateTags(_ groups: [String], owner: String) {
-            tagsStack.arrangedSubviews.forEach { subview in
-                tagsStack.removeArrangedSubview(subview)
-                subview.removeFromSuperview()
-            }
-
             let uniqueGroups = Array(Set(groups)).sorted()
             guard uniqueGroups.isNotEmpty else {
                 tagScrollView.isHidden = true
+                tagViews.forEach { $0.isHidden = true }
                 return
             }
 
@@ -157,16 +160,26 @@ extension ContactsViewController {
             let textInsets = UIEdgeInsets(top: 2, left: 8, bottom: 2, right: 8)
             let paletteColor = AccountColorManager.shared.palette(for: owner).tint700.withAlphaComponent(0.15)
 
-            uniqueGroups.forEach { group in
+            while tagViews.count < uniqueGroups.count {
                 let label = MessageLabel()
-                label.text = group
                 label.textColor = .label
-                label.backgroundColor = paletteColor
                 label.textInsets = textInsets
                 label.layer.cornerRadius = 4
                 label.layer.masksToBounds = true
                 label.font = UIFont.systemFont(ofSize: 12, weight: .regular)
+                tagViews.append(label)
                 tagsStack.addArrangedSubview(label)
+            }
+
+            for (index, label) in tagViews.enumerated() {
+                if index < uniqueGroups.count {
+                    label.text = uniqueGroups[index]
+                    label.backgroundColor = paletteColor
+                    label.isHidden = false
+                } else {
+                    label.text = nil
+                    label.isHidden = true
+                }
             }
         }
 
@@ -206,18 +219,22 @@ extension ContactsViewController {
             }
 
             avatarView.isHidden = false
-            let requestKey = [owner, jid, avatarUrl ?? ""].joined(separator: "|")
+            let requestKey = makeAvatarRequestKey(owner: owner, jid: jid, avatarUrl: avatarUrl, size: 64)
+            let defaultAvatar = UIImageView.getDefaultAvatar(for: title.capitalized, owner: owner, size: 64)
+            defaultAvatarImage = defaultAvatar
             avatarRequestKey = requestKey
+            if appliedAvatarRequestKey == requestKey, let currentImage = avatarView.image {
+                avatarView.image = currentImage
+                return
+            }
 
+            avatarView.image = defaultAvatar
             DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 64) { [weak self] image in
                 guard let self = self, self.avatarRequestKey == requestKey else {
                     return
                 }
-                if let image = image {
-                    self.avatarView.image = image
-                } else {
-                    self.avatarView.image = UIImageView.getDefaultAvatar(for: title.capitalized, owner: owner, size: 64)
-                }
+                self.appliedAvatarRequestKey = requestKey
+                self.avatarView.image = image ?? self.defaultAvatarImage ?? defaultAvatar
             }
         }
 
@@ -230,6 +247,8 @@ extension ContactsViewController {
             bottomLineLabel.isHidden = false
             avatarView.image = nil
             avatarRequestKey = nil
+            appliedAvatarRequestKey = nil
+            defaultAvatarImage = nil
             updateTags([], owner: "")
             updateStatus(entity: .contact, status: .offline)
         }

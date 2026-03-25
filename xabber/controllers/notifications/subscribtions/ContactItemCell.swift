@@ -121,6 +121,14 @@ extension NotificationsSubscribtionsListViewController {
             return stack
         }()
         
+        private var avatarRequestKey: String?
+        private var appliedAvatarRequestKey: String?
+        private var defaultAvatarImage: UIImage?
+        
+        private func makeAvatarRequestKey(owner: String, jid: String, avatarUrl: String?, size: CGFloat) -> String {
+            [owner, jid, avatarUrl ?? "", String(Int(size))].joined(separator: "|")
+        }
+        
         let avatarContainer: UIView = {
             let view = UIView(frame: CGRect(square: 64))
             view.backgroundColor = .clear
@@ -255,11 +263,18 @@ extension NotificationsSubscribtionsListViewController {
         }
         
         func configure(owner: String, username: NSAttributedString, jid: String, message: NSAttributedString? = nil, icon: String, avatarUrl: String? = nil, uuid: String, isRead: Bool) {
-            DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 64) { image in
-                if let image = image {
-                    self.avatarView.image = image
-                } else {
-                    self.avatarView.image = UIImageView.getDefaultAvatar(for: username.string, owner: owner, size: 64)
+            let requestKey = makeAvatarRequestKey(owner: owner, jid: jid, avatarUrl: avatarUrl, size: 64)
+            let defaultAvatar = UIImageView.getDefaultAvatar(for: username.string, owner: owner, size: 64)
+            defaultAvatarImage = defaultAvatar
+            avatarRequestKey = requestKey
+            if appliedAvatarRequestKey == requestKey, let currentImage = avatarView.image {
+                avatarView.image = currentImage
+            } else {
+                avatarView.image = defaultAvatar
+                DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 64) { [weak self] image in
+                    guard let self = self, self.avatarRequestKey == requestKey else { return }
+                    self.appliedAvatarRequestKey = requestKey
+                    self.avatarView.image = image ?? self.defaultAvatarImage ?? defaultAvatar
                 }
             }
             dimmedView.backgroundColor = AccountColorManager.shared.palette(for: owner).tint50
@@ -277,6 +292,14 @@ extension NotificationsSubscribtionsListViewController {
             self.jid = jid
             self.owner = owner
             self.uuid = uuid
+        }
+
+        override func prepareForReuse() {
+            super.prepareForReuse()
+            avatarRequestKey = nil
+            appliedAvatarRequestKey = nil
+            defaultAvatarImage = nil
+            avatarView.image = nil
         }
         
         public final func updateReadState(_ state: Bool, animated: Bool) {
@@ -301,10 +324,6 @@ extension NotificationsSubscribtionsListViewController {
                     self.dimmedView.alpha = 1.0
                 }
             }
-        }
-        
-        override func prepareForReuse() {
-            super.prepareForReuse()
         }
         
         @objc

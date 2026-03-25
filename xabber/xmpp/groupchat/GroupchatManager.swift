@@ -23,6 +23,32 @@ import XMPPFramework
 import RealmSwift
 import Kingfisher
 
+final class GroupchatRequestScheduler {
+    private let queue = DispatchQueue(label: "com.xabber.groupchat.request-scheduler")
+    private var workItems: [String: DispatchWorkItem] = [:]
+
+    func schedule(elementId: String, timeout: TimeInterval, callback: @escaping () -> Void) {
+        queue.async {
+            self.workItems[elementId]?.cancel()
+            let item = DispatchWorkItem { [weak self] in
+                self?.queue.async {
+                    self?.workItems.removeValue(forKey: elementId)
+                }
+                callback()
+            }
+            self.workItems[elementId] = item
+            self.queue.asyncAfter(deadline: .now() + timeout, execute: item)
+        }
+    }
+
+    func cancel(elementId: String) {
+        queue.async {
+            self.workItems[elementId]?.cancel()
+            self.workItems.removeValue(forKey: elementId)
+        }
+    }
+}
+
 class GroupchatManager: AbstractXMPPManager {
     
     static let requestTimeoutSeconds: TimeInterval = 15.0
@@ -76,6 +102,7 @@ class GroupchatManager: AbstractXMPPManager {
     public var currentChat: String? = nil
     
     private final var queueItems: SynchronizedArray<QueueItem> = SynchronizedArray<QueueItem>()
+    private let requestScheduler = GroupchatRequestScheduler()
     
     override func namespaces() -> [String] {
         return ["https://xabber.com/protocol/groups", ]
@@ -94,6 +121,7 @@ class GroupchatManager: AbstractXMPPManager {
     }
     
     public final func invalidateCallback(_ elementId: String) {
+        requestScheduler.cancel(elementId: elementId)
         if let item = queueItems.first(where: { $0.elementId == elementId }) {
             queueItems.remove(item)
         }
@@ -202,15 +230,13 @@ class GroupchatManager: AbstractXMPPManager {
     }
     
     private final func addRequestTimeoutHandler(for elementId: String) {
-        
-        let timer = Timer.scheduledTimer(withTimeInterval: GroupchatManager.requestTimeoutSeconds, repeats: false) { (timer) in
+        requestScheduler.schedule(elementId: elementId, timeout: GroupchatManager.requestTimeoutSeconds) {
             if let item = self.queueItems.first(where: { $0.elementId ==  elementId }) {
                 item.callback?("timeout")
                 item.invitesCallback?(item.value, "timeout")
                 self.queueItems.remove(item)
             }
         }
-        RunLoop.main.add(timer, forMode: .default)
     }
     
     public final func join(_ xmppStream: XMPPStream, uiConnection: Bool, groupchat: String, callback: @escaping ((String?) -> Void)) {
