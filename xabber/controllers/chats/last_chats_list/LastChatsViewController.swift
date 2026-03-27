@@ -563,6 +563,7 @@ class LastChatsViewController: BaseViewController {
     internal let updateQueue: DispatchQueue = DispatchQueue(label: "com.xabber.background.lastchats", qos: .background)
     internal var isDatasetUpdateInFlight: Bool = false
     internal var needsDatasetRefresh: Bool = false
+    internal var skeletonItemsCount: Int = 10
     
     internal var isSkeletonShowed: Bool = false
     
@@ -666,6 +667,7 @@ class LastChatsViewController: BaseViewController {
                     SortDescriptor(keyPath: "messageDate", ascending: false)
                 ])
             }
+            self.skeletonItemsCount = max(self.chatsObserver?.count ?? 0, 10)
             
             archivedChats = realm
                 .objects(LastChatsStorageItem.self)
@@ -733,6 +735,7 @@ class LastChatsViewController: BaseViewController {
             Observable
                 .collection(from: chatsObserver!)
                 .subscribe(onNext: { (results) in
+                    self.skeletonItemsCount = max(results.count, 10)
                     if results.isEmpty {
                         if !self.isEmptyViewShowed.value {
                             self.isEmptyViewShowed.accept(true)
@@ -799,7 +802,8 @@ class LastChatsViewController: BaseViewController {
     
     private final func mapDataset() -> [Datasource] {
         if self.showSkeleton.value {
-            return (0..<(self.chatsObserver?.count ?? 10)).compactMap {
+            let skeletonItemsCount = self.skeletonItemsCount
+            return (0..<skeletonItemsCount).compactMap {
                 return Datasource(
                     jid: "\($0)",
                     owner: "",
@@ -836,12 +840,8 @@ class LastChatsViewController: BaseViewController {
             let realm = try  WRealm.safe()
             let predicate: NSPredicate
             var pinnedChatsSorting: Bool = false
-            var ignoredJids: [String] = AccountManager.shared.users.compactMap { $0.notifications.node }
             let ignoredAccounts = realm.objects(AccountStorageItem.self).filter("enabled == true").toArray().compactMap { $0.jid }
-            var ignoredAbuse = Set(realm.objects(XMPPAbuseConfigStorageItem.self).toArray().compactMap({ $0.abuseAddress }))
-            ignoredAbuse.insert(CommonConfigManager.shared.config.default_report_address)
-            ignoredJids.append(contentsOf: Array(ignoredAbuse))
-            ignoredJids.append(contentsOf: ignoredAccounts)
+            let ignoredJids = XMPPServiceJidsSupport.ignoredServiceJids(in: realm, accountJids: ignoredAccounts)
             switch self.filter.value {
             case .chats:
                 self.unreadedJids = []

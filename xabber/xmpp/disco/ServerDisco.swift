@@ -303,12 +303,10 @@ class ServerDiscoManager: AbstractXMPPManager {
     }
     
     private func getFavoritesServiceNode(_ query: DDXMLElement, jid: String)-> Bool {
-        guard let identity = query.element(forName: "identity"),
-              identity.attributeStringValue(forName: "type") == "archive",
-              identity.attributeStringValue(forName: "category") == "component" else {
-                  return false
-              }
-        
+        guard XMPPFavoritesManager.supportsService(query) else {
+            return false
+        }
+
         AccountManager.shared.find(for: self.owner)?.favorites.configure(for: jid)
         return true
     }

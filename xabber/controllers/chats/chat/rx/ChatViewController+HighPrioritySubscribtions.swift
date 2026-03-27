@@ -171,31 +171,10 @@ extension ChatViewController {
                     if self.inSearchMode.value {
                         self.shouldShowScrollDownButton.accept(false)
                     } else {
-                        UIView.animate(withDuration: 0.33, delay: 0.0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0.8, options: [.curveEaseIn]) {
-                            var inputHeight: CGFloat = 49
-                            if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
-                                inputHeight += bottomInset
-                            }
-                            if self.recordLockIndicator.isHidden == false {
-                                inputHeight += 52
-                            }
-                            self.scrollDownButton.frame = CGRect(
-                                origin: CGPoint(x: self.view.frame.width - 42, y: self.view.frame.height - 52 - inputHeight),
-                                size: CGSize(square: 38)
-                            )
-                        } completion: { _ in
-                            
-                        }
+                        self.updateScrollDownButtonFrame(animated: true)
                     }
                 } else {
-                    UIView.animate(withDuration: 0.33, delay: 0.0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0.8, options: [.curveEaseIn]) {
-                        self.scrollDownButton.frame = CGRect(
-                            origin: CGPoint(x: self.view.frame.width - 42, y: self.view.frame.height + 52),
-                            size: CGSize(square: 38)
-                        )
-                    } completion: { _ in
-                        
-                    }
+                    self.updateScrollDownButtonFrame(animated: true)
                 }
             }
             .disposed(by: bag)
@@ -205,7 +184,11 @@ extension ChatViewController {
             .debounce(.milliseconds(40), scheduler: MainScheduler.asyncInstance)
             .subscribe { value in
 //                self.showFloatingDateObserver.accept(false)
-                if value > 64 {
+                if self.isShowingNewestMessage() {
+                    if self.shouldShowScrollDownButton.value {
+                        self.shouldShowScrollDownButton.accept(false)
+                    }
+                } else if value > 64 {
                     if !self.shouldShowScrollDownButton.value {
                         if !self.inSearchMode.value {
                             self.shouldShowScrollDownButton.accept(true)

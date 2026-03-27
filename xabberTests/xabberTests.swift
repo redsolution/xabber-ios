@@ -706,3 +706,96 @@ final class GroupchatRequestSchedulerTests: XCTestCase {
         wait(for: [invertedExpectation], timeout: 0.15)
     }
 }
+
+final class FavoritesFeatureTests: XCTestCase {
+
+    private let owner = "igor.boldin@xmppdev01.xabber.com"
+
+    override func setUp() {
+        super.setUp()
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(inMemoryIdentifier: "FavoritesFeatureTests-\(name)")
+        let realm = try! WRealm.safe()
+        try! realm.write {
+            realm.deleteAll()
+        }
+    }
+
+    private func makeElement(xml: String) throws -> DDXMLElement {
+        let document = try DDXMLDocument(xmlString: xml, options: 0)
+        guard let root = document.rootElement() else {
+            throw NSError(domain: "FavoritesFeatureTests", code: 1)
+        }
+        return root
+    }
+
+    func testFavoritesDiscoRequiresArchiveIdentityAndFeature() throws {
+        let validQuery = try makeElement(xml: """
+        <query xmlns='http://jabber.org/protocol/disco#info'>
+          <identity category='component' type='archive' name='Saved messages'/>
+          <feature var='urn:xabber:favorites:0'/>
+        </query>
+        """)
+
+        let missingFeatureQuery = try makeElement(xml: """
+        <query xmlns='http://jabber.org/protocol/disco#info'>
+          <identity category='component' type='archive' name='Saved messages'/>
+        </query>
+        """)
+
+        XCTAssertTrue(XMPPFavoritesManager.supportsService(validQuery))
+        XCTAssertFalse(XMPPFavoritesManager.supportsService(missingFeatureQuery))
+    }
+
+    func testIgnoredServiceJidsIncludeFavoritesNode() throws {
+        let realm = try WRealm.safe()
+        try realm.write {
+            let abuse = XMPPAbuseConfigStorageItem()
+            abuse.primary = "abuse"
+            abuse.owner = owner
+            abuse.abuseAddress = "abuse.xmppdev01.xabber.com"
+            realm.add(abuse)
+        }
+
+        let ignored = XMPPServiceJidsSupport.ignoredServiceJids(
+            in: realm,
+            accountJids: [owner],
+            serviceNodes: ["favorites.xmppdev01.xabber.com", "notifications.xmppdev01.xabber.com"]
+        )
+
+        XCTAssertTrue(ignored.contains(owner))
+        XCTAssertTrue(ignored.contains("favorites.xmppdev01.xabber.com"))
+        XCTAssertTrue(ignored.contains("notifications.xmppdev01.xabber.com"))
+        XCTAssertTrue(ignored.contains("abuse.xmppdev01.xabber.com"))
+    }
+
+    func testBuildForwardMessageTargetsFavoritesNodeAndAddsForwardReference() throws {
+        let realm = try WRealm.safe()
+        let forwardedPrimary = "forwarded-message-primary"
+        let stanzaPrimary = [forwardedPrimary, "stanza"].prp()
+        try realm.write {
+            let stanza = MessageStanzaStorageItem()
+            stanza.primary = stanzaPrimary
+            stanza.timestamp = ISO8601DateFormatter().date(from: "2026-03-24T12:34:56Z")!
+            stanza.stanza = """
+            <message from='romeo@xmppdev01.xabber.com/orchard' to='juliet@xmppdev01.xabber.com/balcony' type='chat' id='msg-1'>
+              <body>Hello Juliet</body>
+            </message>
+            """
+            realm.add(stanza)
+        }
+
+        let manager = XMPPFavoritesManager(withOwner: owner)
+        manager.node = "favorites.xmppdev01.xabber.com"
+
+        let stanza = manager.buildForwardMessage(for: [forwardedPrimary])
+
+        XCTAssertEqual(stanza?.to?.bare, "favorites.xmppdev01.xabber.com")
+        XCTAssertEqual(stanza?.type, "chat")
+        XCTAssertNotNil(stanza?.body)
+        let reference = stanza?.element(forName: "reference")
+        XCTAssertNotNil(reference)
+        XCTAssertEqual(reference?.xmlns(), "https://xabber.com/protocol/references")
+        XCTAssertEqual(reference?.attributeStringValue(forName: "type"), "mutable")
+        XCTAssertNotNil(reference?.element(forName: "forwarded"))
+    }
+}

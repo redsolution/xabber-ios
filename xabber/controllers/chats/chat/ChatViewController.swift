@@ -704,6 +704,56 @@ class ChatViewController: MessagesViewController {
     internal func onScrollDownChatButtonTouchUpInside(_ sender: UIButton) {
         self.scrollToLastOrUnreadItem()
     }
+
+    internal func scrollDownButtonVisibleFrame() -> CGRect {
+        var inputHeight: CGFloat = 49
+        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
+            inputHeight += bottomInset
+        }
+        if self.recordLockIndicator.isHidden == false {
+            inputHeight += 52
+        }
+
+        return CGRect(
+            origin: CGPoint(x: self.view.frame.width - 42, y: self.view.frame.height - 52 - inputHeight),
+            size: CGSize(square: 38)
+        )
+    }
+
+    internal func scrollDownButtonHiddenFrame() -> CGRect {
+        CGRect(
+            origin: CGPoint(x: self.view.frame.width - 42, y: self.view.frame.height + 52),
+            size: CGSize(square: 38)
+        )
+    }
+
+    internal func updateScrollDownButtonFrame(animated: Bool) {
+        let frame = self.shouldShowScrollDownButton.value ? self.scrollDownButtonVisibleFrame() : self.scrollDownButtonHiddenFrame()
+        let updates = {
+            self.scrollDownButton.frame = frame
+        }
+
+        if animated {
+            UIView.animate(withDuration: 0.33, delay: 0.0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0.8, options: [.curveEaseIn]) {
+                updates()
+            }
+        } else {
+            updates()
+        }
+    }
+
+    internal func isShowingNewestMessage(tolerance: CGFloat = 24) -> Bool {
+        let collectionView = self.messagesCollectionView
+        let adjustedInsets = collectionView.adjustedContentInset
+        let visibleHeight = collectionView.bounds.height - adjustedInsets.top - adjustedInsets.bottom
+
+        if collectionView.contentSize.height <= visibleHeight + tolerance {
+            return true
+        }
+
+        let newestOffsetY = -adjustedInsets.top
+        return collectionView.contentOffset.y <= newestOffsetY + tolerance
+    }
         
     @objc
     func clearAttachments() {
@@ -1465,10 +1515,7 @@ class ChatViewController: MessagesViewController {
             size: CGSize(square: 38)
         )
         
-        self.scrollDownButton.frame = CGRect(
-            origin: CGPoint(x: self.view.frame.width - 42, y: self.view.frame.height - 48 - inputHeight),
-            size: CGSize(square: 38)
-        )
+        self.updateScrollDownButtonFrame(animated: false)
         
         (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
             .cache.invalidate()

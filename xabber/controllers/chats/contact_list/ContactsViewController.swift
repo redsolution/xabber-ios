@@ -250,19 +250,7 @@ enum ContactsListSupport {
     }
 
     private static func buildIgnoredJids(realm: Realm, accountJids: [String]) -> [String] {
-        var ignoredJids: [String] = AccountManager.shared.users.compactMap { $0.notifications.node }
-        ignoredJids.append(contentsOf: AccountManager.shared.users.compactMap { $0.favorites.node })
-        ignoredJids.append(contentsOf: accountJids)
-
-        var ignoredAbuse = Set(realm.objects(XMPPAbuseConfigStorageItem.self).toArray().compactMap(\.abuseAddress))
-        ignoredAbuse.insert(CommonConfigManager.shared.config.default_report_address)
-        ignoredJids.append(contentsOf: Array(ignoredAbuse))
-
-        if CommonConfigManager.shared.config.support_jid.isNotEmpty {
-            ignoredJids.append(CommonConfigManager.shared.config.support_jid)
-        }
-
-        return Array(Set(ignoredJids))
+        XMPPServiceJidsSupport.ignoredServiceJids(in: realm, accountJids: accountJids)
     }
 
     private static func contactCategoryDatasource(context: Context) -> [[ContactsCategoryViewController.Datasource]] {

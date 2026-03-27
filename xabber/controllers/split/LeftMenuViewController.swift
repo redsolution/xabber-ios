@@ -204,14 +204,7 @@ class LeftMenuViewController: UIViewController {
             let realm = try WRealm.safe()
             let accounts = realm.objects(AccountStorageItem.self).filter("enabled == true").sorted(byKeyPath: "order")
             let jids = accounts.toArray().compactMap({ return $0.jid })
-            var ignoredJids: [String] = AccountManager.shared.users.compactMap { $0.notifications.node }
-            ignoredJids.append(contentsOf: AccountManager.shared.users.compactMap { $0.favorites.node })
-            if CommonConfigManager.shared.config.support_jid.isNotEmpty {
-                ignoredJids.append(CommonConfigManager.shared.config.support_jid)
-            }
-            var ignoredAbuse = Set(realm.objects(XMPPAbuseConfigStorageItem.self).toArray().compactMap({ $0.abuseAddress }))
-            ignoredAbuse.insert(CommonConfigManager.shared.config.default_report_address)
-            ignoredJids.append(contentsOf: Array(ignoredAbuse))
+            let ignoredJids = XMPPServiceJidsSupport.ignoredServiceJids(in: realm, accountJids: jids)
             let chats = realm.objects(LastChatsStorageItem.self).filter("isArchived == false AND unread > 0").compactMap({ $0.unread }).reduce(0, +)
             let archived = realm.objects(LastChatsStorageItem.self).filter("isArchived == true AND unread > 0").compactMap({ $0.unread }).reduce(0, +)
             let calls = realm.objects(CallMetadataStorageItem.self)

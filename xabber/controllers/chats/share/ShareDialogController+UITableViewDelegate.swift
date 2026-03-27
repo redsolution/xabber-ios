@@ -33,7 +33,7 @@ extension ShareDialogController: UITableViewDelegate {
         if item.conversationType == .saved {
             self.dismiss(animated: true) {
                 AccountManager.shared.find(for: item.owner)?.action({ user, stream in
-                    _ = user.messages.sendSimpleMessage("", to: item.jid, forwarded: self.forwardIds, conversationType: item.conversationType)
+                    _ = user.favorites.forwardMessages(self.forwardIds, stream: stream)
                 })
             }
         } else {

@@ -11,6 +11,27 @@ import XMPPFramework
 import RealmSwift
 import CocoaLumberjack
 
+enum XMPPServiceJidsSupport {
+    static func ignoredServiceJids(in realm: Realm, accountJids: [String], serviceNodes: [String]? = nil) -> [String] {
+        var ignoredJids: [String] = serviceNodes ?? {
+            var nodes: [String] = AccountManager.shared.users.compactMap { $0.notifications.node }
+            nodes.append(contentsOf: AccountManager.shared.users.compactMap { $0.favorites.node })
+            return nodes
+        }()
+        ignoredJids.append(contentsOf: accountJids)
+
+        var ignoredAbuse = Set(realm.objects(XMPPAbuseConfigStorageItem.self).toArray().compactMap(\.abuseAddress))
+        ignoredAbuse.insert(CommonConfigManager.shared.config.default_report_address)
+        ignoredJids.append(contentsOf: Array(ignoredAbuse))
+
+        if CommonConfigManager.shared.config.support_jid.isNotEmpty {
+            ignoredJids.append(CommonConfigManager.shared.config.support_jid)
+        }
+
+        return Array(Set(ignoredJids))
+    }
+}
+
 class XMPPFavoritesManager: AbstractXMPPManager {
     enum ManagerErrorType: Error {
         case notAvailable
@@ -61,6 +82,18 @@ class XMPPFavoritesManager: AbstractXMPPManager {
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
             user.favorites.update(stream)
         })
+    }
+
+    static func supportsService(_ query: DDXMLElement) -> Bool {
+        guard let identity = query.element(forName: "identity"),
+              identity.attributeStringValue(forName: "type") == "archive",
+              identity.attributeStringValue(forName: "category") == "component" else {
+            return false
+        }
+
+        return query
+            .elements(forName: "feature")
+            .contains(where: { $0.attributeStringValue(forName: "var") == XMPPFavoritesManager.xmlns })
     }
     
     func createXMPPFavoritesManagerStorageItem() throws {
@@ -128,6 +161,45 @@ class XMPPFavoritesManager: AbstractXMPPManager {
             return false
         }
         
+        return true
+    }
+
+    internal func buildForwardMessage(for forwardedIds: [String]) -> XMPPMessage? {
+        guard let node = self.node else {
+            return nil
+        }
+
+        let originalId = NanoID.new(8)
+        let stanza = XMPPMessage(messageType: .chat, to: XMPPJID(string: node), elementID: originalId, child: nil)
+        stanza.addAttribute(withName: "from", stringValue: owner)
+
+        let messageManager = AccountManager.shared.find(for: self.owner)?.messages ?? MessageManager(withOwner: self.owner, activeStream: false)
+        let forwardedItems = messageManager.formForwardedMessages(forwardedIds)
+        let legacyBody = forwardedItems
+            .map(\.body)
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if legacyBody.isNotEmpty {
+            stanza.addBody(legacyBody)
+        }
+
+        forwardedItems.forEach {
+            stanza.addChild($0.referenceElement.copy() as! DDXMLElement)
+        }
+
+        stanza.addOriginId(originalId)
+        return stanza
+    }
+
+    @discardableResult
+    public func forwardMessages(_ forwardedIds: [String], stream: XMPPStream) -> Bool {
+        guard isAvailable(),
+              let stanza = buildForwardMessage(for: forwardedIds) else {
+            return false
+        }
+
+        stream.send(stanza)
         return true
     }
     
@@ -281,67 +353,4 @@ class XMPPFavoritesManager: AbstractXMPPManager {
         }
     }
     
-//    func sendMessageToFavorites() {
-//        do {
-//            let realm = try WRealm.safe()
-//
-//            try forwardIds.forEach { messagePrimary in
-//                if let forwardedMessage = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: messagePrimary) {
-//                    let instance = MessageStorageItem()
-//                    instance.opponent = forwardedMessage.opponent
-//                    instance.owner = self.owner
-//                    instance.outgoing = true
-//                    instance.date = Date()
-//                    instance.conversationType = .saved
-//                    instance.messageId = UUID().uuidString
-//                    instance.sentDate = forwardedMessage.date
-//
-//                    instance.updatePrimary()
-//
-//                    instance.references = forwardedMessage.references
-//                    instance.updateDisplayMode()
-//                    instance.references.forEach { $0.messageId = instance.primary }
-//
-//                    let sender = forwardedMessage.outgoing ? self.owner : forwardedMessage.opponent
-//
-//                    if let groupChatCard = realm.object(ofType: GroupchatUserStorageItem.self, forPrimaryKey: [GroupChatStorageItem.genPrimary(jid: sender, owner: self.owner), "saved-forwarded"].prp()) {
-//                        instance.groupchatCard = groupChatCard
-//                    } else {
-//                        let groupChatCard = GroupchatUserStorageItem()
-//                        groupChatCard.owner = self.owner
-//                        groupChatCard.nickname = sender
-//                        groupChatCard.primary = [GroupChatStorageItem.genPrimary(jid: sender, owner: self.owner), "saved-forwarded"].prp()
-//                        instance.groupchatCard = groupChatCard
-//                    }
-//
-//                    try realm.write {
-//                        realm.add(instance)
-//                    }
-//
-//                    try realm.write {
-//                        _ = instance.save(commitTransaction: false)
-//                    }
-//
-//                    if let chatInstance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: AccountManager.shared.find(for: self.owner)?.favorites.node ?? "", owner: self.owner, conversationType: .saved)) {
-//                        if chatInstance.lastMessage == nil {
-//                            try realm.write {
-//                                chatInstance.lastMessage = instance
-//                                chatInstance.messageDate = instance.date
-//                            }
-//
-//                        } else if let lastMessage = chatInstance.lastMessage,
-//                           lastMessage.date < instance.date {
-//                            try realm.write {
-//                                chatInstance.lastMessage = instance
-//                                chatInstance.messageDate = instance.date
-//                            }
-//
-//                        }
-//                    }
-//                }
-//            }
-//        } catch {
-//
-//        }
-//    }
 }

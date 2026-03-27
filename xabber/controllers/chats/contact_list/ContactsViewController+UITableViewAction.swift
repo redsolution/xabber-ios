@@ -111,13 +111,17 @@ extension ContactsViewController {
             noText: "Cancel".localizeString(id: "cancel", arguments: []),
             animated: true) { value in
             if value {
-                AccountManager.shared.find(for: self.owner)?.action { user, stream in
+                AccountManager.shared.find(for: owner)?.action { user, stream in
                     user.presences.unsubscribe(stream, jid: jid)
                     user.presences.unsubscribed(stream, jid: jid)
                     user.roster.removeContact(stream, jid: jid) { jid, error, _ in
                         if error != nil {
                             DispatchQueue.main.async {
                                 ToastPresenter().presentError(message: "Unexpected error".localizeString(id: "unexpected_error", arguments: []))
+                                self.runDatasetUpdateTask(force: true)
+                            }
+                        } else {
+                            DispatchQueue.main.async {
                                 self.runDatasetUpdateTask(force: true)
                             }
                         }
@@ -138,10 +142,9 @@ extension ContactsViewController {
             noText: "Cancel".localizeString(id: "cancel", arguments: []),
             animated: true) { value in
             if value {
-                AccountManager.shared.find(for: self.owner)?.action { user, stream in
+                AccountManager.shared.find(for: owner)?.action { user, stream in
                     user.blocked.blockContact(stream, jid: jid)
                     DispatchQueue.main.async {
-                        ToastPresenter().presentError(message: "Unexpected error".localizeString(id: "unexpected_error", arguments: []))
                         self.runDatasetUpdateTask(force: true)
                     }
                 }
@@ -160,16 +163,14 @@ extension ContactsViewController {
             noText: "Cancel".localizeString(id: "cancel", arguments: []),
             animated: true) { value in
             if value {
-                AccountManager.shared.find(for: self.owner)?.action { user, stream in
+                AccountManager.shared.find(for: owner)?.action { user, stream in
                     user.groupchats.leave(stream, groupchat: jid) { _ in
                         DispatchQueue.main.async {
-                            ToastPresenter().presentError(message: "Unexpected error".localizeString(id: "unexpected_error", arguments: []))
                             self.runDatasetUpdateTask(force: true)
                         }
                     }
                     user.groupchats.afterLeave(groupchat: jid)
                     DispatchQueue.main.async {
-                        ToastPresenter().presentError(message: "Unexpected error".localizeString(id: "unexpected_error", arguments: []))
                         self.runDatasetUpdateTask(force: true)
                     }
                 }
@@ -200,7 +201,9 @@ extension ContactsViewController {
                             DDLogDebug("ContactsViewController: \(#function). \(error.localizedDescription)")
                         }
                         DispatchQueue.main.async {
-                            ToastPresenter().presentError(message: "Unexpected error".localizeString(id: "unexpected_error", arguments: []))
+                            if error != nil {
+                                ToastPresenter().presentError(message: "Unexpected error".localizeString(id: "unexpected_error", arguments: []))
+                            }
                             self.runDatasetUpdateTask(force: true)
                         }
                     }
