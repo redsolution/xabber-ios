@@ -33,8 +33,9 @@ class InlineFilesGridView: InlineAttachmentView {
             stack.alignment = .center
             stack.distribution = .fill
             stack.spacing = 8
-            stack.isLayoutMarginsRelativeArrangement = true
-            stack.layoutMargins = UIEdgeInsets(top: 0, bottom: 0, left: 4, right: 4)
+            stack.isLayoutMarginsRelativeArrangement = false
+            stack.preservesSuperviewLayoutMargins = false
+            stack.insetsLayoutMarginsFromSafeArea = false
             
             return stack
         }()
@@ -57,8 +58,9 @@ class InlineFilesGridView: InlineAttachmentView {
             stack.alignment = .leading
             stack.distribution = .fill
             stack.spacing = 0
-            stack.isLayoutMarginsRelativeArrangement = true
-            stack.layoutMargins = UIEdgeInsets(top: 2, bottom: 2, left: 0, right: 0)
+            stack.isLayoutMarginsRelativeArrangement = false
+            stack.preservesSuperviewLayoutMargins = false
+            stack.insetsLayoutMarginsFromSafeArea = false
             
             return stack
         }()
@@ -99,12 +101,16 @@ class InlineFilesGridView: InlineAttachmentView {
         
         internal func setup() {
             addSubview(stack)
-            stack.fillSuperview()
+            stack.translatesAutoresizingMaskIntoConstraints = false
             stack.addArrangedSubview(iconButton)
             stack.addArrangedSubview(contentStack)
             contentStack.addArrangedSubview(filenameLabel)
             contentStack.addArrangedSubview(sizeLabel)
             NSLayoutConstraint.activate([
+                stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+                stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+                stack.topAnchor.constraint(equalTo: topAnchor),
+                stack.bottomAnchor.constraint(equalTo: bottomAnchor),
                 iconButton.widthAnchor.constraint(equalToConstant: 36),
                 iconButton.heightAnchor.constraint(equalToConstant: 36),
                 filenameLabel.heightAnchor.constraint(equalToConstant: 20),

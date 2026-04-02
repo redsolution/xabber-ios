@@ -73,7 +73,7 @@ extension ChatViewController {
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
             user.akeManager.sendVerificationRequest(jid: self.jid)
         })
-        self.topPanelState.accept(.none)
+        self.setTopPanelState(.none)
     }
     
     @objc

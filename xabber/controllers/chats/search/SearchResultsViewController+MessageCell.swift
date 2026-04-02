@@ -175,7 +175,6 @@ extension SearchResultsViewController {
                 userImageView.heightAnchor.constraint(equalToConstant: 56),
                 accountIndicator.widthAnchor.constraint(equalToConstant: 2),
                 topStack.heightAnchor.constraint(equalToConstant: 20),
-                bottomStack.heightAnchor.constraint(equalToConstant: 36),
                 accountIndicator.heightAnchor.constraint(equalTo: stack.heightAnchor, multiplier: 1)]
             NSLayoutConstraint.activate(constraints)
             

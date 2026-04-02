@@ -12,6 +12,14 @@ import MaterialComponents
 
 extension ChatViewController {
     class InitialMessageOverlayView: UIView {
+        private enum Layout {
+            static let horizontalInset: CGFloat = 8
+            static let topInset: CGFloat = 40
+            static let bottomInset: CGFloat = 8
+            static let titleHeight: CGFloat = 24
+            static let learnMoreHeight: CGFloat = 24
+        }
+
         internal let containerView: UIView = {
             let view = UIView(frame: .zero)
             
@@ -77,6 +85,9 @@ extension ChatViewController {
             return blurredEffectView
         }()
         
+        private lazy var titleHeightConstraint = titleLabel.heightAnchor.constraint(equalToConstant: Layout.titleHeight)
+        private lazy var learnMoreHeightConstraint = learnmoreButton.heightAnchor.constraint(equalToConstant: Layout.learnMoreHeight)
+
         override init(frame: CGRect) {
             super.init(frame: frame)
             self.setup()
@@ -91,12 +102,16 @@ extension ChatViewController {
             self.addSubview(self.containerView)
             self.containerView.addSubview(blurredEffectView)
             self.containerView.addSubview(self.containerStack)
-            self.containerStack.fillSuperviewWithOffset(top: 40, bottom: 8, left: 8, right: 8)
             
             self.containerStack.addArrangedSubview(self.titleLabel)
             self.containerStack.addArrangedSubview(self.descriptionLabel)
             self.containerStack.addArrangedSubview(self.learnmoreButton)
             self.addSubview(self.iconButton)
+
+            NSLayoutConstraint.activate([
+                titleHeightConstraint,
+                learnMoreHeightConstraint
+            ])
         }
         
         public func update(frame: CGRect, conversationType: ClientSynchronizationManager.ConversationType, privacy: GroupChatStorageItem.Privacy? = nil, peerToPeer: Bool? = nil) {
@@ -118,11 +133,8 @@ extension ChatViewController {
             self.iconButton.layer.masksToBounds = true
             
             self.blurredEffectView.frame = self.containerView.bounds
+            layoutOverlayContents()
             
-            NSLayoutConstraint.activate([
-                titleLabel.heightAnchor.constraint(equalToConstant: 24),
-                learnmoreButton.heightAnchor.constraint(equalToConstant: 24)
-            ])
             switch conversationType {
                 case .regular:
                     self.iconButton.setImage(imageLiteral("person.fill", dimension: 28), for: .normal)
@@ -188,6 +200,23 @@ extension ChatViewController {
                 case .saved:
                     break
             }
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            layoutOverlayContents()
+        }
+
+        private func layoutOverlayContents() {
+            blurredEffectView.frame = containerView.bounds
+            let width = max(0, containerView.bounds.width - (Layout.horizontalInset * 2))
+            let height = max(0, containerView.bounds.height - Layout.topInset - Layout.bottomInset)
+            containerStack.frame = CGRect(
+                x: Layout.horizontalInset,
+                y: Layout.topInset,
+                width: width,
+                height: height
+            )
         }
     }
 }

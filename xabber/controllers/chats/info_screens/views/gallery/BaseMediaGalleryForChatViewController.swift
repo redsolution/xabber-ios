@@ -161,13 +161,33 @@ extension BaseMediaGalleryForChatViewController: UICollectionViewDataSourcePrefe
 
         guard let maxRow = indexPaths.compactMap({ $0.row }).max() else { return }
         if maxRow > datasource.count / 2 {
+            let requestCallbacks = MessageArchiveManager.RequestCallbacks(
+                onMessage: { [weak self] item, queryId in
+                    self?.didReceiveMessage(item, queryId: queryId)
+                },
+                onEndPage: { [weak self] queryId, state, first, last, count in
+                    self?.didReceiveEndPage(queryId: queryId, state: state, first: first, last: last, count: count)
+                }
+            )
             XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-                session.mam?.temporaryMessageReceiverDelegate = self
-                session.mam?.getMedia(stream, jid: self.jid, conversationType: self.conversationType, media: [self.kind], after: self.datasource.last?.messageId)
+                session.mam?.getMedia(
+                    stream,
+                    jid: self.jid,
+                    conversationType: self.conversationType,
+                    media: [self.kind],
+                    after: self.datasource.last?.messageId,
+                    requestCallbacks: requestCallbacks
+                )
             } fail: {
                 AccountManager.shared.find(for: self.owner)?.action { user, stream in
-                    user.mam.temporaryMessageReceiverDelegate = self
-                    user.mam.getMedia(stream, jid: self.jid, conversationType: self.conversationType, media: [self.kind], after: self.datasource.last?.messageId)
+                    user.mam.getMedia(
+                        stream,
+                        jid: self.jid,
+                        conversationType: self.conversationType,
+                        media: [self.kind],
+                        after: self.datasource.last?.messageId,
+                        requestCallbacks: requestCallbacks
+                    )
                 }
             }
 
@@ -182,7 +202,7 @@ extension BaseMediaGalleryForChatViewController: TemporaryMessageReceiverProtoco
         
     }
     
-    func didReceiveEndPage(queryId: String, fin: Bool, first: String, last: String, count: Int) {
+    func didReceiveEndPage(queryId: String, state: MessageArchivePageEndState, first: String, last: String, count: Int) {
         
     }
 }

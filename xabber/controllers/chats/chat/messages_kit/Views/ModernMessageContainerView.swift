@@ -9,6 +9,18 @@ import Foundation
 import UIKit
 
 open class ModernContainerView: UIView {
+    private struct BackgroundSignature: Equatable {
+        let size: CGSize
+        let radius1: CGFloat
+        let radius2: CGFloat
+        let radius3: CGFloat
+        let radius4: CGFloat
+        let sideIsLeft: Bool
+    }
+    
+    private let backgroundMaskLayer = CAShapeLayer()
+    private var lastBackgroundSignature: BackgroundSignature?
+    
     var radius1: CGFloat = 16
     var radius2: CGFloat = 16
     var radius3: CGFloat = 2
@@ -22,6 +34,7 @@ open class ModernContainerView: UIView {
     }
     
     public final func configure(side: MessageSide, radiusLU: CGFloat = 8, radiusRU: CGFloat = 8, radiusRB: CGFloat = 2, radiusLB: CGFloat = 8) {
+        self.side = side
         self.radius1 = [radiusLU - ModernContainerView.padding, 2.0].max() ?? 2
         self.radius2 = [radiusRU - ModernContainerView.padding, 2.0].max() ?? 2
 //        if side == .right {
@@ -36,8 +49,8 @@ open class ModernContainerView: UIView {
     }
     
     func drawPath() -> UIBezierPath {
-        let width = frame.width
-        let height = frame.height
+        let width = bounds.width
+        let height = bounds.height
         let path = UIBezierPath()
         
         path.move(to: CGPoint(x: radius1, y: 0))
@@ -56,26 +69,63 @@ open class ModernContainerView: UIView {
         path.addLine(to: CGPoint(x: 0, y: radius1))
         path.addQuadCurve(to: CGPoint(x: radius1, y: 0), controlPoint: CGPoint(x: 0, y: 0))
         path.close()
-        path.fill()
         
         return path
     }
     
     func setupBackground() {
+        guard bounds.width > 0, bounds.height > 0 else {
+            layer.mask = nil
+            layer.masksToBounds = false
+            lastBackgroundSignature = nil
+            return
+        }
+        let signature = BackgroundSignature(
+            size: bounds.size,
+            radius1: radius1,
+            radius2: radius2,
+            radius3: radius3,
+            radius4: radius4,
+            sideIsLeft: side == .left
+        )
+        if signature == lastBackgroundSignature, layer.mask === backgroundMaskLayer {
+            return
+        }
         let path = self.drawPath()
-        let mask = CAShapeLayer()
-        mask.fillColor = UIColor.black.cgColor
-        mask.strokeColor = UIColor.white.cgColor
-        mask.path = path.cgPath
-        mask.lineWidth = 0.0
+        backgroundMaskLayer.fillColor = UIColor.black.cgColor
+        backgroundMaskLayer.strokeColor = UIColor.white.cgColor
+        backgroundMaskLayer.path = path.cgPath
+        backgroundMaskLayer.lineWidth = 0.0
         
-        self.layer.mask = mask
+        if layer.mask !== backgroundMaskLayer {
+            layer.mask = backgroundMaskLayer
+        }
         self.layer.masksToBounds = true
-        self.setNeedsLayout()
+        lastBackgroundSignature = signature
+    }
+    
+    open override func layoutSubviews() {
+        super.layoutSubviews()
+        setupBackground()
     }
 }
 
 open class ModernMessageContainerView: UIView {
+    private struct BackgroundSignature: Equatable {
+        let size: CGSize
+        let radius1: CGFloat
+        let radius2: CGFloat
+        let radius3: CGFloat
+        let radius4: CGFloat
+        let paddingr: CGFloat
+        let tail: String
+        let sideIsLeft: Bool
+        let topCorner: Bool
+    }
+    
+    private let bubbleMaskLayer = CAShapeLayer()
+    private let bubbleTailMaskLayer = CAShapeLayer()
+    private var lastBackgroundSignature: BackgroundSignature?
     
     var radius1: CGFloat = 16
     var radius2: CGFloat = 16
@@ -112,26 +162,50 @@ open class ModernMessageContainerView: UIView {
     }
     
     func setupBackground() {
-        self.bubble.layer.mask = nil
+        guard bounds.width > 0, bounds.height > 0 else {
+            bubble.layer.mask = nil
+            bubble.layer.masksToBounds = false
+            lastBackgroundSignature = nil
+            return
+        }
+        let signature = BackgroundSignature(
+            size: bounds.size,
+            radius1: radius1,
+            radius2: radius2,
+            radius3: radius3,
+            radius4: radius4,
+            paddingr: paddingr,
+            tail: tail,
+            sideIsLeft: side == .left,
+            topCorner: topCorner
+        )
+        if signature == lastBackgroundSignature, bubble.layer.mask === bubbleMaskLayer {
+            return
+        }
+        
         self.bubble.frame = self.bounds
         let path = self.drawPath()
-        let mask = CAShapeLayer()
-        mask.fillColor = UIColor.black.cgColor
-        mask.strokeColor = UIColor.white.cgColor
-        mask.path = path.cgPath
-        mask.lineWidth = 0.0
+        bubbleMaskLayer.fillColor = UIColor.black.cgColor
+        bubbleMaskLayer.strokeColor = UIColor.white.cgColor
+        bubbleMaskLayer.path = path.cgPath
+        bubbleMaskLayer.lineWidth = 0.0
         
         let tailPath: CGPath? = drawTail(name: self.tail)
         
         if let tailPath = tailPath {
-            let submask = CAShapeLayer()
-            submask.fillColor = UIColor.black.cgColor
-            submask.strokeColor = UIColor.white.cgColor
-            submask.path = tailPath
-            submask.lineWidth = 0.0
-            mask.addSublayer(submask)
+            bubbleTailMaskLayer.fillColor = UIColor.black.cgColor
+            bubbleTailMaskLayer.strokeColor = UIColor.white.cgColor
+            bubbleTailMaskLayer.path = tailPath
+            bubbleTailMaskLayer.lineWidth = 0.0
+            if bubbleTailMaskLayer.superlayer !== bubbleMaskLayer {
+                bubbleMaskLayer.addSublayer(bubbleTailMaskLayer)
+            }
+        } else {
+            bubbleTailMaskLayer.removeFromSuperlayer()
         }
-        self.bubble.layer.mask = mask
+        if self.bubble.layer.mask !== bubbleMaskLayer {
+            self.bubble.layer.mask = bubbleMaskLayer
+        }
         self.bubble.layer.masksToBounds = true
 //        self.bubble.layer.backgroundColor = side == .left ? UIColor.systemRed.cgColor : UIColor.systemBlue.cgColor
         self.bubble.layer.backgroundColor = side == .left ? UIColor(red: 227.0 / 255.0, green: 242.0 / 255.0, blue: 253.0 / 255.0, alpha: 1).cgColor : UIColor.white.cgColor
@@ -154,12 +228,11 @@ open class ModernMessageContainerView: UIView {
             }
         }
         
-        self.bubble.setNeedsLayout()
-        self.setNeedsLayout()
+        lastBackgroundSignature = signature
     }
         
     func drawTail(name: String) -> CGPath? {
-        let st = CGSize(width: frame.width - 14, height: frame.height - 14)
+        let st = CGSize(width: bounds.width - 14, height: bounds.height - 14)
         switch name {
             case "stripes":
                 let path = UIBezierPath()
@@ -226,8 +299,8 @@ open class ModernMessageContainerView: UIView {
     }
     
     func drawPath() -> UIBezierPath {
-        let width = frame.width
-        let height = frame.height
+        let width = bounds.width
+        let height = bounds.height
         let padding: CGFloat = 0
         let paddingR: CGFloat = paddingr
         let path = UIBezierPath()
@@ -248,9 +321,13 @@ open class ModernMessageContainerView: UIView {
         path.addLine(to: CGPoint(x: padding, y: radius1))
         path.addQuadCurve(to: CGPoint(x: padding + radius1, y: 0), controlPoint: CGPoint(x: padding, y: 0))
         path.close()
-        path.fill()
         
         return path
+    }
+    
+    open override func layoutSubviews() {
+        super.layoutSubviews()
+        setupBackground()
     }
     
     

@@ -126,7 +126,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     static func setupRootViewController(instance: AppDelegate?, window: UIWindow?, userInfo: [AnyHashable: Any]?) {
         if AccountManager.shared.emptyAccountsList() {
             CredentialsManager.shared.clearKeyachain()
-            AccountManager.shared.connectingUsers.accept(Set<String>())
+            DispatchQueue.main.async {
+                AccountManager.shared.connectingUsers.accept(Set<String>())
+            }
             let vc = OnboardingViewController()
             
             let navigationController = UINavigationController(rootViewController: vc)
@@ -516,4 +518,3 @@ extension AppDelegate: UISplitViewControllerDelegate {
     
     
 }
-

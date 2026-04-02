@@ -80,7 +80,18 @@ class ChatMarkersManager: AbstractXMPPManager {
         }
     }
     
-    var afterburnTimer: Timer? = nil
+    private lazy var afterburnCleanupQueue = DispatchQueue(
+        label: "xabber.chatmarkers.afterburn.\(self.owner)"
+    )
+    private let cleanupStateLock = NSLock()
+    private var afterburnTimer: DispatchSourceTimer?
+    private var isCleanupRunning = false
+    private var needsAnotherPass = false
+
+    internal var afterburnCleanupInterval: DispatchTimeInterval { .seconds(1) }
+    internal var afterburnCleanupLeeway: DispatchTimeInterval { .milliseconds(250) }
+    internal var afterburnCleanupIntervalSeconds: TimeInterval { 1.0 }
+    internal var afterburnCleanupLeewayMilliseconds: Int { 250 }
     
     override init(withOwner owner: String) {
         super.init(withOwner: owner)
@@ -90,29 +101,102 @@ class ChatMarkersManager: AbstractXMPPManager {
     init(withOwner owner: String, withoutAfterburnTimer: Bool) {
         super.init(withOwner: owner)
     }
+
+    deinit {
+        self.invalidateAfterburnTimer()
+    }
     
     public func updateDeleteEphemeralMessagesTimer() {
         self.deleteEphemeralMessages()
-        if CommonConfigManager.shared.config.afterburn_at_default {
-            self.afterburnTimer?.fire()
-            self.afterburnTimer?.invalidate()
-            self.afterburnTimer = nil
-            self.afterburnTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true, block: { _ in
-                self.deleteEphemeralMessages()
-            })
-            RunLoop.current.add(self.afterburnTimer!, forMode: .default)
-            self.afterburnTimer?.fire()
+        self.afterburnCleanupQueue.async { [weak self] in
+            guard let self else { return }
+            self.invalidateAfterburnTimer()
+            guard CommonConfigManager.shared.config.afterburn_at_default else {
+                return
+            }
+
+            let timer = DispatchSource.makeTimerSource(queue: self.afterburnCleanupQueue)
+            timer.schedule(
+                deadline: .now() + self.afterburnCleanupInterval,
+                repeating: self.afterburnCleanupInterval,
+                leeway: self.afterburnCleanupLeeway
+            )
+            timer.setEventHandler { [weak self] in
+                self?.deleteEphemeralMessages()
+            }
+            self.afterburnTimer = timer
+            timer.resume()
         }
     }
     
     public func deleteEphemeralMessages() {
+        self.cleanupStateLock.lock()
+        if self.isCleanupRunning {
+            self.needsAnotherPass = true
+            self.cleanupStateLock.unlock()
+            return
+        }
+        self.isCleanupRunning = true
+        self.needsAnotherPass = false
+        self.cleanupStateLock.unlock()
+
+        self.afterburnCleanupQueue.async { [weak self] in
+            self?.runEphemeralCleanupLoop()
+        }
+    }
+
+    internal func hasAfterburnTimerForTests() -> Bool {
+        self.afterburnCleanupQueue.sync {
+            self.afterburnTimer != nil
+        }
+    }
+
+    internal func afterburnTimerDebugIdentifierForTests() -> ObjectIdentifier? {
+        self.afterburnCleanupQueue.sync {
+            self.afterburnTimer.map { ObjectIdentifier($0 as AnyObject) }
+        }
+    }
+
+    internal func stopAfterburnTimerForTests() {
+        self.afterburnCleanupQueue.sync {
+            self.invalidateAfterburnTimer()
+        }
+    }
+
+    private func runEphemeralCleanupLoop() {
+        while true {
+            autoreleasepool {
+                self.runEphemeralCleanup()
+            }
+            self.cleanupStateLock.lock()
+            if self.needsAnotherPass {
+                self.needsAnotherPass = false
+                self.cleanupStateLock.unlock()
+                continue
+            }
+            self.isCleanupRunning = false
+            self.cleanupStateLock.unlock()
+            return
+        }
+    }
+
+    private func invalidateAfterburnTimer() {
+        guard let timer = self.afterburnTimer else {
+            return
+        }
+        timer.setEventHandler {}
+        timer.cancel()
+        self.afterburnTimer = nil
+    }
+
+    internal func runEphemeralCleanup() {
         do {
             let realm = try WRealm.safe()
             let collection = realm
                 .objects(MessageStorageItem.self)
                 .filter("owner == %@ AND afterburnInterval > 0 AND isRead == true AND isDeleted == false AND burnDate < %@ AND burnDate > 0", self.owner, Date().timeIntervalSince1970)
             
-            if collection.isEmpty {
+            guard collection.first != nil else {
                 return
             }
             let jids = Set(collection.compactMap { return $0.opponent })
@@ -431,4 +515,3 @@ class ChatMarkersManager: AbstractXMPPManager {
         }
     }
 }
-

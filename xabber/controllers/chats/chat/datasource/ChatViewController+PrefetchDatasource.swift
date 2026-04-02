@@ -26,17 +26,61 @@ import RxRealm
 import CocoaLumberjack
 
 extension ChatViewController: UICollectionViewDataSourcePrefetching {
+
+    private func triggerPaging(_ pageDirection: ChatHistoryPageDirection) {
+        self.setDatasourceLoadingEnabled(false)
+        switch pageDirection {
+        case .older:
+            self.onTouchEndPage(direction: .older)
+        case .newer:
+            self.onTouchStartPage(direction: .newer)
+        }
+    }
+
+    private func triggerInteractiveBoundaryPagingIfNeeded(_ scrollView: UIScrollView) {
+        let boundaryContext = self.pagingBoundaryContext(
+            visibleSections: self.messagesCollectionView.indexPathsForVisibleItems.map(\.section)
+        )
+        guard let pageDirection = ChatHistoryPagingPolicy.triggerDirection(
+            isUserScrolling: scrollView.isDragging || scrollView.isDecelerating || scrollView.isTracking,
+            canLoadDatasource: self.canLoadDatasource,
+            gestureTranslationY: scrollView.panGestureRecognizer.translation(in: scrollView).y,
+            boundaryContext: boundaryContext,
+            currentPageMinIndex: self.currentPage.minIndex
+        ) else {
+            return
+        }
+
+        self.triggerPaging(pageDirection)
+    }
+
+    private func triggerBoundaryPagingAfterDragIfNeeded(_ scrollView: UIScrollView) {
+        let boundaryContext = self.pagingBoundaryContext(
+            visibleSections: self.messagesCollectionView.indexPathsForVisibleItems.map(\.section)
+        )
+        guard let pageDirection = ChatHistoryPagingPolicy.fallbackDirectionForShortContentDrag(
+            canLoadDatasource: self.canLoadDatasource,
+            gestureTranslationY: scrollView.panGestureRecognizer.translation(in: scrollView).y,
+            boundaryContext: boundaryContext,
+            currentPageMinIndex: self.currentPage.minIndex
+        ) else {
+            return
+        }
+
+        self.triggerPaging(pageDirection)
+    }
     
     func collectionView(_ collectionView: UICollectionView, prefetchItemsAt indexPaths: [IndexPath]) {
         
     }
     
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
-
+        self.triggerBoundaryPagingAfterDragIfNeeded(scrollView)
     }
     
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-
+        guard !decelerate else { return }
+        self.triggerBoundaryPagingAfterDragIfNeeded(scrollView)
     }
     
     func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
@@ -89,12 +133,13 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
                 self.chatScrollDirection = .up
             }
             self.contentOffsetObserver.accept(contentOffsetY)
+            self.triggerInteractiveBoundaryPagingIfNeeded(scrollView)
         }
         if !self.preventHidingDate {
             self.pinnedDateView.hide()
         }
         self.previousContentOffsetY = contentOffsetY
-        self.showFloatingDateObserver.accept(true)
+        self.setFloatingDateVisible(true)
         
         self.messagesCollectionView.indexPathsForVisibleItems.forEach {
             indexPath in

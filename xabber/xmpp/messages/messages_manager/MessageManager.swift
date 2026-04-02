@@ -72,11 +72,18 @@ class MessageManager: AbstractXMPPManager {
     var prereadedConversation: Array<PrereadedConversationItem> = Array()
     
     var queue: DispatchQueue
+    internal let queueSpecificKey = DispatchSpecificKey<String>()
+    internal let queueSpecificValue: String
     
     
     internal var receiverSubscribtion: Disposable? = nil
     internal var receiverBag: DisposeBag = DisposeBag()
     internal var messagesQueue: BehaviorRelay<Set<MessageQueueItem>> = BehaviorRelay(value: Set<MessageQueueItem>())
+    internal var queuedMessages: Set<MessageQueueItem> = Set<MessageQueueItem>()
+    internal var isReceiverActive: Bool = false
+    internal var isQueuedMessagesDrainScheduled: Bool = false
+    internal var queuedMessageCountsByQueryId: [String: Int] = [:]
+    internal var inFlightMessageCountsByQueryId: [String: Int] = [:]
     
     internal var senderBag: DisposeBag = DisposeBag()
     
@@ -86,13 +93,15 @@ class MessageManager: AbstractXMPPManager {
     
     
     init(withOwner owner: String, activeStream: Bool) {
+        self.queueSpecificValue = "com.xabber.messages.transmitter.\(owner).\(UUID().uuidString)"
         self.queue = DispatchQueue(
-            label: "com.xabber.messages.transmitter.\(owner).\(UUID().uuidString)",
+            label: self.queueSpecificValue,
             qos: .default,
             attributes: [],
             autoreleaseFrequency: .never,
             target: nil
         )
+        self.queue.setSpecific(key: self.queueSpecificKey, value: self.queueSpecificValue)
         
         super.init(withOwner: owner)
         subscribe(activeStream)

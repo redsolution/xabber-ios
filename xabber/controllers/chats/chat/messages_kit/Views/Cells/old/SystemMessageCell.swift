@@ -37,6 +37,7 @@ class SystemMessageCell: MessageContentCell {
     
     override func apply(_ layoutAttributes: UICollectionViewLayoutAttributes) {
         super.apply(layoutAttributes)
+        updateBubbleVisibility()
         if let attributes = layoutAttributes as? MessagesCollectionViewLayoutAttributes {
             
             messageLabel.textInsets = attributes.messageLabelInsets
@@ -50,6 +51,9 @@ class SystemMessageCell: MessageContentCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         messageLabel.attributedText = nil
+        messageLabel.backgroundColor = .clear
+        backgroundColor = .clear
+        updateBubbleVisibility()
     }
     
     override func setupSubviews() {
@@ -59,6 +63,7 @@ class SystemMessageCell: MessageContentCell {
     
     override func configure(with message: MessageType, at indexPath: IndexPath, and messagesCollectionView: MessagesCollectionView) {
         super.configure(with: message, at: indexPath, and: messagesCollectionView)
+        updateBubbleVisibility()
         
 //        guard let displayDelegate = messagesCollectionView.messagesDisplayDelegate else {
 //            fatalError(MessageKitError.nilMessagesDisplayDelegate)
@@ -131,6 +136,7 @@ class SystemMessageCell: MessageContentCell {
 //        origin.x = (attributes.frame.width - attributes.messageContainerSize.width) / 2
 //        origin.x = attributes.frame.midX - attributes.textInlineViewSize.width / 2
         messageContainerView.frame = CGRect(origin: origin, size: attributes.messageContainerSize)
+        updateBubbleVisibility()
     }
     override func layoutBottomLabel(with attributes: MessagesCollectionViewLayoutAttributes) {
         messageBottomLabel.frame = .zero
@@ -157,5 +163,15 @@ class SystemMessageCell: MessageContentCell {
     
     override func panGestureObserver() {
         return
+    }
+
+    private func updateBubbleVisibility() {
+        messageContainerView.bubble.isHidden = true
+        messageContainerView.bubble.layer.mask = nil
+        messageContainerView.bubble.layer.backgroundColor = UIColor.clear.cgColor
+        messageContainerView.bubble.backgroundColor = .clear
+        messageContainerView.backgroundColor = .clear
+        containerView.isHidden = true
+        containerView.backgroundColor = .clear
     }
 }

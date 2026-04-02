@@ -58,7 +58,7 @@ class ModernXabberInputView: UIView {
             
             return button
         }()
-        
+
         let verticalLine: UIView = {
             let view = UIView()
             
@@ -66,7 +66,7 @@ class ModernXabberInputView: UIView {
             
             return view
         }()
-        
+
         let titleLabel: UILabel = {
             let label = UILabel()
             
@@ -76,7 +76,7 @@ class ModernXabberInputView: UIView {
             
             return label
         }()
-        
+
         let messageLabel: UILabel = {
             let label = UILabel()
             
@@ -231,6 +231,7 @@ class ModernXabberInputView: UIView {
             let label = UILabel()
             
             label.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
             label.textAlignment = .center
             label.textColor = .tintColor
             
@@ -263,10 +264,19 @@ class ModernXabberInputView: UIView {
             stack.axis = .horizontal
             stack.distribution = .fill
             stack.alignment = .center
+            stack.spacing = 0
             
             return stack
         }()
         
+        let spacerView: UIView = {
+            let view = UIView(frame: .zero)
+            view.backgroundColor = .clear
+            view.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            return view
+        }()
+
         override init(frame: CGRect) {
             super.init(frame: frame)
             self.setup()
@@ -279,21 +289,23 @@ class ModernXabberInputView: UIView {
         
         func activateConstraints() {
             NSLayoutConstraint.activate([
-//                self.changeChatButton.leftAnchor.constraint(equalTo: self.stack.leftAnchor),
-//                self.changeChatButton.rightAnchor.constraint(equalTo: self.stack.rightAnchor),
-//                self.listButton.leftAnchor.constraint(equalTo: self.stack.leftAnchor),
-//                self.listButton.widthAnchor.constraint(equalToConstant: 44),
-                self.counterLabel.leftAnchor.constraint(equalTo: self.stack.leftAnchor, constant: 88),
-                self.counterLabel.rightAnchor.constraint(equalTo: self.seekUpButton.leftAnchor),
-                self.seekUpButton.widthAnchor.constraint(equalToConstant: 44),
-                self.seekUpButton.rightAnchor.constraint(equalTo: self.seekDownButton.leftAnchor),
-                self.seekDownButton.widthAnchor.constraint(equalToConstant: 44),
-                self.seekDownButton.rightAnchor.constraint(equalTo: self.stack.rightAnchor),
+                self.listButton.leadingAnchor.constraint(equalTo: self.leadingAnchor),
+                self.listButton.centerYAnchor.constraint(equalTo: self.centerYAnchor),
+                self.listButton.widthAnchor.constraint(equalToConstant: 36),
                 self.listButton.heightAnchor.constraint(equalToConstant: 36),
-//                self.changeChatButton.heightAnchor.constraint(equalToConstant: 36),
+                self.stack.leadingAnchor.constraint(equalTo: self.listButton.trailingAnchor, constant: 8),
+                self.stack.trailingAnchor.constraint(equalTo: self.trailingAnchor),
+                self.stack.topAnchor.constraint(equalTo: self.topAnchor),
+                self.stack.bottomAnchor.constraint(equalTo: self.bottomAnchor),
+                self.seekUpButton.widthAnchor.constraint(equalToConstant: 44),
+                self.seekDownButton.widthAnchor.constraint(equalToConstant: 44),
                 self.counterLabel.heightAnchor.constraint(equalToConstant: 36),
                 self.seekUpButton.heightAnchor.constraint(equalToConstant: 36),
-                self.seekDownButton.heightAnchor.constraint(equalToConstant: 36)
+                self.seekDownButton.heightAnchor.constraint(equalToConstant: 36),
+                self.activityIndicator.centerXAnchor.constraint(equalTo: self.centerXAnchor),
+                self.activityIndicator.centerYAnchor.constraint(equalTo: self.centerYAnchor),
+                self.activityIndicator.widthAnchor.constraint(equalToConstant: 36),
+                self.activityIndicator.heightAnchor.constraint(equalToConstant: 36)
             ])
         }
         
@@ -357,16 +369,18 @@ class ModernXabberInputView: UIView {
         }
         
         func setup() {
+            self.stack.translatesAutoresizingMaskIntoConstraints = false
+            self.listButton.translatesAutoresizingMaskIntoConstraints = false
+            self.activityIndicator.translatesAutoresizingMaskIntoConstraints = false
+            self.counterLabel.translatesAutoresizingMaskIntoConstraints = false
+            self.seekUpButton.translatesAutoresizingMaskIntoConstraints = false
+            self.seekDownButton.translatesAutoresizingMaskIntoConstraints = false
+            self.spacerView.translatesAutoresizingMaskIntoConstraints = false
             self.addSubview(self.stack)
-            self.stack.fillSuperview()
             self.addSubview(self.listButton)
-            self.listButton.frame = CGRect(origin: CGPoint(x: 0, y: 0), size: CGSize(square: 36))
-            
             self.addSubview(self.activityIndicator)
-            self.activityIndicator.frame = CGRect(origin: CGPoint(x: self.bounds.midX, y: 0), size: CGSize(square: 36))
-//            self.stack.addArrangedSubview(self.listButton)
-//            self.stack.addArrangedSubview(self.changeChatButton)
             self.stack.addArrangedSubview(self.counterLabel)
+            self.stack.addArrangedSubview(self.spacerView)
             self.stack.addArrangedSubview(self.seekUpButton)
             self.stack.addArrangedSubview(self.seekDownButton)
             self.activateConstraints()

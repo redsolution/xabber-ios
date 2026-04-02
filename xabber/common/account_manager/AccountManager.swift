@@ -91,6 +91,48 @@ public class AccountManager: NSObject {
         super.init()
         addObservers()
     }
+
+    private func updateActiveUsers(_ transform: @escaping (inout Set<String>) -> Void) {
+        let apply = {
+            var value = self.activeUsers.value
+            transform(&value)
+            self.activeUsers.accept(value)
+        }
+
+        if Thread.isMainThread {
+            apply()
+        } else {
+            DispatchQueue.main.async(execute: apply)
+        }
+    }
+
+    private func updateConnectingUsers(_ transform: @escaping (inout Set<String>) -> Void) {
+        let apply = {
+            var value = self.connectingUsers.value
+            transform(&value)
+            self.connectingUsers.accept(value)
+        }
+
+        if Thread.isMainThread {
+            apply()
+        } else {
+            DispatchQueue.main.async(execute: apply)
+        }
+    }
+
+    private func updateAuthenticatedUsers(_ transform: @escaping (inout Set<String>) -> Void) {
+        let apply = {
+            var value = self.authenticatedUsers.value
+            transform(&value)
+            self.authenticatedUsers.accept(value)
+        }
+
+        if Thread.isMainThread {
+            apply()
+        } else {
+            DispatchQueue.main.async(execute: apply)
+        }
+    }
     
     private func addObservers() {
         NotificationCenter
@@ -156,15 +198,15 @@ public class AccountManager: NSObject {
                         let jid = $0.jid
                         if $0.enabled {
                             if !self.activeUsers.value.contains(jid) {
-                                var value = self.activeUsers.value
-                                value.insert(jid)
-                                self.activeUsers.accept(value)
+                                self.updateActiveUsers { value in
+                                    value.insert(jid)
+                                }
                             }
                         } else {
                             if self.activeUsers.value.contains(jid) {
-                                var value = self.activeUsers.value
-                                value.remove(jid)
-                                self.activeUsers.accept(value)
+                                self.updateActiveUsers { value in
+                                    value.remove(jid)
+                                }
                             }
                         }
                     }
@@ -370,9 +412,9 @@ public class AccountManager: NSObject {
             CredentialsManager.shared.clearKeyachain()
         }
         
-        var connecting = self.connectingUsers.value
-        connecting.remove(jid)
-        self.connectingUsers.accept(connecting)
+        self.updateConnectingUsers { value in
+            value.remove(jid)
+        }
         
         CommonContactsMetadataManager.shared.clear(for: jid)
         
@@ -425,10 +467,8 @@ public class AccountManager: NSObject {
     }
     
     final func markAsConnected(jid: String) {
-        RunLoop.main.perform {
-            var value = self.connectingUsers.value
+        self.updateConnectingUsers { value in
             value.remove(jid)
-            self.connectingUsers.accept(value)
         }
         if newAccountJid == jid {
             self.find(for: jid)?.queue.asyncAfter(deadline: .now() + 2) {
@@ -438,23 +478,17 @@ public class AccountManager: NSObject {
     }
     
     final func markAsAuthencticated(jid: String) {
-        RunLoop.main.perform {
-            var value = self.authenticatedUsers.value
+        self.updateAuthenticatedUsers { value in
             value.remove(jid)
-            self.authenticatedUsers.accept(value)
         }
     }
     
     final func markAsConnecting(jid: String) {
-        RunLoop.main.perform {
-            var value = self.connectingUsers.value
+        self.updateConnectingUsers { value in
             value.insert(jid)
-            self.connectingUsers.accept(value)
         }
-        RunLoop.main.perform {
-            var value = self.authenticatedUsers.value
+        self.updateAuthenticatedUsers { value in
             value.insert(jid)
-            self.authenticatedUsers.accept(value)
         }
     }
     

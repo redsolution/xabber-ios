@@ -19,7 +19,7 @@ extension ChatViewController {
             user.presences.subscribed(stream, jid: self.jid, storePreaproved: false)
             user.roster.setContact(stream, jid: self.jid, nickname: nil, groups: [], callback: nil)
         })
-        self.topPanelState.accept(.none)
+        self.setTopPanelState(.none)
     }
     
     @objc
@@ -28,7 +28,7 @@ extension ChatViewController {
             user.blocked.blockContact(stream, jid: self.jid)
             user.roster.removeContact(stream, jid: self.jid)
         })
-        self.topPanelState.accept(.none)
+        self.setTopPanelState(.none)
     }
     
     @objc
@@ -36,7 +36,7 @@ extension ChatViewController {
         AccountManager.shared.find(for: owner)?.action({ user, stream in
             user.presences.subscribe(stream, jid: self.jid)
         })
-        self.topPanelState.accept(.none)
+        self.setTopPanelState(.none)
     }
     
     @objc
@@ -64,6 +64,6 @@ extension ChatViewController {
             DDLogDebug("XhatViewController: \(#function). \(error.localizedDescription)")
         }
         
-        self.topPanelState.accept(.none)
+        self.setTopPanelState(.none)
     }
 }

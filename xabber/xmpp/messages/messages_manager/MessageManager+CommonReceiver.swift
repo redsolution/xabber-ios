@@ -26,6 +26,102 @@ import RxRealm
 
 
 extension MessageManager {
+
+    @discardableResult
+    internal func performMessageQueueSync<T>(_ block: () -> T) -> T {
+        if DispatchQueue.getSpecific(key: self.queueSpecificKey) == self.queueSpecificValue {
+            return block()
+        }
+        return self.queue.sync(execute: block)
+    }
+
+    internal func publishQueuedMessagesSnapshot() {
+        self.messagesQueue.accept(self.queuedMessages)
+    }
+
+    private func adjustPendingMessageCount(
+        _ storage: inout [String: Int],
+        for queryId: String?,
+        delta: Int
+    ) {
+        guard let queryId, queryId.isNotEmpty else {
+            return
+        }
+
+        let nextValue = (storage[queryId] ?? 0) + delta
+        if nextValue > 0 {
+            storage[queryId] = nextValue
+        } else {
+            storage.removeValue(forKey: queryId)
+        }
+    }
+
+    private func adjustQueuedMessageCounts(for items: some Sequence<MessageQueueItem>, delta: Int) {
+        items.forEach { item in
+            self.adjustPendingMessageCount(&self.queuedMessageCountsByQueryId, for: item.queryId, delta: delta)
+        }
+    }
+
+    private func adjustInFlightMessageCounts(for items: some Sequence<MessageQueueItem>, delta: Int) {
+        items.forEach { item in
+            self.adjustPendingMessageCount(&self.inFlightMessageCountsByQueryId, for: item.queryId, delta: delta)
+        }
+    }
+
+    internal func hasPendingMessages(forQueryId queryId: String) -> Bool {
+        self.performMessageQueueSync {
+            (self.queuedMessageCountsByQueryId[queryId] ?? 0) > 0 ||
+            (self.inFlightMessageCountsByQueryId[queryId] ?? 0) > 0
+        }
+    }
+
+    internal func scheduleQueuedMessagesDrainIfNeeded() {
+        self.performMessageQueueSync {
+            guard self.isReceiverActive,
+                  !self.isQueuedMessagesDrainScheduled,
+                  !self.queuedMessages.isEmpty else {
+                return
+            }
+            self.isQueuedMessagesDrainScheduled = true
+            self.queue.async { [weak self] in
+                self?.drainQueuedMessagesAndPersist()
+            }
+        }
+    }
+
+    internal func drainQueuedMessagesAndPersist() {
+        self.performMessageQueueSync {
+            guard self.isReceiverActive else {
+                self.isQueuedMessagesDrainScheduled = false
+                return
+            }
+
+            let results = self.drainQueuedMessages()
+            self.adjustInFlightMessageCounts(for: results, delta: 1)
+            self.isQueuedMessagesDrainScheduled = false
+            self.processQueue(results, callback: { values in
+                if let batch = values {
+                    self.save(batch)
+                }
+            })
+            self.adjustInFlightMessageCounts(for: results, delta: -1)
+            AccountManager.shared.find(for: self.owner)?.chatMarkers.deleteEphemeralMessages()
+
+            if self.isReceiverActive, !self.queuedMessages.isEmpty {
+                self.scheduleQueuedMessagesDrainIfNeeded()
+            }
+        }
+    }
+
+    internal func drainQueuedMessages() -> Set<MessageQueueItem> {
+        self.performMessageQueueSync {
+            let snapshot = self.queuedMessages
+            self.adjustQueuedMessageCounts(for: snapshot, delta: -1)
+            self.queuedMessages.removeAll()
+            self.publishQueuedMessagesSnapshot()
+            return snapshot
+        }
+    }
     
     class MessageQueueItem: Hashable {
         
@@ -66,6 +162,20 @@ extension MessageManager {
             hasher.combine(message.xmlString)
             hasher.combine(date)
         }
+    }
+
+    struct ReadStateReconciliationRequest: Hashable {
+        let owner: String
+        let opponent: String
+        let conversationType: ClientSynchronizationManager.ConversationType
+        let itemDate: Date
+        let readDate: Date?
+        let afterburnInterval: Double
+    }
+
+    struct ProcessedQueueBatch {
+        let messages: [MessageStorageItem]
+        let readStateRequests: [ReadStateReconciliationRequest]
     }
     
 //    public func resetQueue() {
@@ -201,56 +311,46 @@ extension MessageManager {
     }
     
     internal func clearQueue(_ item: MessageQueueItem) {
-        var value = self.messagesQueue.value
-        value.remove(item)
-        self.messagesQueue.accept(value)
+        self.performMessageQueueSync {
+            if self.queuedMessages.remove(item) != nil {
+                self.adjustQueuedMessageCounts(for: [item], delta: -1)
+            }
+            self.publishQueuedMessagesSnapshot()
+        }
     }
     
     internal func clearQueue() {
-        self.messagesQueue.accept(Set())
+        self.performMessageQueueSync {
+            self.adjustQueuedMessageCounts(for: self.queuedMessages, delta: -1)
+            self.queuedMessages.removeAll()
+            self.publishQueuedMessagesSnapshot()
+        }
     }
     
     internal func subscribeReceiver() {
         receiverBag = DisposeBag()
-//        self.receiverSubscribtion = nil
-//        self.receiverSubscribtion =
-        self.messagesQueue
-            .asObservable()
-//            .observe(on: SerialDispatchQueueScheduler(
-//                                        queue: self.queue,
-//                                        internalSerialQueueName: "com.xabber.msgQueue"))
-            .debounce(.nanoseconds(1),
-                      scheduler: SerialDispatchQueueScheduler(
-                        queue: self.queue,
-                        internalSerialQueueName: "com.xabber.msgQueue"))
-            .subscribe(onNext: { (results) in
-                self.processQueue(results, callback: { (values) in
-                    if let messages = values {
-                        self.save(messages)
-                    }
-                })
-                AccountManager.shared.find(for: self.owner)?.chatMarkers.deleteEphemeralMessages()
-                }, onError: { (error) in
-                    DDLogDebug(error.localizedDescription)
-                }, onCompleted: {
-                    DDLogDebug("message queue complited")
-                }) {
-                    DDLogDebug("message queue disposed")
-            }
-        .disposed(by: receiverBag)
+        self.performMessageQueueSync {
+            self.isReceiverActive = true
+        }
+        self.scheduleQueuedMessagesDrainIfNeeded()
     }
     
     internal func unsubscribeReceiver() {
         receiverBag = DisposeBag()
+        self.performMessageQueueSync {
+            self.isReceiverActive = false
+            self.isQueuedMessagesDrainScheduled = false
+        }
         clearQueue()
     }
     
-    func processQueue(_ items: Set<MessageQueueItem>, callback: (([MessageStorageItem]?) -> Void)) {
+    func processQueue(_ items: Set<MessageQueueItem>, callback: ((ProcessedQueueBatch?) -> Void)) {
         if items.isEmpty {
             return callback(nil)
         }
         var messageQueryIds: Set<String> = Set<String>()
         var out: Set<MessageStorageItem> = Set<MessageStorageItem>()
+        var readStateRequests: [ReadStateReconciliationRequest] = []
         let sortedItems = Array(items).sorted(by: {
             $0.date.timeIntervalSince1970 < $1.date.timeIntervalSince1970
         })
@@ -337,48 +437,16 @@ extension MessageManager {
             } else {
                 item.isRead = item.state == .read
             }
-            RunLoop.main.perform {
-                do {
-                    let realm = try  WRealm.safe()
-                    if let chat = realm.object(
-                        ofType: LastChatsStorageItem.self,
-                        forPrimaryKey: LastChatsStorageItem.genPrimary(
-                            jid: item.originalFrom,
-                            owner: self.owner,
-                            conversationType: conversationType
-                        )
-                    ) {
-                        
-                        if chat.lastMessage != nil {
-                            var stanzaIDs: Set<String> = Set<String>()
-                            if item.date.timeIntervalSinceReferenceDate > chat.messageDate.timeIntervalSinceReferenceDate {
-                                realm.writeAsync {
-                                    realm
-                                        .objects(MessageStorageItem.self)
-                                        .filter("owner == %@ AND opponent == %@ AND isRead == %@", self.owner, item.originalFrom, false)
-                                        .forEach {
-                                            stanzaIDs.insert($0.archivedId)
-                                            $0.isRead = true
-                                            if $0.afterburnInterval > 0 && $0.burnDate <= 1 {
-                                                
-                                                if let readDate = readDate {
-                                                    $0.readDate = readDate.timeIntervalSince1970
-                                                    $0.burnDate = readDate.timeIntervalSince1970 + afterburnInterval
-                                                    if (readDate.timeIntervalSince1970 + afterburnInterval) < Date().timeIntervalSince1970 {
-                                                        $0.isDeleted = true
-                                                    }
-                                                }
-                                            }
-                                        }
-                                }
-                            }
-                            NotifyManager.shared.clearNotifications(forMessage: Array(stanzaIDs))
-                        }
-                    }
-                } catch {
-                    DDLogDebug("cant read unreaded messages")
-                }
-            }
+            readStateRequests.append(
+                ReadStateReconciliationRequest(
+                    owner: self.owner,
+                    opponent: opponent,
+                    conversationType: conversationType,
+                    itemDate: item.date,
+                    readDate: readDate,
+                    afterburnInterval: afterburnInterval
+                )
+            )
             if parseSystemMessageMetadata(item.message) != nil {
                 instance.configureSystemMessage(item.message,
                                                 owner: owner,
@@ -482,58 +550,138 @@ extension MessageManager {
             
             out.insert(instance)
         }
-        callback(Array(out).sorted(by: { $0.date < $1.date}))
-        items.forEach { clearQueue($0) }
+        callback(
+            ProcessedQueueBatch(
+                messages: Array(out).sorted(by: { $0.date < $1.date}),
+                readStateRequests: readStateRequests
+            )
+        )
     }
     
     internal func enqueue(_ item: MessageQueueItem) {
-        self.processQueue(Set([item]), callback: { (values) in
-            if let messages = values {
-                self.save(messages)
+        self.performMessageQueueSync {
+            if self.queuedMessages.update(with: item) == nil {
+                self.adjustQueuedMessageCounts(for: [item], delta: 1)
             }
-        })
-        
-//        var value = self.messagesQueue.value
-//        value.update(with: item)
-//        messagesQueue.accept(value)
+            self.publishQueuedMessagesSnapshot()
+            self.scheduleQueuedMessagesDrainIfNeeded()
+        }
     }
     
     internal func enqueue(collection: [MessageQueueItem]) {
-        collection.forEach { enqueue($0)}
+        self.performMessageQueueSync {
+            collection.forEach {
+                if self.queuedMessages.update(with: $0) == nil {
+                    self.adjustQueuedMessageCounts(for: [$0], delta: 1)
+                }
+            }
+            self.publishQueuedMessagesSnapshot()
+            self.scheduleQueuedMessagesDrainIfNeeded()
+        }
     }
     
     func unsafeSave(_ messages: [MessageStorageItem]) {
         autoreleasepool {
             messages.forEach {
-                if $0.save(commitTransaction: false) {
-                    $0.storeStanza()
-                }
+                _ = $0.save(commitTransaction: false)
             }
         }
     }
     
     func storeMessagesNow() {
-        var results = self.messagesQueue.value
-        self.messagesQueue.accept(Set())
+        let results = self.drainQueuedMessages()
         self.processQueue(results, callback: { (values) in
-            if let messages = values {
-                self.save(messages)
+            if let batch = values {
+                self.save(batch)
             }
         })
         AccountManager.shared.find(for: self.owner)?.chatMarkers.deleteEphemeralMessages()
     }
     
-    func save(_ messages: [MessageStorageItem], silentNotifications: Bool = false) {
+    private func reconcileReadStates(_ requests: [ReadStateReconciliationRequest], in realm: Realm) -> Set<String> {
+        var clearedNotifications: Set<String> = []
+
+        requests.forEach { request in
+            guard let chat = realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(
+                    jid: request.opponent,
+                    owner: request.owner,
+                    conversationType: request.conversationType
+                )
+            ), chat.lastMessage != nil else {
+                return
+            }
+
+            guard request.itemDate.timeIntervalSinceReferenceDate > chat.messageDate.timeIntervalSinceReferenceDate else {
+                return
+            }
+
+            realm
+                .objects(MessageStorageItem.self)
+                .filter(
+                    "owner == %@ AND opponent == %@ AND isRead == %@ AND conversationType_ == %@",
+                    request.owner,
+                    request.opponent,
+                    false,
+                    request.conversationType.rawValue
+                )
+                .forEach {
+                    clearedNotifications.insert($0.archivedId)
+                    $0.isRead = true
+                    if $0.afterburnInterval > 0 && $0.burnDate <= 1,
+                       let readDate = request.readDate {
+                        $0.readDate = readDate.timeIntervalSince1970
+                        $0.burnDate = readDate.timeIntervalSince1970 + request.afterburnInterval
+                        if (readDate.timeIntervalSince1970 + request.afterburnInterval) < Date().timeIntervalSince1970 {
+                            $0.isDeleted = true
+                        }
+                    }
+                }
+        }
+
+        return clearedNotifications
+    }
+
+    func save(_ batch: ProcessedQueueBatch, silentNotifications: Bool = false) {
         do {
             let realm = try  WRealm.safe()
+            var clearedStanzaIDs: Set<String> = []
+            var notificationPayloads: [MessageStorageItem.SaveNotificationPayload] = []
+
             try realm.write {
-                messages.forEach {
-                    if $0.save(commitTransaction: false, silentNotifications: silentNotifications) {
-                        $0.storeStanza()
+                clearedStanzaIDs = self.reconcileReadStates(batch.readStateRequests, in: realm)
+                batch.messages.forEach {
+                    if let sideEffects = $0.applyMessagePersistence(in: realm, silentNotifications: silentNotifications) {
+                        if sideEffects.shouldStoreStanza {
+                            $0.storeStanza(in: realm)
+                        }
+                        if let notification = sideEffects.notification {
+                            notificationPayloads.append(notification)
+                        }
                     }
                 }
             }
-            messages.forEach {
+
+            if clearedStanzaIDs.isNotEmpty {
+                NotifyManager.shared.clearNotifications(forMessage: Array(clearedStanzaIDs))
+            }
+
+            notificationPayloads.forEach {
+                NotifyManager.shared.update(
+                    withMessage: $0.message,
+                    messageId: $0.messageId,
+                    username: $0.username,
+                    opponent: $0.opponent,
+                    owner: $0.owner,
+                    date: $0.date,
+                    displayName: $0.displayName,
+                    imageUrl: $0.imageUrl,
+                    conversationType: $0.conversationType
+                )
+            }
+
+            batch.messages.forEach {
                 message in
                 message.references.forEach {
                     reference in
@@ -544,5 +692,9 @@ extension MessageManager {
         } catch {
             DDLogDebug("cant save messages colelction")
         }
+    }
+
+    func save(_ messages: [MessageStorageItem], silentNotifications: Bool = false) {
+        save(ProcessedQueueBatch(messages: messages, readStateRequests: []), silentNotifications: silentNotifications)
     }
 }

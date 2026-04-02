@@ -415,6 +415,7 @@ class XMPPNotificationsManager: AbstractXMPPManager {
                     jid: node,
                     isContinues: false,
                     conversationType: .notifications,
+                    purpose: .latest,
                     flipPage: false,
                     afterId: latestLocalId,
                     max: 200
@@ -426,6 +427,7 @@ class XMPPNotificationsManager: AbstractXMPPManager {
                     jid: node,
                     isContinues: true,
                     conversationType: .notifications,
+                    purpose: .latest,
                     queryId: "MAM notifications: \(NanoID.new(8))",
                     flipPage: false,
                     nextPage: nextPage,

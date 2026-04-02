@@ -56,34 +56,12 @@ class FeedbackManager: NSObject {
     ]
     
     override init() {
-//        self.hasHapticEngine = UIDevice.isOldIPhonesFamily
-        do {
-            self.engine = try CHHapticEngine()
-        } catch  {
-            DDLogDebug("FeedbackManager: \(#function). \(error.localizedDescription)")
+        if #available(iOS 13.0, *) {
+            self.hasHapticEngine = CHHapticEngine.capabilitiesForHardware().supportsHaptics
+        } else {
+            self.hasHapticEngine = false
         }
         super.init()
-        self.engine?.resetHandler = {
-            do {
-                try self.engine?.start()
-            } catch {
-                DDLogDebug("FeedbackManager: \(#function). \(error.localizedDescription)")
-            }
-        }
-        self.engine?.stoppedHandler = { reason in
-            print("Stop Handler: The engine stopped for reason: \(reason.rawValue)")
-            switch reason {
-                case .audioSessionInterrupt: print("Audio session interrupt")
-                case .applicationSuspended: print("Application suspended")
-                case .idleTimeout: print("Idle timeout")
-                case .systemError: print("System error")
-                case .notifyWhenFinished: print("notifyWhenFinished")
-                case .engineDestroyed: print("engineDestroyed")
-                case .gameControllerDisconnect: print("gameControllerDisconnect")
-                @unknown default:
-                    print("Unknown error")
-            }
-        }
     }
     
 
@@ -101,26 +79,57 @@ class FeedbackManager: NSObject {
         }
     }
     
+    @available(iOS 13.0, *)
+    private func makeEngineIfNeeded() -> CHHapticEngine? {
+        guard hasHapticEngine else { return nil }
+        if let engine = engine {
+            return engine
+        }
+        do {
+            let engine = try CHHapticEngine()
+            engine.resetHandler = { [weak self] in
+                do {
+                    try self?.engine?.start()
+                } catch {
+                    DDLogDebug("FeedbackManager: \(#function). \(error.localizedDescription)")
+                }
+            }
+            engine.stoppedHandler = { reason in
+                DDLogDebug("FeedbackManager: engine stopped with reason \(reason.rawValue)")
+            }
+            self.engine = engine
+            return engine
+        } catch  {
+            DDLogDebug("FeedbackManager: \(#function). \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    private func fallbackTap() {
+        DispatchQueue.main.async {
+            let generator = UIImpactFeedbackGenerator(style: .light)
+            generator.prepare()
+            generator.impactOccurred()
+        }
+    }
+
     public final func tap() {
+        guard #available(iOS 13.0, *), let engine = makeEngineIfNeeded() else {
+            fallbackTap()
+            return
+        }
         do {
             let pattern = try CHHapticPattern(dictionary: hapticDict)
-            let player = try engine?.makePlayer(with: pattern)
-            engine?.notifyWhenPlayersFinished { error in
+            let player = try engine.makePlayer(with: pattern)
+            engine.notifyWhenPlayersFinished { _ in
                 return .stopEngine
             }
-
-
-            try engine?.start()
-            try player?.start(atTime: 0)
+            try engine.start()
+            try player.start(atTime: 0)
         } catch {
-            print(error.localizedDescription)
+            DDLogDebug("FeedbackManager: \(#function). \(error.localizedDescription)")
+            fallbackTap()
         }
-        
-//        if hasHapticEngine {
-//            UINotificationFeedbackGenerator().notificationOccurred(.success)
-//        } else {
-//            AudioServicesPlaySystemSound(1519)
-//        }
     }
     
     public func successFeedback() {

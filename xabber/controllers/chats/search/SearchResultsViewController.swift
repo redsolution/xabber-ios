@@ -202,23 +202,57 @@ class SearchResultsViewController: SimpleBaseViewController {
                 .forEach {
                     item in
                     self.messagesQueue.append(item)
-                }
+            }
             if withUIStream {
+                let requestCallbacks = MessageArchiveManager.RequestCallbacks(
+                    onMessage: { [weak self] item, queryId in
+                        self?.didReceiveMessage(item, queryId: queryId)
+                    },
+                    onEndPage: { [weak self] queryId, state, first, last, count in
+                        self?.didReceiveEndPage(queryId: queryId, state: state, first: first, last: last, count: count)
+                    }
+                )
                 XMPPUIActionManager.shared.performRequest(owner: owner) { stream, session in
-                    session.mam?.temporaryMessageReceiverDelegate = self
-                    let queryId = session.mam?.searchText(stream, conversationType: .regular, text: text, max: 100, loadFull: false) ?? ""
+                    let queryId = session.mam?.searchText(
+                        stream,
+                        conversationType: .regular,
+                        text: text,
+                        max: 100,
+                        loadFull: false,
+                        requestCallbacks: requestCallbacks
+                    ) ?? ""
                     self.currentQueries.insert(SearchRequest(owner: owner, queryId: queryId))
                 } fail: {
                     AccountManager.shared.find(for: owner)?.action({ user, stream in
-                        user.mam.temporaryMessageReceiverDelegate = self
-                        let queryId = user.mam.searchText(stream, conversationType: .regular, text: text, max: 100, loadFull: false)
+                        let queryId = user.mam.searchText(
+                            stream,
+                            conversationType: .regular,
+                            text: text,
+                            max: 100,
+                            loadFull: false,
+                            requestCallbacks: requestCallbacks
+                        )
                         self.currentQueries.insert(SearchRequest(owner: owner, queryId: queryId))
                     })
                 }
             } else {
+                let requestCallbacks = MessageArchiveManager.RequestCallbacks(
+                    onMessage: { [weak self] item, queryId in
+                        self?.didReceiveMessage(item, queryId: queryId)
+                    },
+                    onEndPage: { [weak self] queryId, state, first, last, count in
+                        self?.didReceiveEndPage(queryId: queryId, state: state, first: first, last: last, count: count)
+                    }
+                )
                 AccountManager.shared.find(for: owner)?.action({ user, stream in
-                    user.mam.temporaryMessageReceiverDelegate = self
-                    let queryId = user.mam.searchText(stream, conversationType: .regular, text: text, max: 100, loadFull: false)
+                    let queryId = user.mam.searchText(
+                        stream,
+                        conversationType: .regular,
+                        text: text,
+                        max: 100,
+                        loadFull: false,
+                        requestCallbacks: requestCallbacks
+                    )
                     self.currentQueries.insert(SearchRequest(owner: owner, queryId: queryId))
                 })
             }
@@ -618,9 +652,8 @@ class SearchResultsViewController: SimpleBaseViewController {
 }
 
 extension SearchResultsViewController: TemporaryMessageReceiverProtocol {
-    func didReceiveEndPage(queryId: String, fin: Bool, first: String, last: String, count: Int) {
+    func didReceiveEndPage(queryId: String, state: MessageArchivePageEndState, first: String, last: String, count: Int) {
         if self.currentQueries.contains(where: { $0.queryId == queryId }) {
-            print("FIN")
             DispatchQueue.main.async {
                 self.isLoadingDone = true
                 try? self.updateMessagesSearchResults()

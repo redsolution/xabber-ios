@@ -34,7 +34,7 @@ extension LastChatsViewController {
             stack.distribution = .fill
             stack.spacing = 0
             stack.isLayoutMarginsRelativeArrangement = true
-            stack.layoutMargins = UIEdgeInsets(top: 6, bottom: 6, left: 4, right: 4)
+            stack.layoutMargins = UIEdgeInsets(top: 2, bottom: 2, left: 4, right: 4)
             
             return stack
         }()
@@ -103,12 +103,7 @@ extension LastChatsViewController {
             return label
         }()
         
-        private func activateConstraints() {
-            NSLayoutConstraint.activate([
-                bottomStack.heightAnchor.constraint(equalToConstant: 36)
-            ])
-            
-        }
+        private func activateConstraints() {}
         
         public final func configure(title: String, text: NSAttributedString, count: Int) {
             titleLabel.text = title
@@ -135,7 +130,7 @@ extension LastChatsViewController {
             super.init(style: style, reuseIdentifier: reuseIdentifier)
             contentView.addSubview(infoStack)
 //            UIEdgeInsets(top: 6, bottom: 8, left: 72, right: 0)
-            infoStack.fillSuperviewWithOffset(top: 0, bottom: 4, left: 72, right: 0)
+            infoStack.fillSuperviewWithOffset(top: 0, bottom: 0, left: 72, right: 0)
             if #available(iOS 13.0, *) {
                 backgroundColor = .systemBackground
             } else {

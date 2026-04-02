@@ -463,10 +463,26 @@ class MessageStorageItem: Object {
         instance.set(messageId, for: owner, with: stanza.xmlString, at: date, primary: self.primary)
         do {
             let realm = try  WRealm.safe()
-            realm.add(instance, update: .modified)
+            if realm.isInWriteTransaction {
+                realm.add(instance, update: .modified)
+            } else {
+                try realm.write {
+                    realm.add(instance, update: .modified)
+                }
+            }
         } catch {
             DDLogDebug("cant store stanza for message \(messageId)")
         }
+    }
+
+    func storeStanza(in realm: Realm) {
+        guard let stanza = originalStanza,
+            primary.isNotEmpty else {
+                return
+        }
+        let instance = MessageStanzaStorageItem()
+        instance.set(messageId, for: owner, with: stanza.xmlString, at: date, primary: self.primary)
+        realm.add(instance, update: .modified)
     }
     
     func saveStanze(_ message: XMPPMessage, at date: Date) {
@@ -813,14 +829,48 @@ class MessageStorageItem: Object {
         }
     }
     
-    public final func save(commitTransaction: Bool, silentNotifications: Bool = false) -> Bool {
-//        print("BODY \(self.body)")
+    struct SaveNotificationPayload {
+        let message: String
+        let messageId: String
+        let username: String?
+        let opponent: String
+        let owner: String
+        let date: Date
+        let displayName: String
+        let imageUrl: String?
+        let conversationType: ClientSynchronizationManager.ConversationType
+    }
+
+    struct SaveSideEffects {
+        var shouldStoreStanza: Bool
+        var notification: SaveNotificationPayload?
+    }
+
+    private func dispatch(sideEffects: SaveSideEffects?) {
+        guard let notification = sideEffects?.notification else {
+            return
+        }
+        NotifyManager.shared.update(
+            withMessage: notification.message,
+            messageId: notification.messageId,
+            username: notification.username,
+            opponent: notification.opponent,
+            owner: notification.owner,
+            date: notification.date,
+            displayName: notification.displayName,
+            imageUrl: notification.imageUrl,
+            conversationType: notification.conversationType
+        )
+    }
+
+    @discardableResult
+    internal func applyMessagePersistence(in realm: Realm, silentNotifications: Bool = false) -> SaveSideEffects? {
         if self.opponent.isEmpty {
-            return false
+            return nil
         }
         if CommonConfigManager.shared.config.auto_delete_messages_interval > 0 {
             if self.date < Date(timeIntervalSince1970: Date().timeIntervalSince1970 - Double(CommonConfigManager.shared.config.auto_delete_messages_interval)) {
-                return false
+                return nil
             }
         }
         if let stanza = self.originalStanza {
@@ -836,231 +886,219 @@ class MessageStorageItem: Object {
                                     groupchat: opponent,
                                     trustedSource: false,
                                     messageAction: nil,
-                                    commitTransaction: commitTransaction,
+                                    commitTransaction: false,
                                     cardDate: date)
             }
         }
         self.updatePrimary()
+
+        if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: self.primary) {
+            if self.trustedSource && !instance.trustedSource {
+                if self.archivedId.isNotEmpty {
+                    instance.archivedId = self.archivedId
+                }
+                instance.trustedSource = true
+                instance.previousId = self.previousId
+            }
+            if (self.queryIds?.contains("history") ?? false) {
+                if let oldQueryIds = instance.queryIds {
+                    if let newQueryIds = self.queryIds {
+                        instance.queryIds = [oldQueryIds, newQueryIds].joined(separator: ",")
+                    }
+                } else {
+                    instance.queryIds = self.queryIds
+                }
+            }
+            return nil
+        }
+
+        var shouldNotify: Bool = false
+        var displayNameForNotification: String?
+
+        if let instance = realm.object(
+            ofType: LastChatsStorageItem.self,
+            forPrimaryKey: LastChatsStorageItem.genPrimary(
+                jid: self.opponent,
+                owner: self.owner,
+                conversationType: self.conversationType
+            )
+        ) {
+            if let timer = self.references.first?.metadata?["ephemeral-timer"] as? Int,
+               instance.afterburnIntervalLastUpdate < self.date.timeIntervalSince1970 {
+                instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
+                instance.afterburnInterval = Double(timer)
+            }
+
+            if instance.isFreshNotEmptyEncryptedChat {
+                instance.isFreshNotEmptyEncryptedChat = false
+            }
+
+            displayNameForNotification = instance.rosterItem?.displayName
+
+            if instance.lastMessage?.date ?? Date(timeIntervalSince1970: 1) > self.date {
+                self.isRead = true
+                if self.outgoing,
+                    self.archivedId.isNotEmpty,
+                    let timeInterval = TimeInterval(self.archivedId) {
+                    if let delivered = instance.deliveredId,
+                        let interval = TimeInterval(delivered),
+                        interval > timeInterval {
+                        self.state = .deliver
+                    }
+                    if let displayed = instance.displayedId,
+                        let interval = TimeInterval(displayed),
+                        interval > timeInterval {
+                        self.state = .read
+                    }
+                }
+
+                realm.add(self, update: .modified)
+
+                if let rosterItem = realm.object(ofType: RosterStorageItem.self,
+                                                 forPrimaryKey: [self.opponent, owner].prp()) {
+                    instance.rosterItem = rosterItem
+                }
+            } else {
+                shouldNotify = true
+
+                if instance.isArchived && !instance.isMuted {
+                    instance.isArchived = false
+                }
+
+                instance.messageDate = self.sentDate
+                if !self.isDeleted {
+                    instance.lastMessage = self
+                } else {
+                    realm.add(instance)
+                }
+                instance.lastMessageId = self.messageId
+
+                if let timer = self.references.first?.metadata?["ephemeral-timer"] as? Int {
+                    instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
+                    instance.afterburnInterval = Double(timer)
+                } else if self.afterburnInterval > -1 && instance.afterburnIntervalLastUpdate < self.date.timeIntervalSince1970 {
+                    instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
+                    instance.afterburnInterval = self.afterburnInterval
+                }
+
+                if isInvite && !isRead {
+                    if instance.rosterItem?.subscribtion != .both {
+                        instance.rosterItem?.ask = .in
+                    }
+                }
+
+                if !self.isRead && !self.outgoing && self.forceUnreadState == nil {
+                    instance.unread += 1
+                } else if self.outgoing {
+                    instance.unread = 0
+                }
+            }
+        } else {
+            let instance = LastChatsStorageItem()
+            instance.jid = self.opponent
+            instance.conversationType = self.conversationType
+            instance.setPrimary(withOwner: owner)
+            instance.messageDate = self.sentDate
+            instance.lastMessage = self
+            instance.isSynced = [.omemo, .omemo1, .axolotl].contains(self.conversationType)
+            instance.lastMessageId = self.messageId
+
+            if let timer = self.references.first?.metadata?["ephemeral-timer"] as? Int {
+                instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
+                instance.afterburnInterval = Double(timer)
+            } else {
+                instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
+                instance.afterburnInterval = self.afterburnInterval
+            }
+
+            if instance.isInvalidated {
+                return nil
+            }
+
+            realm.add(instance, update: .modified)
+
+            if let rosterItem = realm.object(ofType: RosterStorageItem.self,
+                                             forPrimaryKey: [self.opponent, owner].prp()) {
+                instance.rosterItem = rosterItem
+            } else {
+                let rosterItem = RosterStorageItem()
+                rosterItem.owner = self.owner
+                rosterItem.jid = self.opponent
+                rosterItem.subscribtion = .undefined
+                rosterItem.primary = RosterStorageItem.genPrimary(jid: self.opponent, owner: self.owner)
+
+                if let group = realm.object(ofType: RosterGroupStorageItem.self,
+                                            forPrimaryKey: [RosterGroupStorageItem.notInRosterGroupName, self.owner].prp()) {
+                    if !group.contacts.contains(rosterItem) {
+                        group.contacts.append(rosterItem)
+                    }
+                } else {
+                    let group = RosterGroupStorageItem()
+                    group.isSystemGroup = true
+                    group.name = RosterGroupStorageItem.notInRosterGroupName
+                    group.owner = owner
+                    group.primary = RosterGroupStorageItem.genPrimary(name: RosterGroupStorageItem.notInRosterGroupName, owner: owner)
+                    group.contacts.append(rosterItem)
+                    realm.add(group, update: .modified)
+                }
+
+                rosterItem.associatedLastChat = instance
+                realm.add(rosterItem, update: .modified)
+                instance.rosterItem = rosterItem
+            }
+
+            displayNameForNotification = instance.rosterItem?.displayName
+            shouldNotify = true
+        }
+
+        let notification: SaveNotificationPayload?
+        if !silentNotifications &&
+            self.date.timeIntervalSince1970 > (Date().timeIntervalSince1970 - 10) &&
+            shouldNotify &&
+            !self.isRead &&
+            !self.outgoing &&
+            self.archivedId.isNotEmpty &&
+            self.displayAs != .system {
+            notification = SaveNotificationPayload(
+                message: self.displayedBody(),
+                messageId: self.archivedId,
+                username: self.groupchatMetadata?["nickname"] as? String,
+                opponent: self.opponent,
+                owner: self.owner,
+                date: self.date,
+                displayName: displayNameForNotification ?? self.opponent,
+                imageUrl: nil,
+                conversationType: self.conversationType
+            )
+        } else {
+            notification = nil
+        }
+
+        return SaveSideEffects(shouldStoreStanza: true, notification: notification)
+    }
+
+    public final func save(commitTransaction: Bool, silentNotifications: Bool = false) -> Bool {
         do {
             let realm = try  WRealm.safe()
-            
-            func transaction(commit: Bool, callback: (() -> Void)) throws {
-                if commit {
-                    try realm.write {
-                        callback()
-                    }
-                } else {
-                    callback()
-                }
-            }
-            
-            if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: self.primary) {
-                if self.trustedSource && !instance.trustedSource {
-                    try transaction(commit: commitTransaction) {
-                        if self.archivedId.isNotEmpty {
-                            instance.archivedId = self.archivedId
-                        }
-                        instance.trustedSource = true//previousId = "id"//self.previousId
-                        instance.previousId = self.previousId
-                    }
-                }
-                try transaction(commit: commitTransaction) {
-                    if (self.queryIds?.contains("history") ?? false) {
-                        if let oldQueryIds = instance.queryIds {
-                            if let newQueryIds = self.queryIds {
-                                instance.queryIds = [oldQueryIds, newQueryIds].joined(separator: ",")
-                            }
-                        } else {
-                            instance.queryIds = self.queryIds
-                        }
-                    }
-                }
-                return false
-            } else {
-                var notify: Bool = false
-                if let instance = realm.object(
-                    ofType: LastChatsStorageItem.self,
-                    forPrimaryKey: LastChatsStorageItem.genPrimary(
-                        jid: self.opponent,
-                        owner: self.owner,
-                        conversationType: self.conversationType
-                    )
-                ) {
-                    try transaction(commit: commitTransaction) {
-                        if let timer = self.references.first?.metadata?["ephemeral-timer"] as? Int {
-                            if instance.afterburnIntervalLastUpdate < self.date.timeIntervalSince1970 {
-                                instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
-                                instance.afterburnInterval = Double(timer)
-                            }
-                        } 
-//                        else {
-//                            if instance.afterburnInterval > 0 {
-//                                if instance.afterburnIntervalLastUpdate < self.date.timeIntervalSince1970 {
-//                                    instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
-//                                    instance.afterburnInterval = Double(-1)
-//                                }
-//                            }
-//                        }
-                        if instance.isFreshNotEmptyEncryptedChat {
-                            instance.isFreshNotEmptyEncryptedChat = false
-                        }
-                    }
-                    if instance.lastMessage?.date ?? Date(timeIntervalSince1970: 1) > self.date {
-                        self.isRead = true
-                        if self.outgoing,
-                            self.archivedId.isNotEmpty,
-                            let timeInterval = TimeInterval(self.archivedId) {
-                            if let delivered = instance.deliveredId,
-                                let interval = TimeInterval(delivered),
-                                interval > timeInterval {
-                                self.state = .deliver
-                            }
-                            if let displayed = instance.displayedId,
-                                let interval = TimeInterval(displayed),
-                                interval > timeInterval {
-                                self.state = .read
-                            }
-                        }
-                        try transaction(commit: commitTransaction, callback: {
-//                            instance.messagesCount += 1
-                            realm.add(self, update: .modified)
-                            
-                            if let rosterItem = realm
-                                .object(ofType: RosterStorageItem.self,
-                                        forPrimaryKey: [self.opponent, owner].prp()) {
-                                instance.rosterItem = rosterItem
-                                
-                            }
-                        })
-                    } else {
-                        notify = true
-                        
-                        if instance.isArchived && !instance.isMuted {
-                            instance.isArchived = false
-                        }
-                        
-//                        let isFastSyncEnabled = false//SettingManager.shared.getKey(for: owner, scope: .clientSynchronization, key: "version")?.isNotEmpty ?? false
-                        
-                        try transaction(commit: commitTransaction, callback: {
-//                            instance.messagesCount += 1
-                            instance.messageDate = self.sentDate
-                            if !self.isDeleted {
-                                instance.lastMessage = self
-                            } else {
-                                realm.add(instance)
-                            }
-                            instance.lastMessageId = self.messageId
-                            if let timer = self.references.first?.metadata?["ephemeral-timer"] as? Int {
-                                instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
-                                instance.afterburnInterval = Double(timer)
-                            } else {
-//                                if instance.afterburnInterval > 0 && self.afterburnInterval < 1 {
-//                                    instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
-//                                    instance.afterburnInterval = 0
-//                                } else 
-                                if self.afterburnInterval > -1 && instance.afterburnIntervalLastUpdate < self.date.timeIntervalSince1970 {
-                                    instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
-                                    instance.afterburnInterval = self.afterburnInterval
-                                }
-                                
-                            }
-                            
-                            if isInvite && !isRead {
-                                if instance.rosterItem?.subscribtion != .both {
-                                    instance.rosterItem?.ask = .in
-                                }
-                            }
-                            
-                            if !self.isRead && !self.outgoing && self.forceUnreadState == nil {
-                                instance.unread += 1
-                            } else if self.outgoing {
-                                instance.unread = 0
-                            }
-                        })
-                    }
-                } else {
-                    let instance = LastChatsStorageItem()
-                    instance.jid = self.opponent
-                    instance.conversationType = self.conversationType
-                    instance.setPrimary(withOwner: owner)
-                    var needGenAvatar: Bool = false
-                    instance.messageDate = self.sentDate
-                    instance.lastMessage = self
-                    instance.isSynced = [.omemo, .omemo1, .axolotl].contains(self.conversationType)
-                    instance.lastMessageId = self.messageId
-                    
-                    if let timer = self.references.first?.metadata?["ephemeral-timer"] as? Int {
-                        instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
-                        instance.afterburnInterval = Double(timer)
-                    } else {
-                        instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
-                        instance.afterburnInterval = self.afterburnInterval
-                    }
-                    try transaction(commit: commitTransaction, callback: {
-                        if instance.isInvalidated { return }
-                        realm.add(instance, update: .modified)
+            var sideEffects: SaveSideEffects?
+            let shouldCommitHere = commitTransaction || !realm.isInWriteTransaction
 
-                        if let rosterItem = realm
-                            .object(ofType: RosterStorageItem.self,
-                                    forPrimaryKey: [self.opponent, owner].prp()) {
-                            instance.rosterItem = rosterItem
-                            
-                        } else {
-//                            DefaultAvatarManager.shared.updateAvatar(jid: self.opponent, owner: self.owner)
-                            let rosterItem = RosterStorageItem()
-                            rosterItem.owner = self.owner
-                            rosterItem.jid = self.opponent
-                            rosterItem.subscribtion = .undefined
-                            rosterItem.primary = RosterStorageItem.genPrimary(jid: self.opponent, owner: self.owner)
-                            
-                            if let group = realm.object(ofType: RosterGroupStorageItem.self, forPrimaryKey: [RosterGroupStorageItem.notInRosterGroupName, self.owner].prp()) {
-                                if !group.contacts.contains(rosterItem) {
-                                    group.contacts.append(rosterItem)
-                                }
-                            } else {
-                                let group = RosterGroupStorageItem()
-                                group.isSystemGroup = true
-                                group.name = RosterGroupStorageItem.notInRosterGroupName
-                                group.owner = owner
-                                group.primary = RosterGroupStorageItem.genPrimary(name: RosterGroupStorageItem.notInRosterGroupName, owner: owner)
-                                group.contacts.append(rosterItem)
-                                realm.add(group, update: .modified)
-                            }
-                            
-                            rosterItem.associatedLastChat = instance
-                            realm.add(rosterItem, update: .modified)
-                            instance.rosterItem = rosterItem
-                            needGenAvatar = true
-                        }
-                    })
-                    if needGenAvatar {
-//                        DefaultAvatarManager.shared.updateAvatar(jid: self.opponent, owner: self.owner)
+            if shouldCommitHere {
+                try realm.write {
+                    sideEffects = self.applyMessagePersistence(in: realm, silentNotifications: silentNotifications)
+                    if sideEffects?.shouldStoreStanza == true {
+                        self.storeStanza(in: realm)
                     }
                 }
-                if !silentNotifications {
-                    if self.date.timeIntervalSince1970 > (Date().timeIntervalSince1970 - 10) {
-                        if notify && !self.isRead && !self.outgoing && self.archivedId.isNotEmpty && self.displayAs != .system {
-//                            let imageUrl: String? = self.displayAs == .images ? references.filter({ $0.kind == .media }).first?.metadata?["uri"] as? String : nil
-                            NotifyManager.shared.update(
-                                withMessage: self.displayedBody(),
-                                messageId: self.archivedId,
-                                username: self.groupchatMetadata?["nickname"] as? String,
-                                opponent: self.opponent,
-                                owner: self.owner,
-                                date: self.date,
-                                displayName: realm
-                                    .object(ofType: RosterStorageItem.self,
-                                            forPrimaryKey: [self.opponent, owner].prp())?
-                                    .displayName ?? self.opponent,
-                                imageUrl: nil,//imageUrl,
-                                conversationType: self.conversationType
-                            )
-                        }
-                    }
+                self.dispatch(sideEffects: sideEffects)
+            } else {
+                sideEffects = self.applyMessagePersistence(in: realm, silentNotifications: silentNotifications)
+                if sideEffects?.shouldStoreStanza == true {
+                    self.storeStanza(in: realm)
                 }
-                realm.refresh()
-                return true
             }
+
+            return sideEffects?.shouldStoreStanza ?? false
         } catch {
             DDLogDebug("MessageStorageItem: \(#function). \(error.localizedDescription)")
         }

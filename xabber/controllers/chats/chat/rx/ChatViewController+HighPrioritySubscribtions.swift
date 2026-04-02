@@ -57,7 +57,7 @@ extension ChatViewController {
                             item in
                             self.searchMessagesQueue.append(item)
                         }
-                    self.showLoadingIndicator.accept(false)
+                    self.setLoadingIndicatorVisible(false)
                     self.applySearchResults()
                 } catch {
                     DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
@@ -66,13 +66,31 @@ extension ChatViewController {
         } else {
             if let value = value, value.isNotEmpty {
                 self.searchMessagesQueue = []
+                let requestCallbacks = MessageArchiveManager.RequestCallbacks(
+                    onMessage: { [weak self] item, queryId in
+                        self?.didReceiveMessage(item, queryId: queryId)
+                    },
+                    onEndPage: { [weak self] queryId, state, first, last, count in
+                        self?.didReceiveEndPage(queryId: queryId, state: state, first: first, last: last, count: count)
+                    }
+                )
                 XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-                    session.mam?.temporaryMessageReceiverDelegate = self
-                    self.currentSearchQueryId = session.mam?.searchText(stream, jid: self.jid, conversationType: self.conversationType, text: value)
+                    self.currentSearchQueryId = session.mam?.searchText(
+                        stream,
+                        jid: self.jid,
+                        conversationType: self.conversationType,
+                        text: value,
+                        requestCallbacks: requestCallbacks
+                    )
                 } fail: {
                     AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                        user.mam.temporaryMessageReceiverDelegate = self
-                        self.currentSearchQueryId = user.mam.searchText(stream, jid: self.jid, conversationType: self.conversationType, text: value)
+                        self.currentSearchQueryId = user.mam.searchText(
+                            stream,
+                            jid: self.jid,
+                            conversationType: self.conversationType,
+                            text: value,
+                            requestCallbacks: requestCallbacks
+                        )
                     })
                 }
             } else {
@@ -85,12 +103,34 @@ extension ChatViewController {
         NotifyManager.shared.currentDialog = [self.jid, self.owner].prp()
         self.bag = DisposeBag()
         let realm = try WRealm.safe()
+        let bootstrapRequestCallbacks = MessageArchiveManager.RequestCallbacks(
+            onMessage: nil,
+            onEndPage: { [weak self] queryId, state, first, last, count in
+                self?.didReceiveEndPage(queryId: queryId, state: state, first: first, last: last, count: count)
+            }
+        )
 
         XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-            session.mam?.syncChat(stream, jid: self.jid, conversationType: self.conversationType, callback: nil)
+            let result = session.mam?.syncChat(
+                stream,
+                jid: self.jid,
+                conversationType: self.conversationType,
+                pageSize: self.datasourcePageSize,
+                callback: nil,
+                requestCallbacks: bootstrapRequestCallbacks
+            ) ?? .noop
+            self.handleSyncChatStartResult(result)
         } fail: {
             AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                user.mam.syncChat(stream, jid: self.jid, conversationType: self.conversationType, callback: nil)
+                let result = user.mam.syncChat(
+                    stream,
+                    jid: self.jid,
+                    conversationType: self.conversationType,
+                    pageSize: self.datasourcePageSize,
+                    callback: nil,
+                    requestCallbacks: bootstrapRequestCallbacks
+                )
+                self.handleSyncChatStartResult(result)
             })
         }
         
@@ -99,20 +139,25 @@ extension ChatViewController {
             .collection(from: self.messagesObserver, synchronousStart: true)
             .skip(1)
             .debounce(.milliseconds(30), scheduler: MainScheduler.asyncInstance)
+            .observe(on: MainScheduler.asyncInstance)
             .subscribe {
                 (_) in
                 if self.showSkeletonObserver.value {
+                    _ = self.completeInitialBootstrapIfNeeded()
                     return
                 }
-                if !self.currentPage.locked {
-                    self.didReceiveChangeset()
+                if self.currentPage.locked {
+                    _ = self.tryFinishInteractiveHistoryPageLoadIfReady()
+                    return
                 }
+                self.didReceiveChangeset()
             }
             .disposed(by: self.bag)
         
         self.showLoadingIndicator
             .asObservable()
             .debounce(.microseconds(100), scheduler: MainScheduler.asyncInstance)
+            .observe(on: MainScheduler.asyncInstance)
             .subscribe { value in
 //                DispatchQueue.main.async {
                 self.chatViewLoadingOverlay.isHidden = !value
@@ -120,7 +165,10 @@ extension ChatViewController {
             }
             .disposed(by: bag)
         
-        self.shouldShowInitialMessage.asObservable().subscribe { value in
+        self.shouldShowInitialMessage
+            .asObservable()
+            .observe(on: MainScheduler.asyncInstance)
+            .subscribe { value in
             if value {
                 let width: CGFloat = 340
                 let height: CGFloat = 340
@@ -128,10 +176,14 @@ extension ChatViewController {
                     origin: CGPoint(x: (self.view.frame.width - width) / 2, y: (self.view.frame.height - height) / 2),
                     size: CGSize(width: width, height: height)
                 )
+                if self.initialMessageOverlayView.superview == nil {
+                    self.view.addSubview(self.initialMessageOverlayView)
+                }
                 self.initialMessageOverlayView.update(frame: frame, conversationType: self.conversationType)
                 self.initialMessageOverlayView.isHidden = false
             } else {
                 self.initialMessageOverlayView.isHidden = true
+                self.initialMessageOverlayView.removeFromSuperview()
             }
         }.disposed(by: bag)
 
@@ -139,6 +191,7 @@ extension ChatViewController {
         self.inSearchMode
             .asObservable()
             .skip(1)
+            .observe(on: MainScheduler.asyncInstance)
             .subscribe(onNext: { (value) in
                 if value {
                     self.configureSearchBar()
@@ -156,8 +209,9 @@ extension ChatViewController {
         self.searchTextObserver
             .asObservable()
             .skip(1)
+            .observe(on: MainScheduler.asyncInstance)
             .subscribe(onNext: { (value) in
-                self.showLoadingIndicator.accept((value ?? "").isNotEmpty)
+                self.setLoadingIndicatorVisible((value ?? "").isNotEmpty)
                 self.updateSearchResults(value: value)
             })
             .disposed(by: bag)
@@ -166,6 +220,7 @@ extension ChatViewController {
         self.shouldShowScrollDownButton
             .asObservable()
             .debounce(.milliseconds(5), scheduler: MainScheduler.asyncInstance)
+            .observe(on: MainScheduler.asyncInstance)
             .subscribe { value in
                 if value {
                     if self.inSearchMode.value {
@@ -182,6 +237,7 @@ extension ChatViewController {
         self.contentOffsetObserver
             .asObservable()
             .debounce(.milliseconds(40), scheduler: MainScheduler.asyncInstance)
+            .observe(on: MainScheduler.asyncInstance)
             .subscribe { value in
 //                self.showFloatingDateObserver.accept(false)
                 if self.isShowingNewestMessage() {
@@ -199,30 +255,13 @@ extension ChatViewController {
                         self.shouldShowScrollDownButton.accept(false)
                     }
                 }
-                if self.canLoadDatasource {
-                    if (self.messagesCollectionView.contentSize.height - self.messagesCollectionView.contentOffset.y) < self.view.bounds.height {
-                        self.canLoadDatasource = false
-                        self.onTouchEndPage(direction: .up)
-                    }
-                }
-                if self.canLoadDatasource {
-                    if self.currentPage.minIndex > 0 {
-                        if let datasourcePrimary = self.datasource.first?.primary,
-                           let observerPrimary = self.messagesObserver.first?.primary,
-                           datasourcePrimary != observerPrimary {
-                            if self.messagesCollectionView.contentOffset.y < 0 {
-                                self.canLoadDatasource = false
-                                self.onTouchStartPage(direction: .down)
-                            }
-                        }
-                    }
-                }
             }
             .disposed(by: bag)
 
         self.updateFloatingDateObserverSignal
             .asObservable()
             .debounce(.milliseconds(50), scheduler: MainScheduler.asyncInstance)
+            .observe(on: MainScheduler.asyncInstance)
             .subscribe { _ in
                 self.updateFloatingDate()
             }
@@ -232,6 +271,7 @@ extension ChatViewController {
         self.topPanelState
             .asObservable()
             .debounce(.nanoseconds(1), scheduler: MainScheduler.asyncInstance)
+            .observe(on: MainScheduler.asyncInstance)
             .subscribe { state in
                 switch state {
                     case .none:
@@ -287,7 +327,7 @@ extension ChatViewController {
                     self.statusLabel.text = statusStr
                 }
                 if self.shouldShowNormalStatus {
-                    self.statusTextObserver.accept(statusStr)
+                    self.setStatusText(statusStr)
                     self.contactStatus = status
                     self.statusLabel.layoutIfNeeded()
                 }
@@ -304,17 +344,19 @@ extension ChatViewController {
         if let chat = lastChatsObservedCollection.first {
             self.xabberInputView.textField.text = chat.draftMessage
             self.xabberInputView.textViewDidChange(force: true)
-            
+
             self.updateContentByLastChatInstance(chat)
-            self.showSkeletonObserver.accept(!chat.isSynced)
+        } else {
+            self.applyBootstrapViewState(self.bootstrapViewState(chatInstance: nil), forceRender: self.datasource.isEmpty)
         }
         Observable
             .collection(from: lastChatsObservedCollection)
             .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
             .skip(1)
+            .observe(on: MainScheduler.asyncInstance)
             .subscribe(onNext: { (results) in
                 guard let item = results.first else {
-                    self.showSkeletonObserver.accept(false)
+                    self.applyBootstrapViewState(self.bootstrapViewState(chatInstance: nil), forceRender: self.datasource.isEmpty)
                     return
                 }
                 self.updateContentByLastChatInstance(item)
@@ -327,6 +369,7 @@ extension ChatViewController {
                 .objects(RosterStorageItem.self)
                 .filter("owner == %@ AND jid == %@", owner, jid))
             .debounce(.milliseconds(200), scheduler: MainScheduler.asyncInstance)
+            .observe(on: MainScheduler.asyncInstance)
             .subscribe(onNext: { (results) in
                 if self.conversationType == .group { return }
                 
@@ -350,35 +393,35 @@ extension ChatViewController {
                         case .none:
                             switch item.ask {
                                 case .in, .both:
-                                    self.topPanelState.accept(.allowSubscribtion)
+                                    self.setTopPanelState(.allowSubscribtion)
                                 default:
                                     if [.addContact, .requestSubscribtion].contains(self.topPanelState.value) {
-                                        self.topPanelState.accept(.none)
+                                        self.setTopPanelState(.none)
                                     }
                             }
                         case .to:
                             switch item.ask {
                                 case .in:
-                                    self.topPanelState.accept(.addContact)
+                                    self.setTopPanelState(.addContact)
                                 default:
                                     if [.addContact, .requestSubscribtion].contains(self.topPanelState.value) {
-                                        self.topPanelState.accept(.none)
+                                        self.setTopPanelState(.none)
                                     }
                             }
                         case .undefined:
                             switch item.ask {
                                 case .in:
-                                    self.topPanelState.accept(.allowSubscribtion)
+                                    self.setTopPanelState(.allowSubscribtion)
                                 default:
                                     if [.addContact, .requestSubscribtion].contains(self.topPanelState.value) {
-                                        self.topPanelState.accept(.none)
+                                        self.setTopPanelState(.none)
                                     } else {
-                                        self.topPanelState.accept(.addContact)
+                                        self.setTopPanelState(.addContact)
                                     }
                             }
                         default:
                             if [.addContact, .requestSubscribtion].contains(self.topPanelState.value) {
-                                self.topPanelState.accept(.none)
+                                self.setTopPanelState(.none)
                             }
                     }
                     self.shouldShowNormalStatus = false
@@ -427,6 +470,7 @@ extension ChatViewController {
         self.statusTextObserver
             .asObservable()
             .debounce(.milliseconds(50), scheduler: MainScheduler.asyncInstance)
+            .observe(on: MainScheduler.asyncInstance)
             .subscribe { (value) in
                 self.statusLabel.text = value
                 self.statusLabel.layoutIfNeeded()
@@ -441,25 +485,39 @@ extension ChatViewController {
 
     }
     
-    private final func updateContentByLastChatInstance(_ item: LastChatsStorageItem) {
-//        self.lastReadMessageId = item.lastReadId
-        if item.isInitialArchiveLoaded {
-            if self.showSkeletonObserver.value != (!item.isSynced) {
-                
-                self.showSkeletonObserver.accept(!item.isSynced)
-                
-                if item.isSynced {
-                    if item.unread > 0 {
-                        self.updateQueue
-                            .asyncAfter(deadline: .now() + 3) {
-                                AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                                    user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
-                                })
-                            }
-                    }
-                }
+    internal func handleSyncChatStartResult(_ result: MessageArchiveManager.SyncChatStartResult) {
+        DispatchQueue.main.async {
+            switch result {
+            case .bootstrapStarted(let queryId):
+                self.beginInitialBootstrapTracking(queryId: queryId)
+                self.applyBootstrapViewState(self.currentBootstrapViewState(), forceRender: true)
+            case .gapRepairOnly, .noop:
+                self.resetInitialBootstrapTracking()
             }
         }
+    }
+
+    private final func updateContentByLastChatInstance(_ item: LastChatsStorageItem) {
+//        self.lastReadMessageId = item.lastReadId
+        let state = self.bootstrapViewState(chatInstance: item)
+        let shouldShowSkeleton = state == .skeleton
+        if self.showSkeletonObserver.value != shouldShowSkeleton {
+            self.applyBootstrapViewState(state)
+
+            if item.isSynced {
+                if item.unread > 0 {
+                    self.updateQueue
+                        .asyncAfter(deadline: .now() + 3) {
+                            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+                                user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
+                            })
+                        }
+                }
+            }
+        } else if !shouldShowSkeleton {
+            self.reloadInitialWindowAfterBootstrapIfNeeded()
+        }
+        _ = self.completeInitialBootstrapIfNeeded()
         let id = self.opponentSender.id
         if !(item.rosterItem?.isInvalidated ?? false) {
             self.opponentSender = Sender(
@@ -469,7 +527,7 @@ extension ChatViewController {
         }
 //        self.contactUsename = self.opponentSender.displayName
         self.titleLabel.attributedText = self.updateTitle()
-        self.statusTextObserver.accept(AccountManager
+        self.setStatusText(AccountManager
             .shared
             .connectingUsers
             .value

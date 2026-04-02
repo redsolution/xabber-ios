@@ -333,7 +333,14 @@ class XMPPFavoritesManager: AbstractXMPPManager {
             DDLogDebug("XMPPFavoritesManager: \(#function). \(error.localizedDescription)")
         }
         
-        AccountManager.shared.find(for: self.owner)?.mam.requestArchive(stream, jid: node, isContinues: true, conversationType: .saved, start: lastArchivedMessageDate)
+        AccountManager.shared.find(for: self.owner)?.mam.requestArchive(
+            stream,
+            jid: node,
+            isContinues: true,
+            conversationType: .saved,
+            purpose: .jump,
+            start: lastArchivedMessageDate
+        )
     }
     
     static func remove(for owner: String, commitTransaction: Bool) {

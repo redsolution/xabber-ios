@@ -28,6 +28,7 @@ import DeepDiff
 import CocoaLumberjack
 import MaterialComponents.MDCPalettes
 import SensitiveContentAnalysis
+import XMPPFramework
 
 struct ChatDatasourceSnapshot {
     static let empty = ChatDatasourceSnapshot(items: [], primaryIndex: [:], archivedIdIndex: [:])
@@ -52,9 +53,453 @@ struct ChatDatasourceSnapshot {
     }
 }
 
+struct ChatDatasetWindow: Equatable {
+    static let empty = ChatDatasetWindow(minIndex: 0, maxIndex: 0)
+
+    let minIndex: Int
+    let maxIndex: Int
+
+    var isEmpty: Bool {
+        maxIndex <= minIndex
+    }
+
+    var count: Int {
+        max(0, maxIndex - minIndex)
+    }
+}
+
+enum ChatHistoryPageDirection: Equatable {
+    case older
+    case newer
+}
+
+enum ChatHistoryPagingLoadDecision: Equatable {
+    case localOnly
+    case remoteOlderPage
+    case endReached
+}
+
+struct ChatInteractiveHistoryPageLoadContext {
+    let queryId: String
+    let direction: ChatHistoryPageDirection
+    let chatPrimaryKey: String
+    let persistedCursorId: String?
+    let persistedFullArchiveLoaded: Bool
+    let requestedCursorId: String?
+    let requestedWindow: ChatDatasetWindow
+    let preLoadObserverCount: Int
+    let preLoadOldestArchivedId: String?
+    let preLoadFullArchiveLoaded: Bool
+    let remoteFetchStarted: Bool
+    let isArchiveEndVerificationProbe: Bool
+    let expectedWindowMaxIndex: Int
+    var didReceiveEndPage: Bool = false
+    var queryExhausted: Bool = false
+    var persistedMessageCount: Int? = nil
+    var resultFirst: String = ""
+    var resultLast: String = ""
+    var didEnterObserverSettlePhase: Bool = false
+    var didObservePostIdleTick: Bool = false
+}
+
+struct ChatHistoryPageAnchor: Equatable {
+    let primary: String
+    let offsetFromViewportTop: CGFloat
+}
+
+struct ChatHistoryPagingBoundaryContext: Equatable {
+    let firstRealSection: Int?
+    let lastRealSection: Int?
+    let visibleRealSections: [Int]
+}
+
+enum ChatHistoryPageCompletionPolicy {
+    static func shouldFinish(
+        didReceiveEndPage: Bool,
+        didAdvance: Bool,
+        persistedMessageCount: Int?,
+        isMessagePipelineIdle: Bool,
+        requiresObserverSettle: Bool = false,
+        didObservePostIdleTick: Bool = true
+    ) -> Bool {
+        guard didReceiveEndPage, isMessagePipelineIdle else {
+            return false
+        }
+
+        if requiresObserverSettle && !didObservePostIdleTick {
+            return false
+        }
+
+        if didAdvance {
+            return true
+        }
+
+        return persistedMessageCount == 0
+    }
+
+    static func didAdvance(
+        previousObserverCount: Int,
+        currentObserverCount: Int,
+        previousOldestArchivedId: String?,
+        currentOldestArchivedId: String?,
+        previousArchiveEnded: Bool,
+        currentArchiveEnded: Bool
+    ) -> Bool {
+        currentObserverCount > previousObserverCount ||
+        previousOldestArchivedId != currentOldestArchivedId ||
+        (!previousArchiveEnded && currentArchiveEnded)
+    }
+}
+
+enum ChatHistoryPageApplyPolicy {
+    static func keepOffset(direction: ChatHistoryPageDirection) -> Bool {
+        switch direction {
+        case .older:
+            return false
+        case .newer:
+            return true
+        }
+    }
+}
+
+enum ChatHistoryPageAnchorRestorePolicy {
+    static func targetContentOffsetY(
+        anchorMinY: CGFloat,
+        offsetFromViewportTop: CGFloat,
+        minContentOffsetY: CGFloat,
+        maxContentOffsetY: CGFloat
+    ) -> CGFloat {
+        min(max(anchorMinY - offsetFromViewportTop, minContentOffsetY), maxContentOffsetY)
+    }
+}
+
+enum ChatHistoryLoadingTimeoutPolicy {
+    static let checkInterval: TimeInterval = 5.0
+    static let interactiveHardTimeout: TimeInterval = 180.0
+
+    static func shouldAbortInteractivePageLoad(elapsed: TimeInterval) -> Bool {
+        elapsed >= interactiveHardTimeout
+    }
+}
+
+enum ChatDatasourceApplyGenerationPolicy {
+    static func shouldApply(requestGeneration: Int, currentGeneration: Int) -> Bool {
+        requestGeneration == currentGeneration
+    }
+}
+
+enum ChatHistoryPageOutcome: Equatable {
+    case advanced(persistedCursorId: String?)
+    case emptyExhausted(persistedCursorId: String?)
+    case duplicateOrNoAdvance(persistedCursorId: String?)
+}
+
+enum ChatHistoryPageOutcomePolicy {
+    static func resolve(
+        queryExhausted: Bool,
+        didAdvance: Bool,
+        persistedMessageCount: Int,
+        requestedCursorId: String?,
+        currentCursorId: String?
+    ) -> ChatHistoryPageOutcome {
+        if didAdvance {
+            return .advanced(persistedCursorId: currentCursorId)
+        }
+
+        if queryExhausted && persistedMessageCount == 0 && requestedCursorId == currentCursorId {
+            return .emptyExhausted(persistedCursorId: currentCursorId)
+        }
+
+        return .duplicateOrNoAdvance(persistedCursorId: currentCursorId)
+    }
+}
+
+struct ChatArchiveStateSnapshot: Equatable {
+    let primaryKey: String
+    let persistedCursorId: String?
+    let fullArchiveLoaded: Bool
+}
+
+struct ChatArchiveStateMutationPlan: Equatable {
+    let resolvedCursorId: String?
+    let fullArchiveLoaded: Bool
+    let shouldWriteCursor: Bool
+    let shouldWriteFullArchiveLoaded: Bool
+
+    var needsWrite: Bool {
+        shouldWriteCursor || shouldWriteFullArchiveLoaded
+    }
+}
+
+struct ChatObserverLookupMaps: Equatable {
+    let primaryIndex: [String: Int]
+    let archivedIdIndex: [String: Int]
+    let oldestArchivedId: String?
+}
+
+enum ChatObserverLookupPolicy {
+    static func build<T: Sequence>(from items: T) -> ChatObserverLookupMaps where T.Element == MessageStorageItem {
+        var primaryIndex: [String: Int] = [:]
+        var archivedIdIndex: [String: Int] = [:]
+        var oldestArchivedId: String?
+
+        for (offset, item) in items.enumerated() {
+            primaryIndex[item.primary] = offset
+            if item.archivedId.isNotEmpty {
+                let archivedId = item.archivedId
+                archivedIdIndex[archivedId] = offset
+                oldestArchivedId = archivedId
+            }
+        }
+
+        return ChatObserverLookupMaps(
+            primaryIndex: primaryIndex,
+            archivedIdIndex: archivedIdIndex,
+            oldestArchivedId: oldestArchivedId
+        )
+    }
+}
+
+enum ChatArchiveStateMutationPolicy {
+    static func resolveCursorId(
+        observedCursorId: String?,
+        transportFirst: String,
+        transportLast: String,
+        currentPersistedCursorId: String?
+    ) -> String? {
+        let currentCursorId = currentPersistedCursorId?.isNotEmpty == true ? currentPersistedCursorId : nil
+        let fallbackCursorId = MessageArchiveManager.HistoryCursorPolicy.persistedOlderCursorId(
+            purpose: .pageOlder,
+            first: transportFirst,
+            last: transportLast,
+            current: currentCursorId
+        )
+        let resolvedCursorId = observedCursorId ?? currentCursorId ?? fallbackCursorId
+        guard let resolvedCursorId, resolvedCursorId.isNotEmpty else {
+            return nil
+        }
+        return resolvedCursorId
+    }
+
+    static func resolvePlan(
+        snapshot: ChatArchiveStateSnapshot,
+        resolvedCursorId: String?,
+        nextFullArchiveLoaded: Bool
+    ) -> ChatArchiveStateMutationPlan {
+        let currentCursorId = snapshot.persistedCursorId?.isNotEmpty == true ? snapshot.persistedCursorId : nil
+        return ChatArchiveStateMutationPlan(
+            resolvedCursorId: resolvedCursorId,
+            fullArchiveLoaded: nextFullArchiveLoaded,
+            shouldWriteCursor: resolvedCursorId != nil && resolvedCursorId != currentCursorId,
+            shouldWriteFullArchiveLoaded: snapshot.fullArchiveLoaded != nextFullArchiveLoaded
+        )
+    }
+}
+
+enum ChatArchiveEndVerificationPolicy {
+    static func shouldProbePersistedArchiveEnd(
+        persistedArchiveEnded: Bool,
+        hasConfirmedArchiveEndThisSession: Bool,
+        hasUsedVerificationProbe: Bool
+    ) -> Bool {
+        persistedArchiveEnded &&
+        !hasConfirmedArchiveEndThisSession &&
+        !hasUsedVerificationProbe
+    }
+
+    static func effectiveArchiveEnded(
+        persistedArchiveEnded: Bool,
+        shouldProbePersistedArchiveEnd: Bool
+    ) -> Bool {
+        persistedArchiveEnded && !shouldProbePersistedArchiveEnd
+    }
+}
+
+enum ChatHistoryCursorSelectionPolicy {
+    static func oldestCursorId(
+        observedArchivedIds: [String],
+        persistedCursorId: String?
+    ) -> String? {
+        if let observedCursorId = observedArchivedIds.reversed().first(where: { $0.isNotEmpty }) {
+            return observedCursorId
+        }
+
+        guard let persistedCursorId, persistedCursorId.isNotEmpty else {
+            return nil
+        }
+        return persistedCursorId
+    }
+}
+
+enum ChatHistoryPagingPolicy {
+    private static func boundaryAvailability(
+        boundaryContext: ChatHistoryPagingBoundaryContext,
+        currentPageMinIndex: Int
+    ) -> (olderVisible: Bool, newerVisible: Bool) {
+        let minVisibleSection = boundaryContext.visibleRealSections.min()
+        let maxVisibleSection = boundaryContext.visibleRealSections.max()
+
+        let olderVisible = maxVisibleSection.flatMap { visibleSection in
+            boundaryContext.lastRealSection.map { visibleSection >= $0 }
+        } ?? false
+        let newerVisible = currentPageMinIndex > 0 && (minVisibleSection.flatMap { visibleSection in
+            boundaryContext.firstRealSection.map { visibleSection <= $0 }
+        } ?? false)
+
+        return (olderVisible, newerVisible)
+    }
+
+    private static func directionForBoundaryDrag(
+        gestureTranslationY: CGFloat,
+        boundary: (olderVisible: Bool, newerVisible: Bool)
+    ) -> ChatHistoryPageDirection? {
+        switch boundary {
+        case (true, false):
+            return .older
+        case (false, true):
+            return .newer
+        case (true, true):
+            if gestureTranslationY > 0 {
+                return .older
+            }
+            if gestureTranslationY < 0 {
+                return .newer
+            }
+            return nil
+        case (false, false):
+            return nil
+        }
+    }
+
+    static func triggerDirection(
+        isUserScrolling: Bool,
+        canLoadDatasource: Bool,
+        gestureTranslationY: CGFloat,
+        boundaryContext: ChatHistoryPagingBoundaryContext,
+        currentPageMinIndex: Int
+    ) -> ChatHistoryPageDirection? {
+        guard isUserScrolling,
+              canLoadDatasource,
+              !boundaryContext.visibleRealSections.isEmpty else {
+            return nil
+        }
+
+        let boundary = boundaryAvailability(
+            boundaryContext: boundaryContext,
+            currentPageMinIndex: currentPageMinIndex
+        )
+
+        return directionForBoundaryDrag(
+            gestureTranslationY: gestureTranslationY,
+            boundary: boundary
+        )
+    }
+
+    static func loadDecision(
+        direction: ChatHistoryPageDirection,
+        currentWindow: ChatDatasetWindow,
+        requestedWindow: ChatDatasetWindow,
+        localWindow: ChatDatasetWindow,
+        totalCount: Int,
+        isArchiveEnded: Bool
+    ) -> ChatHistoryPagingLoadDecision {
+        switch direction {
+        case .newer:
+            return .localOnly
+        case .older:
+            guard requestedWindow.maxIndex > totalCount else {
+                return .localOnly
+            }
+            return isArchiveEnded ? .endReached : .remoteOlderPage
+        }
+    }
+
+    static func fallbackDirectionForShortContentDrag(
+        canLoadDatasource: Bool,
+        gestureTranslationY: CGFloat,
+        boundaryContext: ChatHistoryPagingBoundaryContext,
+        currentPageMinIndex: Int
+    ) -> ChatHistoryPageDirection? {
+        guard canLoadDatasource,
+              !boundaryContext.visibleRealSections.isEmpty else {
+            return nil
+        }
+
+        let boundary = boundaryAvailability(
+            boundaryContext: boundaryContext,
+            currentPageMinIndex: currentPageMinIndex
+        )
+
+        return directionForBoundaryDrag(
+            gestureTranslationY: gestureTranslationY,
+            boundary: boundary
+        )
+    }
+}
+
+enum ChatBootstrapViewState: Equatable {
+    case skeleton
+    case content
+    case empty
+
+    static func resolve(
+        messageCount: Int,
+        isSynced: Bool,
+        isInitialBootstrapInFlight: Bool
+    ) -> ChatBootstrapViewState {
+        if messageCount > 0 {
+            return .content
+        }
+        if isInitialBootstrapInFlight {
+            return .skeleton
+        }
+        if !isSynced {
+            return .skeleton
+        }
+        return .empty
+    }
+}
+
+enum ChatInitialHistoryAppearancePolicy {
+    static func shouldStart(isShowingBootstrapPlaceholder: Bool) -> Bool {
+        isShowingBootstrapPlaceholder
+    }
+
+    static func shouldFinish(itemCount: Int, containsOnlyFakeMessages: Bool) -> Bool {
+        itemCount == 0 || !containsOnlyFakeMessages
+    }
+
+    static func shouldAnimateDatasourceApply(isInitialHistoryAppearancePending: Bool) -> Bool {
+        !isInitialHistoryAppearancePending
+    }
+
+    static func shouldUseReloadFallbackForTargetedDiff(animated: Bool) -> Bool {
+        !animated
+    }
+
+    static func shouldApplyFollowupChangesetAfterBootstrapReload(didReloadInitialWindow: Bool) -> Bool {
+        !didReloadInitialWindow
+    }
+
+    static func shouldCompleteInitialAppearance(hasViewAppeared: Bool, hasRenderedStableHistory: Bool) -> Bool {
+        hasViewAppeared && hasRenderedStableHistory
+    }
+
+    static func shouldForceNonAnimatedApplyForInitialPopulation(oldItemCount: Int, newItemCount: Int) -> Bool {
+        oldItemCount == 0 && newItemCount > 0
+    }
+}
+
 enum ChatDatasourceApplyMode {
     case fullReload(keepOffset: Bool = false)
+    case windowReload(keepOffset: Bool = false)
     case targetedDiff
+}
+
+struct ChatDatasetApplyPlan {
+    let window: ChatDatasetWindow
+    let mode: ChatDatasourceApplyMode
+    let invalidateLayout: Bool
 }
 
 struct ChatDatasourceCoordinator {
@@ -92,6 +537,46 @@ struct ChatDatasourceCoordinator {
         guard !old.items.isEmpty else { return false }
         guard old.items.count == new.items.count else { return false }
         return zip(old.items, new.items).allSatisfy { $0.primary == $1.primary }
+    }
+}
+
+struct ChatDatasetCoordinator {
+    let pageSize: Int
+
+    func clamp(_ window: ChatDatasetWindow, totalCount: Int) -> ChatDatasetWindow {
+        guard totalCount > 0 else { return .empty }
+
+        var minIndex = max(0, window.minIndex)
+        var maxIndex = min(totalCount, max(minIndex, window.maxIndex))
+
+        if maxIndex == minIndex {
+            maxIndex = min(totalCount, minIndex + pageSize)
+            minIndex = max(0, maxIndex - pageSize)
+        }
+
+        return ChatDatasetWindow(minIndex: minIndex, maxIndex: maxIndex)
+    }
+
+    func initialWindow(totalCount: Int) -> ChatDatasetWindow {
+        clamp(ChatDatasetWindow(minIndex: 0, maxIndex: pageSize), totalCount: totalCount)
+    }
+
+    func replacementWindow(around index: Int, totalCount: Int) -> ChatDatasetWindow {
+        let halfPage = pageSize / 2
+        return clamp(ChatDatasetWindow(minIndex: index - halfPage, maxIndex: index + halfPage), totalCount: totalCount)
+    }
+
+    func nextWindow(from current: ChatDatasetWindow, direction: ChatHistoryPageDirection) -> ChatDatasetWindow {
+        switch direction {
+        case .newer:
+            return ChatDatasetWindow(minIndex: current.minIndex - pageSize, maxIndex: current.maxIndex)
+        case .older:
+            return ChatDatasetWindow(minIndex: current.minIndex, maxIndex: current.maxIndex + pageSize)
+        }
+    }
+
+    func visibleWindow(currentPage: ChatViewController.ChatPage) -> ChatDatasetWindow {
+        ChatDatasetWindow(minIndex: currentPage.minIndex, maxIndex: currentPage.maxIndex)
     }
 }
 
@@ -206,11 +691,17 @@ extension ChatViewController {
     internal func applyChatDatasource(
         _ items: [Datasource],
         mode: ChatDatasourceApplyMode,
+        animated: Bool = true,
         invalidateLayout: Bool = false,
         completion: (() -> Void)? = nil
     ) {
         let newSnapshot = ChatDatasourceCoordinator.makeSnapshot(items: items)
         let previousSnapshot = datasourceSnapshot
+        let containsOnlyFakeMessages = !items.isEmpty && items.allSatisfy(\.isFakeMessage)
+        let shouldAnimateApply = animated && !ChatInitialHistoryAppearancePolicy.shouldForceNonAnimatedApplyForInitialPopulation(
+            oldItemCount: previousSnapshot.items.count,
+            newItemCount: newSnapshot.items.count
+        )
 
         let finish: () -> Void = {
             if invalidateLayout {
@@ -218,23 +709,85 @@ extension ChatViewController {
                 self.messagesCollectionView.layoutIfNeeded()
             }
             completion?()
+            if self.initialHistoryAppearancePending,
+               ChatInitialHistoryAppearancePolicy.shouldFinish(itemCount: items.count, containsOnlyFakeMessages: containsOnlyFakeMessages) {
+                self.hasRenderedStableInitialHistory = true
+                self.finishInitialHistoryAppearanceIfPossible()
+            }
+        }
+
+        let runWithoutAnimation: (@escaping () -> Void) -> Void = { updates in
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            let wereAnimationsEnabled = UIView.areAnimationsEnabled
+            UIView.setAnimationsEnabled(false)
+            UIView.performWithoutAnimation {
+                updates()
+                self.messagesCollectionView.layoutIfNeeded()
+                self.messagesCollectionView.layer.removeAllAnimations()
+                self.messagesCollectionView.visibleCells.forEach {
+                    $0.layer.removeAllAnimations()
+                    $0.contentView.layer.removeAllAnimations()
+                }
+            }
+            UIView.setAnimationsEnabled(wereAnimationsEnabled)
+            CATransaction.commit()
         }
 
         switch mode {
         case .fullReload(let keepOffset):
             self.datasource = items
             self.datasourceSnapshot = newSnapshot
-            if keepOffset {
-                self.messagesCollectionView.reloadDataAndKeepOffset()
+            let updates = {
+                if keepOffset {
+                    self.messagesCollectionView.reloadDataAndKeepOffset()
+                } else {
+                    self.messagesCollectionView.reloadData()
+                }
+            }
+            if shouldAnimateApply {
+                updates()
             } else {
-                self.messagesCollectionView.reloadData()
+                runWithoutAnimation(updates)
+            }
+            finish()
+        case .windowReload(let keepOffset):
+            self.datasource = items
+            self.datasourceSnapshot = newSnapshot
+            let updates = {
+                if keepOffset {
+                    self.messagesCollectionView.reloadDataAndKeepOffset()
+                } else {
+                    self.messagesCollectionView.reloadData()
+                }
+            }
+            if shouldAnimateApply {
+                updates()
+            } else {
+                runWithoutAnimation(updates)
             }
             finish()
         case .targetedDiff:
+            if ChatInitialHistoryAppearancePolicy.shouldUseReloadFallbackForTargetedDiff(animated: shouldAnimateApply) {
+                self.datasource = items
+                self.datasourceSnapshot = newSnapshot
+                runWithoutAnimation {
+                    self.messagesCollectionView.reloadData()
+                }
+                finish()
+                return
+            }
+
             guard ChatDatasourceCoordinator.compatibleForTargetedApply(old: previousSnapshot, new: newSnapshot) else {
                 self.datasource = items
                 self.datasourceSnapshot = newSnapshot
-                self.messagesCollectionView.reloadData()
+                if shouldAnimateApply {
+                    self.messagesCollectionView.reloadData()
+                } else {
+                    runWithoutAnimation {
+                        self.messagesCollectionView.reloadData()
+                    }
+                }
                 finish()
                 return
             }
@@ -248,22 +801,648 @@ extension ChatViewController {
                 return
             }
 
-            self.messagesCollectionView.performBatchUpdates({
-                if !diff.deletes.isEmpty {
-                    self.messagesCollectionView.deleteSections(diff.deletes)
+            let updates = {
+                self.messagesCollectionView.performBatchUpdates({
+                    if !diff.deletes.isEmpty {
+                        self.messagesCollectionView.deleteSections(diff.deletes)
+                    }
+                    if !diff.inserts.isEmpty {
+                        self.messagesCollectionView.insertSections(diff.inserts)
+                    }
+                    diff.moves.forEach {
+                        self.messagesCollectionView.moveItem(at: $0.from, to: $0.to)
+                    }
+                    if !diff.reloads.isEmpty {
+                        self.messagesCollectionView.reconfigureItems(at: diff.reloads)
+                    }
+                }, completion: { _ in
+                    finish()
+                })
+            }
+            if shouldAnimateApply {
+                updates()
+            } else {
+                runWithoutAnimation {
+                    updates()
                 }
-                if !diff.inserts.isEmpty {
-                    self.messagesCollectionView.insertSections(diff.inserts)
+            }
+        }
+    }
+
+    internal var datasetCoordinator: ChatDatasetCoordinator {
+        ChatDatasetCoordinator(pageSize: self.datasourcePageSize)
+    }
+
+    internal func syncCurrentPage(with window: ChatDatasetWindow) {
+        self.currentPage.minIndex = window.minIndex
+        self.currentPage.maxIndex = window.maxIndex
+    }
+
+    internal func visibleWindow() -> ChatDatasetWindow {
+        self.datasetCoordinator.visibleWindow(currentPage: self.currentPage)
+    }
+
+    internal func sliceForWindow(_ window: ChatDatasetWindow) -> [MessageStorageItem] {
+        guard self.messagesObserver != nil else { return [] }
+        let normalized = self.datasetCoordinator.clamp(window, totalCount: self.messagesObserver.count)
+        guard normalized.count > 0 else { return [] }
+        return Array(self.messagesObserver.prefix(upTo: normalized.maxIndex).suffix(normalized.count)).map { $0.freeze() }
+    }
+
+    internal func ensureObserverLookupMaps(force: Bool = false) {
+        guard self.messagesObserver != nil else {
+            self.observerPrimaryIndexMap = [:]
+            self.observerArchivedIdIndexMap = [:]
+            self.observerOldestArchivedId = nil
+            self.observerLookupSignature = nil
+            return
+        }
+
+        let signature = ObserverLookupSignature(
+            count: self.messagesObserver.count,
+            firstPrimary: self.messagesObserver.first?.primary,
+            lastPrimary: self.messagesObserver.last?.primary
+        )
+
+        guard force || self.observerLookupSignature != signature else {
+            return
+        }
+
+        let lookupMaps = ChatObserverLookupPolicy.build(from: self.messagesObserver)
+        self.observerPrimaryIndexMap = lookupMaps.primaryIndex
+        self.observerArchivedIdIndexMap = lookupMaps.archivedIdIndex
+        self.observerOldestArchivedId = lookupMaps.oldestArchivedId
+        self.observerLookupSignature = signature
+    }
+
+    internal func setArchiveLoading(_ isLoading: Bool) {
+        DispatchQueue.main.async {
+            self.messageLoadingActivityIndicator.isHidden = !isLoading
+        }
+    }
+
+    internal func oldestObservedArchivedId(persistedCursorId: String? = nil) -> String? {
+        guard self.messagesObserver != nil else { return nil }
+        self.ensureObserverLookupMaps()
+        return self.observerOldestArchivedId ?? persistedCursorId ?? self.persistedHistoryCursorId()
+    }
+
+    internal func observedOldestArchivedId() -> String? {
+        guard self.messagesObserver != nil else { return nil }
+        self.ensureObserverLookupMaps()
+        return self.observerOldestArchivedId
+    }
+
+    internal func authoritativeOlderPagingCursorId(persistedCursorId: String? = nil) -> String? {
+        if let persistedCursorId, persistedCursorId.isNotEmpty {
+            return persistedCursorId
+        }
+        return self.observedOldestArchivedId()
+    }
+
+    internal func loadChatArchiveStateSnapshot() -> ChatArchiveStateSnapshot {
+        let primaryKey = LastChatsStorageItem.genPrimary(
+            jid: self.jid,
+            owner: self.owner,
+            conversationType: self.conversationType
+        )
+        do {
+            let realm = try WRealm.safe()
+            let chat = realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: primaryKey
+            )
+            let persistedCursorId = chat?.lastLoadedMessageHistoryId?.isNotEmpty == true ? chat?.lastLoadedMessageHistoryId : nil
+            return ChatArchiveStateSnapshot(
+                primaryKey: primaryKey,
+                persistedCursorId: persistedCursorId,
+                fullArchiveLoaded: chat?.fullArchiveLoaded ?? false
+            )
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            return ChatArchiveStateSnapshot(
+                primaryKey: primaryKey,
+                persistedCursorId: nil,
+                fullArchiveLoaded: false
+            )
+        }
+    }
+
+    internal func persistedHistoryCursorId() -> String? {
+        self.loadChatArchiveStateSnapshot().persistedCursorId
+    }
+
+    @discardableResult
+    internal func applyChatArchiveStateIfNeeded(
+        snapshot: ChatArchiveStateSnapshot,
+        plan: ChatArchiveStateMutationPlan
+    ) -> ChatArchiveStateSnapshot {
+        let updatedSnapshot = ChatArchiveStateSnapshot(
+            primaryKey: snapshot.primaryKey,
+            persistedCursorId: plan.resolvedCursorId,
+            fullArchiveLoaded: plan.fullArchiveLoaded
+        )
+
+        guard plan.needsWrite else {
+            return updatedSnapshot
+        }
+
+        do {
+            let realm = try WRealm.safe()
+            guard let chat = realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: snapshot.primaryKey
+            ) else {
+                return snapshot
+            }
+            try realm.write {
+                if chat.isInvalidated { return }
+                if plan.shouldWriteCursor {
+                    chat.lastLoadedMessageHistoryId = plan.resolvedCursorId
                 }
-                diff.moves.forEach {
-                    self.messagesCollectionView.moveItem(at: $0.from, to: $0.to)
+                if plan.shouldWriteFullArchiveLoaded {
+                    chat.fullArchiveLoaded = plan.fullArchiveLoaded
                 }
-                if !diff.reloads.isEmpty {
-                    self.messagesCollectionView.reconfigureItems(at: diff.reloads)
+            }
+            return updatedSnapshot
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            return snapshot
+        }
+    }
+
+    internal func isFullArchiveLoaded() -> Bool {
+        self.loadChatArchiveStateSnapshot().fullArchiveLoaded
+    }
+
+    internal func setFullArchiveLoaded(_ isLoaded: Bool) {
+        do {
+            let realm = try WRealm.safe()
+            if let chat = realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(
+                    jid: self.jid,
+                    owner: self.owner,
+                    conversationType: self.conversationType
+                )
+            ) {
+                guard chat.fullArchiveLoaded != isLoaded else { return }
+                try realm.write {
+                    if chat.isInvalidated { return }
+                    chat.fullArchiveLoaded = isLoaded
                 }
-            }, completion: { _ in
-                finish()
-            })
+            }
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        }
+    }
+
+    internal func pagingBoundaryContext(visibleSections: [Int]) -> ChatHistoryPagingBoundaryContext {
+        let visibleRealSections = Array(Set(visibleSections.filter {
+            $0 >= 0 &&
+            $0 < self.datasource.count &&
+            !self.datasource[$0].isFakeMessage
+        })).sorted()
+
+        return ChatHistoryPagingBoundaryContext(
+            firstRealSection: self.datasource.firstIndex(where: { !$0.isFakeMessage }),
+            lastRealSection: self.datasource.lastIndex(where: { !$0.isFakeMessage }),
+            visibleRealSections: visibleRealSections
+        )
+    }
+
+    internal func beginInitialBootstrapTracking(queryId: String) {
+        self.initialBootstrapQueryId = queryId
+        self.isInitialBootstrapInFlight = true
+        self.didReceiveInitialBootstrapEndPage = false
+        self.initialBootstrapResultCount = nil
+    }
+
+    internal func resetInitialBootstrapTracking() {
+        self.initialBootstrapQueryId = nil
+        self.isInitialBootstrapInFlight = false
+        self.didReceiveInitialBootstrapEndPage = false
+        self.initialBootstrapResultCount = nil
+    }
+
+    @discardableResult
+    internal func completeInitialBootstrapIfNeeded() -> Bool {
+        guard self.isInitialBootstrapInFlight,
+              self.didReceiveInitialBootstrapEndPage else {
+            return false
+        }
+
+        let hasMessages = (self.messagesObserver?.count ?? 0) > 0
+        let didConfirmEmpty = self.initialBootstrapResultCount == 0
+
+        guard hasMessages || didConfirmEmpty else {
+            return false
+        }
+
+        let snapshot = self.loadChatArchiveStateSnapshot()
+        let resolvedCursorId = ChatArchiveStateMutationPolicy.resolveCursorId(
+            observedCursorId: self.observedOldestArchivedId(),
+            transportFirst: "",
+            transportLast: "",
+            currentPersistedCursorId: snapshot.persistedCursorId
+        )
+        let plan = ChatArchiveStateMutationPolicy.resolvePlan(
+            snapshot: snapshot,
+            resolvedCursorId: resolvedCursorId,
+            nextFullArchiveLoaded: snapshot.fullArchiveLoaded
+        )
+        _ = self.applyChatArchiveStateIfNeeded(snapshot: snapshot, plan: plan)
+        self.resetInitialBootstrapTracking()
+        self.applyBootstrapViewState(self.currentBootstrapViewState(), forceRender: true)
+        return true
+    }
+
+    @discardableResult
+    internal func handleInitialBootstrapEndPageIfNeeded(queryId: String, count: Int) -> Bool {
+        guard queryId == self.initialBootstrapQueryId else {
+            return false
+        }
+
+        self.didReceiveInitialBootstrapEndPage = true
+        self.initialBootstrapResultCount = count
+        _ = self.completeInitialBootstrapIfNeeded()
+        return true
+    }
+
+    internal func capturePagingAnchorIfNeeded(direction: ChatHistoryPageDirection) -> ChatHistoryPageAnchor? {
+        guard direction == .older else {
+            return nil
+        }
+
+        let candidateSections = self.messagesCollectionView
+            .indexPathsForVisibleItems
+            .compactMap(\.section)
+            .sorted()
+            .filter {
+                $0 < self.datasource.count &&
+                !self.datasource[$0].isFakeMessage
+            }
+
+        guard let section = candidateSections.max() else {
+            return nil
+        }
+
+        let indexPath = IndexPath(item: 0, section: section)
+        let attributes = self.messagesCollectionView.layoutAttributesForItem(at: indexPath)
+        let frame = attributes?.frame ?? self.messagesCollectionView.cellForItem(at: indexPath)?.frame
+
+        guard let frame else {
+            return nil
+        }
+
+        return ChatHistoryPageAnchor(
+            primary: self.datasource[section].primary,
+            offsetFromViewportTop: frame.minY - self.messagesCollectionView.contentOffset.y
+        )
+    }
+
+    internal func restorePagingAnchor(_ anchor: ChatHistoryPageAnchor) {
+        guard let section = self.datasourceSnapshot.primaryIndex[anchor.primary] else {
+            return
+        }
+
+        let indexPath = IndexPath(item: 0, section: section)
+        self.messagesCollectionView.layoutIfNeeded()
+
+        let attributes = self.messagesCollectionView.layoutAttributesForItem(at: indexPath)
+        let frame = attributes?.frame ?? self.messagesCollectionView.cellForItem(at: indexPath)?.frame
+
+        guard let frame else {
+            return
+        }
+
+        let minOffsetY = -self.messagesCollectionView.adjustedContentInset.top
+        let maxOffsetY = max(
+            minOffsetY,
+            self.messagesCollectionView.contentSize.height -
+            self.messagesCollectionView.bounds.height +
+            self.messagesCollectionView.adjustedContentInset.bottom
+        )
+        let targetY = ChatHistoryPageAnchorRestorePolicy.targetContentOffsetY(
+            anchorMinY: frame.minY,
+            offsetFromViewportTop: anchor.offsetFromViewportTop,
+            minContentOffsetY: minOffsetY,
+            maxContentOffsetY: maxOffsetY
+        )
+
+        self.messagesCollectionView.setContentOffset(
+            CGPoint(
+                x: self.messagesCollectionView.contentOffset.x,
+                y: targetY
+            ),
+            animated: false
+        )
+    }
+
+    internal func abortInteractiveHistoryPageLoad() {
+        self.interactiveHistoryPageLoadContext = nil
+        self.endHistoryLoadingUI(unlockPage: false)
+        self.setArchiveLoading(false)
+        self.currentPage.unlock()
+    }
+
+    internal func finishPagingInteraction(
+        window: ChatDatasetWindow,
+        shouldApplyWindow: Bool,
+        direction: ChatHistoryPageDirection
+    ) {
+        let applyMode: ChatDatasourceApplyMode = .windowReload(
+            keepOffset: ChatHistoryPageApplyPolicy.keepOffset(direction: direction)
+        )
+        let anchor = self.capturePagingAnchorIfNeeded(direction: direction)
+
+        self.endHistoryLoadingUI(unlockPage: false)
+
+        guard shouldApplyWindow else {
+            self.currentPage.unlock()
+            return
+        }
+
+        self.mapAndApplyWindow(
+            window,
+            mode: applyMode,
+            invalidateLayout: false,
+            completion: {
+                if let anchor {
+                    self.restorePagingAnchor(anchor)
+                }
+                self.currentPage.unlock()
+            },
+            cancelledCompletion: {
+                self.currentPage.unlock()
+            }
+        )
+    }
+
+    @discardableResult
+    internal func completeInteractiveHistoryPageLoadIfNeeded(
+        queryId: String,
+        state: MessageArchivePageEndState,
+        first: String,
+        last: String,
+        count: Int
+    ) -> Bool {
+        guard var context = self.interactiveHistoryPageLoadContext,
+              context.queryId == queryId else {
+            return false
+        }
+
+        context.didReceiveEndPage = true
+        context.queryExhausted = state.queryExhausted
+        context.persistedMessageCount = state.persistedMessageCount
+        context.resultFirst = first
+        context.resultLast = last
+        self.interactiveHistoryPageLoadContext = context
+        _ = self.tryFinishInteractiveHistoryPageLoadIfReady()
+
+        return true
+    }
+
+    @discardableResult
+    internal func tryFinishInteractiveHistoryPageLoadIfReady() -> Bool {
+        guard var context = self.interactiveHistoryPageLoadContext,
+              context.didReceiveEndPage else {
+            return false
+        }
+
+        let currentArchiveState = self.loadChatArchiveStateSnapshot()
+        let currentCount = self.messagesObserver?.count ?? 0
+        let currentOldestArchivedId = self.observedOldestArchivedId()
+        let didAdvance = ChatHistoryPageCompletionPolicy.didAdvance(
+            previousObserverCount: context.preLoadObserverCount,
+            currentObserverCount: currentCount,
+            previousOldestArchivedId: context.preLoadOldestArchivedId,
+            currentOldestArchivedId: currentOldestArchivedId,
+            previousArchiveEnded: context.preLoadFullArchiveLoaded,
+            currentArchiveEnded: currentArchiveState.fullArchiveLoaded
+        )
+        let isMessagePipelineIdle = !(AccountManager.shared.find(for: self.owner)?.messages.hasPendingMessages(forQueryId: context.queryId) ?? false)
+        let requiresObserverSettle = context.direction == .older && (context.persistedMessageCount ?? 0) > 0
+
+        if requiresObserverSettle && isMessagePipelineIdle && !context.didEnterObserverSettlePhase {
+            context.didEnterObserverSettlePhase = true
+            self.interactiveHistoryPageLoadContext = context
+
+            DispatchQueue.main.async {
+                guard var settleContext = self.interactiveHistoryPageLoadContext,
+                      settleContext.queryId == context.queryId else {
+                    return
+                }
+                settleContext.didObservePostIdleTick = true
+                self.interactiveHistoryPageLoadContext = settleContext
+                _ = self.tryFinishInteractiveHistoryPageLoadIfReady()
+            }
+            return false
+        }
+
+        guard ChatHistoryPageCompletionPolicy.shouldFinish(
+            didReceiveEndPage: context.didReceiveEndPage,
+            didAdvance: didAdvance,
+            persistedMessageCount: context.persistedMessageCount,
+            isMessagePipelineIdle: isMessagePipelineIdle,
+            requiresObserverSettle: requiresObserverSettle,
+            didObservePostIdleTick: context.didObservePostIdleTick
+        ) else {
+            return false
+        }
+
+        let resolvedCursorId = ChatArchiveStateMutationPolicy.resolveCursorId(
+            observedCursorId: currentOldestArchivedId,
+            transportFirst: context.resultFirst,
+            transportLast: context.resultLast,
+            currentPersistedCursorId: currentArchiveState.persistedCursorId
+        )
+        let outcome = ChatHistoryPageOutcomePolicy.resolve(
+            queryExhausted: context.queryExhausted,
+            didAdvance: didAdvance,
+            persistedMessageCount: context.persistedMessageCount ?? 0,
+            requestedCursorId: context.requestedCursorId,
+            currentCursorId: resolvedCursorId
+        )
+        let nextFullArchiveLoaded: Bool
+
+        switch outcome {
+        case .advanced:
+            nextFullArchiveLoaded = false
+            self.hasConfirmedArchiveEndThisSession = false
+            if context.isArchiveEndVerificationProbe {
+                self.hasUsedArchiveEndVerificationProbe = true
+            }
+        case .duplicateOrNoAdvance:
+            nextFullArchiveLoaded = false
+            self.hasConfirmedArchiveEndThisSession = false
+            if context.isArchiveEndVerificationProbe {
+                self.hasUsedArchiveEndVerificationProbe = true
+            }
+        case .emptyExhausted:
+            nextFullArchiveLoaded = true
+            self.hasConfirmedArchiveEndThisSession = true
+            if context.isArchiveEndVerificationProbe {
+                self.hasUsedArchiveEndVerificationProbe = true
+            }
+        }
+
+        let archiveStatePlan = ChatArchiveStateMutationPolicy.resolvePlan(
+            snapshot: currentArchiveState,
+            resolvedCursorId: resolvedCursorId,
+            nextFullArchiveLoaded: nextFullArchiveLoaded
+        )
+        _ = self.applyChatArchiveStateIfNeeded(
+            snapshot: currentArchiveState,
+            plan: archiveStatePlan
+        )
+
+        self.interactiveHistoryPageLoadContext = nil
+
+        let previousWindow = self.visibleWindow()
+        let requestedWindow = self.datasetCoordinator.clamp(
+            ChatDatasetWindow(
+                minIndex: context.requestedWindow.minIndex,
+                maxIndex: context.expectedWindowMaxIndex
+            ),
+            totalCount: currentCount
+        )
+        let shouldApplyWindow = previousWindow != requestedWindow || didAdvance
+
+        self.syncCurrentPage(with: requestedWindow)
+        self.finishPagingInteraction(
+            window: requestedWindow,
+            shouldApplyWindow: shouldApplyWindow,
+            direction: context.direction
+        )
+
+        return true
+    }
+
+    internal func mapAndApplyWindow(
+        _ window: ChatDatasetWindow,
+        mode: ChatDatasourceApplyMode,
+        animated: Bool = true,
+        invalidateLayout: Bool = false,
+        completion: (() -> Void)? = nil,
+        cancelledCompletion: (() -> Void)? = nil
+    ) {
+        let normalizedWindow = self.datasetCoordinator.clamp(window, totalCount: self.messagesObserver?.count ?? 0)
+        let slice = self.sliceForWindow(normalizedWindow)
+
+        self.datasetMappingGeneration += 1
+        let generation = self.datasetMappingGeneration
+
+        self.datasetMappingQueue.async {
+            let mappedDatasource = self.mapDataset(dataset: slice)
+
+            DispatchQueue.main.async {
+                guard ChatDatasourceApplyGenerationPolicy.shouldApply(
+                    requestGeneration: generation,
+                    currentGeneration: self.datasetMappingGeneration
+                ) else {
+                    cancelledCompletion?()
+                    return
+                }
+                self.syncCurrentPage(with: normalizedWindow)
+                self.applyChatDatasource(mappedDatasource, mode: mode, animated: animated, invalidateLayout: invalidateLayout, completion: completion)
+            }
+        }
+    }
+
+    internal var isShowingBootstrapPlaceholder: Bool {
+        self.datasource.isEmpty || self.datasource.allSatisfy(\.isFakeMessage)
+    }
+
+    internal var shouldAnimateInitialHistoryAppearance: Bool {
+        ChatInitialHistoryAppearancePolicy.shouldAnimateDatasourceApply(isInitialHistoryAppearancePending: self.initialHistoryAppearancePending)
+    }
+
+    internal func finishInitialHistoryAppearanceIfPossible() {
+        guard self.initialHistoryAppearancePending,
+              ChatInitialHistoryAppearancePolicy.shouldCompleteInitialAppearance(
+                hasViewAppeared: self.hasCompletedInitialHistoryViewAppearance,
+                hasRenderedStableHistory: self.hasRenderedStableInitialHistory
+              ) else { return }
+
+        DispatchQueue.main.async {
+            guard self.initialHistoryAppearancePending,
+                  ChatInitialHistoryAppearancePolicy.shouldCompleteInitialAppearance(
+                    hasViewAppeared: self.hasCompletedInitialHistoryViewAppearance,
+                    hasRenderedStableHistory: self.hasRenderedStableInitialHistory
+                  ) else { return }
+
+            self.initialHistoryAppearancePending = false
+            self.hasRenderedStableInitialHistory = false
+        }
+    }
+
+    internal func bootstrapViewState(chatInstance: LastChatsStorageItem?) -> ChatBootstrapViewState {
+        ChatBootstrapViewState.resolve(
+            messageCount: self.messagesObserver?.count ?? 0,
+            isSynced: chatInstance?.isSynced ?? false,
+            isInitialBootstrapInFlight: self.isInitialBootstrapInFlight
+        )
+    }
+
+    internal func currentBootstrapViewState() -> ChatBootstrapViewState {
+        do {
+            let realm = try WRealm.safe()
+            let chatInstance = realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(
+                    jid: self.jid,
+                    owner: self.owner,
+                    conversationType: self.conversationType
+                )
+            )
+            return self.bootstrapViewState(chatInstance: chatInstance)
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            return ChatBootstrapViewState.resolve(
+                messageCount: self.messagesObserver?.count ?? 0,
+                isSynced: false,
+                isInitialBootstrapInFlight: self.isInitialBootstrapInFlight
+            )
+        }
+    }
+
+    @discardableResult
+    internal func reloadInitialWindowAfterBootstrapIfNeeded(force: Bool = false) -> Bool {
+        let state = self.currentBootstrapViewState()
+        guard force || self.isShowingBootstrapPlaceholder else { return false }
+
+        switch state {
+        case .skeleton:
+            self.syncCurrentPage(with: .empty)
+            self.applyChatDatasource(self.mapDataset(dataset: []), mode: .fullReload(), animated: self.shouldAnimateInitialHistoryAppearance)
+            self.setShouldShowInitialMessage(false)
+        case .content:
+            let window = self.datasetCoordinator.initialWindow(totalCount: self.messagesObserver?.count ?? 0)
+            self.syncCurrentPage(with: window)
+            self.setShouldShowInitialMessage(false)
+            self.mapAndApplyWindow(window, mode: .fullReload(), animated: self.shouldAnimateInitialHistoryAppearance)
+        case .empty:
+            self.syncCurrentPage(with: .empty)
+            self.applyChatDatasource([], mode: .fullReload(), animated: self.shouldAnimateInitialHistoryAppearance)
+            self.setShouldShowInitialMessage(true)
+        }
+        return true
+    }
+
+    internal func applyBootstrapViewState(_ state: ChatBootstrapViewState, forceRender: Bool = false) {
+        switch state {
+        case .skeleton:
+            self.setDatasourceLoadingEnabled(false)
+            self.setShouldShowInitialMessage(false)
+            self.setSkeletonVisible(true)
+            if forceRender || !self.isShowingBootstrapPlaceholder {
+                self.applyChatDatasource(self.mapDataset(dataset: []), mode: .fullReload(), animated: self.shouldAnimateInitialHistoryAppearance)
+            }
+        case .content, .empty:
+            self.setDatasourceLoadingEnabled(true)
+            self.setSkeletonVisible(false)
+            self.reloadInitialWindowAfterBootstrapIfNeeded(force: forceRender)
         }
     }
     
@@ -673,353 +1852,190 @@ extension ChatViewController {
         )
     }
     
-    internal final func onTouchStartPage(direction: ChatDirection) {
+    internal final func onTouchStartPage(direction: ChatHistoryPageDirection) {
         print(#function)
-        FeedbackManager.shared.generate(feedback: .success)
-        self.showLoadingIndicator.accept(true)
-        self.messagesCollectionView.isUserInteractionEnabled = false
-        self.currentPage.prevPage {
-            self.loadDatasource(direction: direction) { addditional in
-                self.showLoadingIndicator.accept(false)
-                if addditional.isNotEmpty {
-                    (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?.cache.invalidate()
-                    var updatedDatasource = self.datasource
-                    updatedDatasource.insert(contentsOf: self.mapDataset(dataset: addditional), at: 0)
-                    self.applyChatDatasource(updatedDatasource, mode: .fullReload(keepOffset: true))
-                }
-                self.messagesCollectionView.isUserInteractionEnabled = true
-                self.loadDatasourceObserver.accept(true)
-                self.currentPage.unlock()
-            }
-        }
-    }
-    
-    internal final func onTouchEndPage(direction: ChatDirection) {
-        print(#function)
-        if self.messagesObserver.count < self.datasourcePageSize {
+        guard self.currentPage.isUnlocked else {
             return
         }
         FeedbackManager.shared.generate(feedback: .success)
-//        DispatchQueue.main.async {
-//            self.messageLoadingActivityIndicator.isHidden = false
-//        }
-        self.showLoadingIndicator.accept(true)
-        self.currentPage.nextPage(autoUnlock: false) {
+        self.beginHistoryLoadingUI()
+        self.currentPage.prevPage {
             self.loadDatasource(direction: direction) { addditional in
-//                DispatchQueue.main.async {
-//                    self.messageLoadingActivityIndicator.isHidden = true
-//                }
-                self.showLoadingIndicator.accept(false)
-                if addditional.isNotEmpty {
-                    let newDatasource = self.mapDataset(dataset: addditional)
-                    if newDatasource.isNotEmpty {
-                        var updatedDatasource = self.datasource
-                        let _ = updatedDatasource.popLast()
-                        updatedDatasource.append(contentsOf: newDatasource)
-                        self.applyChatDatasource(updatedDatasource, mode: .fullReload())
-                    }
-                }
-                self.loadDatasourceObserver.accept(true)
-                self.currentPage.unlock()
+                let window = self.visibleWindow()
+                self.finishPagingInteraction(
+                    window: window,
+                    shouldApplyWindow: addditional.isNotEmpty,
+                    direction: direction
+                )
             }
         }
     }
     
-    internal final func loadInitialDatasource(_ callback: @escaping ((Array<MessageStorageItem>) -> Void)) {
-        func update() {
-            let minIndex: Int = 0
-            var maxIndex: Int = self.datasourcePageSize
-            if maxIndex >= self.messagesObserver.count {
-                maxIndex = self.messagesObserver.count //- 1
-            }
-            if maxIndex <= 0 {
-                maxIndex = 0
-            }
-            self.currentPage.minIndex = minIndex
-            self.currentPage.maxIndex = maxIndex
-            let slice = self.messagesObserver.prefix(upTo: maxIndex)
-            callback(Array(slice))
+    internal final func onTouchEndPage(direction: ChatHistoryPageDirection) {
+        print(#function)
+        guard self.currentPage.isUnlocked else {
+            return
         }
-        
-        func onLoadingDone() {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                self.showSkeletonObserver.accept(false)
-                update()
+        FeedbackManager.shared.generate(feedback: .success)
+        self.beginHistoryLoadingUI()
+        self.currentPage.nextPage(autoUnlock: false) {
+            self.loadDatasource(direction: direction) { addditional in
+                let window = self.visibleWindow()
+                self.finishPagingInteraction(
+                    window: window,
+                    shouldApplyWindow: addditional.isNotEmpty,
+                    direction: direction
+                )
             }
         }
-        
+    }
+    
+    internal final func loadInitialDatasource() {
         do {
             let realm = try WRealm.safe()
-//            guard let chatInstance = realm.object(
-//                ofType: LastChatsStorageItem.self,
-//                forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid,
-//                                                               owner: self.owner,
-//                                                               conversationType: self.conversationType)) else {
-//                callback([])
-//                return
-//            }
             let chatInstance = realm.object(
                 ofType: LastChatsStorageItem.self,
                 forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid,
                                                                owner: self.owner,
                                                                conversationType: self.conversationType))
-            if !(chatInstance?.isSynced ?? false) {
-                self.showSkeletonObserver.accept(true)
-                self.applyChatDatasource(self.mapDataset(dataset: []), mode: .fullReload())
-                var dateLimit: Date? = nil
-                if !self.messagesObserver.isEmpty {
-                    let slice = self.messagesObserver.prefix(self.datasourcePageSize)
-                    slice.enumerated().reversed().forEach {
-                        (offset, item) in
-                        if offset > 0 && dateLimit == nil {
-                            let prevQueryIDs = Set((slice[offset - 1].queryIds ?? "").split(separator: ","))
-                            if prevQueryIDs.intersection(Set((item.queryIds ?? "").split(separator: ","))).isEmpty {
-                                dateLimit = slice[offset -  1].date
-                                return
-                            }
-                        }
-                    }
-                }
-                XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-                    session.mam?.getHistoryByDate(
-                        stream,
-                        jid: self.jid,
-                        conversationType: self.conversationType,
-                        start: dateLimit,
-                        end: nil,
-                        reversed: true,
-                        callback: onLoadingDone
-                    )
-                } fail: {
-                    AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                        user.mam.getHistoryByDate(
-                            stream,
-                            jid: self.jid,
-                            conversationType: self.conversationType,
-                            start: dateLimit,
-                            end: nil,
-                            reversed: true,
-                            callback: onLoadingDone
-                        )
-                    })
-                }
-
-            } else {
-                update()
-            }
-            
+            self.applyBootstrapViewState(self.bootstrapViewState(chatInstance: chatInstance), forceRender: true)
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
     }
     
-    internal final func loadDatasource(direction: ChatDirection, first: Bool = false, ignoreGaps: Bool = false, samePage: Bool = false, callback: @escaping ((Array<MessageStorageItem>) -> Void)) {
-        func onLoadingDone() {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                var (minIndex, maxIndex) = getIndexes()
-                if maxIndex > self.messagesObserver.count {
-                    maxIndex = self.messagesObserver.count
-                }
-                if maxIndex < 0 {
-                    maxIndex = 0
-                }
-                let slice = Array(self.messagesObserver.prefix(upTo: maxIndex).suffix(maxIndex - minIndex))
-//                self.currentPage.minIndex = minIndex
-//                self.currentPage.maxIndex = maxIndex
-                switch direction {
-                    case .down:
-                        self.currentPage.minIndex = minIndex
-                    case .up:
-                        self.currentPage.maxIndex = maxIndex
-                }
-                self.messageLoadingActivityIndicator.isHidden = true
-                callback(slice)
-                self.currentPage.unlock()
-            }
-        }
-        
-        func getIndexes() -> (Int, Int){
-            let pageStartIndex: Int // = self.c//self.currentPage.page * self.datasourcePageSize
-            let pageEndIndex: Int
-            
+    internal final func loadDatasource(direction: ChatHistoryPageDirection, first: Bool = false, ignoreGaps: Bool = false, samePage: Bool = false, callback: @escaping ((Array<MessageStorageItem>) -> Void)) {
+        func getWindow() -> ChatDatasetWindow {
+            let currentWindow = self.visibleWindow()
+
             if samePage {
-//                guard let currentIndexMin = self.datasource.filter {  }
-                pageStartIndex = currentPage.minIndex
-                pageEndIndex = currentPage.maxIndex
-            } else {
-                print(direction)
-                switch direction {
-                    case .down:
-                        pageStartIndex = currentPage.minIndex
-                        pageEndIndex = pageStartIndex - self.datasourcePageSize
-                    case .up:
-                        pageStartIndex = currentPage.maxIndex
-                        pageEndIndex = pageStartIndex + self.datasourcePageSize
-                }
+                return self.datasetCoordinator.clamp(currentWindow, totalCount: self.messagesObserver.count)
             }
-            let maxIndex = [pageStartIndex, pageEndIndex].max() ?? 0
-            let minIndex = [[pageStartIndex, pageEndIndex].min() ?? 0, 0].max() ?? 0
-            
-            return (minIndex, maxIndex)
+
+            return self.datasetCoordinator.nextWindow(
+                from: currentWindow,
+                direction: direction
+            )
         }
         
         guard self.messagesObserver != nil else {
-            self.loadDatasourceObserver.accept(true)
+            self.setDatasourceLoadingEnabled(true)
             self.currentPage.unlock()
             callback([])
             return
         }
-        if direction == .down && self.currentPage.minIndex < 0 {
-            self.loadDatasourceObserver.accept(true)
+        let currentWindow = self.visibleWindow()
+        let requestedWindow = getWindow()
+        if requestedWindow.isEmpty && !first {
+            self.setDatasourceLoadingEnabled(true)
             self.currentPage.unlock()
             callback([])
             return
         }
-        if self.currentPage.minIndex == 0 && self.currentPage.maxIndex >= self.messagesObserver.count - 1 && direction == .up {// !first{
-            self.loadDatasourceObserver.accept(true)
-            self.currentPage.unlock()
-            callback([])
-            return
-        }
-        if direction == .up && self.currentPage.maxIndex >= self.messagesObserver.count - 1 {
-            self.loadDatasourceObserver.accept(true)
-            self.currentPage.unlock()
-            callback([])
-            return
-        }
-        var (minIndex, maxIndex) = getIndexes()
-        if minIndex == 0 && maxIndex == 0 && !first {
-            self.loadDatasourceObserver.accept(true)
-            self.currentPage.unlock()
-            callback([])
-            return
-        }
-        print(minIndex, maxIndex, "INDEXES", self.messagesObserver.count, "count")
-        print(1)
-        var hasGap: Bool = false
-        var archivedId: String = ""
-        var isArchiveEnded: Bool = false
-        do {
-            let realm = try WRealm.safe()
-            isArchiveEnded = realm.object(
-                ofType: LastChatsStorageItem.self,
-                forPrimaryKey: LastChatsStorageItem.genPrimary(
-                    jid: self.jid,
-                    owner: self.owner,
-                    conversationType: self.conversationType
-                )
-            )?.fullArchiveLoaded ?? false
-        } catch {
-            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-        }
-        if minIndex >= self.messagesObserver.count && isArchiveEnded {
-            callback([])
-            return
-        } else if maxIndex > self.messagesObserver.count {
-            maxIndex = self.messagesObserver.count
-            if !(isArchiveEnded) {
-                hasGap = !ignoreGaps
-                archivedId = self.messagesObserver.last?.archivedId ?? ""
-            }
-        }
-        if !hasGap {
-            if maxIndex > self.messagesObserver.count {
-                maxIndex = self.messagesObserver.count - 1
-            }
-            if minIndex < 0 {
-                minIndex = 0
-            }
-            let slice = Array(self.messagesObserver.prefix(upTo: maxIndex).suffix(maxIndex - minIndex))
-            print("BEFORE min", minIndex, "max", maxIndex)
-            slice.enumerated().forEach {
-                (offset, item) in
-                let newIndex = offset + 1
-                if newIndex < slice.count {
-                    let currentQueryIds: Set<String> = Set((slice[offset].queryIds ?? "").split(separator: ",").compactMap { return String($0) })
-                    if currentQueryIds.intersection(["runtime_send", "runtime_send"]).isEmpty {
-                        let nextQueryIds: Set<String> = Set((slice[newIndex].queryIds ?? "").split(separator: ",").compactMap { return String($0) })
-                        let intersection = currentQueryIds.intersection(nextQueryIds)
-                        if intersection.isEmpty {
-                            hasGap = !ignoreGaps
-                        }
-                    }
+        let localWindow = self.datasetCoordinator.clamp(requestedWindow, totalCount: self.messagesObserver.count)
+        let chatArchiveState = self.loadChatArchiveStateSnapshot()
+        let persistedArchiveEnded = chatArchiveState.fullArchiveLoaded
+        let shouldProbePersistedArchiveEnd = ChatArchiveEndVerificationPolicy.shouldProbePersistedArchiveEnd(
+            persistedArchiveEnded: persistedArchiveEnded,
+            hasConfirmedArchiveEndThisSession: self.hasConfirmedArchiveEndThisSession,
+            hasUsedVerificationProbe: self.hasUsedArchiveEndVerificationProbe
+        )
+        let effectiveArchiveEnded = ChatArchiveEndVerificationPolicy.effectiveArchiveEnded(
+            persistedArchiveEnded: persistedArchiveEnded,
+            shouldProbePersistedArchiveEnd: shouldProbePersistedArchiveEnd
+        )
+        let decision = ChatHistoryPagingPolicy.loadDecision(
+            direction: direction,
+            currentWindow: currentWindow,
+            requestedWindow: requestedWindow,
+            localWindow: localWindow,
+            totalCount: self.messagesObserver.count,
+            isArchiveEnded: effectiveArchiveEnded
+        )
+
+        switch decision {
+        case .localOnly:
+            let window = self.datasetCoordinator.clamp(localWindow, totalCount: self.messagesObserver.count)
+            self.syncCurrentPage(with: window)
+            callback(self.sliceForWindow(window))
+        case .remoteOlderPage:
+            let archivedId = self.authoritativeOlderPagingCursorId(persistedCursorId: chatArchiveState.persistedCursorId)
+            let queryId = "MAM next history: \(NanoID.new(6))"
+            let requestCallbacks = MessageArchiveManager.RequestCallbacks(
+                onMessage: nil,
+                onEndPage: { [weak self] queryId, state, first, last, count in
+                    self?.didReceiveEndPage(queryId: queryId, state: state, first: first, last: last, count: count)
                 }
-            }
-            if !hasGap {
-                switch direction {
-                    case .down:
-                        self.currentPage.minIndex = minIndex
-                    case .up:
-                        self.currentPage.maxIndex = maxIndex
-                }
-//                self.currentPage.minIndex = minIndex
-//                self.currentPage.maxIndex = maxIndex
-                callback(slice)
-            }
-            switch direction {
-                case .down:
-                    if minIndex == 0 {
-                        archivedId = ""
-                    } else {
-                        archivedId = slice.first?.archivedId ?? ""
-                    }
-                case .up: 
-                    archivedId = slice.last?.archivedId ?? ""
-            }
-        }
-        if hasGap {
+            )
+            self.interactiveHistoryPageLoadContext = ChatInteractiveHistoryPageLoadContext(
+                queryId: queryId,
+                direction: direction,
+                chatPrimaryKey: chatArchiveState.primaryKey,
+                persistedCursorId: chatArchiveState.persistedCursorId,
+                persistedFullArchiveLoaded: chatArchiveState.fullArchiveLoaded,
+                requestedCursorId: archivedId,
+                requestedWindow: requestedWindow,
+                preLoadObserverCount: self.messagesObserver.count,
+                preLoadOldestArchivedId: self.observedOldestArchivedId(),
+                preLoadFullArchiveLoaded: shouldProbePersistedArchiveEnd ? false : persistedArchiveEnded,
+                remoteFetchStarted: true,
+                isArchiveEndVerificationProbe: shouldProbePersistedArchiveEnd,
+                expectedWindowMaxIndex: requestedWindow.maxIndex
+            )
             self.currentPage.locked = true
+            self.setArchiveLoading(true)
+
+            let requestRemoteHistory: (XMPPStream, MessageArchiveManager) -> String = { stream, mam in
+                mam.getNextHistory(
+                    stream,
+                    for: self.jid,
+                    conversationType: self.conversationType,
+                    messageId: archivedId,
+                    pageSize: self.datasourcePageSize,
+                    queryId: queryId,
+                    callback: nil,
+                    requestCallbacks: requestCallbacks
+                )
+            }
+
+            let requestFallbackHistory = {
+                guard let account = AccountManager.shared.find(for: self.owner) else {
+                    DispatchQueue.main.async {
+                        self.abortInteractiveHistoryPageLoad()
+                    }
+                    return
+                }
+
+                account.action { user, stream in
+                    _ = requestRemoteHistory(stream, user.mam)
+                }
+            }
+
             XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-                switch direction {
-                    case .up:
-                        session.mam?.getNextHistory(
-                            stream,
-                            for: self.jid,
-                            conversationType: self.conversationType,
-                            messageId: archivedId,
-                            callback: onLoadingDone
-                        )
-                    case .down:
-                        session.mam?.getPrevHistory(
-                            stream,
-                            for: self.jid,
-                            conversationType: self.conversationType,
-                            messageId: archivedId,
-                            callback: onLoadingDone
-                        )
+                if let mam = session.mam {
+                    _ = requestRemoteHistory(stream, mam)
+                } else {
+                    requestFallbackHistory()
                 }
             } fail: {
-                AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                    switch direction {
-                        case .up:
-                            user.mam.getNextHistory(
-                                stream,
-                                for: self.jid,
-                                conversationType: self.conversationType,
-                                messageId: archivedId,
-                                callback: onLoadingDone
-                            )
-                        case .down:
-                            user.mam.getPrevHistory(
-                                stream,
-                                for: self.jid,
-                                conversationType: self.conversationType,
-                                messageId: archivedId,
-                                callback: onLoadingDone
-                            )
-                    }
-                })
+                requestFallbackHistory()
             }
+        case .endReached:
+            self.setDatasourceLoadingEnabled(true)
+            self.currentPage.unlock()
+            callback([])
+            return
         }
     }
     
     
     func didReceiveChangeset() {
         if self.datasource.isNotEmpty {
-            self.shouldShowInitialMessage.accept(false)
+            self.setShouldShowInitialMessage(false)
         }
+        self.ensureObserverLookupMaps()
         guard let maxPrimary = self.datasource.filter({ !$0.isFakeMessage }).last?.primary,
-              let maxIndexRaw = self.messagesObserver.firstIndex(where: { $0.primary == maxPrimary }) else {
+              let maxIndexRaw = self.observerPrimaryIndexMap[maxPrimary] else {
             return
         }
         var maxIndex = maxIndexRaw
@@ -1029,56 +2045,40 @@ extension ChatViewController {
             }
         }
         let minIndex = self.currentPage.minIndex
-        let array = Array(self.messagesObserver.prefix(upTo: maxIndex).suffix(maxIndex - minIndex))
-        let newDatasource = self.mapDataset(dataset: array)
-        let diff = diff(old: self.datasource, new: newDatasource)
-        let updated = diff.compactMap { $0.replace }
-        let inserted = diff.compactMap { $0.insert }
-        let deleted = diff.compactMap { $0.delete }
-        let moved = diff.compactMap { $0.move }
-        if updated.isEmpty && inserted.isEmpty && deleted.isEmpty && moved.isEmpty { return }
-        self.messagesCollectionView.collectionViewLayout.invalidateLayout()
-        DispatchQueue.main.async {
-            self.applyChatDatasource(newDatasource, mode: .targetedDiff, invalidateLayout: true)
-        }
+        let window = self.datasetCoordinator.clamp(ChatDatasetWindow(minIndex: minIndex, maxIndex: maxIndex), totalCount: self.messagesObserver.count)
+        self.mapAndApplyWindow(window, mode: .targetedDiff, animated: self.shouldAnimateInitialHistoryAppearance, invalidateLayout: false)
     }
     
     internal func scrollToLastOrUnreadItem() {
+        let shouldAnimateScroll = !self.initialHistoryAppearancePending
         if self.currentPage.minIndex > 0 {
             self.currentPage.setCustomPage(0) {
-                var maxIndex = self.datasourcePageSize / 2
-                let minIndex =  0
-                if maxIndex > self.messagesObserver.count {
-                    maxIndex = self.messagesObserver.count
-                }
-                
-                let slice = Array(self.messagesObserver.prefix(upTo: maxIndex).suffix(from: minIndex))
-                self.currentPage.minIndex = minIndex
-                self.currentPage.maxIndex = maxIndex
-                
+                let window = self.datasetCoordinator.initialWindow(totalCount: self.messagesObserver.count)
+                self.syncCurrentPage(with: window)
                 self.currentPage.unlock()
-                self.applyChatDatasource(self.mapDataset(dataset: slice), mode: .fullReload(), invalidateLayout: true)
-                if let index = self.unreadMessagePositionId {
-                    if Set(self.messagesCollectionView.indexPathsForVisibleItems.compactMap({ return $0.section })).contains(index) {
-                        self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: 0), at: .top, animated: false)
+                self.mapAndApplyWindow(window, mode: .windowReload(), animated: shouldAnimateScroll, invalidateLayout: true, completion: {
+                    if let index = self.unreadMessagePositionId {
+                        if Set(self.messagesCollectionView.indexPathsForVisibleItems.compactMap({ return $0.section })).contains(index) {
+                            self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: 0), at: .top, animated: false)
+                        } else {
+                            self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: index), at: .centeredVertically, animated: false)
+                        }
                     } else {
-                        self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: index), at: .centeredVertically, animated: false)
+                        self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: 0), at: .top, animated: false)
                     }
-                } else {
-                    self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: 0), at: .top, animated: false)
-                }
-                self.showFloatingDateObserver.accept(true)
+                    self.setFloatingDateVisible(true)
+                })
             }
         }
         if let index = self.unreadMessagePositionId {
             if Set(self.messagesCollectionView.indexPathsForVisibleItems.compactMap({ return $0.section })).contains(index) {
-                self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: 0), at: .top, animated: true)
+                self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: 0), at: .top, animated: shouldAnimateScroll)
             } else {
-                self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: index), at: .centeredVertically, animated: true)
+                self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: index), at: .centeredVertically, animated: shouldAnimateScroll)
             }
         } else {
             if self.datasource.isNotEmpty {
-                self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: 0), at: .top, animated: true)
+                self.messagesCollectionView.scrollToItem(at: IndexPath(row: 0, section: 0), at: .top, animated: shouldAnimateScroll)
             }
         }
     }

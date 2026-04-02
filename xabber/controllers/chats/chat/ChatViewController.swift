@@ -31,7 +31,16 @@ import CocoaLumberjack
 import AVFoundation
 import XMPPFramework.XMPPJID
 
+enum ChatHistoryPagingConfiguration {
+    static let pageSize: Int = 100
+}
+
 class ChatViewController: MessagesViewController {
+    struct ObserverLookupSignature: Equatable {
+        let count: Int
+        let firstPrimary: String?
+        let lastPrimary: String?
+    }
     
     struct ChangesetItem: Hashable, Equatable {
         let index: Int
@@ -297,7 +306,7 @@ class ChatViewController: MessagesViewController {
         }
     }
         
-    let datasourcePageSize: Int = 100
+    let datasourcePageSize: Int = ChatHistoryPagingConfiguration.pageSize
         
     var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
 
@@ -321,6 +330,10 @@ class ChatViewController: MessagesViewController {
         }
     }
     var datasourceSnapshot: ChatDatasourceSnapshot = .empty
+    var observerPrimaryIndexMap: [String: Int] = [:]
+    var observerArchivedIdIndexMap: [String: Int] = [:]
+    var observerOldestArchivedId: String? = nil
+    var observerLookupSignature: ObserverLookupSignature? = nil
     
     
     var sharedPlayerPaneldelegae: SharedAudioPlayerPanelDelegate? = nil
@@ -335,6 +348,9 @@ class ChatViewController: MessagesViewController {
     
 // skeleton
     var showSkeletonObserver: BehaviorRelay<Bool> = BehaviorRelay(value: true)
+    var initialHistoryAppearancePending: Bool = true
+    var hasRenderedStableInitialHistory: Bool = false
+    var hasCompletedInitialHistoryViewAppearance: Bool = false
 
     var showLoadingIndicator: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     
@@ -387,6 +403,13 @@ class ChatViewController: MessagesViewController {
     var searchMessagesQueue: [MessageStorageItem] = []
     var searchTextObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)
     var currentSearchQueryId: String? = nil
+    var interactiveHistoryPageLoadContext: ChatInteractiveHistoryPageLoadContext? = nil
+    var initialBootstrapQueryId: String? = nil
+    var isInitialBootstrapInFlight: Bool = false
+    var didReceiveInitialBootstrapEndPage: Bool = false
+    var initialBootstrapResultCount: Int? = nil
+    var hasConfirmedArchiveEndThisSession: Bool = false
+    var hasUsedArchiveEndVerificationProbe: Bool = false
     var inSearchMode: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     var searchSeekDirection: ChatDirection? = nil
     var selectedSearchResultId: String? = nil
@@ -407,6 +430,7 @@ class ChatViewController: MessagesViewController {
     
     internal var canLoadDatasource: Bool = false
     internal var loadDatasourceObserver: BehaviorRelay<Bool> = BehaviorRelay(value: true)
+    internal var historyLoadingGeneration: Int = 0
     
     internal var messagesToReadObserver: BehaviorRelay<Set<String>> = BehaviorRelay(value: Set())
     
@@ -415,6 +439,116 @@ class ChatViewController: MessagesViewController {
         
         return view
     }()
+
+    internal func performOnMain(_ block: @escaping () -> Void) {
+        if Thread.isMainThread {
+            block()
+        } else {
+            DispatchQueue.main.async(execute: block)
+        }
+    }
+
+    internal func setLoadingIndicatorVisible(_ isVisible: Bool) {
+        self.performOnMain {
+            self.showLoadingIndicator.accept(isVisible)
+        }
+    }
+
+    internal func setSkeletonVisible(_ isVisible: Bool) {
+        self.performOnMain {
+            self.showSkeletonObserver.accept(isVisible)
+        }
+    }
+
+    internal func setFloatingDateVisible(_ isVisible: Bool) {
+        self.performOnMain {
+            self.showFloatingDateObserver.accept(isVisible)
+        }
+    }
+
+    internal func setFloatingDateHidden(_ isHidden: Bool) {
+        self.performOnMain {
+            self.hideFloatingDateObserver.accept(isHidden)
+        }
+    }
+
+    internal func setDatasourceLoadingEnabled(_ isEnabled: Bool) {
+        self.performOnMain {
+            self.canLoadDatasource = isEnabled
+            self.loadDatasourceObserver.accept(isEnabled)
+        }
+    }
+
+    private func scheduleHistoryLoadingWatchdog(generation: Int, startedAt: Date) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + ChatHistoryLoadingTimeoutPolicy.checkInterval) {
+            guard self.historyLoadingGeneration == generation, self.currentPage.isLoading else {
+                return
+            }
+
+            if self.interactiveHistoryPageLoadContext == nil {
+                self.endHistoryLoadingUI(unlockPage: true)
+                return
+            }
+
+            if self.tryFinishInteractiveHistoryPageLoadIfReady() {
+                return
+            }
+
+            let elapsed = Date().timeIntervalSince(startedAt)
+            guard !ChatHistoryLoadingTimeoutPolicy.shouldAbortInteractivePageLoad(elapsed: elapsed) else {
+                self.abortInteractiveHistoryPageLoad()
+                return
+            }
+
+            self.scheduleHistoryLoadingWatchdog(generation: generation, startedAt: startedAt)
+        }
+    }
+
+    internal func beginHistoryLoadingUI() {
+        self.performOnMain {
+            self.historyLoadingGeneration += 1
+            let generation = self.historyLoadingGeneration
+            let startedAt = Date()
+
+            self.currentPage.isLoading = true
+            self.setLoadingIndicatorVisible(true)
+            self.setArchiveLoading(true)
+            self.messagesCollectionView.isUserInteractionEnabled = false
+
+            self.scheduleHistoryLoadingWatchdog(generation: generation, startedAt: startedAt)
+        }
+    }
+
+    internal func endHistoryLoadingUI(unlockPage: Bool) {
+        self.performOnMain {
+            self.currentPage.isLoading = false
+            self.setLoadingIndicatorVisible(false)
+            self.setArchiveLoading(false)
+            self.messagesCollectionView.isUserInteractionEnabled = true
+            self.setDatasourceLoadingEnabled(true)
+            if unlockPage {
+                self.currentPage.unlock()
+            }
+        }
+    }
+
+    internal func setStatusText(_ text: String) {
+        self.performOnMain {
+            self.statusTextObserver.accept(text)
+        }
+    }
+
+    internal func setTopPanelState(_ state: TopPanelState) {
+        self.performOnMain {
+            self.topPanelState.accept(state)
+        }
+    }
+
+    internal func setShouldShowInitialMessage(_ shouldShow: Bool) {
+        self.performOnMain {
+            self.shouldShowInitialMessage.accept(shouldShow)
+        }
+    }
     
     internal lazy var skeletonMessages: [NSAttributedString] = {
         return (0..<30).compactMap {
@@ -433,6 +567,18 @@ class ChatViewController: MessagesViewController {
         )
         return queue
     }()
+
+    internal let datasetMappingQueue: DispatchQueue = {
+        let queue = DispatchQueue(
+            label: "com.xabber.chat.dataset.mapping",
+            qos: .userInitiated,
+            attributes: [],
+            autoreleaseFrequency: .workItem,
+            target: nil
+        )
+        return queue
+    }()
+    internal var datasetMappingGeneration: Int = 0
     
     let sectionsDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -979,33 +1125,33 @@ class ChatViewController: MessagesViewController {
                         case .none:
                             switch item.ask {
                                 case .in, .both:
-                                    self.topPanelState.accept(.allowSubscribtion)
+                                    self.setTopPanelState(.allowSubscribtion)
                                 default:
                                     if [.addContact, .requestSubscribtion].contains(self.topPanelState.value) {
-                                        self.topPanelState.accept(.none)
+                                        self.setTopPanelState(.none)
                                     }
                             }
                         case .to:
                             switch item.ask {
                                 case .in:
-                                    self.topPanelState.accept(.addContact)
+                                    self.setTopPanelState(.addContact)
                                 default:
                                     if [.addContact, .requestSubscribtion].contains(self.topPanelState.value) {
-                                        self.topPanelState.accept(.none)
+                                        self.setTopPanelState(.none)
                                     }
                             }
                         case .undefined:
                             switch item.ask {
                                 case .in:
-                                    self.topPanelState.accept(.requestSubscribtion)
+                                    self.setTopPanelState(.requestSubscribtion)
                                 default:
                                     if [.addContact, .requestSubscribtion].contains(self.topPanelState.value) {
-                                        self.topPanelState.accept(.none)
+                                        self.setTopPanelState(.none)
                                     }
                             }
                         default:
                             if [.addContact, .requestSubscribtion].contains(self.topPanelState.value) {
-                                self.topPanelState.accept(.none)
+                                self.setTopPanelState(.none)
                             }
                     }
                     self.shouldShowNormalStatus = false
@@ -1045,7 +1191,7 @@ class ChatViewController: MessagesViewController {
                 self.contactStatus = "Not in your contacts"
                     .localizeString(id: "contact_state_not_in_contact_list", arguments: [])
 //                    self.showSubscribtionBar(animated: true, state: .notInRoster)
-                self.topPanelState.accept(.addContact)
+                self.setTopPanelState(.addContact)
                 self.updateStatusText()
                 return
             }
@@ -1064,7 +1210,7 @@ class ChatViewController: MessagesViewController {
                 self.statusLabel.text = statusStr
             }
             if self.shouldShowNormalStatus {
-                self.statusTextObserver.accept(statusStr)
+                self.setStatusText(statusStr)
                 self.contactStatus = status
                 self.statusLabel.layoutIfNeeded()
             }
@@ -1274,7 +1420,6 @@ class ChatViewController: MessagesViewController {
         self.view.addSubview(self.messageLoadingActivityIndicator)
         self.messageLoadingActivityIndicator.startAnimating()
         self.messageLoadingActivityIndicator.isHidden = true
-        self.view.addSubview(self.initialMessageOverlayView)
         if self.sharedAudioPlayerPanel != nil {
             self.view.addSubview(self.sharedAudioPlayerPanel!)
             AudioManager.shared.addMulticastDelegate(self.sharedAudioPlayerPanel)
@@ -1481,7 +1626,7 @@ class ChatViewController: MessagesViewController {
         if previousFrame == self.view.bounds {
             return
         }
-        self.topPanelState.accept(self.topPanelState.value)
+        self.setTopPanelState(self.topPanelState.value)
         previousFrame = self.view.bounds
         backgroundView.frame = CGRect(
             origin: CGPoint(x: 0, y: 0),//((UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.top ?? 0) + (self.navigationController?.navigationBar.frame.height ?? 0)),
@@ -1756,11 +1901,14 @@ class ChatViewController: MessagesViewController {
         
         self.lowPrioritySubscribtions()
         self.setupEncryptedChat()
+        self.initialHistoryAppearancePending = ChatInitialHistoryAppearancePolicy.shouldStart(
+            isShowingBootstrapPlaceholder: self.isShowingBootstrapPlaceholder
+        )
+        self.hasRenderedStableInitialHistory = false
+        self.hasCompletedInitialHistoryViewAppearance = false
         if self.datasource.isEmpty {
-            self.showFloatingDateObserver.accept(false)
-            self.loadInitialDatasource { array in
-                self.applyChatDatasource(self.mapDataset(dataset: array), mode: .fullReload())
-            }
+            self.setFloatingDateVisible(false)
+            self.loadInitialDatasource()
         }
         self.configureNavbar()
         if self.inSearchMode.value {
@@ -1790,16 +1938,18 @@ class ChatViewController: MessagesViewController {
                 self.onUpdateTimeSignatureBlockState(!SignatureManager.shared.isSignatureValid())
             }
         }
-        self.showFloatingDateObserver.accept(false)
+        self.setFloatingDateVisible(false)
         self.pinnedDateView.hide(withoutAnimation: true)
     }
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        self.hasCompletedInitialHistoryViewAppearance = true
+        self.finishInitialHistoryAppearanceIfPossible()
         self.shouldChangeFrame()
         self.willUpdateFloatingDate()
-        self.hideFloatingDateObserver.accept(true)
-        self.showFloatingDateObserver.accept(false)
+        self.setFloatingDateHidden(true)
+        self.setFloatingDateVisible(false)
         self.pinnedDateView.hide(withoutAnimation: true)
         self.addObservers()
 //        self.topPanelState.accept(.audioPlayer)

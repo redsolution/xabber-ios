@@ -28,9 +28,9 @@ import CocoaLumberjack
 extension ChatViewController {
     internal func updateStatusText() {
         if let text = CommonChatStatesManager.shared.actionText(for: self.jid, owner: self.owner) {
-            self.statusTextObserver.accept(text)
+            self.setStatusText(text)
         } else {
-            self.statusTextObserver.accept(AccountManager
+            self.setStatusText(AccountManager
                 .shared
                 .connectingUsers
                 .value
@@ -51,12 +51,17 @@ extension ChatViewController {
             .observed
             .asObservable()
             .debounce(.milliseconds(500), scheduler: MainScheduler.asyncInstance)
+            .observe(on: MainScheduler.asyncInstance)
             .subscribe(onNext: { (_) in
                 self.updateStatusText()
             })
             .disposed(by: bag)
         
-        self.loadDatasourceObserver.asObservable().debounce(.seconds(1), scheduler: MainScheduler.asyncInstance).subscribe { value in
+        self.loadDatasourceObserver
+            .asObservable()
+            .distinctUntilChanged()
+            .observe(on: MainScheduler.asyncInstance)
+            .subscribe { value in
             self.canLoadDatasource = value
         }.disposed(by: self.bag)
 
@@ -65,6 +70,7 @@ extension ChatViewController {
             .asObservable()
             .skip(1)
             .debounce(.milliseconds(400), scheduler: MainScheduler.asyncInstance)
+            .observe(on: MainScheduler.asyncInstance)
             .subscribe { value in
                 if self.showSkeletonObserver.value {
                     return
@@ -90,10 +96,10 @@ extension ChatViewController {
                         $0.minY < 150
                     })
                     if visibleItems.isEmpty {
-                        self.showFloatingDateObserver.accept(value)
+                        self.setFloatingDateVisible(value)
                     } else if visibleItems.isNotEmpty && visibleDateFrames.isEmpty && ((visibleItems.compactMap({ $0.section }).max() ?? 0) != self.datasource.count - 1) {
                         self.pinnedDateView.show()
-                        self.hideFloatingDateObserver.accept(true)
+                        self.setFloatingDateHidden(true)
                     } else {
                         self.pinnedDateView.hide(fast: true)
                     }
@@ -105,6 +111,7 @@ extension ChatViewController {
         self.hideFloatingDateObserver
             .asObservable()
             .debounce(.seconds(3), scheduler: MainScheduler.asyncInstance)
+            .observe(on: MainScheduler.asyncInstance)
             .subscribe { value in
                 if value {
                     self.pinnedDateView.hide()
@@ -115,6 +122,7 @@ extension ChatViewController {
         inTypingMode
             .asObservable()
             .window(timeSpan: .seconds(5), count: 22, scheduler: MainScheduler.asyncInstance)
+            .observe(on: MainScheduler.asyncInstance)
             .subscribe(onNext: { (_) in
                 
                 if SettingManager.shared.get(bool: SettingManager.PrivacySettings.typingNotification.rawValue) {
@@ -139,6 +147,7 @@ extension ChatViewController {
         editMessageId
             .asObservable()
             .debounce(.microseconds(5), scheduler: MainScheduler.asyncInstance)
+            .observe(on: MainScheduler.asyncInstance)
             .subscribe(onNext: { (result) in
                 if (result?.isNotEmpty ?? false) {
                     do {
@@ -200,6 +209,7 @@ extension ChatViewController {
         attachedMessagesIds
             .asObservable()
             .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
+            .observe(on: MainScheduler.asyncInstance)
             .subscribe(onNext: { (results) in
                 do {
                     if results.isEmpty {
@@ -273,6 +283,7 @@ extension ChatViewController {
         forwardedIds
             .asObservable()
             .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
+            .observe(on: MainScheduler.asyncInstance)
             .subscribe(onNext: { (results) in
                 do {
                     let realm = try WRealm.safe()
@@ -297,6 +308,7 @@ extension ChatViewController {
         isInSelectionMode
             .asObservable()
             .skip(1)
+            .observe(on: MainScheduler.asyncInstance)
             .subscribe(onNext: { (value) in
                 if value {
                     self.navigationItem.setRightBarButton(self.cancelSelectionBarButton, animated: true)
@@ -317,6 +329,7 @@ extension ChatViewController {
         blockInputFieldByTimeSignature
             .asObservable()
             .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
+            .observe(on: MainScheduler.asyncInstance)
             .subscribe { value in
                 self.onUpdateTimeSignatureBlockState(value)
             } onError: { error in
@@ -332,51 +345,54 @@ extension ChatViewController {
         self.showSkeletonObserver
             .asObservable()
 //            .skip(1)
+            .observe(on: MainScheduler.asyncInstance)
             .subscribe { value in
+                var didReloadInitialWindow = false
 //                self.runDatasetUpdateTask(shouldScrollToLastMessage: true)
-                if !value {
-                    if AccountManager.shared.connectingUsers.value.contains(self.owner) {
-                        self.xabberInputView.isSendButtonEnabled = false
-                    } else {
-                        do {
-                            let realm = try WRealm.safe()
-                            let badMessageCollection = realm
-                                .objects(MessageStorageItem.self)
-                                .filter(
-                                    "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND messageType != %@ AND (state_ == %@ OR state_ == %@)",
-                                    self.owner,
-                                    self.jid,
-                                    self.conversationType.rawValue,
-                                    MessageStorageItem.MessageDisplayType.system.rawValue,
-                                    MessageStorageItem.MessageSendingState.sending.rawValue,
-                                    MessageStorageItem.MessageSendingState.error.rawValue
-                                )
-                            if value {
-                                self.xabberInputView.isSendButtonEnabled = false
-                            } else {
-                                self.xabberInputView.isSendButtonEnabled = badMessageCollection.isEmpty
-                            }
-                            if let chatInstance = realm.object(
-                                ofType: LastChatsStorageItem.self,
-                                forPrimaryKey: LastChatsStorageItem.genPrimary(
-                                    jid: self.jid,
-                                    owner: self.owner,
-                                    conversationType: self.conversationType
-                                )
-                            ) {
-                                self.shouldShowInitialMessage.accept(self.messagesObserver.isEmpty && chatInstance.isSynced)
-                            } else {
-                                self.shouldShowInitialMessage.accept(self.messagesObserver.isEmpty)
-                            }
-                        } catch {
-                            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-                        }
-                        
-                    }
-                }
-                self.didReceiveChangeset()
-                self.xabberInputView.updateSendButtonState()
-            } onError: { _ in
+                if value {
+                    self.xabberInputView.isSendButtonEnabled = false
+                    self.setShouldShowInitialMessage(false)
+                } else if AccountManager.shared.connectingUsers.value.contains(self.owner) {
+                    self.xabberInputView.isSendButtonEnabled = false
+                } else {
+                    do {
+                        let realm = try WRealm.safe()
+                        let badMessageCollection = realm
+                            .objects(MessageStorageItem.self)
+                            .filter(
+                                "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND messageType != %@ AND (state_ == %@ OR state_ == %@)",
+                                self.owner,
+                                self.jid,
+                                self.conversationType.rawValue,
+                                MessageStorageItem.MessageDisplayType.system.rawValue,
+                                MessageStorageItem.MessageSendingState.sending.rawValue,
+                                MessageStorageItem.MessageSendingState.error.rawValue
+                            )
+                        self.xabberInputView.isSendButtonEnabled = badMessageCollection.isEmpty
+                        let chatInstance = realm.object(
+                            ofType: LastChatsStorageItem.self,
+                            forPrimaryKey: LastChatsStorageItem.genPrimary(
+                                jid: self.jid,
+                                owner: self.owner,
+                                conversationType: self.conversationType
+                            )
+                        )
+                        self.setShouldShowInitialMessage(
+                            self.messagesObserver.isEmpty && self.bootstrapViewState(chatInstance: chatInstance) == .empty
+                        )
+	                    } catch {
+	                        DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+	                    }
+
+	                    didReloadInitialWindow = self.reloadInitialWindowAfterBootstrapIfNeeded()
+	                }
+	                if ChatInitialHistoryAppearancePolicy.shouldApplyFollowupChangesetAfterBootstrapReload(
+	                    didReloadInitialWindow: didReloadInitialWindow
+	                ) {
+	                    self.didReceiveChangeset()
+	                }
+	                self.xabberInputView.updateSendButtonState()
+	            } onError: { _ in
                 
             } onCompleted: {
                 
@@ -384,7 +400,11 @@ extension ChatViewController {
                 
             }.disposed(by: self.bag)
         
-        self.messagesToReadObserver.asObservable().debounce(.milliseconds(500), scheduler: MainScheduler.asyncInstance).subscribe { messages in
+        self.messagesToReadObserver
+            .asObservable()
+            .debounce(.milliseconds(500), scheduler: MainScheduler.asyncInstance)
+            .observe(on: MainScheduler.asyncInstance)
+            .subscribe { messages in
             guard let lastReadPrimary = self.datasource
                 .filter({ messages.contains($0.primary) })
                 .sorted(by: { $0.sentDate.timeIntervalSince1970 > $1.sentDate.timeIntervalSince1970 })
@@ -403,6 +423,7 @@ extension ChatViewController {
         self.draftMessageText
             .asObservable()
             .debounce(.milliseconds(800), scheduler: MainScheduler.asyncInstance)
+            .observe(on: MainScheduler.asyncInstance)
             .subscribe { value in
                 do {
                     let realm  = try WRealm.safe()
@@ -437,6 +458,7 @@ extension ChatViewController {
             .shared
             .connectingUsers
             .asObservable()
+            .observe(on: MainScheduler.asyncInstance)
             .subscribe { result in
             if result.contains(self.owner) {
                 if !self.shouldRequestChatInfo {
@@ -491,12 +513,13 @@ extension ChatViewController {
         if CommonConfigManager.shared.config.required_time_signature_for_messages {
             let certsCollection = realm.objects(X509StorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid)
             
-            Observable
-                .collection(from: certsCollection)
-                .debounce(.milliseconds(200), scheduler: MainScheduler.asyncInstance)
-                .subscribe { results in
-                    self.contactWithSigningCertificate = !results.isEmpty
-                    self.titleLabel.attributedText = self.updateTitle()
+        Observable
+            .collection(from: certsCollection)
+            .debounce(.milliseconds(200), scheduler: MainScheduler.asyncInstance)
+            .observe(on: MainScheduler.asyncInstance)
+            .subscribe { results in
+                self.contactWithSigningCertificate = !results.isEmpty
+                self.titleLabel.attributedText = self.updateTitle()
                     self.titleLabel.sizeToFit()
                     self.titleLabel.layoutIfNeeded()
                 } onError: { error in
@@ -524,6 +547,7 @@ extension ChatViewController {
         Observable
             .collection(from: badMessageCollection)
             .debounce(.milliseconds(5), scheduler: MainScheduler.asyncInstance)
+            .observe(on: MainScheduler.asyncInstance)
             .subscribe { results in
                 if !self.showSkeletonObserver.value {
                     if AccountManager.shared.connectingUsers.value.contains(self.owner) {
@@ -549,6 +573,7 @@ extension ChatViewController {
         Observable
             .collection(from: myUntrustedDevicesCollection)
             .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
+            .observe(on: MainScheduler.asyncInstance)
             .subscribe { results in
                 if !results.isEmpty {
                     self.onUpdateTrustedDevicesBlockState(true, identityVerification: false)
@@ -560,6 +585,7 @@ extension ChatViewController {
         Observable
             .collection(from: theirUntrustDevicesCollection)
             .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
+            .observe(on: MainScheduler.asyncInstance)
             .subscribe { results in
                 do {
                     let realm = try WRealm.safe()
@@ -585,12 +611,13 @@ extension ChatViewController {
         Observable
             .collection(from: verificationSessions)
             .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
+            .observe(on: MainScheduler.asyncInstance)
             .subscribe { results in
                 if results.isEmpty {
                     let contactDevices = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@ AND state_ IN %@", self.owner, self.jid, [SignalDeviceStorageItem.TrustState.unknown.rawValue, SignalDeviceStorageItem.TrustState.distrusted.rawValue])
                     if !contactDevices.isEmpty {
                         if ![.addContact, .allowSubscribtion, .requestSubscribtion].contains(self.topPanelState.value) {
-                            self.topPanelState.accept(.shouldRequestVerification)
+                            self.setTopPanelState(.shouldRequestVerification)
                         }
                         return
                     }
@@ -600,13 +627,13 @@ extension ChatViewController {
                 if ![.addContact, .allowSubscribtion, .requestSubscribtion].contains(self.topPanelState.value) {
                     switch item?.state {
                         case .receivedRequestAccept:
-                            self.topPanelState.accept(.enterCodeVerification)
+                            self.setTopPanelState(.enterCodeVerification)
                         case .receivedRequest:
-                            self.topPanelState.accept(.requestingVerification)
+                            self.setTopPanelState(.requestingVerification)
                         case .acceptedRequest:
-                            self.topPanelState.accept(.acceptedVerification)
+                            self.setTopPanelState(.acceptedVerification)
                         case .trusted:
-                            self.topPanelState.accept(.none)
+                            self.setTopPanelState(.none)
                         default:
                             break
                     }
@@ -617,6 +644,7 @@ extension ChatViewController {
         Observable
             .collection(from: contactDevices)
             .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
+            .observe(on: MainScheduler.asyncInstance)
             .subscribe { results in
                 if results.isEmpty {
                     return
@@ -628,7 +656,7 @@ extension ChatViewController {
                 }
                 
                 if ![.addContact, .allowSubscribtion, .requestSubscribtion, .shouldRequestVerification].contains(self.topPanelState.value) {
-                    self.topPanelState.accept(.shouldRequestVerification)
+                    self.setTopPanelState(.shouldRequestVerification)
                 }
                 
             }.disposed(by: self.bag)

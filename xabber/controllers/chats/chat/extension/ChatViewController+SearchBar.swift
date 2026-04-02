@@ -29,39 +29,22 @@ import CocoaLumberjack
 extension ChatViewController {
     
     internal final func scrollToMessage(archivedId: String, date: Date, direction: ChatDirection, callback: @escaping ((Array<MessageStorageItem>, Int) -> Void)) {
-        
-        
         func update() {
-            self.showLoadingIndicator.accept(false)
-            guard let index = self.messagesObserver.firstIndex(where: { $0.archivedId == archivedId }) else {
+            self.setLoadingIndicatorVisible(false)
+            self.ensureObserverLookupMaps()
+            guard let index = self.observerArchivedIdIndexMap[archivedId] else {
                 return
             }
-            let page = index / self.datasourcePageSize
-            self.currentPage.setCustomPage(page) {
-                guard let index = self.messagesObserver.firstIndex(where: { $0.archivedId == archivedId }) else {
-                    return
-                }
-                var maxIndex = index  + (self.datasourcePageSize / 2)
-                var minIndex =  index - (self.datasourcePageSize / 2)
-                if maxIndex > self.messagesObserver.count {
-                    maxIndex = self.messagesObserver.count
-                    minIndex = maxIndex - self.datasourcePageSize
-                }
-                if minIndex < 0 {
-                    minIndex = 0
-                    maxIndex = [minIndex + self.datasourcePageSize, self.messagesObserver.count].min() ?? 0
-                }
-                
-                let slice = Array(self.messagesObserver.prefix(upTo: maxIndex).suffix(from: minIndex))
-                self.currentPage.minIndex = minIndex
-                self.currentPage.maxIndex = maxIndex
-                callback(slice, index - minIndex)
+            let window = self.datasetCoordinator.replacementWindow(around: index, totalCount: self.messagesObserver.count)
+            self.currentPage.setCustomPage(index / self.datasourcePageSize) {
+                self.syncCurrentPage(with: window)
+                callback(self.sliceForWindow(window), index - window.minIndex)
                 self.currentPage.unlock()
-                self.showFloatingDateObserver.accept(true)
+                self.setFloatingDateVisible(true)
             }
         }
         func updateDatsource() {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            DispatchQueue.main.async {
                 update()
             }
         }
@@ -90,17 +73,17 @@ extension ChatViewController {
             }
         }
         
-        self.canLoadDatasource = false
+        self.setDatasourceLoadingEnabled(false)
         
-        self.showFloatingDateObserver.accept(false)
+        self.setFloatingDateVisible(false)
         self.pinnedDateView.hide(withoutAnimation: true)
-        if self.messagesObserver.firstIndex(where: { $0.archivedId == archivedId }) != nil {
+        self.ensureObserverLookupMaps()
+        if self.observerArchivedIdIndexMap[archivedId] != nil {
             update()
-            self.loadDatasourceObserver.accept(true)
+            self.setDatasourceLoadingEnabled(true)
         } else {
-            self.showLoadingIndicator.accept(true)
-            self.loadDatasourceObserver.accept(false)
-            self.canLoadDatasource = false
+            self.setLoadingIndicatorVisible(true)
+            self.setDatasourceLoadingEnabled(false)
             loadHistoryAfter()
         }
     }
@@ -108,8 +91,9 @@ extension ChatViewController {
     public final func showSearchResultFromExternalSource(message archivedId: String, date: Date) {
         self.chatScrollDirection = .up
         self.scrollToMessage(archivedId: archivedId, date: date, direction: .up) { array, index in
-            self.applyChatDatasource(self.mapDataset(dataset: array), mode: .fullReload())
-            self.scrollToSearchedMessage(archivedId: archivedId)
+            self.mapAndApplyWindow(self.visibleWindow(), mode: .fullReload(), completion: {
+                self.scrollToSearchedMessage(archivedId: archivedId)
+            })
         }
     }
     
@@ -134,8 +118,9 @@ extension ChatViewController {
         let date = searchMessagesQueue[newIndex].date
         self.chatScrollDirection = .up
         self.scrollToMessage(archivedId: archivedId, date: date, direction: .up) { array, index in
-            self.applyChatDatasource(self.mapDataset(dataset: array), mode: .fullReload())
-            self.scrollToSearchedMessage(archivedId: archivedId)
+            self.mapAndApplyWindow(self.visibleWindow(), mode: .fullReload(), completion: {
+                self.scrollToSearchedMessage(archivedId: archivedId)
+            })
         }
     }
     
@@ -161,8 +146,9 @@ extension ChatViewController {
         let archivedId = searchMessagesQueue[newIndex].archivedId
         let date = searchMessagesQueue[newIndex].date
         self.scrollToMessage(archivedId: archivedId, date: date, direction: .down) { array, index in
-            self.applyChatDatasource(self.mapDataset(dataset: array), mode: .fullReload())
-            self.scrollToSearchedMessage(archivedId: archivedId)
+            self.mapAndApplyWindow(self.visibleWindow(), mode: .fullReload(), completion: {
+                self.scrollToSearchedMessage(archivedId: archivedId)
+            })
         }
     }
     
@@ -183,9 +169,9 @@ extension ChatViewController {
         self.preventHidingDate = false
         self.currentPage.unlock()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            self.showFloatingDateObserver.accept(true)
-            self.hideFloatingDateObserver.accept(true)
-            self.loadDatasourceObserver.accept(true)
+            self.setFloatingDateVisible(true)
+            self.setFloatingDateHidden(true)
+            self.setDatasourceLoadingEnabled(true)
             self.currentPage.unlock()
         }
     }
@@ -202,9 +188,9 @@ extension ChatViewController {
         self.preventHidingDate = false
         self.currentPage.unlock()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            self.showFloatingDateObserver.accept(true)
-            self.hideFloatingDateObserver.accept(true)
-            self.loadDatasourceObserver.accept(true)
+            self.setFloatingDateVisible(true)
+            self.setFloatingDateHidden(true)
+            self.setDatasourceLoadingEnabled(true)
             self.currentPage.unlock()
             let cell = self.messagesCollectionView.cellForItem(at: IndexPath(row: 0, section: scrollIndex)) as? MessageContentCell
             cell?.setSelected(state: true)
@@ -234,28 +220,37 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
             let date = searchMessagesQueue[newIndex].date
             self.chatScrollDirection = .up
             self.scrollToMessage(archivedId: archivedId, date: date, direction: .up) { array, index in
-                self.applyChatDatasource(self.mapDataset(dataset: array), mode: .fullReload())
-                self.scrollToSearchedMessage(archivedId: archivedId)
-                self.preventHidingDate = false
+                self.mapAndApplyWindow(self.visibleWindow(), mode: .fullReload(), completion: {
+                    self.scrollToSearchedMessage(archivedId: archivedId)
+                    self.preventHidingDate = false
+                })
             }
         }
         if emptyList {
-            self.showLoadingIndicator.accept(false)
+            self.setLoadingIndicatorVisible(false)
         }
-        self.showFloatingDateObserver.accept(true)
+        self.setFloatingDateVisible(true)
     }
     
-    func didReceiveEndPage(queryId: String, fin: Bool, first: String, last: String, count: Int) {
-        if queryId == self.currentSearchQueryId {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+    func didReceiveEndPage(queryId: String, state: MessageArchivePageEndState, first: String, last: String, count: Int) {
+        DispatchQueue.main.async {
+            if self.handleInitialBootstrapEndPageIfNeeded(queryId: queryId, count: count) {
+                return
+            }
+            if self.completeInteractiveHistoryPageLoadIfNeeded(queryId: queryId, state: state, first: first, last: last, count: count) {
+                return
+            }
+            if queryId == self.currentSearchQueryId {
                 self.applySearchResults(emptyList: first == last)
             }
         }
     }
     
     func didReceiveMessage(_ item: MessageStorageItem, queryId: String) {
-        if queryId == self.currentSearchQueryId {
-            self.searchMessagesQueue.append(item)
+        DispatchQueue.main.async {
+            if queryId == self.currentSearchQueryId {
+                self.searchMessagesQueue.append(item)
+            }
         }
     }
     

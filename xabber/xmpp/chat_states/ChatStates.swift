@@ -75,37 +75,46 @@ class CommonChatStatesManager {
     internal var bag = DisposeBag()
     
     open var observed: BehaviorRelay<Set<ChatStateMetadata>> = BehaviorRelay(value: Set<ChatStateMetadata>())
+
+    private func updateObserved(_ transform: @escaping (inout Set<ChatStateMetadata>) -> Void) {
+        let apply = {
+            var value = self.observed.value
+            transform(&value)
+            self.observed.accept(value)
+        }
+
+        if Thread.isMainThread {
+            apply()
+        } else {
+            DispatchQueue.main.async(execute: apply)
+        }
+    }
     
     open func update(jid: String, owner: String, state: ChatStatesManager.ComposingType) {
-        if let item = observed.value.first(where: { $0.jid == jid && $0.owner == owner }) {
-            var value = observed.value
-            value.remove(item)
-            observed.accept(value)
-        }
         let item = ChatStateMetadata(jid: jid, owner: owner, state: state)
-        var value = observed.value
-        value.insert(item)
-        observed.accept(value)
+        updateObserved { value in
+            if let existingItem = value.first(where: { $0.jid == jid && $0.owner == owner }) {
+                value.remove(existingItem)
+            }
+            value.insert(item)
+        }
     }
     
     open func clear(jid: String, owner: String) {
-        if let index = observed.value.firstIndex(where: { $0.jid == jid && $0.owner == owner }) {
-            var value = observed.value
-            value.remove(at: index)
-            observed.accept(value)
+        updateObserved { value in
+            if let index = value.firstIndex(where: { $0.jid == jid && $0.owner == owner }) {
+                value.remove(at: index)
+            }
         }
     }
     
     open func expire() {
         let now = Date()
-        observed
-            .value
-            .filter { now.timeIntervalSince($0.date) > 1 && $0.state == .none }
-            .forEach {
-                var value = observed.value
-                value.remove($0)
-                observed.accept(value)
-            }
+        updateObserved { value in
+            value
+                .filter { now.timeIntervalSince($0.date) > 1 && $0.state == .none }
+                .forEach { value.remove($0) }
+        }
         observed
             .value
             .filter { now.timeIntervalSince($0.date) > 15 }

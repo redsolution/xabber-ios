@@ -78,7 +78,7 @@ class ChatListTableViewCell: UITableViewCell {
         stack.distribution = .fill
         stack.spacing = 0
         stack.isLayoutMarginsRelativeArrangement = true
-        stack.layoutMargins = UIEdgeInsets(top: 6, bottom: 6, left: 96, right: 4)
+        stack.layoutMargins = UIEdgeInsets(top: 2, bottom: 2, left: 96, right: 4)
         
         return stack
     }()
@@ -572,7 +572,7 @@ class ChatListTableViewCell: UITableViewCell {
 //        self.layer.rasterizationScale = UIScreen.main.scale
         
         contentView.addSubview(infoStack)
-        infoStack.fillSuperviewWithOffset(top: 0, bottom: 4, left: 2, right: 0)
+        infoStack.fillSuperviewWithOffset(top: 0, bottom: 0, left: 2, right: 0)
         
 //        backgroundColor = .clear//.systemBackground
         
@@ -629,7 +629,6 @@ class ChatListTableViewCell: UITableViewCell {
     
     private func activateConstraints() {
         NSLayoutConstraint.activate([
-            bottomStack.heightAnchor.constraint(equalToConstant: 36),
             deliveryIndicator.widthAnchor.constraint(equalToConstant: 16),
 //            deliveryIndicator.heightAnchor.constraint(equalToConstant: 16),
             pinnedIndicator.widthAnchor.constraint(equalToConstant: 24),
