@@ -26,6 +26,171 @@ import RxCocoa
 import SwiftKeychainWrapper
 import MaterialComponents.MaterialPalettes
 
+enum AccountStreamLifecyclePhase: String {
+    case idle
+    case connecting
+    case tlsNegotiating
+    case authenticating
+    case binding
+    case postAuthSetup
+    case online
+    case disconnecting
+    case failed
+
+    var allowsNewConnect: Bool {
+        switch self {
+        case .idle, .failed:
+            return true
+        case .connecting, .tlsNegotiating, .authenticating, .binding, .postAuthSetup, .online, .disconnecting:
+            return false
+        }
+    }
+
+    var allowsTimeoutRetry: Bool {
+        switch self {
+        case .connecting, .tlsNegotiating:
+            return true
+        case .idle, .authenticating, .binding, .postAuthSetup, .online, .disconnecting, .failed:
+            return false
+        }
+    }
+}
+
+enum AccountConnectTrigger: String {
+    case initialLoad
+    case addExistingAccount
+    case restore
+    case statusUpdate
+    case resourceUpdate
+    case timeoutRetry
+    case xmppReconnect
+    case deviceReregister
+    case legacyDirect
+    case uiActionOpen
+    case uiActionRestore
+    case uiActionPerformRequest
+}
+
+enum AccountStreamConnectDecision: Equatable {
+    case start(attemptID: UInt64)
+    case skip(phase: AccountStreamLifecyclePhase, activeAttemptID: UInt64?)
+}
+
+final class AccountStreamLifecycleGate {
+    private let lock = NSLock()
+    private var nextAttemptID: UInt64 = 0
+    private(set) var phase: AccountStreamLifecyclePhase = .idle
+    private(set) var activeAttemptID: UInt64?
+
+    func beginConnect(trigger: AccountConnectTrigger, force: Bool = false) -> AccountStreamConnectDecision {
+        lock.lock()
+        defer { lock.unlock() }
+
+        if force {
+            phase = .idle
+            activeAttemptID = nil
+        }
+
+        guard phase.allowsNewConnect else {
+            return .skip(phase: phase, activeAttemptID: activeAttemptID)
+        }
+
+        nextAttemptID += 1
+        activeAttemptID = nextAttemptID
+        phase = .connecting
+        return .start(attemptID: nextAttemptID)
+    }
+
+    func adoptFrameworkActivePhase(_ phase: AccountStreamLifecyclePhase) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard self.phase.allowsNewConnect else { return }
+        self.phase = phase
+    }
+
+    func markTLSNegotiating() {
+        transition(to: .tlsNegotiating, allowedFrom: [.connecting])
+    }
+
+    func markAuthenticating() {
+        transition(to: .authenticating, allowedFrom: [.connecting, .tlsNegotiating])
+    }
+
+    func markBinding() {
+        transition(to: .binding, allowedFrom: [.authenticating, .tlsNegotiating, .connecting])
+    }
+
+    func markPostAuthSetup() {
+        transition(to: .postAuthSetup, allowedFrom: [.binding, .authenticating, .tlsNegotiating, .connecting])
+    }
+
+    func markOnline() {
+        transition(to: .online, allowedFrom: [.postAuthSetup, .binding, .authenticating])
+    }
+
+    func markDisconnecting() {
+        lock.lock()
+        phase = .disconnecting
+        lock.unlock()
+    }
+
+    func markDisconnected() {
+        lock.lock()
+        phase = .idle
+        activeAttemptID = nil
+        lock.unlock()
+    }
+
+    func markFailed() {
+        lock.lock()
+        phase = .failed
+        activeAttemptID = nil
+        lock.unlock()
+    }
+
+    func reset() {
+        lock.lock()
+        phase = .idle
+        activeAttemptID = nil
+        lock.unlock()
+    }
+
+    func canRetryTimeout(for attemptID: UInt64?) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+
+        if let attemptID, attemptID != activeAttemptID {
+            return false
+        }
+        return phase.allowsTimeoutRetry
+    }
+
+    func snapshot() -> (phase: AccountStreamLifecyclePhase, activeAttemptID: UInt64?) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (phase, activeAttemptID)
+    }
+
+    private func transition(to newPhase: AccountStreamLifecyclePhase, allowedFrom: Set<AccountStreamLifecyclePhase>) {
+        lock.lock()
+        if allowedFrom.contains(phase) {
+            phase = newPhase
+        }
+        lock.unlock()
+    }
+}
+
+private final class AccountConnectRetryContext: NSObject {
+    let attemptID: UInt64?
+    let trigger: AccountConnectTrigger
+
+    init(attemptID: UInt64?, trigger: AccountConnectTrigger) {
+        self.attemptID = attemptID
+        self.trigger = trigger
+    }
+}
+
 final class Account: NSObject {
 //  main params
     var jid: String = ""
@@ -49,6 +214,8 @@ final class Account: NSObject {
 //  XMPPFramework params
     var queue: DispatchQueue
     var xmppStream: XMPPStream
+    let authenticationCounterTracker = XMPPAuthenticationCounterTracker()
+    let connectionGate = AccountStreamLifecycleGate()
 //  XMPPFramework modules
     var reconnect: XMPPReconnect
 //  custom modules
@@ -215,6 +382,8 @@ final class Account: NSObject {
     }
     
     func resetStream() {
+        self.cancelDelayedConnectTimer()
+        self.connectionGate.reset()
         self.statusState.accept(.offline)
         self.statusMessage.accept(RosterUtils.shared.convertStatus(.offline))
         self.xmppStream.abortConnecting()
@@ -242,7 +411,12 @@ final class Account: NSObject {
         if !self.isRegularPushRequestSended {
             self.isRegularPushRequestSended = true
             DispatchQueue.global(qos: .background).async {
-                self.isRegularPushRequestSended = APNSManager.shared.sendRegistrationRequest(forJid: self.jid, voip: false)
+                let didStart = APNSManager.shared.sendRegistrationRequest(forJid: self.jid, voip: false) { success in
+                    self.isRegularPushRequestSended = success
+                }
+                if !didStart {
+                    self.isRegularPushRequestSended = false
+                }
             }
         }
     }
@@ -251,7 +425,12 @@ final class Account: NSObject {
         if !self.isVoIPPushRequestSended {
             self.isVoIPPushRequestSended = true
             DispatchQueue.global(qos: .background).async {
-                self.isVoIPPushRequestSended = APNSManager.shared.sendRegistrationRequest(forJid: self.jid, voip: true)
+                let didStart = APNSManager.shared.sendRegistrationRequest(forJid: self.jid, voip: true) { success in
+                    self.isVoIPPushRequestSended = success
+                }
+                if !didStart {
+                    self.isVoIPPushRequestSended = false
+                }
             }
         }
     }
@@ -343,23 +522,56 @@ final class Account: NSObject {
  *    all DB  write operations must perform in thread, which contains XMPPStream
  *    to put XMPPStream into special thread, this method must been calls from DispatchQueue.global(qos: ).async {}
  **/
+    @discardableResult
+    final func requestConnect(trigger: AccountConnectTrigger, forceReset: Bool = false) -> Bool {
+        if !forceReset, let activePhase = self.frameworkActivePhase() {
+            self.connectionGate.adoptFrameworkActivePhase(activePhase)
+            let snapshot = self.connectionGate.snapshot()
+            DDLogDebug("skip duplicate account connect jid=\(self.jid) trigger=\(trigger.rawValue) phase=\(snapshot.phase.rawValue) attempt=\(snapshot.activeAttemptID.map(String.init) ?? "none") streamState=\(self.streamStateDescription)")
+            return false
+        }
+
+        switch self.connectionGate.beginConnect(trigger: trigger, force: forceReset) {
+        case .start(let attemptID):
+            self.performConnect(attemptID: attemptID, trigger: trigger)
+            return true
+
+        case .skip(let phase, let activeAttemptID):
+            DDLogDebug("skip duplicate account connect jid=\(self.jid) trigger=\(trigger.rawValue) phase=\(phase.rawValue) attempt=\(activeAttemptID.map(String.init) ?? "none") streamState=\(self.streamStateDescription)")
+            return false
+        }
+    }
+
     @objc
-    public final func connect() {
-        
+    final func connect() {
+        self.requestConnect(trigger: .legacyDirect)
+    }
+
+    final func cancelDelayedConnectTimer() {
         if self.delayedConnectTimer != nil {
             self.delayedConnectTimer?.invalidate()
             self.delayedConnectTimer = nil
         }
-        if self.xmppStream.isConnecting {
+    }
+
+    final func handleConnectTimeout() {
+        let attemptID = self.connectionGate.snapshot().activeAttemptID
+        guard self.connectionGate.canRetryTimeout(for: attemptID) else {
+            DDLogDebug("skip account timeout retry jid=\(self.jid) phase=\(self.connectionGate.snapshot().phase.rawValue) attempt=\(attemptID.map(String.init) ?? "none") streamState=\(self.streamStateDescription)")
             return
         }
-        if self.xmppStream.isConnected {
-            return
-        }
-        if self.xmppStream.isAuthenticated {
-            return
-        }
-        if self.xmppStream.isAuthenticating {
+
+        self.scheduleConnectRetry(after: 1, trigger: .timeoutRetry, attemptID: attemptID)
+    }
+
+    private func performConnect(attemptID: UInt64, trigger: AccountConnectTrigger) {
+        self.cancelDelayedConnectTimer()
+        if self.xmppStream.isConnecting
+            || self.xmppStream.isConnected
+            || self.xmppStream.isAuthenticated
+            || self.xmppStream.isAuthenticating {
+            self.connectionGate.adoptFrameworkActivePhase(self.frameworkActivePhase() ?? .connecting)
+            DDLogDebug("skip duplicate account connect jid=\(self.jid) trigger=\(trigger.rawValue) phase=\(self.connectionGate.snapshot().phase.rawValue) attempt=\(attemptID) streamState=\(self.streamStateDescription)")
             return
         }
         if self.resource.isNotEmpty {
@@ -376,27 +588,74 @@ final class Account: NSObject {
 //            Account§Manager.shared.markAsConnecting(jid: self.jid)
         }
         do {
+            DDLogDebug("primary stream connect jid=\(self.jid) trigger=\(trigger.rawValue) attempt=\(attemptID) resource=\(self.xmppStream.myJID?.resource ?? "none")")
             AccountManager.shared.markAsConnecting(jid: self.jid)
             try self.xmppStream.connect(withTimeout: 5)
         } catch {
             DDLogDebug("cant connect: \(error.localizedDescription)")
+            self.connectionGate.markFailed()
             self.statusMessage.accept("Offline")
             AccountManager.shared.changeNewUserState(for: self.jid, to: .failure("Server not found"))
             AccountManager.shared.markAsConnected(jid: self.jid)
 //            this.$store.state.current_org_id
         }
-        if self.delayedConnectTimer == nil {
-            self.delayedConnectTimer?.invalidate()
-            self.delayedConnectTimer = Timer(timeInterval: 7, target: self, selector: #selector(self.connect), userInfo: nil, repeats: false)
-            RunLoop.main.add(self.delayedConnectTimer!, forMode: RunLoop.Mode.default)
-        }
         self.isBinded = false
+    }
+
+    final func scheduleConnectRetry(after delay: TimeInterval, trigger: AccountConnectTrigger, attemptID: UInt64?) {
+        guard self.delayedConnectTimer == nil else { return }
+        let context = AccountConnectRetryContext(attemptID: attemptID, trigger: trigger)
+        self.delayedConnectTimer = Timer(
+            timeInterval: delay,
+            target: self,
+            selector: #selector(self.delayedConnectTimerDidFire(_:)),
+            userInfo: context,
+            repeats: false
+        )
+        RunLoop.main.add(self.delayedConnectTimer!, forMode: RunLoop.Mode.default)
+    }
+
+    @objc
+    private func delayedConnectTimerDidFire(_ timer: Timer) {
+        let context = timer.userInfo as? AccountConnectRetryContext
+        self.delayedConnectTimer = nil
+
+        if let attemptID = context?.attemptID,
+           !self.connectionGate.canRetryTimeout(for: attemptID) {
+            DDLogDebug("skip stale account retry jid=\(self.jid) trigger=\(context?.trigger.rawValue ?? "unknown") attempt=\(attemptID) phase=\(self.connectionGate.snapshot().phase.rawValue) streamState=\(self.streamStateDescription)")
+            return
+        }
+
+        self.resetStream()
+        self.configureStream()
+        self.requestConnect(trigger: context?.trigger ?? .timeoutRetry, forceReset: true)
+    }
+
+    private func frameworkActivePhase() -> AccountStreamLifecyclePhase? {
+        if self.xmppStream.isAuthenticated {
+            return .online
+        }
+        if self.xmppStream.isAuthenticating {
+            return .authenticating
+        }
+        if self.xmppStream.isConnected {
+            return .postAuthSetup
+        }
+        if self.xmppStream.isConnecting {
+            return .connecting
+        }
+        return nil
+    }
+
+    private var streamStateDescription: String {
+        return "connected=\(self.xmppStream.isConnected),connecting=\(self.xmppStream.isConnecting),authenticating=\(self.xmppStream.isAuthenticating),authenticated=\(self.xmppStream.isAuthenticated)"
     }
     
 /**
  *    open XMPPStream in special thread
  **/
-    func asyncConnect(shouldReregisterDFevice: Bool = false) {
+    func asyncConnect(shouldReregisterDFevice: Bool = false, trigger: AccountConnectTrigger = .initialLoad) {
+        let connectTrigger: AccountConnectTrigger = shouldReregisterDFevice ? .deviceReregister : trigger
         if shouldReregisterDFevice {
             if let deviceId = self.devices.deviceId {
                 self.resetStream()
@@ -407,7 +666,7 @@ final class Account: NSObject {
             }
         }
         self.configureStream()
-        self.connect()
+        self.requestConnect(trigger: connectTrigger, forceReset: shouldReregisterDFevice)
     }
     
 /**
@@ -416,6 +675,8 @@ final class Account: NSObject {
  **/
     func disconnect(hard: Bool = false) {
         print(#function)
+        self.cancelDelayedConnectTimer()
+        self.connectionGate.markDisconnecting()
         self.statusState.accept(.offline)
         self.statusMessage.accept(RosterUtils.shared.convertStatus(.offline))
         self.resetModules()
@@ -494,7 +755,7 @@ final class Account: NSObject {
                                                 ver: self.disco.generateVer(),
                                                 to: nil)
                 } else {
-                    self.asyncConnect()
+                    self.asyncConnect(trigger: .statusUpdate)
                 }
             }
         }
@@ -730,7 +991,7 @@ final class Account: NSObject {
             callback?("Error during password or resource update".localizeString(id: "error_during_password_resource_update", arguments: []))
         }
         self.resource = resource.isEmpty ? AccountManager.defaultResource : resource
-        self.asyncConnect()
+        self.asyncConnect(trigger: .resourceUpdate)
         callback?(nil)
     }
     
@@ -987,9 +1248,25 @@ extension Account: XMPPReconnectDelegate {
         if self.xmppStream.isAuthenticated {
             return false
         }
-        
-        AccountManager.shared.markAsConnecting(jid: self.jid)
-        return sender.autoReconnect
+        if self.xmppStream.isConnected || self.xmppStream.isConnecting || self.xmppStream.isAuthenticating {
+            DDLogDebug("skip duplicate account reconnect jid=\(self.jid) streamState=\(self.streamStateDescription)")
+            return false
+        }
+
+        guard sender.autoReconnect else {
+            return false
+        }
+
+        switch self.connectionGate.beginConnect(trigger: .xmppReconnect) {
+        case .start(let attemptID):
+            DDLogDebug("primary stream reconnect jid=\(self.jid) attempt=\(attemptID)")
+            AccountManager.shared.markAsConnecting(jid: self.jid)
+            return true
+
+        case .skip(let phase, let activeAttemptID):
+            DDLogDebug("skip duplicate account reconnect jid=\(self.jid) phase=\(phase.rawValue) attempt=\(activeAttemptID.map(String.init) ?? "none")")
+            return false
+        }
     }
     
 }

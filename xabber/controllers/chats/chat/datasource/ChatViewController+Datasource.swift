@@ -94,7 +94,11 @@ extension ChatViewController: MessagesDataSource {
             attributedString.append(NSAttributedString(string: "edited "))
         }
         if item.afterburnInterval > 0 {
-            switch ChatMarkersManager.BurnMessagesTimerValues(rawValue: Int(item.afterburnInterval)) {
+            let remaining = item.burnDate - Date().timeIntervalSince1970
+            if item.burnDate > 0 && remaining > 0 {
+                attributedString.append(NSAttributedString(string: "\(remaining.prettyMinuteFormatedString) ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
+            } else {
+                switch ChatMarkersManager.BurnMessagesTimerValues(rawValue: Int(item.afterburnInterval)) {
                 case .off, .none:
                     break
                 case .s5:
@@ -114,9 +118,9 @@ extension ChatViewController: MessagesDataSource {
                 case .m15:
                     attributedString.append(NSAttributedString(string: "15m ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
                 
+                }
             }
         }
-        let start = attributedString.string.count
         attributedString.append(NSAttributedString(string: dateString))
         attributedString.addAttribute(.font, value: UIFont.systemFont(ofSize: 12, weight: .regular), range: NSRange(location: 0, length: attributedString.string.count))
 

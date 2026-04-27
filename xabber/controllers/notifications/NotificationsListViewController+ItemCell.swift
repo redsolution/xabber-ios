@@ -79,7 +79,7 @@ extension NotificationsListViewController {
             let view = UIView()
             view.backgroundColor = MDCPalette.grey.tint50
             view.isUserInteractionEnabled = false
-            view.layer.cornerRadius = 16
+//            view.layer.cornerRadius = 16
             view.clipsToBounds = true
             return view
         }()
@@ -199,8 +199,8 @@ extension NotificationsListViewController {
             separatorInset = UIEdgeInsets(top: 0, bottom: 0, left: 92, right: 16)
 
             NSLayoutConstraint.activate([
-                dimmedView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
-                dimmedView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
+                dimmedView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 0),
+                dimmedView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: 0),
                 dimmedView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
                 dimmedView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
 

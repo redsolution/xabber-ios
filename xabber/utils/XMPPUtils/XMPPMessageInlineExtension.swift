@@ -21,6 +21,34 @@
 import Foundation
 import XMPPFramework
 
+func compareArchiveIds(_ lhs: String?, _ rhs: String?) -> ComparisonResult? {
+    guard let lhs = lhs?.trimmingCharacters(in: .whitespacesAndNewlines),
+          let rhs = rhs?.trimmingCharacters(in: .whitespacesAndNewlines),
+          lhs.isNotEmpty,
+          rhs.isNotEmpty else {
+        return nil
+    }
+
+    if let lhsNumeric = Int64(lhs), let rhsNumeric = Int64(rhs) {
+        if lhsNumeric == rhsNumeric {
+            return .orderedSame
+        }
+        return lhsNumeric < rhsNumeric ? .orderedAscending : .orderedDescending
+    }
+
+    if lhs == rhs {
+        return .orderedSame
+    }
+
+    return lhs < rhs ? .orderedAscending : .orderedDescending
+}
+
+func isArchiveId(_ candidate: String?, newerThan boundary: String?) -> Bool? {
+    guard let comparison = compareArchiveIds(candidate, boundary) else {
+        return nil
+    }
+    return comparison == .orderedDescending
+}
 
 func getStanzaId(_ message: XMPPMessage, owner: String) -> String {
     let isGroupchat = message.element(forName: "x", xmlns: "https://xabber.com/protocol/groups") != nil
@@ -163,6 +191,16 @@ func getForwardedMessage(_ message: XMPPMessage) -> XMPPMessage? {
         return XMPPMessage(from: container)
     }
     return nil
+}
+
+func getGroupchatHeadlineForwardedMessageContainer(_ message: XMPPMessage) -> XMPPMessage? {
+    guard let container = message
+        .element(forName: "x", xmlns: "https://xabber.com/protocol/groups")?
+        .element(forName: "forwarded", xmlns: "urn:xmpp:forward:0")?
+        .element(forName: "message") else {
+        return nil
+    }
+    return XMPPMessage(from: container)
 }
 
 func isArchivedMessage(_ message: XMPPMessage) -> Bool {

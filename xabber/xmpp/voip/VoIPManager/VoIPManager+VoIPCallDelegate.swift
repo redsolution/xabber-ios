@@ -24,67 +24,131 @@ import WebRTC
 import CocoaLumberjack
 
 extension VoIPManager: VoIPCallDelegate {
-    
+    private func terminationReasonForReject(
+        call: VoIPCall,
+        context: CallSessionContext,
+        endReason: String?,
+        callInitiator: String?,
+        isCarbon: Bool,
+        fromCurrentDevice: Bool
+    ) -> CallTerminationReason {
+        if isCarbon && !fromCurrentDevice {
+            return call.outgoing ? .canceledByCaller : .declinedElsewhere
+        }
+
+        if context.phase == .awaitingConfirmation && !call.outgoing {
+            return .canceledByCaller
+        }
+
+        if call.outgoing {
+            if context.phase == .connected || call.isMade {
+                return .remoteHangup
+            }
+            return self.terminationReasonFromRejectMessage(
+                endReason: endReason,
+                callInitiator: callInitiator,
+                owner: call.owner,
+                currentCallDirection: call.outgoing,
+                stanzaDirection: false,
+                duration: call.end?.timeIntervalSince(call.start ?? call.end ?? Date()) ?? 0,
+                context: context
+            )
+        }
+
+        if context.localAnswerRequested || context.phase == .connected || call.isMade {
+            return .remoteHangup
+        }
+
+        return self.terminationReasonFromRejectMessage(
+            endReason: endReason,
+            callInitiator: callInitiator,
+            owner: call.owner,
+            currentCallDirection: call.outgoing,
+            stanzaDirection: false,
+            duration: call.end?.timeIntervalSince(call.start ?? call.end ?? Date()) ?? 0,
+            context: context
+        )
+    }
+
+    private func terminationReasonFor(error: Error?) -> CallTerminationReason {
+        guard let error else { return .signalingError }
+        if let voipError = error as? VoIPCallError {
+            switch voipError {
+            case .xmppErrorConnectionFailed, .xmppErrorInvalidPassword, .xmppErrorAuthenticationFailed:
+                return .connectionError
+            case .callAcceptedButNotConfirmed:
+                return .signalingError
+            }
+        }
+        return .signalingError
+    }
+
     func VoIPCallEndCallAnswerElsewhere(_ call: VoIPCall) {
-        self.provider.reportCall(with: call.callUUID, endedAt: Date(), reason: .answeredElsewhere)
-        self.provider.invalidate()
+        self.finishCurrentCall(reason: .answeredElsewhere, sendReject: false, shouldReportToCallKit: true)
     }
     
     func VoIPCallEndCallRejected(_ call: VoIPCall) {
-        self.provider.reportCall(with: call.callUUID, endedAt: Date(), reason: .remoteEnded)
-        self.provider.invalidate()
+        self.finishCurrentCall(reason: .declinedElsewhere, sendReject: false, shouldReportToCallKit: true)
     }
     
     func VoIPCallDidChangeState(_ call: VoIPCall, to state: VoIPCall.State) {
         DispatchQueue.main.async {
             self.callScreenDelegate?.didChangeState(to: state)
-           
-            // Завершаем звонок в CallKit только если он ещё не завершён
-            if state == .ended && self.currentCall?.callUUID != nil {
-                let transaction = CXTransaction(action: CXEndCallAction(call: call.callUUID))
-                self.controller.request(transaction) { error in
-                    if let error = error {
-                        DDLogDebug(error.localizedDescription)
-                        // invalidate только при реальной ошибке транзакции
-                        self.provider.invalidate()
-                    }
-                }
+        }
+
+        guard let context = self.session(for: call.callId) else { return }
+
+        switch state {
+        case .confirmed:
+            context.confirmationTimeoutTask?.cancel()
+            context.confirmationTimeoutTask = nil
+            if !call.outgoing && context.didReportIncomingCall {
+                context.phase = .ringing
+                self.scheduleIncomingTimeout(for: context)
             }
+        case .accepted:
+            if call.outgoing {
+                context.remoteAcceptReceived = true
+                context.outgoingTimeoutTask?.cancel()
+                context.outgoingTimeoutTask = nil
+                context.phase = .waitingRemoteOffer
+                self.scheduleMediaSetupTimeout(for: context)
+            }
+        case .connecting:
+            if context.phase != .connected {
+                context.phase = .connectingMedia
+            }
+        case .connected:
+            context.cancelTimers()
+            context.phase = .connected
+        case .ended:
+            if context.phase == .ending {
+                context.phase = .ended
+            }
+        default:
+            break
         }
     }
    
     func VoIPCallDidAccepted(_ call: VoIPCall) {
-        // Заготовка: можно использовать для дополнительной логики после получения <accept>
-        // (например, обновление UI или статистики)
+        guard let context = self.session(for: call.callId), call.outgoing else { return }
+        context.remoteAcceptReceived = true
+        context.outgoingTimeoutTask?.cancel()
+        context.outgoingTimeoutTask = nil
+        context.phase = .waitingRemoteOffer
+        self.scheduleMediaSetupTimeout(for: context)
     }
    
     func VoIPCallDidExpired(_ call: VoIPCall) {
-        let transaction = CXTransaction(action: CXEndCallAction(call: call.callUUID))
-        self.controller.request(transaction) { error in
-            if let error = error {
-                DDLogDebug(error.localizedDescription)
-                self.provider.invalidate()
-            }
-        }
-        self.reset()
+        self.finishCurrentCall(reason: .signalingError, sendReject: false, shouldReportToCallKit: true)
     }
    
-    func VoIPCallDidHeld(_ call: VoIPCall) {
-        // Заготовка: обработка удержания звонка (hold)
-    }
+    func VoIPCallDidHeld(_ call: VoIPCall) {}
    
     func VoIPCallDidEndWith(_ call: VoIPCall, error: Error?, byActiveStream: Bool) {
-        if let error = error {
-//            NotifyManager.shared.showSimpleNotify(withTitle: #function, subtitle: "fail", body: error.localizedDescription)
-//            DDLogDebug(error)
-            self.provider.reportCall(with: call.callUUID, endedAt: Date(), reason: .failed)
-            self.provider.invalidate()
-        }
-       
-        // Централизованная логика завершения (updateMessage, reject, очистка WebRTC)
-        // Вызываем метод из основного класса, чтобы избежать дублирования
-        self.performEndCallActions()
-       
+        let reason = terminationReasonFor(error: error)
+        self.finishCurrentCall(reason: reason, sendReject: false, shouldReportToCallKit: true)
+
         if byActiveStream {
             DispatchQueue.main.async {
                 self.callScreenDelegate?.didChangeState(to: .ended)
@@ -93,40 +157,62 @@ extension VoIPManager: VoIPCallDelegate {
     }
    
     func VoIPCallDidReceive(_ call: VoIPCall, sessionDescription: RTCSessionDescription) {
+        guard let context = self.session(for: call.callId) else { return }
+
         switch sessionDescription.type {
-            case .offer:
-                self.webRTC?.set(remoteSdp: sessionDescription) { error in
-                    if let error = error {
-                        DDLogDebug(error.localizedDescription)
-                        self.provider.invalidate()
-                        self.reset()
-                    } else {
-                        self.webRTC?.answer { sdp in
-                            self.currentCall?.sessionDescription(sessionDescription: sdp)
-                        }
-                    }
+        case .offer:
+            guard call.outgoing, context.remoteAcceptReceived else {
+                self.finishCurrentCall(reason: .signalingError, sendReject: false, shouldReportToCallKit: true)
+                return
+            }
+            context.remoteOfferReceived = true
+            self.webRTC?.set(remoteSdp: sessionDescription) { error in
+                if let error {
+                    DDLogDebug(error.localizedDescription)
+                    self.finishCurrentCall(reason: .webRTCFailure, sendReject: false, shouldReportToCallKit: true)
+                    return
                 }
+                self.webRTC?.answer { sdp, answerError in
+                    if let answerError {
+                        DDLogDebug(answerError.localizedDescription)
+                        self.finishCurrentCall(reason: .webRTCFailure, sendReject: false, shouldReportToCallKit: true)
+                        return
+                    }
+                    guard let sdp else {
+                        self.finishCurrentCall(reason: .webRTCFailure, sendReject: false, shouldReportToCallKit: true)
+                        return
+                    }
+                    context.phase = .connectingMedia
+                    self.currentCall?.sessionDescription(sessionDescription: sdp)
+                    self.scheduleMediaSetupTimeout(for: context)
+                }
+            }
                
-            case .prAnswer:
-                // prAnswer — временный ответ, просто применяем (аналогично answer)
-                self.webRTC?.set(remoteSdp: sessionDescription) { error in
-                    if let error = error {
-                        DDLogDebug(error.localizedDescription)
-                        self.provider.invalidate()
-                        self.reset()
-                    }
+        case .prAnswer:
+            self.webRTC?.set(remoteSdp: sessionDescription) { error in
+                if let error {
+                    DDLogDebug(error.localizedDescription)
+                    self.finishCurrentCall(reason: .webRTCFailure, sendReject: false, shouldReportToCallKit: true)
                 }
+            }
                
-            case .answer:
-                self.webRTC?.set(remoteSdp: sessionDescription) { error in
-                    if let error = error {
-                        DDLogDebug(error.localizedDescription)
-                        self.provider.invalidate()
-                        self.reset()
-                    }
+        case .answer:
+            guard !call.outgoing, context.localAnswerRequested else {
+                self.finishCurrentCall(reason: .signalingError, sendReject: false, shouldReportToCallKit: true)
+                return
+            }
+            self.webRTC?.set(remoteSdp: sessionDescription) { error in
+                if let error {
+                    DDLogDebug(error.localizedDescription)
+                    self.finishCurrentCall(reason: .webRTCFailure, sendReject: false, shouldReportToCallKit: true)
+                    return
                 }
-            default:
-                break
+                context.remoteAnswerReceived = true
+                context.phase = .connectingMedia
+                self.scheduleMediaSetupTimeout(for: context)
+            }
+        default:
+            break
         }
     }
    
@@ -143,6 +229,9 @@ extension VoIPManager: VoIPCallDelegate {
     }
    
     func VoIPCallDidUpdateContactJid(_ call: VoIPCall) {
+        if let context = self.session(for: call.callId) {
+            context.jid = call.jid
+        }
         DispatchQueue.main.async {
             if self.shouldChangeVideoModeAfterConnecting {
                 _ = self.currentCall?.changeVideoState(to: self.isVideoEnabled ? .enabled : .disabled)
@@ -151,7 +240,19 @@ extension VoIPManager: VoIPCallDelegate {
         }
     }
    
-    func VoIPCallDidReceiveRejectMessage(_ call: VoIPCall) {
-        self.isCallEnded = true
+    func VoIPCallDidReceiveRejectMessage(_ call: VoIPCall, endReason: String?, callInitiator: String?, isCarbon: Bool, fromCurrentDevice: Bool) {
+        guard let context = self.session(for: call.callId) else { return }
+        if context.phase == .ending || context.phase == .ended {
+            return
+        }
+        let reason = terminationReasonForReject(
+            call: call,
+            context: context,
+            endReason: endReason,
+            callInitiator: callInitiator,
+            isCarbon: isCarbon,
+            fromCurrentDevice: fromCurrentDevice
+        )
+        self.finishCurrentCall(reason: reason, sendReject: false, shouldReportToCallKit: true)
     }
 }

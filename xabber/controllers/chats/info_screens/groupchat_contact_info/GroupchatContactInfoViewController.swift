@@ -92,8 +92,6 @@ class GroupchatContactInfoViewController: SimpleBaseViewController {
     
     open var shouldResetNavbar: Bool = false
     
-    var headerHeightMax: CGFloat = 188
-    
     internal let headerView: InfoScreenHeaderView = {
         let view = InfoScreenHeaderView(frame: .zero)
                 
@@ -489,11 +487,7 @@ class GroupchatContactInfoViewController: SimpleBaseViewController {
 //                user.groupchats.requestUsers(stream, groupchat: self.jid, userId: self.userId)
 //            })
 //        })
-        headerView.frame = CGRect(
-            width: view.frame.width,
-            height: headerView.preferredHeight
-        )
-        headerView.updateSubviews()
+        headerView.applyHeaderLayout(to: tableView, width: view.bounds.width)
     }
     
     override func viewDidAppear(_ animated: Bool) {

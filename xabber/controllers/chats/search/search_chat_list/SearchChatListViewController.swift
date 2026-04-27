@@ -42,6 +42,7 @@ class SearchChatListViewController: SimpleBaseViewController {
         let conversationType: ClientSynchronizationManager.ConversationType
         let unread: Int
         let unreadString: String?
+        let hasUnreadMention: Bool
         let color: UIColor
         let isDraft: Bool
         let hasAttachment: Bool
@@ -70,6 +71,7 @@ class SearchChatListViewController: SimpleBaseViewController {
                     && a.conversationType == b.conversationType
                     && a.unread == b.unread
                     && a.unreadString == b.unreadString
+                    && a.hasUnreadMention == b.hasUnreadMention
                     && a.color == b.color
                     && a.isDraft == b.isDraft
                     && a.hasAttachment == b.hasAttachment
@@ -327,8 +329,7 @@ class SearchChatListViewController: SimpleBaseViewController {
     }
     
     internal func mapDatasource(_ results: Array<MessageStorageItem>) throws -> [Datasource] {
-        return try results.sorted(by: { $0.date > $1.date }).compactMap {
-            messageItem in
+        return try results.sorted(by: { $0.date > $1.date }).compactMap { messageItem -> Datasource? in
             
             let realm = try WRealm.safe()
             guard let item = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: messageItem.opponent, owner: messageItem.owner, conversationType: messageItem.conversationType)) else {
@@ -444,6 +445,7 @@ class SearchChatListViewController: SimpleBaseViewController {
                 conversationType: item.conversationType,
                 unread: 0,//messageItem.outgoing ? 0 : item.unread,
                 unreadString: isInvite ? "1" : nil,
+                hasUnreadMention: item.hasUnreadMention,
                 color: AccountManager.shared.users.count <= 1 ? .clear : AccountColorManager.shared.primaryColor(for: item.owner),
                 isDraft: false,
                 hasAttachment: isAttachment,
@@ -665,6 +667,7 @@ extension SearchChatListViewController: UITableViewDataSource {
             conversationType: item.conversationType,
             unread: item.unread,
             unreadString: item.unreadString,
+            hasUnreadMention: item.hasUnreadMention,
             indicator: item.color,
             isDraft: item.isDraft,
             isAttachment: item.hasAttachment,

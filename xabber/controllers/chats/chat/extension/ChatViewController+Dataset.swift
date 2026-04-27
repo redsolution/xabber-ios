@@ -31,25 +31,67 @@ import SensitiveContentAnalysis
 import XMPPFramework
 
 struct ChatDatasourceSnapshot {
-    static let empty = ChatDatasourceSnapshot(items: [], primaryIndex: [:], archivedIdIndex: [:])
+    static let empty = ChatDatasourceSnapshot(
+        items: [],
+        primaryIndex: [:],
+        archivedIdIndex: [:],
+        hasDuplicatePrimaries: false,
+        hasDuplicateArchivedIds: false
+    )
 
     let items: [ChatViewController.Datasource]
     let primaryIndex: [String: Int]
     let archivedIdIndex: [String: Int]
+    let hasDuplicatePrimaries: Bool
+    let hasDuplicateArchivedIds: Bool
+
+    var hasDuplicateKeys: Bool {
+        hasDuplicatePrimaries || hasDuplicateArchivedIds
+    }
 
     init(items: [ChatViewController.Datasource]) {
         self.items = items
-        self.primaryIndex = Dictionary(uniqueKeysWithValues: items.enumerated().map { ($0.element.primary, $0.offset) })
-        self.archivedIdIndex = Dictionary(uniqueKeysWithValues: items.enumerated().compactMap {
-            guard let archivedId = $0.element.archivedId else { return nil }
-            return (archivedId, $0.offset)
-        })
+        var primaryIndex: [String: Int] = [:]
+        var archivedIdIndex: [String: Int] = [:]
+        var duplicatePrimaryCount = 0
+        var duplicateArchivedIdCount = 0
+
+        for (offset, item) in items.enumerated() {
+            if primaryIndex.updateValue(offset, forKey: item.primary) != nil {
+                duplicatePrimaryCount += 1
+            }
+
+            guard let archivedId = item.archivedId, archivedId.isNotEmpty else { continue }
+
+            if archivedIdIndex.updateValue(offset, forKey: archivedId) != nil {
+                duplicateArchivedIdCount += 1
+            }
+        }
+
+        self.primaryIndex = primaryIndex
+        self.archivedIdIndex = archivedIdIndex
+        self.hasDuplicatePrimaries = duplicatePrimaryCount > 0
+        self.hasDuplicateArchivedIds = duplicateArchivedIdCount > 0
+
+        if duplicatePrimaryCount > 0 || duplicateArchivedIdCount > 0 {
+            DDLogWarn(
+                "ChatDatasourceSnapshot detected duplicate keys. primary duplicates: \(duplicatePrimaryCount); archivedId duplicates: \(duplicateArchivedIdCount)"
+            )
+        }
     }
 
-    init(items: [ChatViewController.Datasource], primaryIndex: [String: Int], archivedIdIndex: [String: Int]) {
+    init(
+        items: [ChatViewController.Datasource],
+        primaryIndex: [String: Int],
+        archivedIdIndex: [String: Int],
+        hasDuplicatePrimaries: Bool,
+        hasDuplicateArchivedIds: Bool
+    ) {
         self.items = items
         self.primaryIndex = primaryIndex
         self.archivedIdIndex = archivedIdIndex
+        self.hasDuplicatePrimaries = hasDuplicatePrimaries
+        self.hasDuplicateArchivedIds = hasDuplicateArchivedIds
     }
 }
 
@@ -234,6 +276,7 @@ struct ChatArchiveStateMutationPlan: Equatable {
 struct ChatObserverLookupMaps: Equatable {
     let primaryIndex: [String: Int]
     let archivedIdIndex: [String: Int]
+    let messageIdIndex: [String: Int]
     let oldestArchivedId: String?
 }
 
@@ -241,6 +284,7 @@ enum ChatObserverLookupPolicy {
     static func build<T: Sequence>(from items: T) -> ChatObserverLookupMaps where T.Element == MessageStorageItem {
         var primaryIndex: [String: Int] = [:]
         var archivedIdIndex: [String: Int] = [:]
+        var messageIdIndex: [String: Int] = [:]
         var oldestArchivedId: String?
 
         for (offset, item) in items.enumerated() {
@@ -250,13 +294,310 @@ enum ChatObserverLookupPolicy {
                 archivedIdIndex[archivedId] = offset
                 oldestArchivedId = archivedId
             }
+            if item.messageId.isNotEmpty {
+                messageIdIndex[item.messageId] = offset
+            }
         }
 
         return ChatObserverLookupMaps(
             primaryIndex: primaryIndex,
             archivedIdIndex: archivedIdIndex,
+            messageIdIndex: messageIdIndex,
             oldestArchivedId: oldestArchivedId
         )
+    }
+}
+
+enum ChatUnreadMentionNavigatorMode: Equatable {
+    case hidden
+    case indicator
+}
+
+struct ChatUnreadMentionItem: Equatable {
+    let notificationPrimary: String?
+    let messagePrimary: String?
+    let archivedId: String?
+    let messageId: String?
+    let chatPrimary: String
+    let authorId: String?
+    let date: Date
+    let targetMemberId: String?
+    let groupchatJid: String
+}
+
+struct ChatUnreadMentionNavigationTarget: Equatable {
+    let notificationPrimary: String?
+    let messagePrimary: String?
+    let archivedId: String?
+    let messageId: String?
+    let authorId: String?
+    let date: Date
+    let observerIndex: Int?
+}
+
+struct ChatUnreadMentionNavigationRequest: Equatable {
+    let target: ChatUnreadMentionNavigationTarget
+    let direction: ChatViewController.ChatDirection
+}
+
+struct ChatUnreadMentionsState: Equatable {
+    static let empty = ChatUnreadMentionsState(
+        items: [],
+        unreadCount: 0,
+        visibleUnreadNotificationPrimaries: Set(),
+        currentTarget: nil,
+        jumpTarget: nil,
+        mode: .hidden
+    )
+
+    let items: [ChatUnreadMentionItem]
+    let unreadCount: Int
+    let visibleUnreadNotificationPrimaries: Set<String>
+    let currentTarget: ChatUnreadMentionNavigationTarget?
+    let jumpTarget: ChatUnreadMentionNavigationTarget?
+    let mode: ChatUnreadMentionNavigatorMode
+
+    var hasUnreadMentions: Bool {
+        unreadCount > 0
+    }
+}
+
+enum ChatUnreadMentionMatcher {
+    private static func resolveMessagePrimary(
+        for notification: NotificationStorageItem,
+        messagesObserver: Results<MessageStorageItem>,
+        observerLookupMaps: ChatObserverLookupMaps,
+        in realm: Realm
+    ) -> String? {
+        if let archivedId = notification.sourceArchivedId,
+           archivedId.isNotEmpty,
+           let observerIndex = observerLookupMaps.archivedIdIndex[archivedId],
+           observerIndex < messagesObserver.count {
+            return messagesObserver[observerIndex].primary
+        }
+
+        if let messageId = notification.sourceMessageId,
+           messageId.isNotEmpty,
+           let observerIndex = observerLookupMaps.messageIdIndex[messageId],
+           observerIndex < messagesObserver.count {
+            return messagesObserver[observerIndex].primary
+        }
+
+        return MentionNotificationSync.matchingMessage(for: notification, in: realm)?.primary
+    }
+
+    static func unreadMentionItem(
+        from notification: NotificationStorageItem,
+        messagesObserver: Results<MessageStorageItem>,
+        observerLookupMaps: ChatObserverLookupMaps,
+        in realm: Realm,
+        chatPrimary: String,
+        currentMemberId: String?,
+        groupchatJid: String
+    ) -> ChatUnreadMentionItem? {
+        guard notification.isMentionNotification,
+              !notification.isRead,
+              notification.sourceChatJid == groupchatJid,
+              notification.sourceConversationType == nil || notification.sourceConversationType == .group,
+              notification.mentionLinkStatus != .invalidated,
+              notification.mentionLinkStatus != .missing else {
+            return nil
+        }
+
+        let archivedId = notification.sourceArchivedId?.isNotEmpty == true ? notification.sourceArchivedId : nil
+        let messageId = notification.sourceMessageId?.isNotEmpty == true ? notification.sourceMessageId : nil
+
+        guard archivedId != nil || messageId != nil else {
+            return nil
+        }
+
+        let targetMemberId = notification.mentionTargetUserId ?? currentMemberId
+
+        if let authorId = notification.sourceSenderId,
+           authorId.isNotEmpty,
+           let targetMemberId,
+           targetMemberId.isNotEmpty,
+           authorId == targetMemberId {
+            return nil
+        }
+
+        return ChatUnreadMentionItem(
+            notificationPrimary: notification.primary,
+            messagePrimary: resolveMessagePrimary(
+                for: notification,
+                messagesObserver: messagesObserver,
+                observerLookupMaps: observerLookupMaps,
+                in: realm
+            ),
+            archivedId: archivedId,
+            messageId: messageId,
+            chatPrimary: chatPrimary,
+            authorId: notification.sourceSenderId,
+            date: notification.sourceMessageDate ?? notification.date,
+            targetMemberId: targetMemberId,
+            groupchatJid: groupchatJid
+        )
+    }
+}
+
+enum ChatUnreadMentionIndexPolicy {
+    static func rebuild(
+        from notifications: Results<NotificationStorageItem>,
+        messagesObserver: Results<MessageStorageItem>,
+        observerLookupMaps: ChatObserverLookupMaps,
+        in realm: Realm,
+        chatPrimary: String,
+        currentMemberId: String?,
+        groupchatJid: String
+    ) -> [ChatUnreadMentionItem] {
+        var seenKeys: Set<String> = []
+        return notifications.compactMap {
+            ChatUnreadMentionMatcher.unreadMentionItem(
+                from: $0,
+                messagesObserver: messagesObserver,
+                observerLookupMaps: observerLookupMaps,
+                in: realm,
+                chatPrimary: chatPrimary,
+                currentMemberId: currentMemberId,
+                groupchatJid: groupchatJid
+            )
+        }.filter {
+            let key = $0.archivedId ?? $0.messageId ?? $0.notificationPrimary ?? $0.chatPrimary
+            return seenKeys.insert(key).inserted
+        }
+    }
+}
+
+enum ChatUnreadMentionFallbackPolicy {
+    static func fallbackItem(
+        mentionId: String?,
+        chatPrimary: String,
+        currentMemberId: String?,
+        groupchatJid: String,
+        date: Date
+    ) -> ChatUnreadMentionItem? {
+        guard let mentionId,
+              mentionId.isNotEmpty else {
+            return nil
+        }
+
+        return ChatUnreadMentionItem(
+            notificationPrimary: nil,
+            messagePrimary: nil,
+            archivedId: mentionId,
+            messageId: nil,
+            chatPrimary: chatPrimary,
+            authorId: nil,
+            date: date,
+            targetMemberId: currentMemberId,
+            groupchatJid: groupchatJid
+        )
+    }
+}
+
+enum ChatUnreadMentionNavigationPolicy {
+    private static func order(_ lhs: ChatUnreadMentionNavigationTarget, _ rhs: ChatUnreadMentionNavigationTarget) -> Bool {
+        if let leftIndex = lhs.observerIndex,
+           let rightIndex = rhs.observerIndex,
+           leftIndex != rightIndex {
+            return leftIndex < rightIndex
+        }
+
+        if lhs.date != rhs.date {
+            return lhs.date > rhs.date
+        }
+
+        let leftKey = lhs.archivedId ?? lhs.messageId ?? lhs.notificationPrimary ?? ""
+        let rightKey = rhs.archivedId ?? rhs.messageId ?? rhs.notificationPrimary ?? ""
+        return leftKey < rightKey
+    }
+
+    static func resolveState(
+        items: [ChatUnreadMentionItem],
+        observerPrimaryIndexMap: [String: Int],
+        visiblePrimaries: Set<String>,
+        preferredArchivedId: String? = nil,
+        selectedNotificationPrimary: String? = nil
+    ) -> ChatUnreadMentionsState {
+        let targets = items
+            .compactMap { item -> ChatUnreadMentionNavigationTarget? in
+                return ChatUnreadMentionNavigationTarget(
+                    notificationPrimary: item.notificationPrimary,
+                    messagePrimary: item.messagePrimary,
+                    archivedId: item.archivedId,
+                    messageId: item.messageId,
+                    authorId: item.authorId,
+                    date: item.date,
+                    observerIndex: item.messagePrimary.flatMap { observerPrimaryIndexMap[$0] }
+                )
+            }
+            .sorted(by: order)
+
+        guard !targets.isEmpty else {
+            return .empty
+        }
+
+        let visibleUnreadNotificationPrimaries = Set<String>(targets.compactMap { target in
+            guard let messagePrimary = target.messagePrimary,
+                  visiblePrimaries.contains(messagePrimary) else {
+                return nil
+            }
+            return target.notificationPrimary
+        })
+
+        let preferredHintTarget = preferredArchivedId.flatMap { archivedId in
+            targets.first(where: { $0.archivedId == archivedId })
+        }
+
+        let selectedTarget = selectedNotificationPrimary.flatMap { notificationPrimary in
+            targets.first(where: { $0.notificationPrimary == notificationPrimary })
+        }
+
+        let visibleTarget = targets.first(where: { target in
+            guard let messagePrimary = target.messagePrimary else {
+                return false
+            }
+            return visiblePrimaries.contains(messagePrimary)
+        })
+
+        let currentTarget = selectedTarget ?? visibleTarget ?? preferredHintTarget ?? targets.first
+        let jumpTarget: ChatUnreadMentionNavigationTarget?
+
+        if let visibleTarget,
+           let visibleIndex = targets.firstIndex(where: { $0.notificationPrimary == visibleTarget.notificationPrimary }),
+           (visibleIndex + 1) < targets.count {
+            jumpTarget = targets[visibleIndex + 1]
+        } else {
+            jumpTarget = currentTarget
+        }
+
+        let mode: ChatUnreadMentionNavigatorMode = .indicator
+
+        return ChatUnreadMentionsState(
+            items: items,
+            unreadCount: targets.count,
+            visibleUnreadNotificationPrimaries: visibleUnreadNotificationPrimaries,
+            currentTarget: currentTarget,
+            jumpTarget: jumpTarget,
+            mode: mode
+        )
+    }
+}
+
+enum ChatUnreadMentionFloatingControlPolicy {
+    static func shouldShowNavigator(
+        conversationType: ClientSynchronizationManager.ConversationType,
+        unreadCount: Int,
+        isSearchMode: Bool
+    ) -> Bool {
+        conversationType == .group && unreadCount > 0 && !isSearchMode
+    }
+
+    static func shouldShowScrollDownButton(
+        requested: Bool,
+        navigatorVisible _: Bool
+    ) -> Bool {
+        requested
     }
 }
 
@@ -445,8 +786,12 @@ enum ChatBootstrapViewState: Equatable {
     static func resolve(
         messageCount: Int,
         isSynced: Bool,
-        isInitialBootstrapInFlight: Bool
+        isInitialBootstrapInFlight: Bool,
+        hasPendingInitialAnchorRequest: Bool
     ) -> ChatBootstrapViewState {
+        if hasPendingInitialAnchorRequest {
+            return .skeleton
+        }
         if messageCount > 0 {
             return .content
         }
@@ -536,6 +881,7 @@ struct ChatDatasourceCoordinator {
     static func compatibleForTargetedApply(old: ChatDatasourceSnapshot, new: ChatDatasourceSnapshot) -> Bool {
         guard !old.items.isEmpty else { return false }
         guard old.items.count == new.items.count else { return false }
+        guard !old.hasDuplicateKeys, !new.hasDuplicateKeys else { return false }
         return zip(old.items, new.items).allSatisfy { $0.primary == $1.primary }
     }
 }
@@ -709,6 +1055,7 @@ extension ChatViewController {
                 self.messagesCollectionView.layoutIfNeeded()
             }
             completion?()
+            self.refreshUnreadMentionsNavigatorState()
             if self.initialHistoryAppearancePending,
                ChatInitialHistoryAppearancePolicy.shouldFinish(itemCount: items.count, containsOnlyFakeMessages: containsOnlyFakeMessages) {
                 self.hasRenderedStableInitialHistory = true
@@ -853,6 +1200,7 @@ extension ChatViewController {
         guard self.messagesObserver != nil else {
             self.observerPrimaryIndexMap = [:]
             self.observerArchivedIdIndexMap = [:]
+            self.observerMessageIdIndexMap = [:]
             self.observerOldestArchivedId = nil
             self.observerLookupSignature = nil
             return
@@ -871,6 +1219,7 @@ extension ChatViewController {
         let lookupMaps = ChatObserverLookupPolicy.build(from: self.messagesObserver)
         self.observerPrimaryIndexMap = lookupMaps.primaryIndex
         self.observerArchivedIdIndexMap = lookupMaps.archivedIdIndex
+        self.observerMessageIdIndexMap = lookupMaps.messageIdIndex
         self.observerOldestArchivedId = lookupMaps.oldestArchivedId
         self.observerLookupSignature = signature
     }
@@ -898,6 +1247,224 @@ extension ChatViewController {
             return persistedCursorId
         }
         return self.observedOldestArchivedId()
+    }
+
+    internal func currentGroupchatMemberId(in realm: Realm? = nil) -> String? {
+        let resolve: (Realm) -> String? = { realm in
+            guard self.conversationType == .group else {
+                return nil
+            }
+
+            return MentionNotificationSync.currentGroupMemberId(
+                owner: self.owner,
+                groupchatJid: self.jid,
+                in: realm
+            )
+        }
+
+        if let realm {
+            return resolve(realm)
+        }
+
+        do {
+            return resolve(try WRealm.safe())
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    internal func unreadMentionHintArchivedId() -> String? {
+        do {
+            let realm = try WRealm.safe()
+            return realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(
+                    jid: self.jid,
+                    owner: self.owner,
+                    conversationType: self.conversationType
+                )
+            )?.mentionId
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    internal func visibleRealMessagePrimaries() -> Set<String> {
+        Set(
+            self.messagesCollectionView.indexPathsForVisibleItems.compactMap {
+                guard $0.section >= 0,
+                      $0.section < self.datasource.count else {
+                    return nil
+                }
+                let item = self.datasource[$0.section]
+                return item.isFakeMessage ? nil : item.primary
+            }
+        )
+    }
+
+    internal func rebuildUnreadMentionItems() {
+        guard self.conversationType == .group,
+              self.messagesObserver != nil else {
+            self.unreadMentionItems = []
+            self.unreadMentionsState = .empty
+            self.currentUnreadMentionNotificationPrimary = nil
+            return
+        }
+
+        do {
+            let realm = try WRealm.safe()
+            self.ensureObserverLookupMaps()
+            let currentMemberId = self.currentGroupchatMemberId(in: realm)
+            let notifications = realm.objects(NotificationStorageItem.self)
+                .filter("owner == %@ AND category_ == %@", self.owner, XMPPNotificationsManager.Category.mention.rawValue)
+
+            let chatPrimary = LastChatsStorageItem.genPrimary(
+                jid: self.jid,
+                owner: self.owner,
+                conversationType: self.conversationType
+            )
+            let notificationBackedItems = ChatUnreadMentionIndexPolicy.rebuild(
+                from: notifications,
+                messagesObserver: self.messagesObserver,
+                observerLookupMaps: ChatObserverLookupPolicy.build(from: self.messagesObserver),
+                in: realm,
+                chatPrimary: chatPrimary,
+                currentMemberId: currentMemberId,
+                groupchatJid: self.jid
+            )
+            self.unreadMentionItems = notificationBackedItems
+            if self.unreadMentionItems.isEmpty,
+               let chat = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: chatPrimary),
+               let fallbackItem = ChatUnreadMentionFallbackPolicy.fallbackItem(
+                mentionId: chat.mentionId,
+                chatPrimary: chatPrimary,
+                currentMemberId: currentMemberId,
+                groupchatJid: self.jid,
+                date: chat.messageDate == Date(timeIntervalSince1970: 0) ? Date() : chat.messageDate
+               ) {
+                self.unreadMentionItems = [fallbackItem]
+            }
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            self.unreadMentionItems = []
+            self.unreadMentionsState = .empty
+            self.currentUnreadMentionNotificationPrimary = nil
+        }
+    }
+
+    internal func refreshUnreadMentionsNavigatorState(animated: Bool = false) {
+        guard !self.showSkeletonObserver.value else {
+            self.unreadMentionsState = .empty
+            self.currentUnreadMentionNotificationPrimary = nil
+            self.scheduleVisibleUnreadMentionReconciliation(notificationPrimaries: [])
+            if self.shouldShowUnreadMentionsNavigator.value {
+                self.shouldShowUnreadMentionsNavigator.accept(false)
+            } else {
+                self.updateUnreadMentionsNavigatorFrame(animated: animated)
+                self.updateScrollDownButtonFrame(animated: animated)
+            }
+            return
+        }
+
+        self.ensureObserverLookupMaps()
+        let state = ChatUnreadMentionNavigationPolicy.resolveState(
+            items: self.unreadMentionItems,
+            observerPrimaryIndexMap: self.observerPrimaryIndexMap,
+            visiblePrimaries: self.visibleRealMessagePrimaries(),
+            preferredArchivedId: self.unreadMentionHintArchivedId(),
+            selectedNotificationPrimary: self.currentUnreadMentionNotificationPrimary
+        )
+        self.unreadMentionsState = state
+        self.currentUnreadMentionNotificationPrimary = state.currentTarget?.notificationPrimary
+        self.unreadMentionsNavigatorView.update(
+            mode: state.mode,
+            unreadCount: state.unreadCount,
+            accentColor: self.accountPallete.tint500
+        )
+        self.scheduleVisibleUnreadMentionReconciliation(notificationPrimaries: state.visibleUnreadNotificationPrimaries)
+
+        let shouldShowNavigator = ChatUnreadMentionFloatingControlPolicy.shouldShowNavigator(
+            conversationType: self.conversationType,
+            unreadCount: state.unreadCount,
+            isSearchMode: self.inSearchMode.value
+        )
+
+        if self.shouldShowUnreadMentionsNavigator.value != shouldShowNavigator {
+            self.shouldShowUnreadMentionsNavigator.accept(shouldShowNavigator)
+        } else {
+            self.updateUnreadMentionsNavigatorFrame(animated: animated)
+            self.updateScrollDownButtonFrame(animated: animated)
+        }
+    }
+
+    internal func scheduleVisibleUnreadMentionReconciliation(notificationPrimaries: Set<String>) {
+        self.visibleUnreadMentionReconciliationWorkItem?.cancel()
+        guard !notificationPrimaries.isEmpty else {
+            self.visibleUnreadMentionReconciliationWorkItem = nil
+            return
+        }
+
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.markVisibleUnreadMentionNotificationsRead(Array(notificationPrimaries))
+        }
+        self.visibleUnreadMentionReconciliationWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: workItem)
+    }
+
+    private func markVisibleUnreadMentionNotificationsRead(_ notificationPrimaries: [String]) {
+        guard notificationPrimaries.isNotEmpty else {
+            return
+        }
+
+        DispatchQueue.global(qos: .utility).async {
+            do {
+                let realm = try WRealm.safe()
+                var messagePrimariesToMarkRead: Set<String> = []
+                var didChangeReadState = false
+
+                try realm.write {
+                    notificationPrimaries.forEach { primary in
+                        guard let notification = realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: primary),
+                              !notification.isRead,
+                              notification.isMentionNotification,
+                              notification.sourceChatJid == self.jid else {
+                            return
+                        }
+
+                        notification.isRead = true
+                        didChangeReadState = true
+                        let result = MentionNotificationSync.reconcile(notification: notification, in: realm)
+                        if let messagePrimary = result.linkedMessagePrimaryToMarkRead,
+                           messagePrimary.isNotEmpty {
+                            messagePrimariesToMarkRead.insert(messagePrimary)
+                        }
+                    }
+
+                    MentionNotificationSync.refreshLastChatMentionIds(
+                        owner: self.owner,
+                        groupchatJids: [self.jid],
+                        in: realm
+                    )
+                }
+
+                guard didChangeReadState else {
+                    return
+                }
+
+                messagePrimariesToMarkRead.forEach {
+                    AccountManager.shared.find(for: self.owner)?.messages.readMessage($0, last: false)
+                }
+
+                DispatchQueue.main.async {
+                    self.rebuildUnreadMentionItems()
+                    self.refreshUnreadMentionsNavigatorState(animated: true)
+                }
+            } catch {
+                DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            }
+        }
     }
 
     internal func loadChatArchiveStateSnapshot() -> ChatArchiveStateSnapshot {
@@ -1052,6 +1619,7 @@ extension ChatViewController {
             nextFullArchiveLoaded: snapshot.fullArchiveLoaded
         )
         _ = self.applyChatArchiveStateIfNeeded(snapshot: snapshot, plan: plan)
+        self.rebuildUnreadMentionItems()
         self.resetInitialBootstrapTracking()
         self.applyBootstrapViewState(self.currentBootstrapViewState(), forceRender: true)
         return true
@@ -1298,6 +1866,7 @@ extension ChatViewController {
         )
 
         self.interactiveHistoryPageLoadContext = nil
+        self.rebuildUnreadMentionItems()
 
         let previousWindow = self.visibleWindow()
         let requestedWindow = self.datasetCoordinator.clamp(
@@ -1381,7 +1950,8 @@ extension ChatViewController {
         ChatBootstrapViewState.resolve(
             messageCount: self.messagesObserver?.count ?? 0,
             isSynced: chatInstance?.isSynced ?? false,
-            isInitialBootstrapInFlight: self.isInitialBootstrapInFlight
+            isInitialBootstrapInFlight: self.isInitialBootstrapInFlight,
+            hasPendingInitialAnchorRequest: self.hasPendingInitialAnchorRequest()
         )
     }
 
@@ -1402,9 +1972,31 @@ extension ChatViewController {
             return ChatBootstrapViewState.resolve(
                 messageCount: self.messagesObserver?.count ?? 0,
                 isSynced: false,
-                isInitialBootstrapInFlight: self.isInitialBootstrapInFlight
+                isInitialBootstrapInFlight: self.isInitialBootstrapInFlight,
+                hasPendingInitialAnchorRequest: self.hasPendingInitialAnchorRequest()
             )
         }
+    }
+
+    internal func hasPendingInitialAnchorRequest() -> Bool {
+        if let executionState = self.activeAnchorExecutionState,
+           executionState.request.owner == self.owner,
+           executionState.request.chatJid == self.jid,
+           executionState.request.conversationType == self.conversationType,
+           executionState.usesBootstrapLoading,
+           !executionState.isPositioning {
+            return true
+        }
+
+        guard self.isShowingBootstrapPlaceholder,
+              let request = self.pendingOpenMessageRequest,
+              request.owner == self.owner,
+              request.chatJid == self.jid,
+              request.conversationType == self.conversationType else {
+            return false
+        }
+
+        return true
     }
 
     @discardableResult
@@ -1414,15 +2006,20 @@ extension ChatViewController {
 
         switch state {
         case .skeleton:
+            self.unreadMentionItems = []
+            self.unreadMentionsState = .empty
             self.syncCurrentPage(with: .empty)
             self.applyChatDatasource(self.mapDataset(dataset: []), mode: .fullReload(), animated: self.shouldAnimateInitialHistoryAppearance)
             self.setShouldShowInitialMessage(false)
         case .content:
+            self.rebuildUnreadMentionItems()
             let window = self.datasetCoordinator.initialWindow(totalCount: self.messagesObserver?.count ?? 0)
             self.syncCurrentPage(with: window)
             self.setShouldShowInitialMessage(false)
             self.mapAndApplyWindow(window, mode: .fullReload(), animated: self.shouldAnimateInitialHistoryAppearance)
         case .empty:
+            self.unreadMentionItems = []
+            self.unreadMentionsState = .empty
             self.syncCurrentPage(with: .empty)
             self.applyChatDatasource([], mode: .fullReload(), animated: self.shouldAnimateInitialHistoryAppearance)
             self.setShouldShowInitialMessage(true)
@@ -1596,7 +2193,13 @@ extension ChatViewController {
             }
             var attributedAuthor: NSAttributedString? = nil
             if withAuthor && !item.outgoing {
-                if let nickname = item.groupchatCard?.nickname, let uuid = item.groupchatCard?.jid ?? item.groupchatCard?.userId {
+                if let nickname = item.groupchatAuthorNickname,
+                   nickname.isNotEmpty,
+                   let uuid = item.groupchatCard?.jid
+                        ?? item.groupchatCard?.userId
+                        ?? item.groupchatMetadata?["jid"] as? String
+                        ?? item.groupchatAuthorId,
+                   uuid.isNotEmpty {
                     attributedAuthor = NSAttributedString(string: nickname, attributes: [
                         .font: UIFont.systemFont(ofSize: 14, weight: .medium),
                         .foregroundColor: ChatViewController.getUsernamePalette(for: uuid).tint500
@@ -1898,7 +2501,9 @@ extension ChatViewController {
                 forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid,
                                                                owner: self.owner,
                                                                conversationType: self.conversationType))
+            self.rebuildUnreadMentionItems()
             self.applyBootstrapViewState(self.bootstrapViewState(chatInstance: chatInstance), forceRender: true)
+            self.performPendingOpenMessageRequestIfNeeded()
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
@@ -2034,6 +2639,7 @@ extension ChatViewController {
             self.setShouldShowInitialMessage(false)
         }
         self.ensureObserverLookupMaps()
+        self.rebuildUnreadMentionItems()
         guard let maxPrimary = self.datasource.filter({ !$0.isFakeMessage }).last?.primary,
               let maxIndexRaw = self.observerPrimaryIndexMap[maxPrimary] else {
             return
@@ -2047,9 +2653,17 @@ extension ChatViewController {
         let minIndex = self.currentPage.minIndex
         let window = self.datasetCoordinator.clamp(ChatDatasetWindow(minIndex: minIndex, maxIndex: maxIndex), totalCount: self.messagesObserver.count)
         self.mapAndApplyWindow(window, mode: .targetedDiff, animated: self.shouldAnimateInitialHistoryAppearance, invalidateLayout: false)
+        self.performPendingOpenMessageRequestIfNeeded(trigger: .observerRefresh)
     }
     
     internal func scrollToLastOrUnreadItem() {
+        if ChatInitialScrollPolicy.shouldDeferDefaultScroll(
+            hasPendingAnchorRequest: self.pendingOpenMessageRequest != nil,
+            isAnchorNavigationInFlight: self.isMessageAnchorNavigationInFlight
+        ) {
+            self.performPendingOpenMessageRequestIfNeeded()
+            return
+        }
         let shouldAnimateScroll = !self.initialHistoryAppearancePending
         if self.currentPage.minIndex > 0 {
             self.currentPage.setCustomPage(0) {

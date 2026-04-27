@@ -343,7 +343,7 @@ class MessageDeleteManager: AbstractXMPPManager {
             iq.elements(forName: "error").isEmpty else {
                 return false
         }
-//        queryIds.remove(elementId)
+        queryIds.remove(elementId)
         if let item = itemsQuery.first(where: { $0.iqId == elementId }) {
             item.callback?(nil, true)
             itemsQuery.remove(item)

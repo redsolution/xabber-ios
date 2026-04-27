@@ -126,4 +126,102 @@ extension ChatViewController {
             }
         }
     }
+
+    class UnreadMentionsNavigatorView: UIView {
+        var onBadgeTap: (() -> Void)?
+
+        private(set) var preferredSize = CGSize(width: 44, height: 44)
+        private(set) var mode: ChatUnreadMentionNavigatorMode = .hidden
+        internal private(set) var currentUnreadCountText: String? = nil
+
+        private let badgeButton = UIButton(type: .system)
+        private let surfaceColor = UIColor.systemBackground.withAlphaComponent(0.98)
+        private let countBadgeLabel: UILabel = {
+            let label = UILabel()
+            label.font = UIFont.systemFont(ofSize: 12, weight: .semibold)
+            label.textAlignment = .center
+            label.textColor = .white
+            label.backgroundColor = .systemBlue
+            label.layer.cornerRadius = 10
+            label.layer.masksToBounds = true
+            label.isHidden = true
+            return label
+        }()
+
+        var showsDirectionalButtons: Bool {
+            false
+        }
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            self.setupSubviews()
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        private func setupSubviews() {
+            self.clipsToBounds = false
+
+            self.badgeButton.translatesAutoresizingMaskIntoConstraints = false
+            self.badgeButton.setTitle("@", for: .normal)
+            self.badgeButton.backgroundColor = self.surfaceColor
+            self.badgeButton.layer.cornerRadius = 22
+            self.badgeButton.layer.masksToBounds = false
+            self.badgeButton.tintColor = .systemBlue
+            self.badgeButton.titleLabel?.font = UIFont.systemFont(ofSize: 18, weight: .bold)
+            self.badgeButton.layer.shadowColor = UIColor.black.withAlphaComponent(0.16).cgColor
+            self.badgeButton.layer.shadowOffset = CGSize(width: 0, height: 5)
+            self.badgeButton.layer.shadowRadius = 12
+            self.badgeButton.layer.shadowOpacity = 1
+            self.badgeButton.addTarget(self, action: #selector(buttonTapped(_:)), for: .touchUpInside)
+            self.badgeButton.accessibilityLabel = "Unread mentions"
+            self.badgeButton.accessibilityIdentifier = "chat-unread-mentions-button"
+
+            self.addSubview(self.badgeButton)
+            self.badgeButton.addSubview(self.countBadgeLabel)
+
+            self.countBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
+            self.countBadgeLabel.accessibilityIdentifier = "chat-unread-mentions-count"
+            self.countBadgeLabel.layer.borderWidth = 2
+
+            NSLayoutConstraint.activate([
+                self.badgeButton.topAnchor.constraint(equalTo: self.topAnchor),
+                self.badgeButton.leadingAnchor.constraint(equalTo: self.leadingAnchor),
+                self.badgeButton.trailingAnchor.constraint(equalTo: self.trailingAnchor),
+                self.badgeButton.bottomAnchor.constraint(equalTo: self.bottomAnchor),
+                self.countBadgeLabel.heightAnchor.constraint(equalToConstant: 20),
+                self.countBadgeLabel.centerXAnchor.constraint(equalTo: self.badgeButton.trailingAnchor, constant: -7),
+                self.countBadgeLabel.centerYAnchor.constraint(equalTo: self.badgeButton.topAnchor, constant: 7),
+                self.countBadgeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 20)
+            ])
+        }
+
+        @objc
+        private func buttonTapped(_ sender: UIButton) {
+            if sender === self.badgeButton {
+                self.onBadgeTap?()
+            }
+        }
+
+        func update(
+            mode: ChatUnreadMentionNavigatorMode,
+            unreadCount: Int,
+            accentColor: UIColor
+        ) {
+            self.mode = mode
+            self.badgeButton.tintColor = accentColor
+            self.countBadgeLabel.backgroundColor = accentColor
+            self.badgeButton.backgroundColor = self.surfaceColor
+            self.countBadgeLabel.layer.borderColor = self.surfaceColor.cgColor
+
+            let unreadText = unreadCount > 99 ? "99+" : "\(unreadCount)"
+            self.currentUnreadCountText = unreadCount > 0 ? unreadText : nil
+            self.countBadgeLabel.text = unreadText
+            self.countBadgeLabel.isHidden = unreadCount <= 0
+            self.badgeButton.accessibilityValue = unreadCount > 0 ? unreadText : nil
+            self.preferredSize = CGSize(width: 44, height: 44)
+        }
+    }
 }

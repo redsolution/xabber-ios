@@ -29,30 +29,87 @@ class InfoScreenHeaderView: UIView {
     // MARK: - Configuration
 
     /// Push all elements down (e.g. to avoid nav bar overlap on specific screens).
-    open var additionalTopOffset: CGFloat = 0
-    open var bottomPadding: CGFloat = 16
+    open var additionalTopOffset: CGFloat = 0 {
+        didSet {
+            updateLayoutInsets()
+            refreshAppliedHeaderLayout()
+        }
+    }
 
-    // The avatar's center.y = avatarBaseCenter + additionalTopOffset.
-    // avatarBaseCenter = 36 keeps the top 28pt of the avatar above the header
-    // frame so it overlaps the transparent navigation bar.
-    private let avatarBaseCenter: CGFloat = 36
-    private let avatarSize: CGFloat = 128
+    open var bottomPadding: CGFloat = 16 {
+        didSet {
+            updateLayoutInsets()
+            refreshAppliedHeaderLayout()
+        }
+    }
+
+    private let horizontalInset: CGFloat = 20
+    private let topPadding: CGFloat = 16
+    private let avatarSize: CGFloat = 112
 
     // Maximum width for the action buttons row (prevents huge gaps on iPad).
     private let maxButtonsWidth: CGFloat = 420
-    private let avatarToTitleSpacing: CGFloat = 8
-    private let titleToSubtitleSpacing: CGFloat = 8
+    private let avatarToTitleSpacing: CGFloat = 14
+    private let titleToSubtitleSpacing: CGFloat = 4
     private let subtitleToThirdLineSpacing: CGFloat = 8
-    private let textToButtonsSpacing: CGFloat = 8
+    private let textToButtonsSpacing: CGFloat = 16
     private let buttonsRowHeight: CGFloat = 56
     private let buttonWidth: CGFloat = 76
     private let buttonHeight: CGFloat = 56
 
+    private weak var appliedTableView: UITableView?
+    private var appliedHeaderWidth: CGFloat = 0
+    private var topConstraint: NSLayoutConstraint?
+    private var bottomConstraint: NSLayoutConstraint?
+    private var titleHeightConstraint: NSLayoutConstraint?
+    private var supportButtonsWidthConstraint: NSLayoutConstraint?
+    private var measuredTitleHeight: CGFloat = 0
+
+    private let contentStack: UIStackView = {
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.distribution = .fill
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        return stack
+    }()
+
+    private let avatarContainer: UIView = {
+        let view = UIView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.backgroundColor = .clear
+        view.layer.shadowColor = UIColor.black.cgColor
+        view.layer.shadowOpacity = 0.12
+        view.layer.shadowRadius = 10
+        view.layer.shadowOffset = CGSize(width: 0, height: 3)
+        return view
+    }()
+
+    private let textStack: UIStackView = {
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.alignment = .fill
+        stack.distribution = .fill
+        stack.spacing = 4
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        return stack
+    }()
+
+    private let buttonsScrollView: UIScrollView = {
+        let scrollView = UIScrollView()
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.showsHorizontalScrollIndicator = false
+        scrollView.alwaysBounceHorizontal = false
+        scrollView.delaysContentTouches = false
+        return scrollView
+    }()
+
     // MARK: - Avatar
 
     let imageButton: RoundedAvatarButton = {
-        let button = RoundedAvatarButton(frame: CGRect(square: 128),
+        let button = RoundedAvatarButton(frame: CGRect(square: 112),
                                          avatarMaskResourceName: AccountMasksManager.shared.mask128pt)
+        button.translatesAutoresizingMaskIntoConstraints = false
         button.layer.masksToBounds = true
         button.contentVerticalAlignment = .fill
         button.contentHorizontalAlignment = .fill
@@ -66,13 +123,15 @@ class InfoScreenHeaderView: UIView {
 
     let titleButton: UIButton = {
         let button = UIButton()
-        button.titleLabel?.font = UIFont.preferredFont(forTextStyle: .title2)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.titleLabel?.font = UIFontMetrics(forTextStyle: .title1)
+            .scaledFont(for: UIFont.systemFont(ofSize: 34, weight: .bold))
         button.titleLabel?.adjustsFontForContentSizeCategory = true
-        button.titleLabel?.adjustsFontSizeToFitWidth = true
-        button.titleLabel?.minimumScaleFactor = 0.6
         button.titleLabel?.numberOfLines = 2
         button.titleLabel?.textAlignment = .center
         button.titleLabel?.lineBreakMode = .byTruncatingTail
+        button.contentHorizontalAlignment = .center
+        button.contentVerticalAlignment = .center
         return button
     }()
 
@@ -82,7 +141,8 @@ class InfoScreenHeaderView: UIView {
         label.textColor = .secondaryLabel
         label.font = UIFont.preferredFont(forTextStyle: .subheadline)
         label.adjustsFontForContentSizeCategory = true
-        label.numberOfLines = 1
+        label.numberOfLines = 2
+        label.translatesAutoresizingMaskIntoConstraints = false
         return label
     }()
 
@@ -93,7 +153,8 @@ class InfoScreenHeaderView: UIView {
         label.textColor = .secondaryLabel
         label.font = UIFont.preferredFont(forTextStyle: .subheadline)
         label.adjustsFontForContentSizeCategory = true
-        label.numberOfLines = 1
+        label.numberOfLines = 2
+        label.translatesAutoresizingMaskIntoConstraints = false
         return label
     }()
 
@@ -103,9 +164,10 @@ class InfoScreenHeaderView: UIView {
     let supportButtonsStack: UIStackView = {
         let stack = UIStackView()
         stack.alignment = .center
-        stack.distribution = .equalSpacing
+        stack.distribution = .fillEqually
         stack.axis = .horizontal
-        stack.spacing = 8
+        stack.spacing = 10
+        stack.translatesAutoresizingMaskIntoConstraints = false
         return stack
     }()
 
@@ -115,12 +177,15 @@ class InfoScreenHeaderView: UIView {
         stack.alignment = .center
         stack.distribution = .fill
         stack.axis = .vertical
+        stack.translatesAutoresizingMaskIntoConstraints = false
         return stack
     }()
 
     var showButtons: Bool {
         didSet {
             buttonsStack.isHidden = !showButtons
+            updateVisibilityAwareSpacing()
+            refreshAppliedHeaderLayout()
         }
     }
 
@@ -133,108 +198,248 @@ class InfoScreenHeaderView: UIView {
     internal func setup() {
         backgroundColor = .systemGroupedBackground
 
-        addSubview(imageButton)
-        addSubview(titleButton)
-        addSubview(subtitleLabel)
-        addSubview(thirdLineLabel)
-        addSubview(buttonsStack)
-
+        addSubview(contentStack)
+        avatarContainer.addSubview(imageButton)
+        textStack.addArrangedSubview(titleButton)
+        textStack.addArrangedSubview(subtitleLabel)
+        textStack.addArrangedSubview(thirdLineLabel)
         buttonsStack.addArrangedSubview(supportButtonsStack)
 
+        contentStack.addArrangedSubview(avatarContainer)
+        contentStack.addArrangedSubview(textStack)
+        contentStack.addArrangedSubview(buttonsStack)
+
+        let topConstraint = contentStack.topAnchor.constraint(equalTo: topAnchor, constant: topPadding + additionalTopOffset)
+        let bottomConstraint = contentStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -bottomPadding)
+        self.topConstraint = topConstraint
+        self.bottomConstraint = bottomConstraint
+
+        let buttonsWidthConstraint = buttonsStack.widthAnchor.constraint(equalTo: contentStack.widthAnchor)
+        buttonsWidthConstraint.priority = .defaultHigh
+        let supportButtonsWidthConstraint = supportButtonsStack.widthAnchor.constraint(lessThanOrEqualTo: buttonsStack.widthAnchor)
+        self.supportButtonsWidthConstraint = supportButtonsWidthConstraint
+
+        titleHeightConstraint = titleButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 0)
+        titleHeightConstraint?.isActive = true
+
+        NSLayoutConstraint.activate([
+            topConstraint,
+            contentStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: horizontalInset),
+            contentStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -horizontalInset),
+            bottomConstraint,
+
+            avatarContainer.widthAnchor.constraint(equalToConstant: avatarSize),
+            avatarContainer.heightAnchor.constraint(equalToConstant: avatarSize),
+
+            imageButton.leadingAnchor.constraint(equalTo: avatarContainer.leadingAnchor),
+            imageButton.trailingAnchor.constraint(equalTo: avatarContainer.trailingAnchor),
+            imageButton.topAnchor.constraint(equalTo: avatarContainer.topAnchor),
+            imageButton.bottomAnchor.constraint(equalTo: avatarContainer.bottomAnchor),
+
+            textStack.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
+
+            buttonsWidthConstraint,
+            buttonsStack.widthAnchor.constraint(lessThanOrEqualToConstant: maxButtonsWidth),
+            supportButtonsStack.heightAnchor.constraint(equalToConstant: buttonsRowHeight),
+            supportButtonsWidthConstraint,
+        ])
+
+        buttonsStack.isHidden = !showButtons
+        updateVisibilityAwareSpacing()
         imageButton.addTarget(self, action: #selector(onAvatarButtonTouchUpInside), for: .touchUpInside)
+        titleButton.addTarget(self, action: #selector(onTitleButtonTouchUpInside), for: .touchUpInside)
+        titleButton.isAccessibilityElement = true
     }
 
     // MARK: - Layout
 
-    /// Lays out all subviews. Called from viewWillAppear after setting the frame.
+    /// Lays out all subviews. Kept for callers that still ask the header to refresh after setting its frame.
     internal func updateSubviews() {
-        let w = bounds.width
-        let horizontalInset: CGFloat = 20
-
-        // ── Avatar ──────────────────────────────────────────────────────────
-        let avatarCenterY = avatarBaseCenter + additionalTopOffset
-        imageButton.frame = CGRect(square: avatarSize)
-        imageButton.center = CGPoint(x: w / 2, y: avatarCenterY)
-
-        // ── Text block ──────────────────────────────────────────────────────
-        var y = avatarCenterY + avatarSize / 2 + avatarToTitleSpacing
-
-        let textWidth = w - horizontalInset * 2
-
-        // Title – allow up to 2 lines
-        let titleFont = UIFont.preferredFont(forTextStyle: .title2)
-        let titleHeight = max(ceil(titleFont.lineHeight) * 2 + 4, 28)
-        titleButton.frame = CGRect(x: horizontalInset, y: y, width: textWidth, height: titleHeight)
-        y = titleButton.frame.maxY + titleToSubtitleSpacing
-
-        // Subtitle
-        let bodyFont = UIFont.preferredFont(forTextStyle: .subheadline)
-        let subtitleHeight = max(ceil(bodyFont.lineHeight), 20)
-        if let subtitle = subtitleLabel.text, !subtitle.isEmpty {
-            subtitleLabel.frame = CGRect(x: horizontalInset, y: y, width: textWidth, height: subtitleHeight)
-            y = subtitleLabel.frame.maxY
-        } else {
-            subtitleLabel.frame = .zero
-        }
-
-        // Third line (only when visible)
-        if !thirdLineLabel.isHidden {
-            if subtitleLabel.frame != .zero {
-                y += subtitleToThirdLineSpacing
-            }
-            thirdLineLabel.frame = CGRect(x: horizontalInset, y: y, width: textWidth, height: subtitleHeight)
-            y = thirdLineLabel.frame.maxY
-        } else {
-            thirdLineLabel.frame = .zero
-        }
-
-        // ── Action buttons ──────────────────────────────────────────────────
-        if !buttonsStack.isHidden {
-            y += textToButtonsSpacing
-            let buttonsWidth = min(w - horizontalInset * 2, maxButtonsWidth)
-            let buttonsX = (w - buttonsWidth) / 2
-            buttonsStack.frame = CGRect(x: buttonsX, y: y, width: buttonsWidth, height: buttonsRowHeight)
-            y = buttonsStack.frame.maxY
-        } else {
-            buttonsStack.frame = .zero
-        }
+        let width = effectiveWidth(from: bounds.width)
+        updateDynamicTextSizing(for: width)
+        updateLayoutInsets()
+        updateVisibilityAwareSpacing()
+        setNeedsLayout()
+        layoutIfNeeded()
     }
 
     /// The height this header view prefers given its current content.
-    /// Set `headerView.frame.size.height = headerView.preferredHeight` then
-    /// reassign `tableView.tableHeaderView = headerView` to apply.
+    /// Set `headerView.frame.size.height = headerView.preferredHeight` then reassign `tableView.tableHeaderView = headerView` to apply.
     var preferredHeight: CGFloat {
-        let avatarCenterY = avatarBaseCenter + additionalTopOffset
-        var h = avatarCenterY + avatarSize / 2 + 10   // below avatar
+        return preferredHeight(for: effectiveWidth(from: bounds.width))
+    }
 
-        // Title (up to 2 lines)
-        let titleFont = UIFont.preferredFont(forTextStyle: .title2)
-        h += max(ceil(titleFont.lineHeight) * 2 + 4, 28) + 4
+    internal func preferredHeight(for width: CGFloat) -> CGFloat {
+        let width = effectiveWidth(from: width)
+        updateDynamicTextSizing(for: width)
+        updateLayoutInsets()
+        updateVisibilityAwareSpacing()
 
-        let bodyFont = UIFont.preferredFont(forTextStyle: .subheadline)
-        let subtitleHeight = max(ceil(bodyFont.lineHeight), 20)
-        if let subtitle = subtitleLabel.text, !subtitle.isEmpty {
-            h += subtitleHeight
+        return ceil(visibleContentHeight(for: width))
+    }
+
+    @discardableResult
+    internal func applyLayout(width: CGFloat) -> CGFloat {
+        let width = effectiveWidth(from: width)
+        let height = preferredHeight(for: width)
+        frame = CGRect(x: 0, y: 0, width: width, height: height)
+        updateSubviews()
+        return height
+    }
+
+    @discardableResult
+    internal func applyHeaderLayout(to tableView: UITableView, width: CGFloat) -> CGFloat {
+        let width = effectiveWidth(from: width > 0 ? width : tableView.bounds.width)
+        appliedTableView = tableView
+        appliedHeaderWidth = width
+        if #available(iOS 15.0, *) {
+            tableView.sectionHeaderTopPadding = 0
+        }
+        let height = applyLayout(width: width)
+        tableView.tableHeaderView = self
+        return height
+    }
+
+    private func refreshAppliedHeaderLayout() {
+        guard let tableView = appliedTableView else { return }
+        applyHeaderLayout(to: tableView, width: appliedHeaderWidth)
+    }
+
+    private func updateLayoutInsets() {
+        topConstraint?.constant = topPadding + additionalTopOffset
+        bottomConstraint?.constant = -bottomPadding
+    }
+
+    private func updateVisibilityAwareSpacing() {
+        buttonsStack.isHidden = !showButtons || !buttonRowHasContent
+
+        let textStackHidden = titleButton.isHidden && subtitleLabel.isHidden && thirdLineLabel.isHidden
+        textStack.isHidden = textStackHidden
+
+        textStack.setCustomSpacing(subtitleLabel.isHidden ? 0 : titleToSubtitleSpacing, after: titleButton)
+        textStack.setCustomSpacing(thirdLineLabel.isHidden ? 0 : subtitleToThirdLineSpacing, after: subtitleLabel)
+
+        contentStack.setCustomSpacing(textStackHidden ? 0 : avatarToTitleSpacing, after: avatarContainer)
+        contentStack.setCustomSpacing(hasVisibleButtonRow ? textToButtonsSpacing : 0, after: textStack)
+    }
+
+    private func effectiveWidth(from width: CGFloat) -> CGFloat {
+        if width > 0 {
+            return width
+        }
+        if appliedHeaderWidth > 0 {
+            return appliedHeaderWidth
+        }
+        if let tableView = appliedTableView, tableView.bounds.width > 0 {
+            return tableView.bounds.width
+        }
+        return UIScreen.main.bounds.width
+    }
+
+    private func updateDynamicTextSizing(for width: CGFloat) {
+        let textWidth = max(width - horizontalInset * 2, 1)
+        titleButton.titleLabel?.preferredMaxLayoutWidth = textWidth
+        subtitleLabel.preferredMaxLayoutWidth = textWidth
+        thirdLineLabel.preferredMaxLayoutWidth = textWidth
+
+        let title = titleButton.title(for: .normal) ?? ""
+        let titleFont = titleButton.titleLabel?.font ?? UIFont.preferredFont(forTextStyle: .title1)
+        let oneLineHeight = ceil(titleFont.lineHeight)
+        let maxTitleHeight = oneLineHeight * 2 + 4
+        if titleButton.isHidden {
+            measuredTitleHeight = 0
+        } else if title.isEmpty {
+            measuredTitleHeight = oneLineHeight + 4
+        } else {
+            let rect = (title as NSString).boundingRect(
+                with: CGSize(width: textWidth, height: CGFloat.greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                attributes: [.font: titleFont],
+                context: nil
+            )
+            measuredTitleHeight = min(max(ceil(rect.height) + 4, oneLineHeight + 4), maxTitleHeight)
+        }
+        titleHeightConstraint?.constant = measuredTitleHeight
+    }
+
+    private func visibleContentHeight(for width: CGFloat) -> CGFloat {
+        let textWidth = max(width - horizontalInset * 2, 1)
+        var height = topPadding + additionalTopOffset + avatarSize
+
+        let textHeight = visibleTextHeight(for: textWidth)
+        if textHeight > 0 {
+            height += avatarToTitleSpacing + textHeight
         }
 
-        // Third line
-        if !thirdLineLabel.isHidden {
-            if let subtitle = subtitleLabel.text, !subtitle.isEmpty {
-                h += subtitleToThirdLineSpacing
+        if hasVisibleButtonRow {
+            height += textToButtonsSpacing + buttonsRowHeight
+        }
+
+        return height + bottomPadding
+    }
+
+    private func visibleTextHeight(for width: CGFloat) -> CGFloat {
+        var height: CGFloat = 0
+        var hasVisibleLabel = false
+
+        if !titleButton.isHidden {
+            height += measuredTitleHeight
+            hasVisibleLabel = true
+        }
+
+        if !subtitleLabel.isHidden {
+            if hasVisibleLabel {
+                height += titleToSubtitleSpacing
             }
-            h += subtitleHeight
+            height += measuredLabelHeight(subtitleLabel, width: width)
+            hasVisibleLabel = true
         }
 
-        // Buttons
-        if !buttonsStack.isHidden { h += textToButtonsSpacing + buttonsRowHeight }
+        if !thirdLineLabel.isHidden {
+            if hasVisibleLabel {
+                height += subtitleToThirdLineSpacing
+            }
+            height += measuredLabelHeight(thirdLineLabel, width: width)
+        }
 
-        h += bottomPadding
-        return h
+        return height
+    }
+
+    private func measuredLabelHeight(_ label: UILabel, width: CGFloat) -> CGFloat {
+        guard let text = label.text, !text.isEmpty else { return 0 }
+        let font = label.font ?? UIFont.preferredFont(forTextStyle: .subheadline)
+        let maxLines = label.numberOfLines > 0 ? label.numberOfLines : Int.max
+        let maxHeight = CGFloat(maxLines) * ceil(font.lineHeight)
+        let rect = (text as NSString).boundingRect(
+            with: CGSize(width: width, height: CGFloat.greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font],
+            context: nil
+        )
+        return min(max(ceil(rect.height), ceil(font.lineHeight)), maxHeight)
+    }
+
+    private var hasVisibleButtonRow: Bool {
+        guard showButtons, !buttonsStack.isHidden else { return false }
+        return buttonRowHasContent
+    }
+
+    private var buttonRowHasContent: Bool {
+        return buttonsStack.arrangedSubviews.contains { arrangedSubview in
+            if arrangedSubview === supportButtonsStack {
+                return supportButtonsStack.arrangedSubviews.contains { !$0.isHidden }
+            }
+            return !arrangedSubview.isHidden
+        }
     }
 
     // MARK: - Button configuration
 
     public final func configureButtons(_ block: () -> [UIButton]) {
+        self.supportButtonsStack.arrangedSubviews.forEach { button in
+            self.supportButtonsStack.removeArrangedSubview(button)
+            button.removeFromSuperview()
+        }
         self.buttons = block()
         NSLayoutConstraint.activate(self.buttons.flatMap { btn -> [NSLayoutConstraint] in [
             btn.widthAnchor.constraint(equalToConstant: buttonWidth),
@@ -242,6 +447,7 @@ class InfoScreenHeaderView: UIView {
         ] })
         self.buttons.forEach { self.supportButtonsStack.addArrangedSubview($0) }
         self.showButtons = true
+        refreshAppliedHeaderLayout()
     }
 
     // MARK: - Content configuration
@@ -252,12 +458,12 @@ class InfoScreenHeaderView: UIView {
                                 titleColor: UIColor, title: String,
                                 subtitle: String?, thirdLine: String?) {
         if currentUrl != avatarUrl {
-            DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 128) { image in
+            DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 112) { image in
                 if let image = image {
                     self.imageButton.setImage(image, for: .normal)
                     self.currentUrl = avatarUrl
                 } else {
-                    self.imageButton.setImage(UIImageView.getDefaultAvatar(for: title, owner: owner, size: 128), for: .normal)
+                    self.imageButton.setImage(UIImageView.getDefaultAvatar(for: title, owner: owner, size: 112), for: .normal)
                 }
             }
         }
@@ -271,8 +477,11 @@ class InfoScreenHeaderView: UIView {
             thirdLineLabel.text = thirdLine
             thirdLineLabel.isHidden = false
         } else {
+            thirdLineLabel.text = nil
             thirdLineLabel.isHidden = true
         }
+        updateVisibilityAwareSpacing()
+        refreshAppliedHeaderLayout()
     }
 
     // MARK: - Avatar mask
@@ -304,13 +513,15 @@ class InfoScreenHeaderView: UIView {
 
     public final func setupXabberAccountButton() {
         self.showButtons = true
-        self.buttonsStack.subviews.forEach { $0.removeFromSuperview() }
+        supportButtonsWidthConstraint?.isActive = false
+        self.buttonsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         self.buttonsStack.addArrangedSubview(xabberAccountButton)
         NSLayoutConstraint.activate([
             xabberAccountButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 224),
             xabberAccountButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
         ])
         self.xabberAccountButton.addTarget(self, action: #selector(self.onXabberAccountButtonTouchUpInside), for: .touchUpInside)
+        refreshAppliedHeaderLayout()
     }
 
     @objc private func onXabberAccountButtonTouchUpInside(_ sender: UIButton) {
@@ -329,14 +540,36 @@ class InfoScreenHeaderView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        avatarContainer.layer.cornerRadius = avatarContainer.bounds.width / 2
+        avatarContainer.layer.shadowPath = UIBezierPath(ovalIn: avatarContainer.bounds).cgPath
+    }
+
     @objc private func onAvatarButtonTouchUpInside(_ sender: UIButton) {
         self.delegate?.onImageButtonPressed()
+    }
+
+    @objc private func onTitleButtonTouchUpInside(_ sender: UIButton) {
+        self.delegate?.onTitleButtonPressed()
     }
 
     // MARK: - Deprecated / unused stubs (kept for API compatibility)
 
     internal func activateConstraints() {}
     public final func update() {}
+}
+
+internal enum InfoScreenSectionMetrics {
+    static func headerHeight(for title: String?, section: Int) -> CGFloat {
+        guard let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else {
+            return .leastNonzeroMagnitude
+        }
+
+        let font = UIFont.preferredFont(forTextStyle: .footnote)
+        let verticalPadding: CGFloat = section == 0 ? 8 : 14
+        return ceil(font.lineHeight + verticalPadding)
+    }
 }
 
 // MARK: - Gradient Border Button

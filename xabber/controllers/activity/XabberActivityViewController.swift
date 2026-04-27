@@ -30,6 +30,7 @@ class XabberActivityViewController: SimpleBaseViewController {
         let conversationType: ClientSynchronizationManager.ConversationType
         let unread: Int
         let unreadString: String?
+        let hasUnreadMention: Bool
         let color: UIColor
         let isDraft: Bool
         let hasAttachment: Bool
@@ -43,7 +44,7 @@ class XabberActivityViewController: SimpleBaseViewController {
         let updateTS: Double
         var isSelected = false
         
-        init(jid: String, owner: String, username: String, attributedUsername: NSAttributedString?, message: String, date: Date? = nil, state: MessageStorageItem.MessageSendingState? = nil, isMute: Bool, isSynced: Bool, status: ResourceStatus, entity: RosterItemEntity?, conversationType: ClientSynchronizationManager.ConversationType, unread: Int, unreadString: String? = nil, color: UIColor, isDraft: Bool, hasAttachment: Bool, userNickname: String?, isSystemMessage: Bool, isPinned: Bool, subRequest: Bool, isEncrypted: Bool, avatarUrl: String?, hasErrorInChat: Bool, updateTS: Double) {
+        init(jid: String, owner: String, username: String, attributedUsername: NSAttributedString?, message: String, date: Date? = nil, state: MessageStorageItem.MessageSendingState? = nil, isMute: Bool, isSynced: Bool, status: ResourceStatus, entity: RosterItemEntity?, conversationType: ClientSynchronizationManager.ConversationType, unread: Int, unreadString: String? = nil, hasUnreadMention: Bool = false, color: UIColor, isDraft: Bool, hasAttachment: Bool, userNickname: String?, isSystemMessage: Bool, isPinned: Bool, subRequest: Bool, isEncrypted: Bool, avatarUrl: String?, hasErrorInChat: Bool, updateTS: Double) {
             self.jid = jid
             self.owner = owner
             self.username = username
@@ -58,6 +59,7 @@ class XabberActivityViewController: SimpleBaseViewController {
             self.conversationType = conversationType
             self.unread = unread
             self.unreadString = unreadString
+            self.hasUnreadMention = hasUnreadMention
             self.color = color
             self.isDraft = isDraft
             self.hasAttachment = hasAttachment
@@ -218,6 +220,7 @@ class XabberActivityViewController: SimpleBaseViewController {
                 entity: primaryResource?.entity ?? .contact,
                 conversationType: item.conversationType,
                 unread: item.unread,
+                hasUnreadMention: item.hasUnreadMention,
                 color: AccountManager.shared.users.count <= 1 ? .clear : AccountColorManager.shared.primaryColor(for: item.owner),
                 isDraft: item.draftMessage != nil,
                 hasAttachment: item.lastMessage?.isHasAttachedMessages ?? false,

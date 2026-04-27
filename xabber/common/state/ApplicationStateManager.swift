@@ -31,6 +31,181 @@ import CocoaLumberjack
 import XMPPFramework.XMPPJID
 import AVFoundation
 
+struct PasscodeLockPolicy {
+    enum Access: Equatable {
+        case available
+        case premiumRequired
+        case disabledByConfig
+    }
+
+    static func access(
+        requiredByConfig: Bool,
+        subscriptionsEnabled: Bool,
+        hasActiveSubscription: Bool
+    ) -> Access {
+        guard requiredByConfig else {
+            return .disabledByConfig
+        }
+
+        if subscriptionsEnabled && !hasActiveSubscription {
+            return .premiumRequired
+        }
+
+        return .available
+    }
+
+    static func accessForCurrentState(jid: String? = nil) -> Access {
+        access(
+            requiredByConfig: CommonConfigManager.shared.config.required_touch_id_or_password,
+            subscriptionsEnabled: CommonConfigManager.shared.config.support_subscribtions,
+            hasActiveSubscription: SubscribtionsManager.shared.hasActiveSubsription(for: jid)
+        )
+    }
+
+    static var currentAccess: Access {
+        accessForCurrentState()
+    }
+
+    static var canUsePasscodeLock: Bool {
+        currentAccess == .available
+    }
+
+    static var shouldShowSettingsEntry: Bool {
+        currentAccess != .disabledByConfig
+    }
+}
+
+struct AutoDeleteMessagesPolicy {
+    enum Access: Equatable {
+        case available
+        case premiumRequired
+    }
+
+    static func access(
+        timerSeconds: Double,
+        subscriptionsEnabled: Bool,
+        hasActiveSubscription: Bool
+    ) -> Access {
+        guard timerSeconds > 0 else {
+            return .available
+        }
+
+        if subscriptionsEnabled && !hasActiveSubscription {
+            return .premiumRequired
+        }
+
+        return .available
+    }
+
+    static func currentAccess(timerSeconds: Double) -> Access {
+        currentAccess(timerSeconds: timerSeconds, jid: nil)
+    }
+
+    static func currentAccess(timerSeconds: Double, jid: String?) -> Access {
+        access(
+            timerSeconds: timerSeconds,
+            subscriptionsEnabled: CommonConfigManager.shared.config.support_subscribtions,
+            hasActiveSubscription: SubscribtionsManager.shared.hasActiveSubsription(for: jid)
+        )
+    }
+
+    static func canConfigure(timerSeconds: Double) -> Bool {
+        currentAccess(timerSeconds: timerSeconds) == .available
+    }
+}
+
+final class PasscodeLockCoordinator {
+    static let shared = PasscodeLockCoordinator()
+
+    private var lockWindow: UIWindow?
+
+    private init() {}
+
+    var isShowing: Bool {
+        lockWindow != nil
+    }
+
+    @discardableResult
+    func show(animated: Bool, onUnlock: @escaping () -> Void) -> Bool {
+        guard lockWindow == nil else {
+            return true
+        }
+
+        guard let window = makeWindow() else {
+            return false
+        }
+
+        let viewController = PasscodeOrBiometricViewController()
+        viewController.onUnlockSucceeded = onUnlock
+        viewController.modalPresentationStyle = .fullScreen
+        viewController.isModalInPresentation = true
+
+        window.rootViewController = viewController
+        window.backgroundColor = .systemBackground
+        window.windowLevel = UIWindow.Level(rawValue: UIWindow.Level.alert.rawValue + 1)
+        window.accessibilityViewIsModal = true
+        window.alpha = animated ? 0 : 1
+        window.isHidden = false
+        window.makeKeyAndVisible()
+        lockWindow = window
+
+        if animated {
+            UIView.animate(withDuration: 0.2) {
+                window.alpha = 1
+            }
+        }
+        return true
+    }
+
+    func hide(animated: Bool) {
+        guard let window = lockWindow else {
+            restoreMainWindow()
+            return
+        }
+
+        let cleanup = { [weak self] in
+            window.isHidden = true
+            window.rootViewController = nil
+            self?.lockWindow = nil
+            self?.restoreMainWindow()
+        }
+
+        if animated {
+            UIView.animate(withDuration: 0.2, animations: {
+                window.alpha = 0
+            }, completion: { _ in
+                cleanup()
+            })
+        } else {
+            cleanup()
+        }
+    }
+
+    private func makeWindow() -> UIWindow? {
+        if #available(iOS 13.0, *) {
+            if let scene = (UIApplication.shared.delegate as? AppDelegate)?.window?.windowScene {
+                return UIWindow(windowScene: scene)
+            }
+
+            let scene = UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .first { scene in
+                    scene.activationState == .foregroundActive || scene.activationState == .foregroundInactive
+                }
+
+            if let scene = scene {
+                return UIWindow(windowScene: scene)
+            }
+        }
+
+        return UIWindow(frame: UIScreen.main.bounds)
+    }
+
+    private func restoreMainWindow() {
+        (UIApplication.shared.delegate as? AppDelegate)?.window?.makeKeyAndVisible()
+    }
+}
+
 
 
 class ApplicationStateManager: NSObject {
@@ -180,6 +355,23 @@ class ApplicationStateManager: NSObject {
     
     private final func postBlockApplication() {
         
+    }
+
+    public final func removeAccountForAuthenticationFailure(jid: String, message: String) {
+        AccountManager.shared.deleteAccount(by: jid)
+        DispatchQueue.main.async {
+            if AccountManager.shared.emptyAccountsList() {
+                let appDelegate = UIApplication.shared.delegate as? AppDelegate
+                AppDelegate.setupRootViewController(instance: appDelegate, window: appDelegate?.window, userInfo: nil)
+            }
+            XTokenInvalidatePresenter().present(
+                jid: jid,
+                title: "Access revoked".localizeString(id: "account_access_revoke", arguments: []),
+                message: message,
+                animated: true,
+                completion: nil
+            )
+        }
     }
 
     private final func tokenWasInvalidated(for jid: String) {
@@ -376,7 +568,7 @@ class ApplicationStateManager: NSObject {
                 AccountMasksManager.shared.save(mask: mask)
             }
         }
-        if CommonConfigManager.shared.config.required_touch_id_or_password {
+        if PasscodeLockPolicy.canUsePasscodeLock {
             self.runPincodeTask()
         }
         DispatchQueue.global().asyncAfter(deadline: .now() + 3) {
@@ -487,44 +679,65 @@ class ApplicationStateManager: NSObject {
     
     public final func runPincodeTask(animated: Bool, force: Bool = false) {
         if !CredentialsManager.shared.isPincodeSetted() {
+            self.appState = .unlocked
+            hidePincodeScreen(animated: animated)
+            return
+        }
+        guard PasscodeLockPolicy.canUsePasscodeLock else {
+            self.appState = .unlocked
+            hidePincodeScreen(animated: animated)
             return
         }
         switch self.state {
         case .unsecure:
-            if CommonConfigManager.shared.config.required_touch_id_or_password {
-                if AccountManager.shared.users.isNotEmpty {
-                    if (Date().timeIntervalSince1970 -  CredentialsManager.shared.getPincodeTimestamp() > self.period) || force {
-                        self.appState = .locked
-                        self.showPincodeScreen(animated: animated)
-                    } else {
-                        self.appState = .unlocked
-                    }
+            if AccountManager.shared.users.isNotEmpty {
+                if shouldLockPasscode(force: force) {
+                    self.appState = .locked
+                    self.showPincodeScreen(animated: animated)
+                } else {
+                    self.appState = .unlocked
                 }
             }
             break
         default:
-            if CommonConfigManager.shared.config.required_touch_id_or_password {
-                if (Date().timeIntervalSince1970 -  CredentialsManager.shared.getPincodeTimestamp() > self.period) || force {
-                    self.appState = .locked
-                    self.showPincodeScreen(animated: animated)
-                }
+            if shouldLockPasscode(force: force) {
+                self.appState = .locked
+                self.showPincodeScreen(animated: animated)
             }
             break
         }
     }
+
+    private final func shouldLockPasscode(force: Bool) -> Bool {
+        force || Date().timeIntervalSince1970 - CredentialsManager.shared.getPincodeTimestamp() > self.period
+    }
     
     fileprivate final func showPincodeScreen(animated: Bool) {
         if !self.isPincodeShowed {
-//            let subscribtion = SubscribtionsManager.shared.subscribtionEnd
-//            guard subscribtion != nil else {
-//                CredentialsManager.shared.clearPincodes()
-//                SettingManager.shared.saveItem(for: "", scope: .security, key: "support_touch_id", value: false)
-//                return
-//            }
             self.isPincodeShowed = true
             DispatchQueue.main.async {
-                PincodePresenter().present(animated: animated)
+                let didShow = PasscodeLockCoordinator.shared.show(animated: animated) { [weak self] in
+                    self?.unlockPincode()
+                }
+                if !didShow {
+                    self.isPincodeShowed = false
+                }
             }
+        }
+    }
+
+    public final func unlockPincode() {
+        self.appState = .unlocked
+        DispatchQueue.main.async {
+            self.hidePincodeScreen(animated: true)
+            (UIApplication.shared.delegate as? AppDelegate)?.removeBlurredScreen()
+        }
+    }
+
+    public final func hidePincodeScreen(animated: Bool) {
+        self.isPincodeShowed = false
+        DispatchQueue.main.async {
+            PasscodeLockCoordinator.shared.hide(animated: animated)
         }
     }
 }

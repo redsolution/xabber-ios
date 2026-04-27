@@ -23,6 +23,11 @@ import UIKit
 import XMPPFramework
 
 extension ContactInfoViewController: UITableViewDelegate {
+    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+        let title = datasource[section].title
+        return InfoScreenSectionMetrics.headerHeight(for: title, section: section)
+    }
+
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         if datasource[indexPath.section].childs[indexPath.row].key == "circles" {
             return tableView.estimatedRowHeight

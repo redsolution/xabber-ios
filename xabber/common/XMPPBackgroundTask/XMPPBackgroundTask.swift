@@ -48,6 +48,7 @@ class XMPPBackgroundTask: NSObject {
     var taskType: TaskType
     
     var stream: XMPPStream = XMPPStream()
+    let authenticationCounterTracker = XMPPAuthenticationCounterTracker()
     
     var queue: DispatchQueue
     

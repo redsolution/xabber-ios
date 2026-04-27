@@ -26,6 +26,7 @@ struct ClientSyncPageParser {
     struct SnapshotPage {
         let stamp: String
         let isFinalPage: Bool
+        let nextPageToken: String?
         let conversations: [DDXMLElement]
     }
 
@@ -34,29 +35,49 @@ struct ClientSyncPageParser {
               let stamp = query.attributeStringValue(forName: "stamp") else {
             return nil
         }
-        let count = query.element(forName: "set")?.element(forName: "count")?.stringValueAsNSInteger() ?? 0
-        let isFinalPage = count < pageSize
-        let conversations = updateOmemo(query).elements(forName: "conversation").compactMap { $0.copy() as? DDXMLElement }
-        return SnapshotPage(stamp: stamp, isFinalPage: isFinalPage, conversations: conversations)
+        let normalizedQuery = updateOmemo(query)
+        let conversations = normalizedQuery.elements(forName: "conversation").compactMap { $0.copy() as? DDXMLElement }
+        let nextPageToken = normalizedQuery
+            .element(forName: "set")?
+            .element(forName: "last")?
+            .stringValue?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasNextPageToken = nextPageToken?.isNotEmpty == true
+        let isFinalPage = conversations.isEmpty || conversations.count < pageSize || !hasNextPageToken
+        return SnapshotPage(
+            stamp: stamp,
+            isFinalPage: isFinalPage,
+            nextPageToken: hasNextPageToken ? nextPageToken : nil,
+            conversations: conversations
+        )
     }
 }
 
 struct ClientSyncPageApplier {
+    struct ApplyResult {
+        let queueItems: Set<MessageManager.MessageQueueItem>
+        let detectedInvite: Bool
+    }
+
     static func apply(
         realm: Realm,
         conversations: [DDXMLElement],
         accountCreateDate: Date?,
+        applyConversationState: (DDXMLElement, Realm) -> Bool,
         readInvites: (DDXMLElement, Realm) -> Bool,
         readConversation: (DDXMLElement, Realm, Date?) -> MessageManager.MessageQueueItem?,
         readMarkers: (DDXMLElement, Realm) -> Void,
-        readPresence: (DDXMLElement, Realm) -> Void,
-        onInviteDetected: () -> Void
-    ) throws -> Set<MessageManager.MessageQueueItem> {
+        readPresence: (DDXMLElement, Realm) -> Void
+    ) throws -> ApplyResult {
         var queueItems = Set<MessageManager.MessageQueueItem>()
+        var detectedInvite = false
         try realm.write {
             conversations.forEach { conversation in
+                guard applyConversationState(conversation, realm) else {
+                    return
+                }
                 if readInvites(conversation, realm) {
-                    onInviteDetected()
+                    detectedInvite = true
                 }
                 if let item = readConversation(conversation, realm, accountCreateDate) {
                     queueItems.insert(item)
@@ -65,11 +86,17 @@ struct ClientSyncPageApplier {
                 readPresence(conversation, realm)
             }
         }
-        return queueItems
+        return ApplyResult(queueItems: queueItems, detectedInvite: detectedInvite)
     }
 }
 
 class ClientSynchronizationManager: AbstractXMPPManager {
+    private struct SyncUnreadState {
+        let count: Int
+        let afterId: String?
+        let lastMessageArchiveId: String?
+    }
+
     enum SyncPhase {
         case idle
         case snapshotInProgress
@@ -82,6 +109,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     open var isAvailable: Bool = false
     open var version: String = ""
     private var temporaryVer: String? = nil
+    private let syncQueryIds = SynchronizedArray<String>()
     private let applyQueue = DispatchQueue(label: "com.xabber.client-sync.apply")
     private let stateQueue = DispatchQueue(label: "com.xabber.client-sync.state")
     private var phase: SyncPhase = .idle
@@ -95,6 +123,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     private var ignorePush: Bool = false
     
     internal var firstSync: Bool = true
+    internal var beforeApplyingSyncPayload: (() throws -> Void)?
     
     enum ConversationStatus: String {
         case archived = "archived"
@@ -201,6 +230,59 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         }
     }
 
+    private func registerSyncQuery(_ elementId: String) {
+        queryIds.insert(elementId)
+        syncQueryIds.insert(elementId)
+    }
+
+    private func unregisterSyncQuery(_ elementId: String) {
+        queryIds.remove(elementId)
+        syncQueryIds.remove(elementId)
+    }
+
+    private func resetSyncStateAfterFailure() {
+        stateQueue.sync {
+            phase = .idle
+            activeSnapshotStamp = nil
+            isApplyingPage = false
+            shouldRequestInviteFallbackAfterSnapshot = false
+        }
+        temporaryVer = nil
+    }
+
+    private func processQueueItems(_ queueItems: Set<MessageManager.MessageQueueItem>) {
+        guard !queueItems.isEmpty else { return }
+        AccountManager
+            .shared
+            .find(for: self.owner)?
+            .messages
+            .processQueue(queueItems) {
+                if let results = $0 {
+                    AccountManager.shared.find(for: self.owner)?.messages.save(results)
+                }
+            }
+    }
+
+    private func applySyncPayload(
+        conversations: [DDXMLElement],
+        accountCreateDate: Date?
+    ) throws -> Bool {
+        try beforeApplyingSyncPayload?()
+        let realm = try WRealm.safe()
+        let result = try ClientSyncPageApplier.apply(
+            realm: realm,
+            conversations: conversations,
+            accountCreateDate: accountCreateDate,
+            applyConversationState: self.readConversationMetadata(_:realm:),
+            readInvites: self.readInvites(_:realm:),
+            readConversation: self.readConversation(_:realm:accountCreateDate:),
+            readMarkers: self.readMessageMarkers(_:realm:),
+            readPresence: self.readPresence(_:realm:)
+        )
+        processQueueItems(result.queueItems)
+        return result.detectedInvite
+    }
+
     private func beginApplyingPage(snapshotStamp: String) {
         stateQueue.sync {
             isApplyingPage = true
@@ -247,6 +329,87 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         }
         return dateFromSyncStamp(syncStamp(from: messageElement, fallback: fallbackSyncStamp))
     }
+
+    private static func syncMetadata(from conversation: DDXMLElement) -> DDXMLElement? {
+        conversation
+            .elements(forName: "metadata")
+            .first(where: { $0.attributeStringValue(forName: "node") == ClientSynchronizationManager.primaryNamespace })
+    }
+
+    private static func normalizedArchiveId(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              value.isNotEmpty else {
+            return nil
+        }
+        return value
+    }
+
+    private func unreadState(from conversation: DDXMLElement) -> SyncUnreadState? {
+        guard let metadata = Self.syncMetadata(from: conversation),
+              let unreadElement = metadata.element(forName: "unread") else {
+            return nil
+        }
+
+        let lastMessageArchiveId = metadata
+            .element(forName: "last-message")?
+            .element(forName: "message")
+            .flatMap { messageElement in
+                let archiveId = getStanzaId(XMPPMessage(from: messageElement), owner: self.owner)
+                return Self.normalizedArchiveId(archiveId)
+            }
+
+        return SyncUnreadState(
+            count: max(unreadElement.attributeIntegerValue(forName: "count"), 0),
+            afterId: Self.normalizedArchiveId(unreadElement.attributeStringValue(forName: "after")),
+            lastMessageArchiveId: lastMessageArchiveId
+        )
+    }
+
+    @discardableResult
+    private func ensureNotificationSyncStorage(in realm: Realm) -> XMPPNotificationsManagerStorageItem {
+        let primary = XMPPNotificationsManagerStorageItem.genPrimary(owner: self.owner)
+        if let existing = realm.object(ofType: XMPPNotificationsManagerStorageItem.self, forPrimaryKey: primary) {
+            return existing
+        }
+
+        let storage = XMPPNotificationsManagerStorageItem()
+        storage.owner = self.owner
+        storage.primary = primary
+        realm.add(storage, update: .modified)
+        return storage
+    }
+
+    private func reconcileNotificationReadState(
+        from unreadState: SyncUnreadState,
+        in realm: Realm
+    ) {
+        let storage = ensureNotificationSyncStorage(in: realm)
+        storage.unread = unreadState.count
+        storage.unreadAfterId = unreadState.afterId
+        XMPPNotificationsManagerStorageItem.reconcileStoredNotificationReadState(
+            owner: self.owner,
+            storage: storage,
+            in: realm
+        )
+    }
+
+    private func applyNotificationConversationState(
+        _ conversation: DDXMLElement,
+        jid: String,
+        realm: Realm
+    ) {
+        let storage = ensureNotificationSyncStorage(in: realm)
+        if storage.node?.isNotEmpty != true {
+            storage.node = jid
+        }
+
+        guard let unreadState = unreadState(from: conversation) else {
+            return
+        }
+        
+        reconcileNotificationReadState(from: unreadState, in: realm)
+        storage.lastSyncAt = Date()
+    }
     
     internal func updateStateForAccount() {
         do {
@@ -286,7 +449,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                                to: nil,
                                elementID: elementId,
                                child: query))
-        queryIds.insert(elementId)
+        registerSyncQuery(elementId)
         return isAvailable
     }
     
@@ -425,22 +588,14 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     }
  
     open func checkNextPage(_ xmppStream: XMPPStream, in iq: XMPPIQ) -> Bool {
-        guard let last = iq
-                        .element(forName: "query")?
-                        .element(forName: "set")?
-                        .element(forName: "last")?
-                        .stringValue
-        else {
-                return false
-        }
-        let result = sync(xmppStream, after: last)
-        return result
+        false
     }
     
     override func read(withIQ iq: XMPPIQ) -> Bool {
         switch true {
         case readPush(iq): return true
         case readSnapshot(iq): return true
+        case readError(iq): return true
         case readResult(iq): return true
         default: return false
         }
@@ -453,21 +608,25 @@ class ClientSynchronizationManager: AbstractXMPPManager {
               let stamp = query.attributeStringValue(forName: "stamp") else {
                 return false
         }
-        markLastRecognizedEventStamp(stamp)
+        if ignorePush {
+            return true
+        }
         
         do {
-            let realm = try WRealm.safe()
-            try realm.write {
-                query.elements(forName: "conversation").forEach {
-                    _ = readConversationMetadata($0, realm: realm)
-                    readPresence($0, realm: realm)
-                }
+            let accountCreateDate = try WRealm.safe()
+                .object(ofType: AccountStorageItem.self, forPrimaryKey: self.owner)?
+                .createdAt
+            let shouldRunInviteFallback = try applySyncPayload(
+                conversations: query.elements(forName: "conversation"),
+                accountCreateDate: accountCreateDate
+            )
+            markLastRecognizedEventStamp(stamp)
+            if shouldRunInviteFallback {
+                AccountManager.shared.find(for: owner)?.groupchats.getInvitesFallback()
             }
         } catch {
             DDLogDebug("ClientSynchronizationManager: \(#function). \(error.localizedDescription)")
         }
-        
-        AccountManager.shared.find(for: owner)?.groupchats.getInvitesFallback()
         return true
     }
     
@@ -477,19 +636,27 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             return false
         }
         let conversationType = ConversationType(rawValue: conversation.attributeStringValue(forName: "type") ?? "none") ?? ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
+        if conversationType == .notifications {
+            applyNotificationConversationState(conversation, jid: jid, realm: realm)
+            return false
+        }
         do {
             if let instance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: conversationType)) {
-                if let statusRaw = conversation.attributeStringValue(forName: "status"),
-                   let status = ConversationStatus(rawValue: statusRaw) {
-                    let pinned = conversation.attributeDoubleValue(forName: "pinned", withDefaultValue: 0)
+                if let pinnedRaw = conversation.attributeStringValue(forName: "pinned") {
+                    let pinned = Double(pinnedRaw) ?? 0
                     if instance.pinnedPosition != pinned {
                         instance.pinnedPosition = pinned
                         instance.isPinned = pinned != 0
                     }
-                    let muteExpired = conversation.attributeDoubleValue(forName: "mute", withDefaultValue: 0)
+                }
+                if let muteRaw = conversation.attributeStringValue(forName: "mute") {
+                    let muteExpired = Double(muteRaw) ?? 0
                     if instance.muteExpired != muteExpired {
                         instance.muteExpired = muteExpired
                     }
+                }
+                if let statusRaw = conversation.attributeStringValue(forName: "status"),
+                   let status = ConversationStatus(rawValue: statusRaw) {
                     switch status {
                     case .archived:
                         instance.isArchived = true
@@ -522,6 +689,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                             
                             try AccountManager.shared.find(for: owner)?.favorites.createLastChatsStorageItem(commitTransaction: false)
                         }
+                        return false
                     }
                 }
                 
@@ -541,6 +709,9 @@ class ClientSynchronizationManager: AbstractXMPPManager {
 //    </iq>
     
     internal func readSnapshot(_ iq: XMPPIQ) -> Bool {
+        guard iq.iqType == .result else {
+            return false
+        }
         guard let page = ClientSyncPageParser.parseSnapshotPage(
             from: iq,
             pageSize: self.pageSize,
@@ -548,6 +719,9 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             updateOmemo: updateOmemoMessages(_:)
         ) else {
                 return false
+        }
+        if let elementId = iq.elementID {
+            unregisterSyncQuery(elementId)
         }
 
         AccountManager.shared.changeNewUserState(for: self.owner, to: .dataLoaded)
@@ -567,29 +741,19 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         }
         applyQueue.async {
             do {
-                let realm = try WRealm.safe()
-                let accountCreateDate = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: self.owner)?.createdAt
-                let queueItems = try ClientSyncPageApplier.apply(
-                    realm: realm,
+                let accountCreateDate = try WRealm.safe().object(ofType: AccountStorageItem.self, forPrimaryKey: self.owner)?.createdAt
+                let detectedInvite = try self.applySyncPayload(
                     conversations: page.conversations,
-                    accountCreateDate: accountCreateDate,
-                    readInvites: self.readInvites(_:realm:),
-                    readConversation: self.readConversation(_:realm:accountCreateDate:),
-                    readMarkers: self.readMessageMarkers(_:realm:),
-                    readPresence: self.readPresence(_:realm:),
-                    onInviteDetected: self.noteInviteFallbackNeeded
+                    accountCreateDate: accountCreateDate
                 )
+                if detectedInvite {
+                    self.noteInviteFallbackNeeded()
+                }
 
-                if !queueItems.isEmpty {
-                    AccountManager
-                        .shared
-                        .find(for: self.owner)?
-                        .messages
-                        .processQueue(queueItems) {
-                            if let results = $0 {
-                                AccountManager.shared.find(for: self.owner)?.messages.save(results)
-                            }
-                        }
+                if !page.isFinalPage, let nextPageToken = page.nextPageToken {
+                    AccountManager.shared.find(for: self.owner)?.unsafeAction { _, stream in
+                        _ = self.sync(stream, after: nextPageToken)
+                    }
                 }
 
                 let shouldRunInviteFallback = self.finishApplyingPage(snapshotStamp: page.stamp, isFinalPage: page.isFinalPage)
@@ -608,6 +772,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 }
             } catch {
                 _ = self.finishApplyingPage(snapshotStamp: page.stamp, isFinalPage: page.isFinalPage)
+                self.resetSyncStateAfterFailure()
                 DDLogDebug("ClientSynchronizationManager: \(#function). \(error.localizedDescription)")
             }
         }
@@ -653,13 +818,15 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         guard let jid = conversation.attributeStringValue(forName: "jid"),
               let metadata = conversation
                             .elements(forName: "metadata")
-                            .first(where: { $0.attributeStringValue(forName: "node") == "https://xabber.com/protocol/synchronization" }),
-              let displayed = metadata.element(forName: "displayed")?.attributeStringValue(forName: "id"),
-              let delivered = metadata.element(forName: "delivered")?.attributeStringValue(forName: "id") else { return }
+                            .first(where: { $0.attributeStringValue(forName: "node") == "https://xabber.com/protocol/synchronization" }) else { return }
         
         let stamp = conversation.attributeDoubleValue(forName: "stamp")
         let conversationType = ConversationType(rawValue: conversation.attributeStringValue(forName: "type") ?? "none") ?? .regular
-        if let deliveredMessageTimeInterval = TimeInterval(delivered) {
+        guard conversationType != .notifications else {
+            return
+        }
+        if let delivered = metadata.element(forName: "delivered")?.attributeStringValue(forName: "id"),
+           let deliveredMessageTimeInterval = TimeInterval(delivered) {
             let deliveredMessageDate = Date(timeIntervalSince1970: deliveredMessageTimeInterval / 1000000)
             realm
                 .objects(MessageStorageItem.self)
@@ -672,7 +839,8 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 .forEach { $0.state = .deliver}
         }
         
-        if let displayedMessageTimeInterval = TimeInterval(displayed) {
+        if let displayed = metadata.element(forName: "displayed")?.attributeStringValue(forName: "id"),
+           let displayedMessageTimeInterval = TimeInterval(displayed) {
             let displayedMessageDate = Date(timeIntervalSince1970: displayedMessageTimeInterval / 1000000)
             let readDate = Date(timeIntervalSince1970: stamp / 1000000)
             realm
@@ -686,11 +854,11 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 .forEach {
                     $0.state = .read
                     $0.isRead = true
-                    if $0.afterburnInterval > 0 && $0.burnDate <= 1 {
+                    if $0.afterburnInterval > 0 && $0.burnDate <= 1 && $0.autoDeleteExpiresAt <= 0 {
                         $0.readDate = readDate.timeIntervalSince1970
                         $0.burnDate = readDate.timeIntervalSince1970 + $0.afterburnInterval
                         if (readDate.timeIntervalSince1970 + $0.afterburnInterval) < Date().timeIntervalSince1970 {
-                            $0.isDeleted = true
+                            $0.markAutoDeleted()
                         }
                     }
                 }
@@ -876,12 +1044,19 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                     }
                 }
             }
-            instance.mentionId = metadata.element(forName: "unread-mention")?.attributeStringValue(forName: "id")
             instance.displayedId = metadata.element(forName: "displayed")?.attributeStringValue(forName: "id")
             instance.deliveredId = metadata.element(forName: "delivered")?.attributeStringValue(forName: "id")
             instance.lastReadId = metadata.element(forName: "unread")?.attributeStringValue(forName: "after")
             instance.unread = metadata.element(forName: "unread")?.attributeIntegerValue(forName: "count") ?? 0
             instance.isPrereaded = false
+
+            if conversationType == .group {
+                MentionNotificationSync.refreshLastChatMentionIds(
+                    owner: self.owner,
+                    groupchatJids: [jid],
+                    in: realm
+                )
+            }
 
             if conversationStatus == "archived" {
                 instance.isArchived = true
@@ -1036,6 +1211,21 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         }
         return nil
     }
+
+    internal func readError(_ iq: XMPPIQ) -> Bool {
+        guard let elementId = iq.elementID,
+              iq.iqType == .error,
+              queryIds.contains(elementId) else {
+            return false
+        }
+        let isSyncQuery = syncQueryIds.contains(elementId)
+        queryIds.remove(elementId)
+        if isSyncQuery {
+            unregisterSyncQuery(elementId)
+            resetSyncStateAfterFailure()
+        }
+        return true
+    }
     
     internal func readResult(_ iq: XMPPIQ) -> Bool {
         guard let elementId = iq.elementID,
@@ -1043,7 +1233,12 @@ class ClientSynchronizationManager: AbstractXMPPManager {
               queryIds.contains(elementId) else { // BAD ACCESS
                 return false
         }
+        let isSyncQuery = syncQueryIds.contains(elementId)
         queryIds.remove(elementId)
+        if isSyncQuery {
+            unregisterSyncQuery(elementId)
+            resetSyncStateAfterFailure()
+        }
         return true
     }
     
@@ -1056,6 +1251,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     
     public final func reset() {
         self.queryIds.removeAll()
+        self.syncQueryIds.removeAll()
         self.isPresenceSended = false
         stateQueue.sync {
             self.phase = .idle

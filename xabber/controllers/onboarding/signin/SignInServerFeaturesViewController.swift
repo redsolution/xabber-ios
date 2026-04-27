@@ -853,13 +853,8 @@ class SignInServerFeaturesViewController: UIViewController {
         if isModal {
             self.dismiss(animated: true, completion: nil)
         } else {
-            if CommonConfigManager.shared.config.required_touch_id_or_password {
-                let vc = PasscodeViewController(isOnboarding: true)
-                self.navigationController?.pushViewController(vc, animated: true)
-            } else {
-                let appDelegate = UIApplication.shared.delegate as? AppDelegate
-                AppDelegate.setupRootViewController(instance: appDelegate, window: appDelegate?.window, userInfo: nil)
-            }
+            let appDelegate = UIApplication.shared.delegate as? AppDelegate
+            AppDelegate.setupRootViewController(instance: appDelegate, window: appDelegate?.window, userInfo: nil)
         }
     }
 }

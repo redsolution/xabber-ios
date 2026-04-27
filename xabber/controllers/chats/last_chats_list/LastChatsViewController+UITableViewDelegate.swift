@@ -24,6 +24,93 @@ import RealmSwift
 import CocoaLumberjack
 
 extension LastChatsViewController: UITableViewDelegate {
+
+    internal static func unreadMentionOpenRequest(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        in realm: Realm
+    ) -> ChatOpenMessageRequest? {
+        guard conversationType == .group,
+              let chat = realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(
+                    jid: jid,
+                    owner: owner,
+                    conversationType: conversationType
+                )
+              ),
+              let mentionId = chat.mentionId,
+              mentionId.isNotEmpty else {
+            return nil
+        }
+
+        let notification = realm.objects(NotificationStorageItem.self)
+            .filter(
+                "owner == %@ AND category_ == %@ AND isRead == false",
+                owner,
+                XMPPNotificationsManager.Category.mention.rawValue
+            )
+            .toArray()
+            .filter {
+                ($0.sourceConversationType ?? .group) == .group
+                    && $0.sourceChatJid == jid
+                    && $0.sourceArchivedId == mentionId
+                    && $0.mentionLinkStatus != .invalidated
+                    && $0.mentionLinkStatus != .missing
+            }
+            .sorted { lhs, rhs in
+                let lhsDate = lhs.sourceMessageDate ?? lhs.date
+                let rhsDate = rhs.sourceMessageDate ?? rhs.date
+                if lhsDate != rhsDate {
+                    return lhsDate > rhsDate
+                }
+
+                return (lhs.sourceArchivedId ?? "") > (rhs.sourceArchivedId ?? "")
+            }
+            .first
+
+        let sourceDate = notification?.sourceMessageDate
+            ?? notification?.date
+            ?? (chat.messageDate == Date(timeIntervalSince1970: 0) ? nil : chat.messageDate)
+            ?? Date()
+
+        return ChatOpenMessageRequest(
+            chatJid: jid,
+            owner: owner,
+            conversationType: conversationType,
+            anchor: ChatMessageAnchorRef(
+                messagePrimary: nil,
+                archivedId: mentionId,
+                messageId: notification?.sourceMessageId,
+                authorId: notification?.sourceSenderId,
+                bodyFingerprint: notification?.sourceBodyFingerprint,
+                sourceDate: sourceDate
+            ),
+            highlight: false,
+            markReadOnVisible: true,
+            source: .mentionNotification
+        )
+    }
+
+    internal func unreadMentionOpenRequest(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType
+    ) -> ChatOpenMessageRequest? {
+        do {
+            let realm = try WRealm.safe()
+            return Self.unreadMentionOpenRequest(
+                owner: owner,
+                jid: jid,
+                conversationType: conversationType,
+                in: realm
+            )
+        } catch {
+            DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
+            return nil
+        }
+    }
     
     func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
         if AudioManager.shared.player == nil {
@@ -52,14 +139,37 @@ extension LastChatsViewController: UITableViewDelegate {
             case .invite:
                 self.leftMenuSelectRootCategoryDelegate?.selectRootScreenAndCategory(screen: "groups", category: "show_all_invites")
             case .none:
-                self.stackNewChat(owner: item.owner, jid: item.jid, conversationType: item.conversationType)
+                self.stackNewChat(
+                    owner: item.owner,
+                    jid: item.jid,
+                    conversationType: item.conversationType,
+                    openMessageRequest: self.unreadMentionOpenRequest(
+                        owner: item.owner,
+                        jid: item.jid,
+                        conversationType: item.conversationType
+                    )
+                )
         }
     }
     
-    public func stackNewChat(owner: String, jid: String, conversationType: ClientSynchronizationManager.ConversationType, configure configureCallback: ((ChatViewController?) -> Void)? = nil) {
+    public func stackNewChat(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        openMessageRequest: ChatOpenMessageRequest? = nil,
+        configure configureCallback: ((ChatViewController?) -> Void)? = nil
+    ) {
         if let oldVc = self.currentChatVC,
            oldVc.jid == jid, oldVc.owner == owner, oldVc.conversationType == conversationType {
-            oldVc.scrollToLastOrUnreadItem()
+            configureCallback?(oldVc)
+            if let openMessageRequest,
+               oldVc.pendingOpenMessageRequest == nil {
+                oldVc.queueOpenMessageRequest(openMessageRequest)
+            } else if oldVc.pendingOpenMessageRequest != nil {
+                oldVc.performPendingOpenMessageRequestIfNeeded()
+            } else {
+                oldVc.scrollToLastOrUnreadItem()
+            }
             return
         }
         self.currentChatVC = nil
@@ -69,6 +179,9 @@ extension LastChatsViewController: UITableViewDelegate {
         vc.conversationType = conversationType
         vc.sharedPlayerPaneldelegae = self
         vc.lastChatsDisplayDelegate = self
+        if let openMessageRequest {
+            vc.pendingOpenMessageRequest = openMessageRequest
+        }
         configureCallback?(vc)
         if UIDevice.current.userInterfaceIdiom == .pad && CommonConfigManager.shared.config.interface_type == "split" {
             self.currentChatVC = vc

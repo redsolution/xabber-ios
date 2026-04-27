@@ -22,6 +22,24 @@ import Foundation
 import UIKit
 
 extension GroupchatInfoViewController: UITableViewDelegate {
+    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+        let title: String
+        if datasource[section].kind == .contact {
+            var participantsStr = "member"
+            if self.membersCount > 1 {
+                participantsStr = "members"
+            }
+            if self.onlineContacts > 0 {
+                title = "\(self.membersCount) \(participantsStr), \(self.onlineContacts) online"
+            } else {
+                title = "\(self.membersCount) \(participantsStr)"
+            }
+        } else {
+            title = datasource[section].title
+        }
+        return InfoScreenSectionMetrics.headerHeight(for: title, section: section)
+    }
+
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         if datasource[indexPath.section].kind == .contact {
             return 64

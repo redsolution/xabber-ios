@@ -9,21 +9,66 @@
 import Foundation
 import UIKit
 import StoreKit
+import MaterialComponents
 import CocoaLumberjack
 
+struct PremiumAdvantageItem {
+    enum Kind {
+        case numbered(String)
+        case symbol(String)
+    }
+
+    let kind: Kind
+    let color: UIColor
+    let title: String
+    let desc: String?
+}
+
+enum PremiumPeriodRowState: Equatable {
+    case active
+    case scheduled
+    case selectable
+    case unavailable
+}
+
+enum PremiumSubscriptionAction: Equatable {
+    case manage
+    case subscribe
+    case upgrade(planName: String)
+    case downgrade(planName: String)
+    case unavailable
+}
+
+enum PremiumRemoteSectionsState: Equatable {
+    case loading
+    case loaded(product: APIProduct, source: SubscriptionCatalogSource, warning: String?)
+    case empty(warning: String?)
+    case error(message: String)
+}
+
+struct PremiumCTAState: Equatable {
+    let title: String
+    let isEnabled: Bool
+}
+
 class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewDelegate {
+
+    typealias PeriodItem = (name: String, period: String, priceId: String, fallbackPrice: String, storeProduct: Product?)
 
     // MARK: - Constants
 
     private let accentColor = UIColor(red: 124/255, green: 58/255, blue: 237/255, alpha: 1)
+    static let periodSkeletonRowCount = 2
+    static let advantageSkeletonRowCount = 2
 
     // MARK: - Data
 
-    private var selectedPeriodIndex = 0
+    private var selectedPriceId: String?
 
-    private var periodItems: [(name: String, period: String, priceId: String, storeProduct: Product?)] = []
+    private var periodItems: [PeriodItem] = []
+    private var currentAPIProduct: APIProduct?
 
-    private let fullFeatureData: [(icon: String, color: UIColor, title: String, desc: String)] = [
+    private static let fullFeatureData: [(icon: String, color: UIColor, title: String, desc: String)] = [
         ("archivebox.fill",     .systemBlue,   "Message Archive",          "Complete message history stored securely without automatic deletion."),
         ("cloud.fill",          .systemOrange, "Extended Cloud Storage",   "Upload and store larger files with increased cloud storage capacity."),
         ("checkmark.seal.fill", .systemGreen,  "Verification Certificate", "Personal digital certificate to verify your identity in conversations."),
@@ -31,7 +76,7 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         ("lock.shield.fill",    .systemPurple, "Passcode Lock",            "Protect the app with a passcode and option to erase all data on failed attempts."),
     ]
 
-    private let fullWithoutHostedByXabberFeatureData: [(icon: String, color: UIColor, title: String, desc: String)] = [
+    private static let fullWithoutHostedByXabberFeatureData: [(icon: String, color: UIColor, title: String, desc: String)] = [
         ("archivebox.fill",     .systemBlue,   "Message Archive",          "Complete message history stored securely without automatic deletion."),
         ("cloud.fill",          .systemOrange, "Extended Cloud Storage",   "Upload and store larger files with increased cloud storage capacity."),
         ("checkmark.seal.fill", .systemGreen,  "Verification Certificate", "Personal digital certificate to verify your identity in conversations."),
@@ -39,7 +84,7 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         ("lock.shield.fill",    .systemPurple, "Passcode Lock",            "Protect the app with a passcode and option to erase all data on failed attempts."),
     ]
     
-    private let basicFeatureData: [(icon: String, color: UIColor, title: String, desc: String)] = [
+    private static let basicFeatureData: [(icon: String, color: UIColor, title: String, desc: String)] = [
         ("flame.fill",          .systemRed,    "Burn Messages",            "Set messages to automatically disappear after a chosen time period."),
         ("lock.shield.fill",    .systemPurple, "Passcode Lock",            "Protect the app with a passcode and option to erase all data on failed attempts."),
     ]
@@ -69,19 +114,30 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         return stack
     }()
 
+    private let headerHost = UIView()
+    private let periodHost = UIView()
+    private let featuresHost = UIView()
+    private let aboutHost = UIView()
+    private let footerHost = UIView()
+
     private let subscribeButton = PremiumGradientButton()
     private var periodRadioImages: [UIImageView] = []
-    private var lockedPeriodIndices: Set<Int> = Set()
     private var isNavBarOpaque = false
     private var isProcessing = false
+    private var didBuildStaticLayout = false
 
     // Premium state (re-evaluated on each setupSubviews)
-    private var isPremiumActive = false
     private var hasXabberAccount = false
-    private var purchasedProductIds: Set<String> = Set()
-    private var expiresDate: Date? = nil
+    private var remoteSectionsState: PremiumRemoteSectionsState = .loading
+    private var presentationState = SubscriptionPresentationState(
+        activeProductId: nil,
+        activeExpires: nil,
+        scheduledProductId: nil,
+        scheduledEffectiveDate: nil,
+        hasActiveEntitlement: false
+    )
 
-    private lazy var loadingOverlay: UIView = {
+    private lazy var purchaseLoadingOverlay: UIView = {
         let overlay = UIView()
         overlay.backgroundColor = UIColor.black.withAlphaComponent(0.3)
         overlay.isHidden = true
@@ -112,108 +168,69 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         navigationController?.navigationBar.tintColor = .white
     }
     
-    func clearViews() {
-        view.subviews.forEach({ $0.removeFromSuperview() })
-        contentStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-    }
-    
     override func setupSubviews() {
-        clearViews()
-
-        // Evaluate subscription state
-        isPremiumActive = SubscribtionsManager.shared.hasActiveSubsription()
+        presentationState = SubscribtionsManager.shared.subscriptionPresentationState(for: self.jid)
         hasXabberAccount = CredentialsManager.getXabberAccountUUID(for: self.jid) != nil
-        purchasedProductIds = SubscribtionsManager.shared.getPurchasedProductIds()
-        expiresDate = SubscribtionsManager.shared.getExpiresDate()
+        remoteSectionsState = SubscribtionsManager.shared.apiProduct.map {
+            .loaded(product: $0, source: .remote, warning: nil)
+        } ?? .loading
 
-        // Show loading state while fetching products
-        view.addSubview(loadingOverlay)
-        loadingOverlay.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            loadingOverlay.topAnchor.constraint(equalTo: view.topAnchor),
-            loadingOverlay.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            loadingOverlay.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            loadingOverlay.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
-        loadingOverlay.isHidden = false
-
-        SubscribtionsManager.shared.fetchProducts(jid: self.jid) { [weak self] apiProduct in
-            DispatchQueue.main.async {
-                guard let self = self else { return }
-                self.populatePeriodItems(from: apiProduct)
-                self.buildUI()
-            }
-        }
+        buildStaticLayoutOnce()
+        renderStaticState()
+        renderRemoteSections()
+        loadRemoteCatalog()
     }
 
     private func populatePeriodItems(from apiProduct: APIProduct?) {
+        let previousSelectedPriceId = selectedPriceId
+        currentAPIProduct = apiProduct
         periodItems.removeAll()
         guard let product = apiProduct else { return }
         for price in product.prices {
-            let storeProduct = SubscribtionsManager.shared.products.first(where: { $0.id == price.priceId })
+            let storeKitProductId = SubscribtionsManager.storeKitProductIdentifier(productId: product.productId, priceId: price.priceId)
+            let storeProduct = SubscribtionsManager.shared.products.first(where: { $0.id == storeKitProductId || $0.id == price.priceId })
             periodItems.append((
                 name: price.name,
                 period: price.period,
-                priceId: price.priceId,
+                priceId: storeProduct?.id ?? storeKitProductId,
+                fallbackPrice: price.price,
                 storeProduct: storeProduct
             ))
         }
-        if selectedPeriodIndex >= periodItems.count {
-            selectedPeriodIndex = 0
-        }
+        periodItems = Self.sortedPeriodItems(periodItems)
+        selectedPriceId = Self.resolvedSelectedPriceId(previousSelectedPriceId: previousSelectedPriceId, items: periodItems)
     }
 
-    private func buildUI() {
-        clearViews()
-
+    private func buildStaticLayoutOnce() {
+        guard !didBuildStaticLayout else { return }
+        didBuildStaticLayout = true
         scrollView.delegate = self
         view.addSubview(scrollView)
         scrollView.addSubview(contentStack)
 
-        // Bottom bar
         let bottomBar = UIView()
         bottomBar.backgroundColor = .systemGroupedBackground
         view.addSubview(bottomBar)
 
-        // Top separator on bottom bar
         let topSep = UIView()
         topSep.backgroundColor = .separator
         bottomBar.addSubview(topSep)
 
-        if isPremiumActive {
-            let manageButton = UIButton(type: .system)
-            manageButton.setTitle("Manage Subscription", for: .normal)
-            manageButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .medium)
-            manageButton.tintColor = accentColor
-            manageButton.addTarget(self, action: #selector(manageSubscriptionTapped), for: .touchUpInside)
-            bottomBar.addSubview(manageButton)
-            manageButton.translatesAutoresizingMaskIntoConstraints = false
+        subscribeButton.removeTarget(nil, action: nil, for: .touchUpInside)
+        subscribeButton.addTarget(self, action: #selector(subscribeTapped), for: .touchUpInside)
+        bottomBar.addSubview(subscribeButton)
 
-            for v in [scrollView, contentStack, bottomBar, topSep] as [UIView] {
-                v.translatesAutoresizingMaskIntoConstraints = false
-            }
-
-            NSLayoutConstraint.activate([
-                manageButton.topAnchor.constraint(equalTo: bottomBar.topAnchor, constant: 12),
-                manageButton.centerXAnchor.constraint(equalTo: bottomBar.centerXAnchor),
-                manageButton.bottomAnchor.constraint(equalTo: bottomBar.safeAreaLayoutGuide.bottomAnchor, constant: -12),
-            ])
-        } else {
-            subscribeButton.addTarget(self, action: #selector(subscribeTapped), for: .touchUpInside)
-            bottomBar.addSubview(subscribeButton)
-
-            for v in [scrollView, contentStack, bottomBar, subscribeButton, topSep] as [UIView] {
-                v.translatesAutoresizingMaskIntoConstraints = false
-            }
-
-            NSLayoutConstraint.activate([
-                subscribeButton.topAnchor.constraint(equalTo: bottomBar.topAnchor, constant: 12),
-                subscribeButton.leadingAnchor.constraint(equalTo: bottomBar.leadingAnchor, constant: 16),
-                subscribeButton.trailingAnchor.constraint(equalTo: bottomBar.trailingAnchor, constant: -16),
-                subscribeButton.bottomAnchor.constraint(equalTo: bottomBar.safeAreaLayoutGuide.bottomAnchor, constant: -12),
-                subscribeButton.heightAnchor.constraint(equalToConstant: 50),
-            ])
+        for v in [scrollView, contentStack, bottomBar, subscribeButton, topSep] as [UIView] {
+            v.translatesAutoresizingMaskIntoConstraints = false
         }
+
+        NSLayoutConstraint.activate([
+            subscribeButton.topAnchor.constraint(equalTo: bottomBar.topAnchor, constant: 12),
+            subscribeButton.leadingAnchor.constraint(equalTo: bottomBar.leadingAnchor, constant: 16),
+            subscribeButton.trailingAnchor.constraint(equalTo: bottomBar.trailingAnchor, constant: -16),
+            subscribeButton.bottomAnchor.constraint(equalTo: bottomBar.safeAreaLayoutGuide.bottomAnchor, constant: -12),
+            subscribeButton.heightAnchor.constraint(equalToConstant: 50),
+        ])
 
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: view.topAnchor),
@@ -237,30 +254,100 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
             topSep.heightAnchor.constraint(equalToConstant: 1 / UIScreen.main.scale),
         ])
 
-        // Sections
-        contentStack.addArrangedSubview(buildHeader())
+        contentStack.addArrangedSubview(headerHost)
         contentStack.addArrangedSubview(buildSectionHeader("SUBSCRIPTION PERIOD"))
-        contentStack.addArrangedSubview(padHorizontally(buildPeriodCard()))
+        contentStack.addArrangedSubview(padHorizontally(periodHost))
         contentStack.addArrangedSubview(buildSectionHeader("SUBSCRIPTION ADVANTAGES"))
-        contentStack.addArrangedSubview(padHorizontally(buildFeaturesCard()))
+        contentStack.addArrangedSubview(padHorizontally(featuresHost))
         contentStack.addArrangedSubview(buildSectionHeader("ABOUT XABBER PREMIUM"))
-        contentStack.addArrangedSubview(padHorizontally(buildAboutCard()))
-        contentStack.addArrangedSubview(buildFooter())
+        contentStack.addArrangedSubview(padHorizontally(aboutHost))
+        contentStack.addArrangedSubview(footerHost)
 
-        // Loading overlay (on top of everything)
-        view.addSubview(loadingOverlay)
-        loadingOverlay.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(purchaseLoadingOverlay)
+        purchaseLoadingOverlay.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            loadingOverlay.topAnchor.constraint(equalTo: view.topAnchor),
-            loadingOverlay.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            loadingOverlay.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            loadingOverlay.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            purchaseLoadingOverlay.topAnchor.constraint(equalTo: view.topAnchor),
+            purchaseLoadingOverlay.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            purchaseLoadingOverlay.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            purchaseLoadingOverlay.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
-        loadingOverlay.isHidden = true
+        purchaseLoadingOverlay.isHidden = true
+    }
 
-        if !isPremiumActive && !periodItems.isEmpty {
-            updateSelection()
+    private func renderStaticState() {
+        replaceHostedView(in: headerHost, with: buildHeader())
+        replaceHostedView(in: aboutHost, with: buildAboutCard())
+        replaceHostedView(in: footerHost, with: buildFooter())
+        renderCallToAction()
+    }
+
+    private func renderRemoteSections() {
+        switch remoteSectionsState {
+        case .loading:
+            currentAPIProduct = nil
+            periodItems.removeAll()
+            replaceHostedView(in: periodHost, with: buildPeriodSkeletonCard())
+            replaceHostedView(in: featuresHost, with: buildFeaturesSkeletonCard())
+        case .loaded(let product, _, _):
+            populatePeriodItems(from: product)
+            replaceHostedView(in: periodHost, with: buildPeriodSectionContainer())
+            replaceHostedView(in: featuresHost, with: buildFeaturesSectionContainer())
+        case .empty:
+            currentAPIProduct = nil
+            periodItems.removeAll()
+            replaceHostedView(in: periodHost, with: buildPeriodSectionContainer())
+            replaceHostedView(in: featuresHost, with: buildFeaturesSectionContainer())
+        case .error(let message):
+            currentAPIProduct = nil
+            periodItems.removeAll()
+            replaceHostedView(in: periodHost, with: buildInlineMessageCard(message: message, actionTitle: "Retry", action: #selector(retryLoadingTapped)))
+            replaceHostedView(in: featuresHost, with: buildInlineMessageCard(message: message))
         }
+        renderCallToAction()
+    }
+
+    private func loadRemoteCatalog(forceRetry: Bool = false) {
+        if forceRetry || !isLoadedCatalogState(remoteSectionsState) {
+            remoteSectionsState = .loading
+            renderRemoteSections()
+        }
+
+        SubscribtionsManager.shared.fetchProducts(jid: self.jid) { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.remoteSectionsState = Self.sectionsState(from: result)
+                self.renderRemoteSections()
+            }
+        }
+    }
+
+    private func replaceHostedView(in host: UIView, with content: UIView) {
+        host.subviews.forEach { $0.removeFromSuperview() }
+        host.addSubview(content)
+        content.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            content.topAnchor.constraint(equalTo: host.topAnchor),
+            content.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            content.bottomAnchor.constraint(equalTo: host.bottomAnchor),
+        ])
+    }
+
+    private func isLoadedCatalogState(_ state: PremiumRemoteSectionsState) -> Bool {
+        if case .loaded = state {
+            return true
+        }
+        return false
+    }
+
+    static func sectionsState(from result: SubscriptionCatalogFetchResult) -> PremiumRemoteSectionsState {
+        if let product = result.product {
+            return .loaded(product: product, source: result.source, warning: result.warningMessage)
+        }
+        if let errorMessage = result.errorMessage {
+            return .error(message: errorMessage)
+        }
+        return .empty(warning: result.warningMessage)
     }
 
     // MARK: - UIScrollViewDelegate
@@ -287,9 +374,14 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
     // MARK: - Actions
 
     @objc private func periodTapped(_ gesture: UITapGestureRecognizer) {
-        guard let tag = gesture.view?.tag else { return }
-        selectedPeriodIndex = tag
+        guard let tag = gesture.view?.tag,
+              periodItems.indices.contains(tag) else { return }
+        selectedPriceId = periodItems[tag].priceId
         updateSelection()
+    }
+
+    @objc private func retryLoadingTapped() {
+        loadRemoteCatalog(forceRetry: true)
     }
 
     @objc private func manageSubscriptionTapped() {
@@ -301,8 +393,24 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
     @objc private func subscribeTapped() {
         guard !isProcessing else { return }
 
-        guard let productId = productIdForSelectedPeriod() else {
+        switch selectedAction() {
+        case .manage:
+            manageSubscriptionTapped()
+            return
+        case .unavailable:
+            showAlert(title: "Product Unavailable", message: "This subscription is not available from App Store Connect yet. Please try again later.")
+            return
+        case .subscribe, .upgrade, .downgrade:
+            break
+        }
+
+        guard let selectedItem = selectedPeriodItem() else {
             showAlert(title: "Error", message: "Product configuration not found.")
+            return
+        }
+
+        guard selectedItem.storeProduct != nil else {
+            showAlert(title: "Product Unavailable", message: "This subscription is not available from App Store Connect yet. Please try again later.")
             return
         }
 
@@ -311,37 +419,27 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         let accountUUID = self.jid.uuid().uuidString
 
         SubscribtionsManager.shared.purchase(
-            subscribtion: productId,
-            accountUUID: accountUUID
+            subscribtion: selectedItem.priceId,
+            accountUUID: accountUUID,
+            jid: self.jid
         ) { [weak self] success, transaction in
             guard let self = self else { return }
 
-            guard success, let transaction = transaction else {
+            guard success, transaction != nil else {
                 self.setLoading(false)
                 self.showAlert(title: "Error", message: "Purchase failed. To manage your subscriptions, go to App Store → Settings → Subscriptions.")
                 return
             }
 
             DispatchQueue.main.async {
-                SubscribtionsManager.shared.saveSubscriptionInfo(
-                    productId: transaction.productID,
-                    jid: self.jid,
-                    accountUUID: accountUUID,
-                    expires: transaction.expirationDate ?? Date(),
-                    purchaseDate: transaction.purchaseDate,
-                    transactionId: "\(transaction.id)"
-                )
-
                 self.isProcessing = false
-                self.loadingOverlay.isHidden = true
+                self.purchaseLoadingOverlay.isHidden = true
 
-                // Re-evaluate premium state and rebuild UI without re-fetching products
-                self.isPremiumActive = SubscribtionsManager.shared.hasActiveSubsription()
-                self.purchasedProductIds = SubscribtionsManager.shared.getPurchasedProductIds()
-                self.expiresDate = SubscribtionsManager.shared.getExpiresDate()
-                self.buildUI()
+                self.presentationState = SubscribtionsManager.shared.subscriptionPresentationState(for: self.jid)
+                self.renderStaticState()
+                self.renderRemoteSections()
 
-                self.showAlert(title: "Success", message: "Your premium subscription is now active!") {
+                self.showAlert(title: "Success", message: "Your subscription change has been submitted.") {
                     _ = XabberAccountManager.shared.requestToken(for: self.jid) { token in
                         DDLogDebug("PremiumSubscription: token request result: \(token != nil ? "success" : "failed")")
                     }
@@ -352,18 +450,18 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
 
     // MARK: - Subscription Helpers
 
-    private func productIdForSelectedPeriod() -> String? {
-        guard selectedPeriodIndex < periodItems.count else {
+    private func selectedPeriodItem() -> PeriodItem? {
+        guard let selectedPriceId else {
             return nil
         }
-        return periodItems[selectedPeriodIndex].priceId
+        return periodItems.first(where: { $0.priceId == selectedPriceId })
     }
 
     private func setLoading(_ loading: Bool) {
         DispatchQueue.main.async {
             self.isProcessing = loading
-            self.loadingOverlay.isHidden = !loading
-            self.subscribeButton.isEnabled = !loading
+            self.purchaseLoadingOverlay.isHidden = !loading
+            self.renderCallToAction()
         }
     }
 
@@ -380,28 +478,28 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
     // MARK: - Selection State
 
     private func updateSelection() {
-        guard selectedPeriodIndex < periodItems.count else { return }
-        let item = periodItems[selectedPeriodIndex]
-        let buttonTitle: String
-        if let product = item.storeProduct {
-            buttonTitle = "Subscribe for \(product.displayPrice)"
-        } else {
-            buttonTitle = "Subscribe"
+        renderCallToAction()
+
+        for (index, radio) in periodRadioImages.enumerated() where periodItems.indices.contains(index) {
+            Self.applySelectionIndicator(
+                to: radio,
+                isSelected: periodItems[index].priceId == selectedPriceId,
+                isEnabled: rowState(for: periodItems[index]) != .unavailable,
+                accentColor: accentColor
+            )
         }
-        subscribeButton.setTitle(buttonTitle, for: .normal)
+    }
+
+    private func renderCallToAction() {
+        let ctaState = Self.ctaState(
+            remoteState: remoteSectionsState,
+            selectedItem: selectedPeriodItem(),
+            selectedAction: selectedPeriodItem().map { _ in selectedAction() },
+            isProcessing: isProcessing
+        )
+        subscribeButton.setTitle(ctaState.title, for: .normal)
         subscribeButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
-
-        for (i, radio) in periodRadioImages.enumerated() {
-            guard !lockedPeriodIndices.contains(i) else { continue }
-
-            if i == selectedPeriodIndex {
-                radio.image = UIImage(systemName: "checkmark.circle.fill")
-                radio.tintColor = accentColor
-            } else {
-                radio.image = UIImage(systemName: "circle")
-                radio.tintColor = .tertiaryLabel
-            }
-        }
+        subscribeButton.isEnabled = ctaState.isEnabled
     }
 
     // MARK: - Header
@@ -421,7 +519,7 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         // Star / Checkmark icon
         let starConfig = UIImage.SymbolConfiguration(pointSize: 72, weight: .thin)
         let starView: UIImageView
-        if isPremiumActive {
+        if presentationState.hasActiveEntitlement {
             starView = UIImageView(image: UIImage(systemName: "checkmark.seal.fill", withConfiguration: starConfig))
             starView.tintColor = UIColor(red: 0.3, green: 1.0, blue: 0.6, alpha: 1)
             starView.layer.shadowColor = UIColor(red: 0.3, green: 1.0, blue: 0.6, alpha: 0.8).cgColor
@@ -467,9 +565,9 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
 
         // Subtitle
         let subtitleLabel = UILabel()
-        if isPremiumActive {
+        if presentationState.hasActiveEntitlement {
             titleLabel.text = "You're Premium"
-            if let expires = expiresDate {
+            if let expires = presentationState.activeExpires {
                 subtitleLabel.text = "Your subscription is active until\n\(expires.formatted(date: .long, time: .omitted))"
             } else {
                 subtitleLabel.text = "All premium features are unlocked.\nThank you for your support!"
@@ -528,6 +626,118 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
 
     // MARK: - Period Card
 
+    private func buildPeriodSectionContainer() -> UIView {
+        switch remoteSectionsState {
+        case .loaded(_, _, let warning):
+            let stack = UIStackView()
+            stack.axis = .vertical
+            stack.spacing = 12
+            stack.addArrangedSubview(buildPeriodCard())
+            if let warning, warning.isNotEmpty {
+                stack.addArrangedSubview(
+                    buildInlineMessageCard(
+                        message: warning,
+                        actionTitle: "Retry",
+                        action: #selector(retryLoadingTapped)
+                    )
+                )
+            }
+            return stack
+        case .empty(let warning):
+            let stack = UIStackView()
+            stack.axis = .vertical
+            stack.spacing = 12
+            stack.addArrangedSubview(buildInlineMessageCard(message: warning ?? "No subscriptions available right now."))
+            return stack
+        case .loading:
+            return buildPeriodSkeletonCard()
+        case .error(let message):
+            return buildInlineMessageCard(message: message, actionTitle: "Retry", action: #selector(retryLoadingTapped))
+        }
+    }
+
+    private func buildPeriodSkeletonCard() -> UIView {
+        let card = UIView()
+        card.backgroundColor = .secondarySystemGroupedBackground
+        card.layer.cornerRadius = 12
+        card.clipsToBounds = true
+
+        let stack = UIStackView()
+        stack.axis = .vertical
+        card.addSubview(stack)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: card.topAnchor),
+            stack.leadingAnchor.constraint(equalTo: card.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: card.trailingAnchor),
+            stack.bottomAnchor.constraint(equalTo: card.bottomAnchor),
+        ])
+
+        for index in 0..<Self.periodSkeletonRowCount {
+            stack.addArrangedSubview(buildPeriodSkeletonRow(isLast: index == Self.periodSkeletonRowCount - 1))
+        }
+
+        return card
+    }
+
+    private func buildPeriodSkeletonRow(isLast: Bool) -> UIView {
+        let row = UIView()
+
+        let radio = SkeletonView(frame: CGRect(square: 26))
+        radio.layer.cornerRadius = 13
+        radio.layer.masksToBounds = true
+
+        let title = makeSkeletonBar(width: 120, height: 18, cornerRadius: 6)
+        let trailing = makeSkeletonBar(width: 72, height: 18, cornerRadius: 6)
+        let subtitle = makeSkeletonBar(width: 170, height: 14, cornerRadius: 6)
+
+        let skeletons = [radio, title, trailing, subtitle]
+        skeletons.forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            row.addSubview($0)
+        }
+
+        NSLayoutConstraint.activate([
+            radio.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 16),
+            radio.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            radio.widthAnchor.constraint(equalToConstant: 26),
+            radio.heightAnchor.constraint(equalToConstant: 26),
+
+            title.leadingAnchor.constraint(equalTo: radio.trailingAnchor, constant: 12),
+            title.topAnchor.constraint(equalTo: row.topAnchor, constant: 14),
+            title.widthAnchor.constraint(equalToConstant: 120),
+            title.heightAnchor.constraint(equalToConstant: 18),
+
+            trailing.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -16),
+            trailing.centerYAnchor.constraint(equalTo: title.centerYAnchor),
+            trailing.widthAnchor.constraint(equalToConstant: 72),
+            trailing.heightAnchor.constraint(equalToConstant: 18),
+
+            subtitle.leadingAnchor.constraint(equalTo: title.leadingAnchor),
+            subtitle.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 6),
+            subtitle.bottomAnchor.constraint(equalTo: row.bottomAnchor, constant: -12),
+            subtitle.widthAnchor.constraint(equalToConstant: 170),
+            subtitle.heightAnchor.constraint(equalToConstant: 14),
+        ])
+
+        if !isLast {
+            let sep = UIView()
+            sep.backgroundColor = .separator
+            sep.translatesAutoresizingMaskIntoConstraints = false
+            row.addSubview(sep)
+            NSLayoutConstraint.activate([
+                sep.leadingAnchor.constraint(equalTo: title.leadingAnchor),
+                sep.trailingAnchor.constraint(equalTo: row.trailingAnchor),
+                sep.bottomAnchor.constraint(equalTo: row.bottomAnchor),
+                sep.heightAnchor.constraint(equalToConstant: 1 / UIScreen.main.scale),
+            ])
+        }
+
+        scheduleSkeletonAnimation(skeletons)
+
+        return row
+    }
+
     private func buildPeriodCard() -> UIView {
         let card = UIView()
         card.backgroundColor = .secondarySystemGroupedBackground
@@ -546,19 +756,17 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         ])
 
         periodRadioImages.removeAll()
-        lockedPeriodIndices.removeAll()
 
         // Find the monthly price for discount calculation
         let monthlyPrice = monthlyUnitPrice()
 
         for (i, item) in periodItems.enumerated() {
-            let isLocked = purchasedProductIds.contains(item.priceId)
-            if isLocked { lockedPeriodIndices.insert(i) }
-
             let title = item.name
-            let price = item.storeProduct?.displayPrice ?? ""
+            let price = item.storeProduct?.displayPrice ?? item.fallbackPrice
             let subtitle = buildPeriodSubtitle(for: item)
             let discount = buildDiscount(for: item, monthlyUnitPrice: monthlyPrice)
+            let rowState = rowState(for: item)
+            let isSelected = item.priceId == selectedPriceId
 
             let row = buildPeriodRow(
                 index: i,
@@ -567,7 +775,8 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
                 price: price,
                 discount: discount,
                 isLast: i == periodItems.count - 1,
-                locked: isLocked
+                rowState: rowState,
+                isSelected: isSelected
             )
             stack.addArrangedSubview(row)
         }
@@ -577,72 +786,58 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
 
     private func monthlyUnitPrice() -> Decimal? {
         for item in periodItems {
-            guard let product = item.storeProduct,
-                  let sub = product.subscription else { continue }
-            if sub.subscriptionPeriod.unit == .month && sub.subscriptionPeriod.value == 1 {
-                return product.price
+            if Self.billingMonths(for: item.storeProduct, period: item.period) == 1 {
+                return item.storeProduct?.price ?? Self.decimalPrice(from: item.fallbackPrice)
             }
         }
         return nil
     }
 
-    private func buildPeriodSubtitle(for item: (name: String, period: String, priceId: String, storeProduct: Product?)) -> String {
-        guard let product = item.storeProduct,
-              let sub = product.subscription else { return "" }
-        let period = sub.subscriptionPeriod
-        switch period.unit {
-        case .year:
-            let months = period.value * 12
-            return "\(months) months · \(product.displayPrice)"
-        case .month where period.value > 1:
-            return "\(period.value) months · \(product.displayPrice)"
-        default:
+    private func buildPeriodSubtitle(for item: PeriodItem) -> String {
+        let totalMonths = Self.billingMonths(for: item.storeProduct, period: item.period)
+        guard totalMonths > 1,
+              let totalPrice = item.storeProduct?.price ?? Self.decimalPrice(from: item.fallbackPrice) else {
             return ""
         }
+        let monthlyEquivalent = totalPrice / Decimal(totalMonths)
+        let monthlyPriceText = Self.priceText(monthlyEquivalent, storeProduct: item.storeProduct)
+        let cadence = totalMonths >= 12 ? "yearly" : "\(totalMonths) months"
+        return "Equivalent to \(monthlyPriceText)/month, billed \(cadence)"
     }
 
-    private func buildDiscount(for item: (name: String, period: String, priceId: String, storeProduct: Product?), monthlyUnitPrice: Decimal?) -> String? {
-        guard let product = item.storeProduct,
-              let sub = product.subscription,
-              let monthly = monthlyUnitPrice else { return nil }
-        let period = sub.subscriptionPeriod
-        let totalMonths: Int
-        switch period.unit {
-        case .year: totalMonths = period.value * 12
-        case .month: totalMonths = period.value
-        default: return nil
+    private func buildDiscount(for item: PeriodItem, monthlyUnitPrice: Decimal?) -> String? {
+        let totalMonths = Self.billingMonths(for: item.storeProduct, period: item.period)
+        guard totalMonths > 1,
+              let monthly = monthlyUnitPrice,
+              let totalPrice = item.storeProduct?.price ?? Self.decimalPrice(from: item.fallbackPrice) else {
+            return nil
         }
-        guard totalMonths > 1 else { return nil }
-        let fullPrice = monthly * Decimal(totalMonths)
-        guard fullPrice > 0 else { return nil }
-        let discount = ((fullPrice - product.price) / fullPrice * 100) as NSDecimalNumber
-        let percent = discount.intValue
-        guard percent > 0 else { return nil }
-        return "-\(percent)%"
+        return Self.savingsText(
+            totalPrice: totalPrice,
+            totalMonths: totalMonths,
+            monthlyUnitPrice: monthly,
+            storeProduct: item.storeProduct
+        )
     }
 
     private func buildPeriodRow(index: Int, title: String, subtitle: String,
                                 price: String, discount: String?, isLast: Bool,
-                                locked: Bool = false) -> UIView {
+                                rowState: PremiumPeriodRowState,
+                                isSelected: Bool) -> UIView {
         let row = UIView()
         row.tag = index
-
-        if locked {
-            // Locked row: no tap, dimmed appearance
-            row.isUserInteractionEnabled = false
-            row.alpha = 0.5
-        } else {
-            row.isUserInteractionEnabled = true
-            row.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(periodTapped)))
-        }
+        row.isUserInteractionEnabled = true
+        row.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(periodTapped)))
 
         // Radio
         let radio = UIImageView()
         radio.contentMode = .scaleAspectFit
-        if locked {
-            radio.image = UIImage(systemName: "checkmark.circle.fill")
-            radio.tintColor = .systemGreen
-        }
+        Self.applySelectionIndicator(
+            to: radio,
+            isSelected: isSelected,
+            isEnabled: rowState != .unavailable,
+            accentColor: accentColor
+        )
         periodRadioImages.append(radio)
 
         // Title label
@@ -650,22 +845,18 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         titleLabel.text = title
         titleLabel.font = .systemFont(ofSize: 17, weight: .medium)
 
-        // Price / Active badge
+        // Price / Status badge
         let trailingView: UIView
-        if locked {
-            let activeBadge = PaddedLabel()
-            activeBadge.text = "Active"
-            activeBadge.font = .systemFont(ofSize: 13, weight: .semibold)
-            activeBadge.textColor = .white
-            activeBadge.backgroundColor = .systemGreen
-            activeBadge.layer.cornerRadius = 4
-            activeBadge.clipsToBounds = true
-            trailingView = activeBadge
-        } else {
+        switch rowState {
+        case .active:
+            trailingView = statusBadge(text: "Active", color: .systemGreen)
+        case .scheduled:
+            trailingView = statusBadge(text: "Scheduled", color: .systemOrange)
+        case .selectable, .unavailable:
             let priceLabel = UILabel()
             priceLabel.text = price
             priceLabel.font = .systemFont(ofSize: 17)
-            priceLabel.textColor = .secondaryLabel
+            priceLabel.textColor = rowState == .unavailable ? .tertiaryLabel : .secondaryLabel
             trailingView = priceLabel
         }
         trailingView.setContentHuggingPriority(.required, for: .horizontal)
@@ -677,7 +868,7 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         titleRow.spacing = 8
         titleRow.alignment = .center
 
-        if !locked, let discount = discount {
+        if case .selectable = rowState, let discount = discount {
             let badge = PaddedLabel()
             badge.text = discount
             badge.font = .systemFont(ofSize: 12, weight: .bold)
@@ -710,7 +901,7 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
             titleRow.topAnchor.constraint(equalTo: row.topAnchor, constant: 14),
 
             trailingView.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -16),
-            trailingView.centerYAnchor.constraint(equalTo: titleRow.centerYAnchor),
+            trailingView.centerYAnchor.constraint(equalTo: row.centerYAnchor),
             trailingView.leadingAnchor.constraint(greaterThanOrEqualTo: titleRow.trailingAnchor, constant: 8),
         ])
 
@@ -739,10 +930,138 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
             ])
         }
 
+        if rowState == .unavailable {
+            row.alpha = 0.7
+        }
+
         return row
     }
 
     // MARK: - Features Card
+
+    private func buildFeaturesSectionContainer() -> UIView {
+        switch remoteSectionsState {
+        case .loaded(_, _, let warning):
+            let stack = UIStackView()
+            stack.axis = .vertical
+            stack.spacing = 12
+            stack.addArrangedSubview(buildFeaturesCard())
+            if let warning, warning.isNotEmpty {
+                stack.addArrangedSubview(buildInlineMessageCard(message: warning))
+            }
+            return stack
+        case .empty:
+            return buildFeaturesCard()
+        case .loading:
+            return buildFeaturesSkeletonCard()
+        case .error(let message):
+            return buildInlineMessageCard(message: message)
+        }
+    }
+
+    private func buildFeaturesSkeletonCard() -> UIView {
+        let card = UIView()
+        card.backgroundColor = .secondarySystemGroupedBackground
+        card.layer.cornerRadius = 12
+        card.clipsToBounds = true
+
+        let stack = UIStackView()
+        stack.axis = .vertical
+        card.addSubview(stack)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: card.topAnchor),
+            stack.leadingAnchor.constraint(equalTo: card.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: card.trailingAnchor),
+            stack.bottomAnchor.constraint(equalTo: card.bottomAnchor),
+        ])
+
+        for index in 0..<Self.advantageSkeletonRowCount {
+            stack.addArrangedSubview(buildFeatureSkeletonRow(isLast: index == Self.advantageSkeletonRowCount - 1))
+        }
+
+        return card
+    }
+
+    private func buildFeatureSkeletonRow(isLast: Bool) -> UIView {
+        let row = UIView()
+
+        let iconTile = makeSkeletonBar(width: 40, height: 40, cornerRadius: 8)
+        let titleBar = makeSkeletonBar(width: 180, height: 18, cornerRadius: 6)
+
+        let skeletons = [iconTile, titleBar]
+        skeletons.forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            row.addSubview($0)
+        }
+
+        NSLayoutConstraint.activate([
+            iconTile.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 16),
+            iconTile.topAnchor.constraint(equalTo: row.topAnchor, constant: 14),
+            iconTile.widthAnchor.constraint(equalToConstant: 40),
+            iconTile.heightAnchor.constraint(equalToConstant: 40),
+
+            titleBar.leadingAnchor.constraint(equalTo: iconTile.trailingAnchor, constant: 14),
+            titleBar.centerYAnchor.constraint(equalTo: iconTile.centerYAnchor),
+            titleBar.widthAnchor.constraint(equalToConstant: 180),
+            titleBar.heightAnchor.constraint(equalToConstant: 18),
+            titleBar.bottomAnchor.constraint(equalTo: row.bottomAnchor, constant: -25),
+        ])
+
+        if !isLast {
+            let sep = UIView()
+            sep.backgroundColor = .separator
+            sep.translatesAutoresizingMaskIntoConstraints = false
+            row.addSubview(sep)
+            NSLayoutConstraint.activate([
+                sep.leadingAnchor.constraint(equalTo: titleBar.leadingAnchor),
+                sep.trailingAnchor.constraint(equalTo: row.trailingAnchor),
+                sep.bottomAnchor.constraint(equalTo: row.bottomAnchor),
+                sep.heightAnchor.constraint(equalToConstant: 1 / UIScreen.main.scale),
+            ])
+        }
+
+        scheduleSkeletonAnimation(skeletons)
+
+        return row
+    }
+
+    static func advantageItems(
+        from apiProduct: APIProduct?,
+        hasXabberAccount: Bool,
+        jid: String
+    ) -> [PremiumAdvantageItem] {
+        let includes = (apiProduct?.includes ?? [])
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { $0.isNotEmpty }
+
+        if !includes.isEmpty {
+            return includes.map { include in
+                PremiumAdvantageItem(
+                    kind: .symbol("checkmark"),
+                    color: MDCPalette.green.tint500,
+                    title: include,
+                    desc: nil
+                )
+            }
+        }
+
+        let featureData: [(icon: String, color: UIColor, title: String, desc: String)]
+        if jid.contains("xabber.com") {
+            featureData = hasXabberAccount ? Self.fullFeatureData : Self.basicFeatureData
+        } else {
+            featureData = hasXabberAccount ? Self.fullWithoutHostedByXabberFeatureData : Self.basicFeatureData
+        }
+
+        return featureData.map {
+            PremiumAdvantageItem(
+                kind: .symbol($0.icon),
+                color: $0.color,
+                title: $0.title,
+                desc: $0.desc
+            )
+        }
+    }
 
     private func buildFeaturesCard() -> UIView {
         let card = UIView()
@@ -760,14 +1079,16 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
             stack.trailingAnchor.constraint(equalTo: card.trailingAnchor),
             stack.bottomAnchor.constraint(equalTo: card.bottomAnchor),
         ])
-        var features = hasXabberAccount ? fullFeatureData : basicFeatureData
-        if !self.jid.contains("xabber.com") {
-            features = hasXabberAccount ? fullWithoutHostedByXabberFeatureData : basicFeatureData
-        }
-        
+
+        let features = Self.advantageItems(
+            from: currentAPIProduct,
+            hasXabberAccount: hasXabberAccount,
+            jid: jid
+        )
+
         for (i, feat) in features.enumerated() {
             stack.addArrangedSubview(
-                buildFeatureRow(icon: feat.icon, color: feat.color,
+                buildFeatureRow(kind: feat.kind, color: feat.color,
                                 title: feat.title, desc: feat.desc,
                                 isLast: i == features.count - 1)
             )
@@ -776,26 +1097,46 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         return card
     }
 
-    private func buildFeatureRow(icon: String, color: UIColor,
-                                 title: String, desc: String, isLast: Bool) -> UIView {
+    private func buildFeatureRow(kind: PremiumAdvantageItem.Kind, color: UIColor,
+                                 title: String, desc: String?, isLast: Bool) -> UIView {
         let row = UIView()
 
         // Icon container
         let iconBg = UIView()
-        iconBg.backgroundColor = color
-        iconBg.layer.cornerRadius = 8
+        let useTintStyle: Bool
+        switch kind {
+        case .symbol("checkmark"):
+            useTintStyle = true
+        default:
+            useTintStyle = false
+        }
+        iconBg.backgroundColor = .clear//useTintStyle ? MDCPalette.green.tint50 : color
+//        iconBg.layer.cornerRadius = 8
         iconBg.clipsToBounds = true
 
-        let iconConf = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
-        let iconView = UIImageView(image: UIImage(systemName: icon, withConfiguration: iconConf))
-        iconView.tintColor = .white
-        iconView.contentMode = .scaleAspectFit
-        iconBg.addSubview(iconView)
+        let iconContentView: UIView
+        switch kind {
+        case .numbered(let value):
+            let numberLabel = UILabel()
+            numberLabel.text = value
+            numberLabel.textColor = .white
+            numberLabel.font = .systemFont(ofSize: 17, weight: .medium)
+            numberLabel.textAlignment = .center
+            iconContentView = numberLabel
+        case .symbol(let icon):
+            let iconConf = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
+            let iconView = UIImageView(image: UIImage(named: icon)?.withRenderingMode(.alwaysTemplate) ?? UIImage(systemName: icon, withConfiguration: iconConf))
+            iconView.tintColor = useTintStyle ? MDCPalette.green.tint500 : .white
+            iconView.contentMode = .scaleAspectFit
+            iconContentView = iconView
+        }
+        iconBg.addSubview(iconContentView)
 
         // Labels
         let titleLabel = UILabel()
         titleLabel.text = title
-        titleLabel.font = .systemFont(ofSize: 16, weight: .semibold)
+        titleLabel.font = .systemFont(ofSize: 16, weight: .regular)
+        titleLabel.numberOfLines = 0
 
         let descLabel = UILabel()
         descLabel.text = desc
@@ -803,29 +1144,46 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         descLabel.textColor = .secondaryLabel
         descLabel.numberOfLines = 0
 
-        for v in [iconBg, iconView, titleLabel, descLabel] as [UIView] {
+        for v in [iconBg, iconContentView, titleLabel, descLabel] as [UIView] {
             v.translatesAutoresizingMaskIntoConstraints = false
-            if v !== iconView { row.addSubview(v) }
+            if v !== iconContentView { row.addSubview(v) }
         }
 
         NSLayoutConstraint.activate([
             iconBg.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 16),
-            iconBg.topAnchor.constraint(equalTo: row.topAnchor, constant: 14),
-            iconBg.widthAnchor.constraint(equalToConstant: 36),
-            iconBg.heightAnchor.constraint(equalToConstant: 36),
+            iconBg.widthAnchor.constraint(equalToConstant: 40),
+            iconBg.heightAnchor.constraint(equalToConstant: 40),
 
-            iconView.centerXAnchor.constraint(equalTo: iconBg.centerXAnchor),
-            iconView.centerYAnchor.constraint(equalTo: iconBg.centerYAnchor),
+            iconContentView.centerXAnchor.constraint(equalTo: iconBg.centerXAnchor),
+            iconContentView.centerYAnchor.constraint(equalTo: iconBg.centerYAnchor),
+            iconContentView.leadingAnchor.constraint(greaterThanOrEqualTo: iconBg.leadingAnchor, constant: 6),
+            iconContentView.trailingAnchor.constraint(lessThanOrEqualTo: iconBg.trailingAnchor, constant: -6),
+            iconContentView.topAnchor.constraint(greaterThanOrEqualTo: iconBg.topAnchor, constant: 6),
+            iconContentView.bottomAnchor.constraint(lessThanOrEqualTo: iconBg.bottomAnchor, constant: -6),
 
-            titleLabel.topAnchor.constraint(equalTo: row.topAnchor, constant: 14),
             titleLabel.leadingAnchor.constraint(equalTo: iconBg.trailingAnchor, constant: 14),
             titleLabel.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -16),
-
-            descLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
-            descLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            descLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
-            descLabel.bottomAnchor.constraint(equalTo: row.bottomAnchor, constant: -14),
         ])
+
+        if desc?.isEmpty != false {
+            descLabel.isHidden = true
+            NSLayoutConstraint.activate([
+                iconBg.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
+                iconBg.topAnchor.constraint(greaterThanOrEqualTo: row.topAnchor, constant: 14),
+                titleLabel.centerYAnchor.constraint(equalTo: iconBg.centerYAnchor),
+                titleLabel.topAnchor.constraint(greaterThanOrEqualTo: row.topAnchor, constant: 14),
+                titleLabel.bottomAnchor.constraint(equalTo: row.bottomAnchor, constant: -14),
+            ])
+        } else {
+            NSLayoutConstraint.activate([
+                iconBg.topAnchor.constraint(equalTo: row.topAnchor, constant: 14),
+                titleLabel.topAnchor.constraint(equalTo: row.topAnchor, constant: 14),
+                descLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
+                descLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+                descLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
+                descLabel.bottomAnchor.constraint(equalTo: row.bottomAnchor, constant: -14),
+            ])
+        }
 
         if !isLast {
             let sep = UIView()
@@ -843,6 +1201,45 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         return row
     }
 
+    private func buildInlineMessageCard(message: String, actionTitle: String? = nil, action: Selector? = nil) -> UIView {
+        let card = UIView()
+        card.backgroundColor = .secondarySystemGroupedBackground
+        card.layer.cornerRadius = 12
+        card.clipsToBounds = true
+
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.spacing = 12
+        card.addSubview(stack)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        let label = UILabel()
+        label.text = message
+        label.font = .systemFont(ofSize: 14)
+        label.textColor = .secondaryLabel
+        label.numberOfLines = 0
+        stack.addArrangedSubview(label)
+
+        if let actionTitle, let action {
+            let button = UIButton(type: .system)
+            button.setTitle(actionTitle, for: .normal)
+            button.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
+            button.tintColor = accentColor
+            button.contentHorizontalAlignment = .leading
+            button.addTarget(self, action: action, for: .touchUpInside)
+            stack.addArrangedSubview(button)
+        }
+
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: card.topAnchor, constant: 16),
+            stack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16),
+            stack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -16),
+        ])
+
+        return card
+    }
+
     // MARK: - About Card
 
     private func buildAboutCard() -> UIView {
@@ -852,10 +1249,10 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         card.clipsToBounds = true
 
         let label = UILabel()
-        label.text = aboutText
         label.font = .systemFont(ofSize: 15)
         label.textColor = .label
         label.numberOfLines = 0
+        label.attributedText = Self.aboutTextAttributedString(aboutText)
 
         card.addSubview(label)
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -886,7 +1283,7 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
             stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -24),
         ])
 
-        if isPremiumActive, let expires = expiresDate {
+        if presentationState.hasActiveEntitlement, let expires = presentationState.activeExpires {
             let expiresLabel = UILabel()
             expiresLabel.text = "Expires: \(expires.formatted(date: .long, time: .shortened))"
             expiresLabel.font = .systemFont(ofSize: 14, weight: .medium)
@@ -894,6 +1291,19 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
             expiresLabel.textAlignment = .center
             expiresLabel.numberOfLines = 0
             stack.addArrangedSubview(expiresLabel)
+        }
+
+        if let scheduledProductId = presentationState.scheduledProductId {
+            let scheduledLabel = UILabel()
+            let scheduledName = periodItems.first(where: { $0.priceId == scheduledProductId })?.name ?? scheduledProductId
+            let effectiveDate = presentationState.scheduledEffectiveDate?
+                .formatted(date: .long, time: .omitted) ?? "the next renewal"
+            scheduledLabel.text = "Scheduled change: \(scheduledName) on \(effectiveDate)"
+            scheduledLabel.font = .systemFont(ofSize: 14)
+            scheduledLabel.textColor = .secondaryLabel
+            scheduledLabel.textAlignment = .center
+            scheduledLabel.numberOfLines = 0
+            stack.addArrangedSubview(scheduledLabel)
         }
 
         let manageLabel = UILabel()
@@ -908,6 +1318,266 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
     }
 
     // MARK: - Helpers
+
+    private func makeSkeletonBar(width: CGFloat, height: CGFloat, cornerRadius: CGFloat) -> SkeletonView {
+        let view = SkeletonView(frame: CGRect(x: 0, y: 0, width: width, height: height))
+        view.backgroundColor = MDCPalette.grey.tint50
+        view.layer.cornerRadius = cornerRadius
+        view.layer.masksToBounds = true
+        return view
+    }
+
+    private func scheduleSkeletonAnimation(_ skeletons: [SkeletonView]) {
+        DispatchQueue.main.async {
+            skeletons.forEach { $0.startAnimating() }
+        }
+    }
+
+    static func ctaState(
+        remoteState: PremiumRemoteSectionsState,
+        selectedItem: PeriodItem?,
+        selectedAction: PremiumSubscriptionAction?,
+        isProcessing: Bool
+    ) -> PremiumCTAState {
+        if isProcessing {
+            return PremiumCTAState(title: "Processing…", isEnabled: false)
+        }
+
+        switch remoteState {
+        case .loading:
+            return PremiumCTAState(title: "Loading Plans…", isEnabled: false)
+        case .error:
+            return PremiumCTAState(title: "Loading Failed", isEnabled: false)
+        case .empty:
+            return PremiumCTAState(title: "No Plans Available", isEnabled: false)
+        case .loaded:
+            guard let selectedItem, let selectedAction else {
+                return PremiumCTAState(title: "No Plans Available", isEnabled: false)
+            }
+            switch selectedAction {
+            case .manage:
+                return PremiumCTAState(title: "Manage Subscription", isEnabled: true)
+            case .subscribe:
+                return PremiumCTAState(title: subscribeTitle(for: selectedItem), isEnabled: true)
+            case .upgrade(let planName):
+                return PremiumCTAState(title: "Upgrade to \(planName)", isEnabled: true)
+            case .downgrade(let planName):
+                return PremiumCTAState(title: "Downgrade to \(planName)", isEnabled: true)
+            case .unavailable:
+                return PremiumCTAState(title: "Product Unavailable", isEnabled: false)
+            }
+        }
+    }
+
+    private func rowState(for item: PeriodItem) -> PremiumPeriodRowState {
+        Self.rowState(
+            forProductId: item.priceId,
+            activeProductId: presentationState.activeProductId,
+            scheduledProductId: presentationState.scheduledProductId,
+            hasStoreProduct: item.storeProduct != nil
+        )
+    }
+
+    static func rowState(forProductId productId: String,
+                         activeProductId: String?,
+                         scheduledProductId: String?,
+                         hasStoreProduct: Bool) -> PremiumPeriodRowState {
+        if productId == activeProductId {
+            return .active
+        }
+        if let scheduledProductId, productId == scheduledProductId, scheduledProductId != activeProductId {
+            return .scheduled
+        }
+        return hasStoreProduct ? .selectable : .unavailable
+    }
+
+    private func selectedAction() -> PremiumSubscriptionAction {
+        guard let item = selectedPeriodItem() else { return .unavailable }
+        return Self.action(
+            selectedName: item.name,
+            selectedPriceId: item.priceId,
+            selectedHasStoreProduct: item.storeProduct != nil,
+            activeProductId: presentationState.activeProductId
+        )
+    }
+
+    static func action(selectedName: String?,
+                       selectedPriceId: String?,
+                       selectedHasStoreProduct: Bool,
+                       activeProductId: String?) -> PremiumSubscriptionAction {
+        guard let selectedName, let selectedPriceId else {
+            return .unavailable
+        }
+        if selectedPriceId == activeProductId {
+            return .manage
+        }
+        guard selectedHasStoreProduct else {
+            return .unavailable
+        }
+        guard let activeProductId else {
+            return .subscribe
+        }
+
+        let selectedRank = planRank(for: selectedPriceId)
+        let activeRank = planRank(for: activeProductId)
+
+        if selectedRank > activeRank {
+            return .upgrade(planName: selectedName)
+        }
+        if selectedRank < activeRank {
+            return .downgrade(planName: selectedName)
+        }
+        return .subscribe
+    }
+
+    static func subscribeTitle(for item: PeriodItem) -> String {
+        if let product = item.storeProduct {
+            return "Subscribe for \(product.displayPrice)"
+        }
+        if item.fallbackPrice.isNotEmpty {
+            return "Subscribe for \(item.fallbackPrice)"
+        }
+        return "Subscribe"
+    }
+
+    static func planRank(for productId: String) -> Int {
+        let normalized = productId.lowercased()
+        if normalized.contains("year") {
+            return 2
+        }
+        if normalized.contains("month") {
+            return 1
+        }
+        return 0
+    }
+
+    private func statusBadge(text: String, color: UIColor) -> UIView {
+        let badge = PaddedLabel()
+        badge.text = text
+        badge.font = .systemFont(ofSize: 13, weight: .semibold)
+        badge.textColor = .white
+        badge.backgroundColor = color
+        badge.layer.cornerRadius = 4
+        badge.clipsToBounds = true
+        return badge
+    }
+
+    static func resolvedSelectedPriceId(previousSelectedPriceId: String?, items: [PeriodItem]) -> String? {
+        if let previousSelectedPriceId,
+           items.contains(where: { $0.priceId == previousSelectedPriceId }) {
+            return previousSelectedPriceId
+        }
+        return items.last?.priceId
+    }
+
+    static func applySelectionIndicator(to imageView: UIImageView, isSelected: Bool, isEnabled: Bool, accentColor: UIColor) {
+        imageView.image = UIImage(systemName: selectionIndicatorImageName(isSelected: isSelected))
+        if isSelected {
+            imageView.tintColor = accentColor
+        } else {
+            imageView.tintColor = isEnabled ? .tertiaryLabel : .quaternaryLabel
+        }
+    }
+
+    static func selectionIndicatorImageName(isSelected: Bool) -> String {
+        isSelected ? "checkmark.circle.fill" : "circle"
+    }
+
+    static func sortedPeriodItems(
+        _ items: [PeriodItem]
+    ) -> [PeriodItem] {
+        items.sorted { lhs, rhs in
+            let lhsPrice = lhs.storeProduct?.price ?? decimalPrice(from: lhs.fallbackPrice) ?? 0
+            let rhsPrice = rhs.storeProduct?.price ?? decimalPrice(from: rhs.fallbackPrice) ?? 0
+            if lhsPrice != rhsPrice {
+                return lhsPrice < rhsPrice
+            }
+
+            let lhsMonths = billingMonths(for: lhs.storeProduct, period: lhs.period)
+            let rhsMonths = billingMonths(for: rhs.storeProduct, period: rhs.period)
+            if lhsMonths != rhsMonths {
+                return lhsMonths < rhsMonths
+            }
+
+            if lhs.priceId != rhs.priceId {
+                return lhs.priceId.localizedCaseInsensitiveCompare(rhs.priceId) == .orderedDescending//.orderedAscending
+            }
+
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedDescending//.orderedAscending
+        }
+    }
+
+    static func billingMonths(for storeProduct: Product?, period: String) -> Int {
+        if let subscription = storeProduct?.subscription {
+            switch subscription.subscriptionPeriod.unit {
+            case .year:
+                return subscription.subscriptionPeriod.value * 12
+            case .month:
+                return subscription.subscriptionPeriod.value
+            default:
+                return 0
+            }
+        }
+
+        switch period.lowercased() {
+        case "yearly", "annual", "year":
+            return 12
+        case "monthly", "month":
+            return 1
+        default:
+            return 0
+        }
+    }
+
+    static func decimalPrice(from rawValue: String) -> Decimal? {
+        guard rawValue.isNotEmpty else { return nil }
+        return Decimal(string: rawValue, locale: Locale(identifier: "en_US_POSIX"))
+    }
+
+    static func priceText(_ price: Decimal, storeProduct: Product?) -> String {
+        if #available(iOS 16.0, *), let storeProduct {
+            return price.formatted(storeProduct.priceFormatStyle)
+        }
+
+        let formatter = NumberFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 2
+        return formatter.string(from: price as NSDecimalNumber) ?? "\(price)"
+    }
+
+    static func savingsText(totalPrice: Decimal,
+                            totalMonths: Int,
+                            monthlyUnitPrice: Decimal,
+                            storeProduct: Product?) -> String? {
+        guard totalMonths > 1 else { return nil }
+
+        let baselinePrice = monthlyUnitPrice * Decimal(totalMonths)
+        guard baselinePrice > totalPrice else { return nil }
+
+        let savings = baselinePrice - totalPrice
+        let percentValue = ((baselinePrice - totalPrice) / baselinePrice * 100) as NSDecimalNumber
+        let percent = percentValue.intValue
+        guard savings > 0, percent > 0 else { return nil }
+
+        return "Save \(priceText(savings, storeProduct: storeProduct)) (\(percent)%)"
+    }
+
+    static func aboutTextAttributedString(_ text: String) -> NSAttributedString {
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineSpacing = 1.43
+        paragraphStyle.alignment = .justified
+        paragraphStyle.lineHeightMultiple = 1.3
+        return NSAttributedString(
+            string: text,
+            attributes: [
+                .paragraphStyle: paragraphStyle,
+                .foregroundColor: UIColor.label,
+                .font: UIFont.systemFont(ofSize: 15)
+            ]
+        )
+    }
 
     private func padHorizontally(_ child: UIView, margin: CGFloat = 16) -> UIView {
         let wrapper = UIView()

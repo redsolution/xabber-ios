@@ -23,6 +23,11 @@ import dnssd
 import XMPPFramework
 
 class PushNotificationsManager: AbstractXMPPManager {
+    enum EnableState: Equatable {
+        case disabled
+        case pending(queryId: String)
+        case enabled
+    }
     
     static let suitName: String = "group.com.xabber"
     
@@ -30,6 +35,8 @@ class PushNotificationsManager: AbstractXMPPManager {
     var node: String = ""
     var service: String = ""
     var websocketUrl: String? = nil
+    private(set) var enableState: EnableState = .disabled
+    private var pendingEnableCallbacks: [(Bool) -> Void] = []
     
     typealias DNSLookupHandler = ([String: String]?) -> Void
 
@@ -122,9 +129,11 @@ class PushNotificationsManager: AbstractXMPPManager {
         })
     }
     
-    var enabled: Bool = false
+    var enabled: Bool {
+        enableState == .enabled
+    }
     
-    func enable(xmppStream: XMPPStream, callback: (Bool)->Void) {
+    func enable(xmppStream: XMPPStream, callback: @escaping (Bool)->Void) {
         guard let jid = xmppStream.myJID,
             node.isNotEmpty else {
                 callback(false)
@@ -133,6 +142,11 @@ class PushNotificationsManager: AbstractXMPPManager {
         
         if enabled {
             callback(true)
+            return
+        }
+        
+        if case .pending = enableState {
+            pendingEnableCallbacks.append(callback)
             return
         }
         
@@ -187,8 +201,8 @@ class PushNotificationsManager: AbstractXMPPManager {
         PushNotificationsManager.updateDefaultsForPush(node, key: "websocket_url", value: websocketUrl ?? "")
         
         queryIds.insert(elementId)
-        callback(true)
-        enabled = true
+        pendingEnableCallbacks.append(callback)
+        enableState = .pending(queryId: elementId)
     }
     
     func disable(xmppStream: XMPPStream) {
@@ -196,6 +210,8 @@ class PushNotificationsManager: AbstractXMPPManager {
             service.isNotEmpty else {
             return
         }
+        finishEnable(success: false, queryId: currentPendingQueryId)
+        enableState = .disabled
         let elementId = xmppStream.generateUUID
         let disable: DDXMLElement
         if isAvailable(jid.domain) {
@@ -210,19 +226,40 @@ class PushNotificationsManager: AbstractXMPPManager {
     override func read(withIQ iq: XMPPIQ) -> Bool {
         return readPushRegistrationResult(iq)
     }
+
+    private var currentPendingQueryId: String? {
+        guard case .pending(let queryId) = enableState else {
+            return nil
+        }
+        return queryId
+    }
+
+    private func finishEnable(success: Bool, queryId: String?) {
+        if let queryId {
+            queryIds.remove(queryId)
+        }
+
+        let callbacks = pendingEnableCallbacks
+        pendingEnableCallbacks.removeAll()
+        enableState = success ? .enabled : .disabled
+        callbacks.forEach { $0(success) }
+    }
         
     private final func readPushRegistrationResult(_ iq: XMPPIQ) -> Bool {
         guard let elementId = iq.elementID,
-              queryIds.contains(elementId),
-              let x = iq.element(forName: "x", xmlns: "jabber:x:data"),
+              queryIds.contains(elementId) else {
+            return false
+        }
+
+        guard let x = iq.element(forName: "x", xmlns: "jabber:x:data"),
               let url = x.elements(forName: "field").first(where: { $0.attributeStringValue(forName: "var") == "url" })?.element(forName: "value")?.stringValue,
               let jwt = x.elements(forName: "field").first(where: { $0.attributeStringValue(forName: "var") == "jwt" })?.element(forName: "value")?.stringValue else {
-            return false
+            finishEnable(success: false, queryId: elementId)
+            return true
         }
 //        DispatchQueue.main.async {
 //            ToastPresenter(message: "Enable push receive").present(animated: true)
 //        }
-//        queryIds.remove(elementId)
         do {
             let pushSecrets = try CredentialsManager.shared.getPushCredentials(for: self.node)
             try CredentialsManager.shared.storePushCredentials(
@@ -235,9 +272,12 @@ class PushNotificationsManager: AbstractXMPPManager {
             )
         } catch {
             DDLogDebug(error.localizedDescription)
+            finishEnable(success: false, queryId: elementId)
+            return true
         }
         
 //        PushNotificationsManager.updateDefaultsForPush(self.node, key: "get_url", value: url)
+        finishEnable(success: true, queryId: elementId)
         return true
     }
     

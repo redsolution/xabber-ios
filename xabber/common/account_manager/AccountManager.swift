@@ -277,7 +277,7 @@ public class AccountManager: NSObject {
         self.markAsConnecting(jid: jid)
         let newAccount = Account(jid: jid, queue: queue)
         self.users.append(newAccount)
-        newAccount.asyncConnect()
+        newAccount.asyncConnect(trigger: .initialLoad)
         
         SubscribtionsManager.shared.updateXMPPAccountsState()
         
@@ -320,7 +320,7 @@ public class AccountManager: NSObject {
         let newAccount = Account(jid: jid, queue: queue)
         self.users.append(newAccount)
         if autoConnect {
-            newAccount.asyncConnect()
+            newAccount.asyncConnect(trigger: .addExistingAccount)
         }
         let jids = Set(self.users.compactMap { $0.jid })
         let connectingUsers = self.connectingUsers.value

@@ -50,13 +50,14 @@ struct NotificationsListCoordinator {
         sections.append(contentsOf: listMapper(notifications, rosterMap))
 
         let counters = NotificationsSupport.unreadCounters(in: realm, owners: owners)
+        let visibleCounters = NotificationsSupport.visibleCounters(in: realm, owners: owners)
         let categoriesDatasource = [
             [CategoryItem(title: "Notifications", icon: "bell.fill", key: "all", subtitle: "Manage security alerts, information updates, mentions, and other notifications.", color: .tintColor, isHeader: true)],
-            [CategoryItem(title: "Notifications", icon: "bell", key: "all", subtitle: "\(counters.total)", color: .tintColor, isHeader: false)],
+            [CategoryItem(title: "Notifications", icon: "bell", key: "all", subtitle: "\(visibleCounters.total)", color: .tintColor, isHeader: false)],
             [
-                CategoryItem(title: "Security", icon: "checkerboard.shield", key: "security", subtitle: "\(counters.security)", color: .tintColor, isHeader: false),
-                CategoryItem(title: "Information", icon: "info.circle", key: "info", subtitle: "\(counters.info)", color: .tintColor, isHeader: false),
-                CategoryItem(title: "Mentions", icon: "at", key: "mentions", subtitle: "\(counters.mentions)", color: .tintColor, isHeader: false),
+                CategoryItem(title: "Security", icon: "checkerboard.shield", key: "security", subtitle: "\(visibleCounters.security)", color: .tintColor, isHeader: false),
+                CategoryItem(title: "Information", icon: "info.circle", key: "info", subtitle: "\(visibleCounters.info)", color: .tintColor, isHeader: false),
+                CategoryItem(title: "Mentions", icon: "at", key: "mentions", subtitle: "\(visibleCounters.mentions)", color: .tintColor, isHeader: false),
             ]
         ]
 
@@ -122,14 +123,22 @@ enum NotificationsSupport {
         return results.sorted(byKeyPath: "date", ascending: false)
     }
 
-    static func unreadCounters(in realm: Realm, owners: [String]) -> Counters {
-        let notifications = notifications(in: realm, owners: owners, unreadOnly: true)
+    static func counters(in realm: Realm, owners: [String], unreadOnly: Bool) -> Counters {
+        let notifications = notifications(in: realm, owners: owners, unreadOnly: unreadOnly)
         return Counters(
             total: notifications.count,
             security: notifications.filter("category_ == %@", XMPPNotificationsManager.Category.device.rawValue).count,
             mentions: notifications.filter("category_ == %@", XMPPNotificationsManager.Category.mention.rawValue).count,
             info: notifications.filter("category_ == %@", XMPPNotificationsManager.Category.info.rawValue).count
         )
+    }
+
+    static func visibleCounters(in realm: Realm, owners: [String]) -> Counters {
+        counters(in: realm, owners: owners, unreadOnly: false)
+    }
+
+    static func unreadCounters(in realm: Realm, owners: [String]) -> Counters {
+        counters(in: realm, owners: owners, unreadOnly: true)
     }
 
     static func unreadVisibleCount(in realm: Realm, owners: [String]) -> Int {
@@ -176,7 +185,7 @@ enum NotificationsSupport {
         case .device:
             return "badge-circle-big-security"
         case .mention:
-            return "badge-circle-big-mention"
+            return "at"
         case .info:
             return "badge-circle-big-info"
         case .contact:
@@ -223,6 +232,30 @@ enum NotificationsSupport {
 }
 
 class NotificationsListViewController: SimpleBaseViewController {
+
+    internal static func mentionOpenRequest(for notification: NotificationStorageItem) -> ChatOpenMessageRequest? {
+        let chatJid = notification.sourceChatJid ?? notification.associatedJid ?? notification.jid
+        guard chatJid.isNotEmpty else {
+            return nil
+        }
+
+        return ChatOpenMessageRequest(
+            chatJid: chatJid,
+            owner: notification.owner,
+            conversationType: notification.sourceConversationType ?? .group,
+            anchor: ChatMessageAnchorRef(
+                messagePrimary: nil,
+                archivedId: notification.sourceArchivedId,
+                messageId: notification.sourceMessageId,
+                authorId: notification.sourceSenderId,
+                bodyFingerprint: notification.sourceBodyFingerprint,
+                sourceDate: notification.sourceMessageDate ?? notification.date
+            ),
+            highlight: true,
+            markReadOnVisible: true,
+            source: .mentionNotification
+        )
+    }
     
     class EmptyView: UIView {
         
@@ -527,10 +560,34 @@ class NotificationsListViewController: SimpleBaseViewController {
                 owners: owners,
                 filter: self.filter.value
             )
+            var messagePrimariesByOwner: [String: Set<String>] = [:]
+            var affectedChatsByOwner: [String: Set<String>] = [:]
             try realm.write {
-                allNotifications.forEach { $0.isRead = true }
+                allNotifications.forEach {
+                    $0.isRead = true
+                    guard $0.category == .mention else {
+                        return
+                    }
+                    if let sourceChatJid = MentionNotificationSync.groupchatJidForLastChatMentionState(from: $0) {
+                        affectedChatsByOwner[$0.owner, default: []].insert(sourceChatJid)
+                    }
+                    let result = MentionNotificationSync.reconcile(notification: $0, in: realm)
+                    if let messagePrimary = result.linkedMessagePrimaryToMarkRead {
+                        messagePrimariesByOwner[$0.owner, default: []].insert(messagePrimary)
+                    }
+                }
+                affectedChatsByOwner.forEach { owner, chats in
+                    MentionNotificationSync.refreshLastChatMentionIds(owner: owner, groupchatJids: chats, in: realm)
+                }
             }
-            AccountManager.shared.users.forEach { user in
+            messagePrimariesByOwner.forEach { owner, primaries in
+                primaries.forEach {
+                    AccountManager.shared.find(for: owner)?.messages.readMessage($0, last: false)
+                }
+            }
+            AccountManager.shared.users
+                .filter { owners.contains($0.jid) }
+                .forEach { user in
                 if user.xmppStream.isAuthenticated {
                     user.action { user, stream in
                         user.notifications.readAll(stream)
@@ -830,27 +887,10 @@ class NotificationsListViewController: SimpleBaseViewController {
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        AccountManager.shared.users.forEach {
-            user in
-            if user.xmppStream.isAuthenticated {
-                user.action { user, stream in
-//                    user.notifications.update(stream)
-                    user.notifications.readAll(stream)
-                }
-            }
-        }
     }
     
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        AccountManager.shared.users.forEach {
-            user in
-            if user.xmppStream.isAuthenticated {
-                user.action { user, stream in
-                    user.notifications.readAll(stream)
-                }
-            }
-        }
     }
     
     override func subscribe() {
@@ -1073,9 +1113,49 @@ extension NotificationsListViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         return UITableView.automaticDimension
     }
+
+    private func synchronizeMentionNotificationRead(
+        primary: String,
+        deleteAfterAcknowledgement: Bool = false
+    ) {
+        do {
+            let realm = try WRealm.safe()
+            var messagePrimariesByOwner: [String: Set<String>] = [:]
+            var affectedChatsByOwner: [String: Set<String>] = [:]
+            try realm.write {
+                guard let instance = realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: primary) else {
+                    return
+                }
+                if let sourceChatJid = MentionNotificationSync.groupchatJidForLastChatMentionState(from: instance) {
+                    affectedChatsByOwner[instance.owner, default: []].insert(sourceChatJid)
+                }
+                instance.isRead = true
+                let result = MentionNotificationSync.reconcile(notification: instance, in: realm)
+                if let messagePrimary = result.linkedMessagePrimaryToMarkRead {
+                    messagePrimariesByOwner[instance.owner, default: []].insert(messagePrimary)
+                }
+                if deleteAfterAcknowledgement {
+                    realm.delete(instance)
+                }
+                affectedChatsByOwner.forEach { owner, chats in
+                    MentionNotificationSync.refreshLastChatMentionIds(owner: owner, groupchatJids: chats, in: realm)
+                }
+            }
+            messagePrimariesByOwner.forEach { owner, primaries in
+                primaries.forEach {
+                    AccountManager.shared.find(for: owner)?.messages.readMessage($0, last: false)
+                }
+            }
+        } catch {
+            DDLogDebug("NotificationsListViewController: \(#function). \(error.localizedDescription)")
+        }
+    }
     
     func tableView(_ tableView: UITableView, willSelectRowAt indexPath: IndexPath) -> IndexPath? {
         let section = self.datasource[indexPath.section]
+        if section.childs[indexPath.row].category == .mention {
+            return indexPath
+        }
         section.childs[indexPath.row].isRead = true
         let primary = section.childs[indexPath.row].primary
         DispatchQueue.global(qos: .utility).async {
@@ -1119,13 +1199,34 @@ extension NotificationsListViewController: UITableViewDelegate {
 //                    cell.updateReadState(true, animated: true)
 //                }
             case "notifications":
-                switch item.category {
+                do {
+                    let realm = try WRealm.safe()
+                    let currentItem = realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: item.primary)
+                    switch currentItem?.category ?? item.category {
                     case .device:
                         let vc = DevicesListViewController()
-                        vc.configure(for: item.owner)
+                        vc.configure(for: currentItem?.owner ?? item.owner)
                         showModal(vc, parent: self)
+                    case .mention:
+                        guard let notification = currentItem else {
+                            break
+                        }
+                        guard let request = Self.mentionOpenRequest(for: notification) else {
+                            self.view.makeToast("Original chat is unavailable")
+                            break
+                        }
+                        self.leftMenuDelegate?.openChatlistWithChat(
+                            owner: request.owner,
+                            jid: request.chatJid,
+                            conversationType: request.conversationType
+                        ) { vc in
+                            vc?.queueOpenMessageRequest(request)
+                        }
                     default:
                         break
+                    }
+                } catch {
+                    DDLogDebug("NotificationsListViewController: \(#function). \(error.localizedDescription)")
                 }
 //                if let cell = tableView.cellForRow(at: indexPath) as? NotificationItemCell {
 //                    cell.updateReadState(true, animated: true)
@@ -1201,15 +1302,19 @@ extension NotificationsListViewController {
             (action, view, handler) in
             
             let item = self.datasource[indexPath.section].childs[indexPath.row]
-            do {
-                let realm = try WRealm.safe()
-                try realm.write {
-                    if let instance = realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: item.primary) {
-                        realm.delete(instance)
+            if item.category == .mention {
+                self.synchronizeMentionNotificationRead(primary: item.primary, deleteAfterAcknowledgement: true)
+            } else {
+                do {
+                    let realm = try WRealm.safe()
+                    try realm.write {
+                        if let instance = realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: item.primary) {
+                            realm.delete(instance)
+                        }
                     }
+                } catch {
+                    DDLogDebug("NotificationsListViewController: \(#function). \(error.localizedDescription)")
                 }
-            } catch {
-                DDLogDebug("NotificationsListViewController: \(#function). \(error.localizedDescription)")
             }
             handler(true)
         }
@@ -1218,15 +1323,19 @@ extension NotificationsListViewController {
                                               title: "Read".localizeString(id: "action_mark_as_read", arguments: [])) {
             (action, view, handler) in
             let item = self.datasource[indexPath.section].childs[indexPath.row]
-            do {
-                let realm = try WRealm.safe()
-                try realm.write {
-                    if let instance = realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: item.primary) {
-                        instance.isRead = true
+            if item.category == .mention {
+                self.synchronizeMentionNotificationRead(primary: item.primary)
+            } else {
+                do {
+                    let realm = try WRealm.safe()
+                    try realm.write {
+                        if let instance = realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: item.primary) {
+                            instance.isRead = true
+                        }
                     }
+                } catch {
+                    DDLogDebug("NotificationsListViewController: \(#function). \(error.localizedDescription)")
                 }
-            } catch {
-                DDLogDebug("NotificationsListViewController: \(#function). \(error.localizedDescription)")
             }
             handler(true)
         }

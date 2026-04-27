@@ -360,6 +360,12 @@ class QuotaInfoCell: UITableViewCell {
                         self.filesWidthMultiplier = CGFloat(item.filesBytes) / CGFloat(item.quotaBytes)
                         self.audioWidthMultiplier = CGFloat(item.voicesBytes) / CGFloat(item.quotaBytes)
                         self.avatarWidthMultiplier = CGFloat(item.avatarsBytes) / CGFloat(item.quotaBytes)
+                    } else {
+                        self.imagesWidthMultiplier = 0
+                        self.videosWidthMultiplier = 0
+                        self.filesWidthMultiplier = 0
+                        self.audioWidthMultiplier = 0
+                        self.avatarWidthMultiplier = 0
                     }
                     self.setupDelimeters()
                     self.setupViews()
@@ -417,11 +423,19 @@ class QuotaInfoCell: UITableViewCell {
                                     quotaRaw: Int, quota: String, used: String) {
         self.quotaLabel.text = used + " of ".localizeString(id: "of", arguments: []) + quota
         
-        imagesWidthMultiplier = CGFloat(rawImages) / CGFloat(quotaRaw)
-        videosWidthMultiplier = CGFloat(rawVideos) / CGFloat(quotaRaw)
-        filesWidthMultiplier = CGFloat(rawFiles) / CGFloat(quotaRaw)
-        audioWidthMultiplier = CGFloat(rawVoices) / CGFloat(quotaRaw)
-        avatarWidthMultiplier = CGFloat(rawAvatars) / CGFloat(quotaRaw)
+        if quotaRaw > 0 {
+            imagesWidthMultiplier = CGFloat(rawImages) / CGFloat(quotaRaw)
+            videosWidthMultiplier = CGFloat(rawVideos) / CGFloat(quotaRaw)
+            filesWidthMultiplier = CGFloat(rawFiles) / CGFloat(quotaRaw)
+            audioWidthMultiplier = CGFloat(rawVoices) / CGFloat(quotaRaw)
+            avatarWidthMultiplier = CGFloat(rawAvatars) / CGFloat(quotaRaw)
+        } else {
+            imagesWidthMultiplier = 0
+            videosWidthMultiplier = 0
+            filesWidthMultiplier = 0
+            audioWidthMultiplier = 0
+            avatarWidthMultiplier = 0
+        }
         
         addSubview(labelsStack)
         labelsStack.addArrangedSubview(quotaNameLabel)

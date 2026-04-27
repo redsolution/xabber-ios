@@ -49,13 +49,18 @@ class MessageStorageItem: Object {
         case sending
         case uploading
     }
+
+    enum DeleteState: String {
+        case visible
+        case autoDeleted
+    }
     
     override static func primaryKey() -> String? {
         return "primary"
     }
     
     override static func indexedProperties() -> [String] {
-        return ["opponent", "owner", "date", "conversationType_", "archivedId", "messageId"]
+        return ["opponent", "owner", "date", "conversationType_", "archivedId", "messageId", "deleteState_"]
     }
     
     @objc dynamic var primary: String = ""
@@ -91,6 +96,10 @@ class MessageStorageItem: Object {
     @objc dynamic var afterburnInterval: Double = -1
     @objc dynamic var burnDate: Double = -1
     @objc dynamic var readDate: Double = -1
+    @objc dynamic var autoDeleteTTLSeconds: Double = -1
+    @objc dynamic var autoDeleteExpiresAt: Double = -1
+    @objc dynamic var autoDeletePolicyVersion: Int = 0
+    @objc dynamic var deleteState_: String = DeleteState.visible.rawValue
     
     @objc dynamic var errorMetadata_: String? = nil
     @objc dynamic var systemMetadata_: String? = nil
@@ -246,6 +255,48 @@ class MessageStorageItem: Object {
         } set {
             self.state_ = newValue.rawValue
         }
+    }
+
+    var deleteState: DeleteState {
+        get {
+            return DeleteState(rawValue: deleteState_) ?? .visible
+        } set {
+            deleteState_ = newValue.rawValue
+        }
+    }
+
+    var effectiveAutoDeleteExpiresAt: Double {
+        if autoDeleteExpiresAt > 0 {
+            return autoDeleteExpiresAt
+        }
+        return burnDate
+    }
+
+    func applyAutoDeleteTTL(_ ttlSeconds: Double, startsAt date: Date, policyVersion: Int = 0) {
+        guard ttlSeconds > 0 else {
+            self.autoDeleteTTLSeconds = ttlSeconds
+            self.autoDeleteExpiresAt = -1
+            self.autoDeletePolicyVersion = policyVersion
+            self.afterburnInterval = ttlSeconds
+            self.burnDate = -1
+            self.deleteState = .visible
+            return
+        }
+
+        let expiresAt = date.timeIntervalSince1970 + ttlSeconds
+        self.autoDeleteTTLSeconds = ttlSeconds
+        self.autoDeleteExpiresAt = expiresAt
+        self.autoDeletePolicyVersion = policyVersion
+        self.afterburnInterval = ttlSeconds
+        self.burnDate = expiresAt
+        self.deleteState = .visible
+    }
+
+    func markAutoDeleted() {
+        self.isDeleted = true
+        self.body = ""
+        self.legacyBody = ""
+        self.deleteState = .autoDeleted
     }
     
     public final func shouldShowAsSystemMessage() -> Bool {
@@ -587,14 +638,7 @@ class MessageStorageItem: Object {
     func editMessage(_ messageContainer: XMPPMessage, editDate: Date) {
         self.references.removeAll()
         self.references.append(objectsIn: parseReferences(messageContainer, primary: self.primary, jid: opponent, owner: owner))
-        let groupchatRef = messageContainer
-            .element(forName: "x",xmlns: "https://xabber.com/protocol/groups")?
-            .element(forName: "reference",xmlns: "https://xabber.com/protocol/references")
-        self.body = messageContainer
-            .body?
-            .xmlEscaping(reverse: false)
-            .excludeFromBody(messageContainer.elements(forName: "reference"), groupchat: groupchatRef) ?? ""
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        self.body = normalizedIncomingTextBody(from: messageContainer)
         if messageContainer.from == nil {
             messageContainer.addAttribute(withName: "from", stringValue: outgoing ? owner : opponent)
         }
@@ -617,14 +661,7 @@ class MessageStorageItem: Object {
         self.previousId = getPreviousId(messageContainer)
         updatePrimary()
         self.references.append(objectsIn: parseReferences(messageContainer, primary: self.primary, jid: opponent, owner: owner))
-        let groupchatRef = messageContainer
-            .element(forName: "x",xmlns: "https://xabber.com/protocol/groups")?
-            .element(forName: "reference",xmlns: "https://xabber.com/protocol/references")
-        self.body = messageContainer
-            .body?
-            .xmlEscaping(reverse: false)
-            .excludeFromBody(messageContainer.elements(forName: "reference"), groupchat: groupchatRef) ?? ""
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        self.body = normalizedIncomingTextBody(from: messageContainer)
         if messageContainer.from == nil {
             messageContainer.addAttribute(withName: "from", stringValue: outgoing ? owner : opponent)
         }
@@ -775,7 +812,18 @@ class MessageStorageItem: Object {
         case none = "none"
     }
     
-    public final func configureVoIPCallMessage(opponent: String, owner: String, date: Date, isRead: Bool, callId: String, archivedId: String?, outgoing: Bool, duration: TimeInterval, callState: VoIPCallState) {
+    public final func configureVoIPCallMessage(
+        opponent: String,
+        owner: String,
+        date: Date,
+        isRead: Bool,
+        callId: String,
+        archivedId: String?,
+        outgoing: Bool,
+        duration: TimeInterval,
+        callState: VoIPCallState,
+        terminationReason: String? = nil
+    ) {
         self.opponent = opponent
         self.owner = owner
         self.conversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
@@ -805,6 +853,9 @@ class MessageStorageItem: Object {
             "callState": callState.rawValue,
             "date": date.timeIntervalSince1970
         ]
+        if let terminationReason {
+            reference.metadata?["terminationReason"] = terminationReason
+        }
         self.references.removeAll()
         do {
             let realm = try  WRealm.safe()
@@ -874,10 +925,7 @@ class MessageStorageItem: Object {
             }
         }
         if let stanza = self.originalStanza {
-            if let userCard = stanza
-                .element(forName: "x", xmlns: "https://xabber.com/protocol/groups")?
-                .element(forName: "reference", xmlns: "https://xabber.com/protocol/references")?
-                .element(forName: "user", xmlns: "https://xabber.com/protocol/groups") {
+            if let userCard = groupchatUserElement(from: stanza) {
                 self.groupchatCard = AccountManager
                     .shared
                     .find(for: owner)?
@@ -925,8 +973,7 @@ class MessageStorageItem: Object {
         ) {
             if let timer = self.references.first?.metadata?["ephemeral-timer"] as? Int,
                instance.afterburnIntervalLastUpdate < self.date.timeIntervalSince1970 {
-                instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
-                instance.afterburnInterval = Double(timer)
+                instance.applyAutoDeleteTimer(Double(timer), updatedAt: self.date.timeIntervalSince1970, updatedBy: self.owner)
             }
 
             if instance.isFreshNotEmptyEncryptedChat {
@@ -974,11 +1021,9 @@ class MessageStorageItem: Object {
                 instance.lastMessageId = self.messageId
 
                 if let timer = self.references.first?.metadata?["ephemeral-timer"] as? Int {
-                    instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
-                    instance.afterburnInterval = Double(timer)
+                    instance.applyAutoDeleteTimer(Double(timer), updatedAt: self.date.timeIntervalSince1970, updatedBy: self.owner)
                 } else if self.afterburnInterval > -1 && instance.afterburnIntervalLastUpdate < self.date.timeIntervalSince1970 {
-                    instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
-                    instance.afterburnInterval = self.afterburnInterval
+                    instance.applyAutoDeleteTimer(self.afterburnInterval, updatedAt: self.date.timeIntervalSince1970, updatedBy: self.owner)
                 }
 
                 if isInvite && !isRead {
@@ -1004,11 +1049,9 @@ class MessageStorageItem: Object {
             instance.lastMessageId = self.messageId
 
             if let timer = self.references.first?.metadata?["ephemeral-timer"] as? Int {
-                instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
-                instance.afterburnInterval = Double(timer)
+                instance.applyAutoDeleteTimer(Double(timer), updatedAt: self.date.timeIntervalSince1970, updatedBy: self.owner)
             } else {
-                instance.afterburnIntervalLastUpdate = self.date.timeIntervalSince1970
-                instance.afterburnInterval = self.afterburnInterval
+                instance.applyAutoDeleteTimer(self.afterburnInterval, updatedAt: self.date.timeIntervalSince1970, updatedBy: self.owner)
             }
 
             if instance.isInvalidated {
@@ -1075,6 +1118,35 @@ class MessageStorageItem: Object {
         }
 
         return SaveSideEffects(shouldStoreStanza: true, notification: notification)
+    }
+
+    private func normalizedIncomingTextBody(from messageContainer: XMPPMessage) -> String {
+        let strippedBody = messageContainer
+            .body?
+            .xmlEscaping(reverse: false)
+            .excludeFromBody(
+                messageContainer.elements(forName: "reference"),
+                groupchat: groupchatReferenceElement(from: messageContainer)
+            ) ?? ""
+        let normalizedBody = strippedBody.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard conversationTypeByMessage(messageContainer) == .group else {
+            return normalizedBody
+        }
+
+        guard let authorName = resolvedGroupchatAuthorDisplayName(
+            userElement: groupchatUserElement(from: messageContainer),
+            references: references.toArray()
+        ) else {
+            return normalizedBody
+        }
+
+        let prefix = "\(authorName):\n"
+        guard normalizedBody.hasPrefix(prefix) else {
+            return normalizedBody
+        }
+
+        return String(normalizedBody.dropFirst(prefix.count))
     }
 
     public final func save(commitTransaction: Bool, silentNotifications: Bool = false) -> Bool {
@@ -1230,7 +1302,24 @@ class MessageStorageItem: Object {
                 case .markup:
                     break
                 case .mention:
-                    break
+                    if let uri = reference.metadata?["uri"] as? String ?? reference.url {
+                        let node = reference.metadata?["node"] as? String
+                        let memberId = (reference.metadata?["memberId"] as? String) ?? Self.parseMentionMemberId(from: uri)
+                        let isGroupMention = node == "https://xabber.com/protocol/groupchat" || (memberId?.isNotEmpty ?? false)
+
+                        if isGroupMention {
+                            let link = DDXMLElement(name: "link", xmlns: "https://xabber.com/protocol/markup")
+                            link.stringValue = uri
+                            referenceElement.addChild(link)
+                        } else {
+                            let mention = DDXMLElement(name: "mention", xmlns: "https://xabber.com/protocol/markup")
+                            if let node, node.isNotEmpty {
+                                mention.addAttribute(withName: "node", stringValue: node)
+                            }
+                            mention.stringValue = uri
+                            referenceElement.addChild(mention)
+                        }
+                    }
                 case .quote:
                     break
                 case .groupchat:
@@ -1244,6 +1333,38 @@ class MessageStorageItem: Object {
         }
         
         return out
+    }
+
+    func createMentionsElement() -> DDXMLElement? {
+        let mentions = DDXMLElement(name: "mentions", xmlns: "https://xabber.com/protocol/groups")
+        var seenMemberIds: Set<String> = []
+
+        references.forEach { reference in
+            guard reference.kind == .mention else { return }
+            let uri = reference.metadata?["uri"] as? String ?? reference.url
+            let memberId = (reference.metadata?["memberId"] as? String) ?? uri.flatMap(Self.parseMentionMemberId(from:))
+            guard let memberId, memberId.isNotEmpty else { return }
+            guard seenMemberIds.insert(memberId).inserted else { return }
+
+            let user = DDXMLElement(name: "user")
+            user.addAttribute(withName: "id", stringValue: memberId)
+            mentions.addChild(user)
+        }
+
+        return mentions.children?.isEmpty == false ? mentions : nil
+    }
+
+    private static func parseMentionMemberId(from uri: String) -> String? {
+        guard let query = uri.split(separator: "?", maxSplits: 1).dropFirst().first else { return nil }
+        let normalizedQuery = query.replacingOccurrences(of: ";", with: "&")
+        return normalizedQuery
+            .split(separator: "&")
+            .compactMap { component -> String? in
+                let parts = component.split(separator: "=", maxSplits: 1).map(String.init)
+                guard parts.count == 2, parts[0] == "id" else { return nil }
+                return parts[1]
+            }
+            .first
     }
     
     
@@ -1343,7 +1464,11 @@ class MessageStorageItem: Object {
                     }
                 }
             case .mention:
-                break
+                string.addAttribute(NSAttributedString.Key.font, value: UIFont.systemFont(ofSize: 14, weight: .semibold), range: reference.range)
+                string.addAttribute(NSAttributedString.Key.foregroundColor, value: AccountColorManager.shared.palette(for: owner).tint700, range: reference.range)
+                if let url = reference.metadata?["uri"] as? String ?? reference.url {
+                    string.addAttribute(NSAttributedString.Key.link, value: url, range: reference.range)
+                }
             case .quote:
                 break
             case .groupchat:

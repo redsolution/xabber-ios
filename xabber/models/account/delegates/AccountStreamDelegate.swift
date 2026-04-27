@@ -27,16 +27,15 @@ extension Account: XMPPStreamDelegate {
     
     
     func xmppStreamDidConnect(_ stream: XMPPStream) {
+        guard stream === self.xmppStream else {
+            DDLogDebug("ignore stale primary stream didConnect jid=\(self.jid)")
+            return
+        }
         AccountManager.shared.changeNewUserState(for: self.jid, to: .startConnection)
         func reconnect(_ error: Error) {
             self.statusMessage.accept("Offline")
-            self.delayedConnectTimer?.invalidate()
-            self.delayedConnectTimer = Timer(timeInterval: 3,
-                                             target: self,
-                                             selector: #selector(self.connect),
-                                             userInfo: nil,
-                                             repeats: false)
-            RunLoop.main.add(self.delayedConnectTimer!, forMode: RunLoop.Mode.default)
+            self.connectionGate.markFailed()
+            self.scheduleConnectRetry(after: 3, trigger: .timeoutRetry, attemptID: nil)
             AccountManager.shared.changeNewUserState(for: self.jid, to: .failure(error.localizedDescription))
         }
         
@@ -45,6 +44,7 @@ extension Account: XMPPStreamDelegate {
         }
         delayedConnectTimer?.invalidate()
         delayedConnectTimer = nil
+        self.connectionGate.markAuthenticating()
 //        DispatchQueue.main.async {
 //            ToastPresenter(message: "Stream connected").present(animated: true)
 //        }
@@ -82,21 +82,27 @@ extension Account: XMPPStreamDelegate {
             creditionalsItem.use {
                 [unowned self] (isInvalidated, item) in
                 if isInvalidated {
+                    item.release(.credentialRevoked)
                     invalidate()
+                    return
                 }
                 do {
-                    if let token = item.creditionalString {
-                        creditionalsItem.incrementCounter()
-                        stream.shouldRequestXToken = false
-                        stream.shouldRegisterDevice = false
-                        try stream.authenticate(withXabberToken: token, counter: item.counter)
-                        
+                    switch try XMPPStoredCredentialAuthenticator.authenticate(
+                        stream: stream,
+                        storage: item,
+                        ownerJID: self.jid,
+                        counterTracker: self.authenticationCounterTracker
+                    ) {
+                    case .started:
                         AccountManager.shared.changeNewUserState(for: self.jid, to: .connect)
-                    } else {
-                        invalidate()
+                    case .missingCredential:
+                        self.authenticationCounterTracker.authenticationDidFail()
+                        item.release(.authFailedRecoverable)
+                        self.tokenShouldUpdate()
                     }
                 } catch {
-                    item.decrementCounter()
+                    self.authenticationCounterTracker.authenticationDidFail()
+                    item.release(.authFailedRecoverable)
                     reconnect(error)
                 }
             }
@@ -105,40 +111,36 @@ extension Account: XMPPStreamDelegate {
             creditionalsItem.use {
                 [unowned self] (isInvalidated, item) in
                 if isInvalidated {
+                    item.release(.credentialRevoked)
                     invalidate()
+                    return
                 }
                 do {
 //                    DispatchQueue.main.async {
 //                        ToastPresenter(message: "Stream try get secret").present(animated: true)
 //                    }
-                    if let secret = item.creditionalString {
-                        creditionalsItem.incrementCounter()
-                        let counter = creditionalsItem.counter
-//                        DispatchQueue.main.async {
-//                            ToastPresenter(message: "Stream increment counter").present(animated: true)
-//                        }
-                        stream.shouldRegisterDevice = false
-                        stream.shouldRequestXToken = false
-                        let realm = try WRealm.safe()
-                        let deviceUUID = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: self.jid)?.deviceUuid
-                        if stream.supportsOCRAAuthentication {
-                            try stream.authenticate(withOCRASecret: secret, validationKey: item.validationKey ?? "", deviceId: deviceUUID ?? "", counter: counter)
-                        } else {
-                            try stream.authenticate(withHOTPSecret: secret, counter: counter)
-                        }
+                    switch try XMPPStoredCredentialAuthenticator.authenticate(
+                        stream: stream,
+                        storage: item,
+                        ownerJID: self.jid,
+                        counterTracker: self.authenticationCounterTracker
+                    ) {
+                    case .started:
                         AccountManager.shared.changeNewUserState(for: self.jid, to: .connect)
 //                        DispatchQueue.main.async {
 //                            ToastPresenter(message: "Stream try auth").present(animated: true)
 //                        }
-                    } else {
-                        invalidate()
-                        
+                    case .missingCredential:
+                        self.authenticationCounterTracker.authenticationDidFail()
+                        item.release(.authFailedRecoverable)
+                        self.tokenShouldUpdate()
 //                        DispatchQueue.main.async {
 //                            ToastPresenter(message: "Stream invalidated").present(animated: true)
 //                        }
                     }
                 } catch {
-                    item.decrementCounter()
+                    self.authenticationCounterTracker.authenticationDidFail()
+                    item.release(.authFailedRecoverable)
                     reconnect(error)
 //                    DispatchQueue.main.async {
 //                        ToastPresenter(message: "Stream try reconnect").present(animated: true)
@@ -150,15 +152,27 @@ extension Account: XMPPStreamDelegate {
     }
 
     func xmppStreamConnectDidTimeout(_ sender: XMPPStream) {
-        self.connect()
+        guard sender === self.xmppStream else {
+            DDLogDebug("ignore stale primary stream timeout jid=\(self.jid)")
+            return
+        }
+        self.handleConnectTimeout()
     }
 
     func xmppStreamDidAuthenticate(_ sender: XMPPStream) {
+        guard sender === self.xmppStream else {
+            DDLogDebug("ignore stale primary stream didAuthenticate jid=\(self.jid)")
+            return
+        }
+        self.cancelDelayedConnectTimer()
+        self.connectionGate.markPostAuthSetup()
         self.didAuthenticate()
         if let resource = sender.myJID?.resource {
             self.devices.updateMyDevice(resource: resource)
         }
-        CredentialsManager.shared.getItem(for: self.jid).release(error: false)
+        let credentialsItem = CredentialsManager.shared.getItem(for: self.jid)
+        self.authenticationCounterTracker.authenticationDidSucceed(using: credentialsItem)
+        credentialsItem.release(.authSucceeded)
         AccountManager.shared.markAsAuthencticated(jid: self.jid)
         AccountManager.shared.changeNewUserState(for: self.jid, to: .auth)
         PushNotificationsManager.setAccountStateForPush(jid: self.jid, active: true)
@@ -167,7 +181,17 @@ extension Account: XMPPStreamDelegate {
 
     
     func xmppStreamDidReceive(_ sender: XMPPStream, streamFeatures features: DDXMLElement) {
+        guard sender === self.xmppStream else {
+            DDLogDebug("ignore stale primary stream features jid=\(self.jid)")
+            return
+        }
         print("Features:", features.prettyXMLString())
+        if features.element(forName: "starttls", xmlns: "urn:ietf:params:xml:ns:xmpp-tls") != nil {
+            self.connectionGate.markTLSNegotiating()
+        }
+        if features.element(forName: "bind", xmlns: "urn:ietf:params:xml:ns:xmpp-bind") != nil {
+            self.connectionGate.markBinding()
+        }
         syncManager.checkAvailability(features)
         devices.setAvailable(features)
     }
@@ -179,24 +203,45 @@ extension Account: XMPPStreamDelegate {
     }
     
     func xmppStream(_ sender: XMPPStream, didNotAuthenticate error: DDXMLElement) {
+        guard sender === self.xmppStream else {
+            DDLogDebug("ignore stale primary stream auth failure jid=\(self.jid)")
+            return
+        }
         self.didReceiveError(error)
     }
     
     func xmppStreamWasTold(toDisconnect sender: XMPPStream) {
+        guard sender === self.xmppStream else {
+            DDLogDebug("ignore stale primary stream told-to-disconnect jid=\(self.jid)")
+            return
+        }
 //        self.statusMessage.accept("Disconnect")
+        self.cancelDelayedConnectTimer()
         self.statusMessage.accept("Offline")
         self.statusState.accept(.offline)
         self.resetConfigs()
         self.carbonsEnabled = false
-        self.reconnect.manualStart()
+        self.connectionGate.markDisconnected()
+        if self.reconnect.autoReconnect {
+            self.reconnect.manualStart()
+        }
     }
     
     func xmppStream(_ sender: XMPPStream, didReceiveError error: DDXMLElement) {
+        guard sender === self.xmppStream else {
+            DDLogDebug("ignore stale primary stream error jid=\(self.jid)")
+            return
+        }
         self.didReceiveError(error)
     }
     
     func xmppStreamDidDisconnect(_ sender: XMPPStream, withError error: Error?) {
-        CredentialsManager.shared.getItem(for: self.jid).release(error: false)
+        guard sender === self.xmppStream else {
+            DDLogDebug("ignore stale primary stream disconnect jid=\(self.jid)")
+            return
+        }
+        self.cancelDelayedConnectTimer()
+        CredentialsManager.shared.getItem(for: self.jid).release(.authFailedRecoverable)
         self.statusState.accept(.offline)
         self.statusMessage.accept("Offline")
         if let nserror = error as? NSError {
@@ -204,7 +249,10 @@ extension Account: XMPPStreamDelegate {
                 AccountManager.shared.changeNewUserState(for: self.jid, to: .failure("Server not found"))
             }
         }
-        self.reconnect.manualStart()
+        self.connectionGate.markDisconnected()
+        if self.reconnect.autoReconnect {
+            self.reconnect.manualStart()
+        }
     }
     
     func xmppStream(_ sender: XMPPStream, didSend iq: XMPPIQ) {

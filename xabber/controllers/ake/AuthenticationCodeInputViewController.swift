@@ -17,8 +17,6 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
     open var sid: String = ""
     open var isVerificationWithUsersDevice: Bool = false
     
-    var headerHeightMax: CGFloat = 236
-    
     internal let scrollView: UIScrollView = {
         let view = UIScrollView(frame: .zero)
         
@@ -461,10 +459,6 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
         
         containerView.frame = self.view.bounds
         scrollView.contentSize = CGSize(width: containerView.frame.width, height: containerView.frame.height - 70)
-        headerView.frame = CGRect(
-            width: view.frame.width,
-            height: headerHeightMax
-        )
-        self.headerView.updateSubviews()
+        headerView.applyLayout(width: view.bounds.width)
     }
 }

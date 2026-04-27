@@ -56,20 +56,27 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
             creditionalsItem.use {
                 [unowned self] (isInvalidated, item) in
                 if isInvalidated {
+                    item.release(.credentialRevoked)
                     invalidate()
+                    return
                 }
                 do {
-                    if let token = item.creditionalString {
-                        creditionalsItem.incrementCounter()
-                        stream.shouldRequestXToken = false
-                        stream.shouldRegisterDevice = false
-                        try stream.authenticate(withXabberToken: token, counter: item.counter)
-                    } else {
-                        item.decrementCounter()
+                    switch try XMPPStoredCredentialAuthenticator.authenticate(
+                        stream: stream,
+                        storage: item,
+                        ownerJID: self.jid,
+                        counterTracker: self.authenticationCounterTracker
+                    ) {
+                    case .started:
+                        break
+                    case .missingCredential:
+                        self.authenticationCounterTracker.authenticationDidFail()
+                        item.release(.authFailedRecoverable)
                         invalidate()
                     }
                 } catch {
-                    item.decrementCounter()
+                    self.authenticationCounterTracker.authenticationDidFail()
+                    item.release(.authFailedRecoverable)
                     reconnect(error)
                 }
             }
@@ -78,21 +85,27 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
             creditionalsItem.use {
                 [unowned self] (isInvalidated, item) in
                 if isInvalidated {
+                    item.release(.credentialRevoked)
                     invalidate()
+                    return
                 }
                 do {
-                    if let secret = item.creditionalString {
-                        let counter = creditionalsItem.counter
-                        creditionalsItem.incrementCounter()
-                        stream.shouldRegisterDevice = false
-                        stream.shouldRequestXToken = false
-                        try stream.authenticate(withHOTPSecret: secret, counter: counter)
-                    } else {
-                        item.decrementCounter()
+                    switch try XMPPStoredCredentialAuthenticator.authenticate(
+                        stream: stream,
+                        storage: item,
+                        ownerJID: self.jid,
+                        counterTracker: self.authenticationCounterTracker
+                    ) {
+                    case .started:
+                        break
+                    case .missingCredential:
+                        self.authenticationCounterTracker.authenticationDidFail()
+                        item.release(.authFailedRecoverable)
                         invalidate()
                     }
                 } catch {
-                    item.decrementCounter()
+                    self.authenticationCounterTracker.authenticationDidFail()
+                    item.release(.authFailedRecoverable)
                     reconnect(error)
                 }
             }
@@ -100,7 +113,9 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
     }
     
     func xmppStreamDidAuthenticate(_ sender: XMPPStream) {
-        CredentialsManager.shared.getItem(for: jid).release(error: false)
+        let credentialsItem = CredentialsManager.shared.getItem(for: jid)
+        authenticationCounterTracker.authenticationDidSucceed(using: credentialsItem)
+        credentialsItem.release(.authSucceeded)
         switch self.taskType {
 //        case .pubsubAvatarsRequests(let value):
 //            value.forEach {
@@ -125,7 +140,22 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
     
     func xmppStream(_ sender: XMPPStream, didNotAuthenticate error: DDXMLElement) {
         print(#function, error)
-        CredentialsManager.shared.getItem(for: jid).release(error: true)
+        authenticationCounterTracker.authenticationDidFail()
+        let credentialsItem = CredentialsManager.shared.getItem(for: jid)
+        if let failure = XMPPAuthenticationFailure(element: error) {
+            let resolution = XMPPAuthenticationFailureResolution.resolve(
+                failure: failure,
+                credentialKind: credentialsItem.kind,
+                source: .secondaryStream
+            )
+            if resolution.shouldLogRawFailure {
+                DDLogDebug("XMPP background auth failure for \(jid): \(failure.rawXML)")
+            }
+        } else {
+            DDLogDebug("XMPP background auth failure for \(jid): \(error.xmlString)")
+        }
+        credentialsItem.release(.authFailedRecoverable)
+        self.disconnect()
         self.endBackgroundUpdateTask()
     }
     
@@ -177,6 +207,6 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
         }
     }
     func xmppStreamDidDisconnect(_ sender: XMPPStream, withError error: Error?) {
-        CredentialsManager.shared.getItem(for: jid).release(error: false)
+        CredentialsManager.shared.getItem(for: jid).release(.authFailedRecoverable)
     }
 }

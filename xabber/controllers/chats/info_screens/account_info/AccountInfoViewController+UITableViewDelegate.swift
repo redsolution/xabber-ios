@@ -22,6 +22,18 @@ import Foundation
 import UIKit
 
 extension AccountInfoViewController: UITableViewDelegate {
+    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+        let title: String?
+        if section < datasource.count {
+            title = datasource[section].title
+        } else if section - datasource.count == 1 && self.tokens?.count == 1 {
+            title = nil
+        } else {
+            title = tokensDatasource[section - datasource.count].title
+        }
+        return InfoScreenSectionMetrics.headerHeight(for: title, section: section)
+    }
+
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         if indexPath.section < datasource.count {
             if datasource[indexPath.section].childs[indexPath.row].key == .accountQuota {

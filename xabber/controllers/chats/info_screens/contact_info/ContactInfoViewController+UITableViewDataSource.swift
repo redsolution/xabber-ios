@@ -239,21 +239,5 @@ extension ContactInfoViewController: UITableViewDataSource {
     }
     
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-//        let value = scrollView.contentOffset.y
-////        self.scrollViewContentOffsetYCopy = value
-//        var height = abs(value)
-//        print(value)
-//        if height > self.headerHeightMax {
-//            height = self.headerHeightMax
-//        }
-//        if height < self.headerHeightMin {
-//            height = self.headerHeightMin
-//            self.navigationController?.setNavigationBarHidden(false, animated: true)
-//        }
-//        if value < 0 {
-//            UIView.performWithoutAnimation {
-//                self.headerView.frame = CGRect(x: 0, y: -(value + headerHeightMax - 64), width: view.frame.width, height: headerHeightMax)
-//            }
-//        }
     }
 }

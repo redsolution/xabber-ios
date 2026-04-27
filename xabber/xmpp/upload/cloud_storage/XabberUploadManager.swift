@@ -26,6 +26,222 @@ import CocoaLumberjack
 import RealmSwift
 import Kingfisher
 
+enum CloudStorageQuotaRefreshReason: String {
+    case appLaunch
+    case foreground
+    case premiumEntitlementChanged
+    case screenOpen
+    case uploadCompleted
+    case uploadQuotaExceeded
+    case tokenReceived
+    case manual
+}
+
+enum CloudStorageQuotaRefreshResult: String {
+    case success
+    case unavailable
+    case unauthorized
+    case failure
+}
+
+extension Notification.Name {
+    static let cloudStorageQuotaRefreshDidStart = Notification.Name("CloudStorageQuotaRefreshDidStart")
+    static let cloudStorageQuotaRefreshDidFinish = Notification.Name("CloudStorageQuotaRefreshDidFinish")
+    static let premiumEntitlementDidChange = Notification.Name("PremiumEntitlementDidChange")
+}
+
+struct CloudStorageQuotaCategory: Equatable {
+    let used: Int
+    let count: Int
+}
+
+struct CloudStorageQuotaStatsPayload: Equatable {
+    let quota: Int
+    let total: CloudStorageQuotaCategory
+    let images: CloudStorageQuotaCategory?
+    let videos: CloudStorageQuotaCategory?
+    let files: CloudStorageQuotaCategory?
+    let audio: CloudStorageQuotaCategory?
+    let voices: CloudStorageQuotaCategory?
+    let avatars: CloudStorageQuotaCategory?
+    
+    static func parse(_ value: Any) -> CloudStorageQuotaStatsPayload? {
+        guard let root = dictionary(from: value),
+              let quota = int(from: root["quota"]),
+              let totalRoot = dictionary(from: root["total"]),
+              let totalUsed = int(from: totalRoot["used"]) else {
+            return nil
+        }
+        
+        return CloudStorageQuotaStatsPayload(
+            quota: quota,
+            total: CloudStorageQuotaCategory(used: totalUsed, count: int(from: totalRoot["count"]) ?? 0),
+            images: category(from: root["images"]),
+            videos: category(from: root["videos"]),
+            files: category(from: root["files"]),
+            audio: category(from: root["audio"]),
+            voices: category(from: root["voices"]),
+            avatars: category(from: root["avatars"])
+        )
+    }
+    
+    private static func category(from value: Any?) -> CloudStorageQuotaCategory? {
+        guard let root = dictionary(from: value) else { return nil }
+        guard int(from: root["used"]) != nil || int(from: root["count"]) != nil else { return nil }
+        return CloudStorageQuotaCategory(
+            used: int(from: root["used"]) ?? 0,
+            count: int(from: root["count"]) ?? 0
+        )
+    }
+    
+    private static func dictionary(from value: Any?) -> [String: Any]? {
+        if let dictionary = value as? [String: Any] {
+            return dictionary
+        }
+        if let dictionary = value as? NSDictionary {
+            return dictionary as? [String: Any]
+        }
+        return nil
+    }
+    
+    private static func int(from value: Any?) -> Int? {
+        if let int = value as? Int {
+            return int
+        }
+        if let number = value as? NSNumber {
+            return number.intValue
+        }
+        if let string = value as? String {
+            return Int(string)
+        }
+        return nil
+    }
+}
+
+struct CloudStorageUploadSlotRequest {
+    let size: Int
+    let name: String
+    let hash: String
+}
+
+enum CloudStorageQuotaAPIResponse {
+    case response(statusCode: Int?, value: Any?)
+    case failure(statusCode: Int?, error: Error?)
+}
+
+protocol CloudStorageQuotaAPIClient {
+    func getStats(baseURL: URL, token: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
+    func requestSlot(baseURL: URL, token: String, request: CloudStorageUploadSlotRequest, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
+}
+
+final class AlamofireCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
+    func getStats(baseURL: URL, token: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
+        guard let url = Self.apiURL(baseURL: baseURL, path: "v1/files/stats/") else {
+            completion(.failure(statusCode: nil, error: nil))
+            return
+        }
+        
+        AF.request(
+            url,
+            method: .get,
+            parameters: nil,
+            encoding: JSONEncoding.default,
+            headers: HTTPHeaders(["Authorization": "Bearer \(token)"])
+        ).responseJSON { response in
+            switch response.result {
+            case .success(let value):
+                completion(.response(statusCode: response.response?.statusCode, value: value))
+            case .failure(let error):
+                completion(.failure(statusCode: response.response?.statusCode, error: error))
+            }
+        }
+    }
+    
+    func requestSlot(baseURL: URL, token: String, request: CloudStorageUploadSlotRequest, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
+        guard let url = Self.apiURL(baseURL: baseURL, path: "v1/files/slot/") else {
+            completion(.failure(statusCode: nil, error: nil))
+            return
+        }
+        
+        AF.request(
+            url,
+            method: .get,
+            parameters: [
+                "size": request.size,
+                "name": request.name,
+                "hash": request.hash
+            ],
+            encoding: URLEncoding.default,
+            headers: HTTPHeaders(["Authorization": "Bearer \(token)"])
+        ).responseJSON { response in
+            switch response.result {
+            case .success(let value):
+                completion(.response(statusCode: response.response?.statusCode, value: value))
+            case .failure(let error):
+                completion(.failure(statusCode: response.response?.statusCode, error: error))
+            }
+        }
+    }
+    
+    private static func apiURL(baseURL: URL, path: String) -> URL? {
+        let base = baseURL.absoluteString
+        let separator = base.hasSuffix("/") ? "" : "/"
+        return URL(string: base + separator + path)
+    }
+}
+
+final class CloudStorageQuotaRefreshCoordinator {
+    static let shared = CloudStorageQuotaRefreshCoordinator()
+    
+    var ownersProvider: () -> [String] = {
+        AccountManager.shared.users.map { $0.jid }
+    }
+    
+    var refreshOwnerHandler: (String, CloudStorageQuotaRefreshReason, Bool, ((CloudStorageQuotaRefreshResult) -> Void)?) -> Void = {
+        owner, reason, force, completion in
+        AccountManager.shared.find(for: owner)?.action { user, _ in
+            user.cloudStorage.refreshQuota(reason: reason, force: force, completion: completion)
+        }
+    }
+    
+    private init() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(premiumEntitlementDidChange(_:)),
+            name: .premiumEntitlementDidChange,
+            object: nil
+        )
+    }
+    
+    func refreshAll(reason: CloudStorageQuotaRefreshReason, force: Bool = false) {
+        ownersProvider().forEach {
+            refresh(owner: $0, reason: reason, force: force)
+        }
+    }
+    
+    func refresh(owner: String, reason: CloudStorageQuotaRefreshReason, force: Bool = false, completion: ((CloudStorageQuotaRefreshResult) -> Void)? = nil) {
+        guard owner.isNotEmpty else {
+            completion?(.unavailable)
+            return
+        }
+        refreshOwnerHandler(owner, reason, force, completion)
+    }
+    
+    @objc private func premiumEntitlementDidChange(_ notification: Notification) {
+        guard let owner = notification.userInfo?["jid"] as? String else { return }
+        refresh(owner: owner, reason: .premiumEntitlementChanged, force: true)
+    }
+    
+    func resetTestingHooks() {
+        ownersProvider = { AccountManager.shared.users.map { $0.jid } }
+        refreshOwnerHandler = { owner, reason, force, completion in
+            AccountManager.shared.find(for: owner)?.action { user, _ in
+                user.cloudStorage.refreshQuota(reason: reason, force: force, completion: completion)
+            }
+        }
+    }
+}
+
 
 /**
 *       XabberUploadManager sends inquiry to the server, which gets non-permanent code.
@@ -44,11 +260,16 @@ class XabberUploadManager: AbstractXMPPManager {
     }
     
     private static let httpAuthNamespace: String = "http://jabber.org/protocol/http-auth"
+    static var quotaAPIClient: CloudStorageQuotaAPIClient = AlamofireCloudStorageQuotaAPIClient()
+    static var tokenExpiredTestingHandler: ((String) -> Void)?
     
     internal var node: String? = nil
     
     internal var namespace: String = ""
     internal var maxFileSize: Int? = nil
+    private let quotaRefreshLock = NSLock()
+    private var isQuotaRefreshInFlight = false
+    private var quotaRefreshCallbacks: [(CloudStorageQuotaRefreshResult) -> Void] = []
     
     var token: String {
         get {
@@ -113,8 +334,11 @@ class XabberUploadManager: AbstractXMPPManager {
             return
         }
         
+        preflightUploadSlot(data: data, filename: filename, errorCallback: errorCallback) { [weak self] shouldContinue in
+            guard let self = self, shouldContinue else { return }
+            
         let headers: [String: String] = [
-            "Authorization" : "Bearer \(token)",
+            "Authorization" : "Bearer \(self.token)",
         ]
 //        print("TOKEN:\n\(token)")
         
@@ -165,7 +389,7 @@ class XabberUploadManager: AbstractXMPPManager {
                 let thumbnailUrl = (json["thumbnail"] as? NSDictionary)?["url"] as? String
 
                 successCallback(fileUrl, thumbnailUrl, fileID, name, hash, url, quota, used)
-                self.getStats()
+                self.refreshQuota(reason: .uploadCompleted, force: true)
             } else if code == 401 {
                 self.tokenWasExpired()
                 guard let json = response.value as? NSDictionary,
@@ -178,10 +402,17 @@ class XabberUploadManager: AbstractXMPPManager {
                 guard let json = response.value as? NSDictionary,
                       let statusCode = json["status"] as? Int else {
                           errorCallback(response.response?.statusCode)
+                          if response.response?.statusCode == 403 {
+                              self.refreshQuota(reason: .uploadQuotaExceeded, force: true)
+                          }
                           return
                       }
+                if statusCode == 403 {
+                    self.refreshQuota(reason: .uploadQuotaExceeded, force: true)
+                }
                 errorCallback(statusCode)
             }
+        }
         }
 //        { result in
 //                switch result {
@@ -461,94 +692,176 @@ class XabberUploadManager: AbstractXMPPManager {
         }
     }
     
-//    //MARK: - Receives quota info, file types' stats and writes it in realm
+    //MARK: - Receives quota info, file types' stats and writes it in realm
     public func getStats(_ callback: (() -> Void)? = nil) {
-        guard isAvailable(), let node = node else {
+        refreshQuota(reason: .manual, force: false) { _ in
+            callback?()
+        }
+    }
+    
+    public func refreshQuota(
+        reason: CloudStorageQuotaRefreshReason = .manual,
+        force: Bool = false,
+        completion: ((CloudStorageQuotaRefreshResult) -> Void)? = nil
+    ) {
+        guard isAvailable(), let node = node, let baseURL = URL(string: node) else {
             DDLogDebug("XabberUploadManager (\(#function) is unavailable.")
-            return
-        }
-        let stringUrl = node + "v1/files/stats/"
-        
-        guard let url = URL(string: stringUrl) else {
-            DDLogDebug("XabberUploadManager: \(#function). Error with upload url.")
+            completion?(.unavailable)
+            postQuotaRefreshDidFinish(reason: reason, result: .unavailable)
             return
         }
         
-        let headers: [String: String] = [
-            "Authorization" : "Bearer \(self.token)",
-        ]
+        quotaRefreshLock.lock()
+        if isQuotaRefreshInFlight {
+            if let completion = completion {
+                quotaRefreshCallbacks.append(completion)
+            }
+            quotaRefreshLock.unlock()
+            return
+        }
+        isQuotaRefreshInFlight = true
+        quotaRefreshCallbacks = completion.map { [$0] } ?? []
+        quotaRefreshLock.unlock()
         
-        AF
-            .request(url,
-                     method: .get,
-                     parameters: nil,
-                     encoding: JSONEncoding.default,
-                     headers: HTTPHeaders(headers)
-                ).responseJSON { response in
-                    switch response.result {
-                    case .success(let value):
-                        guard let json = value as? NSDictionary,
-                              let code = response.response?.statusCode else { return }
-                        if code >= 200 && code < 300 {
-                            do {
-                                let realm = try WRealm.safe()
-                                if let instance = realm.object(ofType: AccountQuotaStorageItem.self, forPrimaryKey: AccountQuotaStorageItem.genPrimary(jid: self.owner)) {
-                                    try realm.write {
-                                        instance.quotaBytes = (json["quota"] as? Int) ?? 0
-                                        instance.totalBytes = ((json["total"] as? NSDictionary)?["used"] as? Int) ?? 0
-                                        instance.totalCount = ((json["total"] as? NSDictionary)?["count"] as? Int) ?? 0
-                                        instance.imagesBytes = ((json["images"] as? NSDictionary)?["used"] as? Int) ?? 0
-                                        instance.imagesCount = ((json["images"] as? NSDictionary)?["count"] as? Int) ?? 0
-                                        instance.filesBytes = ((json["files"] as? NSDictionary)?["used"] as? Int) ?? 0
-                                        instance.filesCount = ((json["files"] as? NSDictionary)?["count"] as? Int) ?? 0
-                                        instance.audioBytes = ((json["audio"] as? NSDictionary)?["used"] as? Int) ?? 0
-                                        instance.audioCount = ((json["audio"] as? NSDictionary)?["count"] as? Int) ?? 0
-                                        instance.voicesBytes = ((json["voices"] as? NSDictionary)?["used"] as? Int) ?? 0
-                                        instance.voicesCount = ((json["voices"] as? NSDictionary)?["count"] as? Int) ?? 0
-                                        instance.videosBytes = ((json["videos"] as? NSDictionary)?["used"] as? Int) ?? 0
-                                        instance.videosCount = ((json["videos"] as? NSDictionary)?["count"] as? Int) ?? 0
-                                        instance.avatarsBytes = ((json["avatars"] as? NSDictionary)?["used"] as? Int) ?? 0
-                                        instance.avatarsCount = ((json["avatars"] as? NSDictionary)?["count"] as? Int) ?? 0
-                                    }
-                                } else {
-                                    let instance = AccountQuotaStorageItem()
-                                    instance.quotaBytes = (json["quota"] as? Int) ?? 0
-                                    instance.totalBytes = ((json["total"] as? NSDictionary)?["used"] as? Int) ?? 0
-                                    instance.totalCount = ((json["total"] as? NSDictionary)?["count"] as? Int) ?? 0
-                                    instance.imagesBytes = ((json["images"] as? NSDictionary)?["used"] as? Int) ?? 0
-                                    instance.imagesCount = ((json["images"] as? NSDictionary)?["count"] as? Int) ?? 0
-                                    instance.filesBytes = ((json["files"] as? NSDictionary)?["used"] as? Int) ?? 0
-                                    instance.filesCount = ((json["files"] as? NSDictionary)?["count"] as? Int) ?? 0
-                                    instance.audioBytes = ((json["audio"] as? NSDictionary)?["used"] as? Int) ?? 0
-                                    instance.audioCount = ((json["audio"] as? NSDictionary)?["count"] as? Int) ?? 0
-                                    instance.voicesBytes = ((json["voices"] as? NSDictionary)?["used"] as? Int) ?? 0
-                                    instance.voicesCount = ((json["voices"] as? NSDictionary)?["count"] as? Int) ?? 0
-                                    instance.videosBytes = ((json["videos"] as? NSDictionary)?["used"] as? Int) ?? 0
-                                    instance.videosCount = ((json["videos"] as? NSDictionary)?["count"] as? Int) ?? 0
-                                    instance.avatarsBytes = ((json["avatars"] as? NSDictionary)?["used"] as? Int) ?? 0
-                                    instance.avatarsCount = ((json["avatars"] as? NSDictionary)?["count"] as? Int) ?? 0
-                                    instance.jid = self.owner
-                                    instance.primary = AccountQuotaStorageItem.genPrimary(jid: self.owner)
-                                    
-                                    try realm.write {
-                                        realm.add(instance)
-                                    }
-                                }
-                            } catch {
-                                DDLogDebug("XabberUploadManager: \(#function). \(error.localizedDescription)")
-                            }
-                            callback?()
-                        } else if code == 401 {
-                            self.tokenWasExpired()
-                        } else if code > 401 {
-                            //fail
-                        }
-                        
-                    case .failure(let error):
-                        DDLogDebug("XabberUploadManager: \(#function). \(error.localizedDescription)")
-                        callback?()
-                    }
+        postQuotaRefreshDidStart(reason: reason)
+        Self.quotaAPIClient.getStats(baseURL: baseURL, token: token) { [weak self] response in
+            guard let self = self else { return }
+            
+            let result: CloudStorageQuotaRefreshResult
+            switch response {
+            case .response(let code, let value):
+                if code == 401 {
+                    self.tokenWasExpired()
+                    result = .unauthorized
+                } else if let code = code, code >= 200 && code < 300, let value = value, let payload = CloudStorageQuotaStatsPayload.parse(value) {
+                    result = self.storeQuota(payload) ? .success : .failure
+                } else {
+                    result = .failure
                 }
+                
+            case .failure(let code, let error):
+                if code == 401 {
+                    self.tokenWasExpired()
+                    result = .unauthorized
+                } else {
+                    DDLogDebug("XabberUploadManager: \(#function). \(error?.localizedDescription ?? "Unknown error")")
+                    result = .failure
+                }
+            }
+            
+            self.finishQuotaRefresh(reason: reason, result: result)
+        }
+    }
+    
+    @discardableResult
+    private func storeQuota(_ payload: CloudStorageQuotaStatsPayload) -> Bool {
+        do {
+            let realm = try WRealm.safe()
+            let primary = AccountQuotaStorageItem.genPrimary(jid: owner)
+            let item = realm.object(ofType: AccountQuotaStorageItem.self, forPrimaryKey: primary) ?? AccountQuotaStorageItem()
+            let isNew = item.primary.isEmpty
+            if isNew {
+                item.primary = primary
+                item.jid = owner
+            }
+            
+            try realm.write {
+                item.quotaBytes = payload.quota
+                item.totalBytes = payload.total.used
+                item.totalCount = payload.total.count
+                self.apply(payload.images, bytes: \.imagesBytes, count: \.imagesCount, to: item)
+                self.apply(payload.videos, bytes: \.videosBytes, count: \.videosCount, to: item)
+                self.apply(payload.files, bytes: \.filesBytes, count: \.filesCount, to: item)
+                self.apply(payload.audio, bytes: \.audioBytes, count: \.audioCount, to: item)
+                self.apply(payload.voices, bytes: \.voicesBytes, count: \.voicesCount, to: item)
+                self.apply(payload.avatars, bytes: \.avatarsBytes, count: \.avatarsCount, to: item)
+                if isNew {
+                    realm.add(item, update: .modified)
+                }
+            }
+            return true
+        } catch {
+            DDLogDebug("XabberUploadManager: \(#function). \(error.localizedDescription)")
+            return false
+        }
+    }
+    
+    private func apply(
+        _ category: CloudStorageQuotaCategory?,
+        bytes: ReferenceWritableKeyPath<AccountQuotaStorageItem, Int>,
+        count: ReferenceWritableKeyPath<AccountQuotaStorageItem, Int>,
+        to item: AccountQuotaStorageItem
+    ) {
+        guard let category = category else { return }
+        item[keyPath: bytes] = category.used
+        item[keyPath: count] = category.count
+    }
+    
+    private func finishQuotaRefresh(reason: CloudStorageQuotaRefreshReason, result: CloudStorageQuotaRefreshResult) {
+        quotaRefreshLock.lock()
+        let callbacks = quotaRefreshCallbacks
+        quotaRefreshCallbacks = []
+        isQuotaRefreshInFlight = false
+        quotaRefreshLock.unlock()
+        
+        postQuotaRefreshDidFinish(reason: reason, result: result)
+        callbacks.forEach { $0(result) }
+    }
+    
+    private func postQuotaRefreshDidStart(reason: CloudStorageQuotaRefreshReason) {
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: .cloudStorageQuotaRefreshDidStart,
+                object: self,
+                userInfo: ["jid": self.owner, "reason": reason.rawValue]
+            )
+        }
+    }
+    
+    private func postQuotaRefreshDidFinish(reason: CloudStorageQuotaRefreshReason, result: CloudStorageQuotaRefreshResult) {
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: .cloudStorageQuotaRefreshDidFinish,
+                object: self,
+                userInfo: ["jid": self.owner, "reason": reason.rawValue, "result": result.rawValue]
+            )
+        }
+    }
+    
+    func preflightUploadSlot(data: Data, filename: String, errorCallback: @escaping ((Int?) -> Void), completion: @escaping (Bool) -> Void) {
+        guard isAvailable(), let node = node, let baseURL = URL(string: node) else {
+            completion(true)
+            return
+        }
+        
+        let request = CloudStorageUploadSlotRequest(
+            size: data.count,
+            name: filename,
+            hash: data.sha256Data.hexEncodedString()
+        )
+        
+        Self.quotaAPIClient.requestSlot(baseURL: baseURL, token: token, request: request) { [weak self] response in
+            guard let self = self else { return }
+            
+            let code: Int?
+            switch response {
+            case .response(let statusCode, _):
+                code = statusCode
+            case .failure(let statusCode, _):
+                code = statusCode
+            }
+            
+            if code == 403 {
+                errorCallback(403)
+                self.refreshQuota(reason: .uploadQuotaExceeded, force: true)
+                completion(false)
+            } else {
+                if code == 401 {
+                    self.tokenWasExpired()
+                }
+                completion(true)
+            }
+        }
     }
     
     //MARK: - Deletes one media file with selected id
@@ -596,8 +909,13 @@ class XabberUploadManager: AbstractXMPPManager {
     
 
     private final func tokenWasExpired() {
+        if let handler = Self.tokenExpiredTestingHandler {
+            handler(owner)
+            return
+        }
         AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, stream in
-            user.cloudStorage.getCode(fullJID: stream.myJID!.full)
+            guard let fullJID = stream.myJID?.full else { return }
+            user.cloudStorage.getCode(fullJID: fullJID)
         })
     }
 
@@ -997,7 +1315,7 @@ class XabberUploadManager: AbstractXMPPManager {
                               return
                           }
                     self.token = token
-                    self.getStats()
+                    self.refreshQuota(reason: .tokenReceived, force: true)
                     print("Received user token: \(token)")
                 case .failure(let error):
                     print(error.localizedDescription)

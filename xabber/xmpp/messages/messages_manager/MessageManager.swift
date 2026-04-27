@@ -302,7 +302,7 @@ class MessageManager: AbstractXMPPManager {
                             if $0.readDate <= 1 {
                                 $0.readDate = Date().timeIntervalSince1970
                             }
-                            if $0.afterburnInterval > 0 {
+                            if $0.afterburnInterval > 0 && $0.autoDeleteExpiresAt <= 0 {
                                 if $0.burnDate <= 1 {
                                     $0.burnDate = Date().timeIntervalSince1970 + $0.afterburnInterval
                                 }
@@ -311,6 +311,11 @@ class MessageManager: AbstractXMPPManager {
                         if message.isInvalidated { return }
                         message.isRead = true
                         message.state = .read
+                        _ = MentionNotificationSync.reconcileMentionNotifications(
+                            for: self.owner,
+                            chats: [message.opponent],
+                            in: realm
+                        )
                     }
                 }
                 

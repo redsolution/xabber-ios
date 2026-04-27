@@ -22,6 +22,16 @@ import Foundation
 import UIKit
 
 extension GroupchatContactInfoViewController: UITableViewDelegate {
+    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+        let title: String
+        if section >= datasource.count {
+            title = formSectionTitles[section - datasource.count]
+        } else {
+            title = datasource[section].title
+        }
+        return InfoScreenSectionMetrics.headerHeight(for: title, section: section)
+    }
+
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         if indexPath.section >= datasource.count {
             return 64

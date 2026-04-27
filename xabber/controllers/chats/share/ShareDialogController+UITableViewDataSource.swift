@@ -43,6 +43,7 @@ extension ShareDialogController: UITableViewDataSource {
             conversationType: item.conversationType,
             unread: item.unread,
             unreadString: item.unreadString,
+            hasUnreadMention: item.hasUnreadMention,
             indicator: item.color,
             isDraft: item.isDraft,
             isAttachment: item.hasAttachment,

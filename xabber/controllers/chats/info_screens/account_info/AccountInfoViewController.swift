@@ -90,10 +90,6 @@ class AccountInfoViewController: BaseViewController {
     
     open var isModal: Bool = false
     
-//    var scrollViewContentOffsetYCopy: CGFloat = 0
-    var headerHeightMax: CGFloat = 220
-//    var headerHeightMin: CGFloat = 0
-    
     var quota: String = ""
     var used: String = ""
     
@@ -334,13 +330,8 @@ class AccountInfoViewController: BaseViewController {
         tableView.fillSuperviewWithOffset(top: -56, bottom: 0, left: 0, right: 0)
         tableView.delegate = self
         tableView.dataSource = self
-        headerView.frame = CGRect(
-            width: view.frame.width,
-            height: headerHeightMax
-        )
-        self.headerView.updateSubviews()
-        tableView.tableHeaderView = headerView
         self.headerView.delegate = self
+        self.headerView.applyHeaderLayout(to: tableView, width: view.bounds.width)
     }
     
     open func configureTokens(for jid: String) {

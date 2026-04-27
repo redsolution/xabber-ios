@@ -257,6 +257,7 @@ class MessageArchiveManager: AbstractXMPPManager {
     private func canMarkArchiveEnd(
         purpose: RequestPurpose,
         searchText: String?,
+        ids: [String]?,
         beforeId: String?,
         afterId: String?,
         start: Date?,
@@ -271,6 +272,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         // Only pure identity-based archive walks may update the chat's oldest-boundary state.
         // If requestArchive gains more MAM data-form filters in the future, they must be added here.
         return searchText == nil &&
+            (ids?.isEmpty ?? true) &&
             (beforeId?.isEmpty ?? true) &&
             (afterId?.isEmpty ?? true) &&
             start == nil &&
@@ -307,6 +309,29 @@ class MessageArchiveManager: AbstractXMPPManager {
     }
     
     func read(_ stream: XMPPStream, withIQ iq: XMPPIQ) -> Bool {
+        if iq.iqType == .error,
+           let elementId = iq.elementID,
+           let item = self.callbacksQueue.first(where: { $0.elementId == elementId }) {
+            let queryId = item.task.queryId ?? elementId
+            let pageEndState = self.makePageEndState(
+                for: item.task,
+                queryId: queryId,
+                queryExhausted: true
+            )
+            self.completeCallback(item.callback)
+            self.notifyDidReceiveEndPage(
+                item.requestCallbacks,
+                queryId: queryId,
+                state: pageEndState,
+                first: "",
+                last: "",
+                count: 0
+            )
+            self.callbacksQueue.remove(item)
+            self.queryIds.remove(elementId)
+            return true
+        }
+
         guard iq.iqType == .result,
               let elementId = iq.elementID,
               let fin = iq.element(forName: "fin", xmlns: getPrimaryNamespace()),
@@ -362,9 +387,20 @@ class MessageArchiveManager: AbstractXMPPManager {
                                     self.callbacksQueue.remove(item)
                                     return true
                                 }
-                                self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: item.task.max)
-                                
                             }
+                            if count == 0 {
+                                self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count)
+                                self.completeCallback(item.callback)
+                                self.callbacksQueue.remove(item)
+                                return true
+                            }
+                            if complete {
+                                self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count)
+                                self.completeCallback(item.callback)
+                                self.callbacksQueue.remove(item)
+                                return true
+                            }
+                            self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: item.task.max)
                         }
                     } catch {
                         DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
@@ -520,7 +556,7 @@ class MessageArchiveManager: AbstractXMPPManager {
     }
     
     
-    internal func requestArchive(_ stream: XMPPStream, jid: String?, isContinues: Bool, conversationType: ClientSynchronizationManager.ConversationType, purpose: RequestPurpose, queryId: String? = nil, searchText: String? = nil, flipPage: Bool = true, before: String? = nil, beforeId: String? = nil, afterId: String? = nil, start: Date? = nil, end: Date? = nil, nextPage: String? = nil, prevPage: String? = nil, max: Int? = nil, tags: [Tags] = [], withCounter: Bool = false, consumerManagesArchiveEnd: Bool = false, consumerManagesHistoryCursor: Bool = false, callback: (() -> Void)? = nil, requestCallbacks: RequestCallbacks = .none) {
+    internal func requestArchive(_ stream: XMPPStream, jid: String?, isContinues: Bool, conversationType: ClientSynchronizationManager.ConversationType, purpose: RequestPurpose, queryId: String? = nil, searchText: String? = nil, ids: [String]? = nil, flipPage: Bool = true, before: String? = nil, beforeId: String? = nil, afterId: String? = nil, start: Date? = nil, end: Date? = nil, nextPage: String? = nil, prevPage: String? = nil, max: Int? = nil, tags: [Tags] = [], withCounter: Bool = false, consumerManagesArchiveEnd: Bool = false, consumerManagesHistoryCursor: Bool = false, callback: (() -> Void)? = nil, requestCallbacks: RequestCallbacks = .none) {
         let isGroupchat = [.group, .channel].contains(conversationType)
         let elementId = queryId ?? "MAM: \(NanoID.new(8))"
         let query = DDXMLElement(name: "query", xmlns: getPrimaryNamespace())
@@ -593,6 +629,15 @@ class MessageArchiveManager: AbstractXMPPManager {
             x.addChild(stElement)
             self.searchResultsQueries.insert(elementId)
         }
+        if let ids,
+           ids.isNotEmpty {
+            let idsElement = DDXMLElement(name: "field")
+            idsElement.addAttribute(withName: "var", stringValue: "ids")
+            ids.filter { $0.isNotEmpty }.forEach {
+                idsElement.addChild(DDXMLElement(name: "value", stringValue: $0))
+            }
+            x.addChild(idsElement)
+        }
         
         
 //        if [.omemo, .omemo1, .axolotl].contains(conversationType)
@@ -625,6 +670,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         let archiveEndEligibility = self.canMarkArchiveEnd(
             purpose: purpose,
             searchText: searchText,
+            ids: ids,
             beforeId: beforeId,
             afterId: afterId,
             start: start,
@@ -661,6 +707,68 @@ class MessageArchiveManager: AbstractXMPPManager {
                 requestCallbacks: requestCallbacks
             )
         )
+    }
+
+    @discardableResult
+    internal func fetchAnchorMessage(
+        _ stream: XMPPStream,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        archivedId: String,
+        queryId: String? = nil,
+        callback: (() -> Void)? = nil,
+        requestCallbacks: RequestCallbacks = .none
+    ) -> String {
+        let requestQueryId = queryId ?? "MAM jump exact: \(NanoID.new(6))"
+        self.requestArchive(
+            stream,
+            jid: jid,
+            isContinues: false,
+            conversationType: conversationType,
+            purpose: .jump,
+            queryId: requestQueryId,
+            ids: [archivedId],
+            flipPage: false,
+            max: 1,
+            consumerManagesArchiveEnd: true,
+            consumerManagesHistoryCursor: true,
+            callback: callback,
+            requestCallbacks: requestCallbacks
+        )
+        return requestQueryId
+    }
+
+    @discardableResult
+    internal func fetchAnchorWindow(
+        _ stream: XMPPStream,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        start: Date,
+        end: Date,
+        max: Int,
+        queryId: String? = nil,
+        callback: (() -> Void)? = nil,
+        requestCallbacks: RequestCallbacks = .none
+    ) -> String {
+        let requestQueryId = queryId ?? "MAM jump window: \(NanoID.new(6))"
+        self.requestArchive(
+            stream,
+            jid: jid,
+            isContinues: false,
+            conversationType: conversationType,
+            purpose: .jump,
+            queryId: requestQueryId,
+            ids: nil,
+            flipPage: false,
+            start: start,
+            end: end,
+            max: max,
+            consumerManagesArchiveEnd: true,
+            consumerManagesHistoryCursor: true,
+            callback: callback,
+            requestCallbacks: requestCallbacks
+        )
+        return requestQueryId
     }
     
     public final func getLastMessage(_ stream: XMPPStream, jid: String, conversationType: ClientSynchronizationManager.ConversationType) {
@@ -1019,11 +1127,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                 }
             }
             
-            if let userId = item
-                .message
-                .element(forName: "x", xmlns: "https://xabber.com/protocol/groups")?
-                .element(forName: "reference")?
-                .element(forName: "user", xmlns: "https://xabber.com/protocol/groups")?
+            if let userId = groupchatUserElement(from: item.message)?
                 .attributeStringValue(forName: "id") {
                 if let userCard = item.groupchatUserCard,
                     let myId = userCard.attributeStringValue(forName: "id") {
@@ -1077,7 +1181,11 @@ class MessageArchiveManager: AbstractXMPPManager {
             }
             instance.envelopeContainer = envelopeContainer
             instance.updatePrimary()
-            instance.afterburnInterval = afterburnInterval
+            if afterburnInterval > 0 {
+                instance.applyAutoDeleteTTL(afterburnInterval, startsAt: item.date)
+            } else {
+                instance.afterburnInterval = afterburnInterval
+            }
             
             if hasSignElement {
                 instance.errorMetadata = errorMetadata
@@ -1113,14 +1221,19 @@ class MessageArchiveManager: AbstractXMPPManager {
                     instance.state = .read
                 }
                 instance.readDate = readDate.timeIntervalSince1970
-                instance.burnDate = readDate.timeIntervalSince1970 + afterburnInterval
-                
-                
-                if instance.burnDate <= Date().timeIntervalSince1970 {
-                    instance.isDeleted = true
-                    instance.body = ""
-                    instance.legacyBody = ""
+                if instance.autoDeleteExpiresAt <= 0 {
+                    instance.burnDate = readDate.timeIntervalSince1970 + afterburnInterval
                 }
+                
+                
+                if instance.effectiveAutoDeleteExpiresAt > 0,
+                   instance.effectiveAutoDeleteExpiresAt <= Date().timeIntervalSince1970 {
+                    instance.markAutoDeleted()
+                }
+            }
+            if instance.autoDeleteExpiresAt > 0,
+               instance.autoDeleteExpiresAt <= Date().timeIntervalSince1970 {
+                instance.markAutoDeleted()
             }
             
             let requestCallbacks = self.callbacksQueue.first(where: { $0.elementId == queryId })?.requestCallbacks ?? .none

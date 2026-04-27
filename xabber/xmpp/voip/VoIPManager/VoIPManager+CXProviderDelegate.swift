@@ -25,44 +25,73 @@ import XMPPFramework
 import AVFoundation
 
 extension VoIPManager: CXProviderDelegate {
-    func providerDidReset(_ provider: CXProvider) {}
+    func providerDidReset(_ provider: CXProvider) {
+        self.reset()
+    }
    
     func provider(_ provider: CXProvider, perform action: CXStartCallAction) {
         action.fulfill()
     }
    
     func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
-        print(#function)
-        performEndCallActions()
+        guard let call = self.currentCall,
+              let context = self.currentSession else {
+            action.fulfill(withDateEnded: Date())
+            return
+        }
+        context.localEndRequested = true
+        let reason = self.terminationReasonForLocalEnd(call: call, context: context)
+        self.finishCurrentCall(reason: reason, sendReject: true, shouldReportToCallKit: false)
         action.fulfill(withDateEnded: Date())
     }
        
     func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
-        print(#function, action)
-        guard let owner = self.currentCall?.owner,
-              let jidRaw = self.currentCall?.jid,
-              let jid = XMPPJID(string: jidRaw)?.bare else {
+        guard let call = self.currentCall,
+              let context = self.currentSession,
+              let jid = XMPPJID(string: call.jid)?.bare else {
             action.fail()
             self.reset()
             return
         }
        
-        let callScreenPresenter = CallScreenPresenter(jid: jid, owner: owner, hideAppTabBar: true)
+        let callScreenPresenter = CallScreenPresenter(jid: jid, owner: call.owner, hideAppTabBar: true)
         if callScreenPresenter.asyncGetPresenter() != nil {
             self.callScreenDelegate = callScreenPresenter.present(animated: true) {}
         }
-       
-        _ = self.currentCall?.acceptCall()
+
+        context.localAnswerRequested = true
+        context.incomingTimeoutTask?.cancel()
+        context.incomingTimeoutTask = nil
+
+        guard call.acceptCall() else {
+            action.fail()
+            self.finishCurrentCall(reason: .signalingError, sendReject: false, shouldReportToCallKit: true)
+            return
+        }
+
         self.isCallAccepted = true
         self.inCallingProcess = true
+        context.phase = .creatingLocalOffer
+        self.scheduleMediaSetupTimeout(for: context)
        
         self.webRTC = WebRTCClient()
         self.webRTC?.delegate = self
-        self.webRTC?.offer { sdp in
+        self.webRTC?.offer { sdp, error in
+            if let error {
+                print(error.localizedDescription)
+                self.finishCurrentCall(reason: .webRTCFailure, sendReject: false, shouldReportToCallKit: true)
+                return
+            }
+            guard let sdp else {
+                self.finishCurrentCall(reason: .webRTCFailure, sendReject: false, shouldReportToCallKit: true)
+                return
+            }
+            context.phase = .connectingMedia
+            context.localOfferSent = true
             self.currentCall?.sessionDescription(sessionDescription: sdp)
         }
        
-        action.fulfill(withDateConnected: Date())
+        action.fulfill()
     }
    
     func provider(_ provider: CXProvider, perform action: CXSetMutedCallAction) {
@@ -71,7 +100,7 @@ extension VoIPManager: CXProviderDelegate {
     }
    
     func provider(_ provider: CXProvider, timedOutPerforming action: CXAction) {
-        self.reset()
+        self.finishCurrentCall(reason: .signalingError, sendReject: true, shouldReportToCallKit: true)
         action.fulfill()
     }
    

@@ -33,6 +33,17 @@ extension MessageManager {
         let count: Int
         let date: Date
     }
+
+    internal static func outboundDestinationJID(
+        for opponent: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        resource: String?
+    ) -> XMPPJID? {
+        XMPPJID(
+            string: opponent,
+            resource: conversationType == .group ? nil : resource
+        )
+    }
     
     internal func subscribeSender() {
         senderBag = DisposeBag()
@@ -99,6 +110,7 @@ extension MessageManager {
             guard let item = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) else {
                 return
             }
+            let conversationType = item.conversationType
             let resource = realm
                 .object(ofType: RosterStorageItem.self,
                         forPrimaryKey: RosterStorageItem
@@ -106,17 +118,20 @@ extension MessageManager {
                                         owner: item.owner))?
                 .getPrimaryResource()?
                 .resource
+            let destinationJID = MessageManager.outboundDestinationJID(
+                for: item.opponent,
+                conversationType: conversationType,
+                resource: resource
+            )
             let stanza = XMPPMessage(messageType: .chat,
-                                     to: XMPPJID(string: item.opponent, resource: resource),
+                                     to: destinationJID,
                                      elementID: item.messageId,
                                      child: nil)
             
             let stanzaToSave = XMPPMessage(messageType: .chat,
-                                           to: XMPPJID(string: item.opponent, resource: resource),
+                                           to: destinationJID,
                                            elementID: item.messageId,
                                            child: nil)
-            
-            let conversationType = item.conversationType
             
             childs.forEach {
                 stanza.addChild($0.copy() as! DDXMLElement)
@@ -133,7 +148,12 @@ extension MessageManager {
                         .compactMap { return $0.messageId })
                         .forEach { stanzaToSave.addChild($0.referenceElement) }
                     
-                    item.createReferences().forEach {
+                    if let mentions = item.createMentionsElement() {
+                        stanzaToSave.addChild(mentions)
+                    }
+
+                    let references = item.createReferences()
+                    references.forEach {
                         stanzaToSave.addChild($0)
                     }
                     
@@ -143,13 +163,13 @@ extension MessageManager {
                         .toArray()
                         .compactMap { return $0.messageId })
                         .compactMap { $0.referenceElement }
-                    let references = item.createReferences()
+                    let mentions = item.createMentionsElement().map { [$0] } ?? []
                     
                     guard let payload = AccountManager.shared.find(for: self.owner)?.omemo.prepareStanzaContent(
                         message: item.legacyBody,
                         date: item.sentDate,
                         jid: item.opponent,
-                        additionalContent: [forwardedMessages, references].flatMap({ $0 }),
+                        additionalContent: [forwardedMessages, mentions, references].flatMap({ $0 }),
                         ignoreTimeSignature: item.displayAs == .system
                     ) else {
                         return
@@ -180,6 +200,10 @@ extension MessageManager {
                     
                     stanza.addBody(item.legacyBody)
                     stanzaToSave.addBody(item.legacyBody)
+                    if let mentions = item.createMentionsElement() {
+                        stanza.addChild(mentions.copy() as! DDXMLElement)
+                        stanzaToSave.addChild(mentions.copy() as! DDXMLElement)
+                    }
                     item.createReferences().forEach {
                         stanza.addChild($0.copy() as! DDXMLElement)
                         stanzaToSave.addChild($0.copy() as! DDXMLElement)
@@ -200,7 +224,11 @@ extension MessageManager {
                                 let ephemeralElement = DDXMLElement(name: "ephemeral", xmlns: "urn:xmpp:ephemeral:0")
                                 ephemeralElement.addAttribute(withName: "timer", doubleValue: conversation.afterburnInterval)
                                 stanza.addChild(ephemeralElement)
-                                item.afterburnInterval = conversation.afterburnInterval
+                                item.applyAutoDeleteTTL(
+                                    conversation.afterburnInterval,
+                                    startsAt: item.sentDate,
+                                    policyVersion: conversation.autoDeletePolicyVersion
+                                )
                             }
                         }
                     }
@@ -386,32 +414,45 @@ extension MessageManager {
         return out.sorted(by: { ($0.originalDate?.timeIntervalSince1970 ?? 0.0) < ($1.originalDate?.timeIntervalSince1970 ?? 0.0) })
     }
     
-    public func editSimpleMessage(_ body: String, primary: String) {
+    public func editSimpleMessage(_ body: String, primary: String, references: [MessageReferenceStorageItem] = []) {
         do {
             let realm = try  WRealm.safe()
             if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
-                
                 let stanzaId = instance.archivedId
+                let conversationType = instance.conversationType
+                references.forEach {
+                    $0.owner = self.owner
+                    $0.jid = instance.opponent
+                    $0.messageId = primary
+                    $0.conversationType = conversationType
+                    $0.sentDate = Date()
+                }
+                try realm.write {
+                    instance.legacyBody = body
+                    instance.body = body
+                    instance.references
+                        .filter { [.markup, .mention, .quote].contains($0.kind) }
+                        .compactMap { instance.references.index(of: $0) }
+                        .sorted(by: >)
+                        .forEach { instance.references.remove(at: $0) }
+                    instance.references.append(objectsIn: references)
+                    instance.messageError = "Editing".localizeString(id: "editing", arguments: [])
+                    instance.editDate = Date()
+                }
                 let message = XMPPMessage()
                 message.addBody(body)
+                if let mentions = instance.createMentionsElement() {
+                    message.addChild(mentions)
+                }
+                instance.createReferences().forEach {
+                    message.addChild($0)
+                }
                 let stanzaIdElement = DDXMLElement(name: "stanza-id", xmlns: "urn:xmpp:sid:0")
                 stanzaIdElement.addAttribute(withName: "by",
                                              stringValue: instance.groupchatMetadata != nil ? instance.opponent : self.owner)
                 stanzaIdElement.addAttribute(withName: "id",
                                              stringValue: stanzaId)
                 message.addChild(stanzaIdElement)
-                let conversationType = instance.conversationType
-                try realm.write {
-                    instance.legacyBody = body
-                    instance.body = body
-                    instance.references
-                        .filter { [.markup, .mention, .quote].contains($0.kind) }
-                        .compactMap{ return instance.references.index(of: $0) }
-                        .forEach { instance.references.remove(at: $0) }
-                    instance.messageError = "Editing".localizeString(id: "editing", arguments: [])
-                    instance.editDate = Date()
-                    
-                }
                 XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
                     session.retract?.editMessage(stream, primary: primary, editedMessage: message, conversationType: conversationType)
                 }, fail: {
@@ -425,7 +466,7 @@ extension MessageManager {
         }
     }
         
-    public func sendSimpleMessage(_ body: String, to jid: String, childs: [DDXMLElement] = [],  forwarded: [String], conversationType: ClientSynchronizationManager.ConversationType, isReport: Bool = false) -> String {
+    public func sendSimpleMessage(_ body: String, to jid: String, childs: [DDXMLElement] = [],  forwarded: [String], conversationType: ClientSynchronizationManager.ConversationType, references: [MessageReferenceStorageItem] = [], isReport: Bool = false) -> String {
         let originalId = NanoID.new(8)
         do {
             let realm = try  WRealm.safe()
@@ -436,13 +477,19 @@ extension MessageManager {
                 legacyBody += "\($0.body)\n"
             }
             legacyBody += body
+            references.forEach {
+                $0.owner = owner
+                $0.jid = jid
+                $0.conversationType = conversationType
+                $0.sentDate = Date()
+            }
             instance.conversationType = conversationType
             instance.configureOutgoingMessage(body,
                                               legacy: legacyBody,
                                               messageId: originalId,
                                               owner: owner,
                                               opponent: jid,
-                                              references: [],
+                                              references: references,
                                               inlineForwards: prepareForwards(forwarded,
                                                                               primary: instance.primary,
                                                                               isReport: isReport,

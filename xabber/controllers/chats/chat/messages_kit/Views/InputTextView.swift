@@ -20,6 +20,10 @@
 
 import UIKit
 
+protocol InputTextViewKeyHandler: AnyObject {
+    func inputTextView(_ textView: InputTextView, shouldHandle key: UIKey) -> Bool
+}
+
 /**
  A UITextView that has a UILabel embedded for placeholder text
  
@@ -57,6 +61,7 @@ final class InputTextView: UITextView {
     }
     
     final var isImagePasteEnabled: Bool = true
+    weak var keyHandler: InputTextViewKeyHandler?
     
     /// A UILabel that holds the InputTextView's placeholder text
     public let placeholderLabel: UILabel = {
@@ -397,6 +402,13 @@ final class InputTextView: UITextView {
             }
         })
         layoutManager.invalidateLayout(forCharacterRange: range, actualCharacterRange: nil)
+    }
+
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        if let key = presses.first?.key, keyHandler?.inputTextView(self, shouldHandle: key) == true {
+            return
+        }
+        super.pressesBegan(presses, with: event)
     }
     
 }

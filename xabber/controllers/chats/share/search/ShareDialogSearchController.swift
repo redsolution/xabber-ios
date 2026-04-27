@@ -200,6 +200,7 @@ class ShareDialogSearchController: BaseViewController {
                 conversationType: item.conversationType,
                 unread: item.lastMessage?.outgoing ?? false ? 0 : item.unread,
                 unreadString: isInvite ? "1" : nil,
+                hasUnreadMention: item.hasUnreadMention,
                 color: AccountManager.shared.users.count <= 1 ? .clear : AccountColorManager.shared.primaryColor(for: item.owner),
                 isDraft: isDraft,
                 hasAttachment: isAttachment,
@@ -216,7 +217,7 @@ class ShareDialogSearchController: BaseViewController {
             
         } ?? []
         
-        self.datasource.append(contentsOf: self.rosterDataset?.compactMap({ item in
+        self.datasource.append(contentsOf: self.rosterDataset?.compactMap({ item -> ShareDialogController.Datasource? in
             if datasource.contains(where: {$0.jid == item.jid}) {
                 return nil
             }
@@ -300,6 +301,7 @@ class ShareDialogSearchController: BaseViewController {
                 conversationType: conversationType,
                 unread: 0,
                 unreadString: nil,
+                hasUnreadMention: false,
                 color: AccountManager.shared.users.count <= 1 ? .clear : AccountColorManager.shared.primaryColor(for: item.owner),
                 isDraft: false,
                 hasAttachment: false,

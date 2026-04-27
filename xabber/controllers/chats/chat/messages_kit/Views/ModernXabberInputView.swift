@@ -390,6 +390,257 @@ class ModernXabberInputView: UIView {
             self.listButton.addTarget(self, action: #selector(onChangeViewStateTouchUp), for: .touchUpInside)
         }
     }
+
+    final class MentionSuggestionsPanel: UIView, UITableViewDataSource, UITableViewDelegate {
+
+        final class SuggestionCell: UITableViewCell {
+
+            static let reuseIdentifier = "MentionSuggestionCell"
+
+            private let avatarView: AvatarView = {
+                let view = AvatarView(frame: CGRect(x: 0, y: 0, width: 32, height: 32))
+                view.backgroundColor = .systemGray5
+                return view
+            }()
+
+            private let nicknameLabel: UILabel = {
+                let label = UILabel()
+                label.font = UIFont.systemFont(ofSize: 15, weight: .semibold)
+                label.textColor = .label
+                return label
+            }()
+
+            private let secondaryLabel: UILabel = {
+                let label = UILabel()
+                label.font = UIFont.systemFont(ofSize: 12, weight: .regular)
+                label.textColor = .secondaryLabel
+                return label
+            }()
+
+            private let labelsStack: UIStackView = {
+                let stack = UIStackView()
+                stack.axis = .vertical
+                stack.spacing = 2
+                stack.alignment = .fill
+                return stack
+            }()
+
+            override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+                super.init(style: style, reuseIdentifier: reuseIdentifier)
+                selectionStyle = .default
+                backgroundColor = .clear
+                contentView.backgroundColor = .clear
+                labelsStack.addArrangedSubview(nicknameLabel)
+                labelsStack.addArrangedSubview(secondaryLabel)
+                avatarView.translatesAutoresizingMaskIntoConstraints = false
+                labelsStack.translatesAutoresizingMaskIntoConstraints = false
+                contentView.addSubview(avatarView)
+                contentView.addSubview(labelsStack)
+                NSLayoutConstraint.activate([
+                    avatarView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
+                    avatarView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+                    avatarView.widthAnchor.constraint(equalToConstant: 32),
+                    avatarView.heightAnchor.constraint(equalToConstant: 32),
+                    labelsStack.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 12),
+                    labelsStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
+                    labelsStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
+                    labelsStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8)
+                ])
+            }
+
+            required init?(coder: NSCoder) {
+                fatalError("init(coder:) has not been implemented")
+            }
+
+            func configure(with item: ComposerMentionCandidate) {
+                nicknameLabel.text = item.nickname
+                secondaryLabel.text = item.secondaryText
+                avatarView.initials = item.avatarInitials
+            }
+        }
+
+        private enum State {
+            case empty
+            case loading
+            case results
+        }
+
+        private let blurView: UIVisualEffectView = {
+            let effect = UIBlurEffect(style: .systemMaterial)
+            let view = UIVisualEffectView(effect: effect)
+            view.clipsToBounds = true
+            view.layer.cornerRadius = 18
+            view.layer.cornerCurve = .continuous
+            return view
+        }()
+
+        private let tableView: UITableView = {
+            let tableView = UITableView(frame: .zero, style: .plain)
+            tableView.separatorStyle = .none
+            tableView.backgroundColor = .clear
+            tableView.showsVerticalScrollIndicator = false
+            tableView.keyboardDismissMode = .none
+            return tableView
+        }()
+
+        private let emptyLabel: UILabel = {
+            let label = UILabel()
+            label.textAlignment = .center
+            label.textColor = .secondaryLabel
+            label.font = UIFont.systemFont(ofSize: 14, weight: .medium)
+            label.text = "No users found"
+            label.isHidden = true
+            return label
+        }()
+
+        private let activityIndicator: UIActivityIndicatorView = {
+            let view = UIActivityIndicatorView(style: .medium)
+            view.hidesWhenStopped = true
+            return view
+        }()
+
+        private var state: State = .empty
+        private(set) var items: [ComposerMentionCandidate] = []
+        private(set) var highlightedIndex: Int = 0
+        var onSelect: ((ComposerMentionCandidate) -> Void)?
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            setup()
+        }
+
+        required init?(coder: NSCoder) {
+            super.init(coder: coder)
+            setup()
+        }
+
+        private func setup() {
+            isHidden = true
+            clipsToBounds = false
+            backgroundColor = .clear
+            layer.shadowColor = UIColor.black.withAlphaComponent(0.22).cgColor
+            layer.shadowOpacity = 1
+            layer.shadowRadius = 18
+            layer.shadowOffset = CGSize(width: 0, height: 8)
+
+            addSubview(blurView)
+            blurView.contentView.addSubview(tableView)
+            blurView.contentView.addSubview(emptyLabel)
+            blurView.contentView.addSubview(activityIndicator)
+
+            blurView.translatesAutoresizingMaskIntoConstraints = false
+            tableView.translatesAutoresizingMaskIntoConstraints = false
+            emptyLabel.translatesAutoresizingMaskIntoConstraints = false
+            activityIndicator.translatesAutoresizingMaskIntoConstraints = false
+
+            NSLayoutConstraint.activate([
+                blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
+                blurView.trailingAnchor.constraint(equalTo: trailingAnchor),
+                blurView.topAnchor.constraint(equalTo: topAnchor),
+                blurView.bottomAnchor.constraint(equalTo: bottomAnchor),
+                tableView.leadingAnchor.constraint(equalTo: blurView.contentView.leadingAnchor),
+                tableView.trailingAnchor.constraint(equalTo: blurView.contentView.trailingAnchor),
+                tableView.topAnchor.constraint(equalTo: blurView.contentView.topAnchor, constant: 6),
+                tableView.bottomAnchor.constraint(equalTo: blurView.contentView.bottomAnchor, constant: -6),
+                emptyLabel.centerXAnchor.constraint(equalTo: blurView.contentView.centerXAnchor),
+                emptyLabel.centerYAnchor.constraint(equalTo: blurView.contentView.centerYAnchor),
+                activityIndicator.centerXAnchor.constraint(equalTo: blurView.contentView.centerXAnchor),
+                activityIndicator.centerYAnchor.constraint(equalTo: blurView.contentView.centerYAnchor)
+            ])
+
+            tableView.dataSource = self
+            tableView.delegate = self
+            tableView.rowHeight = 52
+            tableView.register(SuggestionCell.self, forCellReuseIdentifier: SuggestionCell.reuseIdentifier)
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            layer.shadowPath = UIBezierPath(roundedRect: bounds, cornerRadius: 18).cgPath
+        }
+
+        func update(items: [ComposerMentionCandidate], isLoading: Bool) {
+            self.items = items
+            if isLoading {
+                state = .loading
+            } else if items.isEmpty {
+                state = .empty
+            } else {
+                state = .results
+            }
+            highlightedIndex = min(highlightedIndex, max(items.count - 1, 0))
+            applyState()
+        }
+
+        func preferredHeight(maxHeight: CGFloat) -> CGFloat {
+            switch state {
+            case .loading, .empty:
+                return 84
+            case .results:
+                let contentHeight = CGFloat(items.count) * tableView.rowHeight + 12
+                return min(max(contentHeight, 52), maxHeight)
+            }
+        }
+
+        func moveSelection(offset: Int) {
+            guard !items.isEmpty else { return }
+            highlightedIndex = max(0, min(items.count - 1, highlightedIndex + offset))
+            refreshSelection(animated: true)
+        }
+
+        @discardableResult
+        func selectHighlightedItem() -> ComposerMentionCandidate? {
+            guard !items.isEmpty, highlightedIndex < items.count else { return nil }
+            let item = items[highlightedIndex]
+            onSelect?(item)
+            return item
+        }
+
+        private func applyState() {
+            switch state {
+            case .loading:
+                isHidden = false
+                tableView.isHidden = true
+                emptyLabel.isHidden = true
+                activityIndicator.startAnimating()
+            case .empty:
+                isHidden = false
+                tableView.isHidden = true
+                emptyLabel.isHidden = false
+                activityIndicator.stopAnimating()
+            case .results:
+                isHidden = false
+                tableView.isHidden = false
+                emptyLabel.isHidden = true
+                activityIndicator.stopAnimating()
+                tableView.reloadData()
+                refreshSelection(animated: false)
+            }
+        }
+
+        private func refreshSelection(animated: Bool) {
+            guard !items.isEmpty else { return }
+            let indexPath = IndexPath(row: highlightedIndex, section: 0)
+            tableView.selectRow(at: indexPath, animated: animated, scrollPosition: .none)
+        }
+
+        func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+            items.count
+        }
+
+        func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: SuggestionCell.reuseIdentifier, for: indexPath) as? SuggestionCell else {
+                return UITableViewCell()
+            }
+            cell.configure(with: items[indexPath.row])
+            return cell
+        }
+
+        func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+            highlightedIndex = indexPath.row
+            onSelect?(items[indexPath.row])
+        }
+    }
     
     class SelectionPanel: UIView {
         
@@ -1207,6 +1458,12 @@ class ModernXabberInputView: UIView {
         
         return view
     }()
+
+    internal let mentionPanel: MentionSuggestionsPanel = {
+        let view = MentionSuggestionsPanel(frame: .zero)
+        view.isHidden = true
+        return view
+    }()
     
     let forwardPanel: MessagesPanel = {
         let view = MessagesPanel(frame: .zero)
@@ -1232,6 +1489,14 @@ class ModernXabberInputView: UIView {
             self.recordPanel.delegate = self.delegate
         }
     }
+
+    var mentionConversationType: ClientSynchronizationManager.ConversationType = .regular
+    var mentionCandidatesProvider: ((String) -> [ComposerMentionCandidate])? = nil
+    var mentionMembersCountProvider: (() -> Int)? = nil
+    var mentionUsersReloadHandler: (() -> Void)? = nil
+    private var currentMentionQuery: ComposerMentionQueryState? = nil
+    private var isMentionUsersReloadInFlight: Bool = false
+    private var isApplyingComposerMutation: Bool = false
     
     public var barHeight: CGFloat = 49
     
@@ -1246,6 +1511,51 @@ class ModernXabberInputView: UIView {
         super.init(coder: coder)
         self.setup()
         self.activateConstraints()
+    }
+
+    override func didMoveToSuperview() {
+        super.didMoveToSuperview()
+        guard self.superview != nil else {
+            self.mentionPanel.removeFromSuperview()
+            return
+        }
+        self.attachMentionPanelIfNeeded()
+    }
+
+    private func mentionPanelHitView(for point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard !self.mentionPanel.isHidden,
+              self.mentionPanel.alpha > 0.01,
+              self.mentionPanel.isUserInteractionEnabled else {
+            return nil
+        }
+
+        let mentionPoint = self.mentionPanel.convert(point, from: self)
+        return self.mentionPanel.hitTest(mentionPoint, with: event)
+    }
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        super.point(inside: point, with: event) || self.mentionPanelHitView(for: point, with: event) != nil
+    }
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard self.isUserInteractionEnabled, !self.isHidden, self.alpha > 0.01 else {
+            return nil
+        }
+
+        if let mentionHitView = self.mentionPanelHitView(for: point, with: event) {
+            return mentionHitView
+        }
+
+        return super.hitTest(point, with: event)
+    }
+
+    private func attachMentionPanelIfNeeded() {
+        guard let superview = self.superview else { return }
+        if self.mentionPanel.superview !== superview {
+            self.mentionPanel.removeFromSuperview()
+            superview.addSubview(self.mentionPanel)
+        }
+        superview.bringSubviewToFront(self.mentionPanel)
     }
     
     private func addObservers() {
@@ -1317,10 +1627,16 @@ class ModernXabberInputView: UIView {
         
         self.stateButton.fillSuperview()
         self.stateButton.isHidden = true
+        self.textField.delegate = self
+        self.textField.keyHandler = self
+        self.textField.typingAttributes = self.baseComposerAttributes()
         self.addObservers()
         self.attachButton.addTarget(self, action: #selector(self.onAttachButtonTouchUp), for: .touchUpInside)
         self.timerButton.addTarget(self,  action: #selector(self.onTimerButtonTouchUp), for: .touchUpInside)
         self.stateButton.addTarget(self,  action: #selector(self.onStateButtonTouchUp), for: .touchUpInside)
+        self.mentionPanel.onSelect = { [weak self] item in
+            self?.insertMentionCandidate(item)
+        }
         self.forwardPanel.update(title: "title", normal: "message")
         self.editPanel.configureForEdit()
         let gesture = UIPanGestureRecognizer(target: self, action: #selector(panGestureRecognizerSelector))
@@ -1355,6 +1671,9 @@ class ModernXabberInputView: UIView {
     }
     
     public func changeState(to state: InputBarState) {
+        if state != .normal {
+            self.hideMentionSuggestions()
+        }
         switch state {
             case .normal:
                 self.state = state
@@ -1504,6 +1823,7 @@ class ModernXabberInputView: UIView {
             origin: CGPoint(x: 16, y: offset + 6),
             size: CGSize(width: self.bounds.width - 32, height: 38)
         )
+        self.layoutMentionPanel()
     }
     
     public func showForwardPanel() {
@@ -1636,6 +1956,7 @@ class ModernXabberInputView: UIView {
 //                self.heightAnchor.constraint(equalToConstant: inputHeight)
 //            ])
             self.heightConstraint?.constant = inputHeight
+            self.layoutMentionPanel()
             additionalAnimations?()
         }
         self.layoutSubviews()
@@ -1649,6 +1970,9 @@ class ModernXabberInputView: UIView {
     
     @objc
     final func textViewDidChange(force: Bool = false) {
+        if !self.isApplyingComposerMutation {
+            self.normalizeTypingAttributesAtCursor()
+        }
         let trimmedText = textField.text.trimmingCharacters(in: .whitespacesAndNewlines)
         
         self.textField.placeholderLabel.isHidden = !self.textField.text.isEmpty
@@ -1673,6 +1997,155 @@ class ModernXabberInputView: UIView {
             }
         }
         self.delegate?.onTextDidChange(to: trimmedText.isEmpty ? nil : trimmedText)
+        self.updateMentionSuggestions()
+    }
+
+    func baseComposerAttributes() -> [NSAttributedString.Key: Any] {
+        [
+            .font: self.textField.font ?? UIFont.systemFont(ofSize: 14, weight: .regular),
+            .foregroundColor: UIColor.label
+        ]
+    }
+
+    func mentionComposerAttributes(for entity: ComposerMentionEntity) -> [NSAttributedString.Key: Any] {
+        var attributes = self.baseComposerAttributes()
+        attributes[.font] = UIFont.systemFont(ofSize: 14, weight: .semibold)
+        attributes[.foregroundColor] = self.accountPalette.tint700
+        attributes[.backgroundColor] = self.accountPalette.tint100.withAlphaComponent(0.75)
+        attributes[.composerMention] = entity
+        attributes[.link] = entity.uri
+        return attributes
+    }
+
+    func currentPayload() -> ComposerMessagePayload {
+        ComposerMentionSerializer.payload(
+            from: self.textField.attributedText ?? NSAttributedString(string: "", attributes: self.baseComposerAttributes())
+        )
+    }
+
+    func setComposerText(_ text: String?) {
+        let value = text ?? ""
+        let attributed = NSAttributedString(string: value, attributes: self.baseComposerAttributes())
+        self.applyComposerAttributedText(attributed, selectedRange: NSRange(location: attributed.length, length: 0))
+    }
+
+    func setComposerBody(_ body: String, references: [MessageReferenceStorageItem]) {
+        let attributed = ComposerMentionSerializer.attributedText(
+            body: body,
+            references: references,
+            baseAttributes: self.baseComposerAttributes(),
+            mentionAttributesProvider: { [weak self] entity in
+                self?.mentionComposerAttributes(for: entity) ?? [.composerMention: entity]
+            }
+        )
+        self.applyComposerAttributedText(attributed, selectedRange: NSRange(location: attributed.length, length: 0))
+    }
+
+    func clearComposer() {
+        self.hideMentionSuggestions()
+        self.setComposerText(nil)
+    }
+
+    func refreshMentionSuggestions() {
+        guard self.currentMentionQuery != nil else { return }
+        self.isMentionUsersReloadInFlight = false
+        self.updateMentionSuggestions()
+    }
+
+    private func applyComposerAttributedText(_ attributedText: NSAttributedString, selectedRange: NSRange? = nil) {
+        self.isApplyingComposerMutation = true
+        self.textField.attributedText = attributedText
+        self.textField.typingAttributes = self.baseComposerAttributes()
+        if let selectedRange {
+            self.textField.selectedRange = selectedRange
+        }
+        self.isApplyingComposerMutation = false
+        self.textField.placeholderLabel.isHidden = !self.textField.text.isEmpty
+    }
+
+    private func normalizeTypingAttributesAtCursor() {
+        self.textField.typingAttributes = self.baseComposerAttributes()
+    }
+
+    private func layoutMentionPanel() {
+        guard !self.mentionPanel.isHidden else { return }
+        self.attachMentionPanelIfNeeded()
+        guard let superview = self.superview else { return }
+        let maxHeight = min(260, UIScreen.main.bounds.height * 0.34)
+        let height = self.mentionPanel.preferredHeight(maxHeight: maxHeight)
+        let width = max(220, self.bounds.width - 84)
+        let localFrame = CGRect(
+            x: 40,
+            y: -(height + 8),
+            width: width,
+            height: height
+        )
+        self.mentionPanel.frame = self.convert(localFrame, to: superview)
+    }
+
+    private func hideMentionSuggestions() {
+        self.currentMentionQuery = nil
+        self.isMentionUsersReloadInFlight = false
+        self.mentionPanel.isHidden = true
+    }
+
+    private func updateMentionSuggestions() {
+        guard self.state == .normal,
+              self.mentionConversationType == .group,
+              self.textField.markedTextRange == nil,
+              let attributedText = self.textField.attributedText else {
+            self.hideMentionSuggestions()
+            return
+        }
+
+        guard let query = ComposerMentionQueryDetector.activeQuery(
+            in: attributedText,
+            selectedRange: self.textField.selectedRange
+        ) else {
+            self.hideMentionSuggestions()
+            return
+        }
+
+        self.currentMentionQuery = query
+        let candidates = self.mentionCandidatesProvider?(query.query) ?? []
+        let membersCount = self.mentionMembersCountProvider?() ?? candidates.count
+        let shouldReload = membersCount == 0 && !self.isMentionUsersReloadInFlight
+        if shouldReload {
+            self.isMentionUsersReloadInFlight = true
+            self.mentionUsersReloadHandler?()
+        }
+
+        self.mentionPanel.update(items: candidates, isLoading: shouldReload)
+        self.layoutMentionPanel()
+    }
+
+    private func resolvedMentionQuery(in attributedText: NSAttributedString) -> ComposerMentionQueryState? {
+        if let currentMentionQuery {
+            return currentMentionQuery
+        }
+
+        return ComposerMentionQueryDetector.activeQuery(
+            in: attributedText,
+            selectedRange: self.textField.selectedRange
+        )
+    }
+
+    private func insertMentionCandidate(_ candidate: ComposerMentionCandidate) {
+        guard let attributedText = self.textField.attributedText,
+              let mentionQuery = self.resolvedMentionQuery(in: attributedText) else {
+            return
+        }
+        let entity = candidate.mentionEntity
+        let result = ComposerMentionEditor.insertMention(
+            in: attributedText,
+            replacementRange: mentionQuery.replacementRange,
+            entity: entity,
+            baseAttributes: self.baseComposerAttributes(),
+            mentionAttributes: self.mentionComposerAttributes(for: entity)
+        )
+        self.applyComposerAttributedText(result.attributedText, selectedRange: result.selectedRange)
+        self.hideMentionSuggestions()
+        self.textField.becomeFirstResponder()
     }
     
     enum SendButtonState {
@@ -1741,6 +2214,7 @@ class ModernXabberInputView: UIView {
                 origin: CGPoint(x: self.frame.width - 44, y: self.cachedIntrinsicContentSize.height - 38),
                 size: CGSize(width: 44, height: 38)
             )
+            self.layoutMentionPanel()
             self.delegate?.onHeightChanged(to: inputHeight, bar: 0)
             self.update(screenHeight: self.screenHeight, keyboardHeight: self.keyboardHeight)
         }
@@ -1793,6 +2267,7 @@ class ModernXabberInputView: UIView {
     private func onSendButtonTouchUp(_ sender: UIButton) {
         switch self.sendButtonState {
             case .send:
+                self.hideMentionSuggestions()
                 self.delegate?.sendButtonTouchUp(with: textField.text)
 //                self.message = ""
 //                self.textField.text = ""
@@ -1950,6 +2425,61 @@ class ModernXabberInputView: UIView {
     
     var recordStartDate: TimeInterval? = nil
 }
+
+extension ModernXabberInputView: UITextViewDelegate, InputTextViewKeyHandler {
+    func textViewDidChangeSelection(_ textView: UITextView) {
+        if !self.isApplyingComposerMutation {
+            self.normalizeTypingAttributesAtCursor()
+        }
+        self.updateMentionSuggestions()
+    }
+
+    func textViewDidEndEditing(_ textView: UITextView) {
+        self.hideMentionSuggestions()
+    }
+
+    func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+        if text == "\n", !self.mentionPanel.isHidden {
+            if self.mentionPanel.selectHighlightedItem() != nil {
+                return false
+            }
+        }
+
+        guard let attributedText = textView.attributedText else {
+            return true
+        }
+
+        if let mutation = ComposerMentionEditor.mutationForEditing(
+            attributedText: attributedText,
+            range: range,
+            replacementText: text,
+            baseAttributes: self.baseComposerAttributes()
+        ) {
+            self.applyComposerAttributedText(mutation.attributedText, selectedRange: mutation.selectedRange)
+            return false
+        }
+
+        return true
+    }
+
+    func inputTextView(_ textView: InputTextView, shouldHandle key: UIKey) -> Bool {
+        guard !self.mentionPanel.isHidden else { return false }
+        switch key.keyCode {
+        case .keyboardUpArrow:
+            self.mentionPanel.moveSelection(offset: -1)
+            return true
+        case .keyboardDownArrow:
+            self.mentionPanel.moveSelection(offset: 1)
+            return true
+        case .keyboardEscape:
+            self.hideMentionSuggestions()
+            return true
+        default:
+            return false
+        }
+    }
+}
+
 extension ModernXabberInputView: UIGestureRecognizerDelegate {
     
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
@@ -2007,6 +2537,7 @@ extension ModernXabberInputView: UIGestureRecognizerDelegate {
                         }
                     }
                 case .send:
+                    self.hideMentionSuggestions()
                     self.delegate?.sendButtonTouchUp(with: textField.text)
             }
         }
@@ -2070,5 +2601,415 @@ extension ModernXabberInputView: SendButtonDelegate {
             self.delegate?.onAudioMessageShouldSend()
             self.recordPanelLock = false
         }
+    }
+}
+
+extension NSAttributedString.Key {
+    static let composerMention = NSAttributedString.Key("xabber.composer.mention")
+}
+
+final class ComposerMentionEntity: NSObject, NSSecureCoding {
+    static var supportsSecureCoding: Bool = true
+
+    let memberId: String
+    let nickname: String
+    let uri: String
+    let node: String?
+    let jid: String?
+
+    init(memberId: String, nickname: String, uri: String, node: String?, jid: String?) {
+        self.memberId = memberId
+        self.nickname = nickname
+        self.uri = uri
+        self.node = node
+        self.jid = jid
+        super.init()
+    }
+
+    required init?(coder: NSCoder) {
+        guard let memberId = coder.decodeObject(of: NSString.self, forKey: "memberId") as String?,
+              let nickname = coder.decodeObject(of: NSString.self, forKey: "nickname") as String?,
+              let uri = coder.decodeObject(of: NSString.self, forKey: "uri") as String? else {
+            return nil
+        }
+        self.memberId = memberId
+        self.nickname = nickname
+        self.uri = uri
+        self.node = coder.decodeObject(of: NSString.self, forKey: "node") as String?
+        self.jid = coder.decodeObject(of: NSString.self, forKey: "jid") as String?
+        super.init()
+    }
+
+    func encode(with coder: NSCoder) {
+        coder.encode(self.memberId, forKey: "memberId")
+        coder.encode(self.nickname, forKey: "nickname")
+        coder.encode(self.uri, forKey: "uri")
+        coder.encode(self.node, forKey: "node")
+        coder.encode(self.jid, forKey: "jid")
+    }
+}
+
+struct ComposerMentionCandidate: Equatable {
+    let memberId: String
+    let nickname: String
+    let uri: String
+    let node: String?
+    let jid: String?
+    let secondaryText: String
+
+    var avatarInitials: String {
+        let source = nickname.isEmpty ? (jid ?? memberId) : nickname
+        let tokens = source
+            .split(whereSeparator: { $0.isWhitespace || $0 == "_" || $0 == "-" })
+            .prefix(2)
+            .compactMap { $0.first }
+        let value = String(tokens)
+        return value.isEmpty ? "@" : value.uppercased()
+    }
+
+    var mentionEntity: ComposerMentionEntity {
+        ComposerMentionEntity(
+            memberId: memberId,
+            nickname: nickname,
+            uri: uri,
+            node: node,
+            jid: jid
+        )
+    }
+}
+
+struct ComposerMessagePayload {
+    let body: String
+    let references: [MessageReferenceStorageItem]
+}
+
+struct ComposerMentionQueryState: Equatable {
+    let triggerRange: NSRange
+    let replacementRange: NSRange
+    let query: String
+}
+
+struct ComposerTextMutation {
+    let attributedText: NSAttributedString
+    let selectedRange: NSRange
+}
+
+enum ComposerMentionQueryDetector {
+    static func activeQuery(in attributedText: NSAttributedString, selectedRange: NSRange) -> ComposerMentionQueryState? {
+        guard selectedRange.length == 0 else { return nil }
+        let text = attributedText.string as NSString
+        guard selectedRange.location <= text.length else { return nil }
+        let location = selectedRange.location
+        let mentionRanges = ComposerMentionEditor.mentionRanges(in: attributedText)
+        if mentionRanges.contains(where: { NSLocationInRange(location, $0) && location > $0.location && location < $0.upperBound }) {
+            return nil
+        }
+
+        var scanLocation = location
+        while scanLocation > 0 {
+            let previousIndex = scanLocation - 1
+            let character = text.character(at: previousIndex)
+            if character == 64 { // "@"
+                let needsBoundaryCheck = previousIndex > 0
+                if needsBoundaryCheck {
+                    let boundaryCharacter = text.character(at: previousIndex - 1)
+                    if !Self.isBoundaryCharacter(boundaryCharacter) {
+                        return nil
+                    }
+                }
+                let triggerRange = NSRange(location: previousIndex, length: 1)
+                let replacementRange = NSRange(location: previousIndex, length: location - previousIndex)
+                if mentionRanges.contains(where: { NSIntersectionRange($0, replacementRange).length > 0 }) {
+                    return nil
+                }
+                let query = text.substring(with: NSRange(location: previousIndex + 1, length: location - previousIndex - 1))
+                if query.contains(where: { $0.isWhitespace || $0.isNewline }) {
+                    return nil
+                }
+                return ComposerMentionQueryState(triggerRange: triggerRange, replacementRange: replacementRange, query: query)
+            }
+            if Self.isTerminatingCharacter(character) {
+                return nil
+            }
+            scanLocation -= 1
+        }
+        return nil
+    }
+
+    private static func isBoundaryCharacter(_ character: unichar) -> Bool {
+        guard let scalar = UnicodeScalar(character) else {
+            return false
+        }
+        return CharacterSet.whitespacesAndNewlines.contains(scalar)
+            || CharacterSet.punctuationCharacters.contains(scalar)
+            || CharacterSet.symbols.contains(scalar)
+    }
+
+    private static func isTerminatingCharacter(_ character: unichar) -> Bool {
+        guard let scalar = UnicodeScalar(character) else {
+            return true
+        }
+        return CharacterSet.whitespacesAndNewlines.contains(scalar)
+    }
+}
+
+enum ComposerMentionEditor {
+    static func mentionRanges(in attributedText: NSAttributedString) -> [NSRange] {
+        var ranges: [NSRange] = []
+        attributedText.enumerateAttribute(.composerMention, in: NSRange(location: 0, length: attributedText.length), options: []) { value, range, _ in
+            guard value is ComposerMentionEntity else { return }
+            ranges.append(range)
+        }
+        return ranges
+    }
+
+    static func mutationForEditing(
+        attributedText: NSAttributedString,
+        range: NSRange,
+        replacementText: String,
+        baseAttributes: [NSAttributedString.Key: Any]
+    ) -> ComposerTextMutation? {
+        let mentionRanges = mentionRanges(in: attributedText)
+        guard !mentionRanges.isEmpty else { return nil }
+
+        let affectedRanges: [NSRange]
+        if range.length > 0 {
+            affectedRanges = mentionRanges.filter { NSIntersectionRange($0, range).length > 0 }
+        } else {
+            let isDeletingBackward = replacementText.isEmpty && range.location > 0
+            let isDeletingForward = replacementText.isEmpty && range.location < attributedText.length
+            let backwardProbe = NSRange(location: max(0, range.location - 1), length: isDeletingBackward ? 1 : 0)
+            let forwardProbe = NSRange(location: range.location, length: isDeletingForward ? 1 : 0)
+
+            affectedRanges = mentionRanges.filter {
+                (range.location > $0.location && range.location < $0.upperBound)
+                || (backwardProbe.length > 0 && NSIntersectionRange($0, backwardProbe).length > 0)
+                || (forwardProbe.length > 0 && NSIntersectionRange($0, forwardProbe).length > 0)
+            }
+        }
+
+        guard !affectedRanges.isEmpty else { return nil }
+
+        let replacementRange = affectedRanges.dropFirst().reduce(affectedRanges[0]) { partial, next in
+            NSUnionRange(partial, next)
+        }
+        let mutable = NSMutableAttributedString(attributedString: attributedText)
+        let replacement = NSAttributedString(string: replacementText, attributes: baseAttributes)
+        mutable.replaceCharacters(in: replacementRange, with: replacement)
+        let location = replacementRange.location + replacement.length
+        return ComposerTextMutation(
+            attributedText: mutable,
+            selectedRange: NSRange(location: location, length: 0)
+        )
+    }
+
+    static func insertMention(
+        in attributedText: NSAttributedString,
+        replacementRange: NSRange,
+        entity: ComposerMentionEntity,
+        baseAttributes: [NSAttributedString.Key: Any],
+        mentionAttributes: [NSAttributedString.Key: Any]
+    ) -> ComposerTextMutation {
+        let mutable = NSMutableAttributedString(attributedString: attributedText)
+        let mentionText = entity.normalizedNickname
+        let mention = NSMutableAttributedString(string: mentionText, attributes: mentionAttributes)
+        mention.addAttributes(mentionAttributes, range: NSRange(location: 0, length: mention.length))
+        mention.append(NSAttributedString(string: " ", attributes: baseAttributes))
+        mutable.replaceCharacters(in: replacementRange, with: mention)
+        let location = replacementRange.location + mention.length
+        return ComposerTextMutation(
+            attributedText: mutable,
+            selectedRange: NSRange(location: location, length: 0)
+        )
+    }
+}
+
+enum ComposerMentionRangeCodec {
+    static func escapedRange(for rawRange: NSRange, in body: String) -> NSRange? {
+        let nsBody = body as NSString
+        guard rawRange.location >= 0, rawRange.upperBound <= nsBody.length else { return nil }
+        let prefix = nsBody.substring(to: rawRange.location)
+        let segment = nsBody.substring(with: rawRange)
+        let location = prefix.xmlEscaping(reverse: false).count
+        let length = segment.xmlEscaping(reverse: false).count
+        return NSRange(location: location, length: length)
+    }
+
+    static func rawRange(for escapedRange: NSRange, in body: String) -> NSRange? {
+        let nsBody = body as NSString
+        let bodyLength = nsBody.length
+        guard escapedRange.location >= 0,
+              escapedRange.length >= 0 else {
+            return nil
+        }
+
+        var rawStart: Int?
+        var rawEnd: Int?
+
+        for rawIndex in 0...bodyLength {
+            let escapedLength = nsBody.substring(to: rawIndex).xmlEscaping(reverse: false).count
+            if rawStart == nil && escapedLength == escapedRange.location {
+                rawStart = rawIndex
+            }
+            if rawStart != nil && escapedLength == escapedRange.upperBound {
+                rawEnd = rawIndex
+                break
+            }
+        }
+
+        guard let rawStart,
+              let rawEnd,
+              rawStart < rawEnd else {
+            return nil
+        }
+
+        return NSRange(location: rawStart, length: rawEnd - rawStart)
+    }
+}
+
+enum ComposerMentionSerializer {
+    static func payload(from attributedText: NSAttributedString) -> ComposerMessagePayload {
+        let body = attributedText.string
+        let references = self.references(from: attributedText, body: body)
+        return ComposerMessagePayload(body: body, references: references)
+    }
+
+    static func attributedText(
+        body: String,
+        references: [MessageReferenceStorageItem],
+        baseAttributes: [NSAttributedString.Key: Any],
+        mentionAttributesProvider: (ComposerMentionEntity) -> [NSAttributedString.Key: Any]
+    ) -> NSAttributedString {
+        let output = NSMutableAttributedString(string: body, attributes: baseAttributes)
+        for reference in references where reference.kind == .mention {
+            guard let rawRange = ComposerMentionRangeCodec.rawRange(for: reference.range, in: body),
+                  let entity = mentionEntity(from: reference) else {
+                continue
+            }
+            output.addAttributes(mentionAttributesProvider(entity), range: rawRange)
+        }
+        return output
+    }
+
+    private static func references(from attributedText: NSAttributedString, body: String) -> [MessageReferenceStorageItem] {
+        var output: [MessageReferenceStorageItem] = []
+        for run in mentionRuns(in: attributedText) {
+            guard let escapedRange = ComposerMentionRangeCodec.escapedRange(for: run.range, in: body) else {
+                continue
+            }
+            let reference = MessageReferenceStorageItem()
+            reference.kind = .mention
+            reference.begin = escapedRange.location
+            reference.end = escapedRange.location + escapedRange.length
+            reference.metadata = [
+                "uri": run.entity.uri,
+                "node": run.entity.node as Any,
+                "memberId": run.entity.memberId,
+                "nickname": run.entity.normalizedNickname,
+                "jid": run.entity.jid as Any
+            ].compactMapValues { $0 }
+            reference.url = run.entity.uri
+            output.append(reference)
+        }
+        return output.sorted(by: { $0.begin < $1.begin })
+    }
+
+    static func mentionEntity(from reference: MessageReferenceStorageItem) -> ComposerMentionEntity? {
+        guard let uri = reference.metadata?["uri"] as? String ?? reference.url else {
+            return nil
+        }
+        let nickname = reference.metadata?["nickname"] as? String ?? ""
+        let memberId = reference.metadata?["memberId"] as? String ?? Self.memberId(from: uri) ?? ""
+        let jid = reference.metadata?["jid"] as? String
+        let node = reference.metadata?["node"] as? String
+        return ComposerMentionEntity(
+            memberId: memberId,
+            nickname: Self.normalizedNickname(
+                from: nickname.isEmpty ? reference.bodyFragment(in: reference.messageBody) : nickname
+            ),
+            uri: uri,
+            node: node,
+            jid: jid
+        )
+    }
+
+    private static func memberId(from uri: String) -> String? {
+        guard let query = uri.split(separator: "?", maxSplits: 1).dropFirst().first else { return nil }
+        let normalizedQuery = query.replacingOccurrences(of: ";", with: "&")
+        return normalizedQuery
+            .split(separator: "&")
+            .compactMap { component -> String? in
+                let parts = component.split(separator: "=", maxSplits: 1).map(String.init)
+                guard parts.count == 2, parts[0] == "id" else { return nil }
+                return parts[1]
+            }
+            .first
+    }
+
+    private static func normalizedNickname(from value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("@") else {
+            return trimmed
+        }
+        return String(trimmed.dropFirst())
+    }
+
+    private struct MentionRun {
+        let range: NSRange
+        let entity: ComposerMentionEntity
+    }
+
+    private static func mentionRuns(in attributedText: NSAttributedString) -> [MentionRun] {
+        var runs: [MentionRun] = []
+        attributedText.enumerateAttribute(.composerMention, in: NSRange(location: 0, length: attributedText.length), options: []) { value, range, _ in
+            guard let entity = value as? ComposerMentionEntity,
+                  range.length > 0 else {
+                return
+            }
+
+            if let last = runs.last,
+               last.range.upperBound == range.location,
+               last.entity.isEquivalent(to: entity) {
+                let mergedRange = NSRange(location: last.range.location, length: last.range.length + range.length)
+                runs[runs.count - 1] = MentionRun(range: mergedRange, entity: last.entity)
+            } else {
+                runs.append(MentionRun(range: range, entity: entity))
+            }
+        }
+        return runs
+    }
+}
+
+private extension MessageReferenceStorageItem {
+    var messageBody: String {
+        if let realm = self.realm,
+           let message = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: self.messageId) {
+            return message.body
+        }
+        return ""
+    }
+
+    func bodyFragment(in body: String) -> String {
+        let nsBody = body as NSString
+        guard self.begin >= 0, self.end <= nsBody.length, self.begin < self.end else { return "" }
+        return nsBody.substring(with: self.range)
+    }
+}
+
+private extension ComposerMentionEntity {
+    var normalizedNickname: String {
+        let trimmed = self.nickname.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("@") else {
+            return trimmed
+        }
+        return String(trimmed.dropFirst())
+    }
+
+    func isEquivalent(to other: ComposerMentionEntity) -> Bool {
+        self.memberId == other.memberId &&
+        self.normalizedNickname == other.normalizedNickname &&
+        self.uri == other.uri &&
+        self.node == other.node &&
+        self.jid == other.jid
     }
 }

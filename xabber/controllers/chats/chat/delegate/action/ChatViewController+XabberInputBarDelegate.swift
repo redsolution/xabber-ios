@@ -535,6 +535,9 @@ extension ChatViewController: XabberInputBarDelegate {
                 animated: true) { value in
                     let rawValue = Int(value)
                     let selectedInterval = ChatMarkersManager.BurnMessagesTimerValues(rawValue: rawValue ?? 0) ?? .off
+                    guard self.handleAutoDeleteTimerAccess(for: selectedInterval) else {
+                        return
+                    }
                     do {
                         let realm = try WRealm.safe()
                         if let instance = realm.object(
@@ -551,7 +554,11 @@ extension ChatViewController: XabberInputBarDelegate {
                             }
                             try realm.write {
                                 if instance.isInvalidated { return }
-                                instance.afterburnInterval = Double(selectedInterval.rawValue)
+                                instance.applyAutoDeleteTimer(
+                                    Double(selectedInterval.rawValue),
+                                    updatedAt: Date().timeIntervalSince1970,
+                                    updatedBy: self.owner
+                                )
                             }
                         }
                     } catch {
@@ -646,6 +653,9 @@ extension ChatViewController: XabberInputBarDelegate {
         let okAction = UIAlertAction(title: "Done", style: .default, handler: {
             (alert: UIAlertAction!) -> Void in
             let selectedInterval = ChatMarkersManager.BurnMessagesTimerValues.values()[self.selectedAfterburnId]
+            guard self.handleAutoDeleteTimerAccess(for: selectedInterval) else {
+                return
+            }
             do {
                 let realm = try WRealm.safe()
                 if let instance = realm.object(
@@ -662,7 +672,11 @@ extension ChatViewController: XabberInputBarDelegate {
                     }
                     try realm.write {
                         if instance.isInvalidated { return }
-                        instance.afterburnInterval = Double(selectedInterval.rawValue)
+                        instance.applyAutoDeleteTimer(
+                            Double(selectedInterval.rawValue),
+                            updatedAt: Date().timeIntervalSince1970,
+                            updatedBy: self.owner
+                        )
                     }
                 }
             } catch {
@@ -723,6 +737,19 @@ extension ChatViewController: XabberInputBarDelegate {
 //        alert.addAction(cancelAction)
         self.present(alert, animated: true)
     }
+
+    private func handleAutoDeleteTimerAccess(for selectedInterval: ChatMarkersManager.BurnMessagesTimerValues) -> Bool {
+        switch AutoDeleteMessagesPolicy.currentAccess(timerSeconds: Double(selectedInterval.rawValue), jid: self.owner) {
+            case .available:
+                return true
+            case .premiumRequired:
+                let vc = PremiumSubscribtionViewController()
+                vc.owner = self.owner
+                vc.jid = self.owner
+                navigationController?.pushViewController(vc, animated: true)
+                return false
+        }
+    }
     
     internal func addImage(_ image: UIImage) -> MessageReferenceStorageItem? {
         guard let url = URL(string: [UUID().uuidString, "png"].joined(separator: ".")) else { return nil }
@@ -772,11 +799,12 @@ extension ChatViewController: XabberInputBarDelegate {
     }
     
     func sendButtonTouchUp( with text: String) {
-        func sendMessage(_ text: String) {
+        let payload = self.xabberInputView.currentPayload()
+        func sendMessage(_ payload: ComposerMessagePayload) {
             if self.recordedReferenceObject != nil {
                 self.onSendButtonTouchUpInsideWhenAudioWasRecorded()
             } else {
-                self.xabberInputView.textField.text = ""
+                self.xabberInputView.clearComposer()
                 self.xabberInputView.textViewDidChange()
                 let forwarded: [String] = self.attachedMessagesIds.value
                 self.draftMessageText.accept(nil)
@@ -788,7 +816,7 @@ extension ChatViewController: XabberInputBarDelegate {
                     let primary = editedMessage
                     AccountManager.shared.find(for: self.owner)?.unsafeAction({ (user, stream) in
                         user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
-                        user.messages.editSimpleMessage(text, primary: primary)
+                        user.messages.editSimpleMessage(payload.body, primary: primary, references: payload.references)
                         (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
                                 .invalidateLastMessageCachedSize(primary: primary)
                         if let index = self.datasource.firstIndex(where: { $0.primary == primary }) {
@@ -802,10 +830,11 @@ extension ChatViewController: XabberInputBarDelegate {
                     AccountManager.shared.find(for: self.owner)?.unsafeAction({ (user, stream) in
                         user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
                         _ = user.messages.sendSimpleMessage(
-                            text,
+                            payload.body,
                             to: self.jid,
                             forwarded: forwarded,
-                            conversationType: self.conversationType
+                            conversationType: self.conversationType,
+                            references: payload.references
                         )
                         if let primary = self.messagesObserver?.first?.primary {
                             (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
@@ -829,7 +858,7 @@ extension ChatViewController: XabberInputBarDelegate {
                     .objects(SignalDeviceStorageItem.self)
                     .filter("owner == %@ AND jid == %@ AND (state_ == %@ OR state_ == %@ OR state_ == %@)", self.owner, self.jid, SignalDeviceStorageItem.TrustState.unknown.rawValue, SignalDeviceStorageItem.TrustState.ignore.rawValue, SignalDeviceStorageItem.TrustState.distrusted.rawValue)
                 if collection.isEmpty {
-                    sendMessage(text)
+                    sendMessage(payload)
                 } else {
                     let items = [
                         ActionSheetPresenter.Item(destructive: false, title: "Identity verification", value: "identity"),
@@ -849,7 +878,7 @@ extension ChatViewController: XabberInputBarDelegate {
                                         let realm = try WRealm.safe()
                                         if let instance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: self.jid, owner: self.owner, conversationType: self.conversationType)) {
                                             try realm.write {
-                                                instance.draftMessage = text
+                                                instance.draftMessage = payload.body
                                             }
                                         }
                                     } catch {
@@ -860,7 +889,7 @@ extension ChatViewController: XabberInputBarDelegate {
                                     vc.owner = self.owner
                                     showModal(vc, parent: self)
                                 case "send":
-                                    sendMessage(text)
+                                    sendMessage(payload)
                                 default:
                                     break
                             }
@@ -870,7 +899,7 @@ extension ChatViewController: XabberInputBarDelegate {
                 DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
             }
         } else {
-            sendMessage(text)
+            sendMessage(payload)
         }
         
         

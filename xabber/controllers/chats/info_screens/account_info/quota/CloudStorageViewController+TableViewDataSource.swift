@@ -27,19 +27,23 @@ extension CloudStorageViewController: UITableViewDataSource {
     func numberOfSections(in tableView: UITableView) -> Int {
         return datasource.count
     }
-    
+
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         return datasource[section].children.count
     }
-    
+
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let item = datasource[indexPath.section].children[indexPath.row]
-        
+
         switch item.key {
         case "quota_info":
             let cell = tableView.dequeueReusableCell(withIdentifier: QuotaInfoCell.cellName, for: indexPath) as? QuotaInfoCell
             cell?.selectionStyle = .none
             cell?.setup(title: item.title, owner: jid)
+            return cell!
+        case "storage_upsell":
+            let cell = tableView.dequeueReusableCell(withIdentifier: CloudStorageUpsellCardCell.cellName, for: indexPath) as? CloudStorageUpsellCardCell
+            cell?.configure(with: currentUpsellCardState())
             return cell!
         case "delete_files":
             let cell = UITableViewCell(style: .value1, reuseIdentifier: "value1CellReuseID")
@@ -47,10 +51,10 @@ extension CloudStorageViewController: UITableViewDataSource {
             listContentConfiguration.text = item.title
             listContentConfiguration.textProperties.color = .systemRed
             listContentConfiguration.textProperties.alignment = .center
-            if imagesUsed == "0 KiB" && videosUsed == "0 KiB" && audioUsed == "0 KiB" && filesUsed == "0 KiB" {
+            if !canFreeUpSpace() {
                 cell.selectionStyle = UITableViewCell.SelectionStyle.none
                 listContentConfiguration.textProperties.color = .systemGray
-            } else if (100 * usedQuota / quota) < 75 {
+            } else if quota > 0 && (100 * usedQuota / quota) < 75 {
                 listContentConfiguration.textProperties.color = .systemBlue
             } else {
                 listContentConfiguration.textProperties.color = .systemRed

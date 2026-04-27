@@ -213,10 +213,9 @@ class ReliableMessageDeliveryManager: AbstractXMPPManager {
     }
     
     internal func readEcho(_ message: XMPPMessage) -> Bool {
-        guard let x = message.element(forName: "x", xmlns: getPrimaryNamespace()),
-            let messageElement = x.element(forName: "message"),
-            messageElement.element(forName: "x", xmlns: "https://xabber.com/protocol/groups") != nil else {
-                return false
+        guard let messageElement = echoMessageContainer(from: message),
+              messageElement.element(forName: "x", xmlns: "https://xabber.com/protocol/groups") != nil else {
+            return false
         }
         var value = echoQueue.value
         value.insert(message)
@@ -226,13 +225,14 @@ class ReliableMessageDeliveryManager: AbstractXMPPManager {
     
     internal func parseEcho(_ message: XMPPMessage) {
         guard let from = message.from?.bare,
-            let x = message.element(forName: "x",
-                                      xmlns: getPrimaryNamespace()),
-            let messageContainer = x.element(forName: "message"),
-            let elementId = messageContainer.element(forName: "origin-id")?.attributeStringValue(forName: "id"),
-                let stamp = messageContainer.element(forName: "time")?.attributeStringValue(forName: "stamp")?.xmppDate else {
-                    return
-            }
+              let echoedMessage = echoMessageContainer(from: message),
+              let elementId = echoedMessage.element(forName: "origin-id")?.attributeStringValue(forName: "id"),
+              let stamp = echoedMessage
+                .element(forName: "time", xmlns: "https://xabber.com/protocol/delivery")?
+                .attributeStringValue(forName: "stamp")?.xmppDate
+                    ?? echoedMessage.element(forName: "time")?.attributeStringValue(forName: "stamp")?.xmppDate else {
+            return
+        }
         
         do {
             let realm = try WRealm.safe()
@@ -244,25 +244,88 @@ class ReliableMessageDeliveryManager: AbstractXMPPManager {
                         instance.state = .deliver
                         instance.date = stamp
                         instance.sentDate = stamp
-                        instance.references.removeAll()
-                        instance.references
-                            .append(objectsIn: parseReferences(XMPPMessage(from: messageContainer), primary: instance.primary,
-                                                               jid: from,
-                                                               owner: owner,
-                                                               echo: true))
-                        let stanzaId = getStanzaId(XMPPMessage(from: messageContainer), owner: from)
-                        if stanzaId.isNotEmpty {
+                        let parsedReferences = parseReferences(
+                            echoedMessage,
+                            primary: instance.primary,
+                            jid: from,
+                            owner: owner,
+                            echo: true
+                        )
+                        reconcileEchoReferences(
+                            instance: instance,
+                            parsedReferences: parsedReferences,
+                            echoedBody: echoedMessage.body ?? ""
+                        )
+                        if let stanzaId = echoStanzaId(for: echoedMessage, conversationJid: from),
+                           stanzaId.isNotEmpty {
                             instance.archivedId = stanzaId
                         }
                         realm
                             .object(ofType: MessageStanzaStorageItem.self, forPrimaryKey: instance.primary)?
-                            .stanza = messageContainer.compactXMLString()
+                            .stanza = echoedMessage.compactXMLString()
                     }
                 }
         } catch {
             DDLogDebug("\(#function). Cant load message for messageId: \(elementId). \(error.localizedDescription)")
         }
         return
+    }
+
+    private func reconcileEchoReferences(
+        instance: MessageStorageItem,
+        parsedReferences: [MessageReferenceStorageItem],
+        echoedBody: String
+    ) {
+        let existingReferences = Array(instance.references)
+        let shouldPreserveLocalTextReferences =
+            echoedBody != instance.body &&
+            existingReferences.contains(where: {
+                [.mention, .quote, .markup].contains($0.kind)
+            })
+
+        instance.references.removeAll()
+
+        guard shouldPreserveLocalTextReferences else {
+            instance.references.append(objectsIn: parsedReferences)
+            return
+        }
+
+        instance.references.append(objectsIn: existingReferences)
+
+        let hasExistingGroupchatRef = existingReferences.contains(where: { $0.kind == .groupchat })
+        let supplementalReferences = parsedReferences.filter { reference in
+            switch reference.kind {
+            case .mention, .quote, .markup:
+                return false
+            case .groupchat:
+                return !hasExistingGroupchatRef
+            default:
+                return true
+            }
+        }
+
+        instance.references.append(objectsIn: supplementalReferences)
+    }
+
+    private func echoMessageContainer(from message: XMPPMessage) -> XMPPMessage? {
+        if let container = message
+            .element(forName: "x", xmlns: getPrimaryNamespace())?
+            .element(forName: "message") {
+            return XMPPMessage(from: container)
+        }
+        return getGroupchatHeadlineForwardedMessageContainer(message)
+    }
+
+    private func echoStanzaId(for echoedMessage: XMPPMessage, conversationJid: String) -> String? {
+        let ids = echoedMessage.elements(forName: "stanza-id") + echoedMessage.elements(forName: "archived")
+        if let matchingId = ids.first(where: {
+            $0.attributeStringValue(forName: "by", withDefaultValue: "") == conversationJid
+        })?.attributeStringValue(forName: "id"), matchingId.isNotEmpty {
+            return matchingId
+        }
+
+        let fallback = getStanzaId(echoedMessage, owner: conversationJid)
+        return fallback.isNotEmpty ? fallback : nil
     }
     
     

@@ -192,14 +192,22 @@ class ChatMarkersManager: AbstractXMPPManager {
     internal func runEphemeralCleanup() {
         do {
             let realm = try WRealm.safe()
+            let now = Date().timeIntervalSince1970
             let collection = realm
                 .objects(MessageStorageItem.self)
-                .filter("owner == %@ AND afterburnInterval > 0 AND isRead == true AND isDeleted == false AND burnDate < %@ AND burnDate > 0", self.owner, Date().timeIntervalSince1970)
+                .filter(
+                    "owner == %@ AND isDeleted == false AND ((autoDeleteExpiresAt > 0 AND autoDeleteExpiresAt < %@) OR (autoDeleteExpiresAt <= 0 AND afterburnInterval > 0 AND isRead == true AND burnDate < %@ AND burnDate > 0))",
+                    self.owner,
+                    now,
+                    now
+                )
             
             guard collection.first != nil else {
                 return
             }
             let jids = Set(collection.compactMap { return $0.opponent })
+            let archivedIds = Set(collection.compactMap { $0.archivedId.isNotEmpty ? $0.archivedId : nil })
+            let messageIds = Set(collection.compactMap { $0.messageId.isNotEmpty ? $0.messageId : nil })
             
             
             
@@ -208,9 +216,25 @@ class ChatMarkersManager: AbstractXMPPManager {
             
             try realm.write {
                 collection.forEach {
-                    $0.isDeleted = true
-                    $0.body = ""
-                    $0.legacyBody = ""
+                    $0.markAutoDeleted()
+                }
+
+                if archivedIds.isNotEmpty || messageIds.isNotEmpty {
+                    realm
+                        .objects(NotificationStorageItem.self)
+                        .filter("owner == %@", self.owner)
+                        .forEach {
+                            if archivedIds.contains($0.stanzaId)
+                                || archivedIds.contains($0.sourceArchivedId ?? "")
+                                || messageIds.contains($0.messageId)
+                                || messageIds.contains($0.sourceMessageId ?? "") {
+                                $0.text = nil
+                                $0.fallbackText = nil
+                                $0.shouldShow = false
+                                $0.isRead = true
+                                $0.mentionLinkStatus = .missing
+                            }
+                        }
                 }
                 
                 chats.forEach {
@@ -342,7 +366,7 @@ class ChatMarkersManager: AbstractXMPPManager {
                     if instance.readDate < 1 {
                         instance.readDate = (date ?? Date()).timeIntervalSince1970
                     }
-                    if instance.afterburnInterval > 0 {
+                    if instance.afterburnInterval > 0 && instance.autoDeleteExpiresAt <= 0 {
                         if instance.burnDate < 1 {
                             instance.burnDate = (date ?? Date()).timeIntervalSince1970 + instance.afterburnInterval
                         }
@@ -353,7 +377,7 @@ class ChatMarkersManager: AbstractXMPPManager {
                         if $0.readDate < 1 {
                             $0.readDate = (date ?? Date()).timeIntervalSince1970
                         }
-                        if $0.afterburnInterval > 0 {
+                        if $0.afterburnInterval > 0 && $0.autoDeleteExpiresAt <= 0 {
                             if $0.burnDate < 1 {
                                 $0.burnDate = (date ?? Date()).timeIntervalSince1970 + $0.afterburnInterval
                             }
@@ -494,14 +518,14 @@ class ChatMarkersManager: AbstractXMPPManager {
                 try realm.write {
                     if instance.isInvalidated { return }
                     if instance.readDate <= 1 && instance.burnDate <= 1 {
-                        if instance.afterburnInterval > 0 {
+                        if instance.afterburnInterval > 0 && instance.autoDeleteExpiresAt <= 0 {
                             instance.readDate = Date().timeIntervalSince1970
                             instance.burnDate = Date().timeIntervalSince1970 + instance.afterburnInterval
                         }
                     }
                     collection.forEach {
                         if $0.readDate <= 1 && $0.burnDate <= 1 {
-                            if $0.afterburnInterval > 0 {
+                            if $0.afterburnInterval > 0 && $0.autoDeleteExpiresAt <= 0 {
                                 $0.readDate = Date().timeIntervalSince1970
                                 $0.burnDate = Date().timeIntervalSince1970 + $0.afterburnInterval
                             }

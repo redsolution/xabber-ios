@@ -61,8 +61,6 @@ class VerificationViewController: SimpleBaseViewController {
     var state: VerificationSessionStorageItem.VerififcationState = .receivedRequest
     var datasource: [Datasource] = []
     
-    var headerHeightMax: CGFloat = 236
-    
     let scrollView: UIScrollView = {
         let view = UIScrollView()
         view.translatesAutoresizingMaskIntoConstraints = false
@@ -475,11 +473,7 @@ class VerificationViewController: SimpleBaseViewController {
             codeInputField.delegate = self
         }
         
-        headerView.frame = CGRect(
-            width: view.frame.width,
-            height: headerHeightMax
-        )
-        self.headerView.updateSubviews()
+        headerView.applyHeaderLayout(to: tableView, width: view.bounds.width)
     }
     
     override func viewDidDisappear(_ animated: Bool) {
@@ -732,4 +726,3 @@ extension VerificationViewController: UITextFieldDelegate {
         return true
     }
 }
-

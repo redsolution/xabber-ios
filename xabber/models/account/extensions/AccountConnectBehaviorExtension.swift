@@ -35,14 +35,13 @@ extension Account {
 //        self.disconnect(hard: true)
 //        self.resetStream()
 //        self.xmppStream.asyncSocket.disconnect()
-        self.asyncConnect()
+        self.asyncConnect(trigger: .restore)
     }
     
     func didAuthenticate() {
         registerRegularPushForAccount()
         registerVoIPPushForAccount()
         self.configureBase()
-        XMPPUIActionManager.shared.open(owner: self.jid, force: true)
         if self.sm.didResume {
             AccountManager.shared.markAsConnected(jid: self.jid)
 //            self.presence()
@@ -63,6 +62,14 @@ extension Account {
             }
             self.roster.request(self.xmppStream)
         }
+        self.connectionGate.markOnline()
+        self.queue.asyncAfter(deadline: .now() + 0.2) {
+            let phase = self.connectionGate.snapshot().phase
+            guard phase == .online else {
+                DDLogDebug("skip ui-action stream open jid=\(self.jid) primaryPhase=\(phase.rawValue)")
+                return
+            }
+        }
         self.queue.asyncAfter(deadline: .now() + 1) {
             _ = self.syncManager.sync(self.xmppStream)
             self.devices.requestList(self.xmppStream)
@@ -80,18 +87,18 @@ extension Account {
     }
     
     func didReceiveError(_ error: DDXMLElement) {
+        if self.handleAuthenticationFailure(error) {
+            return
+        }
+
         func failToConnect(_ errorName: String) {
             self.reconnect.autoReconnect = false
             self.disconnect(hard: true)
             switch errorName {
                 case "conflict":
-                    if self.devices.isAvailable {
-                        self.tokenWasInvalidated()
-                    } else {
-                        self.updateResource("\(self.resource)\(arc4random() % 16380)")
-                    }
+                    self.updateResource("\(self.resource)\(arc4random() % 16380)")
                 case "credentials-expired":
-                    self.tokenWasInvalidated()
+                    self.tokenShouldUpdate()
                 case "policy-violation":
                     if CommonConfigManager.shared.config.should_block_application_when_subscribtion_end {
                         SubscribtionsManager.shared.checkXMPPAccountState(jid: self.jid) {
@@ -113,10 +120,6 @@ extension Account {
 //                        self.tokenWasInvalidated()
 //                        return
 //                    }
-                    if error.element(forName: "text")?.stringValue == "Device was revoked" {
-                        self.tokenWasInvalidated()
-                        return
-                    }
                     self.statusMessage.accept("Incorrect username or password")
                     if self.jid != AccountManager.shared.newAccountJid {
                         self.tokenShouldUpdate()
@@ -134,7 +137,15 @@ extension Account {
         
         func tryToReconnect(_ errorName: String) {
             self.reconnect.autoReconnect = true
+            self.connectionGate.markDisconnected()
             self.queue.asyncAfter(deadline: .now() + 1) {
+                guard !self.xmppStream.isConnected,
+                      !self.xmppStream.isConnecting,
+                      !self.xmppStream.isAuthenticating,
+                      !self.xmppStream.isAuthenticated else {
+                    DDLogDebug("skip reconnect from stream error jid=\(self.jid) error=\(errorName)")
+                    return
+                }
                 self.reconnect.manualStart()
             }
         }
@@ -169,8 +180,59 @@ extension Account {
                     tryToReconnect(errorName)
             }
         }
-        CredentialsManager.shared.getItem(for: self.jid).release(error: true)
+        CredentialsManager.shared.getItem(for: self.jid).release(.authFailedRecoverable)
         self.resetConfigs()
+    }
+
+    @discardableResult
+    func handleAuthenticationFailure(_ error: DDXMLElement) -> Bool {
+        guard let failure = XMPPAuthenticationFailure(element: error) else {
+            return false
+        }
+        self.handleAuthenticationFailure(failure)
+        return true
+    }
+
+    func handleAuthenticationFailure(_ failure: XMPPAuthenticationFailure) {
+        let credentialsItem = CredentialsManager.shared.getItem(for: self.jid)
+        let resolution = XMPPAuthenticationFailureResolution.resolve(
+            failure: failure,
+            credentialKind: credentialsItem.kind
+        )
+        if resolution.shouldLogRawFailure {
+            DDLogDebug("XMPP auth failure for \(self.jid): \(failure.rawXML)")
+        }
+
+        self.authenticationCounterTracker.authenticationDidFail()
+        self.reconnect.autoReconnect = false
+        self.cancelDelayedConnectTimer()
+        credentialsItem.release(resolution.releaseOutcome)
+        self.disconnect(hard: true)
+        self.resetConfigs()
+        self.statusMessage.accept(resolution.statusMessage)
+
+        switch resolution.action {
+        case .removeAccount(let alertMessage):
+            ApplicationStateManager.shared.removeAccountForAuthenticationFailure(
+                jid: self.jid,
+                message: alertMessage
+            )
+
+        case .refreshDeviceSecret:
+            self.tokenShouldUpdate()
+
+        case .rejectPassword(let message):
+            self.statusMessage.accept(message)
+            AccountManager
+                .shared
+                .changeNewUserState(for: self.jid, to: .failure(message))
+
+        case .reportGeneric(let message):
+            self.statusMessage.accept(message)
+            AccountManager
+                .shared
+                .changeNewUserState(for: self.jid, to: .failure(message))
+        }
     }
     
     public final func tokenShouldUpdate() {

@@ -84,12 +84,17 @@ class HOTPAuth {
         let creditionalsItem = CredentialsManager.shared.getItem(for: jid)
         creditionalsItem.use {
             [unowned self] (isInvalidated, item) in
+            if isInvalidated {
+                callback?(nil)
+                item.release(.authFailedRecoverable)
+                return
+            }
             if let secret = item.creditionalString {
                 creditionalsItem.incrementCounter()
-                let counter = creditionalsItem.counter
+                let counter = creditionalsItem.currentCounter()
                 guard let hmac = try? HMAC(key: secret.bytes, variant: HMAC.Variant.sha1).authenticate(withUnsafeBytes(of: counter.bigEndian, { Data($0) }).bytes) else {
                     callback?(nil)
-                    creditionalsItem.release(error: false)
+                    creditionalsItem.release(.authFailedRecoverable)
                     return
                 }
                 
@@ -107,17 +112,18 @@ class HOTPAuth {
                 let strNum = "\(number)"
                 if strNum.count == digits {
                     callback?(strNum)
+                    creditionalsItem.release(.authSucceeded)
                     return
                 }
                 let prefixedZeros = String(repeatElement("0", count: (digits - strNum.count)))
                 callback?(prefixedZeros + strNum)
-                creditionalsItem.release(error: false)
+                creditionalsItem.release(.authSucceeded)
                 return
             } else {
                 item.decrementCounter()
                 callback?(nil)
+                item.release(.authFailedRecoverable)
             }
         }
     }
 }
-

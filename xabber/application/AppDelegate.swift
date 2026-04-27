@@ -71,6 +71,11 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
+    enum RemoteNotificationOutcome: Equatable {
+        case voip
+        case push(APNSManager.ReceiveResult)
+        case noData
+    }
 
     var window: UIWindow?
     var pushRegistry: PKPushRegistry!
@@ -222,6 +227,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             }
             
         }
+        ApplicationStateManager.shared.runPincodeTask(animated: false, force: true)
     }
     
     var startUserInfo: NSDictionary = NSDictionary() {
@@ -242,6 +248,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         
         AccountManager.shared.load(!self.isPushKit)
         ApplicationStateManager.shared.prepare()
+        CloudStorageQuotaRefreshCoordinator.shared.refreshAll(reason: .appLaunch)
         
         self.getNotificationSettings()
         
@@ -308,6 +315,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func applicationWillEnterForeground(_ application: UIApplication) {
         DDLogError("enter foreground")
         AccountManager.shared.prepare()
+        CloudStorageQuotaRefreshCoordinator.shared.refreshAll(reason: .foreground)
         NotifyManager.shared.setLastChats(displayed: true)
         ApplicationStateManager.shared.runPincodeTask(animated: false, force: true)
     }
@@ -318,13 +326,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
      
      func presentPasscodeOrRemoveBlurredScreen() {
-         if CredentialsManager.shared.isPincodeSetted() {
-             if !ApplicationStateManager.shared.isPincodeShowed {
-                 ApplicationStateManager.shared.isPincodeShowed = true
-                 DispatchQueue.main.async {
-                     PincodePresenter().present(animated: true)
-                 }
-             }
+         if CredentialsManager.shared.isPincodeSetted(),
+            PasscodeLockPolicy.canUsePasscodeLock {
+             ApplicationStateManager.shared.runPincodeTask(animated: true, force: true)
          } else {
              self.blurEffectView?.removeFromSuperview()
              self.blurEffectView = nil
@@ -421,62 +425,35 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any]) {
 //        return
         DDLogDebug("PAYLOAD USER INFO: \(userInfo)")
-        if VoIPManager.shared.onReceivePushUpdate(userInfo) {
-            return
-        }
-        do {
-            try APNSManager.shared.receive(userInfo, completionHandler: nil)
-        } catch APNSManager.APNSError.undefinedTargetType {
-            DDLogDebug("undefined target type")
-        } catch APNSManager.APNSError.failedToDecodeString {
-            DDLogDebug("failed to decode string")
-        } catch APNSManager.APNSError.registrationFailed {
-            DDLogDebug("registration failed")
-        } catch APNSManager.APNSError.invalidPayload {
-            DDLogDebug("invalid payload")
-        } catch APNSManager.APNSError.userNotExist {
-            APNSManager.shared.sendDeleteRequest(userInfo, voip: true)
-            APNSManager.shared.sendDeleteRequest(userInfo, voip: false)
-        } catch APNSManager.APNSError.registrationSuccess {
-            DDLogDebug("registration success")
-        } catch APNSManager.APNSError.featureNotImplemented {
-            DDLogDebug("feature not implemented")
-        } catch {
-            DDLogDebug("common error. \(error.localizedDescription)")
-        }
+        _ = Self.processRemoteNotification(
+            userInfo: userInfo,
+            voipHandler: { VoIPManager.shared.onReceivePushUpdate($0) },
+            apnsHandler: { payload, completion in
+                try APNSManager.shared.receive(payload, completionHandler: completion)
+            },
+            cleanupHandler: {
+                APNSManager.shared.sendDeleteRequest(userInfo, voip: true)
+                APNSManager.shared.sendDeleteRequest(userInfo, voip: false)
+            }
+        )
     }
     
     func application(_ application: UIApplication,
                      didReceiveRemoteNotification userInfo: [AnyHashable: Any],
                      fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
-        func handler() {
-            completionHandler(.newData)
-        }
         DDLogDebug("USER INFO: \(userInfo)")
-        if VoIPManager.shared.onReceivePushUpdate(userInfo) {
-            completionHandler(.newData)
-            return
-        }
-        do {
-            try APNSManager.shared.receive(userInfo, completionHandler: handler)
-        } catch APNSManager.APNSError.undefinedTargetType {
-            DDLogDebug("undefined target type")
-        } catch APNSManager.APNSError.failedToDecodeString {
-            DDLogDebug("failed to decode string")
-        } catch APNSManager.APNSError.registrationFailed {
-            DDLogDebug("registration failed")
-        } catch APNSManager.APNSError.invalidPayload {
-            DDLogDebug("invalid payload")
-        } catch APNSManager.APNSError.userNotExist {
-            APNSManager.shared.sendDeleteRequest(userInfo, voip: true)
-            APNSManager.shared.sendDeleteRequest(userInfo, voip: false)
-        } catch APNSManager.APNSError.registrationSuccess {
-            DDLogDebug("registration success")
-        } catch APNSManager.APNSError.featureNotImplemented {
-            DDLogDebug("feature not implemented")
-        } catch {
-            DDLogDebug("common error. \(error.localizedDescription)")
-        }
+        Self.processRemoteNotification(
+            userInfo: userInfo,
+            voipHandler: { VoIPManager.shared.onReceivePushUpdate($0) },
+            apnsHandler: { payload, completion in
+                try APNSManager.shared.receive(payload, completionHandler: completion)
+            },
+            cleanupHandler: {
+                APNSManager.shared.sendDeleteRequest(userInfo, voip: true)
+                APNSManager.shared.sendDeleteRequest(userInfo, voip: false)
+            },
+            fetchCompletionHandler: completionHandler
+        )
     }
     
     func application(_ application: UIApplication,
@@ -499,6 +476,76 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         return true
     }
     
+}
+
+extension AppDelegate {
+    private static func completeOnce(
+        _ completionHandler: ((UIBackgroundFetchResult) -> Void)?
+    ) -> (UIBackgroundFetchResult) -> Void {
+        guard let completionHandler else {
+            return { _ in }
+        }
+
+        let lock = NSLock()
+        var isCompleted = false
+        return { result in
+            lock.lock()
+            defer { lock.unlock() }
+            guard !isCompleted else {
+                return
+            }
+            isCompleted = true
+            completionHandler(result)
+        }
+    }
+
+    @discardableResult
+    static func processRemoteNotification(
+        userInfo: [AnyHashable: Any],
+        voipHandler: ([AnyHashable: Any]) -> Bool,
+        apnsHandler: ([AnyHashable: Any], (() -> Void)?) throws -> APNSManager.ReceiveResult,
+        cleanupHandler: () -> Void,
+        fetchCompletionHandler: ((UIBackgroundFetchResult) -> Void)? = nil
+    ) -> RemoteNotificationOutcome {
+        let complete = completeOnce(fetchCompletionHandler)
+
+        if voipHandler(userInfo) {
+            complete(.newData)
+            return .voip
+        }
+
+        do {
+            let result = try apnsHandler(userInfo, {
+                complete(.newData)
+            })
+            if fetchCompletionHandler != nil {
+                switch result {
+                case .registration, .displayed, .data:
+                    complete(.newData)
+                case .ignored:
+                    complete(.noData)
+                }
+            }
+            return .push(result)
+        } catch APNSManager.APNSError.undefinedTargetType {
+            DDLogDebug("undefined target type")
+        } catch APNSManager.APNSError.failedToDecodeString {
+            DDLogDebug("failed to decode string")
+        } catch APNSManager.APNSError.registrationFailed {
+            DDLogDebug("registration failed")
+        } catch APNSManager.APNSError.invalidPayload {
+            DDLogDebug("invalid payload")
+        } catch APNSManager.APNSError.userNotExist {
+            cleanupHandler()
+        } catch APNSManager.APNSError.featureNotImplemented {
+            DDLogDebug("feature not implemented")
+        } catch {
+            DDLogDebug("common error. \(error.localizedDescription)")
+        }
+
+        complete(.noData)
+        return .noData
+    }
 }
 
 extension AppDelegate: UISplitViewControllerDelegate {

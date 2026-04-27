@@ -144,6 +144,7 @@ extension ChatViewController {
                 (_) in
                 if self.showSkeletonObserver.value {
                     _ = self.completeInitialBootstrapIfNeeded()
+                    self.performPendingOpenMessageRequestIfNeeded(trigger: .observerRefresh)
                     return
                 }
                 if self.currentPage.locked {
@@ -153,6 +154,36 @@ extension ChatViewController {
                 self.didReceiveChangeset()
             }
             .disposed(by: self.bag)
+
+        if self.conversationType == .group {
+            do {
+                let realm = try WRealm.safe()
+                let myGroupUser = realm.objects(GroupchatUserStorageItem.self)
+                    .filter("groupchatId == %@ AND isMe == true", [self.jid, self.owner].prp())
+                let mentionNotifications = realm.objects(NotificationStorageItem.self)
+                    .filter("owner == %@ AND category_ == %@", self.owner, XMPPNotificationsManager.Category.mention.rawValue)
+                Observable
+                    .collection(from: myGroupUser, synchronousStart: true)
+                    .debounce(.milliseconds(30), scheduler: MainScheduler.asyncInstance)
+                    .observe(on: MainScheduler.asyncInstance)
+                    .subscribe(onNext: { _ in
+                        self.rebuildUnreadMentionItems()
+                        self.refreshUnreadMentionsNavigatorState(animated: true)
+                    })
+                    .disposed(by: self.bag)
+                Observable
+                    .collection(from: mentionNotifications, synchronousStart: true)
+                    .debounce(.milliseconds(30), scheduler: MainScheduler.asyncInstance)
+                    .observe(on: MainScheduler.asyncInstance)
+                    .subscribe(onNext: { _ in
+                        self.rebuildUnreadMentionItems()
+                        self.refreshUnreadMentionsNavigatorState(animated: true)
+                    })
+                    .disposed(by: self.bag)
+            } catch {
+                DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            }
+        }
         
         self.showLoadingIndicator
             .asObservable()
@@ -197,11 +228,15 @@ extension ChatViewController {
                     self.configureSearchBar()
                     self.xabberInputView.changeState(to: .search)
                     self.shouldShowScrollDownButton.accept(false)
+                    if self.shouldShowUnreadMentionsNavigator.value {
+                        self.shouldShowUnreadMentionsNavigator.accept(false)
+                    }
                 } else {
                     self.searchTextObserver.accept(nil)
                     self.configureNavbar()
                     self.xabberInputView.changeState(to: self.xabberInputView.state)
                     self.applyChatDatasource(self.datasource, mode: .fullReload())
+                    self.refreshUnreadMentionsNavigatorState(animated: true)
                 }
             })
             .disposed(by: bag)
@@ -233,6 +268,16 @@ extension ChatViewController {
                 }
             }
             .disposed(by: bag)
+
+        self.shouldShowUnreadMentionsNavigator
+            .asObservable()
+            .debounce(.milliseconds(5), scheduler: MainScheduler.asyncInstance)
+            .observe(on: MainScheduler.asyncInstance)
+            .subscribe { _ in
+                self.updateUnreadMentionsNavigatorFrame(animated: true)
+                self.updateScrollDownButtonFrame(animated: true)
+            }
+            .disposed(by: bag)
         
         self.contentOffsetObserver
             .asObservable()
@@ -255,6 +300,7 @@ extension ChatViewController {
                         self.shouldShowScrollDownButton.accept(false)
                     }
                 }
+                self.refreshUnreadMentionsNavigatorState(animated: true)
             }
             .disposed(by: bag)
 
@@ -342,7 +388,7 @@ extension ChatViewController {
             .objects(LastChatsStorageItem.self)
             .filter("jid == %@ AND owner == %@ AND conversationType_ == %@", self.jid, self.owner, self.conversationType.rawValue)
         if let chat = lastChatsObservedCollection.first {
-            self.xabberInputView.textField.text = chat.draftMessage
+            self.xabberInputView.setComposerText(chat.draftMessage)
             self.xabberInputView.textViewDidChange(force: true)
 
             self.updateContentByLastChatInstance(chat)
@@ -518,6 +564,8 @@ extension ChatViewController {
             self.reloadInitialWindowAfterBootstrapIfNeeded()
         }
         _ = self.completeInitialBootstrapIfNeeded()
+        self.rebuildUnreadMentionItems()
+        self.refreshUnreadMentionsNavigatorState(animated: true)
         let id = self.opponentSender.id
         if !(item.rosterItem?.isInvalidated ?? false) {
             self.opponentSender = Sender(
@@ -568,6 +616,20 @@ extension ChatViewController {
                 user.groupchats.requestMyPermissions(stream, groupchat: self.jid)
             }
         }
+
+        let realm = try WRealm.safe()
+        let mentionUsers = self.mentionUsersResults(in: realm)
+        Observable
+            .collection(from: mentionUsers)
+            .debounce(.milliseconds(20), scheduler: MainScheduler.asyncInstance)
+            .observe(on: MainScheduler.asyncInstance)
+            .subscribe(onNext: { results in
+                if !results.isEmpty {
+                    self.hasRequestedMentionUsersRefresh = false
+                }
+                self.xabberInputView.refreshMentionSuggestions()
+            })
+            .disposed(by: bag)
 
 //        let realm = try WRealm.safe()
 //        

@@ -45,13 +45,14 @@ class PasscodeOrBiometricViewController: SimpleBaseViewController {
     
     internal var pin: BehaviorRelay<String> = BehaviorRelay<String>(value: "")
     internal let padding: CGFloat = 24
+    var onUnlockSucceeded: (() -> Void)?
     
     private let titleLabel: UILabel = {
         let label = UILabel()
         
         label.text = "Enter passcode"
         label.font = UIFont.systemFont(ofSize: 23, weight: .regular)
-        label.textColor = .black
+        label.textColor = .label
         label.textAlignment = .center
         
         return label
@@ -61,7 +62,7 @@ class PasscodeOrBiometricViewController: SimpleBaseViewController {
         let label = UILabel()
         label.text = ""
         label.font = UIFont.systemFont(ofSize: 16, weight: .regular)
-        label.textColor = UIColor(red: 60/255, green: 60/255, blue: 65/255, alpha: 0.7)
+        label.textColor = .secondaryLabel
         label.textAlignment = .center
         
         return label
@@ -217,11 +218,13 @@ class PasscodeOrBiometricViewController: SimpleBaseViewController {
             dotsView.addSubview(item)
         }
         
-        self.view.backgroundColor = .clear
+        self.view.backgroundColor = .systemBackground
+        self.view.isOpaque = true
         let blurEffect = UIBlurEffect(style: UIBlurEffect.Style.regular)
         let vibrancyEffect = UIVibrancyEffect(blurEffect: blurEffect)
         let blurEffectView = UIVisualEffectView(effect: blurEffect)
         let vibrancyView = UIVisualEffectView(effect: vibrancyEffect)
+        blurEffectView.backgroundColor = .systemBackground
         blurEffectView.frame = view.bounds
         vibrancyView.frame = view.bounds
         blurEffectView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -438,13 +441,9 @@ class PasscodeOrBiometricViewController: SimpleBaseViewController {
             let reason = "Unlock \(CommonConfigManager.shared.config.app_name)"
             context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason ) { success, error in
                 if success {
-                    defer {
-                        ApplicationStateManager.shared.isPincodeShowed = false
-                    }
                     CredentialsManager.shared.updateOnlyPincodeTimestamp()
                     DispatchQueue.main.async {
-                        self.navigationController?.dismiss(animated: true, completion: nil)
-                        self.blurViewFadeOut()
+                        self.onUnlockSucceeded?()
                     }
                 }
             }
@@ -486,9 +485,7 @@ class PasscodeOrBiometricViewController: SimpleBaseViewController {
     private final func onPasscodeValid(_ value: String) {
         if CredentialsManager.shared.updatePincode(value) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                defer { ApplicationStateManager.shared.isPincodeShowed = false }
-                self.navigationController?.dismiss(animated: true, completion: nil)
-                self.blurViewFadeOut()
+                self.onUnlockSucceeded?()
             }
         } else {
             self.view.makeToast("Internal error")

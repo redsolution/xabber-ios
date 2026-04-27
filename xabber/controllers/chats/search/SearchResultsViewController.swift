@@ -63,6 +63,7 @@ class SearchResultsViewController: SimpleBaseViewController {
         let conversationType: ClientSynchronizationManager.ConversationType
         let unread: Int
         let unreadString: String?
+        let hasUnreadMention: Bool
         let color: UIColor
         let isDraft: Bool
         let hasAttachment: Bool
@@ -92,6 +93,7 @@ class SearchResultsViewController: SimpleBaseViewController {
                     && a.conversationType == b.conversationType
                     && a.unread == b.unread
                     && a.unreadString == b.unreadString
+                    && a.hasUnreadMention == b.hasUnreadMention
                     && a.color == b.color
                     && a.isDraft == b.isDraft
                     && a.hasAttachment == b.hasAttachment
@@ -262,8 +264,7 @@ class SearchResultsViewController: SimpleBaseViewController {
     }
     
     internal final func updateMessagesSearchResults() throws {
-        self.messagesDatasource = try self.messagesQueue.sorted(by: { $0.date > $1.date }).compactMap {
-            messageItem in
+        self.messagesDatasource = try self.messagesQueue.sorted(by: { $0.date > $1.date }).compactMap { messageItem -> Datasource? in
             
             let realm = try WRealm.safe()
             guard let item = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: messageItem.opponent, owner: messageItem.owner, conversationType: messageItem.conversationType)) else {
@@ -379,6 +380,7 @@ class SearchResultsViewController: SimpleBaseViewController {
                 conversationType: item.conversationType,
                 unread: 0,//messageItem.outgoing ? 0 : item.unread,
                 unreadString: isInvite ? "1" : nil,
+                hasUnreadMention: item.hasUnreadMention,
                 color: AccountManager.shared.users.count <= 1 ? .clear : AccountColorManager.shared.primaryColor(for: item.owner),
                 isDraft: false,
                 hasAttachment: isAttachment,
@@ -413,8 +415,7 @@ class SearchResultsViewController: SimpleBaseViewController {
                 .filter("owner IN %@ AND (jid CONTAINS[cd] %@ OR customUsername CONTAINS[cd] %@ OR username CONTAINS[cd] %@)", enabledAccounts, searchText, searchText, searchText)
                 .sorted(byKeyPath: "jid", ascending: true)
             let jids = Set(self.chatsDatasource.compactMap { return [$0.owner, $0.jid].prp() })
-            self.chatsDatasource = chats.compactMap {
-                item in
+            self.chatsDatasource = chats.compactMap { item -> Datasource? in
                 // TODO: fixme
                 if (XMPPJID(string: item.jid)?.isServer ?? false) && item.conversationType != .saved {
                     return nil
@@ -566,6 +567,7 @@ class SearchResultsViewController: SimpleBaseViewController {
                     conversationType: item.conversationType,
                     unread: item.lastMessage?.outgoing ?? false ? 0 : item.unread,
                     unreadString: isInvite ? "1" : nil,
+                    hasUnreadMention: item.hasUnreadMention,
                     color: AccountManager.shared.users.count <= 1 ? .clear : AccountColorManager.shared.primaryColor(for: item.owner),
                     isDraft: isDraft,
                     hasAttachment: isAttachment,
@@ -582,8 +584,7 @@ class SearchResultsViewController: SimpleBaseViewController {
                 )
             }
             
-            self.chatsDatasource.append(contentsOf: roster.compactMap ({
-                item in
+            self.chatsDatasource.append(contentsOf: roster.compactMap({ item -> Datasource? in
                 if jids.contains([item.owner, item.jid].prp()) { return nil }
                 let primaryResource = item.getPrimaryResource()
                 return Datasource(
@@ -601,6 +602,7 @@ class SearchResultsViewController: SimpleBaseViewController {
                     conversationType: ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular,
                     unread: 0,
                     unreadString: nil,
+                    hasUnreadMention: false,
                     color: AccountManager.shared.users.count <= 1 ? .clear : AccountColorManager.shared.primaryColor(for: item.owner),
                     isDraft: false,
                     hasAttachment: false,

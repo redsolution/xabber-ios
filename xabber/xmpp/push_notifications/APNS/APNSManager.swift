@@ -19,6 +19,7 @@
 //
 
 import Foundation
+import UIKit
 import XMPPFramework
 import CryptoSwift
 import RealmSwift
@@ -58,8 +59,14 @@ class APNSManager: NSObject {
         case registrationFailed
         case invalidPayload
         case userNotExist
-        case registrationSuccess
         case featureNotImplemented
+    }
+
+    enum ReceiveResult: Equatable {
+        case registration
+        case displayed
+        case data
+        case ignored
     }
     
     public struct PushService: Codable {
@@ -78,6 +85,14 @@ class APNSManager: NSObject {
     
     internal var voipToken: String? = nil
     internal var deviceToken: String? = nil
+
+    internal var buildEnvironmentComponent: String {
+        #if RELEASE
+        return "prod"
+        #else
+        return "dev"
+        #endif
+    }
     
     static func apiUrl(for url: String) -> String {
         guard let path = Bundle.main.path(forResource: "push_service", ofType: "plist"),
@@ -129,14 +144,51 @@ class APNSManager: NSObject {
             AccountManager.shared.find(for: $0)?.registerRegularPushForAccount()
         }
     }
-    
-    func receive(_ pushData: [AnyHashable: Any], completionHandler: (() -> Void)?) throws {
+
+    internal func token(for pushType: PushType) -> String? {
+        switch pushType {
+        case .registration:
+            return deviceToken
+        case .message:
+            return voipToken
+        }
+    }
+
+    internal func canSendRegistrationRequest(voip: Bool) -> Bool {
+        let pushType: PushType = voip ? .message : .registration
+        return token(for: pushType)?.isNotEmpty ?? false
+    }
+
+    internal func endpointTarget(forJid jid: String, voip: Bool) -> String? {
+        let token = voip ? voipToken : deviceToken
+        guard let token, token.isNotEmpty,
+              let identifier = UIDevice.current.identifierForVendor?.uuidString else {
+            return nil
+        }
+        let hashString = [identifier, CommonConfigManager.shared.config.bundle_id, buildEnvironmentComponent].prp()
+        return [jid, hashString].joined(separator: "/")
+    }
+
+    static func decodeNodeData(from payloadBody: String) throws -> NodeData {
+        if let plainData = payloadBody.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode(NodeData.self, from: plainData) {
+            return decoded
+        }
+
+        guard let decodedBody = Data(base64Encoded: payloadBody, options: .ignoreUnknownCharacters),
+              let decoded = try? JSONDecoder().decode(NodeData.self, from: decodedBody) else {
+            throw APNSError.failedToDecodeString
+        }
+
+        return decoded
+    }
+
+    func receive(_ pushData: [AnyHashable: Any], completionHandler: (() -> Void)?) throws -> ReceiveResult {
 //        logThisPush()
 //        return
         DDLogDebug("receive push, start check target type, \(pushData)")
         let dict = pushData as NSDictionary
-//        guard let targetTypeStr = dict.value(forKey: "target_type") as? String else { throw APNSError.invalidPayload }
-        let targetTypeStr = "node"
+        let targetTypeStr = dict.value(forKey: "target_type") as? String ?? "node"
         let target = dict.value(forKey: "target") as? String
         print(target)
         let targetType: TargetType
@@ -159,31 +211,25 @@ class APNSManager: NSObject {
         switch targetType {
         case .node(let base64EncodedString):
             DDLogDebug("receive push. start check base64 encoded json. \(base64EncodedString)")
-//            guard let JSONData = base64EncodedString.fromBase64()?.data(using: .utf8) else {
-            guard let JSONData = base64EncodedString.data(using: .utf8) else {
-                throw APNSError.failedToDecodeString
-            }
-            let json = try JSONDecoder().decode(NodeData.self, from: JSONData)
+            let json = try Self.decodeNodeData(from: base64EncodedString)
             DDLogDebug(["receive push", "json action \(json.action)", #function].joined(separator: ". "))
             switch json.action{
             case "regjid":
                 print("REGJID json", json)
                 try self.register(json, completionHandler: completionHandler)
-                break
+                return .registration
 //            case "message":
 //                try self.message(json, completionHandler: completionHandler)
 //                break
             case "displayed":
                 try self.displayed(json, target: target, completionHandler: completionHandler)
-                break
+                return .displayed
             case "data":
                 try self.data(json, target: target, completionHandler: completionHandler)
-            default: break
+                return .data
+            default:
+                return .ignored
             }
-            
-            
-            
-            break
         case .xabberAccount(_):
             throw APNSError.featureNotImplemented
         }
@@ -208,8 +254,11 @@ class APNSManager: NSObject {
         guard AccountManager.shared.find(for: decoratedJid.bare) != nil else {
             throw APNSError.userNotExist
         }
-        print("REGISTR INFO", registrationInfo.node, service)
-        AccountManager.shared.find(for: decoratedJid.bare)?.update(forPushNode: registrationInfo.node!, withService: service)
+        guard let node = registrationInfo.node, node.isNotEmpty else {
+            throw APNSError.invalidPayload
+        }
+        print("REGISTR INFO", node, service)
+        AccountManager.shared.find(for: decoratedJid.bare)?.update(forPushNode: node, withService: service)
 //        PushLogger.shared.push("receive node & service of push service for \(jid)")
         
 //        AccountManager.shared.find(for: decoratedJid.bare)?.action { (user, stream) in
@@ -222,8 +271,6 @@ class APNSManager: NSObject {
 //        DispatchQueue.main.async {
 //            ToastPresenter(message: "Reg jid push receive").present(animated: true)
 //        }
-        
-        throw APNSError.registrationSuccess
     }
     
     func displayed(_ displayedInfo: NodeData, target: String?, completionHandler: (() -> Void)?) throws {

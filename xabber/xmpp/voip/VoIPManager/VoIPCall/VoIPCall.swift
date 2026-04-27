@@ -33,7 +33,7 @@ protocol VoIPCallDelegate {
     func VoIPCallDidReceive(_ call: VoIPCall, iceCandidate: RTCIceCandidate)
     func VoIPCallDidChangeVideoState(_ call: VoIPCall, to state: VoIPCall.VideoState, myself: Bool)
     func VoIPCallDidUpdateContactJid(_ call: VoIPCall)
-    func VoIPCallDidReceiveRejectMessage(_ call: VoIPCall)
+    func VoIPCallDidReceiveRejectMessage(_ call: VoIPCall, endReason: String?, callInitiator: String?, isCarbon: Bool, fromCurrentDevice: Bool)
     func VoIPCallEndCallAnswerElsewhere(_ call: VoIPCall)
     func VoIPCallEndCallRejected(_ call: VoIPCall)
 }
@@ -70,6 +70,7 @@ final class VoIPCall: NSObject {
     internal var password: String?
     
     internal var stream: XMPPStream
+    let authenticationCounterTracker = XMPPAuthenticationCounterTracker()
     
     public var delegate: VoIPCallDelegate?
     
@@ -94,20 +95,22 @@ final class VoIPCall: NSObject {
     internal var lastPingTimer: Timer? = nil
     
     internal var reconnect: XMPPReconnect
+    internal var shouldConfirmOnAuthenticate: Bool = false
+    internal var shouldDisconnectAfterQueuedRejectSend: Bool = false
+    internal var queuedRejectTimeoutWorkItem: DispatchWorkItem?
+    internal var queuedRejectDidFinish: (() -> Void)?
     
     var backgroundUpdateTask: UIBackgroundTaskIdentifier = UIBackgroundTaskIdentifier(rawValue: 0)
     
     internal var state: State {
-        willSet {
-            print("change voip state to \(newValue)")
-            if self.state == .ended && newValue == .disconnected {
-                self.state = .ended
-            }
-            if newValue == .connected {
+        didSet {
+            guard oldValue != state else { return }
+            print("change voip state to \(state)")
+            if state == .connected {
                 self.isMade = true
             }
             DispatchQueue.main.async {
-                self.delegate?.VoIPCallDidChangeState(self, to: newValue)
+                self.delegate?.VoIPCallDidChangeState(self, to: self.state)
             }
         }
     }
@@ -139,12 +142,6 @@ final class VoIPCall: NSObject {
         self.stream.asyncSocket.autoDisconnectOnClosedReadStream = true
         
         self.reconnect.activate(self.stream)
-        
-        self.connect()
-        if !outgoing {
-            self.confirm()
-        }
-        
     }
     
     private final func endBackgroundTask() {
@@ -173,14 +170,20 @@ final class VoIPCall: NSObject {
         self.stream.disconnect()
         self.connect()
     }
+
+    public final func start(shouldConfirmOnAuthenticate: Bool) {
+        self.shouldConfirmOnAuthenticate = shouldConfirmOnAuthenticate
+        self.connect()
+    }
     
     public final func disconnect() {
         guard let jid = stream.myJID?.bare else { return }
-        CredentialsManager.shared.getItem(for: jid).release(error: false)
+        queuedRejectTimeoutWorkItem?.cancel()
+        queuedRejectTimeoutWorkItem = nil
+        CredentialsManager.shared.getItem(for: jid).release(.authFailedRecoverable)
 //        self.queue.asyncAfter(deadline: .now() + 1) {
             self.stream.disconnectAfterSending()
 //        }
-        VoIPManager.shared.reset()
     }
     
 }
@@ -391,14 +394,16 @@ extension VoIPCall {
         func closeCall() {
             self.isMade = true
             self.shouldSendReject = false
-            self.delegate?.VoIPCallDidEndWith(self, error: nil, byActiveStream: true)
-            self.delegate?.VoIPCallEndCallAnswerElsewhere(self)
+            DispatchQueue.main.async {
+                self.delegate?.VoIPCallEndCallAnswerElsewhere(self)
+            }
         }
         guard let accept = message.element(forName: "accept", xmlns: VoIPCall.namespace),
               let callId = accept.attributeStringValue(forName: "id"),
               let from = message.from else {
             return false
         }
+        let previousState = self.state
         if self.callId == callId {
             if carbons {
                 if !self.outgoing {
@@ -419,7 +424,7 @@ extension VoIPCall {
             DispatchQueue.main.async {
                 self.delegate?.VoIPCallDidUpdateContactJid(self)
             }
-            if outgoing && carbons  && self.state.rawValue < State.accepted.rawValue {
+            if outgoing && carbons  && previousState.rawValue < State.accepted.rawValue {
                 DispatchQueue.main.async {
                     print("FAIL")
                     self.delegate?.VoIPCallDidEndWith(self, error: VoIPCallError.callAcceptedButNotConfirmed, byActiveStream: true)
@@ -471,6 +476,8 @@ extension VoIPCall {
             call.addAttribute(withName: "end-reason", stringValue: "missed")
         case .noanswer:
             call.addAttribute(withName: "end-reason", stringValue: "noanswer")
+        case .busy:
+            call.addAttribute(withName: "end-reason", stringValue: "busy")
         default:
             call.addAttribute(
                 withName: "end",
@@ -507,37 +514,57 @@ extension VoIPCall {
             self.stream.send(message)
             self.disconnect()
         } else {
+            self.shouldDisconnectAfterQueuedRejectSend = true
+            let timeout = DispatchWorkItem { [weak self] in
+                self?.finishQueuedRejectSend()
+            }
+            self.queuedRejectTimeoutWorkItem = timeout
+            DispatchQueue.main.asyncAfter(deadline: .now() + 10.0, execute: timeout)
             self.enqueue(stanza: message)
         }
     }
+
+    internal final func finishQueuedRejectSend() {
+        queuedRejectTimeoutWorkItem?.cancel()
+        queuedRejectTimeoutWorkItem = nil
+        shouldDisconnectAfterQueuedRejectSend = false
+        stanzaQueue.removeAll()
+        let completion = queuedRejectDidFinish
+        queuedRejectDidFinish = nil
+        disconnect()
+        completion?()
+    }
     
-    public final func onReject(_ message: XMPPMessage) -> Bool {
+    public final func onReject(_ message: XMPPMessage, carbons: Bool = false, fromCurrentDevice: Bool = false) -> Bool {
 //        NotifyManager.shared.showSimpleNotify(withTitle: "VOIP", subtitle: "", body: "receive reject from \(message.from?.full ?? "")")
-        func closeCall() {
-            self.isMade = true
-            self.shouldSendReject = false
-            VoIPManager.shared.VoIPCallDidEndWith(self, error: nil, byActiveStream: false)
-        }
         guard let reject = message.element(forName: "reject", xmlns: VoIPCall.namespace),
               let callId = reject.attributeStringValue(forName: "id"),
               self.callId == callId else {
             return false
         }
+        let call = reject.element(forName: "call")
         
         self.state = .ended
-        self.delegate?.VoIPCallDidChangeState(self, to: .ended)
         self.end = Date()
         self.shouldSendReject = false
         
-        if let startString = reject.element(forName: "call")?.attributeStringValue(forName: "start"),
+        if let startString = call?.attributeStringValue(forName: "start"),
            let startDate = Date.parseXMPPFormattedString(startString) {
             self.start = startDate
         }
-        if let endString = reject.element(forName: "call")?.attributeStringValue(forName: "end"),
+        if let endString = call?.attributeStringValue(forName: "end"),
            let endDate = Date.parseXMPPFormattedString(endString) {
             self.end = endDate
         }
-        closeCall()
+        DispatchQueue.main.async {
+            self.delegate?.VoIPCallDidReceiveRejectMessage(
+                self,
+                endReason: call?.attributeStringValue(forName: "end-reason"),
+                callInitiator: call?.attributeStringValue(forName: "initiator"),
+                isCarbon: carbons,
+                fromCurrentDevice: fromCurrentDevice
+            )
+        }
         
         return true
     }
@@ -618,16 +645,6 @@ extension VoIPCall {
         }
         switch action {
         case "session-initiate":
-            if let jid = XMPPJID(string: self.jid),
-               !jid.isFull {
-                self.start = Date()
-                self.state = .accepted
-                self.jid = from.full
-                DispatchQueue.main.async {
-                    self.delegate?.VoIPCallDidUpdateContactJid(self)
-                    self.delegate?.VoIPCallDidAccepted(self)
-                }
-            }
             let sdp = RTCSessionDescription(type: .offer, sdp: sdpString)
             DispatchQueue.main.async {
                 self.delegate?.VoIPCallDidReceive(self, sessionDescription: sdp)
@@ -860,62 +877,72 @@ extension VoIPCall: XMPPStreamDelegate {
             creditionalsItem.use {
                 [unowned self] (isInvalidated, item) in
                 
-                if isInvalidated {
-                    invalidate()
-                }
-                do {
-                    if let token = item.creditionalString {
-                        creditionalsItem.incrementCounter()
-                        stream.shouldRequestXToken = false
-                        stream.shouldRegisterDevice = false
-                        try stream.authenticate(withXabberToken: token, counter: item.counter)
-                        
-                    } else {
-                        item.decrementCounter()
-                        invalidate()
-                    }
-                } catch {
-                    item.decrementCounter()
-//                    reconnect(error)
-                }
-            }
+	                if isInvalidated {
+	                    item.release(.credentialRevoked)
+	                    invalidate()
+	                    return
+	                }
+	                do {
+	                    switch try XMPPStoredCredentialAuthenticator.authenticate(
+	                        stream: stream,
+	                        storage: item,
+	                        ownerJID: self.owner,
+	                        counterTracker: self.authenticationCounterTracker
+	                    ) {
+	                    case .started:
+	                        break
+	                    case .missingCredential:
+	                        self.authenticationCounterTracker.authenticationDidFail()
+	                        item.release(.authFailedRecoverable)
+	                        invalidate()
+	                    }
+	                } catch {
+	                    self.authenticationCounterTracker.authenticationDidFail()
+	                    item.release(.authFailedRecoverable)
+	//                    reconnect(error)
+	                }
+	            }
             break
         case .secret:
             creditionalsItem.use {
-                [unowned self] (isInvalidated, item) in
-                if isInvalidated {
-                    invalidate()
-                }
-                do {
-                    if let secret = item.creditionalString {
-                        creditionalsItem.incrementCounter()
-                        let counter = creditionalsItem.counter
-                        stream.shouldRegisterDevice = false
-                        stream.shouldRequestXToken = false
-                        let realm = try WRealm.safe()
-                        let deviceUUID = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: stream.myJID?.bare ?? "")?.deviceUuid
-                        if stream.supportsOCRAAuthentication {
-                            try stream.authenticate(withOCRASecret: secret, validationKey: item.validationKey ?? "", deviceId: deviceUUID ?? "", counter: counter)
-                        } else {
-                            try stream.authenticate(withHOTPSecret: secret, counter: counter)
-                        }
-                    } else {
-                        item.decrementCounter()
-                        invalidate()
-                    }
-                } catch {
-//                    print(error.localizedDescription)
-                    item.decrementCounter()
-//                    reconnect(error)
-                }
-            }
+	                [unowned self] (isInvalidated, item) in
+	                if isInvalidated {
+	                    item.release(.credentialRevoked)
+	                    invalidate()
+	                    return
+	                }
+	                do {
+	                    switch try XMPPStoredCredentialAuthenticator.authenticate(
+	                        stream: stream,
+	                        storage: item,
+	                        ownerJID: self.owner,
+	                        counterTracker: self.authenticationCounterTracker
+	                    ) {
+	                    case .started:
+	                        break
+	                    case .missingCredential:
+	                        self.authenticationCounterTracker.authenticationDidFail()
+	                        item.release(.authFailedRecoverable)
+	                        invalidate()
+	                    }
+	                } catch {
+	//                    print(error.localizedDescription)
+	                    self.authenticationCounterTracker.authenticationDidFail()
+	                    item.release(.authFailedRecoverable)
+	//                    reconnect(error)
+	                }
+	            }
         }
     }
     
-    func xmppStreamDidAuthenticate(_ sender: XMPPStream) {
-        guard let jid = sender.myJID?.bare else { return }
-        CredentialsManager.shared.getItem(for: jid).release(error: false)
-        self.confirm()
+	    func xmppStreamDidAuthenticate(_ sender: XMPPStream) {
+	        guard let jid = sender.myJID?.bare else { return }
+	        let credentialsItem = CredentialsManager.shared.getItem(for: jid)
+	        authenticationCounterTracker.authenticationDidSucceed(using: credentialsItem)
+	        credentialsItem.release(.authSucceeded)
+	        if self.shouldConfirmOnAuthenticate {
+	            self.confirm()
+	        }
 //        sender.send(DDXMLElement(name: "inactive", xmlns: "urn:xmpp:csi:0"))
         sender.send(XMPPIQ(iqType: .set,
                            to: nil,
@@ -925,6 +952,28 @@ extension VoIPCall: XMPPStreamDelegate {
 //        sender.send(XMPPPresence())
         
         self.processStanzaQueue()
+    }
+
+	    func xmppStream(_ sender: XMPPStream, didNotAuthenticate error: DDXMLElement) {
+	        authenticationCounterTracker.authenticationDidFail()
+	        let credentialsItem = CredentialsManager.shared.getItem(for: owner)
+	        if let failure = XMPPAuthenticationFailure(element: error) {
+	            let resolution = XMPPAuthenticationFailureResolution.resolve(
+	                failure: failure,
+	                credentialKind: credentialsItem.kind,
+	                source: .secondaryStream
+	            )
+	            if resolution.shouldLogRawFailure {
+	                DDLogDebug("XMPP VoIP auth failure for \(owner): \(failure.rawXML)")
+	            }
+	        } else {
+	            DDLogDebug("XMPP VoIP auth failure for \(owner): \(error.xmlString)")
+	        }
+	        credentialsItem.release(.authFailedRecoverable)
+	        self.stream.disconnect()
+	        DispatchQueue.main.async {
+	            self.delegate?.VoIPCallDidEndWith(self, error: VoIPCallError.xmppErrorAuthenticationFailed, byActiveStream: false)
+        }
     }
     
     func xmppStream(_ sender: XMPPStream, willSend iq: XMPPIQ) -> XMPPIQ? {
@@ -942,6 +991,13 @@ extension VoIPCall: XMPPStreamDelegate {
     func xmppStream(_ sender: XMPPStream, didSend message: XMPPMessage) {
 //        print("VoIP:Message:SEND: \(message.prettyXMLString ?? "")")
         DDLogInfo("send: \(message.prettyXMLString ?? "")")
+        if shouldDisconnectAfterQueuedRejectSend,
+           let reject = message.element(forName: "reject", xmlns: VoIPCall.namespace),
+           reject.attributeStringValue(forName: "id") == self.callId {
+            DispatchQueue.main.async {
+                self.finishQueuedRejectSend()
+            }
+        }
     }
     
     func xmppStream(_ sender: XMPPStream, didReceive iq: XMPPIQ) -> Bool {
@@ -965,9 +1021,6 @@ extension VoIPCall: XMPPStreamDelegate {
     }
     
     func xmppStream(_ sender: XMPPStream, willReceive iq: XMPPIQ) -> XMPPIQ? {
-        if iq.iqType == .error {
-            return nil
-        }
         return iq
     }
     
@@ -986,9 +1039,12 @@ extension VoIPCall: XMPPStreamDelegate {
         } else {
             bareMessage = message
         }
+        let fromDeviceId = bareMessage.element(forName: "device")?.attributeStringValue(forName: "id")
+        let currentDeviceId = AccountManager.shared.find(for: owner)?.devices.deviceId
+        let fromCurrentDevice = fromDeviceId != nil && fromDeviceId == currentDeviceId
         switch true {
             case onAccept(bareMessage, carbons: isCarbon): return
-            case onReject(bareMessage): return
+            case onReject(bareMessage, carbons: isCarbon, fromCurrentDevice: fromCurrentDevice): return
             default: return
         }
     }
@@ -1006,19 +1062,19 @@ extension VoIPCall: XMPPStreamDelegate {
         self.doReconnect()
     }
     
-    func xmppStreamDidDisconnect(_ sender: XMPPStream, withError error: Error?) {
-        guard let jid = sender.myJID?.bare else { return }
-        CredentialsManager.shared.getItem(for: jid).release(error: false)
-        if self.state == .ended {
-            DispatchQueue.main.async {
-                self.delegate?.VoIPCallDidEndWith(self, error: nil, byActiveStream: false)
+	    func xmppStreamDidDisconnect(_ sender: XMPPStream, withError error: Error?) {
+	        guard let jid = sender.myJID?.bare else { return }
+	        CredentialsManager.shared.getItem(for: jid).release(.authFailedRecoverable)
+	        if self.state == .ended {
+	            DispatchQueue.main.async {
+	                self.delegate?.VoIPCallDidEndWith(self, error: nil, byActiveStream: false)
             }
         }
     }
     
-    func xmppStreamDidSendClosingStreamStanza(_ sender: XMPPStream) {
-//        print(#function, "CLOSE")
-        guard let jid = sender.myJID?.bare else { return }
-        CredentialsManager.shared.getItem(for: jid).release(error: false)
-    }
+	    func xmppStreamDidSendClosingStreamStanza(_ sender: XMPPStream) {
+	//        print(#function, "CLOSE")
+	        guard let jid = sender.myJID?.bare else { return }
+	        CredentialsManager.shared.getItem(for: jid).release(.authFailedRecoverable)
+	    }
 }

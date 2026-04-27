@@ -383,6 +383,7 @@ class LastChatsViewController: BaseViewController {
         let conversationType: ClientSynchronizationManager.ConversationType
         let unread: Int
         let unreadString: String?
+        let hasUnreadMention: Bool
         let color: UIColor
         let isDraft: Bool
         let hasAttachment: Bool
@@ -415,6 +416,7 @@ class LastChatsViewController: BaseViewController {
                     && a.conversationType == b.conversationType
                     && a.unread == b.unread
                     && a.unreadString == b.unreadString
+                    && a.hasUnreadMention == b.hasUnreadMention
                     && a.color == b.color
                     && a.isDraft == b.isDraft
                     && a.hasAttachment == b.hasAttachment
@@ -819,6 +821,7 @@ class LastChatsViewController: BaseViewController {
                     conversationType: .axolotl,
                     unread: 0,
                     unreadString: nil,
+                    hasUnreadMention: false,
                     color: .white,
                     isDraft: false,
                     hasAttachment: false,
@@ -991,6 +994,7 @@ class LastChatsViewController: BaseViewController {
                         conversationType: .group,
                         unread: rosterItems.count,
                         unreadString: nil,
+                        hasUnreadMention: false,
                         color: .brown,
                         isDraft: false,
                         hasAttachment: false,
@@ -1028,6 +1032,7 @@ class LastChatsViewController: BaseViewController {
                         conversationType: .group,
                         unread: rosterItems.count,
                         unreadString: nil,
+                        hasUnreadMention: false,
                         color: .brown,
                         isDraft: false,
                         hasAttachment: false,
@@ -1193,6 +1198,7 @@ class LastChatsViewController: BaseViewController {
                     conversationType: item.conversationType,
                     unread: item.lastMessage?.outgoing ?? false ? 0 : item.unread,
                     unreadString: nil,
+                    hasUnreadMention: item.hasUnreadMention,
                     color: AccountManager.shared.users.count <= 1 ? .clear : AccountColorManager.shared.primaryColor(for: item.owner),
                     isDraft: isDraft,
                     hasAttachment: isAttachment,
@@ -1332,9 +1338,9 @@ class LastChatsViewController: BaseViewController {
             self.finishDatasetUpdateCycle()
             if changes.replaces.isEmpty { return }
             UIView.performWithoutAnimation {
-                //may be increase performance
-                self.tableView.reconfigureRows(at: changes.replaces)
-//                self.tableView.reloadRows(at: changes.replaces, with: .none)
+                // Replacement rows can switch between skeleton, chat, and special-message cells.
+                // Reload them so UITableView can dequeue the correct reuse identifier.
+                self.tableView.reloadRows(at: changes.replaces, with: .none)
             }
         })
     }

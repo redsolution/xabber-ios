@@ -52,6 +52,7 @@ class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISe
         let conversationType: ClientSynchronizationManager.ConversationType
         let unread: Int
         let unreadString: String?
+        let hasUnreadMention: Bool
         let color: UIColor
         let isDraft: Bool
         let hasAttachment: Bool
@@ -80,6 +81,7 @@ class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISe
                     && a.conversationType == b.conversationType
                     && a.unread == b.unread
                     && a.unreadString == b.unreadString
+                    && a.hasUnreadMention == b.hasUnreadMention
                     && a.color == b.color
                     && a.isDraft == b.isDraft
                     && a.hasAttachment == b.hasAttachment
@@ -275,6 +277,7 @@ class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISe
                 conversationType: item.conversationType,
                 unread: item.lastMessage?.outgoing ?? false ? 0 : item.unread,
                 unreadString: isInvite ? "1" : nil,
+                hasUnreadMention: item.hasUnreadMention,
                 color: AccountManager.shared.users.count <= 1 ? .clear : AccountColorManager.shared.primaryColor(for: item.owner),
                 isDraft: isDraft,
                 hasAttachment: isAttachment,
@@ -295,7 +298,7 @@ class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISe
             datasource.insert(datasource.remove(at: favoritesChatIndex), at: 0) 
         }
         
-        self.datasource.append(contentsOf: self.rosterDataset?.compactMap({ item in
+        self.datasource.append(contentsOf: self.rosterDataset?.compactMap({ item -> Datasource? in
             if datasource.contains(where: {$0.jid == item.jid && $0.owner == item.owner}) {
                 return nil
             }
@@ -378,6 +381,7 @@ class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISe
                 conversationType: conversationType,
                 unread: 0,
                 unreadString: nil,
+                hasUnreadMention: false,
                 color: AccountManager.shared.users.count <= 1 ? .clear : AccountColorManager.shared.primaryColor(for: item.owner),
                 isDraft: false,
                 hasAttachment: false,

@@ -209,7 +209,11 @@ extension SimpleTableViewController: UITableViewDataSource {
                 }
                 cell.accessoryType = .none
             } else if menuItem.section == .security {
-                cell.textLabel?.textColor = .systemBlue
+                if menuItem.key == .turnPasscodeOff {
+                    cell.textLabel?.textColor = .systemRed
+                } else {
+                    cell.textLabel?.textColor = .systemBlue
+                }
                 cell.accessoryType = .none
             } else if menuItem.section == .delete {
                 cell.textLabel?.textColor = .systemRed
@@ -253,6 +257,10 @@ extension SimpleTableViewController: UITableViewDelegate {
         let menuItem = datasource.childs[indexPath.section].childs[indexPath.row]
          
         if let key = menuItem.key {
+            if isPasscodeConfigurationKey(key), !handlePasscodeConfigurationAccess() {
+                return
+            }
+
             switch key {
             case .accountStatus:
                 let vc = AccountNewStatusViewController()
@@ -279,6 +287,10 @@ extension SimpleTableViewController: UITableViewDelegate {
                 return
                 
             case .turnBiometricsOnOff:
+                guard CredentialsManager.shared.isPincodeSetted() else {
+                    self.view.makeToast("Create a passcode first")
+                    return
+                }
                 let biometricsSuport = SettingManager.shared.getKeyBool(for: "", scope: .security, key: "support_touch_id") ?? false
                 if biometricsSuport {
                     let alert = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
@@ -307,13 +319,23 @@ extension SimpleTableViewController: UITableViewDelegate {
                     }
                 }
                 return
+
+            case .changePasscode:
+                let vc = PasscodeViewController(mode: .verifyCurrent(.change))
+                navigationController?.pushViewController(vc, animated: true)
+                return
                 
             case .turnPasscodeOff:
-                let alert = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
-                let turnPasscodeOffAction = UIAlertAction(title: "Turn Passcode Off", style: .destructive, handler: { _ in
+                guard CredentialsManager.shared.isPincodeSetted() else {
                     CredentialsManager.shared.clearPincodes()
                     SettingManager.shared.saveItem(for: "", scope: .security, key: "support_touch_id", value: false)
-                    self.navigationController?.popViewController(animated: true)
+                    self.navigationController?.popToRootViewController(animated: true)
+                    return
+                }
+                let alert = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+                let turnPasscodeOffAction = UIAlertAction(title: "Turn Passcode Off", style: .destructive, handler: { _ in
+                    let vc = PasscodeViewController(mode: .verifyCurrent(.remove))
+                    self.navigationController?.pushViewController(vc, animated: true)
                 })
                 alert.addAction(turnPasscodeOffAction)
                 let cancelAction = UIAlertAction(title: "Cancel", style: .cancel)
@@ -345,11 +367,11 @@ extension SimpleTableViewController: UITableViewDelegate {
                 
             case .passcodeAttempts:
                 let alert = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
-                let items = ["1", "2", "3", "4", "5"]
+                let items = ["Unlimited", "1", "2", "3", "4", "5"]
                 for item in items {
                     let action = UIAlertAction(title: item, style: .default, handler: { item in
                         guard let selected = item.title else { return }
-                        let attempts = Int(selected) ?? 0
+                        let attempts = selected == "Unlimited" ? 0 : Int(selected) ?? 0
                         SettingManager.shared.saveItem(for: "", scope: .security, key: key.rawValue, value: attempts)
                         CredentialsManager.shared.setPasscodeAttemptsLeft(attempts)
                         self.tableView.reloadRows(at: [indexPath], with: .none)
@@ -459,6 +481,39 @@ extension SimpleTableViewController: UITableViewDelegate {
     }
 }
 
+private extension SimpleTableViewController {
+    func isPasscodeConfigurationKey(_ key: SettingsViewController.Datasource.Keys) -> Bool {
+        switch key {
+        case .changePasscode,
+             .turnPasscodeOff,
+             .turnBiometricsOnOff,
+             .passcodeTimer,
+             .passcodeAttempts,
+             .displayedAttempts,
+             .showAttempts:
+            return true
+        default:
+            return false
+        }
+    }
+
+    func handlePasscodeConfigurationAccess() -> Bool {
+        switch PasscodeLockPolicy.accessForCurrentState(jid: self.jid) {
+        case .available:
+            return true
+        case .premiumRequired:
+            let vc = PremiumSubscribtionViewController()
+            vc.owner = self.jid
+            vc.jid = self.jid
+            navigationController?.pushViewController(vc, animated: true)
+            return false
+        case .disabledByConfig:
+            self.view.makeToast("Passcode Lock is unavailable")
+            return false
+        }
+    }
+}
+
 extension SimpleTableViewController: XMPPAccountDeleteManagerDelegate {
     func didReceiveResponse(title: String?, description: String?) {
         DispatchQueue.main.async {
@@ -486,6 +541,11 @@ extension SimpleTableViewController: XMPPAccountDeleteManagerDelegate {
 
 extension SimpleTableViewController {
     internal func onBoolItemDidChange(_ key: String, value: Bool) {
+        if key == SettingsViewController.Datasource.Keys.showAttempts.rawValue,
+           !handlePasscodeConfigurationAccess() {
+            tableView.reloadData()
+            return
+        }
         SettingManager.shared.saveItem(key: key, bool: value)
     }
 }

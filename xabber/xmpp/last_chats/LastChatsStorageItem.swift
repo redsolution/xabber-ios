@@ -81,6 +81,10 @@ class LastChatsStorageItem: Object {
     
     @objc dynamic var afterburnInterval: Double = -1
     @objc dynamic var afterburnIntervalLastUpdate: Double = -1
+    @objc dynamic var autoDeleteTTLSeconds: Double = -1
+    @objc dynamic var autoDeletePolicyVersion: Int = 0
+    @objc dynamic var autoDeleteUpdatedAt: Double = -1
+    @objc dynamic var autoDeleteUpdatedBy: String? = nil
     @objc dynamic var isAllHistoryLoaded: Bool = false
     @objc dynamic var isFreshNotEmptyEncryptedChat: Bool = false
     
@@ -106,12 +110,32 @@ class LastChatsStorageItem: Object {
             return self.afterburnInterval > 0
         }
     }
+
+    var isAutoDeleteEnabled: Bool {
+        self.autoDeleteTTLSeconds > 0 || self.afterburnInterval > 0
+    }
+
+    func applyAutoDeleteTimer(_ timer: Double, updatedAt: Double, updatedBy: String?) {
+        let shouldAdvancePolicyVersion = self.autoDeleteTTLSeconds != timer || self.autoDeleteUpdatedAt < 0
+        self.afterburnInterval = timer
+        self.afterburnIntervalLastUpdate = updatedAt
+        self.autoDeleteTTLSeconds = timer
+        self.autoDeleteUpdatedAt = updatedAt
+        self.autoDeleteUpdatedBy = updatedBy
+        if shouldAdvancePolicyVersion {
+            self.autoDeletePolicyVersion += 1
+        }
+    }
     
     var isMuted: Bool {
         get {
 //            print("mute", self.jid, Date().timeIntervalSince1970, self.muteExpired, Date().timeIntervalSince1970 < self.muteExpired)
             return Date().timeIntervalSince1970 < self.muteExpired //self.muteExpired >= 0
         }
+    }
+
+    var hasUnreadMention: Bool {
+        self.conversationType == .group && (self.mentionId?.isNotEmpty ?? false)
     }
     
     override static func indexedProperties() -> [String] {

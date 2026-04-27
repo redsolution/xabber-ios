@@ -40,7 +40,7 @@ class XMPPIDInfoScreenYableViewCell: UITableViewCell {
         stack.axis = .horizontal
         stack.alignment = .center
         stack.distribution = .fill
-        stack.spacing = 2
+        stack.spacing = 8
         
 //        stack.isLayoutMarginsRelativeArrangement = true
 //        stack.layoutMargins = UIEdgeInsets(top: 6, bottom: 6, left: 20, right: 8)
@@ -51,6 +51,10 @@ class XMPPIDInfoScreenYableViewCell: UITableViewCell {
         let label = XCopyableLabel()
         
         label.textColor = .tintColor
+        label.font = UIFont.preferredFont(forTextStyle: .body)
+        label.adjustsFontForContentSizeCategory = true
+        label.numberOfLines = 1
+        label.lineBreakMode = .byTruncatingMiddle
         
         return label
     }()
@@ -59,6 +63,7 @@ class XMPPIDInfoScreenYableViewCell: UITableViewCell {
         var conf = UIButton.Configuration.plain()
         conf.image = imageLiteral("qrcode")
         conf.baseForegroundColor = .tintColor
+        conf.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
         let button = UIButton(configuration: conf, primaryAction: nil)
         
         return button
@@ -77,11 +82,19 @@ class XMPPIDInfoScreenYableViewCell: UITableViewCell {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         self.selectionStyle = .none
         self.contentView.addSubview(stack)
-        stack.fillSuperviewWithOffset(top: 6, bottom: 6, left: 20, right: 20)
+        stack.fillSuperviewWithOffset(top: 6, bottom: 6, left: 20, right: 16)
 //        UIEdgeInsets(top: 6, bottom: 6, left: 20, right: 8)
         
         stack.addArrangedSubview(titleLabel)
         stack.addArrangedSubview(qrButton)
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        titleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        qrButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+        qrButton.setContentHuggingPriority(.required, for: .horizontal)
+        NSLayoutConstraint.activate([
+            qrButton.widthAnchor.constraint(equalToConstant: 44),
+            qrButton.heightAnchor.constraint(equalToConstant: 44),
+        ])
         self.qrButton.addTarget(self, action: #selector(self.onQRCodeButtonTouchUpInside), for: .touchUpInside)
     }
     

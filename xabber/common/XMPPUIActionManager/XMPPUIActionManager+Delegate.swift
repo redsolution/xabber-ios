@@ -27,7 +27,12 @@ import XMPPFramework
 
 extension XMPPUIActionManager: XMPPStreamDelegate {
     func xmppStreamDidConnect(_ sender: XMPPStream) {
+        guard sender === self.stream else {
+            DDLogDebug("ignore stale ui-action stream didConnect")
+            return
+        }
         canSendStanzas = false
+        self.connectionGate.markAuthenticating()
         guard let jid = currentJid else {
             self.stream.disconnect()
             self.stream.myJID = nil
@@ -67,21 +72,27 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
                 [unowned self] (isInvalidated, item) in
                 
                 if isInvalidated {
+                    item.release(.credentialRevoked)
                     invalidate()
+                    return
                 }
                 do {
-                    if let token = item.creditionalString {
-                        creditionalsItem.incrementCounter()
-                        stream.shouldRequestXToken = false
-                        stream.shouldRegisterDevice = false
-                        try stream.authenticate(withXabberToken: token, counter: item.counter)
-                        
-                    } else {
-                        item.decrementCounter()
+                    switch try XMPPStoredCredentialAuthenticator.authenticate(
+                        stream: stream,
+                        storage: item,
+                        ownerJID: jid,
+                        counterTracker: self.authenticationCounterTracker
+                    ) {
+                    case .started:
+                        break
+                    case .missingCredential:
+                        self.authenticationCounterTracker.authenticationDidFail()
+                        item.release(.authFailedRecoverable)
                         invalidate()
                     }
                 } catch {
-                    item.decrementCounter()
+                    self.authenticationCounterTracker.authenticationDidFail()
+                    item.release(.authFailedRecoverable)
                     reconnect(error)
                 }
             }
@@ -90,28 +101,28 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
             creditionalsItem.use {
                 [unowned self] (isInvalidated, item) in
                 if isInvalidated {
+                    item.release(.credentialRevoked)
                     invalidate()
+                    return
                 }
                 do {
-                    if let secret = item.creditionalString {
-                        creditionalsItem.incrementCounter()
-                        let counter = creditionalsItem.counter
-                        stream.shouldRegisterDevice = false
-                        stream.shouldRequestXToken = false
-                        let realm = try WRealm.safe()
-                        let deviceUUID = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: stream.myJID?.bare ?? "")?.deviceUuid
-                        if stream.supportsOCRAAuthentication {
-                            try stream.authenticate(withOCRASecret: secret, validationKey: item.validationKey ?? "", deviceId: deviceUUID ?? "", counter: counter)
-                        } else {
-                            try stream.authenticate(withHOTPSecret: secret, counter: counter)
-                        }
-                    } else {
-                        item.decrementCounter()
+                    switch try XMPPStoredCredentialAuthenticator.authenticate(
+                        stream: stream,
+                        storage: item,
+                        ownerJID: jid,
+                        counterTracker: self.authenticationCounterTracker
+                    ) {
+                    case .started:
+                        break
+                    case .missingCredential:
+                        self.authenticationCounterTracker.authenticationDidFail()
+                        item.release(.authFailedRecoverable)
                         invalidate()
                     }
                 } catch {
 //                    print(error.localizedDescription)
-                    item.decrementCounter()
+                    self.authenticationCounterTracker.authenticationDidFail()
+                    item.release(.authFailedRecoverable)
                     reconnect(error)
                 }
             }
@@ -120,13 +131,24 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
     }
     
     func xmppStreamDidAuthenticate(_ sender: XMPPStream) {
+        guard sender === self.stream else {
+            DDLogDebug("ignore stale ui-action stream didAuthenticate")
+            return
+        }
         guard let jid = sender.myJID?.bare else { return }
-        CredentialsManager.shared.getItem(for: jid).release(error: false)
+        let credentialsItem = CredentialsManager.shared.getItem(for: jid)
+        authenticationCounterTracker.authenticationDidSucceed(using: credentialsItem)
+        credentialsItem.release(.authSucceeded)
+        self.connectionGate.markOnline()
         canSendStanzas = true
 //        print("UI STREAM AUTHENTICATED")
     }
     
     func xmppStream(_ sender: XMPPStream, didNotAuthenticate error: DDXMLElement) {
+        guard sender === self.stream else {
+            DDLogDebug("ignore stale ui-action stream auth failure")
+            return
+        }
         self.didReceiveError(error)
 //        else {
 //            self.restore()
@@ -134,6 +156,10 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
     }
     
     func xmppStream(_ sender: XMPPStream, didReceiveError error: DDXMLElement) {
+        guard sender === self.stream else {
+            DDLogDebug("ignore stale ui-action stream error")
+            return
+        }
 //        if error.element(forName: "policy-violation") != nil {
 //            self.disable(self.currentJid ?? "")
 //        }
@@ -258,7 +284,12 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
 //    }
     
     func xmppStreamDidDisconnect(_ sender: XMPPStream, withError error: Error?) {
+        guard sender === self.stream else {
+            DDLogDebug("ignore stale ui-action stream disconnect")
+            return
+        }
         guard let jid = sender.myJID?.bare else { return }
-        CredentialsManager.shared.getItem(for: jid).release(error: false)
+        CredentialsManager.shared.getItem(for: jid).release(.authFailedRecoverable)
+        self.connectionGate.markDisconnected()
     }
 }

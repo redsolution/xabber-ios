@@ -24,22 +24,22 @@ import MaterialComponents.MDCPalettes
 import RealmSwift
 
 extension SettingsViewController: UITableViewDataSource {
-    
+
     func numberOfSections(in tableView: UITableView) -> Int {
         return datasource.count
     }
-    
+
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch datasource[section].section {
         case .xmppAccounts: return (accounts?.count ?? 0) + 1
         default: return datasource[section].childs.count
         }
     }
-    
+
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        
+
         switch datasource[indexPath.section].section {
-        
+
         case .xmppAccounts:
             if indexPath.row == (accounts?.count ?? 0) {
                 let cell = tableView.dequeueReusableCell(withIdentifier: "AddAccountCell", for: indexPath)
@@ -63,15 +63,15 @@ extension SettingsViewController: UITableViewDataSource {
             guard let item = datasource[indexPath.section].childs.first else {
                 return UITableViewCell()
             }
-            
+
             let cell = VerificationSessionTableViewCell()
             cell.configure(title: item.title ?? "", subtitle: item.subtitle)
             cell.closeButton.addTarget(self, action: #selector(onCloseVerificationButtonPressed), for: .touchUpInside)
-            
+
             do {
                 let realm = try WRealm.safe()
                 let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.jid, sid: activeVerificationSessionSid ?? ""))
-                
+
                 switch instance?.state {
                 case .receivedRequest:
                     cell.blueButton.setTitle("Proceed to Verification", for: .normal)
@@ -94,16 +94,16 @@ extension SettingsViewController: UITableViewDataSource {
                 default:
                     break
                 }
-                
+
             } catch {
                 //
             }
 
             return cell
-            
+
         default:
             let item = datasource[indexPath.section].childs[indexPath.row]
-            
+
             if let key = item.key {
                 switch key {
                 case .languages:
@@ -112,12 +112,12 @@ extension SettingsViewController: UITableViewDataSource {
                                    for: item.title ?? "",
                                    value: TranslationsManager.shared.currentLang ?? "Default", icon: item.icon ?? "", color: item.color ?? .systemRed)
                     return cell
-                
+
                     case .accountSessions:
                         guard let cell = tableView.dequeueReusableCell(withIdentifier: DeviceCell.cellName, for: indexPath) as? DeviceCell else {
                             fatalError()
                         }
-                        
+
                         cell.titleLabel.text = item.title
                         if self.accounts?.first?.isDevicesListReceived ?? false {
                             cell.subtitleButton.setTitle("\(sessionsCount)", for: .normal)
@@ -130,7 +130,7 @@ extension SettingsViewController: UITableViewDataSource {
                             } else {
                                 cell.subtitleButton.setImage(nil, for: .normal)
                             }
-                            
+
                             cell.subtitleButton.imageEdgeInsets = UIEdgeInsets(top: 0, left: -8, bottom: 0, right: 0)
                             cell.subtitleButton.transform = CGAffineTransform(scaleX: -1.0, y: 1.0)
                             cell.subtitleButton.titleLabel?.transform = CGAffineTransform(scaleX: -1.0, y: 1.0)
@@ -152,17 +152,12 @@ extension SettingsViewController: UITableViewDataSource {
                             cell.tintColor = color
                         }
                         return cell
-                
+
                 case .manageStorage:
-                    let cell = tableView.dequeueReusableCell(withIdentifier: "manageStorage", for: indexPath)
+                    let cell = tableView.dequeueReusableCell(withIdentifier: SettingsValueCell.cellName, for: indexPath)
                     cell.textLabel?.text = item.title
-                    if self.quota.isNotEmpty {
-                        cell.detailTextLabel?.text = "\(used) of \(quota)"
-                    } else {
-//                        cell.detailTextLabel?.text = "    "
-                        cell.detailTextLabel?.addSubview(spinner)
-                        cell.accessoryType = .disclosureIndicator
-                    }
+                    cell.detailTextLabel?.text = cloudStorageQuotaDetailText
+                    cell.detailTextLabel?.textColor = .secondaryLabel
                     cell.accessoryType = .disclosureIndicator
                     if let icon = item.icon,
                        let color = item.color {
@@ -170,9 +165,9 @@ extension SettingsViewController: UITableViewDataSource {
                         cell.tintColor = color
                     }
                     return cell
-                
+
                 case .subscriptions:
-                    let cell = tableView.dequeueReusableCell(withIdentifier: "manageStorage", for: indexPath)
+                    let cell = tableView.dequeueReusableCell(withIdentifier: SettingsValueCell.cellName, for: indexPath)
 //                    let cell = UITableViewCell(style: .value1, reuseIdentifier: "value1CellReuseID")
                     cell.textLabel?.text = item.title
                     switch SubscribtionsManager.shared.getState(account: self.jid) {
@@ -190,12 +185,28 @@ extension SettingsViewController: UITableViewDataSource {
                         cell.tintColor = color
                     }
                     return cell
-                
+
                 case .passcode:
-                    let cell = tableView.dequeueReusableCell(withIdentifier: "manageStorage", for: indexPath)
+                    let cell = tableView.dequeueReusableCell(withIdentifier: SettingsValueCell.cellName, for: indexPath)
 //                    let cell = UITableViewCell(style: .value1, reuseIdentifier: "value1CellReuseID")
                     cell.textLabel?.text = item.title
-                    cell.detailTextLabel?.text = CredentialsManager.shared.isPincodeSetted() ? "On" : "Off"
+                    switch PasscodeLockPolicy.accessForCurrentState(jid: self.jid) {
+                    case .available:
+                        cell.detailTextLabel?.text = CredentialsManager.shared.isPincodeSetted() ? "On" : "Off"
+                        cell.textLabel?.textColor = .label
+                        cell.detailTextLabel?.textColor = .secondaryLabel
+                        cell.isUserInteractionEnabled = true
+                    case .premiumRequired:
+                        cell.detailTextLabel?.text = "Premium"
+                        cell.textLabel?.textColor = .label
+                        cell.detailTextLabel?.textColor = .systemOrange
+                        cell.isUserInteractionEnabled = true
+                    case .disabledByConfig:
+                        cell.detailTextLabel?.text = "Unavailable"
+                        cell.textLabel?.textColor = .secondaryLabel
+                        cell.detailTextLabel?.textColor = .secondaryLabel
+                        cell.isUserInteractionEnabled = false
+                    }
                     cell.accessoryType = .disclosureIndicator
                     if let icon = item.icon,
                        let color = item.color {
@@ -203,11 +214,11 @@ extension SettingsViewController: UITableViewDataSource {
                         cell.tintColor = color
                     }
                     return cell
-                    
+
                 default: break
                 }
             }
-            
+
             let cell = tableView.dequeueReusableCell(withIdentifier: "SettingsItem", for: indexPath)
             cell.textLabel?.text = item.title
             cell.accessoryType = .disclosureIndicator
@@ -219,11 +230,11 @@ extension SettingsViewController: UITableViewDataSource {
             return cell
         }
     }
-    
+
     func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
-        
+
         guard datasource.isNotEmpty else { return false }
-        
+
         switch datasource[indexPath.section].section {
         case .xmppAccounts:
             if indexPath.row == (accounts?.count ?? 0) {
@@ -234,7 +245,7 @@ extension SettingsViewController: UITableViewDataSource {
             return false
         }
     }
-    
+
     func tableView(_ tableView: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool {
         switch datasource[indexPath.section].section {
         case .xmppAccounts:
@@ -246,11 +257,11 @@ extension SettingsViewController: UITableViewDataSource {
             return false
         }
     }
-    
+
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         return datasource[section].title
     }
-    
+
     func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
         return datasource[section].subtitle
     }

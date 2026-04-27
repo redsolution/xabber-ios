@@ -28,10 +28,12 @@ extension APNSManager {
     
     
        
-    func sendRegistrationRequest(forJid jid: String, voip: Bool) -> Bool {
-        guard let voipToken = self.voipToken,
-            let deviceToken = self.deviceToken else {
+    func sendRegistrationRequest(forJid jid: String, voip: Bool, completion: ((Bool) -> Void)? = nil) -> Bool {
+        guard let endpointKey = voip ? self.voipToken : self.deviceToken,
+              endpointKey.isNotEmpty,
+              let target = endpointTarget(forJid: jid, voip: voip) else {
             print("cant get tokens. \(#function)")
+            completion?(false)
             return false
         }
         
@@ -44,12 +46,9 @@ extension APNSManager {
             "Content-Type" : "application/json"
         ]
         
-        let hashString = [String(describing: UIDevice.current.identifierForVendor!), CommonConfigManager.shared.config.bundle_id, "dev"].prp()
-        
-        
         let params: [String: String] = [
-            "target": [jid, hashString].joined(separator: "/"),
-            "endpoint_key": voip ? voipToken : deviceToken,
+            "target": target,
+            "endpoint_key": endpointKey,
             "provider": voip ? "apns.voip" : "apns",
         ]
         print(params, "REGJIDPARAMS")
@@ -61,20 +60,31 @@ extension APNSManager {
                 switch response.result {
                     case .success(let data):
                         guard let json = try? JSONDecoder().decode(NodeData.self, from: data) else {
+                            completion?(false)
                             return
                         }
                         switch json.action{
                             case "regjid":
                                 if !voip {
-                                    try? self.register(json, completionHandler: nil)
+                                    do {
+                                        try self.register(json, completionHandler: nil)
+                                        completion?(true)
+                                    } catch {
+                                        completion?(false)
+                                    }
+                                } else {
+                                    completion?(true)
                                 }
                                 break
-                            default: break
+                            default:
+                                completion?(false)
+                                break
                         }
                         
                         break
                     case .failure(let error):
                         print(error.localizedDescription)
+                        completion?(false)
                         break
                 }
             }
@@ -84,8 +94,9 @@ extension APNSManager {
     }
     
     func sendDeleteRequest(jid: String, voip: Bool, callback: (() -> Void)? = nil) {
-        guard let VoIPtoken = self.voipToken,
-            let deviceToken = self.deviceToken else {
+        guard let endpointKey = voip ? self.voipToken : self.deviceToken,
+              endpointKey.isNotEmpty,
+              let target = endpointTarget(forJid: jid, voip: voip) else {
             DDLogDebug("cant get voip token. \(#function)")
             return
         }
@@ -96,11 +107,9 @@ extension APNSManager {
             "Authorization" : APNSManager.authKey(),
             "Content-Type" : "application/json"
         ]
-//        let hashString = [String(describing: UIDevice.current.identifierForVendor!), CommonConfigManager.shared.config.bundle_id, "prod"].prp()
-        let hashString = [voip ? VoIPtoken : deviceToken, CommonConfigManager.shared.config.bundle_id, "dev"].prp()
         let params = [
-            "target": [jid, hashString].joined(separator: "/"),
-            "endpoint_key": voip ? VoIPtoken : deviceToken
+            "target": target,
+            "endpoint_key": endpointKey
         ]
         AF.request(url, method: .delete, parameters: params, encoding: JSONEncoding.default, headers: HTTPHeaders(headers)).responseData { _ in
             callback?()

@@ -349,6 +349,8 @@ class MessageReferenceStorageItem: Object {
     var xmlType: String {
         get {
             switch kind {
+            case .markup, .mention, .quote:
+                return "decoration"
             case .voice, .media: return "mutable"
             default: return "mutable"
             }

@@ -35,6 +35,32 @@ enum ChatHistoryPagingConfiguration {
     static let pageSize: Int = 100
 }
 
+enum ChatOpenMessageRequestSource: String {
+    case mentionNotification = "mention-notification"
+    case pushNotification = "push-notification"
+    case search = "search"
+    case external = "external"
+}
+
+struct ChatMessageAnchorRef: Equatable {
+    let messagePrimary: String?
+    let archivedId: String?
+    let messageId: String?
+    let authorId: String?
+    let bodyFingerprint: String?
+    let sourceDate: Date
+}
+
+struct ChatOpenMessageRequest: Equatable {
+    let chatJid: String
+    let owner: String
+    let conversationType: ClientSynchronizationManager.ConversationType
+    let anchor: ChatMessageAnchorRef
+    let highlight: Bool
+    let markReadOnVisible: Bool
+    let source: ChatOpenMessageRequestSource
+}
+
 class ChatViewController: MessagesViewController {
     struct ObserverLookupSignature: Equatable {
         let count: Int
@@ -332,6 +358,7 @@ class ChatViewController: MessagesViewController {
     var datasourceSnapshot: ChatDatasourceSnapshot = .empty
     var observerPrimaryIndexMap: [String: Int] = [:]
     var observerArchivedIdIndexMap: [String: Int] = [:]
+    var observerMessageIdIndexMap: [String: Int] = [:]
     var observerOldestArchivedId: String? = nil
     var observerLookupSignature: ObserverLookupSignature? = nil
     
@@ -351,6 +378,7 @@ class ChatViewController: MessagesViewController {
     var initialHistoryAppearancePending: Bool = true
     var hasRenderedStableInitialHistory: Bool = false
     var hasCompletedInitialHistoryViewAppearance: Bool = false
+    var isApplyingBootstrapAnchorWindow: Bool = false
 
     var showLoadingIndicator: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     
@@ -403,6 +431,12 @@ class ChatViewController: MessagesViewController {
     var searchMessagesQueue: [MessageStorageItem] = []
     var searchTextObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)
     var currentSearchQueryId: String? = nil
+    var pendingOpenMessageRequest: ChatOpenMessageRequest? = nil
+    var activeAnchorExecutionState: ChatAnchorExecutionState? = nil
+    var activeAnchorExecutionHooks: ChatAnchorExecutionHooks? = nil
+    var isExecutingOpenMessageRequest: Bool = false
+    var isMessageAnchorNavigationInFlight: Bool = false
+    var hasRequestedMentionUsersRefresh: Bool = false
     var interactiveHistoryPageLoadContext: ChatInteractiveHistoryPageLoadContext? = nil
     var initialBootstrapQueryId: String? = nil
     var isInitialBootstrapInFlight: Bool = false
@@ -756,9 +790,73 @@ class ChatViewController: MessagesViewController {
     }()
     
     internal var shouldShowScrollDownButton: BehaviorRelay<Bool> = BehaviorRelay(value: false)
+    internal var shouldShowUnreadMentionsNavigator: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     internal var contentOffsetObserver: BehaviorRelay<CGFloat> = BehaviorRelay(value: 0)
+    internal var unreadMentionItems: [ChatUnreadMentionItem] = []
+    internal var unreadMentionsState: ChatUnreadMentionsState = .empty
+    internal var isUnreadMentionNavigationInFlight: Bool = false
+    internal var pendingUnreadMentionNavigationRequest: ChatUnreadMentionNavigationRequest? = nil
+    internal var currentUnreadMentionNotificationPrimary: String? = nil
+    internal var visibleUnreadMentionReconciliationWorkItem: DispatchWorkItem? = nil
     
     internal var currentPlayingView: InlineAudiosGridView.AudioView? = nil
+
+    internal enum FloatingControlsLayoutPolicy {
+        static let trailingInset: CGFloat = 4
+        static let bottomInset: CGFloat = 14
+        static let verticalSpacing: CGFloat = 8
+        static let scrollButtonSize: CGFloat = 38
+
+        static func lowerSlotY(
+            viewHeight: CGFloat,
+            controlHeight: CGFloat,
+            inputHeight: CGFloat
+        ) -> CGFloat {
+            viewHeight - controlHeight - bottomInset - inputHeight
+        }
+
+        static func upperSlotY(
+            lowerSlotY: CGFloat,
+            controlHeight: CGFloat
+        ) -> CGFloat {
+            lowerSlotY - verticalSpacing - controlHeight
+        }
+
+        static func trailingX(
+            viewWidth: CGFloat,
+            controlWidth: CGFloat
+        ) -> CGFloat {
+            viewWidth - controlWidth - trailingInset
+        }
+
+        static func scrollButtonOriginY(
+            viewHeight: CGFloat,
+            inputHeight: CGFloat
+        ) -> CGFloat {
+            lowerSlotY(
+                viewHeight: viewHeight,
+                controlHeight: scrollButtonSize,
+                inputHeight: inputHeight
+            )
+        }
+
+        static func mentionIndicatorOriginY(
+            viewHeight: CGFloat,
+            mentionHeight: CGFloat,
+            inputHeight: CGFloat,
+            showsScrollDownButton: Bool
+        ) -> CGFloat {
+            let lowerSlot = lowerSlotY(
+                viewHeight: viewHeight,
+                controlHeight: mentionHeight,
+                inputHeight: inputHeight
+            )
+            guard showsScrollDownButton else {
+                return lowerSlot
+            }
+            return upperSlotY(lowerSlotY: lowerSlot, controlHeight: mentionHeight)
+        }
+    }
     
     internal let scrollDownButton: UIButton = {
         let button = UIButton(frame: CGRect(square: 38))
@@ -771,6 +869,12 @@ class ChatViewController: MessagesViewController {
         button.setImage(imageLiteral("chevron.down"), for: .normal)
         
         return button
+    }()
+
+    internal let unreadMentionsNavigatorView: UnreadMentionsNavigatorView = {
+        let view = UnreadMentionsNavigatorView(frame: .zero)
+        view.isHidden = true
+        return view
     }()
     
     internal let dateListContainerView: UIView = {
@@ -851,7 +955,7 @@ class ChatViewController: MessagesViewController {
         self.scrollToLastOrUnreadItem()
     }
 
-    internal func scrollDownButtonVisibleFrame() -> CGRect {
+    internal func floatingControlsInputHeight() -> CGFloat {
         var inputHeight: CGFloat = 49
         if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
             inputHeight += bottomInset
@@ -860,21 +964,45 @@ class ChatViewController: MessagesViewController {
             inputHeight += 52
         }
 
+        return inputHeight
+    }
+
+    internal func scrollDownButtonVisibleFrame() -> CGRect {
+        let inputHeight = self.floatingControlsInputHeight()
         return CGRect(
-            origin: CGPoint(x: self.view.frame.width - 42, y: self.view.frame.height - 52 - inputHeight),
-            size: CGSize(square: 38)
+            origin: CGPoint(
+                x: FloatingControlsLayoutPolicy.trailingX(
+                    viewWidth: self.view.frame.width,
+                    controlWidth: FloatingControlsLayoutPolicy.scrollButtonSize
+                ),
+                y: FloatingControlsLayoutPolicy.scrollButtonOriginY(
+                    viewHeight: self.view.frame.height,
+                    inputHeight: inputHeight
+                )
+            ),
+            size: CGSize(square: FloatingControlsLayoutPolicy.scrollButtonSize)
         )
     }
 
     internal func scrollDownButtonHiddenFrame() -> CGRect {
         CGRect(
-            origin: CGPoint(x: self.view.frame.width - 42, y: self.view.frame.height + 52),
-            size: CGSize(square: 38)
+            origin: CGPoint(
+                x: FloatingControlsLayoutPolicy.trailingX(
+                    viewWidth: self.view.frame.width,
+                    controlWidth: FloatingControlsLayoutPolicy.scrollButtonSize
+                ),
+                y: self.view.frame.height + FloatingControlsLayoutPolicy.scrollButtonSize + 24
+            ),
+            size: CGSize(square: FloatingControlsLayoutPolicy.scrollButtonSize)
         )
     }
 
     internal func updateScrollDownButtonFrame(animated: Bool) {
-        let frame = self.shouldShowScrollDownButton.value ? self.scrollDownButtonVisibleFrame() : self.scrollDownButtonHiddenFrame()
+        let shouldShowButton = ChatUnreadMentionFloatingControlPolicy.shouldShowScrollDownButton(
+            requested: self.shouldShowScrollDownButton.value,
+            navigatorVisible: self.shouldShowUnreadMentionsNavigator.value
+        )
+        let frame = shouldShowButton ? self.scrollDownButtonVisibleFrame() : self.scrollDownButtonHiddenFrame()
         let updates = {
             self.scrollDownButton.frame = frame
         }
@@ -885,6 +1013,66 @@ class ChatViewController: MessagesViewController {
             }
         } else {
             updates()
+        }
+    }
+
+    internal func unreadMentionsNavigatorVisibleFrame() -> CGRect {
+        let inputHeight = self.floatingControlsInputHeight()
+        let size = self.unreadMentionsNavigatorView.preferredSize
+        let showsScrollDownButton = ChatUnreadMentionFloatingControlPolicy.shouldShowScrollDownButton(
+            requested: self.shouldShowScrollDownButton.value,
+            navigatorVisible: self.shouldShowUnreadMentionsNavigator.value
+        )
+        return CGRect(
+            origin: CGPoint(
+                x: FloatingControlsLayoutPolicy.trailingX(
+                    viewWidth: self.view.frame.width,
+                    controlWidth: size.width
+                ),
+                y: FloatingControlsLayoutPolicy.mentionIndicatorOriginY(
+                    viewHeight: self.view.frame.height,
+                    mentionHeight: size.height,
+                    inputHeight: inputHeight,
+                    showsScrollDownButton: showsScrollDownButton
+                )
+            ),
+            size: size
+        )
+    }
+
+    internal func unreadMentionsNavigatorHiddenFrame() -> CGRect {
+        let size = self.unreadMentionsNavigatorView.preferredSize
+        return CGRect(
+            origin: CGPoint(
+                x: FloatingControlsLayoutPolicy.trailingX(
+                    viewWidth: self.view.frame.width,
+                    controlWidth: size.width
+                ),
+                y: self.view.frame.height + size.height + 24
+            ),
+            size: size
+        )
+    }
+
+    internal func updateUnreadMentionsNavigatorFrame(animated: Bool) {
+        let shouldShowNavigator = self.shouldShowUnreadMentionsNavigator.value
+        let frame = shouldShowNavigator ? self.unreadMentionsNavigatorVisibleFrame() : self.unreadMentionsNavigatorHiddenFrame()
+        let updates = {
+            self.unreadMentionsNavigatorView.frame = frame
+        }
+
+        self.unreadMentionsNavigatorView.isUserInteractionEnabled = shouldShowNavigator
+        self.unreadMentionsNavigatorView.isHidden = false
+
+        if animated {
+            UIView.animate(withDuration: 0.33, delay: 0.0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0.8, options: [.curveEaseIn]) {
+                updates()
+            } completion: { _ in
+                self.unreadMentionsNavigatorView.isHidden = !shouldShowNavigator
+            }
+        } else {
+            updates()
+            self.unreadMentionsNavigatorView.isHidden = !shouldShowNavigator
         }
     }
 
@@ -1306,6 +1494,8 @@ class ChatViewController: MessagesViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         updateNavbarTitleWidth()
+        updateUnreadMentionsNavigatorFrame(animated: false)
+        updateScrollDownButtonFrame(animated: false)
 //        updateInsets()  // Recompute and apply as above
     }
     
@@ -1382,7 +1572,9 @@ class ChatViewController: MessagesViewController {
         
         self.view.addSubview(self.scrollDownButton)
         self.view.addSubview(xabberInputView)
+        self.view.addSubview(self.unreadMentionsNavigatorView)
         self.view.bringSubviewToFront(xabberInputView)
+        self.view.bringSubviewToFront(self.unreadMentionsNavigatorView)
         
         xabberInputView.translatesAutoresizingMaskIntoConstraints = false
         let heightConstraint = xabberInputView.heightAnchor.constraint(equalToConstant: inputHeight)
@@ -1417,6 +1609,9 @@ class ChatViewController: MessagesViewController {
 //        self.view.addSubview(self.navbarOverlayView)
 //        self.view.addSubview(floatingDateView)
         self.scrollDownButton.addTarget(self, action: #selector(self.onScrollDownChatButtonTouchUpInside), for: .touchUpInside)
+        self.unreadMentionsNavigatorView.onBadgeTap = { [weak self] in
+            self?.navigateToNextUnreadMention()
+        }
         self.view.addSubview(self.messageLoadingActivityIndicator)
         self.messageLoadingActivityIndicator.startAnimating()
         self.messageLoadingActivityIndicator.isHidden = true
@@ -1464,6 +1659,7 @@ class ChatViewController: MessagesViewController {
                 .objects(MessageStorageItem.self)
                 .filter("owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@", self.owner, self.jid, self.conversationType.rawValue)
                 .sorted(byKeyPath: "date", ascending: false)
+            self.rebuildUnreadMentionItems()
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
@@ -1603,9 +1799,111 @@ class ChatViewController: MessagesViewController {
         self.xabberInputView.searchPanel.onSeekUpCallback = self.onSearchPanelSeekUp
         self.xabberInputView.searchPanel.onSeekDownCallback = self.onSearchPanelSeekDown
         self.xabberInputView.searchPanel.onChangeViewStateCallback = self.onSearchPanelChangeChatViewState
+        self.xabberInputView.mentionConversationType = self.conversationType
+        self.xabberInputView.mentionCandidatesProvider = { [weak self] query in
+            self?.mentionCandidates(for: query) ?? []
+        }
+        self.xabberInputView.mentionMembersCountProvider = { [weak self] in
+            self?.currentMentionMembersCount() ?? 0
+        }
+        self.xabberInputView.mentionUsersReloadHandler = { [weak self] in
+            self?.requestMentionUsersIfNeeded()
+        }
         self.view.addSubview(self.recordLockIndicator)
         self.recordLockIndicator.tintColor = self.accountPallete.tint500
         
+    }
+
+    internal func mentionCandidates(for query: String) -> [ComposerMentionCandidate] {
+        guard self.conversationType == .group else { return [] }
+        do {
+            let realm = try WRealm.safe()
+            let items = self.mentionUsersResults(in: realm)
+
+            let normalizedQuery = self.normalizeMentionSearchValue(query)
+            let filtered = items.filter { item in
+                guard item.userId.isNotEmpty else { return false }
+                if normalizedQuery.isEmpty { return true }
+                let nickname = self.normalizeMentionSearchValue(item.nickname)
+                let jid = self.normalizeMentionSearchValue(item.jid)
+                let username = self.normalizeMentionSearchValue(item.jid.split(separator: "@").first.map(String.init) ?? "")
+                return nickname.contains(normalizedQuery) || jid.contains(normalizedQuery) || username.contains(normalizedQuery)
+            }
+
+            var seenMemberIds: Set<String> = []
+
+            return filtered
+                .map { item in
+                    let nickname = item.nickname.isEmpty
+                        ? (item.jid.split(separator: "@").first.map(String.init) ?? item.userId)
+                        : item.nickname
+                    guard nickname.isNotEmpty || item.jid.isNotEmpty else {
+                        return nil
+                    }
+                    guard seenMemberIds.insert(item.userId).inserted else {
+                        return nil
+                    }
+                    let uri = "xmpp:\(self.jid)?members;id=\(item.userId)"
+                    return ComposerMentionCandidate(
+                        memberId: item.userId,
+                        nickname: nickname,
+                        uri: uri,
+                        node: "https://xabber.com/protocol/groupchat",
+                        jid: item.jid.isEmpty ? nil : item.jid,
+                        secondaryText: item.jid.isEmpty ? item.userId : item.jid
+                    )
+                }
+                .compactMap { $0 }
+                .sorted(by: { lhs, rhs in
+                    let lhsPrefix = self.normalizeMentionSearchValue(lhs.nickname).hasPrefix(normalizedQuery)
+                    let rhsPrefix = self.normalizeMentionSearchValue(rhs.nickname).hasPrefix(normalizedQuery)
+                    if lhsPrefix != rhsPrefix {
+                        return lhsPrefix && !rhsPrefix
+                    }
+                    return lhs.nickname.localizedCaseInsensitiveCompare(rhs.nickname) == .orderedAscending
+                })
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            return []
+        }
+    }
+
+    internal func currentMentionMembersCount() -> Int {
+        guard self.conversationType == .group else { return 0 }
+        do {
+            let realm = try WRealm.safe()
+            return self.mentionUsersResults(in: realm).count
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            return 0
+        }
+    }
+
+    internal func mentionUsersResults(in realm: Realm) -> Results<GroupchatUserStorageItem> {
+        let groupchatId = [self.jid, self.owner].prp()
+        return realm.objects(GroupchatUserStorageItem.self)
+            .filter(
+                "groupchatId == %@ AND isBlocked == false AND isKicked == false AND isHidden == false",
+                groupchatId
+            )
+    }
+
+    internal func requestMentionUsersIfNeeded() {
+        guard self.conversationType == .group, !self.hasRequestedMentionUsersRefresh else { return }
+        self.hasRequestedMentionUsersRefresh = true
+        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
+            session.groupchat?.requestUsers(stream, groupchat: self.jid)
+        } fail: {
+            AccountManager.shared.find(for: self.owner)?.action { user, stream in
+                user.groupchats.requestUsers(stream, groupchat: self.jid)
+            }
+        }
+    }
+
+    private func normalizeMentionSearchValue(_ value: String) -> String {
+        value
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
     
     override func shouldChangeFrame() {
@@ -1659,7 +1957,8 @@ class ChatViewController: MessagesViewController {
             origin: CGPoint(x: self.view.frame.width - 42, y: self.view.frame.height - 48 - inputHeight),
             size: CGSize(square: 38)
         )
-        
+
+        self.updateUnreadMentionsNavigatorFrame(animated: false)
         self.updateScrollDownButtonFrame(animated: false)
         
         (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
@@ -1946,6 +2245,7 @@ class ChatViewController: MessagesViewController {
         super.viewDidAppear(animated)
         self.hasCompletedInitialHistoryViewAppearance = true
         self.finishInitialHistoryAppearanceIfPossible()
+        self.performPendingOpenMessageRequestIfNeeded()
         self.shouldChangeFrame()
         self.willUpdateFloatingDate()
         self.setFloatingDateHidden(true)

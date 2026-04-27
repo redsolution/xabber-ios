@@ -22,10 +22,68 @@ import Foundation
 import XMPPFramework
 import RealmSwift
 
+private let groupchatXMLNS = "https://xabber.com/protocol/groups"
+private let referencesXMLNS = "https://xabber.com/protocol/references"
+
+private func isAnonymousMutableReference(_ reference: DDXMLElement) -> Bool {
+    reference.xmlns() == referencesXMLNS &&
+    reference.attributeStringValue(forName: "type") == "mutable" &&
+    getReferenceType(reference) == nil
+}
+
+func groupchatReferenceElement(from message: XMPPMessage) -> DDXMLElement? {
+    message
+        .element(forName: "x", xmlns: groupchatXMLNS)?
+        .element(forName: "reference", xmlns: referencesXMLNS)
+}
+
+func groupchatUserElement(from message: XMPPMessage) -> DDXMLElement? {
+    if let directUser = message
+        .element(forName: "x", xmlns: groupchatXMLNS)?
+        .element(forName: "user", xmlns: groupchatXMLNS) {
+        return directUser
+    }
+
+    return groupchatReferenceElement(from: message)?
+        .element(forName: "user", xmlns: groupchatXMLNS)
+}
+
+private func groupchatMetadata(from user: DDXMLElement) -> [String: Any] {
+    var metadata: [String: Any] = [:]
+    metadata["id"] = user.attributeStringValue(forName: "id", withDefaultValue: "")
+    metadata["jid"] = user.element(forName: "jid")?.stringValue ?? ""
+    metadata["nickname"] = user.element(forName: "nickname")?.stringValue ?? ""
+    metadata["role"] = user.element(forName: "role")?.stringValue ?? ""
+    metadata["badge"] = user.element(forName: "badge")?.stringValue ?? ""
+    if let avatarInfo = user.element(forName: "avatar")?.element(forName: "info")
+        ?? user.element(forName: "metadata", xmlns: "urn:xmpp:avatar:metadata")?.element(forName: "info") {
+        metadata["avatar_uri"] = avatarInfo.attributeStringValue(forName: "url", withDefaultValue: "")
+        metadata["avatar_id"] = avatarInfo.attributeStringValue(forName: "id", withDefaultValue: "")
+    }
+    return metadata
+}
+
+func resolvedGroupchatAuthorDisplayName(
+    userElement: DDXMLElement?,
+    references: [MessageReferenceStorageItem]
+) -> String? {
+    let metadata = references.first(where: { $0.kind == .groupchat })?.metadata
+    let candidates: [String?] = [
+        userElement?.element(forName: "nickname")?.stringValue,
+        metadata?["nickname"] as? String,
+        userElement?.element(forName: "jid")?.stringValue,
+        metadata?["jid"] as? String
+    ]
+
+    return candidates
+        .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .first(where: { $0.isNotEmpty })
+}
+
 func parseSystemMessageMetadata(_ message: XMPPMessage) -> [String: Any]? {
 //    print(message.prettyXMLString())
     // V3: <x xmlns='https://xabber.com/protocol/groups'><system-message type='...'/>
-    if let x = message.element(forName: "x", xmlns: "https://xabber.com/protocol/groups"),
+    if let x = message.element(forName: "x", xmlns: groupchatXMLNS),
        let systemMessage = x.element(forName: "system-message"),
        let type = systemMessage.attributeStringValue(forName: "type") {
         switch type {
@@ -157,6 +215,13 @@ func getReferenceType(_ ref: DDXMLElement) -> String? {
         if ref.element(forName: "quote", xmlns: "https://xabber.com/protocol/markup") != nil {
             return "quote"
         }
+        if ref.element(forName: "mention", xmlns: "https://xabber.com/protocol/markup") != nil {
+            return "mention"
+        }
+        if let uri = ref.element(forName: "link", xmlns: "https://xabber.com/protocol/markup")?.stringValue,
+           uri.starts(with: "xmpp:") {
+            return "mention"
+        }
         return "markup"
     } else if ref.element(forName: "forwarded", xmlns: "urn:xmpp:forward:0") != nil {
         return "forward"
@@ -173,9 +238,8 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
     
     let messageDate = getDelayedDate(message) ?? Date()
     
-    let groupchatRef = message
-        .element(forName: "x",xmlns: "https://xabber.com/protocol/groups")?
-        .element(forName: "reference",xmlns: "https://xabber.com/protocol/references")
+    let groupchatRef = groupchatReferenceElement(from: message)
+    let displayBody = escapingBody.excludeFromBody(references, groupchat: groupchatRef)
     
     func parse(_ ref: DDXMLElement) -> MessageReferenceStorageItem? {
         guard ref.xmlns() == "https://xabber.com/protocol/references",
@@ -325,6 +389,28 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
                 } else {
                     return nil
                 }
+            case .mention:
+                let mentionElement = ref.element(forName: "mention", xmlns: "https://xabber.com/protocol/markup")
+                let legacyLink = ref.element(forName: "link", xmlns: "https://xabber.com/protocol/markup")
+                guard let uri = mentionElement?.stringValue ?? legacyLink?.stringValue, uri.starts(with: "xmpp:") else {
+                    return nil
+                }
+                metadata["uri"] = uri
+                reference.url = uri
+                if let node = mentionElement?.attributeStringValue(forName: "node"), node.isNotEmpty {
+                    metadata["node"] = node
+                }
+                if let memberId = parseMentionMemberId(uri) {
+                    metadata["memberId"] = memberId
+                }
+                if let groupchatJid = parseMentionGroupchat(uri) {
+                    metadata["groupchatJid"] = groupchatJid
+                }
+                let nsBody = displayBody
+                let bodyNSString = nsBody as NSString
+                if reference.end <= bodyNSString.length, reference.begin < reference.end {
+                    metadata["nickname"] = bodyNSString.substring(with: reference.range)
+                }
             case .quote:
                 metadata["marker"] = ">".xmlEscaping(reverse: false)
             case .systemMessage:
@@ -333,18 +419,7 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
                 }
             case .groupchat:
                 guard let user = ref.element(forName: "user") else { return nil }
-                metadata["id"] = user.attributeStringValue(forName: "id", withDefaultValue: "")
-                metadata["jid"] = user.element(forName: "jid")?.stringValue ?? ""
-                metadata["nickname"] = user.element(forName: "nickname")?.stringValue ?? ""
-                metadata["role"] = user.element(forName: "role")?.stringValue ?? ""
-                metadata["badge"] = user.element(forName: "badge")?.stringValue ?? ""
-                // V3: <avatar><info xmlns='urn:xmpp:avatar:metadata' url='...'/>
-                // Old: <metadata xmlns='urn:xmpp:avatar:metadata'><info url='...'/>
-                if let avatarInfo = user.element(forName: "avatar")?.element(forName: "info")
-                    ?? user.element(forName: "metadata", xmlns: "urn:xmpp:avatar:metadata")?.element(forName: "info") {
-                    metadata["avatar_uri"] = avatarInfo.attributeStringValue(forName: "url", withDefaultValue: "")
-                    metadata["avatar_id"] = avatarInfo.attributeStringValue(forName: "id", withDefaultValue: "")
-                }
+                metadata = groupchatMetadata(from: user)
             default: break
         }
         reference.metadata = metadata
@@ -355,9 +430,7 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
     if let referenceElement = groupchatRef,
         let reference = parse(referenceElement) {
         out = [reference]
-    } else if let v3User = message
-        .element(forName: "x", xmlns: "https://xabber.com/protocol/groups")?
-        .element(forName: "user") {
+    } else if let v3User = groupchatUserElement(from: message) {
         // V3: user card is directly in <x>, not wrapped in <reference>
         let reference = MessageReferenceStorageItem()
         reference.conversationType = conversationTypeByMessage(message)
@@ -365,25 +438,31 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
         reference.owner = owner
         reference.kind_ = "groupchat"
         reference.sentDate = messageDate
-        var metadata: [String: Any] = [:]
-        metadata["id"] = v3User.attributeStringValue(forName: "id", withDefaultValue: "")
-        metadata["jid"] = v3User.element(forName: "jid")?.stringValue ?? ""
-        metadata["nickname"] = v3User.element(forName: "nickname")?.stringValue ?? ""
-        metadata["role"] = v3User.element(forName: "role")?.stringValue ?? ""
-        metadata["badge"] = v3User.element(forName: "badge")?.stringValue ?? ""
-        // V3 avatar: <avatar><info xmlns='urn:xmpp:avatar:metadata' .../>
-        // Old fallback: <metadata xmlns='urn:xmpp:avatar:metadata'><info .../>
-        if let avatarInfo = v3User.element(forName: "avatar")?.element(forName: "info")
-            ?? v3User.element(forName: "metadata", xmlns: "urn:xmpp:avatar:metadata")?.element(forName: "info") {
-            metadata["avatar_uri"] = avatarInfo.attributeStringValue(forName: "url", withDefaultValue: "")
-            metadata["avatar_id"] = avatarInfo.attributeStringValue(forName: "id", withDefaultValue: "")
-        }
-        reference.metadata = metadata
+        reference.metadata = groupchatMetadata(from: v3User)
         out = [reference]
     }
 
     out.append(contentsOf: references.compactMap{ return parse($0) })
     return out
+}
+
+private func parseMentionMemberId(_ uri: String) -> String? {
+    guard let query = uri.split(separator: "?", maxSplits: 1).dropFirst().first else { return nil }
+    let normalizedQuery = query.replacingOccurrences(of: ";", with: "&")
+    return normalizedQuery
+        .split(separator: "&")
+        .compactMap { component -> String? in
+            let parts = component.split(separator: "=", maxSplits: 1).map(String.init)
+            guard parts.count == 2, parts[0] == "id" else { return nil }
+            return parts[1]
+        }
+        .first
+}
+
+private func parseMentionGroupchat(_ uri: String) -> String? {
+    guard uri.starts(with: "xmpp:") else { return nil }
+    let withoutScheme = String(uri.dropFirst("xmpp:".count))
+    return withoutScheme.split(separator: "?", maxSplits: 1).first.map(String.init)
 }
 
 extension String {
@@ -422,6 +501,7 @@ extension String {
             if reference.xmlns() != "https://xabber.com/protocol/references" { continue }
             let ref = MessageReferenceStorageItem()
             ref.kind_ = getReferenceType(reference) ?? "none"
+            let shouldRemoveAnonymousMutableBody = isAnonymousMutableReference(reference)
             let offset = self.count - out.count
             var begin = reference.attributeIntegerValue(forName: "begin") - offset
             var end = reference.attributeIntegerValue(forName: "end") - offset// + 1
@@ -445,7 +525,10 @@ extension String {
                     out = out.replacingOccurrences(of: marker, with: "", options: [], range: range)
                 }
             default:
-                break
+                if shouldRemoveAnonymousMutableBody,
+                   let range = Range<String.Index>(ref.range, in: out) {
+                    out.removeSubrange(range)
+                }
             }
         }
         return out.xmlEscaping(reverse: true)

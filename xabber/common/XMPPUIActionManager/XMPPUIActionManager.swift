@@ -40,6 +40,8 @@ class XMPPUIActionManager: NSObject {
     var canSendStanzas: Bool = false
     
     var stream: XMPPStream = XMPPStream()
+    let authenticationCounterTracker = XMPPAuthenticationCounterTracker()
+    let connectionGate = AccountStreamLifecycleGate()
     
     var queue: DispatchQueue
 
@@ -90,13 +92,24 @@ class XMPPUIActionManager: NSObject {
 //                return
 //            }
 //        }
-        if self.currentJid == owner && (self.stream.isAuthenticated || self.stream.isConnected || self.stream.isConnecting) {
+        if self.currentJid == owner, let activePhase = self.frameworkActivePhase() {
+            self.connectionGate.adoptFrameworkActivePhase(activePhase)
+            DDLogDebug("skip duplicate ui-action stream open jid=\(owner) phase=\(self.connectionGate.snapshot().phase.rawValue) streamState=\(self.streamStateDescription)")
             return
         }
 //        print("UI CONNECTION OPEN!!!!!!")
         if self.currentJid != nil {
             self.close(disconnect: true)
         }
+
+        switch self.connectionGate.beginConnect(trigger: .uiActionOpen, force: force) {
+        case .start(let attemptID):
+            DDLogDebug("ui-action stream open jid=\(owner) attempt=\(attemptID)")
+        case .skip(let phase, let activeAttemptID):
+            DDLogDebug("skip duplicate ui-action stream open jid=\(owner) phase=\(phase.rawValue) attempt=\(activeAttemptID.map(String.init) ?? "none") streamState=\(self.streamStateDescription)")
+            return
+        }
+
         self.stream = XMPPStream()
         self.stream.addDelegate(self, delegateQueue: self.queue)
         
@@ -128,8 +141,10 @@ class XMPPUIActionManager: NSObject {
         self.reconnect?.activate(self.stream)
         queue.async {
             do {
+                DDLogDebug("ui-action stream connect jid=\(owner) resource=\(self.stream.myJID?.resource ?? "none")")
                 try self.stream.connect(withTimeout: 5)
             } catch {
+                self.connectionGate.markFailed()
                 DDLogDebug("XMPPActionManager: \(#function). \(error.localizedDescription)")
             }
         }
@@ -146,6 +161,7 @@ class XMPPUIActionManager: NSObject {
         self.stream.abortConnecting()
         self.stream.disconnect()
         self.stream.asyncSocket.disconnect()
+        self.connectionGate.reset()
         self.groupchat = nil
         self.chatMarkers = nil
         self.deliveryManager = nil
@@ -174,6 +190,7 @@ class XMPPUIActionManager: NSObject {
             self.stream.disconnect()
 //            self.stream.asyncSocket.disconnect()
         }
+        self.connectionGate.reset()
         self.currentJid = nil
         self.groupchat = nil
         self.chatMarkers = nil
@@ -191,6 +208,18 @@ class XMPPUIActionManager: NSObject {
     public final func restore() {
 //        print("UI CONNECTION RESTORE")
         guard let owner = self.currentJid else { return }
+        if let activePhase = self.frameworkActivePhase() {
+            self.connectionGate.adoptFrameworkActivePhase(activePhase)
+            DDLogDebug("skip duplicate ui-action stream restore jid=\(owner) phase=\(self.connectionGate.snapshot().phase.rawValue) streamState=\(self.streamStateDescription)")
+            return
+        }
+        switch self.connectionGate.beginConnect(trigger: .uiActionRestore) {
+        case .start(let attemptID):
+            DDLogDebug("ui-action stream restore jid=\(owner) attempt=\(attemptID)")
+        case .skip(let phase, let activeAttemptID):
+            DDLogDebug("skip duplicate ui-action stream restore jid=\(owner) phase=\(phase.rawValue) attempt=\(activeAttemptID.map(String.init) ?? "none") streamState=\(self.streamStateDescription)")
+            return
+        }
         stream.disconnect()
         stream.asyncSocket.disconnect()
 //        self.stream.removeDelegate(self)
@@ -200,8 +229,10 @@ class XMPPUIActionManager: NSObject {
             self.stream.startTLSPolicy = XMPPStreamStartTLSPolicy.preferred
             self.stream.keepAliveInterval = 10
             do {
+                DDLogDebug("ui-action stream connect jid=\(owner) resource=\(self.stream.myJID?.resource ?? "none")")
                 try self.stream.connect(withTimeout: 5)
             } catch {
+                self.connectionGate.markFailed()
                 DDLogDebug("XMPPActionManager: \(#function). \(error.localizedDescription)")
             }
         }
@@ -227,24 +258,51 @@ class XMPPUIActionManager: NSObject {
         }
         action(self.stream, self)
     }
+
+    private func frameworkActivePhase() -> AccountStreamLifecyclePhase? {
+        if self.stream.isAuthenticated {
+            return .online
+        }
+        if self.stream.isAuthenticating {
+            return .authenticating
+        }
+        if self.stream.isConnected {
+            return .postAuthSetup
+        }
+        if self.stream.isConnecting {
+            return .connecting
+        }
+        return nil
+    }
+
+    private var streamStateDescription: String {
+        return "connected=\(self.stream.isConnected),connecting=\(self.stream.isConnecting),authenticating=\(self.stream.isAuthenticating),authenticated=\(self.stream.isAuthenticated)"
+    }
     
     func tokenWasInvalidated() {
 //        NotificationCenter.default.post(name: ApplicationStateManager.tokenWasExpired, object: self.stream.myJID!.bare)
     }
     
     func didReceiveError(_ error: DDXMLElement) {
+        if let failure = XMPPAuthenticationFailure(element: error) {
+            self.handleAuthenticationFailure(failure)
+            return
+        }
+
         func failToConnect(_ errorName: String) {
-            CredentialsManager.shared.getItem(for: self.currentJid!).release(error: true)
+            guard let jid = self.currentJid else {
+                self.close(disconnect: true)
+                return
+            }
+            CredentialsManager.shared.getItem(for: jid).release(.authFailedRecoverable)
             self.close(disconnect: true)
             switch errorName {
                 case "conflict":
-                    if (AccountManager.shared.find(for: self.stream.myJID!.bare)?.devices.isAvailable ?? false) {
-                        self.tokenWasInvalidated()
-                    }
+                    break
                 case "credentials-expired":
-                    self.tokenWasInvalidated()
+                    AccountManager.shared.find(for: jid)?.tokenShouldUpdate()
                 case "policy-violation":
-                    self.disable(self.stream.myJID!.bare)
+                    self.disable(jid)
                 case "not-authorized":
                     break
                 default:
@@ -287,6 +345,39 @@ class XMPPUIActionManager: NSObject {
             }
         }
     }
+
+    private func handleAuthenticationFailure(_ failure: XMPPAuthenticationFailure) {
+        self.authenticationCounterTracker.authenticationDidFail()
+        guard let jid = self.currentJid else {
+            self.close(disconnect: true)
+            return
+        }
+
+        let account = AccountManager.shared.find(for: jid)
+        let credentialsItem = CredentialsManager.shared.getItem(for: jid)
+        let resolution = XMPPAuthenticationFailureResolution.resolve(
+            failure: failure,
+            credentialKind: credentialsItem.kind,
+            source: .secondaryStream
+        )
+        if resolution.shouldLogRawFailure {
+            DDLogDebug("XMPP UI auth failure for \(jid): \(failure.rawXML)")
+        }
+
+        self.reconnect?.stop()
+        credentialsItem.release(.authFailedRecoverable)
+        self.close(disconnect: true)
+
+        switch resolution.action {
+        case .removeAccount(let message):
+            AccountManager.shared.changeNewUserState(for: jid, to: .failure(message))
+        case .refreshDeviceSecret:
+            account?.tokenShouldUpdate()
+        case .rejectPassword(let message),
+             .reportGeneric(let message):
+            AccountManager.shared.changeNewUserState(for: jid, to: .failure(message))
+        }
+    }
     
     deinit {
 //        print("UI DEINIT")
@@ -295,6 +386,13 @@ class XMPPUIActionManager: NSObject {
 
 extension XMPPUIActionManager: XMPPReconnectDelegate {
     func xmppReconnect(_ sender: XMPPReconnect, shouldAttemptAutoReconnect connectionFlags: SCNetworkConnectionFlags) -> Bool {
-        return true
+        switch self.connectionGate.beginConnect(trigger: .uiActionRestore) {
+        case .start(let attemptID):
+            DDLogDebug("ui-action stream reconnect attempt=\(attemptID)")
+            return true
+        case .skip(let phase, let activeAttemptID):
+            DDLogDebug("skip duplicate ui-action reconnect phase=\(phase.rawValue) attempt=\(activeAttemptID.map(String.init) ?? "none")")
+            return false
+        }
     }
 }

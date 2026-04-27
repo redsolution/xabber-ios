@@ -25,6 +25,8 @@ import Intents
 
 class NotificationService: UNNotificationServiceExtension {
     static let suitName: String = "group.com.xabber"
+    private static let maxCredentialRetryCount = 5
+    private static let credentialRetryDelay: TimeInterval = 0.1
     
     enum InviteKind: String {
         case group = "group"
@@ -54,14 +56,14 @@ class NotificationService: UNNotificationServiceExtension {
         /*
          <encrypted iv-length='16' xmlns='https://xabber.com/protocol/push'>FLseKbZ+lBteKbuakiw2e2YPtXGdbSNLkV1hXre2JrGswI7MX+4c79LjKr6gsXhKpYPgyiubH6mA/HFAvqIDaBvTgN1ewwsqdCzqV3rwGaPM1QkhkM76ZWycaURmVGdAhAc03stxtW6FdcAREZwAVQ==</encrypted><x type='result' xmlns='jabber:x:data'><field var='FORM_TYPE' type='hidden'><value>https://xabber.com/protocol/push#info</value></field><field var='type'><value>message</value></field></x>
          */
-        init(_ body: String) {
+        init?(_ body: String) {
             let documentBody = "<root>\(body)</root>"
             guard let document = try? DDXMLDocument(xmlString: documentBody, options: 0),
                   let root = document.rootElement(),
                   let encrypted = root.elements(forName: "encrypted").first?.xmlString,
                   let xForm = root.elements(forName: "x").first,
                   let action = xForm.elements(forName: "field").first(where: { $0.attribute(forName: "var")?.stringValue == "type"})?.elements(forName: "value").first?.stringValue else {
-                fatalError()
+                return nil
             }
             self.encrypted = encrypted
             self.actionElement = action
@@ -302,12 +304,12 @@ class NotificationService: UNNotificationServiceExtension {
             self.notificationType = payload.action
             self.action(for: payload)
         } catch {
-            if retry > 100 {
-                bestAttemptContent.title = CommonConfigManager.shared.config.app_name
-                bestAttemptContent.body = "node:\(node), bad secret: \(error)"
-                self.contentHandler?(bestAttemptContent)
+            if retry >= Self.maxCredentialRetryCount {
+                fallbackVisibleNotification(for: payload.action, reason: "credentials unavailable")
             } else {
-                self.loadCredentials(for: node, payload: payload, retry: retry + 1)
+                DispatchQueue.global().asyncAfter(deadline: .now() + Self.credentialRetryDelay) {
+                    self.loadCredentials(for: node, payload: payload, retry: retry + 1)
+                }
             }
         }
     }
@@ -316,7 +318,8 @@ class NotificationService: UNNotificationServiceExtension {
         print("NOTIFICATIONREC", request)
         self.contentHandler = contentHandler
         guard let bestAttemptContent = (request.content.mutableCopy() as? UNMutableNotificationContent) else {
-            fatalError()
+            contentHandler(request.content)
+            return
         }
         identifier = request.identifier
         self.bestAttemptContent = bestAttemptContent
@@ -361,23 +364,53 @@ class NotificationService: UNNotificationServiceExtension {
         bestAttemptContent.body = "New \(payload.action.rawValue)"
         contentHandler?(bestAttemptContent)
     }
+
+    private func fallbackVisibleNotification(for action: Actions, reason: String? = nil) {
+        bestAttemptContent.title = CommonConfigManager.shared.config.app_name
+        switch action {
+        case .update, .message, .invite:
+            bestAttemptContent.body = "New message"
+        case .subscribe:
+            bestAttemptContent.body = "Incoming chat request"
+        case .marker, .none:
+            bestAttemptContent.body = reason ?? ""
+        }
+        if action == .marker {
+            suppressCurrentNotification()
+        } else {
+            contentHandler?(bestAttemptContent)
+        }
+    }
+
+    private func suppressCurrentNotification() {
+        bestAttemptContent.title = " "
+        bestAttemptContent.body = ""
+        bestAttemptContent.subtitle = ""
+        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [identifier])
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [identifier])
+        contentHandler?(bestAttemptContent)
+    }
     
     internal func onMessage(_ payload: PayloadData) {
         guard let pushData = self.pushData else {
-            bestAttemptContent.title = CommonConfigManager.shared.config.app_name
-            bestAttemptContent.body = "ERROR \(payload.action.rawValue)"
-            contentHandler?(bestAttemptContent)
+            fallbackVisibleNotification(for: payload.action, reason: "missing push data")
             return
         }
-        let stanzaId = payload.messageStanzaID(key: pushData.secret)
-        let remoteArchiveJid = stanzaId?.by == pushData.jid ? nil : stanzaId?.by
-        let manager = NetworkManager(
+        guard let stanzaId = payload.messageStanzaID(key: pushData.secret) else {
+            fallbackVisibleNotification(for: payload.action, reason: "missing stanza id")
+            return
+        }
+        let remoteArchiveJid = stanzaId.by == pushData.jid ? nil : stanzaId.by
+        guard let manager = NetworkManager(
             service: pushData.service,
             jid: pushData.jid,
             jwt: pushData.jwt
-        )
+        ) else {
+            fallbackVisibleNotification(for: payload.action, reason: "invalid archive service")
+            return
+        }
         manager.delegate = self
-        manager.getMessage(host: pushData.host, messageId: stanzaId!.id, by: remoteArchiveJid)
+        manager.getMessage(host: pushData.host, messageId: stanzaId.id, by: remoteArchiveJid)
     }
     
     internal func onSubscribe(_ payload: PayloadData) {
@@ -425,18 +458,7 @@ class NotificationService: UNNotificationServiceExtension {
     }
     
     internal func onMarker(_ payload: PayloadData) {
-        bestAttemptContent.title = " "
-        bestAttemptContent.body = ""
-        bestAttemptContent.subtitle = ""
-        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [identifier])
-        UNUserNotificationCenter
-            .current()
-            .removePendingNotificationRequests(withIdentifiers: [identifier])
-//        if let content = bestAttemptContent {
-        bestAttemptContent.body = self.payload
-        bestAttemptContent.subtitle = "Chat marker"//.localizeString(id: "chat_marker", arguments: [])
-        contentHandler?(bestAttemptContent)
-//        }
+        suppressCurrentNotification()
     }
     
     internal func onMarkerSmart(_ payload: PayloadData) {
@@ -477,18 +499,19 @@ class NotificationService: UNNotificationServiceExtension {
     internal func onUpdate(_ payload: PayloadData) {
         self.editMark = "✏️"
         guard let pushData = self.pushData else {
-            bestAttemptContent.title = CommonConfigManager.shared.config.app_name
-            bestAttemptContent.body = "ERROR \(payload.action.rawValue)"
-            contentHandler?(bestAttemptContent)
+            fallbackVisibleNotification(for: payload.action, reason: "missing push data")
             return
         }
-        let stanzaId = payload.messageStanzaID(key: pushData.secret)
-        let remoteArchiveJid = stanzaId?.by == pushData.jid ? nil : stanzaId?.by
+        guard let stanzaId = payload.messageStanzaID(key: pushData.secret) else {
+            fallbackVisibleNotification(for: payload.action, reason: "missing stanza id")
+            return
+        }
+        let remoteArchiveJid = stanzaId.by == pushData.jid ? nil : stanzaId.by
         UNUserNotificationCenter
             .current()
             .getDeliveredNotifications { (notifications) in
                 if let identifier = notifications
-                    .first(where: { return $0.request.content.userInfo["stanzaId"] as? String == stanzaId?.id })?
+                    .first(where: { return $0.request.content.userInfo["stanzaId"] as? String == stanzaId.id })?
                     .request
                     .identifier {
                         UNUserNotificationCenter
@@ -496,13 +519,16 @@ class NotificationService: UNNotificationServiceExtension {
                             .removeDeliveredNotifications(withIdentifiers: [identifier])
                 }
             }
-        let manager = NetworkManager(
+        guard let manager = NetworkManager(
             service: pushData.service,
             jid: pushData.jid,
             jwt: pushData.jwt
-        )
+        ) else {
+            fallbackVisibleNotification(for: payload.action, reason: "invalid archive service")
+            return
+        }
         manager.delegate = self
-        manager.getMessage(host: pushData.host, messageId: stanzaId!.id, by: remoteArchiveJid)
+        manager.getMessage(host: pushData.host, messageId: stanzaId.id, by: remoteArchiveJid)
     }
 }
 
@@ -785,4 +811,3 @@ extension NotificationService: PushPayloadDelegate {
         }
     }
 }
-

@@ -25,7 +25,6 @@ struct PincodePresenter {
     
     
     func present(animated: Bool) {
-        let vc = PasscodeOrBiometricViewController()
-        showModal(vc)
+        ApplicationStateManager.shared.runPincodeTask(animated: animated, force: true)
     }
 }

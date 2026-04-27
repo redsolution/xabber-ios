@@ -30,8 +30,43 @@ import SwiftUI
 import CocoaLumberjack
 import MaterialComponents.MDCPalettes
 
+struct SettingsCloudStorageQuotaDisplayState: Equatable {
+    let detailText: String
+
+    static func resolve(
+        hasCachedQuota: Bool,
+        usedBytes: Int,
+        quotaBytes: Int,
+        isRefreshing: Bool,
+        lastRefreshFailed: Bool,
+        isAvailable: Bool
+    ) -> SettingsCloudStorageQuotaDisplayState {
+        if hasCachedQuota {
+            return SettingsCloudStorageQuotaDisplayState(
+                detailText: quotaText(usedBytes: usedBytes, quotaBytes: quotaBytes)
+            )
+        }
+
+        if lastRefreshFailed || !isAvailable {
+            return SettingsCloudStorageQuotaDisplayState(detailText: "Unavailable")
+        }
+
+        if isRefreshing {
+            return SettingsCloudStorageQuotaDisplayState(detailText: "Updating...")
+        }
+
+        return SettingsCloudStorageQuotaDisplayState(detailText: "Updating...")
+    }
+
+    private static func quotaText(usedBytes: Int, quotaBytes: Int) -> String {
+        let used = AccountQuotaStorageItem.beautify(size: usedBytes)
+        let quota = quotaBytes < 0 ? "Unlimited" : AccountQuotaStorageItem.beautify(size: quotaBytes)
+        return used + " of ".localizeString(id: "of", arguments: []) + quota
+    }
+}
+
 class SettingsViewController: BaseViewController {
-    
+
     class Datasource {
         enum Keys: String {
             case xabberAccount = "xabberAccount"
@@ -53,6 +88,7 @@ class SettingsViewController: BaseViewController {
             case developer = "developer"
             case languages = "languages"
             case turnPasscodeOff = "turn_passcode_off"
+            case changePasscode = "change_passcode"
             case turnBiometricsOnOff = "turn_biometrics_on_off"
             case passcodeTimer = "passcode_timer"
             case passcodeAttempts = "passcode_attempts"
@@ -70,10 +106,11 @@ class SettingsViewController: BaseViewController {
             case afterburnEnabled = "burn_messages_enabled"
 //            case privacy
         }
-        
+
         enum Section: Int {
             case xAccount = 0
             case premium
+            case premiumFeatures
             case xmppAccounts
             case interface
             case settings
@@ -100,13 +137,15 @@ class SettingsViewController: BaseViewController {
             case none
             case afterburn
             case session
-            
+
             func description() -> String {
                 switch self {
                 case .xAccount:
                     return ""
                 case .premium:
                     return ""
+                case .premiumFeatures:
+                    return "Premium Features"
                 case .xmppAccounts:
                     return "XMPP Accounts".localizeString(id: "xmpp_accounts", arguments: [])
                 case .interface:
@@ -159,11 +198,11 @@ class SettingsViewController: BaseViewController {
                     return ""
                 }
             }
-            
+
             func secondaryDescription() -> String {
                 switch self {
                 case .security:
-                    return "* Premium account only"
+                    return ""
                 case .delete:
                     return "This action will delete the account from the server."
                 default:
@@ -171,13 +210,13 @@ class SettingsViewController: BaseViewController {
                 }
             }
         }
-        
+
         enum ItemType {
             case plain
             case toggle
             case selector
         }
-        
+
         var section: Section
         var title: String? = nil
         var subtitle: String? = nil
@@ -193,7 +232,7 @@ class SettingsViewController: BaseViewController {
         var verificationSid: String?
         var icon: String?
         var color: UIColor?
-        
+
         init(section: Section,
              title: String? = nil,
              subtitle: String? = nil,
@@ -225,35 +264,35 @@ class SettingsViewController: BaseViewController {
             self.color = color
         }
     }
-    
+
     class DeviceCell: UITableViewCell {
         static let cellName: String = "SettingsViewControllerrDeviceCell"
-        
-        
+
+
         let subtitleButton: UIButton = {
             let button = UIButton(frame: .zero)
-            
+
             button.setTitleColor(.secondaryLabel, for: .normal)
-            
+
             return button
         }()
-        
+
         let titleLabel: UILabel = {
             let label = UILabel()
-            
+
             return label
         }()
-        
+
         let stack: UIStackView = {
             let stack = UIStackView()
-            
+
             stack.axis = .horizontal
             stack.distribution = .fill
             stack.alignment = .center
-            
+
             return stack
         }()
-        
+
         override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
             super.init(style: style, reuseIdentifier: reuseIdentifier)
             contentView.addSubview(stack)
@@ -266,28 +305,50 @@ class SettingsViewController: BaseViewController {
             ])
             selectionStyle = .none
         }
-        
+
         required init?(coder: NSCoder) {
             fatalError("init(coder:) has not been implemented")
         }
-        
+
     }
-    
+
+    class SettingsValueCell: UITableViewCell {
+        static let cellName: String = "SettingsViewControllerValueCell"
+
+        override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+            super.init(style: .value1, reuseIdentifier: reuseIdentifier)
+            detailTextLabel?.textColor = .secondaryLabel
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override func prepareForReuse() {
+            super.prepareForReuse()
+            textLabel?.textColor = .label
+            detailTextLabel?.text = nil
+            detailTextLabel?.textColor = .secondaryLabel
+            accessoryType = .none
+            imageView?.image = nil
+        }
+    }
+
     internal let tableView: UITableView = {
         let view = UITableView(frame: .zero, style: .insetGrouped)
-        
+
         view.register(AccountCell.self, forCellReuseIdentifier: AccountCell.cellName)
         view.register(UITableViewCell.self, forCellReuseIdentifier: "AddAccountCell")
         view.register(UITableViewCell.self, forCellReuseIdentifier: "SettingsItem")
         view.register(DeviceCell.self, forCellReuseIdentifier: DeviceCell.cellName)
         view.register(SettingsItemDetailViewController.SelectorCell.self, forCellReuseIdentifier: SettingsItemDetailViewController.SelectorCell.cellName)
-        
-        view.register(UITableViewCell.self, forCellReuseIdentifier: "manageStorage")
+
+        view.register(SettingsValueCell.self, forCellReuseIdentifier: SettingsValueCell.cellName)
         view.register(UITableViewCell.self, forCellReuseIdentifier: "value1CellReuseID")
-        
+
         return view
     }()
-    
+
     lazy var spinner: UIActivityIndicatorView = {
         let activityIndicator = UIActivityIndicatorView(frame: CGRect(x: 0, y: 0, width: 24, height: 24))
         activityIndicator.color = UIColor.gray
@@ -296,7 +357,7 @@ class SettingsViewController: BaseViewController {
         activityIndicator.hidesWhenStopped = true
         return activityIndicator
     }()
-    
+
     lazy var spinner2: UIActivityIndicatorView = {
         let activityIndicator = UIActivityIndicatorView(frame: CGRect(x: 0, y: 0, width: 24, height: 24))
         activityIndicator.color = UIColor.gray
@@ -313,21 +374,18 @@ class SettingsViewController: BaseViewController {
     internal var editButton: UIBarButtonItem? = nil
     internal var doneEditButton: UIBarButtonItem? = nil
     internal var barButtonItemAddAccount: UIBarButtonItem? = nil
-    
+
     var activeVerificationSessionSid: String? = nil
-    
+
     internal let headerView: InfoScreenHeaderView = {
         let view = InfoScreenHeaderView(frame: .zero)
         view.bottomPadding = 16
-        
+
         return view
     }()
-    
-//    var scrollViewContentOffsetYCopy: CGFloat = 0
-    var headerHeightMax: CGFloat = CommonConfigManager.shared.config.support_xabber_account ? 232 : 188
-//    var headerHeightMin: CGFloat = 0
+
     var nickname = ""
-    
+
     internal var resources: Results<ResourceStorageItem>? = nil
     internal var sessionsCount: Int = 0
     internal var omemoDeviceActionsRequired: Bool = false
@@ -335,25 +393,41 @@ class SettingsViewController: BaseViewController {
     internal var blockedContactsCount: Int = 0
     internal var groupchatInvitationsCount: Int = 0
     internal var currentResource: String? = nil
-    
+
     var avatarUrl: String? = nil
-    
+
     var quota: String = ""
     var used: String = ""
-    
+    var cloudStorageQuotaDetailText: String = SettingsCloudStorageQuotaDisplayState
+        .resolve(
+            hasCachedQuota: false,
+            usedBytes: 0,
+            quotaBytes: 0,
+            isRefreshing: false,
+            lastRefreshFailed: false,
+            isAvailable: true
+        )
+        .detailText
+    private var cloudStorageHasCachedQuota: Bool = false
+    private var cloudStorageUsedBytes: Int = 0
+    private var cloudStorageQuotaBytes: Int = 0
+    private var isCloudStorageQuotaRefreshing: Bool = false
+    private var cloudStorageQuotaRefreshFailed: Bool = false
+    private var cloudStorageQuotaAvailable: Bool = true
+
     var shouldShowTabBar: Bool = false
-    
+
     internal func subscribe() {
-    
+
         bag = DisposeBag()
-        
+
         do {
             let realm = try Realm()
-            
+
             self.accounts = realm
                 .objects(AccountStorageItem.self)
                 .sorted(byKeyPath: "order", ascending: true)
-            
+
             self.resources = realm
                 .objects(ResourceStorageItem.self)
                 .filter("owner == %@ AND jid == %@", jid, jid)
@@ -361,14 +435,18 @@ class SettingsViewController: BaseViewController {
                     SortDescriptor(keyPath: "isCurrentResourceForAccount", ascending: false),
                     SortDescriptor(keyPath: "timestamp", ascending: false)
                 ])
-            
+
             self.load()
+            updateCloudStorageQuota(
+                from: realm.object(ofType: AccountQuotaStorageItem.self, forPrimaryKey: self.jid),
+                reloadRow: false
+            )
             tableView.reloadData()
-            
+
             let accountsObserver = realm
                 .objects(AccountStorageItem.self)
                 .filter("jid == %@", jid)
-            
+
             Observable
                 .collection(from: accountsObserver)
                 .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
@@ -394,9 +472,9 @@ class SettingsViewController: BaseViewController {
                     } else {
                         self.nickname = XMPPJID(string: self.jid)?.user ?? self.jid
                     }
-                    
+
                 }).disposed(by: bag)
-           
+
             if let item = accountsObserver.first {
                 self.nickname = item.username
 
@@ -417,7 +495,7 @@ class SettingsViewController: BaseViewController {
             } else {
                 self.nickname = XMPPJID(string: self.jid)?.user ?? self.jid
             }
-            
+
             Observable
                 .changeset(from: self.resources!)
                 .debounce(.milliseconds(12), scheduler: MainScheduler.asyncInstance)
@@ -427,7 +505,7 @@ class SettingsViewController: BaseViewController {
                         self.tableView.reloadData()
                     }
                 }).disposed(by: bag)
-            
+
             Observable
                 .collection(from: realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@", self.jid, self.jid))
                 .debounce(.milliseconds(50), scheduler: MainScheduler.asyncInstance)
@@ -441,11 +519,11 @@ class SettingsViewController: BaseViewController {
                         self.omemoDeviceWarning = true
                     }
                 } onError: { _ in
-                    
+
                 } onCompleted: {
-                    
+
                 } onDisposed: {
-                    
+
                 }.disposed(by: self.bag)
 
             Observable
@@ -468,7 +546,7 @@ class SettingsViewController: BaseViewController {
                         }
                     }
                 }).disposed(by: bag)
-            
+
             Observable
                 .changeset(from: self.accounts!)
                 .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
@@ -496,7 +574,7 @@ class SettingsViewController: BaseViewController {
                     self.load()
                     self.tableView.reloadData()
                 }).disposed(by: bag)
-            
+
             Observable
                 .collection(from: realm
                     .objects(VerificationSessionStorageItem.self)
@@ -506,21 +584,110 @@ class SettingsViewController: BaseViewController {
                     if self.datasource.isEmpty {
                         return
                     }
-                    
+
                     self.load()
                     self.tableView.reloadData()
-                    
+
+                }).disposed(by: bag)
+
+            Observable
+                .collection(from: realm.objects(AccountQuotaStorageItem.self).filter("jid == %@", self.jid))
+                .debounce(.milliseconds(40), scheduler: MainScheduler.asyncInstance)
+                .subscribe(onNext: { results in
+                    self.updateCloudStorageQuota(from: results.first, reloadRow: true)
                 }).disposed(by: bag)
         } catch {
             DDLogDebug("SettingsViewController: \(#function). \(error.localizedDescription)")
         }
     }
-    
-    
+
+
     internal func unsubscribe() {
         bag = DisposeBag()
     }
-    
+
+    private func updateCloudStorageQuota(from item: AccountQuotaStorageItem?, reloadRow: Bool) {
+        if let item = item {
+            cloudStorageHasCachedQuota = true
+            cloudStorageUsedBytes = item.totalBytes
+            cloudStorageQuotaBytes = item.quotaBytes
+            used = item.total
+            quota = item.quotaBytes < 0 ? "Unlimited" : item.quota
+        } else {
+            cloudStorageHasCachedQuota = false
+            cloudStorageUsedBytes = 0
+            cloudStorageQuotaBytes = 0
+            used = ""
+            quota = ""
+        }
+        updateCloudStorageQuotaDetailText()
+        if reloadRow {
+            reloadCloudStorageRow()
+        }
+    }
+
+    private func updateCloudStorageQuotaDetailText() {
+        cloudStorageQuotaDetailText = SettingsCloudStorageQuotaDisplayState
+            .resolve(
+                hasCachedQuota: cloudStorageHasCachedQuota,
+                usedBytes: cloudStorageUsedBytes,
+                quotaBytes: cloudStorageQuotaBytes,
+                isRefreshing: isCloudStorageQuotaRefreshing,
+                lastRefreshFailed: cloudStorageQuotaRefreshFailed,
+                isAvailable: cloudStorageQuotaAvailable
+            )
+            .detailText
+    }
+
+    private func refreshCloudStorageQuotaForCurrentAccount() {
+        guard jid.isNotEmpty else { return }
+        guard AccountManager.shared.find(for: jid) != nil else {
+            isCloudStorageQuotaRefreshing = false
+            cloudStorageQuotaRefreshFailed = true
+            cloudStorageQuotaAvailable = false
+            updateCloudStorageQuotaDetailText()
+            reloadCloudStorageRow()
+            return
+        }
+
+        isCloudStorageQuotaRefreshing = true
+        cloudStorageQuotaRefreshFailed = false
+        cloudStorageQuotaAvailable = true
+        updateCloudStorageQuotaDetailText()
+        reloadCloudStorageRow()
+
+        CloudStorageQuotaRefreshCoordinator.shared.refresh(owner: jid, reason: .screenOpen) { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.isCloudStorageQuotaRefreshing = false
+                self.cloudStorageQuotaRefreshFailed = result == .failure || result == .unauthorized
+                self.cloudStorageQuotaAvailable = result != .unavailable
+                self.updateCloudStorageQuotaDetailText()
+                self.reloadCloudStorageRow()
+            }
+        }
+    }
+
+    private func reloadCloudStorageRow() {
+        guard let indexPath = cloudStorageIndexPath() else {
+            tableView.reloadData()
+            return
+        }
+
+        if tableView.indexPathsForVisibleRows?.contains(indexPath) == true {
+            tableView.reloadRows(at: [indexPath], with: .none)
+        }
+    }
+
+    private func cloudStorageIndexPath() -> IndexPath? {
+        for (section, datasource) in datasource.enumerated() {
+            if let row = datasource.childs.firstIndex(where: { $0.key == .manageStorage }) {
+                return IndexPath(row: row, section: section)
+            }
+        }
+        return nil
+    }
+
     func navigationBarButtonsConfigure(multiAccounts: Bool) {
 //        barButtonItemAddAccount = (CommonConfigManager.shared.config.supports_multiaccounts && !multiAccounts) ?
 //        UIBarButtonItem(image: imageLiteral( "contact-add")?.withRenderingMode(.alwaysTemplate),
@@ -532,8 +699,8 @@ class SettingsViewController: BaseViewController {
 ////            navigationItem.setLeftBarButton(barButtonItemAddAccount, animated: true)
 ////            navigationItem.setLeftBarButtonItems([barButtonItemAddAccount].compactMap { $0 } , animated: false)
 //        }
-//        
-//        
+//
+//
         if multiAccounts {
             editButton = UIBarButtonItem(barButtonSystemItem: .edit, target: self, action: #selector(onEdit))
             doneEditButton = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(onDoneEditing))
@@ -558,21 +725,21 @@ class SettingsViewController: BaseViewController {
             }
         }
     }
-    
+
     var multiAccounts: Bool = false
-    
+
     internal func load() {
         datasource = []
         activeVerificationSessionSid = nil
         guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup())
             else { fatalError() }
         let dict = userDefaults.dictionaryRepresentation()
-        
+
         guard let accounts = self.accounts,
               let item = accounts.first else { return }
         self.nickname = item.username
         self.jid = item.jid
-        
+
         if accounts.count > 1 {
             multiAccounts = true
             datasource.append(Datasource(section: .xmppAccounts, title: Datasource.Section.xmppAccounts.description()))
@@ -590,7 +757,7 @@ class SettingsViewController: BaseViewController {
             tableView.setEditing(false, animated: false)
             navigationBarButtonsConfigure(multiAccounts: false)
 //            headerViewConfig(multiAccounts: false)
-            
+
             do {
                 let realm = try WRealm.safe()
                 if let item = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: self.jid) {
@@ -607,18 +774,18 @@ class SettingsViewController: BaseViewController {
                         self.headerView.setupXabberAccountButton()
                     }
                 }
-                
+
                 if let sessionInstance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.owner).first {
                     self.activeVerificationSessionSid = sessionInstance.sid
                     let (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(withOwnDevice: true, verificationState: sessionInstance.state)
                     let verificationDatasource = Datasource(section: .session, childs: [Datasource(section: .session, title: text, subtitle: secondaryText)])
-                    
+
                     datasource.append(verificationDatasource)
                 }
             } catch {
                 DDLogDebug("SettingsViewController:\(#function). \(error.localizedDescription)")
             }
-            
+
             var profileChilds = [
                 Datasource(section: .profile, title: "Profile", key: .accountVcard),
                 Datasource(section: .profile, title: "Password", viewController: ChangePasswordTableViewController.self),
@@ -665,14 +832,14 @@ class SettingsViewController: BaseViewController {
 //                    Datasource(section: .accountSettings, title: "Subscriptions", icon: "xabber.lightbulb.square.fill", color: UIColor.systemBlue, key: .subscriptions)
                 ]))
             }
-            
+
             if AccountManager.shared.find(for: self.jid)?.cloudStorage.isAvailable() ?? false {
                 let item = Datasource(section: .accountSettings, title: "Cloud storage", icon: "custom.cloud.square.fill", color: UIColor.systemBlue, key: .manageStorage)
                 let sectionToInsert = datasource.firstIndex(where: { $0.section == .accountSettings })
                 datasource[sectionToInsert!].childs.insert(item, at: 1)
             }
         }
-        
+
         var interfaceChilds = [
             Datasource(section: .chat, title: Datasource.Section.chat.description(), childs: [
                 Datasource(section: .chat, title: "Background color", itemType: .plain,
@@ -726,7 +893,7 @@ class SettingsViewController: BaseViewController {
                 ])
             ]
         }
-        
+
         datasource.append(Datasource(section: .settings, title: Datasource.Section.settings.description(), childs: [
             Datasource(
                 section: .privacy,
@@ -766,50 +933,43 @@ class SettingsViewController: BaseViewController {
             Datasource(section: .settings, title: "Debug", icon:"custom.ant.square.fill", color: UIColor.systemGreen, key: .developer),
             Datasource(section: .settings, title: "Language", icon:"xabber.translate.square.fill", color: UIColor.systemPurple, key: .languages)
             ]))
-        
-        if CommonConfigManager.shared.config.support_xabber_account {
-            datasource.append(Datasource(section: .premium, childs: [
+
+        var premiumFeatures: [Datasource] = []
+        if CommonConfigManager.shared.config.support_xabber_account || CommonConfigManager.shared.config.support_subscribtions {
+            premiumFeatures.append(
                 Datasource(section: .accountSettings, title: "Premium", icon: "star.square.fill", color: MDCPalette.deepPurple.tint500, key: .premium)
-            ]))
+            )
+        }
+        if PasscodeLockPolicy.shouldShowSettingsEntry {
+            premiumFeatures.append(
+                Datasource(section: .premiumFeatures, title: "Passcode Lock", icon:"custom.hand.raised.square.fill", color: UIColor.systemOrange, premiumOnly: true, viewController: SimpleTableViewController.self, childs: [
+                    Datasource(section: .security, subtitle: "Protect the app with a passcode. If you forget it, you will need to reinstall the app.", childs: [
+                        Datasource(section: .security, title: "Change Passcode", key: .changePasscode),
+                        Datasource(section: .security, title: "Biometrics", key: .turnBiometricsOnOff),
+                        Datasource(section: .security, title: "Turn Passcode Off", key: .turnPasscodeOff)
+                    ]),
+                    Datasource(section: .autolock, childs: [
+                        Datasource(section: .autolock, title: "Auto-Lock", key: .passcodeTimer),
+                        Datasource(section: .autolock, title: "Attempts", key: .passcodeAttempts),
+                        Datasource(section: .autolock, title: "Show attempts left", itemType: .toggle, toggle: (dict[Datasource.Keys.showAttempts.rawValue] as? Bool) ?? false, key: .showAttempts)
+                    ])
+                ], key: .passcode)
+            )
+        }
+        if premiumFeatures.isNotEmpty {
+            datasource.append(Datasource(section: .premiumFeatures, title: Datasource.Section.premiumFeatures.description(), childs: premiumFeatures))
         }
         if CommonConfigManager.shared.config.use_yubikey {
             datasource.append(Datasource(section: .security, title: Datasource.Section.security.description(), subtitle: Datasource.Section.security.secondaryDescription(), childs: [
-                Datasource(section: .security, title: "Passcode lock *", icon:"custom.hand.raised.square.fill", color: UIColor.systemOrange, premiumOnly: true, viewController: SimpleTableViewController.self, childs: [
-                        Datasource(section: .security, subtitle: "If you forget your passcode, you'll need to reinstall the app.\n\nIf you premium subscription expire, passcode will be reset.", childs: [
-                            Datasource(section: .security, title: "Turn passcode Off", key: .turnPasscodeOff),
-                            Datasource(section: .security, title: "Change Passcode", viewController: PasscodeViewController.self),
-                            Datasource(section: .security, title: "Biometrics", key: .turnBiometricsOnOff)]),
-                        Datasource(section: .security, childs: [
-                            Datasource(section: .autolock, title: "Auto-Lock", key: .passcodeTimer),
-                            Datasource(section: .autolock, title: "Attempts", key: .passcodeAttempts),
-                            Datasource(section: .autolock, title: "Displayed attempts", key: .displayedAttempts),
-                            Datasource(section: .autolock, title: "Show attempts left", itemType: .toggle, toggle: (dict[Datasource.Keys.showAttempts.rawValue] as? Bool) ?? false, key: .showAttempts)
-                        ])
-                    ], key: .passcode),
                     Datasource(section: .security, title: "Yubikey signature", icon: "custom.key.square.fill", color: UIColor.systemOrange, viewController: YubikeySetupViewController.self, key: .yubikey),
-                ]))
-        } else {
-            datasource.append(Datasource(section: .security, title: Datasource.Section.security.description(), subtitle: Datasource.Section.security.secondaryDescription(), childs: [
-                Datasource(section: .security, title: "Passcode lock *", icon:"custom.hand.raised.square.fill", color: UIColor.systemOrange, premiumOnly: true, viewController: SimpleTableViewController.self, childs: [
-                        Datasource(section: .security, subtitle: "If you forget your passcode, you'll need to reinstall the app.\n\nIf you premium subscription expire, passcode will be reset.", childs: [
-                            Datasource(section: .security, title: "Turn passcode Off", key: .turnPasscodeOff),
-                            Datasource(section: .security, title: "Change Passcode", viewController: PasscodeViewController.self),
-                            Datasource(section: .security, title: "Biometrics", key: .turnBiometricsOnOff)]),
-                        Datasource(section: .security, childs: [
-                            Datasource(section: .autolock, title: "Auto-Lock", key: .passcodeTimer),
-                            Datasource(section: .autolock, title: "Attempts", key: .passcodeAttempts),
-                            Datasource(section: .autolock, title: "Displayed attempts", key: .displayedAttempts),
-                            Datasource(section: .autolock, title: "Show attempts left", itemType: .toggle, toggle: (dict[Datasource.Keys.showAttempts.rawValue] as? Bool) ?? false, key: .showAttempts)
-                        ])
-                    ], key: .passcode)
                 ]))
         }
     }
-    
+
     internal func configure() {
 //        self.navigationItem.backButtonTitle = "Settings".localizeString(id: "settings", arguments: [])
         view.addSubview(tableView)
-        
+
         do {
             let realm = try WRealm.safe()
             self.accounts = realm
@@ -830,11 +990,11 @@ class SettingsViewController: BaseViewController {
                 })
             }
         }
-        
+
         load()
         tableView.delegate = self
         tableView.dataSource = self
-        
+
 //        editButton = UIBarButtonItem(title: "Edit", style: .plain, /*barButtonSystemItem: .edit,*/ target: self, action: #selector(self.onEdit))
 //        doneEditButton = UIBarButtonItem(title: "Done", style: .plain, /*barButtonSystemItem: .done,*/ target: self, action: #selector(self.onDoneEditing))
 //        if #available(iOS 14.0, *) {
@@ -849,15 +1009,15 @@ class SettingsViewController: BaseViewController {
                 XabberAccountManager.shared.registerAccount(stream, callback: nil)
             }
         }
-            
+
     }
-    
+
     @objc
     func onAcceptButtonPressed() {
         AccountManager.shared.find(for: self.owner)?.action { user, stream in
             DispatchQueue.main.async {
                 _ = user.akeManager.acceptVerificationRequest(jid: self.jid, sid: self.activeVerificationSessionSid ?? "")
-                
+
                 NotificationCenter.default.post(name: AuthenticatedKeyExchangeManager.showCodeOutputViewNotification,
                                                 object: self,
                                                 userInfo: [
@@ -867,7 +1027,7 @@ class SettingsViewController: BaseViewController {
             }
         }
     }
-    
+
     @objc
     func onShowCodePressed() {
         NotificationCenter.default.post(name: AuthenticatedKeyExchangeManager.showCodeOutputViewNotification,
@@ -877,7 +1037,7 @@ class SettingsViewController: BaseViewController {
                                             "sid": activeVerificationSessionSid ?? ""
                                         ])
     }
-    
+
     @objc
     func onEnterCodePressed() {
         NotificationCenter.default.post(
@@ -886,7 +1046,7 @@ class SettingsViewController: BaseViewController {
             userInfo: ["owner": self.jid, "sid": activeVerificationSessionSid ?? ""]
         )
     }
-    
+
     @objc
     func onCloseVerificationButtonPressed() {
         guard let jid = XMPPJID(string: self.owner),
@@ -894,39 +1054,39 @@ class SettingsViewController: BaseViewController {
             DDLogDebug("SettingsViewController: \(#function).")
             return
         }
-        
+
         do {
             let realm = try WRealm.safe()
             let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: self.owner, sid: sid))
-            
+
             if instance?.state == VerificationSessionStorageItem.VerififcationState.receivedRequest {
                 AccountManager.shared.find(for: self.owner)?.action({ user, stream in
                     user.akeManager.rejectRequestToVerify(jid: self.owner, sid: sid)
                 })
 //                akeManager.rejectRequestToVerify(jid: self.owner, sid: sid)
-                
+
                 return
             } else if instance?.state != VerificationSessionStorageItem.VerififcationState.failed && instance?.state != VerificationSessionStorageItem.VerififcationState.trusted && instance?.state != VerificationSessionStorageItem.VerififcationState.rejected {
                 AccountManager.shared.find(for: self.owner)?.action({ user, stream in
                     user.akeManager.sendErrorMessage(fullJID: jid, sid: sid, reason: "Сontact canceled verification session")
                 })
 //                akeManager.sendErrorMessage(fullJID: jid, sid: sid, reason: "Сontact canceled verification session")
-                
+
             }
-            
+
             activeVerificationSessionSid = nil
-            
+
             try realm.write {
                 realm.delete(instance!)
             }
-            
+
             return
         } catch {
             DDLogDebug("SettingsViewController: \(#function). \(error.localizedDescription)")
             return
         }
     }
-    
+
     func headerViewConfig() {
         tableView.fillSuperviewWithOffset(top: 0, bottom: 0, left: 0, right: 0)
         tableView.delegate = self
@@ -935,16 +1095,11 @@ class SettingsViewController: BaseViewController {
             return
         }
         headerView.showButtons = false
-        
-        headerView.frame = CGRect(
-            width: view.frame.width,
-            height: headerView.preferredHeight
-        )
-        headerView.updateSubviews()
-        tableView.tableHeaderView = headerView
+
         self.headerView.delegate = self
+        headerView.applyHeaderLayout(to: tableView, width: view.bounds.width)
     }
-    
+
     override func reloadDatasource() {
         headerView.setMask()
         for row in (0..<(self.accounts?.count ?? 1)) {
@@ -953,24 +1108,23 @@ class SettingsViewController: BaseViewController {
         }
         tableView.reloadData()
     }
-    
+
     override func viewDidLoad() {
         super.viewDidLoad()
-        
-        
+
+
         configure()
     }
-    
+
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         title = nil
-        
+
         NotifyManager.shared.setLastChats(displayed: false)
         headerViewConfig()
-        getQuotaFromRealm()
-        getQuota()
         subscribe()
-        
+        refreshCloudStorageQuotaForCurrentAccount()
+
         if self.shouldShowTabBar {
             self.tabBarController?.tabBar.isHidden = false
             self.tabBarController?.tabBar.layoutIfNeeded()
@@ -978,13 +1132,13 @@ class SettingsViewController: BaseViewController {
         navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
         navigationController?.navigationBar.shadowImage = UIImage()
         navigationController?.navigationBar.setNeedsLayout()
-        
-        
+
+
     }
-    
+
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        
+
 //        XMPPUIActionManager.shared.performRequest(owner: self.jid) { stream, session in
 //            session.blocked?.requestBlocklist(stream)
 //            session.vcardManager?.requestItem(stream, jid: self.jid)
@@ -995,7 +1149,7 @@ class SettingsViewController: BaseViewController {
 //            })
 //        }
     }
-    
+
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         unsubscribe()
@@ -1003,46 +1157,9 @@ class SettingsViewController: BaseViewController {
         navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
         navigationController?.navigationBar.shadowImage = nil
     }
-    
+
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
     }
-    
-    private func getQuotaFromRealm() {
-        do {
-            let realm = try Realm()
-            guard let quotaItem = realm.object(ofType: AccountQuotaStorageItem.self,
-                                               forPrimaryKey: self.jid) else { return }
-            self.quota = quotaItem.quota
-            self.used = quotaItem.total
-        } catch {
-            DDLogDebug("SettingsViewController: \(#function). \(error.localizedDescription)")
-        }
-    }
-    
-    private func getQuota() {
-        func callback() {
-            do {
-                let realm = try WRealm.safe()
-                guard let quotaItem = realm.object(ofType: AccountQuotaStorageItem.self,
-                                                   forPrimaryKey: self.jid) else { return }
-                self.quota = quotaItem.quota
-                self.used = quotaItem.total
-                self.tableView.reloadData()
-            } catch {
-                DDLogDebug("SettingsViewController: \(#function). \(error.localizedDescription)")
-            }
-        }
-        if !CommonConfigManager.shared.config.supports_multiaccounts {
-            AccountManager.shared.users.first?.action({ user, stream in
-                user.cloudStorage.getStats()
-            })
-        } else {
-            AccountManager.shared.activeUsers.value.forEach {
-                AccountManager.shared.find(for: $0)?.action({ user, stream in
-                    user.cloudStorage.getStats()
-                })
-            }
-        }
-    }
+
 }

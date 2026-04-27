@@ -522,6 +522,7 @@
 		66B1C76123913F8B00793F56 /* GroupchatInviteViewController+Delegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B1C76023913F8B00793F56 /* GroupchatInviteViewController+Delegate.swift */; };
 		66B32D4123C63B3A00FA102C /* XTokenInvalidatePresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B32D4023C63B3A00FA102C /* XTokenInvalidatePresenter.swift */; };
 		66B3700220A443DF0022F71B /* AccountConnectBehaviorExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B3700120A443DF0022F71B /* AccountConnectBehaviorExtension.swift */; };
+		66B3700420A443DF0022F71B /* XMPPAuthenticationFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B3700320A443DF0022F71B /* XMPPAuthenticationFailure.swift */; };
 		66B3700420A4521D0022F71B /* XabberTabBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B3700320A4521D0022F71B /* XabberTabBar.swift */; };
 		66B4194F222FCE1200E15D1D /* AudioMessageCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B4194E222FCE1200E15D1D /* AudioMessageCell.swift */; };
 		66B41951222FCE2600E15D1D /* FileMessageCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B41950222FCE2600E15D1D /* FileMessageCell.swift */; };
@@ -1503,6 +1504,7 @@
 		66B1C76023913F8B00793F56 /* GroupchatInviteViewController+Delegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GroupchatInviteViewController+Delegate.swift"; sourceTree = "<group>"; };
 		66B32D4023C63B3A00FA102C /* XTokenInvalidatePresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XTokenInvalidatePresenter.swift; sourceTree = "<group>"; };
 		66B3700120A443DF0022F71B /* AccountConnectBehaviorExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountConnectBehaviorExtension.swift; sourceTree = "<group>"; };
+		66B3700320A443DF0022F71B /* XMPPAuthenticationFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XMPPAuthenticationFailure.swift; sourceTree = "<group>"; };
 		66B3700320A4521D0022F71B /* XabberTabBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XabberTabBar.swift; sourceTree = "<group>"; };
 		66B4194E222FCE1200E15D1D /* AudioMessageCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioMessageCell.swift; sourceTree = "<group>"; };
 		66B41950222FCE2600E15D1D /* FileMessageCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileMessageCell.swift; sourceTree = "<group>"; };
@@ -1985,6 +1987,7 @@
 			isa = PBXGroup;
 			children = (
 				66B3700120A443DF0022F71B /* AccountConnectBehaviorExtension.swift */,
+				66B3700320A443DF0022F71B /* XMPPAuthenticationFailure.swift */,
 			);
 			path = extensions;
 			sourceTree = "<group>";
@@ -5489,6 +5492,7 @@
 				661BBA34238FD27D00BE4A80 /* GroupchatInviteViewController+UITableViewDataSource.swift in Sources */,
 				1A939B2827E49D7400014E43 /* MasksSelectionViewController.swift in Sources */,
 				66B3700220A443DF0022F71B /* AccountConnectBehaviorExtension.swift in Sources */,
+				66B3700420A443DF0022F71B /* XMPPAuthenticationFailure.swift in Sources */,
 				66AD011922D7376700823398 /* LastChatsViewController+UITableViewPrefetchingDataSource.swift in Sources */,
 				66F2566424A376F9002FC961 /* XMPPActionManager.swift in Sources */,
 				66EB12922BC7F85200524E1B /* NotificationsSubscribtionsListViewController.swift in Sources */,

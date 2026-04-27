@@ -268,6 +268,7 @@ class GroupchatManager: AbstractXMPPManager {
                                elementID: elementId,
                                child: DDXMLElement(name: "decline",
                                                    xmlns: getPrimaryNamespace())))
+        queryIds.insert(elementId)
         queueItems.insert(QueueItem(.cancelJoin, elementId: elementId, callback: callback))
         addRequestTimeoutHandler(for: elementId )
     }
@@ -1510,8 +1511,6 @@ class GroupchatManager: AbstractXMPPManager {
                 } else {
                     instance.isOnline = false
                 }
-            } else {
-                instance.isOnline = true
             }
             if AccountManager.shared.find(for: owner)?.syncManager.isSynced() ?? true {
                 AccountManager.shared.find(for: owner)?.action({ (user, stream) in
@@ -1654,6 +1653,10 @@ class GroupchatManager: AbstractXMPPManager {
             let realm = try  WRealm.safe()
 
             try realm.write {
+                realm
+                    .objects(GroupchatUserStorageItem.self)
+                    .filter("groupchatId == %@", [from, owner].prp())
+                    .forEach { $0.isBlocked = false }
                 // V3: <jid> children, Old: <user> children
                 let blockedItems = query.elements(forName: "jid") + query.elements(forName: "user")
                 blockedItems.forEach {
@@ -1678,6 +1681,7 @@ class GroupchatManager: AbstractXMPPManager {
             DDLogDebug("GroupchatManager: \(#function). \(error.localizedDescription)")
         }
         
+        queryIds.remove(elementId)
         return true
     }
     
@@ -1871,6 +1875,7 @@ class GroupchatManager: AbstractXMPPManager {
         }
         
         item.callback?(nil)
+        queueItems.remove(item)
         
         return true
     }
@@ -1962,6 +1967,7 @@ class GroupchatManager: AbstractXMPPManager {
             DDLogDebug("GroupchatManager: \(#function). \(error.localizedDescription)")
         }
         
+        queryIds.remove(elementId)
         return true
     }
     
@@ -2364,6 +2370,7 @@ class GroupchatManager: AbstractXMPPManager {
               self.queryIds.contains(elementId) else {
             return false
         }
+        queryIds.remove(elementId)
         if let item = queueItems.first(where: { $0.elementId == elementId }) {
             item.callback?(nil)
             queueItems.remove(item)

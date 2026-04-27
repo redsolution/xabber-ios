@@ -29,6 +29,137 @@ import XMPPFramework
 import CocoaLumberjack
 import WebRTC
 
+protocol VoIPScheduledTask {
+    func cancel()
+}
+
+protocol VoIPCallTimeoutScheduling {
+    @discardableResult
+    func schedule(after interval: TimeInterval, _ block: @escaping () -> Void) -> VoIPScheduledTask
+}
+
+final class DispatchVoIPScheduledTask: VoIPScheduledTask {
+    private var workItem: DispatchWorkItem?
+
+    init(workItem: DispatchWorkItem) {
+        self.workItem = workItem
+    }
+
+    func cancel() {
+        workItem?.cancel()
+        workItem = nil
+    }
+}
+
+final class DispatchVoIPCallTimeoutScheduler: VoIPCallTimeoutScheduling {
+    @discardableResult
+    func schedule(after interval: TimeInterval, _ block: @escaping () -> Void) -> VoIPScheduledTask {
+        let workItem = DispatchWorkItem(block: block)
+        DispatchQueue.main.asyncAfter(deadline: .now() + interval, execute: workItem)
+        return DispatchVoIPScheduledTask(workItem: workItem)
+    }
+}
+
+enum CallSessionPhase {
+    case awaitingConfirmation
+    case ringing
+    case waitingRemoteOffer
+    case creatingLocalOffer
+    case connectingMedia
+    case connected
+    case ending
+    case ended
+}
+
+enum CallTerminationReason: String {
+    case missed
+    case rejectedByCallee
+    case canceledByCaller
+    case incomingUnansweredTimeout
+    case outgoingUnansweredTimeout
+    case remoteHangup
+    case localHangup
+    case connectionError
+    case signalingError
+    case webRTCFailure
+    case answeredElsewhere
+    case declinedElsewhere
+
+    func legacyState(outgoing: Bool) -> MessageStorageItem.VoIPCallState {
+        switch self {
+        case .missed, .incomingUnansweredTimeout:
+            return .missed
+        case .canceledByCaller:
+            return outgoing ? .noanswer : .missed
+        case .rejectedByCallee, .declinedElsewhere:
+            return .busy
+        case .outgoingUnansweredTimeout:
+            return .noanswer
+        case .remoteHangup, .localHangup, .answeredElsewhere:
+            return .made
+        case .connectionError, .signalingError, .webRTCFailure:
+            return outgoing ? .noanswer : .missed
+        }
+    }
+
+    func callKitReason(outgoing: Bool) -> CXCallEndedReason {
+        switch self {
+        case .incomingUnansweredTimeout, .outgoingUnansweredTimeout, .missed:
+            return .unanswered
+        case .answeredElsewhere:
+            return .answeredElsewhere
+        case .rejectedByCallee, .canceledByCaller, .remoteHangup, .declinedElsewhere:
+            return .remoteEnded
+        case .localHangup:
+            return .remoteEnded
+        case .connectionError, .signalingError, .webRTCFailure:
+            return .failed
+        }
+    }
+}
+
+final class CallSessionContext {
+    let callId: String
+    let callUUID: UUID
+    let owner: String
+    var jid: String
+    let outgoing: Bool
+
+    var phase: CallSessionPhase
+    var incomingTimeoutTask: VoIPScheduledTask?
+    var outgoingTimeoutTask: VoIPScheduledTask?
+    var confirmationTimeoutTask: VoIPScheduledTask?
+    var mediaSetupTimeoutTask: VoIPScheduledTask?
+    var didReportIncomingCall: Bool = false
+    var localEndRequested: Bool = false
+    var localAnswerRequested: Bool = false
+    var remoteAcceptReceived: Bool = false
+    var remoteOfferReceived: Bool = false
+    var localOfferSent: Bool = false
+    var remoteAnswerReceived: Bool = false
+    var lastTerminationReason: CallTerminationReason?
+
+    init(callId: String, callUUID: UUID, owner: String, jid: String, outgoing: Bool, phase: CallSessionPhase) {
+        self.callId = callId
+        self.callUUID = callUUID
+        self.owner = owner
+        self.jid = jid
+        self.outgoing = outgoing
+        self.phase = phase
+    }
+
+    func cancelTimers() {
+        incomingTimeoutTask?.cancel()
+        outgoingTimeoutTask?.cancel()
+        confirmationTimeoutTask?.cancel()
+        mediaSetupTimeoutTask?.cancel()
+        incomingTimeoutTask = nil
+        outgoingTimeoutTask = nil
+        confirmationTimeoutTask = nil
+        mediaSetupTimeoutTask = nil
+    }
+}
+
 class VoIPManager: NSObject {
    
     open class var shared: VoIPManager {
@@ -62,6 +193,10 @@ class VoIPManager: NSObject {
    
     internal var callOwner: String?
     internal var callOpponent: String?
+    internal var timeoutScheduler: VoIPCallTimeoutScheduling = DispatchVoIPCallTimeoutScheduler()
+    internal var sessionsByCallId: [String: CallSessionContext] = [:]
+    internal var currentSession: CallSessionContext? = nil
+    internal var pendingSignalingCalls: [String: VoIPCall] = [:]
    
     internal var hasActiveCall: Bool = false
    
@@ -128,8 +263,172 @@ class VoIPManager: NSObject {
     private func removeObservers() {
         NotificationCenter.default.removeObserver(self)
     }
+
+    internal func session(for callId: String?) -> CallSessionContext? {
+        guard let callId else { return nil }
+        return sessionsByCallId[callId]
+    }
+
+    @discardableResult
+    internal func registerSession(
+        callId: String,
+        callUUID: UUID,
+        owner: String,
+        jid: String,
+        outgoing: Bool,
+        phase: CallSessionPhase
+    ) -> CallSessionContext {
+        let context = CallSessionContext(
+            callId: callId,
+            callUUID: callUUID,
+            owner: owner,
+            jid: jid,
+            outgoing: outgoing,
+            phase: phase
+        )
+        sessionsByCallId[callId] = context
+        currentSession = context
+        return context
+    }
+
+    internal func scheduleIncomingTimeout(for context: CallSessionContext) {
+        context.incomingTimeoutTask?.cancel()
+        context.incomingTimeoutTask = timeoutScheduler.schedule(after: 30.0) { [weak self] in
+            guard let self,
+                  self.currentSession?.callId == context.callId,
+                  context.phase == .ringing else { return }
+            self.finishCurrentCall(reason: .incomingUnansweredTimeout, sendReject: true, shouldReportToCallKit: true)
+        }
+    }
+
+    internal func scheduleOutgoingTimeout(for context: CallSessionContext) {
+        context.outgoingTimeoutTask?.cancel()
+        context.outgoingTimeoutTask = timeoutScheduler.schedule(after: 30.0) { [weak self] in
+            guard let self,
+                  self.currentSession?.callId == context.callId,
+                  [.awaitingConfirmation, .waitingRemoteOffer].contains(context.phase) else { return }
+            self.finishCurrentCall(reason: .outgoingUnansweredTimeout, sendReject: true, shouldReportToCallKit: true)
+        }
+    }
+
+    internal func scheduleConfirmationTimeout(for context: CallSessionContext) {
+        context.confirmationTimeoutTask?.cancel()
+        context.confirmationTimeoutTask = timeoutScheduler.schedule(after: 5.0) { [weak self] in
+            guard let self,
+                  self.currentSession?.callId == context.callId,
+                  context.phase == .awaitingConfirmation else { return }
+            self.finishCurrentCall(reason: .signalingError, sendReject: false, shouldReportToCallKit: true)
+        }
+    }
+
+    internal func scheduleMediaSetupTimeout(for context: CallSessionContext) {
+        context.mediaSetupTimeoutTask?.cancel()
+        context.mediaSetupTimeoutTask = timeoutScheduler.schedule(after: 30.0) { [weak self] in
+            guard let self,
+                  self.currentSession?.callId == context.callId,
+                  [.waitingRemoteOffer, .creatingLocalOffer, .connectingMedia].contains(context.phase) else { return }
+            let reason: CallTerminationReason = context.remoteAnswerReceived ? .webRTCFailure : .signalingError
+            self.finishCurrentCall(reason: reason, sendReject: false, shouldReportToCallKit: true)
+        }
+    }
+
+    internal func callWasOutgoing(
+        callInitiator: String?,
+        owner: String,
+        fallbackOutgoing: Bool
+    ) -> Bool {
+        guard let callInitiator,
+              let initiatorBare = XMPPJID(string: callInitiator)?.bare else {
+            return fallbackOutgoing
+        }
+        let ownerBare = XMPPJID(string: owner)?.bare ?? owner
+        return initiatorBare == ownerBare
+    }
+
+    internal func terminationReasonForLocalEnd(call: VoIPCall, context: CallSessionContext) -> CallTerminationReason {
+        if call.isMade || context.phase == .connected || context.phase == .connectingMedia || context.localAnswerRequested {
+            return .localHangup
+        }
+
+        return call.outgoing ? .canceledByCaller : .rejectedByCallee
+    }
+
+    internal func terminationReasonFromRejectMessage(
+        endReason: String?,
+        callInitiator: String?,
+        owner: String,
+        currentCallDirection: Bool?,
+        stanzaDirection: Bool,
+        duration: TimeInterval,
+        context: CallSessionContext? = nil
+    ) -> CallTerminationReason {
+        let originalCallOutgoing = callWasOutgoing(
+            callInitiator: callInitiator,
+            owner: owner,
+            fallbackOutgoing: currentCallDirection ?? stanzaDirection
+        )
+
+        switch endReason {
+        case MessageStorageItem.VoIPCallState.missed.rawValue:
+            return originalCallOutgoing ? .outgoingUnansweredTimeout : .incomingUnansweredTimeout
+        case MessageStorageItem.VoIPCallState.noanswer.rawValue:
+            return .canceledByCaller
+        case MessageStorageItem.VoIPCallState.busy.rawValue:
+            return .rejectedByCallee
+        default:
+            _ = duration
+            if let context,
+               context.phase != .connected,
+               !context.localAnswerRequested,
+               !context.remoteAnswerReceived,
+               !context.remoteOfferReceived,
+               !context.outgoing {
+                return .canceledByCaller
+            }
+            return stanzaDirection ? .localHangup : .remoteHangup
+        }
+    }
+
+    internal func terminationReasonFromRejectMessage(
+        endReason: String?,
+        outgoing: Bool,
+        duration: TimeInterval
+    ) -> CallTerminationReason {
+        return terminationReasonFromRejectMessage(
+            endReason: endReason,
+            callInitiator: nil,
+            owner: "",
+            currentCallDirection: outgoing,
+            stanzaDirection: outgoing,
+            duration: duration,
+            context: nil
+        )
+    }
+
+    internal func legacyStateFromRejectMessage(
+        endReason: String?,
+        outgoing: Bool,
+        duration: TimeInterval
+    ) -> MessageStorageItem.VoIPCallState {
+        return terminationReasonFromRejectMessage(
+            endReason: endReason,
+            outgoing: outgoing,
+            duration: duration
+        ).legacyState(outgoing: outgoing)
+    }
    
     public final func reset() {
+        self.reset(keepPendingSignalingCalls: false)
+    }
+
+    internal final func reset(keepPendingSignalingCalls: Bool) {
+        currentSession?.cancelTimers()
+        sessionsByCallId.values.forEach { $0.cancelTimers() }
+        sessionsByCallId.removeAll()
+        currentSession = nil
+        if !keepPendingSignalingCalls {
+            pendingSignalingCalls.removeAll()
+        }
         self.callScreenDelegate = nil
         self.hasActiveCall = false
         self.callOwner = nil
@@ -151,38 +450,83 @@ class VoIPManager: NSObject {
         }
         AccountManager.shared.load(true)
     }
-    
-    internal func performEndCallActions() {
-        guard let call = self.currentCall else { return }
-       
-        var reason: MessageStorageItem.VoIPCallState = .none
-        if !call.isMade {
-            reason = call.outgoing ? .noanswer : .missed
+
+    internal func finishCurrentCall(
+        reason: CallTerminationReason,
+        sendReject: Bool,
+        shouldReportToCallKit: Bool
+    ) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async {
+                self.finishCurrentCall(
+                    reason: reason,
+                    sendReject: sendReject,
+                    shouldReportToCallKit: shouldReportToCallKit
+                )
+            }
+            return
         }
-       
-        if !isCallEnded {
-            call.rejectCall(reason: reason)
+        guard let call = self.currentCall,
+              let context = self.session(for: call.callId) else { return }
+        guard context.phase != .ending && context.phase != .ended else { return }
+
+        context.phase = .ending
+        context.lastTerminationReason = reason
+        context.cancelTimers()
+
+        if call.end == nil {
+            call.end = Date()
         }
-       
-        var duration: TimeInterval = 0.0
+
+        if sendReject && call.shouldSendReject {
+            self.pendingSignalingCalls[call.callId] = call
+            call.queuedRejectDidFinish = { [weak self, weak call] in
+                guard let call else { return }
+                self?.pendingSignalingCalls.removeValue(forKey: call.callId)
+            }
+            call.rejectCall(reason: reason.legacyState(outgoing: call.outgoing))
+            if !call.shouldDisconnectAfterQueuedRejectSend {
+                call.queuedRejectDidFinish = nil
+                self.pendingSignalingCalls.removeValue(forKey: call.callId)
+            }
+        } else if !sendReject {
+            call.shouldSendReject = false
+            call.disconnect()
+        }
+        let shouldKeepPendingSignalingCall = self.pendingSignalingCalls[call.callId] != nil
+
+        var duration: TimeInterval?
         if let end = call.end, let start = call.start {
-            duration = TimeInterval(Int(end.timeIntervalSince1970 - start.timeIntervalSince1970))
+            let calculatedDuration = TimeInterval(Int(end.timeIntervalSince1970 - start.timeIntervalSince1970))
+            duration = calculatedDuration > 1 ? calculatedDuration : nil
         }
-       
+
         self.updateMessage(
             call.callId,
             jid: call.jid,
             owner: call.owner,
-            callStqte: call.isMade ? .made : (call.outgoing ? .noanswer : .missed),
-            duration: duration > 1 ? duration : nil
+            callStqte: reason.legacyState(outgoing: call.outgoing),
+            duration: duration,
+            terminationReason: reason
         )
-       
+
+        context.phase = .ended
         self.webRTC?.delegate = nil
+        self.webRTC?.disconnect()
         self.webRTC = nil
-        let update = CXCallUpdate()
-        
-        self.provider.reportCall(with: call.callUUID, endedAt: Date(), reason: .remoteEnded)
-        self.reset()
+
+        if shouldReportToCallKit {
+            self.provider.reportCall(
+                with: call.callUUID,
+                endedAt: Date(),
+                reason: reason.callKitReason(outgoing: call.outgoing)
+            )
+        }
+
+        DispatchQueue.main.async {
+            self.callScreenDelegate?.didChangeState(to: .ended)
+        }
+        self.reset(keepPendingSignalingCalls: shouldKeepPendingSignalingCall)
     }
    
     private final func internalStartCall(owner: String, jid: String) {
@@ -206,8 +550,16 @@ class VoIPManager: NSObject {
         if callScreenPresenter.asyncGetPresenter() != nil {
             self.callScreenDelegate = callScreenPresenter.present(animated: true) {}
         }
-        self.currentCall = nil
         self.currentCall = VoIPCall(owner: owner, fullJid: jid, callId: callUUID.uuidString, callUUID: callUUID, outgoing: true)
+        self.currentCall?.delegate = self
+        let context = self.registerSession(
+            callId: callUUID.uuidString,
+            callUUID: callUUID,
+            owner: owner,
+            jid: jid,
+            outgoing: true,
+            phase: .awaitingConfirmation
+        )
        
         self.controller.request(transaction) { error in
             if let error = error {
@@ -232,8 +584,10 @@ class VoIPManager: NSObject {
            
             self.webRTC = WebRTCClient()
             self.webRTC?.delegate = self
-            self.currentCall?.delegate = self
+            self.currentCall?.start(shouldConfirmOnAuthenticate: false)
             self.currentCall?.proposeCall()
+            context.phase = .waitingRemoteOffer
+            self.scheduleOutgoingTimeout(for: context)
            
             let messageItem = MessageStorageItem()
             messageItem.configureVoIPCallMessage(
@@ -309,27 +663,32 @@ class VoIPManager: NSObject {
             self.provider.reportCall(with: callUUID, endedAt: nil, reason: .failed)
            
             let anotherCall = VoIPCall(owner: owner, fullJid: from, callId: callId, callUUID: callUUID, outgoing: false)
+            anotherCall.start(shouldConfirmOnAuthenticate: false)
             anotherCall.rejectCall(reason: .busy)
-           
-            self.updateMessage(
-                anotherCall.callId,
-                jid: anotherCall.jid,
-                owner: anotherCall.owner,
-                callStqte: .missed,
-                duration: nil
+
+            let messageItem = MessageStorageItem()
+            messageItem.configureVoIPCallMessage(
+                opponent: bareJid,
+                owner: owner,
+                date: Date(),
+                isRead: true,
+                callId: callId,
+                archivedId: nil,
+                outgoing: false,
+                duration: 0,
+                callState: .busy,
+                terminationReason: CallTerminationReason.rejectedByCallee.rawValue
             )
+
+            if !messageItem.isInStorage() {
+                _ = messageItem.save(commitTransaction: true, silentNotifications: true)
+            }
            
             self.callsQueue.append(anotherCall)
         }
     }
    
     public final func receiveCall(payload: [AnyHashable: Any], completion: @escaping () -> Void) {
-       
-        if self.currentCall != nil {
-            self.receiveAnotherCall(payload: payload)
-            return
-        }
-       
         self.inCallingProcess = false
        
         let callUUID = UUID()
@@ -363,8 +722,34 @@ class VoIPManager: NSObject {
             completion()
             return
         }
+
+        if let activeSession = self.currentSession {
+            if activeSession.callId == callId {
+                completion()
+                return
+            }
+            self.receiveAnotherCall(payload: payload)
+            completion()
+            return
+        }
        
         let bareJid = fromJid.bare
+        let context = self.registerSession(
+            callId: callId,
+            callUUID: callUUID,
+            owner: owner,
+            jid: fromJid.full,
+            outgoing: false,
+            phase: .awaitingConfirmation
+        )
+        self.currentCall = VoIPCall(
+            owner: owner,
+            fullJid: fromJid.full,
+            callId: callId,
+            callUUID: callUUID,
+            outgoing: false
+        )
+        self.currentCall?.delegate = self
        
         
         func processIncomingCall() {
@@ -381,16 +766,6 @@ class VoIPManager: NSObject {
             }
            
             self.update?.remoteHandle = CXHandle(type: .emailAddress, value: bareJid)
-           
-            self.currentCall = VoIPCall(
-                owner: owner,
-                fullJid: fromJid.full,
-                callId: callId,
-                callUUID: callUUID,
-                outgoing: false
-            )
-           
-            self.currentCall?.delegate = self
            
             let stanzaIdRaw = decrypted
                 .elements(forName: "stanza-id")
@@ -423,7 +798,9 @@ class VoIPManager: NSObject {
                     DDLogDebug(error.localizedDescription)
                 }
             }
-            
+            context.didReportIncomingCall = true
+            self.currentCall?.start(shouldConfirmOnAuthenticate: true)
+            self.scheduleConfirmationTimeout(for: context)
             
             completion()
         }
@@ -441,6 +818,7 @@ class VoIPManager: NSObject {
         provider.reportNewIncomingCall(with: callUUID, update: update!) { error in
             if let error = error {
                 DDLogDebug(error.localizedDescription)
+                self.reset()
                 completion()
                 return
             }
@@ -453,7 +831,18 @@ class VoIPManager: NSObject {
     }
    
     public final func endCall() {
-        performEndCallActions()
+        guard let call = self.currentCall,
+              let context = self.currentSession else { return }
+        let callUUID = call.callUUID
+        context.localEndRequested = true
+        let transaction = CXTransaction(action: CXEndCallAction(call: callUUID))
+        self.controller.request(transaction) { error in
+            if let error {
+                DDLogDebug(error.localizedDescription)
+                let reason = self.terminationReasonForLocalEnd(call: call, context: context)
+                self.finishCurrentCall(reason: reason, sendReject: true, shouldReportToCallKit: true)
+            }
+        }
     }
    
     public final func enableVideo() {
@@ -512,8 +901,6 @@ class VoIPManager: NSObject {
    
     public final func onReceiveMessage(_ message: DDXMLElement, owner: String, archivedDate: Date?, commitTransaction: Bool = true, runtime: Bool = false, outgoing: Bool = false) -> Bool {
         do {
-            let realm = try WRealm.safe()
-           
             if message.element(forName: "propose", xmlns: VoIPCall.namespace) != nil {
                 guard let fromJidUnwr = message.attributeStringValue(forName: "from"),
                       let fromJid = XMPPJID(string: fromJidUnwr)?.bare,
@@ -551,106 +938,46 @@ class VoIPManager: NSObject {
                 return true
             } else if let accept = message.element(forName: "accept", xmlns: VoIPCall.namespace),
                       let callId = accept.attributeStringValue(forName: "id") {
-                if let deviceId = AccountManager.shared.find(for: owner)?.devices.deviceId,
-                let fromDeviceId = message.element(forName: "device")?.attributeStringValue(forName: "id"),
-                deviceId != fromDeviceId,
-                runtime == true {
-                    self.currentCall?.shouldSendReject = false
-                    self.currentCall?.isMade = true
-                    let transaction = CXTransaction(action: CXEndCallAction(call: self.currentCall?.callUUID ?? UUID()))
-                    self.controller.request(transaction) { (error) in
-                        if let error = error {
-                            DDLogDebug(error)
-                            self.provider.invalidate()
-                        }
-                        print(#function)
-                        self.reset()
-                    }
-                }
-
-                guard let fullJid = self.currentCall?.jid,
-                      let jid = XMPPJID(string: fullJid)?.bare else {
+                if runtime,
+                   let deviceId = AccountManager.shared.find(for: owner)?.devices.deviceId,
+                   let fromDeviceId = message.element(forName: "device")?.attributeStringValue(forName: "id"),
+                   deviceId != fromDeviceId,
+                   let currentCall = self.currentCall,
+                   callId == currentCall.callId {
+                    currentCall.shouldSendReject = false
+                    self.finishCurrentCall(reason: .answeredElsewhere, sendReject: false, shouldReportToCallKit: true)
                     return true
                 }
 
-                if callId != self.currentCall?.callId {
+                guard let fromJidUnwr = message.attributeStringValue(forName: "from"),
+                      let fromJid = XMPPJID(string: fromJidUnwr)?.bare,
+                      let toJidUnwr = message.attributeStringValue(forName: "to"),
+                      let toJid = XMPPJID(string: toJidUnwr)?.bare else {
                     return true
                 }
 
-                if (self.currentCall?.outgoing ?? false) {
-                    return true
-                }
-
-                if isCallAccepted {
-                    return true
-                }
-
-                if let referencePrimary = realm.object(
-                    ofType: MessageStorageItem.self,
-                    forPrimaryKey: MessageStorageItem.messageIdForVoIPCall(owner: owner, jid: jid, callId: callId))?.references.first?.primary,
-                   let instance = realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: referencePrimary) {
-                    if commitTransaction {
-                        try realm.write {
-                            if instance.isInvalidated { return }
-                            instance.metadata?["callState"] = MessageStorageItem.VoIPCallState.made.rawValue
-                            realm.object(
-                                ofType: MessageStorageItem.self,
-                                forPrimaryKey: MessageStorageItem.messageIdForVoIPCall(owner: owner, jid: jid, callId: callId)
-                            )?.isRead = true
-                        }
-                    } else {
-                        instance.metadata?["callState"] = MessageStorageItem.VoIPCallState.made.rawValue
-                        realm.object(
-                            ofType: MessageStorageItem.self,
-                            forPrimaryKey: MessageStorageItem.messageIdForVoIPCall(owner: owner, jid: jid, callId: callId)
-                        )?.isRead = true
-                    }
-                }
-                self.currentCall?.shouldSendReject = false
-
-                let transaction = CXTransaction(action: CXEndCallAction(call: self.currentCall?.callUUID ?? UUID()))
-
-                self.controller.request(transaction) { (error) in
-                    if let error = error {
-                        //print(error.localizedDescription)
-                        DDLogDebug(error)
-                        print("INVALIDATE IN \(#function)")
-                        self.provider.invalidate()
-                    }
-                    self.reset()
-                }
+                let outgoing = owner == fromJid
+                let jid = outgoing ? toJid : fromJid
+                self.updateMessage(
+                    callId,
+                    jid: jid,
+                    owner: owner,
+                    callStqte: .made,
+                    duration: nil,
+                    terminationReason: nil
+                )
                 return true
             } else if let reject = message.element(forName: "reject", xmlns: VoIPCall.namespace) {
-                //print("********* MESSAGE: ", message.prettyXMLString!)
                 if self.currentCall?.onReject(XMPPMessage(from: message)) ?? false {
                     return true
                 }
-                guard let callId = message.element(forName: "reject",
-                     xmlns: VoIPCall.namespace)?.attributeStringValue(forName: "id") else {
+                guard let callId = reject.attributeStringValue(forName: "id") else {
                     return true
                 }
-
-                if runtime,
-                   let currentCallId = self.currentCall?.callId,
-                   currentCallId == callId {
-
-
-                    let transaction = CXTransaction(action: CXEndCallAction(call: self.controller.callObserver.calls.first?.uuid ?? self.currentCall?.callUUID ?? UUID())) //self.currentCall?.callUUID ?? UUID()))
-                    self.currentCall?.shouldSendReject = false
-                    //print("EXECUTE END TRANSACTION")
-
-                    DispatchQueue.main.async {
-                        self.callScreenDelegate?.didChangeState(to: .ended)
-                        self.controller.request(transaction) { (error) in
-                            if let error = error {
-                                //print(error.localizedDescription)
-                                print("INVALIDATE IN \(#function)")
-                                self.provider.invalidate()
-                            }
-                            self.reset()
-                        }
-                    }
-                }
+                let call = reject.element(forName: "call")
+                let duration = call?.attributeDoubleValue(forName: "duration") ?? 0
+                let endReason = call?.attributeStringValue(forName: "end-reason")
+                let callInitiator = call?.attributeStringValue(forName: "initiator")
                 if let date = archivedDate {
                     guard let fromJidUnwr = message.attributeStringValue(forName: "from"),
                         let fromJid = XMPPJID(string: fromJidUnwr)?.bare,
@@ -658,80 +985,84 @@ class VoIPManager: NSObject {
                         let toJid = XMPPJID(string: toJidUnwr)?.bare else {
                         return false
                     }
-
-                    let call = reject.element(forName: "call")
-
-                    let duration = call?.attributeDoubleValue(forName: "duration") ?? 0
-                    let endReason = call?.attributeStringValue(forName: "end-reason") ?? "made"
-
                     let instance = MessageStorageItem()
-
-                    let outgoing: Bool = owner == fromJid
-
-                    guard let callId = reject.attributeStringValue(forName: "id") else { return true }
+                    let stanzaDirection: Bool = owner == fromJid
+                    let currentCallDirection = self.currentCall?.callId == callId ? self.currentCall?.outgoing : nil
+                    let originalCallOutgoing = self.callWasOutgoing(
+                        callInitiator: callInitiator,
+                        owner: owner,
+                        fallbackOutgoing: currentCallDirection ?? stanzaDirection
+                    )
+                    let terminationReason = self.terminationReasonFromRejectMessage(
+                        endReason: endReason,
+                        callInitiator: callInitiator,
+                        owner: owner,
+                        currentCallDirection: originalCallOutgoing,
+                        stanzaDirection: stanzaDirection,
+                        duration: duration,
+                        context: self.session(for: callId)
+                    )
 
                     instance.configureVoIPCallMessage(
-                        opponent: outgoing ? toJid : fromJid,
+                        opponent: stanzaDirection ? toJid : fromJid,
                         owner: owner,
                         date: date,
                         isRead: true,
                         callId: callId,
                         archivedId: getStanzaId(XMPPMessage(from: message), owner: owner),
-                        outgoing: outgoing,
+                        outgoing: originalCallOutgoing,
                         duration: duration,
-                        callState: MessageStorageItem.VoIPCallState(rawValue: endReason) ?? .made
+                        callState: terminationReason.legacyState(outgoing: originalCallOutgoing),
+                        terminationReason: terminationReason.rawValue
                     )
                     if instance.isInStorage() {
+                        self.updateMessage(
+                            callId,
+                            jid: stanzaDirection ? toJid : fromJid,
+                            owner: owner,
+                            callStqte: terminationReason.legacyState(outgoing: originalCallOutgoing),
+                            duration: duration > 0 ? duration : nil,
+                            terminationReason: terminationReason
+                        )
                         return true
                     }
                     _ = instance.save(commitTransaction: commitTransaction, silentNotifications: true)
 
                     return true
                 }
-                guard let callId = reject.attributeStringValue(forName: "id") else { return true }
-                guard let fullJid = self.currentCall?.jid,
-                    let jid = XMPPJID(string: fullJid)?.bare else {
+
+                guard let fromJidUnwr = message.attributeStringValue(forName: "from"),
+                      let fromJid = XMPPJID(string: fromJidUnwr)?.bare,
+                      let toJidUnwr = message.attributeStringValue(forName: "to"),
+                      let toJid = XMPPJID(string: toJidUnwr)?.bare else {
                     return true
                 }
-                if callId != self.currentCall?.callId {
-                    return true
-                }
-                self.callScreenDelegate?.didChangeState(to: .ended)
-                if let call = reject.element(forName: "call") {
-                    let duration = call.attributeDoubleValue(forName: "duration")
-                    let endReason = call.attributeStringValue(forName: "end-reason")
-                    let dateString = call.attributeStringValue(forName: "start") ?? ""
-                    let startDate = Date.parseXMPPFormattedString(dateString) ?? archivedDate ?? Date()
-                    if let referencePrimary = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: MessageStorageItem.messageIdForVoIPCall(owner: owner, jid: jid, callId: callId))?.references.first?.primary,
-                        let instance = realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: referencePrimary) {
-                        if commitTransaction {
-                            try realm.write {
-                                if instance.isInvalidated { return }
-                                instance.metadata?["duration"] = TimeInterval(Int(duration))
-                                instance.metadata?["date"] = startDate.timeIntervalSince1970
-                                instance.metadata?["callState"] = MessageStorageItem.VoIPCallState(rawValue: endReason ?? "none")?.rawValue
-                                switch endReason {
-                                    case "noanswer":
-                                        instance.metadata?["callState"] = MessageStorageItem.VoIPCallState.noanswer.rawValue
-                                    case "missed":
-                                        instance.metadata?["callState"] = MessageStorageItem.VoIPCallState.missed.rawValue
-                                    default:
-                                        instance.metadata?["callState"] = MessageStorageItem.VoIPCallState.made.rawValue
-                                }
-                            }
-                        } else {
-                            instance.metadata?["duration"] = TimeInterval(Int(duration))
-                            switch endReason {
-                                case "noanswer":
-                                    instance.metadata?["callState"] = MessageStorageItem.VoIPCallState.noanswer.rawValue
-                                case "missed":
-                                    instance.metadata?["callState"] = MessageStorageItem.VoIPCallState.missed.rawValue
-                                default:
-                                    instance.metadata?["callState"] = MessageStorageItem.VoIPCallState.made.rawValue
-                            }
-                        }
-                    }
-                }
+
+                let stanzaDirection = owner == fromJid
+                let jid = stanzaDirection ? toJid : fromJid
+                let currentCallDirection = self.currentCall?.callId == callId ? self.currentCall?.outgoing : nil
+                let originalCallOutgoing = self.callWasOutgoing(
+                    callInitiator: callInitiator,
+                    owner: owner,
+                    fallbackOutgoing: currentCallDirection ?? stanzaDirection
+                )
+                let terminationReason = self.terminationReasonFromRejectMessage(
+                    endReason: endReason,
+                    callInitiator: callInitiator,
+                    owner: owner,
+                    currentCallDirection: originalCallOutgoing,
+                    stanzaDirection: stanzaDirection,
+                    duration: duration,
+                    context: self.session(for: callId)
+                )
+                self.updateMessage(
+                    callId,
+                    jid: jid,
+                    owner: owner,
+                    callStqte: terminationReason.legacyState(outgoing: originalCallOutgoing),
+                    duration: duration > 0 ? duration : nil,
+                    terminationReason: terminationReason
+                )
                 return true
             }
               
@@ -743,103 +1074,99 @@ class VoIPManager: NSObject {
     }
    
     public final func onReceivePushUpdate(_ payload: [AnyHashable: Any]) -> Bool {
-        guard let callUUID = self.currentCall?.callUUID else {
+        guard let currentCall = self.currentCall else {
             return false
         }
-        do {
-            guard let body = payload["body"] as? String else {
-                print("FAIL 0")
-                return false
-            }
-            let data = EncryptedPushDate(body)
-    //            let data = try JSONDecoder().decode(EncryptedPushDate.self, from: encodedBody)
-            guard let target = payload["target"] as? String,
-                let defaults  = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
-                print("FAIL 1")
-                return false
-            }
-            guard let creditionals = defaults.dictionary(forKey: target) else {
-                print("FAIL 2")
-                return false
-            }
-            
-            guard let secret = creditionals["secret"] as? String,
-                  secret.isNotEmpty else {
-                print("FAIL 3")
-                return false
-            }
-            
-            guard let username = creditionals["username"] as? String,
-                  let host = creditionals["host"] as? String else {
-                print("FAIL 4")
-                return false
-            }
-            
-            let owner = [username, host].joined(separator: "@")
-        
-            guard let decrypted = data.payloadStanza(key: secret) else {
-                print("FAIL 4.5")
-                return false
-            }
-            
-            guard let callId = decrypted.attributeStringValue(forName: "id") else {
-                print("FAIL 5")
-                return false
-            }
-            
-            if callId != self.currentCall?.callId {
-                return false
-            }
-            guard let fullJid = self.currentCall?.jid,
-                  let jid = XMPPJID(string: fullJid)?.bare else {
-                return false
-            }
-            print("VOIP PUSH DECRYPTED", decrypted)
-            let realm = try  WRealm.safe()
-            switch decrypted.name {
-            case "reject":
-                
-                self.currentCall?.shouldSendReject = false
-                let transaction = CXTransaction(action: CXEndCallAction(call: callUUID))
-                self.controller.request(transaction) { (error) in
-                    if let error = error {
-                        //print(error.localizedDescription)
-                        print("INVALIDATE IN \(#function). \(error.localizedDescription)")
-                        self.provider.invalidate()
-                    }
-                    self.reset()
-                }
-                self.callScreenDelegate?.didChangeState(to: .ended)
-                if let call = decrypted.element(forName: "call") {
-                    let duration = call.attributeDoubleValue(forName: "duration")
-                    let endReason = call.attributeStringValue(forName: "end-reason")
-                    if let referencePrimary = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: MessageStorageItem.messageIdForVoIPCall(owner: owner, jid: jid, callId: callId))?.references.first?.primary,
-                       let instance = realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: referencePrimary) {
-                        try realm.write {
-                            if instance.isInvalidated { return }
-                            instance.metadata?["duration"] = TimeInterval(Int(duration))
-                            switch endReason {
-                            case "noanswer":
-                                instance.metadata?["callState"] = MessageStorageItem.VoIPCallState.noanswer.rawValue
-                            case "missed":
-                                instance.metadata?["callState"] = MessageStorageItem.VoIPCallState.missed.rawValue
-                            default:
-                                instance.metadata?["callState"] = MessageStorageItem.VoIPCallState.made.rawValue
-                            }
-                        }
-                    }
-                }
-            default:
-                return false
-            }
-            
-        } catch {
+        guard let body = payload["body"] as? String else {
+            print("FAIL 0")
+            return false
+        }
+        let data = EncryptedPushDate(body)
+//            let data = try JSONDecoder().decode(EncryptedPushDate.self, from: encodedBody)
+        guard let target = payload["target"] as? String,
+            let defaults  = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
+            print("FAIL 1")
+            return false
+        }
+        guard let creditionals = defaults.dictionary(forKey: target) else {
+            print("FAIL 2")
+            return false
+        }
+
+        guard let secret = creditionals["secret"] as? String,
+              secret.isNotEmpty else {
+            print("FAIL 3")
+            return false
+        }
+
+        guard let username = creditionals["username"] as? String,
+              let host = creditionals["host"] as? String else {
+            print("FAIL 4")
+            return false
+        }
+
+        let owner = [username, host].joined(separator: "@")
+
+        guard let decrypted = data.payloadStanza(key: secret) else {
+            print("FAIL 4.5")
+            return false
+        }
+
+        guard let callId = decrypted.attributeStringValue(forName: "id") else {
+            print("FAIL 5")
+            return false
+        }
+
+        if callId != currentCall.callId {
+            return false
+        }
+        guard let fullJid = currentCall.jid.isEmpty ? nil : currentCall.jid,
+              let jid = XMPPJID(string: fullJid)?.bare else {
+            return false
+        }
+        print("VOIP PUSH DECRYPTED", decrypted)
+        switch decrypted.name {
+        case "reject":
+            let call = decrypted.element(forName: "call")
+            let duration = call?.attributeDoubleValue(forName: "duration") ?? 0
+            let endReason = call?.attributeStringValue(forName: "end-reason")
+            let callInitiator = call?.attributeStringValue(forName: "initiator")
+            let context = self.session(for: callId)
+            let terminationReason = self.terminationReasonFromRejectMessage(
+                endReason: endReason,
+                callInitiator: callInitiator,
+                owner: owner,
+                currentCallDirection: currentCall.outgoing,
+                stanzaDirection: false,
+                duration: duration,
+                context: context
+            )
+
+            self.updateMessage(
+                callId,
+                jid: jid,
+                owner: owner,
+                callStqte: terminationReason.legacyState(outgoing: currentCall.outgoing),
+                duration: duration > 0 ? duration : nil,
+                terminationReason: terminationReason
+            )
+
+            currentCall.shouldSendReject = false
+            self.finishCurrentCall(reason: terminationReason, sendReject: false, shouldReportToCallKit: true)
+        default:
             return false
         }
         return true
     }
    
-    internal final func updateMessage(_ callId: String, jid: String, owner: String, callStqte: MessageStorageItem.VoIPCallState? = nil, duration: TimeInterval? = nil) {
+    internal final func updateMessage(
+        _ callId: String,
+        jid: String,
+        owner: String,
+        callStqte: MessageStorageItem.VoIPCallState? = nil,
+        duration: TimeInterval? = nil,
+        terminationReason: CallTerminationReason? = nil
+    ) {
         guard let jid = XMPPJID(string: jid)?.bare else { return }
         do {
             let realm = try WRealm.safe()
@@ -855,6 +1182,9 @@ class VoIPManager: NSObject {
                     }
                     if let duration = duration {
                         instance.metadata?["duration"] = duration
+                    }
+                    if let terminationReason = terminationReason {
+                        instance.metadata?["terminationReason"] = terminationReason.rawValue
                     }
                     realm.object(ofType: MessageStorageItem.self,
                                  forPrimaryKey: MessageStorageItem.messageIdForVoIPCall(owner: owner, jid: jid, callId: callId))?.isRead = true

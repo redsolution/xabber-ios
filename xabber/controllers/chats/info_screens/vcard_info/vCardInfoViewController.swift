@@ -62,8 +62,6 @@ class vCardInfoViewController: SimpleBaseViewController {
     internal var datasource: [Datasource] = []
     internal var resources: Results<ResourceStorageItem>? = nil
     
-    var headerHeightMax: CGFloat = 164
-    
     internal let headerView: InfoScreenHeaderView = {
         let view = InfoScreenHeaderView(frame: .zero)
                 
@@ -377,11 +375,7 @@ class vCardInfoViewController: SimpleBaseViewController {
         
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        headerView.frame = CGRect(
-            width: view.frame.width,
-            height: headerHeightMax
-        )
-        self.headerView.updateSubviews()
+        self.headerView.applyHeaderLayout(to: tableView, width: view.bounds.width)
     }
     
     override func viewDidAppear(_ animated: Bool) {
@@ -390,6 +384,14 @@ class vCardInfoViewController: SimpleBaseViewController {
 }
 
 extension vCardInfoViewController: UITableViewDelegate {
+    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+        if datasource.isEmpty {
+            return .leastNonzeroMagnitude
+        }
+        let title = datasource[section].title
+        return InfoScreenSectionMetrics.headerHeight(for: title, section: section)
+    }
+
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         if datasource[indexPath.section].kind == .resource {
             return 64

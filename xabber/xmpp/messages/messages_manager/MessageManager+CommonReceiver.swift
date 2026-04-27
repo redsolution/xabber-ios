@@ -399,11 +399,7 @@ extension MessageManager {
                 }
             }
             
-            if let userId = item
-                .message
-                .element(forName: "x", xmlns: "https://xabber.com/protocol/groups")?
-                .element(forName: "reference")?
-                .element(forName: "user", xmlns: "https://xabber.com/protocol/groups")?
+            if let userId = groupchatUserElement(from: item.message)?
                 .attributeStringValue(forName: "id") {
                 if let userCard = item.groupchatUserCard,
                     let myId = userCard.attributeStringValue(forName: "id") {
@@ -468,7 +464,11 @@ extension MessageManager {
             }
             instance.envelopeContainer = envelopeContainer
             instance.updatePrimary()
-            instance.afterburnInterval = afterburnInterval
+            if afterburnInterval > 0 {
+                instance.applyAutoDeleteTTL(afterburnInterval, startsAt: item.date)
+            } else {
+                instance.afterburnInterval = afterburnInterval
+            }
             
             instance.queryIds = item.queryId
             
@@ -529,7 +529,9 @@ extension MessageManager {
                     instance.state = .read
                 }
                 instance.readDate = readDate.timeIntervalSince1970
-                instance.burnDate = readDate.timeIntervalSince1970 + afterburnInterval
+                if instance.autoDeleteExpiresAt <= 0 {
+                    instance.burnDate = readDate.timeIntervalSince1970 + afterburnInterval
+                }
                 
                 if let index = self.prereadedConversation.firstIndex(where: {$0.jid == opponent && $0.conversationType == conversationType}) {
                     if self.prereadedConversation[index].date < readDate {
@@ -539,13 +541,16 @@ extension MessageManager {
                     self.prereadedConversation.append(PrereadedConversationItem(conversationType: conversationType, date: readDate, jid: opponent))
                 }
                 
-                if instance.burnDate <= Date().timeIntervalSince1970 {
-                    instance.isDeleted = true
-                    instance.body = ""
-                    instance.legacyBody = ""
+                if instance.effectiveAutoDeleteExpiresAt > 0,
+                   instance.effectiveAutoDeleteExpiresAt <= Date().timeIntervalSince1970 {
+                    instance.markAutoDeleted()
 //                    instance.errorMetadata_ = ""
 //                    instance.messageError = nil
                 }
+            }
+            if instance.autoDeleteExpiresAt > 0,
+               instance.autoDeleteExpiresAt <= Date().timeIntervalSince1970 {
+                instance.markAutoDeleted()
             }
             
             out.insert(instance)
@@ -600,6 +605,7 @@ extension MessageManager {
     
     private func reconcileReadStates(_ requests: [ReadStateReconciliationRequest], in realm: Realm) -> Set<String> {
         var clearedNotifications: Set<String> = []
+        var affectedChats: Set<String> = []
 
         requests.forEach { request in
             guard let chat = realm.object(
@@ -617,6 +623,8 @@ extension MessageManager {
                 return
             }
 
+            affectedChats.insert(request.opponent)
+
             realm
                 .objects(MessageStorageItem.self)
                 .filter(
@@ -629,15 +637,23 @@ extension MessageManager {
                 .forEach {
                     clearedNotifications.insert($0.archivedId)
                     $0.isRead = true
-                    if $0.afterburnInterval > 0 && $0.burnDate <= 1,
+                    if $0.afterburnInterval > 0 && $0.burnDate <= 1 && $0.autoDeleteExpiresAt <= 0,
                        let readDate = request.readDate {
                         $0.readDate = readDate.timeIntervalSince1970
                         $0.burnDate = readDate.timeIntervalSince1970 + request.afterburnInterval
                         if (readDate.timeIntervalSince1970 + request.afterburnInterval) < Date().timeIntervalSince1970 {
-                            $0.isDeleted = true
+                            $0.markAutoDeleted()
                         }
                     }
                 }
+        }
+
+        if affectedChats.isNotEmpty {
+            _ = MentionNotificationSync.reconcileMentionNotifications(
+                for: self.owner,
+                chats: affectedChats,
+                in: realm
+            )
         }
 
         return clearedNotifications
@@ -648,6 +664,13 @@ extension MessageManager {
             let realm = try  WRealm.safe()
             var clearedStanzaIDs: Set<String> = []
             var notificationPayloads: [MessageStorageItem.SaveNotificationPayload] = []
+            var messagePrimariesToMarkRead: Set<String> = []
+            let affectedChats = Set(batch.messages.compactMap { message -> String? in
+                guard message.conversationType == .group else {
+                    return nil
+                }
+                return message.opponent
+            })
 
             try realm.write {
                 clearedStanzaIDs = self.reconcileReadStates(batch.readStateRequests, in: realm)
@@ -660,6 +683,13 @@ extension MessageManager {
                             notificationPayloads.append(notification)
                         }
                     }
+                }
+                if affectedChats.isNotEmpty {
+                    messagePrimariesToMarkRead = MentionNotificationSync.reconcileMentionNotifications(
+                        for: self.owner,
+                        chats: affectedChats,
+                        in: realm
+                    )
                 }
             }
 
@@ -679,6 +709,10 @@ extension MessageManager {
                     imageUrl: $0.imageUrl,
                     conversationType: $0.conversationType
                 )
+            }
+
+            messagePrimariesToMarkRead.forEach { primary in
+                self.readMessage(primary, last: false)
             }
 
             batch.messages.forEach {

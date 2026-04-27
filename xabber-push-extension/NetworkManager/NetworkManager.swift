@@ -25,12 +25,15 @@ class NetworkManager: NSObject {
     private var url: URL
     private var jwt: String
     private var jid: String
+    private let maxRetryCount = 5
     
     public var delegate: PushPayloadDelegate? = nil
     
-    init(service url: String, jid: String, jwt: String) {
-        guard let url = URL(string: url) else {
-            fatalError()
+    init?(service url: String, jid: String, jwt: String) {
+        guard !url.isEmpty,
+              !jwt.isEmpty,
+              let url = URL(string: url) else {
+            return nil
         }
         self.jid = jid
         self.jwt = jwt
@@ -39,7 +42,11 @@ class NetworkManager: NSObject {
     
     public final func getMessage(host: String, messageId: String, by: String?, retry: Int? = nil) {
         
-        var components = URLComponents(string: "\(url.absoluteString)/archive")!
+        guard let componentsBase = URLComponents(string: "\(url.absoluteString)/archive") else {
+            delegate?.didDisconnectWithError("invalid archive url")
+            return
+        }
+        var components = componentsBase
         components.queryItems = []
         components.queryItems?.append(URLQueryItem(name: "id", value: messageId))
         if let by = by {
@@ -59,7 +66,7 @@ class NetworkManager: NSObject {
                let element = document.rootElement()?.elements(forName: "message").first {
                 self.read(message: element)
             } else {
-                if (retry ?? 0 > 5) {
+                if (retry ?? 0) >= self.maxRetryCount {
                     if let data = data,
                        let message = String(data: data, encoding: .utf8) {
                         self.delegate?.didDisconnectWithError(message)

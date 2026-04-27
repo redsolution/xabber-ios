@@ -203,13 +203,8 @@ class SignUpSelectAvatarViewController: SignUpBaseViewController {
     }
     
     private final func goNext() {
-        if CommonConfigManager.shared.config.required_touch_id_or_password {
-            let vc = PasscodeViewController(isOnboarding: true)
-            self.navigationController?.setViewControllers([vc], animated: true)
-        } else {
-            let vc = SignUpEnableNotificationsViewController()
-            self.navigationController?.setViewControllers([vc], animated: true)
-        }
+        let vc = SignUpEnableNotificationsViewController()
+        self.navigationController?.setViewControllers([vc], animated: true)
     }
     
     @objc

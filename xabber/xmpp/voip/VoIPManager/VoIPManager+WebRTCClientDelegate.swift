@@ -23,32 +23,53 @@ import WebRTC
 
 extension VoIPManager: WebRTCClientDelegate {
     func webRTCClient(_ client: WebRTCClient, didDiscoverLocalCandidate candidate: RTCIceCandidate) {
-        self.currentCall?.candidate(iceCandidate: candidate)
+        DispatchQueue.main.async {
+            self.currentCall?.candidate(iceCandidate: candidate)
+        }
     }
-   
+
     func webRTCClient(_ client: WebRTCClient, didUpdateState state: RTCIceConnectionState) {
+        DispatchQueue.main.async {
+            self.handleWebRTCStateUpdate(state)
+        }
+    }
+
+    private func handleWebRTCStateUpdate(_ state: RTCIceConnectionState) {
+        guard let call = self.currentCall else { return }
+        let context = self.currentSession
+
         switch state {
         case .new:
-            self.currentCall?.state = .connecting
-            // Для исходящих звонков — начинаем «соединение»
-            if let uuid = self.currentCall?.callUUID, self.currentCall?.outgoing == true {
-                self.provider.reportOutgoingCall(with: uuid, startedConnectingAt: Date())
+            call.state = .connecting
+            context?.phase = .connectingMedia
+            if call.outgoing {
+                self.provider.reportOutgoingCall(with: call.callUUID, startedConnectingAt: Date())
             }
         case .checking:
-            self.currentCall?.state = .connecting
+            call.state = .connecting
+            context?.phase = .connectingMedia
         case .connected, .completed:
-            self.currentCall?.state = .connected
-            // Только для исходящих звонков — отчёт о полном соединении
-            if let uuid = self.currentCall?.callUUID, self.currentCall?.outgoing == true {
-                self.provider.reportOutgoingCall(with: uuid, connectedAt: Date())
+            call.state = .connected
+            context?.cancelTimers()
+            context?.phase = .connected
+            if call.outgoing {
+                self.provider.reportOutgoingCall(with: call.callUUID, connectedAt: Date())
             }
-            // Для входящих звонков соединение уже отчётовано при answer (dateConnected)
-        case .failed, .disconnected, .closed:
-            self.currentCall?.state = .disconnected
+        case .disconnected:
+            call.state = .disconnected
+        case .failed, .closed:
+            call.state = .disconnected
+            self.finishCurrentCall(reason: .webRTCFailure, sendReject: false, shouldReportToCallKit: true)
         default:
             break
         }
     }
-   
+
+    func webRTCClient(_ client: WebRTCClient, didFail error: Error) {
+        DispatchQueue.main.async {
+            self.finishCurrentCall(reason: .webRTCFailure, sendReject: false, shouldReportToCallKit: true)
+        }
+    }
+
     func webRTCClient(_ client: WebRTCClient, didUpdateCameraResolution resolution: CameraResolution) {}
 }

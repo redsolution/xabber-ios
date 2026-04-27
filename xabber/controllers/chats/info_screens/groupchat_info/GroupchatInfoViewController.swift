@@ -94,9 +94,6 @@ class GroupchatInfoViewController: SimpleBaseViewController {
 //    open var owner: String = ""
 //    open var jid: String = ""
     
-    var headerHeightMax: CGFloat = 252//264
-//    var headerHeightMin: CGFloat = 180150
-    
     open var leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil
     
     internal let lastSeenDateFormatter: DateFormatter = {
@@ -636,13 +633,7 @@ class GroupchatInfoViewController: SimpleBaseViewController {
 //        navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
 //        navigationController?.navigationBar.shadowImage = UIImage()
         tableView.fillSuperview()
-        headerView.frame = CGRect(
-            width: view.frame.width,
-            height: headerView.preferredHeight
-        )
-        self.headerView.updateSubviews()
-        
-
+        self.headerView.applyHeaderLayout(to: tableView, width: view.bounds.width)
     }
     
     override func viewDidAppear(_ animated: Bool) {

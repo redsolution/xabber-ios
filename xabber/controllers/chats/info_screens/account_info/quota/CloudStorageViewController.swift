@@ -25,32 +25,199 @@ import RxSwift
 import RxRealm
 import RxCocoa
 
+enum CloudStorageQuotaDisplayState: Equatable {
+    case loading
+    case content
+    case empty
+    case error
+    case unlimited
+    case unavailable
+
+    static func resolve(
+        hasQuotaItem: Bool,
+        quotaBytes: Int,
+        usedBytes: Int,
+        isRefreshing: Bool,
+        lastRefreshFailed: Bool,
+        isAvailable: Bool
+    ) -> CloudStorageQuotaDisplayState {
+        if !hasQuotaItem {
+            if isRefreshing { return .loading }
+            if lastRefreshFailed { return .error }
+            return isAvailable ? .loading : .unavailable
+        }
+
+        if isRefreshing {
+            return usedBytes > 0 ? .content : .loading
+        }
+        if lastRefreshFailed {
+            return .error
+        }
+        if quotaBytes < 0 {
+            return .unlimited
+        }
+        if quotaBytes == 0 {
+            return .unavailable
+        }
+        return usedBytes == 0 ? .empty : .content
+    }
+}
+
+struct CloudStorageUpsellCardState: Equatable {
+    enum Action: Equatable {
+        case openPremium
+        case disabled
+    }
+
+    let title: String
+    let body: String
+    let action: Action
+
+    var isEnabled: Bool {
+        return action != .disabled
+    }
+
+    static func resolve(hasActivePremium: Bool) -> CloudStorageUpsellCardState {
+        if hasActivePremium {
+            return CloudStorageUpsellCardState(
+                title: "Increase storage",
+                body: "Buy external storage space: 100 GB for $5.",
+                action: .disabled
+            )
+        }
+
+        return CloudStorageUpsellCardState(
+            title: "Increase storage",
+            body: "Upgrade to Premium to increase your cloud storage capacity and store more media.",
+            action: .openPremium
+        )
+    }
+}
+
+final class CloudStorageUpsellCardCell: UITableViewCell {
+    static let cellName = "CloudStorageUpsellCardCell"
+
+    private let iconContainer: UIView = {
+        let view = UIView()
+        view.layer.cornerRadius = 12
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+
+    private let iconView: UIImageView = {
+        let view = UIImageView()
+        view.image = UIImage(systemName: "cloud.fill")
+        view.contentMode = .scaleAspectFit
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+
+    private let titleLabel: UILabel = {
+        let label = UILabel()
+        label.font = .preferredFont(forTextStyle: .headline)
+        label.adjustsFontForContentSizeCategory = true
+        label.numberOfLines = 0
+        return label
+    }()
+
+    private let bodyLabel: UILabel = {
+        let label = UILabel()
+        label.font = .preferredFont(forTextStyle: .body)
+        label.adjustsFontForContentSizeCategory = true
+        label.textColor = .secondaryLabel
+        label.numberOfLines = 0
+        return label
+    }()
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        setupSubviews()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(with state: CloudStorageUpsellCardState) {
+        titleLabel.text = state.title
+        bodyLabel.text = state.body
+        selectionStyle = state.isEnabled ? .default : .none
+        isUserInteractionEnabled = state.isEnabled
+
+        if state.isEnabled {
+            titleLabel.textColor = .label
+            iconContainer.backgroundColor = .systemBlue
+            iconView.tintColor = .white
+            contentView.alpha = 1.0
+        } else {
+            titleLabel.textColor = .secondaryLabel
+            iconContainer.backgroundColor = .systemGray5
+            iconView.tintColor = .secondaryLabel
+            contentView.alpha = 0.82
+        }
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        contentView.alpha = 1.0
+        isUserInteractionEnabled = true
+    }
+
+    private func setupSubviews() {
+        contentView.addSubview(iconContainer)
+        iconContainer.addSubview(iconView)
+
+        let textStack = UIStackView(arrangedSubviews: [titleLabel, bodyLabel])
+        textStack.axis = .vertical
+        textStack.spacing = 8
+        textStack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(textStack)
+
+        NSLayoutConstraint.activate([
+            iconContainer.topAnchor.constraint(equalTo: contentView.layoutMarginsGuide.topAnchor, constant: 4),
+            iconContainer.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
+            iconContainer.widthAnchor.constraint(equalToConstant: 44),
+            iconContainer.heightAnchor.constraint(equalToConstant: 44),
+
+            iconView.centerXAnchor.constraint(equalTo: iconContainer.centerXAnchor),
+            iconView.centerYAnchor.constraint(equalTo: iconContainer.centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: 24),
+            iconView.heightAnchor.constraint(equalToConstant: 24),
+
+            textStack.topAnchor.constraint(equalTo: contentView.layoutMarginsGuide.topAnchor, constant: 4),
+            textStack.leadingAnchor.constraint(equalTo: iconContainer.trailingAnchor, constant: 16),
+            textStack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            textStack.bottomAnchor.constraint(equalTo: contentView.layoutMarginsGuide.bottomAnchor, constant: -4)
+        ])
+    }
+}
+
 class CloudStorageViewController: BaseViewController {
     class Datasource {
         enum Kind {
             case text
             case button
         }
-        
+
         var kind: Kind
         var viewController: UIViewController.Type?
         var title: String
         var subtitle: String?
         var key: String?
-        
+
         var children: [Datasource]
-        
+
         init(_ kind: Kind, viewController: UIViewController.Type? = nil, title: String, subtitle: String? = nil, key: String? = nil, children: [Datasource] = []) {
             self.kind = kind
             self.viewController = viewController
             self.title = title
             self.subtitle = subtitle
             self.key = key
-            
+
             self.children = children
         }
     }
-    
+
     var isDeletingFilesEnabled: Bool = false
     var imagesUsed: String = "0 KiB"
     var videosUsed: String = "0 KiB"
@@ -59,31 +226,55 @@ class CloudStorageViewController: BaseViewController {
     var avatarUsed: String = "0 KiB"
     var usedQuota: Int = 0
     var quota: Int = 0
-    
+    var hasQuotaItem: Bool = false
+    private var isRefreshingQuota: Bool = false
+    private var lastQuotaRefreshFailed: Bool = false
+    private var quotaServiceAvailable: Bool = true
+
     var bag: DisposeBag = DisposeBag()
-    
+
     var datasource: [Datasource] = []
-    
+
     let tableView: UITableView = {
         let tableView = UITableView(frame: .zero, style: .insetGrouped)
         tableView.register(QuotaInfoCell.self, forCellReuseIdentifier: QuotaInfoCell.cellName)
-        
+        tableView.register(CloudStorageUpsellCardCell.self, forCellReuseIdentifier: CloudStorageUpsellCardCell.cellName)
+        tableView.estimatedRowHeight = 96
+        tableView.rowHeight = UITableView.automaticDimension
+
         return tableView
     }()
-    
+
     var isCellTapped: Bool = false
-    
+
     func configure(jid: String) {
         self.jid = jid
         title = "Cloud Storage".localizeString(id: "account_cloud_storage", arguments: [])
-        
-//        getTypeSizesFromRealm()
-        
+
+        rebuildDatasource()
+
+        view.addSubview(tableView)
+        tableView.fillSuperview()
+
+        tableView.delegate = self
+        tableView.dataSource = self
+    }
+
+    func currentUpsellCardState() -> CloudStorageUpsellCardState {
+        let hasActivePremium = SubscribtionsManager.shared
+            .subscriptionPresentationState(for: self.jid)
+            .hasActiveEntitlement
+        return CloudStorageUpsellCardState.resolve(hasActivePremium: hasActivePremium)
+    }
+
+    func rebuildDatasource() {
+        datasource = []
+
         datasource.append(Datasource(.text, title: "", children: [
             Datasource(.text, title: "Media Gallery".localizeString(id: "account_media_gallery", arguments: []),
                        key: "quota_info")
         ]))
-        
+
         datasource.append(Datasource(.text, title: "".localizeString(id: "images", arguments: []), children: [
             Datasource(.text, title: "Images", subtitle: imagesUsed, key: "images"),
             Datasource(.text, title: "Videos".localizeString(id: "videos", arguments: []),
@@ -93,29 +284,32 @@ class CloudStorageViewController: BaseViewController {
             Datasource(.text, title: "Voice".localizeString(id: "voice", arguments: []),
                        subtitle: audioUsed, key: "audio")
         ]))
-        
+
         datasource.append(Datasource(.text, title: "", children: [
             Datasource(.text, title: "Avatars".localizeString(id: "avatars", arguments: []),subtitle: avatarUsed,  key: "avatars")
         ]))
-        
+
+        let upsellState = currentUpsellCardState()
+        datasource.append(Datasource(.text, title: "", children: [
+            Datasource(.button,
+                       title: upsellState.title,
+                       subtitle: upsellState.body,
+                       key: "storage_upsell")
+        ]))
+
         datasource.append(Datasource(.text, title: "", children: [
             Datasource(.button, title: "Free up space".localizeString(id: "account_delete_files", arguments: []),
                        key: "delete_files")
         ]))
-        
-        view.addSubview(tableView)
-        tableView.fillSuperview()
-        
-        tableView.delegate = self
-        tableView.dataSource = self
     }
-    
+
     func subscribe() {
         do {
             let realm = try WRealm.safe()
             let collection = realm.objects(AccountQuotaStorageItem.self).filter("jid == %@", self.jid)
             if let item = collection.first {
-                self.imagesUsed = item.imagesUsed 
+                self.hasQuotaItem = true
+                self.imagesUsed = item.imagesUsed
                 self.videosUsed = item.videosUsed
                 self.filesUsed = item.filesUsed
                 self.audioUsed = item.voicesUsed
@@ -125,6 +319,7 @@ class CloudStorageViewController: BaseViewController {
             }
             Observable.collection(from: collection).debounce(.milliseconds(5), scheduler: MainScheduler.asyncInstance).subscribe { results in
                 if let item = results.first {
+                    self.hasQuotaItem = true
                     self.imagesUsed = item.imagesUsed
                     self.videosUsed = item.videosUsed
                     self.filesUsed = item.filesUsed
@@ -148,45 +343,125 @@ class CloudStorageViewController: BaseViewController {
                     }
                 }
                 self.datasource[2].children[0].subtitle = self.avatarUsed
+                self.updateDisplayState()
                 self.tableView.reloadData()
             } onError: { _ in
-                
+
             } onCompleted: {
-                
+
             } onDisposed: {
-                
+
             }.disposed(by: self.bag)
 
         } catch {
             DDLogDebug("CloudStorageViewController: \(#function). \(error.localizedDescription)")
         }
     }
-    
+
+    func subscribeQuotaRefreshNotifications() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(quotaRefreshDidStart(_:)),
+            name: .cloudStorageQuotaRefreshDidStart,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(quotaRefreshDidFinish(_:)),
+            name: .cloudStorageQuotaRefreshDidFinish,
+            object: nil
+        )
+    }
+
     func unsubscribe() {
         self.bag = DisposeBag()
+        NotificationCenter.default.removeObserver(self, name: .cloudStorageQuotaRefreshDidStart, object: nil)
+        NotificationCenter.default.removeObserver(self, name: .cloudStorageQuotaRefreshDidFinish, object: nil)
     }
-    
+
+    @objc private func quotaRefreshDidStart(_ notification: Notification) {
+        guard notification.userInfo?["jid"] as? String == self.jid else { return }
+        isRefreshingQuota = true
+        lastQuotaRefreshFailed = false
+        updateDisplayState()
+    }
+
+    @objc private func quotaRefreshDidFinish(_ notification: Notification) {
+        guard notification.userInfo?["jid"] as? String == self.jid else { return }
+        isRefreshingQuota = false
+        let result = notification.userInfo?["result"] as? String
+        lastQuotaRefreshFailed = result == CloudStorageQuotaRefreshResult.failure.rawValue || result == CloudStorageQuotaRefreshResult.unauthorized.rawValue
+        quotaServiceAvailable = result != CloudStorageQuotaRefreshResult.unavailable.rawValue
+        updateDisplayState()
+    }
+
+    func currentDisplayState() -> CloudStorageQuotaDisplayState {
+        return CloudStorageQuotaDisplayState.resolve(
+            hasQuotaItem: hasQuotaItem,
+            quotaBytes: quota,
+            usedBytes: usedQuota,
+            isRefreshing: isRefreshingQuota,
+            lastRefreshFailed: lastQuotaRefreshFailed,
+            isAvailable: quotaServiceAvailable
+        )
+    }
+
+    func canFreeUpSpace() -> Bool {
+        guard quota > 0, usedQuota > 0 else { return false }
+        return imagesUsed != "0 KiB" || videosUsed != "0 KiB" || audioUsed != "0 KiB" || filesUsed != "0 KiB"
+    }
+
+    func freeQuotaPercentage() -> Int {
+        guard quota > 0 else { return 0 }
+        let value = 100 * max(0, quota - usedQuota) / quota
+        return min(100, max(0, value))
+    }
+
+    private func updateDisplayState() {
+        let label = UILabel()
+        label.textColor = .secondaryLabel
+        label.textAlignment = .center
+        label.numberOfLines = 0
+        label.font = .preferredFont(forTextStyle: .body)
+
+        switch currentDisplayState() {
+        case .loading:
+            label.text = "Loading Cloud Storage..."
+            tableView.backgroundView = label
+        case .error:
+            label.text = hasQuotaItem ? nil : "Cloud Storage is unavailable."
+            tableView.backgroundView = label.text == nil ? nil : label
+        case .unavailable:
+            label.text = hasQuotaItem ? nil : "Cloud Storage is unavailable."
+            tableView.backgroundView = label.text == nil ? nil : label
+        case .content, .empty, .unlimited:
+            tableView.backgroundView = nil
+        }
+        tableView.reloadData()
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         navigationItem.backButtonDisplayMode = .minimal
     }
-    
+
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        
+
 //        self.navigationController?.navigationBar.prefersLargeTitles = false
+        rebuildDatasource()
+        tableView.reloadData()
         subscribe()
-        AccountManager.shared.find(for: self.jid)?.action({ user, _ in
-            user.cloudStorage.getStats()
-        })
+        subscribeQuotaRefreshNotifications()
+        CloudStorageQuotaRefreshCoordinator.shared.refresh(owner: self.jid, reason: .screenOpen)
     }
-    
+
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        
+
         tableView.reloadData()
     }
-    
+
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         unsubscribe()

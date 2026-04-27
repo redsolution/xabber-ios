@@ -184,7 +184,7 @@ extension ChatViewController {
                                 title: nickname,
                                 attributed: text
                                )
-                               self.xabberInputView.textField.text = text.string
+                               self.xabberInputView.setComposerBody(item.body, references: item.references.toArray())
                                self.xabberInputView.textViewDidChange(force: true)
                                self.xabberInputView.showEditPanel()
                            }
@@ -384,9 +384,12 @@ extension ChatViewController {
 	                        DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
 	                    }
 
-	                    didReloadInitialWindow = self.reloadInitialWindowAfterBootstrapIfNeeded()
+	                    if !self.isApplyingBootstrapAnchorWindow {
+	                        didReloadInitialWindow = self.reloadInitialWindowAfterBootstrapIfNeeded()
+	                    }
 	                }
-	                if ChatInitialHistoryAppearancePolicy.shouldApplyFollowupChangesetAfterBootstrapReload(
+	                if !self.isApplyingBootstrapAnchorWindow &&
+	                    ChatInitialHistoryAppearancePolicy.shouldApplyFollowupChangesetAfterBootstrapReload(
 	                    didReloadInitialWindow: didReloadInitialWindow
 	                ) {
 	                    self.didReceiveChangeset()
@@ -411,6 +414,8 @@ extension ChatViewController {
                 .first?
                 .primary else { return }
             AccountManager.shared.find(for: self.owner)?.messages.readMessage(lastReadPrimary, last: false)
+            self.rebuildUnreadMentionItems()
+            self.refreshUnreadMentionsNavigatorState(animated: true)
         } onError: { _ in
             
         } onCompleted: {

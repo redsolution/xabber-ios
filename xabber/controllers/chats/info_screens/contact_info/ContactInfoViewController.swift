@@ -74,8 +74,6 @@ class ContactInfoViewController: BaseViewController {
     
     public var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
     
-    var headerHeightMax: CGFloat = 252//188
-    
     open var chatStateDelegate: ChangeChatStateProtocol? = nil
     open var leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil
     
@@ -654,13 +652,7 @@ class ContactInfoViewController: BaseViewController {
         navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
         navigationController?.navigationBar.shadowImage = UIImage()
         tableView.fillSuperview()
-        headerView.frame = CGRect(
-            width: view.frame.width,
-            height: headerView.preferredHeight
-        )
-        self.headerView.updateSubviews()
-        
-        
+        self.headerView.applyHeaderLayout(to: tableView, width: view.bounds.width)
     }
     
     override func viewDidAppear(_ animated: Bool) {

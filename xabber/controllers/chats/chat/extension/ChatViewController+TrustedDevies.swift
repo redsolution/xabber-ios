@@ -130,7 +130,7 @@ extension ChatViewController {
         if !self.isTimeSignatureBlockingPanelopen {
             self.xabberInputView.changeState(to: identityVerification ? .identityVerification : .checkDevices)
             self.draftMessageText.accept(nil)
-            self.xabberInputView.textField.text = nil
+            self.xabberInputView.setComposerText(nil)
             self.isTrustedDevicesBlockingPanelopen = true
         }
     }

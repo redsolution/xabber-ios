@@ -314,6 +314,19 @@ class ChatListTableViewCell: UITableViewCell {
         
         return view
     }()
+
+    let mentionBadgeView: UIButton = {
+        let view = UIButton()
+
+        let config = UIImage.SymbolConfiguration(pointSize: 20, weight: .regular)
+        view.setImage(UIImage(systemName: "at.circle.fill", withConfiguration: config), for: .normal)
+        view.tintColor = UIColor(red: 0.2196, green: 0.5569, blue: 0.2353, alpha: 1.0)
+        view.contentEdgeInsets = .zero
+        view.isUserInteractionEnabled = false
+        view.accessibilityIdentifier = "chat-row-unread-mention-badge"
+
+        return view
+    }()
     
     let verificationBadgeView: UIButton = {
         let view = UIButton()
@@ -364,6 +377,7 @@ class ChatListTableViewCell: UITableViewCell {
                                 conversationType: ClientSynchronizationManager.ConversationType,
                                 unread: Int,
                                 unreadString: String?,
+                                hasUnreadMention: Bool = false,
                                 indicator color: UIColor,
                                 isDraft: Bool,
                                 isAttachment: Bool,
@@ -449,6 +463,8 @@ class ChatListTableViewCell: UITableViewCell {
         statusIndicator.setStatus(status: status, entity: entity)
         
         badgeColor = isMute ? UIColor(red: 189/255, green: 189/255, blue: 189/255, alpha: 1.0) : UIColor(red: 0.2196, green: 0.5569, blue: 0.2353, alpha: 1.0)
+        mentionBadgeView.tintColor = badgeColor
+        mentionBadgeView.isHidden = !hasUnreadMention
         
         if let deliveryState = deliveryState {
             deliveryIndicator.isHidden = false
@@ -537,6 +553,7 @@ class ChatListTableViewCell: UITableViewCell {
         encryptedIndicator.isHidden = true
         badgeView.isHidden = true
         subBadgeView.isHidden = true
+        mentionBadgeView.isHidden = true
         verificationBadgeView.isHidden = true
         avatarRequestKey = nil
         appliedAvatarRequestKey = nil
@@ -552,6 +569,7 @@ class ChatListTableViewCell: UITableViewCell {
         
         badgeString = ""
         badgeView.setTitle(nil, for: .normal)
+        mentionBadgeView.tintColor = UIColor(red: 0.2196, green: 0.5569, blue: 0.2353, alpha: 1.0)
         verificationBadgeView.setImage(nil, for: .normal)
         if bottomStack.layoutMargins.right > 8 {
             bottomStack.layoutMargins = UIEdgeInsets(top: 0, bottom: 0, left: 0, right: 8)
@@ -601,6 +619,7 @@ class ChatListTableViewCell: UITableViewCell {
         bottomStack.addArrangedSubview(badgeStack)
         
         badgeStack.addArrangedSubview(subBadgeView)
+        badgeStack.addArrangedSubview(mentionBadgeView)
         badgeStack.addArrangedSubview(badgeView)
         badgeStack.addArrangedSubview(verificationBadgeView)
         badgeStack.addArrangedSubview(pinnedIndicator)
@@ -614,6 +633,7 @@ class ChatListTableViewCell: UITableViewCell {
         encryptedIndicator.isHidden = true
         badgeView.isHidden = true
         subBadgeView.isHidden = true
+        mentionBadgeView.isHidden = true
         verificationBadgeView.isHidden = true
         errorIndicator.isHidden = true
         
@@ -629,6 +649,7 @@ class ChatListTableViewCell: UITableViewCell {
     
     private func activateConstraints() {
         NSLayoutConstraint.activate([
+            bottomStack.heightAnchor.constraint(equalToConstant: 44),
             deliveryIndicator.widthAnchor.constraint(equalToConstant: 16),
 //            deliveryIndicator.heightAnchor.constraint(equalToConstant: 16),
             pinnedIndicator.widthAnchor.constraint(equalToConstant: 24),

@@ -25,6 +25,10 @@ import CocoaLumberjack
 import YubiKit
 
 extension SettingsViewController: UITableViewDelegate {
+    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+        return InfoScreenSectionMetrics.headerHeight(for: datasource[section].title, section: section)
+    }
+
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         switch datasource[indexPath.section].section {
         case .xmppAccounts:
@@ -135,13 +139,29 @@ extension SettingsViewController: UITableViewDelegate {
                     return
                 
                 case .passcode:
-                    if !CredentialsManager.shared.isPincodeSetted() {
-                        let vc = PasscodeViewController()
+                    switch PasscodeLockPolicy.accessForCurrentState(jid: self.jid) {
+                    case .available:
+                        if !CredentialsManager.shared.isPincodeSetted() {
+                            let vc = PasscodeViewController(mode: .createNew)
+                            navigationController?.pushViewController(vc, animated: true)
+                            return
+                        }
+                        let vc = SimpleTableViewController()
+                        vc.datasource = menuItem
+                        vc.jid = self.jid
+                        vc.resources = self.resources
+                        vc.currentResource = self.currentResource
                         navigationController?.pushViewController(vc, animated: true)
                         return
-                    } else {
-                        ApplicationStateManager.shared.isPincodeShowed = true
-                        PincodePresenter().present(animated: true)
+                    case .premiumRequired:
+                        let vc = PremiumSubscribtionViewController()
+                        vc.owner = self.jid
+                        vc.jid = self.jid
+                        navigationController?.pushViewController(vc, animated: true)
+                        return
+                    case .disabledByConfig:
+                        self.view.makeToast("Passcode Lock is unavailable")
+                        return
                     }
                     
                 default: break
@@ -169,7 +189,8 @@ extension SettingsViewController: UITableViewDelegate {
         case .session:
             return
         default:
-            self.view.makeToast("Feature is non implemented")
+            break
+            //self.view.makeToast("Feature is non implemented")
         }
     }
     

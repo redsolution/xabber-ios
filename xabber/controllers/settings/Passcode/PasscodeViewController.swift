@@ -16,25 +16,35 @@
 //  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 //
 //
-//
 
 import UIKit
-import LocalAuthentication
 
-protocol PasscodeViewControllerDelegate {
+protocol PasscodeViewControllerDelegate: AnyObject {
     var mismatch: Bool { get set }
 }
 
 class PasscodeViewController: UIViewController, PasscodeViewControllerDelegate {
+    enum VerifiedAction {
+        case change
+        case remove
+    }
+
+    enum Mode {
+        case createNew
+        case confirmNew(firstPasscode: String)
+        case verifyCurrent(VerifiedAction)
+    }
     
     var mismatch: Bool = false {
         didSet {
-            errorLabel.isHidden = !mismatch
-            passcode.code = ""
+            if mismatch {
+                showError("Passcodes did not match. Try again.")
+            }
         }
     }
     
-    var delegate: PasscodeViewControllerDelegate?
+    weak var delegate: PasscodeViewControllerDelegate?
+    private let mode: Mode
 
     let passcode: PasscodeEdtitView = {
         let view = PasscodeEdtitView()
@@ -45,14 +55,19 @@ class PasscodeViewController: UIViewController, PasscodeViewControllerDelegate {
     let caption: UILabel = {
         let view = UILabel()
         view.translatesAutoresizingMaskIntoConstraints = false
+        view.textAlignment = .center
+        view.font = .systemFont(ofSize: 17, weight: .regular)
+        view.numberOfLines = 0
         return view
     }()
     
     let errorLabel: UILabel = {
         let view = UILabel()
-        view.text = "Passcodes did not match. Try again."
         view.translatesAutoresizingMaskIntoConstraints = false
         view.isHidden = true
+        view.textAlignment = .center
+        view.font = .systemFont(ofSize: 14, weight: .regular)
+        view.textColor = .systemRed
         return view
     }()
     
@@ -60,23 +75,23 @@ class PasscodeViewController: UIViewController, PasscodeViewControllerDelegate {
         let button = UIBarButtonItem(barButtonSystemItem: .cancel, target: nil, action: nil)
         return button
     }()
-
-    let skipButton: UIBarButtonItem = {
-        let button = UIBarButtonItem(title: "Skip", style: .plain, target: nil, action: nil)
-        return button
-    }()
     
-    var firstPasscode: String?
-    var isOnboarding: Bool = false
-    
-    init(firstPasscode: String? = nil, delegate: PasscodeViewControllerDelegate? = nil, isOnboarding: Bool = false) {
-        self.firstPasscode = firstPasscode
+    init(mode: Mode = .createNew, delegate: PasscodeViewControllerDelegate? = nil) {
+        self.mode = mode
         self.delegate = delegate
-        self.isOnboarding = isOnboarding
         super.init(nibName: nil, bundle: nil)
     }
 
+    convenience init(firstPasscode: String? = nil, delegate: PasscodeViewControllerDelegate? = nil, isOnboarding: Bool = false) {
+        if let firstPasscode {
+            self.init(mode: .confirmNew(firstPasscode: firstPasscode), delegate: delegate)
+        } else {
+            self.init(mode: .createNew, delegate: delegate)
+        }
+    }
+
     override init(nibName: String?, bundle: Bundle?) {
+        self.mode = .createNew
         super.init(nibName: nibName, bundle: bundle)
     }
 
@@ -92,78 +107,126 @@ class PasscodeViewController: UIViewController, PasscodeViewControllerDelegate {
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
-        passcode.didFinishedEnterCode = { code in
-            if let firstPasscode = self.firstPasscode {
-                if code == firstPasscode {
-                    CredentialsManager.shared.setPincode(code)
-                    CredentialsManager.shared.setPasscodeAttemptsLeft(5)
-                    SettingManager.shared.saveItem(for: "", scope: .security, key: SettingsViewController.Datasource.Keys.passcodeAttempts.rawValue, value: 5)
-                    SettingManager.shared.saveItem(for: "", scope: .security, key: SettingsViewController.Datasource.Keys.displayedAttempts.rawValue, value: 0)
-                    SettingManager.shared.saveItem(for: "", scope: .security, key: "support_touch_id", value: false)
-                    SettingManager.shared.saveItem(key: SettingsViewController.Datasource.Keys.showAttempts.rawValue, bool: true)
-                        DispatchQueue.main.async {
-                            if self.isOnboarding {
-                                let vc = SignUpEnableNotificationsViewController()
-                                self.navigationController?.setViewControllers([vc], animated: true)
-                            } else {
-                                self.navigationController?.popToRootViewController(animated: true)
-                            }
-                        }
-                } else {
-                    self.delegate?.mismatch = true
-                    self.navigationController?.popViewController(animated: true)
-                }
-            } else {
-                let secondVC = PasscodeViewController(firstPasscode: code, delegate: self, isOnboarding: self.isOnboarding)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    self.navigationController?.pushViewController(secondVC, animated: true)
-                }
-            }
-            
+        passcode.didFinishedEnterCode = { [weak self] code in
+            self?.handleCompleted(code: code)
         }
     }
     
     private func setupUI() {
-        self.title = "Passcode lock"
-        if #available(iOS 13.0, *) {
-            self.view.backgroundColor = .systemBackground
-        } else {
-            self.view.backgroundColor = .white
-        }
+        self.title = titleText
+        self.view.backgroundColor = .systemBackground
+
         cancelButton.target = self
         cancelButton.action = #selector(cancelAction)
-        skipButton.target = self
-        skipButton.action = #selector(skipAction)
-        let barButton = self.isOnboarding ? skipButton : cancelButton
-        navigationItem.setRightBarButton(barButton, animated: true)
-        navigationItem.setHidesBackButton(true, animated: false)
-        if let _ = firstPasscode {
-            caption.text = "Verify your new passcode"
-        } else {
-            caption.text =  "Create a passcode to protect your data"
-        }
+        navigationItem.setRightBarButton(cancelButton, animated: true)
+
+        caption.text = captionText
         view.addSubview(passcode)
         view.addSubview(caption)
         view.addSubview(errorLabel)
-        NSLayoutConstraint.activate([passcode.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.6),
-                                     passcode.heightAnchor.constraint(equalToConstant: 44),
-                                     passcode.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-                                     passcode.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -107),
-                                     caption.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-                                     caption.bottomAnchor.constraint(equalTo: passcode.topAnchor, constant: -17),
-                                     errorLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-                                     errorLabel.topAnchor.constraint(equalTo: passcode.bottomAnchor, constant: 5)
+        NSLayoutConstraint.activate([
+            passcode.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.6),
+            passcode.heightAnchor.constraint(equalToConstant: 44),
+            passcode.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            passcode.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -107),
+            caption.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
+            caption.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
+            caption.bottomAnchor.constraint(equalTo: passcode.topAnchor, constant: -17),
+            errorLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
+            errorLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
+            errorLabel.topAnchor.constraint(equalTo: passcode.bottomAnchor, constant: 8)
         ])
+    }
+
+    private var titleText: String {
+        switch mode {
+        case .createNew, .confirmNew:
+            return "Passcode Lock"
+        case .verifyCurrent(.change):
+            return "Change Passcode"
+        case .verifyCurrent(.remove):
+            return "Turn Passcode Off"
+        }
+    }
+
+    private var captionText: String {
+        switch mode {
+        case .createNew:
+            return "Create a passcode to protect your data"
+        case .confirmNew:
+            return "Confirm your new passcode"
+        case .verifyCurrent(.change):
+            return "Enter your current passcode to change it"
+        case .verifyCurrent(.remove):
+            return "Enter your current passcode to turn Passcode Lock off"
+        }
+    }
+
+    private func handleCompleted(code: String) {
+        switch mode {
+        case .createNew:
+            let secondVC = PasscodeViewController(mode: .confirmNew(firstPasscode: code), delegate: self)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                self.navigationController?.pushViewController(secondVC, animated: true)
+            }
+
+        case .confirmNew(let firstPasscode):
+            guard code == firstPasscode else {
+                self.delegate?.mismatch = true
+                self.navigationController?.popViewController(animated: true)
+                return
+            }
+            saveNewPasscode(code)
+            DispatchQueue.main.async {
+                self.navigationController?.popToRootViewController(animated: true)
+            }
+
+        case .verifyCurrent(let action):
+            guard CredentialsManager.shared.validatePincode(code) else {
+                showError("Incorrect passcode. Try again.")
+                return
+            }
+            handleVerifiedCurrentPasscode(action)
+        }
+    }
+
+    private func handleVerifiedCurrentPasscode(_ action: VerifiedAction) {
+        switch action {
+        case .change:
+            let vc = PasscodeViewController(mode: .createNew)
+            DispatchQueue.main.async {
+                self.navigationController?.pushViewController(vc, animated: true)
+            }
+
+        case .remove:
+            CredentialsManager.shared.clearPincodes()
+            SettingManager.shared.saveItem(for: "", scope: .security, key: "support_touch_id", value: false)
+            DispatchQueue.main.async {
+                self.navigationController?.popToRootViewController(animated: true)
+            }
+        }
+    }
+
+    private func saveNewPasscode(_ code: String) {
+        CredentialsManager.shared.setPincode(code)
+        CredentialsManager.shared.setPasscodeAttemptsLeft(5)
+        SettingManager.shared.saveItem(for: "", scope: .security, key: SettingsViewController.Datasource.Keys.passcodeAttempts.rawValue, value: 5)
+        SettingManager.shared.saveItem(for: "", scope: .security, key: SettingsViewController.Datasource.Keys.displayedAttempts.rawValue, value: 0)
+        SettingManager.shared.saveItem(for: "", scope: .security, key: "support_touch_id", value: false)
+        SettingManager.shared.saveItem(key: SettingsViewController.Datasource.Keys.showAttempts.rawValue, bool: true)
+    }
+
+    private func showError(_ message: String) {
+        errorLabel.text = message
+        errorLabel.isHidden = false
+        passcode.code = ""
+        DispatchQueue.main.async {
+            self.passcode.becomeFirstResponder()
+        }
     }
     
     @objc
     private func cancelAction() {
-        navigationController?.popToRootViewController(animated: true)
-    }
-    
-    @objc
-    private func skipAction() {
-        let vc = SignUpEnableNotificationsViewController()
-        self.navigationController?.setViewControllers([vc], animated: true)
+        navigationController?.popViewController(animated: true)
     }
 }
