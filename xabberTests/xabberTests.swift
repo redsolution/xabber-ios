@@ -22,7 +22,131 @@ import UIKit
 import RealmSwift
 import XMPPFramework
 import MaterialComponents
+import SignalProtocolObjC
 @testable import xabber
+
+final class EULAAcceptanceTests: XCTestCase {
+    private func makeDefaults(file: StaticString = #filePath, line: UInt = #line) throws -> (UserDefaults, String) {
+        let suiteName = "xabber.eula.tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), file: file, line: line)
+        defaults.removePersistentDomain(forName: suiteName)
+        return (defaults, suiteName)
+    }
+
+    private func removeDefaults(_ suiteName: String) {
+        UserDefaults.standard.removePersistentDomain(forName: suiteName)
+        UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
+    }
+
+    func testNoStoredAcceptanceRequiresEULA() throws {
+        let (defaults, suiteName) = try makeDefaults()
+        defer { removeDefaults(suiteName) }
+
+        XCTAssertFalse(EULAAcceptance.hasAcceptedCurrentVersion(defaults: defaults))
+    }
+
+    func testCurrentAcceptedVersionAllowsAppFlow() throws {
+        let (defaults, suiteName) = try makeDefaults()
+        defer { removeDefaults(suiteName) }
+
+        defaults.set(true, forKey: EULAAcceptance.acceptedKey)
+        defaults.set(EULAAcceptance.currentVersion, forKey: EULAAcceptance.versionKey)
+
+        XCTAssertTrue(EULAAcceptance.hasAcceptedCurrentVersion(defaults: defaults))
+    }
+
+    func testOlderAcceptedVersionRequiresEULAAgain() throws {
+        let (defaults, suiteName) = try makeDefaults()
+        defer { removeDefaults(suiteName) }
+
+        defaults.set(true, forKey: EULAAcceptance.acceptedKey)
+        defaults.set("2026-01-01", forKey: EULAAcceptance.versionKey)
+
+        XCTAssertFalse(EULAAcceptance.hasAcceptedCurrentVersion(defaults: defaults))
+    }
+
+    func testAcceptPersistsFlagVersionAndTimestamp() throws {
+        let (defaults, suiteName) = try makeDefaults()
+        defer { removeDefaults(suiteName) }
+
+        let timestamp = EULAAcceptance.accept(
+            date: Date(timeIntervalSince1970: 1_774_800_000),
+            defaults: defaults
+        )
+
+        XCTAssertTrue(defaults.bool(forKey: EULAAcceptance.acceptedKey))
+        XCTAssertEqual(defaults.string(forKey: EULAAcceptance.versionKey), EULAAcceptance.currentVersion)
+        XCTAssertEqual(defaults.string(forKey: EULAAcceptance.acceptedAtKey), timestamp)
+        XCTAssertNotNil(ISO8601DateFormatter().date(from: timestamp))
+    }
+
+    func testDeclineDoesNotLeaveAcceptanceStored() throws {
+        let (defaults, suiteName) = try makeDefaults()
+        defer { removeDefaults(suiteName) }
+
+        EULAAcceptance.decline(defaults: defaults)
+
+        XCTAssertFalse(defaults.bool(forKey: EULAAcceptance.acceptedKey))
+        XCTAssertNil(defaults.string(forKey: EULAAcceptance.versionKey))
+        XCTAssertNil(defaults.string(forKey: EULAAcceptance.acceptedAtKey))
+    }
+}
+
+final class EULAGateRoutingTests: XCTestCase {
+    func testRootSelectionReturnsEULABeforeOnboardingWhenNotAccepted() {
+        XCTAssertEqual(
+            AppRootCoordinator.rootKind(
+                hasAcceptedCurrentEULA: false,
+                hasAccounts: false,
+                interfaceType: .tabs
+            ),
+            .eula
+        )
+    }
+
+    func testRootSelectionReturnsEULABeforeChatRootsWhenNotAccepted() {
+        XCTAssertEqual(
+            AppRootCoordinator.rootKind(
+                hasAcceptedCurrentEULA: false,
+                hasAccounts: true,
+                interfaceType: .split
+            ),
+            .eula
+        )
+    }
+
+    func testAcceptedCurrentVersionAllowsNormalRoots() {
+        XCTAssertEqual(
+            AppRootCoordinator.rootKind(
+                hasAcceptedCurrentEULA: true,
+                hasAccounts: false,
+                interfaceType: .tabs
+            ),
+            .onboarding
+        )
+        XCTAssertEqual(
+            AppRootCoordinator.rootKind(
+                hasAcceptedCurrentEULA: true,
+                hasAccounts: true,
+                interfaceType: .tabs
+            ),
+            .tabs
+        )
+        XCTAssertEqual(
+            AppRootCoordinator.rootKind(
+                hasAcceptedCurrentEULA: true,
+                hasAccounts: true,
+                interfaceType: .split
+            ),
+            .split
+        )
+    }
+
+    func testNotificationAndDeepLinkRoutesAreBlockedUntilAccepted() {
+        XCTAssertFalse(AppRootCoordinator.canRoute(hasAcceptedCurrentEULA: false))
+        XCTAssertTrue(AppRootCoordinator.canRoute(hasAcceptedCurrentEULA: true))
+    }
+}
 
 @MainActor
 final class InfoScreenHeaderViewTests: XCTestCase {
@@ -127,6 +251,31 @@ private final class TestScheduledTask: VoIPScheduledTask {
     }
 }
 
+private final class NoOpVoIPTimeoutScheduler: VoIPCallTimeoutScheduling {
+    @discardableResult
+    func schedule(after interval: TimeInterval, _ block: @escaping () -> Void) -> VoIPScheduledTask {
+        return TestScheduledTask()
+    }
+}
+
+private final class TestCallScreenDelegate: VoIPCallManagerDelegate {
+    private(set) var dismissCount = 0
+    private(set) var states: [VoIPCall.State] = []
+
+    func shouldDismiss() {
+        dismissCount += 1
+    }
+
+    func didChangeState(to state: VoIPCall.State) {
+        states.append(state)
+    }
+
+    func didChangeMyVideoMode(to state: VoIPCall.VideoState) {}
+    func didChangeOpponentVideoMode(to state: VoIPCall.VideoState) {}
+    func didChangeSpeakerState(to enabled: Bool) {}
+    func didChangeMicState(to enabled: Bool) {}
+}
+
 @MainActor
 final class VoIPTerminationReasonTests: XCTestCase {
 
@@ -219,6 +368,7 @@ final class VoIPTerminationReasonTests: XCTestCase {
             outgoing: false
         )
 
+        call.shouldStartSignalingForQueuedReject = false
         call.rejectCall(reason: .busy)
         call.queuedRejectTimeoutWorkItem?.cancel()
 
@@ -229,6 +379,227 @@ final class VoIPTerminationReasonTests: XCTestCase {
         XCTAssertEqual(reject?.attributeStringValue(forName: "id"), "call-id")
         XCTAssertEqual(callElement?.attributeStringValue(forName: "end-reason"), "busy")
         XCTAssertEqual(callElement?.attributeStringValue(forName: "initiator"), "peer@example.com")
+    }
+
+    func testOutgoingTimeoutRejectSerializesNoAnswerAndInitiator() {
+        let call = VoIPCall(
+            owner: "owner@example.com",
+            fullJid: "peer@example.com/resource",
+            callId: "call-id",
+            callUUID: UUID(),
+            outgoing: true
+        )
+
+        call.shouldStartSignalingForQueuedReject = false
+        call.rejectCall(reason: .noanswer)
+        call.queuedRejectTimeoutWorkItem?.cancel()
+
+        let message = call.stanzaQueue.first as? XMPPMessage
+        let reject = message?.element(forName: "reject", xmlns: VoIPCall.namespace)
+        let callElement = reject?.element(forName: "call")
+
+        XCTAssertEqual(reject?.attributeStringValue(forName: "id"), "call-id")
+        XCTAssertEqual(callElement?.attributeStringValue(forName: "end-reason"), "noanswer")
+        XCTAssertEqual(callElement?.attributeStringValue(forName: "initiator"), "owner@example.com")
+    }
+
+    func testTerminalSignalingPolicyMatrix() {
+        let manager = VoIPManager()
+        let incomingCall = VoIPCall(
+            owner: "owner@example.com",
+            fullJid: "peer@example.com/resource",
+            callId: "incoming-call",
+            callUUID: UUID(),
+            outgoing: false
+        )
+        let incomingContext = CallSessionContext(
+            callId: "incoming-call",
+            callUUID: UUID(),
+            owner: "owner@example.com",
+            jid: "peer@example.com/resource",
+            outgoing: false,
+            phase: .ringing
+        )
+        let outgoingCall = VoIPCall(
+            owner: "owner@example.com",
+            fullJid: "peer@example.com/resource",
+            callId: "outgoing-call",
+            callUUID: UUID(),
+            outgoing: true
+        )
+        let outgoingContext = CallSessionContext(
+            callId: "outgoing-call",
+            callUUID: UUID(),
+            owner: "owner@example.com",
+            jid: "peer@example.com/resource",
+            outgoing: true,
+            phase: .waitingRemoteOffer
+        )
+
+        XCTAssertTrue(manager.shouldSendReject(trigger: .localEnd, call: incomingCall, context: incomingContext))
+        XCTAssertTrue(manager.shouldSendReject(trigger: .endActionTimeout, call: incomingCall, context: incomingContext))
+        XCTAssertTrue(manager.shouldSendReject(trigger: .outgoingUnansweredTimeout, call: outgoingCall, context: outgoingContext))
+
+        XCTAssertFalse(manager.shouldSendReject(trigger: .incomingUnansweredTimeout, call: incomingCall, context: incomingContext))
+        XCTAssertFalse(manager.shouldSendReject(trigger: .confirmationFailure, call: incomingCall, context: incomingContext))
+        XCTAssertFalse(manager.shouldSendReject(trigger: .appAcceptFailure, call: incomingCall, context: incomingContext))
+        XCTAssertFalse(manager.shouldSendReject(trigger: .answerActionTimeout, call: incomingCall, context: incomingContext))
+        XCTAssertFalse(manager.shouldSendReject(trigger: .mediaFailure, call: incomingCall, context: incomingContext))
+        XCTAssertFalse(manager.shouldSendReject(trigger: .remoteEvent, call: incomingCall, context: incomingContext))
+        XCTAssertFalse(manager.shouldSendReject(trigger: .connectionFailure, call: incomingCall, context: incomingContext))
+    }
+
+    func testIncomingTimeoutFinishesWithoutRejectStanza() {
+        let manager = VoIPManager()
+        let call = VoIPCall(
+            owner: "owner@example.com",
+            fullJid: "peer@example.com/resource",
+            callId: "call-id",
+            callUUID: UUID(),
+            outgoing: false
+        )
+        let context = manager.registerSession(
+            callId: call.callId,
+            callUUID: call.callUUID,
+            owner: call.owner,
+            jid: call.jid,
+            outgoing: false,
+            phase: .ringing
+        )
+        manager.currentCall = call
+        manager.finishCurrentCall(
+            reason: .incomingUnansweredTimeout,
+            trigger: .incomingUnansweredTimeout,
+            shouldReportToCallKit: false
+        )
+
+        XCTAssertEqual(context.lastTerminationReason, .incomingUnansweredTimeout)
+        XCTAssertTrue(call.stanzaQueue.isEmpty)
+        XCTAssertFalse(call.shouldSendReject)
+    }
+
+    func testOutgoingTimeoutFinishesWithRejectStanza() {
+        let manager = VoIPManager()
+        let call = VoIPCall(
+            owner: "owner@example.com",
+            fullJid: "peer@example.com/resource",
+            callId: "call-id",
+            callUUID: UUID(),
+            outgoing: true
+        )
+        call.shouldStartSignalingForQueuedReject = false
+        let context = manager.registerSession(
+            callId: call.callId,
+            callUUID: call.callUUID,
+            owner: call.owner,
+            jid: call.jid,
+            outgoing: true,
+            phase: .waitingRemoteOffer
+        )
+        manager.currentCall = call
+        manager.finishCurrentCall(
+            reason: .outgoingUnansweredTimeout,
+            trigger: .outgoingUnansweredTimeout,
+            shouldReportToCallKit: false
+        )
+        call.queuedRejectTimeoutWorkItem?.cancel()
+
+        let message = call.stanzaQueue.first as? XMPPMessage
+        let reject = message?.element(forName: "reject", xmlns: VoIPCall.namespace)
+        let callElement = reject?.element(forName: "call")
+
+        XCTAssertEqual(context.lastTerminationReason, .outgoingUnansweredTimeout)
+        XCTAssertEqual(reject?.attributeStringValue(forName: "id"), "call-id")
+        XCTAssertEqual(callElement?.attributeStringValue(forName: "end-reason"), "noanswer")
+    }
+
+    func testAcceptGuardFailureQueuesNoAcceptOrReject() {
+        let call = VoIPCall(
+            owner: "owner@example.com",
+            fullJid: "peer@example.com",
+            callId: "call-id",
+            callUUID: UUID(),
+            outgoing: false
+        )
+
+        XCTAssertFalse(call.acceptCall())
+        XCTAssertTrue(call.stanzaQueue.isEmpty)
+    }
+
+    func testIncomingAnswerBeforeConfirmDefersAcceptUntilConfirmed() {
+        let manager = VoIPManager()
+        manager.timeoutScheduler = NoOpVoIPTimeoutScheduler()
+        let call = VoIPCall(
+            owner: "owner@example.com",
+            fullJid: "peer@example.com/resource",
+            callId: "call-id",
+            callUUID: UUID(),
+            outgoing: false
+        )
+        let context = manager.registerSession(
+            callId: call.callId,
+            callUUID: call.callUUID,
+            owner: call.owner,
+            jid: call.jid,
+            outgoing: false,
+            phase: .awaitingConfirmation
+        )
+        context.didReportIncomingCall = true
+
+        manager.requestIncomingAnswer(call: call, context: context, action: nil)
+
+        XCTAssertTrue(context.pendingAnswerRequested)
+        XCTAssertTrue(call.stanzaQueue.isEmpty)
+
+        call.isConfirmed = true
+        manager.VoIPCallDidChangeState(call, to: .confirmed)
+
+        let message = call.stanzaQueue.first as? XMPPMessage
+        let accept = message?.element(forName: "accept", xmlns: VoIPCall.namespace)
+
+        XCTAssertFalse(context.pendingAnswerRequested)
+        XCTAssertEqual(accept?.attributeStringValue(forName: "id"), "call-id")
+        XCTAssertNil(message?.element(forName: "reject", xmlns: VoIPCall.namespace))
+    }
+
+    func testIncomingAnswerConfirmFailureQueuesNoAcceptOrReject() {
+        let manager = VoIPManager()
+        let call = VoIPCall(
+            owner: "owner@example.com",
+            fullJid: "peer@example.com/resource",
+            callId: "call-id",
+            callUUID: UUID(),
+            outgoing: false
+        )
+        let context = manager.registerSession(
+            callId: call.callId,
+            callUUID: call.callUUID,
+            owner: call.owner,
+            jid: call.jid,
+            outgoing: false,
+            phase: .awaitingConfirmation
+        )
+        manager.currentCall = call
+
+        manager.requestIncomingAnswer(call: call, context: context, action: nil)
+        manager.finishCurrentCall(reason: .signalingError, trigger: .confirmationFailure, shouldReportToCallKit: false)
+
+        XCTAssertTrue(call.stanzaQueue.isEmpty)
+        XCTAssertFalse(call.shouldSendReject)
+    }
+
+    func testCallScreenRetryStatesAreLimitedToTerminalFailures() {
+        XCTAssertTrue(VoIPCall.State.notConfirmed.shouldRetryFromCallScreen)
+        XCTAssertTrue(VoIPCall.State.disconnected.shouldRetryFromCallScreen)
+        XCTAssertTrue(VoIPCall.State.ended.shouldRetryFromCallScreen)
+
+        XCTAssertFalse(VoIPCall.State.initiated.shouldRetryFromCallScreen)
+        XCTAssertFalse(VoIPCall.State.proposed.shouldRetryFromCallScreen)
+        XCTAssertFalse(VoIPCall.State.confirmed.shouldRetryFromCallScreen)
+        XCTAssertFalse(VoIPCall.State.accepted.shouldRetryFromCallScreen)
+        XCTAssertFalse(VoIPCall.State.connecting.shouldRetryFromCallScreen)
+        XCTAssertFalse(VoIPCall.State.connected.shouldRetryFromCallScreen)
+        XCTAssertFalse(VoIPCall.State.holded.shouldRetryFromCallScreen)
     }
 
     func testCallSessionContextCancelTimersClearsAllScheduledTasks() {
@@ -260,6 +631,81 @@ final class VoIPTerminationReasonTests: XCTestCase {
         XCTAssertNil(context.outgoingTimeoutTask)
         XCTAssertNil(context.confirmationTimeoutTask)
         XCTAssertNil(context.mediaSetupTimeoutTask)
+    }
+
+    func testOutgoingUnansweredTimeoutDismissesCallScreenAfterEndedState() {
+        let manager = VoIPManager()
+        let delegate = TestCallScreenDelegate()
+        manager.callScreenDelegate = delegate
+
+        manager.notifyCallScreenDidFinish(reason: .outgoingUnansweredTimeout, outgoing: true)
+
+        XCTAssertEqual(delegate.states, [.ended])
+        XCTAssertEqual(delegate.dismissCount, 1)
+    }
+
+    func testNonTimeoutFinishDoesNotDismissCallScreenAutomatically() {
+        let manager = VoIPManager()
+        let delegate = TestCallScreenDelegate()
+        manager.callScreenDelegate = delegate
+
+        manager.notifyCallScreenDidFinish(reason: .remoteHangup, outgoing: true)
+
+        XCTAssertEqual(delegate.states, [.ended])
+        XCTAssertEqual(delegate.dismissCount, 0)
+    }
+
+    func testUpdateMessageCanRunInsideExistingRealmWriteTransaction() throws {
+        let previousConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(inMemoryIdentifier: "VoIPTerminationReasonTests-\(name)")
+        defer { Realm.Configuration.defaultConfiguration = previousConfiguration }
+
+        let owner = "owner@example.com"
+        let jid = "peer@example.com"
+        let callId = "call-id"
+        let realm = try WRealm.safe()
+        try realm.write {
+            realm.deleteAll()
+        }
+
+        let message = MessageStorageItem()
+        message.configureVoIPCallMessage(
+            opponent: jid,
+            owner: owner,
+            date: Date(),
+            isRead: false,
+            callId: callId,
+            archivedId: nil,
+            outgoing: true,
+            duration: 0,
+            callState: .none
+        )
+        _ = message.save(commitTransaction: true, silentNotifications: true)
+
+        let manager = VoIPManager()
+        try realm.write {
+            manager.updateMessage(
+                callId,
+                jid: jid,
+                owner: owner,
+                callStqte: .noanswer,
+                duration: 30,
+                terminationReason: .outgoingUnansweredTimeout,
+                realm: realm
+            )
+        }
+
+        let stored = try XCTUnwrap(
+            realm.object(
+                ofType: MessageStorageItem.self,
+                forPrimaryKey: MessageStorageItem.messageIdForVoIPCall(owner: owner, jid: jid, callId: callId)
+            )
+        )
+        let reference = try XCTUnwrap(stored.references.first)
+        XCTAssertTrue(stored.isRead)
+        XCTAssertEqual(reference.metadata?["callState"] as? String, MessageStorageItem.VoIPCallState.noanswer.rawValue)
+        XCTAssertEqual(reference.metadata?["duration"] as? Double, 30)
+        XCTAssertEqual(reference.metadata?["terminationReason"] as? String, CallTerminationReason.outgoingUnansweredTimeout.rawValue)
     }
 }
 
@@ -2943,11 +3389,44 @@ final class MessageArchiveRequestClassificationTests: XCTestCase {
     private let owner = "owner@example.com"
     private let jid = "romeo@example.com"
 
+    override func setUp() {
+        super.setUp()
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(inMemoryIdentifier: "MessageArchiveRequestClassificationTests-\(name)")
+        let realm = try! WRealm.safe()
+        try! realm.write {
+            realm.deleteAll()
+        }
+    }
+
     private func queuedTask(
         _ manager: MessageArchiveManager,
         queryId: String
     ) -> MessageArchiveManager.MAMRequestItem? {
         manager.callbacksQueue.first(where: { $0.elementId == queryId })?.task
+    }
+
+    private func insertAccount(createdAt: Date) throws {
+        let realm = try WRealm.safe()
+        let account = AccountStorageItem()
+        account.jid = owner
+        account.createdAt = createdAt
+
+        try realm.write {
+            realm.add(account, update: .modified)
+        }
+    }
+
+    private func assertDate(
+        _ actual: Date?,
+        equals expected: Date,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let actual = actual else {
+            XCTFail("Expected date \(expected), got nil", file: file, line: line)
+            return
+        }
+        XCTAssertEqual(actual.timeIntervalSince1970, expected.timeIntervalSince1970, accuracy: 0.001, file: file, line: line)
     }
 
     func testBootstrapPurposeMarksInitialArchiveLoaded() {
@@ -3084,6 +3563,148 @@ final class MessageArchiveRequestClassificationTests: XCTestCase {
         )
 
         XCTAssertEqual(queuedTask(manager, queryId: queryId)?.archiveEndEligibility, false)
+    }
+
+    func testOmemo2ArchiveRequestClampsStartToAccountCreatedAtAndPreservesOtherParameters() throws {
+        let accountCreatedAt = Date(timeIntervalSince1970: 2_000)
+        let requestedStart = Date(timeIntervalSince1970: 1_000)
+        let requestedEnd = Date(timeIntervalSince1970: 3_000)
+        let manager = MessageArchiveManager(withOwner: owner)
+        let queryId = "omemo2-created-at-clamp"
+        try insertAccount(createdAt: accountCreatedAt)
+
+        manager.requestArchive(
+            XMPPStream(),
+            jid: jid,
+            isContinues: true,
+            conversationType: .omemo,
+            purpose: .search,
+            queryId: queryId,
+            searchText: "needle",
+            before: "oldest-loaded-id",
+            beforeId: "before-stanza-id",
+            afterId: "after-stanza-id",
+            start: requestedStart,
+            end: requestedEnd,
+            nextPage: "next-page-id",
+            max: 37,
+            tags: [.image],
+            consumerManagesArchiveEnd: true,
+            consumerManagesHistoryCursor: true
+        )
+
+        let task = try XCTUnwrap(queuedTask(manager, queryId: queryId))
+        assertDate(task.start, equals: accountCreatedAt)
+        assertDate(task.maxDate, equals: accountCreatedAt)
+        assertDate(task.end, equals: requestedEnd)
+        XCTAssertEqual(task.jid, jid)
+        XCTAssertEqual(task.messageId, "oldest-loaded-id")
+        XCTAssertEqual(task.conversationType, .omemo)
+        XCTAssertTrue(task.isContinues)
+        XCTAssertEqual(task.searchText, "needle")
+        XCTAssertEqual(task.afterId, "after-stanza-id")
+        XCTAssertEqual(task.max, 37)
+        XCTAssertEqual(task.tags, [.image])
+        XCTAssertEqual(task.purpose, .search)
+        XCTAssertTrue(task.consumerManagesArchiveEnd)
+        XCTAssertTrue(task.consumerManagesHistoryCursor)
+        XCTAssertFalse(task.archiveEndEligibility)
+    }
+
+    func testOmemo2ArchiveRequestUsesAccountCreatedAtWhenStartIsMissing() throws {
+        let accountCreatedAt = Date(timeIntervalSince1970: 2_000)
+        let manager = MessageArchiveManager(withOwner: owner)
+        let queryId = "omemo2-missing-start-created-at"
+        try insertAccount(createdAt: accountCreatedAt)
+
+        manager.requestArchive(
+            XMPPStream(),
+            jid: jid,
+            isContinues: false,
+            conversationType: .omemo,
+            purpose: .pageOlder,
+            queryId: queryId,
+            nextPage: ""
+        )
+
+        let task = try XCTUnwrap(queuedTask(manager, queryId: queryId))
+        assertDate(task.start, equals: accountCreatedAt)
+        assertDate(task.maxDate, equals: accountCreatedAt)
+        XCTAssertNil(task.end)
+        XCTAssertEqual(task.conversationType, .omemo)
+    }
+
+    func testOmemo2ArchiveRequestIsSkippedWhenRequestedRangeEndsBeforeAccountCreatedAt() throws {
+        let accountCreatedAt = Date(timeIntervalSince1970: 2_000)
+        let requestedStart = Date(timeIntervalSince1970: 1_000)
+        let requestedEnd = Date(timeIntervalSince1970: 1_500)
+        let manager = MessageArchiveManager(withOwner: owner)
+        let queryId = "omemo2-skip-before-created-at"
+        let callbackExpectation = expectation(description: "skip callback")
+        let endPageExpectation = expectation(description: "skip end page")
+        var receivedState: MessageArchivePageEndState?
+        try insertAccount(createdAt: accountCreatedAt)
+
+        manager.requestArchive(
+            XMPPStream(),
+            jid: jid,
+            isContinues: false,
+            conversationType: .omemo,
+            purpose: .jump,
+            queryId: queryId,
+            before: "requested-cursor",
+            start: requestedStart,
+            end: requestedEnd,
+            callback: {
+                callbackExpectation.fulfill()
+            },
+            requestCallbacks: .init(
+                onMessage: nil,
+                onEndPage: { receivedQueryId, state, first, last, count in
+                    XCTAssertEqual(receivedQueryId, queryId)
+                    XCTAssertEqual(first, "")
+                    XCTAssertEqual(last, "")
+                    XCTAssertEqual(count, 0)
+                    receivedState = state
+                    endPageExpectation.fulfill()
+                }
+            )
+        )
+
+        XCTAssertNil(queuedTask(manager, queryId: queryId))
+        XCTAssertTrue(manager.callbacksQueue.isEmpty)
+        wait(for: [callbackExpectation, endPageExpectation], timeout: 1.0)
+        XCTAssertEqual(
+            receivedState,
+            .init(queryExhausted: true, archiveEnded: true, persistedMessageCount: 0, requestCursorId: "requested-cursor")
+        )
+    }
+
+    func testNonOmemo2ArchiveRequestIsNotClampedOrSkippedByAccountCreatedAt() throws {
+        let accountCreatedAt = Date(timeIntervalSince1970: 2_000)
+        let requestedStart = Date(timeIntervalSince1970: 1_000)
+        let requestedEnd = Date(timeIntervalSince1970: 1_500)
+        let manager = MessageArchiveManager(withOwner: owner)
+        let queryId = "regular-preserves-requested-dates"
+        try insertAccount(createdAt: accountCreatedAt)
+
+        manager.requestArchive(
+            XMPPStream(),
+            jid: jid,
+            isContinues: false,
+            conversationType: .regular,
+            purpose: .jump,
+            queryId: queryId,
+            start: requestedStart,
+            end: requestedEnd,
+            nextPage: ""
+        )
+
+        let task = try XCTUnwrap(queuedTask(manager, queryId: queryId))
+        assertDate(task.start, equals: requestedStart)
+        assertDate(task.maxDate, equals: requestedStart)
+        assertDate(task.end, equals: requestedEnd)
+        XCTAssertEqual(task.conversationType, .regular)
     }
 
     func testBeforeIdFilteredRequestCannotMarkArchiveEnd() {
@@ -8208,6 +8829,34 @@ final class ChatUnreadMentionsTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testScrollDownButtonStartsHiddenBeforeLayout() {
+        let controller = ChatViewController()
+
+        XCTAssertTrue(controller.scrollDownButton.isHidden)
+        XCTAssertFalse(controller.scrollDownButton.isUserInteractionEnabled)
+    }
+
+    func testScrollDownButtonStartupVisibilityPolicySuppressesForTwoSeconds() {
+        let start = Date(timeIntervalSince1970: 100)
+        let suppressedUntil = start.addingTimeInterval(
+            ChatViewController.ScrollDownButtonStartupVisibilityPolicy.suppressionInterval
+        )
+
+        XCTAssertTrue(
+            ChatViewController.ScrollDownButtonStartupVisibilityPolicy.isSuppressed(
+                now: start.addingTimeInterval(1.99),
+                until: suppressedUntil
+            )
+        )
+        XCTAssertFalse(
+            ChatViewController.ScrollDownButtonStartupVisibilityPolicy.isSuppressed(
+                now: start.addingTimeInterval(2.0),
+                until: suppressedUntil
+            )
+        )
+    }
+
     func testChatMentionReadOnVisiblePolicyReturnsMatchingUnreadMentionWhenTargetIsVisible() throws {
         let message = makeMessage(
             primary: "m1",
@@ -8637,15 +9286,141 @@ final class AutoDeleteMessagesPolicyTests: XCTestCase {
     }
 }
 
+final class MediaUploadQuotaPolicyTests: XCTestCase {
+    func testNonPremiumAccountWithZeroQuotaRequiresPremium() {
+        let access = MediaUploadQuotaPolicy.access(
+            subscriptionsEnabled: true,
+            hasActiveSubscription: false,
+            hasQuotaItem: true,
+            quotaBytes: 0,
+            totalBytes: 0
+        )
+
+        XCTAssertEqual(access, .premiumRequired)
+    }
+
+    func testPremiumAccountWithZeroQuotaCanSend() {
+        let access = MediaUploadQuotaPolicy.access(
+            subscriptionsEnabled: true,
+            hasActiveSubscription: true,
+            hasQuotaItem: true,
+            quotaBytes: 0,
+            totalBytes: 0
+        )
+
+        XCTAssertEqual(access, .available)
+    }
+
+    func testNonPremiumAccountWithRemainingQuotaCanSend() {
+        let access = MediaUploadQuotaPolicy.access(
+            subscriptionsEnabled: true,
+            hasActiveSubscription: false,
+            hasQuotaItem: true,
+            quotaBytes: 2048,
+            totalBytes: 1024
+        )
+
+        XCTAssertEqual(access, .available)
+    }
+
+    func testNonPremiumAccountWithFullQuotaRequiresPremium() {
+        let access = MediaUploadQuotaPolicy.access(
+            subscriptionsEnabled: true,
+            hasActiveSubscription: false,
+            hasQuotaItem: true,
+            quotaBytes: 2048,
+            totalBytes: 2048
+        )
+
+        XCTAssertEqual(access, .premiumRequired)
+    }
+
+    func testUnlimitedQuotaCanSend() {
+        let access = MediaUploadQuotaPolicy.access(
+            subscriptionsEnabled: true,
+            hasActiveSubscription: false,
+            hasQuotaItem: true,
+            quotaBytes: -1,
+            totalBytes: 4096
+        )
+
+        XCTAssertEqual(access, .available)
+    }
+
+    func testMissingQuotaCacheCanSend() {
+        let access = MediaUploadQuotaPolicy.access(
+            subscriptionsEnabled: true,
+            hasActiveSubscription: false,
+            hasQuotaItem: false,
+            quotaBytes: 0,
+            totalBytes: 0
+        )
+
+        XCTAssertEqual(access, .available)
+    }
+
+    func testSubscriptionsDisabledCanSendWithoutPremium() {
+        let access = MediaUploadQuotaPolicy.access(
+            subscriptionsEnabled: false,
+            hasActiveSubscription: false,
+            hasQuotaItem: true,
+            quotaBytes: 0,
+            totalBytes: 0
+        )
+
+        XCTAssertEqual(access, .available)
+    }
+}
+
 private final class FakeCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
+    var quotaResponses: [CloudStorageQuotaAPIResponse] = []
     var statsResponses: [CloudStorageQuotaAPIResponse] = []
     var slotResponses: [CloudStorageQuotaAPIResponse] = []
+    var uploadResponses: [CloudStorageQuotaAPIResponse] = []
+    var avatarUploadResponses: [CloudStorageQuotaAPIResponse] = []
+    var listResponses: [CloudStorageQuotaAPIResponse] = []
+    var avatarListResponses: [CloudStorageQuotaAPIResponse] = []
+    var deleteResponses: [CloudStorageQuotaAPIResponse] = []
     var pendingStats: [(CloudStorageQuotaAPIResponse) -> Void] = []
+    private(set) var quotaBaseURLs: [URL] = []
+    private(set) var statsBaseURLs: [URL] = []
+    private(set) var slotBaseURLs: [URL] = []
+    private(set) var uploadBaseURLs: [URL] = []
+    private(set) var avatarUploadBaseURLs: [URL] = []
+    private(set) var listBaseURLs: [URL] = []
+    private(set) var avatarListBaseURLs: [URL] = []
+    private(set) var deleteBaseURLs: [URL] = []
+    private(set) var quotaTokens: [String] = []
+    private(set) var statsTokens: [String] = []
+    private(set) var slotTokens: [String] = []
+    private(set) var uploadTokens: [String] = []
+    private(set) var avatarUploadTokens: [String] = []
+    private(set) var listTokens: [String] = []
+    private(set) var avatarListTokens: [String] = []
+    private(set) var deleteTokens: [String] = []
+    private(set) var listTypes: [MimeIconTypes] = []
+    private(set) var listPages: [Int] = []
+    private(set) var deleteFileIDs: [Int] = []
+    private(set) var quotaCallCount = 0
     private(set) var statsCallCount = 0
     private(set) var slotCallCount = 0
+    private(set) var uploadCallCount = 0
+    private(set) var avatarUploadCallCount = 0
+    private(set) var listCallCount = 0
+    private(set) var avatarListCallCount = 0
+    private(set) var deleteCallCount = 0
+
+    func getQuota(baseURL: URL, token: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
+        quotaCallCount += 1
+        quotaBaseURLs.append(baseURL)
+        quotaTokens.append(token)
+        completion(quotaResponses.isEmpty ? defaultQuotaResponse() : quotaResponses.removeFirst())
+    }
 
     func getStats(baseURL: URL, token: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
         statsCallCount += 1
+        statsBaseURLs.append(baseURL)
+        statsTokens.append(token)
         if statsResponses.isEmpty {
             pendingStats.append(completion)
         } else {
@@ -8655,13 +9430,155 @@ private final class FakeCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
 
     func requestSlot(baseURL: URL, token: String, request: CloudStorageUploadSlotRequest, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
         slotCallCount += 1
+        slotBaseURLs.append(baseURL)
+        slotTokens.append(token)
         completion(slotResponses.isEmpty ? .failure(statusCode: nil, error: nil) : slotResponses.removeFirst())
+    }
+
+    func uploadFile(baseURL: URL, token: String, data: Data, filename: String, mimeType: String, metadata: [String : String]?, context: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
+        uploadCallCount += 1
+        uploadBaseURLs.append(baseURL)
+        uploadTokens.append(token)
+        completion(uploadResponses.isEmpty ? .response(statusCode: 200, value: [
+            "file": "https://gallery.example/file",
+            "name": filename,
+            "hash": "hash",
+            "quota": 3000,
+            "used": data.count,
+            "id": 7
+        ]) : uploadResponses.removeFirst())
+    }
+
+    func uploadAvatar(baseURL: URL, token: String, data: Data, filename: String, mimeType: String, createThumbnails: Bool, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
+        avatarUploadCallCount += 1
+        avatarUploadBaseURLs.append(baseURL)
+        avatarUploadTokens.append(token)
+        completion(avatarUploadResponses.isEmpty ? .response(statusCode: 200, value: [
+            "file": "https://gallery.example/avatar",
+            "hash": "avatar-hash",
+            "name": filename,
+            "quota": 3000,
+            "used": data.count,
+            "size": data.count,
+            "thumbnails": []
+        ]) : avatarUploadResponses.removeFirst())
+    }
+
+    func deleteMedia(baseURL: URL, token: String, fileID: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
+        deleteCallCount += 1
+        deleteBaseURLs.append(baseURL)
+        deleteTokens.append(token)
+        deleteFileIDs.append(fileID)
+        completion(deleteResponses.isEmpty ? .response(statusCode: 204, value: [:]) : deleteResponses.removeFirst())
+    }
+
+    func deleteAvatar(baseURL: URL, token: String, fileID: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
+        deleteMedia(baseURL: baseURL, token: token, fileID: fileID, completion: completion)
+    }
+
+    func deleteGallery(baseURL: URL, token: String, jid: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
+        deleteCallCount += 1
+        deleteBaseURLs.append(baseURL)
+        deleteTokens.append(token)
+        completion(deleteResponses.isEmpty ? .response(statusCode: 204, value: [:]) : deleteResponses.removeFirst())
+    }
+
+    func getFiles(baseURL: URL, token: String, type: MimeIconTypes, page: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
+        listCallCount += 1
+        listBaseURLs.append(baseURL)
+        listTokens.append(token)
+        listTypes.append(type)
+        listPages.append(page)
+        completion(listResponses.isEmpty ? .response(statusCode: 200, value: pagePayload()) : listResponses.removeFirst())
+    }
+
+    func getAvatars(baseURL: URL, token: String, page: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
+        avatarListCallCount += 1
+        avatarListBaseURLs.append(baseURL)
+        avatarListTokens.append(token)
+        completion(avatarListResponses.isEmpty ? .response(statusCode: 200, value: pagePayload()) : avatarListResponses.removeFirst())
+    }
+
+    func getFilesToDelete(baseURL: URL, token: String, percent: Int, page: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
+        getFiles(baseURL: baseURL, token: token, type: .file, page: page, completion: completion)
+    }
+
+    func deleteMediaFor(baseURL: URL, token: String, percent: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
+        deleteCallCount += 1
+        deleteBaseURLs.append(baseURL)
+        deleteTokens.append(token)
+        completion(deleteResponses.isEmpty ? .response(statusCode: 204, value: [:]) : deleteResponses.removeFirst())
+    }
+
+    func deleteMediaForAll(baseURL: URL, token: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
+        deleteCallCount += 1
+        deleteBaseURLs.append(baseURL)
+        deleteTokens.append(token)
+        completion(deleteResponses.isEmpty ? .response(statusCode: 204, value: [:]) : deleteResponses.removeFirst())
     }
 
     func completeStats(_ response: CloudStorageQuotaAPIResponse) {
         let callbacks = pendingStats
         pendingStats.removeAll()
         callbacks.forEach { $0(response) }
+    }
+
+    private func defaultQuotaResponse() -> CloudStorageQuotaAPIResponse {
+        guard let response = statsResponses.first else {
+            return .response(statusCode: 200, value: ["used": 0, "quota": 0])
+        }
+        switch response {
+        case .response(let statusCode, let value):
+            guard let code = statusCode, code >= 200 && code < 300,
+                  let root = value as? [String: Any],
+                  let quota = int(from: root["quota"]),
+                  let total = root["total"] as? [String: Any],
+                  let used = int(from: total["used"]) else {
+                return .response(statusCode: 200, value: ["used": 0, "quota": 0])
+            }
+            return .response(statusCode: 200, value: ["used": used, "quota": quota])
+        case .failure:
+            return .response(statusCode: 200, value: ["used": 0, "quota": 0])
+        }
+    }
+
+    private func pagePayload() -> [String: Any] {
+        return [
+            "total_pages": 1,
+            "total_objects": 0,
+            "obj_per_page": 20,
+            "items": []
+        ]
+    }
+
+    private func int(from value: Any?) -> Int? {
+        if let int = value as? Int { return int }
+        if let number = value as? NSNumber { return number.intValue }
+        if let string = value as? String { return Int(string) }
+        return nil
+    }
+}
+
+private final class FakeCloudStorageTokenAPIClient: CloudStorageTokenAPIClient {
+    var codeRequestResponses: [CloudStorageQuotaAPIResponse] = []
+    var exchangeResponses: [CloudStorageQuotaAPIResponse] = []
+    private(set) var codeRequestBaseURLs: [URL] = []
+    private(set) var codeRequestFullJIDs: [String] = []
+    private(set) var exchangeBaseURLs: [URL] = []
+    private(set) var exchangeOwners: [String] = []
+    private(set) var exchangeCodes: [String] = []
+
+    func requestCode(baseURL: URL, fullJID: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
+        codeRequestBaseURLs.append(baseURL)
+        codeRequestFullJIDs.append(fullJID)
+        completion(codeRequestResponses.isEmpty ? .response(statusCode: 200, value: [:]) : codeRequestResponses.removeFirst())
+    }
+
+    func exchangeCode(baseURL: URL, owner: String, code: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
+        exchangeBaseURLs.append(baseURL)
+        exchangeOwners.append(owner)
+        exchangeCodes.append(code)
+        completion(exchangeResponses.isEmpty ? .response(statusCode: 200, value: ["token": "\(baseURL.host ?? "gallery")-\(code)"]) : exchangeResponses.removeFirst())
     }
 }
 
@@ -8752,6 +9669,177 @@ final class SettingsCloudStorageQuotaDisplayStateTests: XCTestCase {
             + AccountQuotaStorageItem.beautify(size: 0)
         XCTAssertEqual(state.detailText, expected)
     }
+
+    func testGalleryTypePrefixesQuotaDetail() {
+        let state = SettingsCloudStorageQuotaDisplayState.resolve(
+            hasCachedQuota: true,
+            usedBytes: 1024,
+            quotaBytes: 2048,
+            isRefreshing: false,
+            lastRefreshFailed: false,
+            isAvailable: true,
+            galleryType: .premium
+        )
+
+        let expected = "Premium Gallery · "
+            + AccountQuotaStorageItem.beautify(size: 1024)
+            + " of ".localizeString(id: "of", arguments: [])
+            + AccountQuotaStorageItem.beautify(size: 2048)
+        XCTAssertEqual(state.detailText, expected)
+    }
+
+    func testPremiumPlanFallbackIsUsedOnlyWhenFreshQuotaIsMissing() {
+        let fallbackState = SettingsCloudStorageQuotaDisplayState.resolve(
+            hasCachedQuota: false,
+            usedBytes: 0,
+            quotaBytes: 0,
+            isRefreshing: true,
+            lastRefreshFailed: false,
+            isAvailable: true,
+            galleryType: .premium,
+            fallbackPlanText: "3 GB plan"
+        )
+        let cachedState = SettingsCloudStorageQuotaDisplayState.resolve(
+            hasCachedQuota: true,
+            usedBytes: 1024,
+            quotaBytes: 2048,
+            isRefreshing: true,
+            lastRefreshFailed: false,
+            isAvailable: true,
+            galleryType: .premium,
+            fallbackPlanText: "3 GB plan"
+        )
+
+        XCTAssertEqual(fallbackState.detailText, "Premium Gallery · 3 GB plan")
+        XCTAssertEqual(
+            cachedState.detailText,
+            "Premium Gallery · "
+                + AccountQuotaStorageItem.beautify(size: 1024)
+                + " of ".localizeString(id: "of", arguments: [])
+                + AccountQuotaStorageItem.beautify(size: 2048)
+        )
+    }
+}
+
+final class AccountGalleryConfigurationTests: XCTestCase {
+    private let alice = "gallery-alice@xabber.com"
+    private let bob = "gallery-bob@xabber.com"
+
+    override func setUp() {
+        super.setUp()
+        cleanup(alice)
+        cleanup(bob)
+    }
+
+    override func tearDown() {
+        cleanup(alice)
+        cleanup(bob)
+        super.tearDown()
+    }
+
+    func testPremiumAvailabilityDefaultsSelectionToPremiumWithoutLeakingAcrossAccounts() {
+        let aliceConfiguration = AccountGalleryConfiguration(owner: alice)
+        let bobConfiguration = AccountGalleryConfiguration(owner: bob)
+
+        aliceConfiguration.storeBasicGalleryURL("https://basic.example/api/")
+        bobConfiguration.storeBasicGalleryURL("https://bob-basic.example/api/")
+        aliceConfiguration.reconcilePremiumGalleryAvailability(isAvailable: true, storageURL: "https://premium.example/api/v1")
+
+        XCTAssertEqual(aliceConfiguration.currentGalleryType, .premium)
+        XCTAssertEqual(aliceConfiguration.currentGalleryURL?.absoluteString, "https://premium.example/api/")
+        XCTAssertEqual(bobConfiguration.currentGalleryType, .basic)
+        XCTAssertEqual(bobConfiguration.currentGalleryURL?.absoluteString, "https://bob-basic.example/api/")
+    }
+
+    func testManualBasicSelectionPersistsWhilePremiumRemainsAvailable() {
+        let configuration = AccountGalleryConfiguration(owner: alice)
+        configuration.storeBasicGalleryURL("https://basic.example/api/")
+        configuration.reconcilePremiumGalleryAvailability(isAvailable: true, storageURL: "https://premium.example/api/")
+
+        XCTAssertTrue(configuration.switchGallery(to: .basic))
+        configuration.reconcilePremiumGalleryAvailability(isAvailable: true, storageURL: "https://premium2.example/api/")
+
+        XCTAssertEqual(configuration.currentGalleryType, .basic)
+        XCTAssertEqual(configuration.currentGalleryURL?.absoluteString, "https://basic.example/api/")
+    }
+
+    func testPremiumDisappearanceForcesBasicSelection() {
+        let configuration = AccountGalleryConfiguration(owner: alice)
+        configuration.storeBasicGalleryURL("https://basic.example/api/")
+        let expires = Date(timeIntervalSinceNow: 3600)
+        let metadata = AccountGalleryPremiumMetadata(
+            storageMegabytes: 3072,
+            storageDescription: "Premium storage",
+            storageIncludes: ["3 GB included"],
+            messageRetention: "Unlimited",
+            expires: expires,
+            displayName: "Premium"
+        )
+        configuration.reconcilePremiumGalleryAvailability(
+            isAvailable: true,
+            storageURL: "https://premium.example/api/",
+            metadata: metadata
+        )
+
+        configuration.reconcilePremiumGalleryAvailability(isAvailable: false, storageURL: nil)
+
+        XCTAssertFalse(configuration.isPremiumGalleryAvailable)
+        XCTAssertEqual(configuration.currentGalleryType, .basic)
+        XCTAssertEqual(configuration.currentGalleryURL?.absoluteString, "https://basic.example/api/")
+        XCTAssertNil(configuration.premiumGalleryMetadata)
+        XCTAssertNil(configuration.currentGalleryPlanDisplayText)
+    }
+
+    func testPremiumGalleryMetadataIsAccountScopedAndProvidesPlanFallback() {
+        let aliceConfiguration = AccountGalleryConfiguration(owner: alice)
+        let bobConfiguration = AccountGalleryConfiguration(owner: bob)
+        let expires = Date(timeIntervalSinceNow: 3600)
+        let metadata = AccountGalleryPremiumMetadata(
+            storageMegabytes: 3072,
+            storageDescription: "Improved amount of cloud storage for Premium Plan subscribers.",
+            storageIncludes: ["3 GB included in current plan", "Safe Link Relay enabled"],
+            messageRetention: "Unlimited",
+            expires: expires,
+            displayName: "Premium"
+        )
+
+        aliceConfiguration.reconcilePremiumGalleryAvailability(
+            isAvailable: true,
+            storageURL: "https://premium.example/api/v1",
+            metadata: metadata
+        )
+
+        XCTAssertEqual(aliceConfiguration.premiumGalleryMetadata?.storageMegabytes, 3072)
+        XCTAssertEqual(aliceConfiguration.premiumGalleryMetadata?.storageIncludes, ["3 GB included in current plan", "Safe Link Relay enabled"])
+        XCTAssertEqual(aliceConfiguration.currentGalleryPlanDisplayText, "3 GB plan")
+        XCTAssertNil(bobConfiguration.premiumGalleryMetadata)
+        XCTAssertNil(bobConfiguration.currentGalleryPlanDisplayText)
+    }
+
+    func testURLNormalizationRemovesDuplicateVersionPath() {
+        let baseURL = URL(string: "https://gallery.example/api/v1/")!
+        let url = AccountGalleryConfiguration.apiURL(baseURL: baseURL, path: "v1/files/stats/")
+
+        XCTAssertEqual(AccountGalleryConfiguration.normalizedBaseURLString(from: "https://gallery.example/api/v1/"), "https://gallery.example/api/")
+        XCTAssertEqual(url?.absoluteString, "https://gallery.example/api/v1/files/stats/")
+    }
+
+    func testQuotaCacheIsScopedToSelectedGalleryTypeAndURL() {
+        let configuration = AccountGalleryConfiguration(owner: alice)
+        configuration.storeBasicGalleryURL("https://basic.example/api/")
+        configuration.reconcilePremiumGalleryAvailability(isAvailable: true, storageURL: "https://premium.example/api/")
+        configuration.markQuotaStoredForCurrentGallery()
+
+        XCTAssertTrue(configuration.cachedQuotaMatchesCurrentGallery())
+        XCTAssertTrue(configuration.switchGallery(to: .basic))
+        XCTAssertFalse(configuration.cachedQuotaMatchesCurrentGallery())
+    }
+
+    private func cleanup(_ owner: String) {
+        AccountGalleryConfiguration(owner: owner).clearPersistedState()
+        SettingManager.shared.removeItem(for: owner, scope: .xabberUploadManager, key: "node")
+        SettingManager.shared.removeItem(for: owner, scope: .xabberUploadManager, key: "userToken")
+    }
 }
 
 final class CloudStorageUpsellCardStateTests: XCTestCase {
@@ -8782,7 +9870,10 @@ final class CloudStorageUpsellCardStateTests: XCTestCase {
 
 final class CloudStorageQuotaRefreshTests: XCTestCase {
     private let owner = "quota-alice@xabber.com"
+    private let basicGalleryURL = URL(string: "https://gallery.example/api/")!
+    private let premiumGalleryURL = URL(string: "https://premium.example/api/")!
     private var fakeClient: FakeCloudStorageQuotaAPIClient!
+    private var fakeTokenClient: FakeCloudStorageTokenAPIClient!
 
     override func setUp() {
         super.setUp()
@@ -8792,16 +9883,23 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
             realm.deleteAll()
         }
         fakeClient = FakeCloudStorageQuotaAPIClient()
+        fakeTokenClient = FakeCloudStorageTokenAPIClient()
         XabberUploadManager.quotaAPIClient = fakeClient
+        XabberUploadManager.tokenAPIClient = fakeTokenClient
         XabberUploadManager.tokenExpiredTestingHandler = nil
-        SettingManager.shared.saveItem(for: owner, scope: .xabberUploadManager, key: "node", value: "https://gallery.example/api/")
-        SettingManager.shared.saveItem(for: owner, scope: .xabberUploadManager, key: "userToken", value: "token")
+        AccountManager.shared.users.removeAll()
+        AccountGalleryConfiguration(owner: owner).clearPersistedState()
+        SettingManager.shared.saveItem(for: owner, scope: .xabberUploadManager, key: "node", value: basicGalleryURL.absoluteString)
+        AccountGalleryConfiguration(owner: owner).storeToken("basic-token", galleryType: .basic, baseURL: basicGalleryURL)
         CloudStorageQuotaRefreshCoordinator.shared.resetTestingHooks()
     }
 
     override func tearDown() {
         XabberUploadManager.quotaAPIClient = AlamofireCloudStorageQuotaAPIClient()
+        XabberUploadManager.tokenAPIClient = AlamofireCloudStorageTokenAPIClient()
         XabberUploadManager.tokenExpiredTestingHandler = nil
+        AccountManager.shared.users.removeAll()
+        AccountGalleryConfiguration(owner: owner).clearPersistedState()
         SettingManager.shared.removeItem(for: owner, scope: .xabberUploadManager, key: "node")
         SettingManager.shared.removeItem(for: owner, scope: .xabberUploadManager, key: "userToken")
         CloudStorageQuotaRefreshCoordinator.shared.resetTestingHooks()
@@ -8823,6 +9921,97 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         XCTAssertEqual(item.quotaBytes, 3000)
         XCTAssertEqual(item.totalBytes, 1200)
         XCTAssertEqual(item.imagesBytes, 400)
+        XCTAssertEqual(fakeClient.quotaTokens.first, "basic-token")
+        XCTAssertEqual(fakeClient.statsTokens.first, "basic-token")
+    }
+
+    func testBasicAndPremiumTokensAreStoredSeparately() throws {
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        configuration.reconcilePremiumGalleryAvailability(
+            isAvailable: true,
+            storageURL: premiumGalleryURL.absoluteString
+        )
+
+        configuration.storeToken("basic-token-updated", galleryType: .basic, baseURL: basicGalleryURL)
+        configuration.storeToken("premium-token", galleryType: .premium, baseURL: premiumGalleryURL)
+
+        XCTAssertEqual(configuration.token(for: .basic, baseURL: basicGalleryURL), "basic-token-updated")
+        XCTAssertEqual(configuration.token(for: .premium, baseURL: premiumGalleryURL), "premium-token")
+        XCTAssertNotEqual(configuration.token(for: .basic, baseURL: basicGalleryURL), configuration.token(for: .premium, baseURL: premiumGalleryURL))
+    }
+
+    func testConfirmURLForBasicSavesBasicTokenWhenPremiumIsSelected() throws {
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        configuration.reconcilePremiumGalleryAvailability(isAvailable: true, storageURL: premiumGalleryURL.absoluteString)
+        configuration.storeToken("premium-token", galleryType: .premium, baseURL: premiumGalleryURL)
+        fakeTokenClient.exchangeResponses = [.response(statusCode: 200, value: ["token": "basic-confirm-token"])]
+        let manager = XabberUploadManager(withOwner: owner)
+
+        XCTAssertTrue(try manager.read(withIQ: makeConfirmIQ(code: "basic-code", url: "https://gallery.example/api/v1/account/xmpp_code_request/xmpp_auth")))
+
+        XCTAssertEqual(fakeTokenClient.exchangeBaseURLs.map(\.absoluteString), ["https://gallery.example/api/"])
+        XCTAssertEqual(fakeTokenClient.exchangeCodes, ["basic-code"])
+        XCTAssertEqual(configuration.token(for: .basic, baseURL: basicGalleryURL), "basic-confirm-token")
+        XCTAssertEqual(configuration.token(for: .premium, baseURL: premiumGalleryURL), "premium-token")
+        XCTAssertEqual(fakeClient.quotaCallCount, 0)
+    }
+
+    func testConfirmURLForPremiumSavesPremiumTokenWhenBasicIsSelected() throws {
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        configuration.reconcilePremiumGalleryAvailability(isAvailable: true, storageURL: premiumGalleryURL.absoluteString)
+        XCTAssertTrue(configuration.switchGallery(to: .basic))
+        fakeTokenClient.exchangeResponses = [.response(statusCode: 200, value: ["token": "premium-confirm-token"])]
+        let manager = XabberUploadManager(withOwner: owner)
+
+        XCTAssertTrue(try manager.read(withIQ: makeConfirmIQ(code: "premium-code", url: "https://premium.example/api/v1/account/xmpp_code_request/xmpp_auth")))
+
+        XCTAssertEqual(fakeTokenClient.exchangeBaseURLs.map(\.absoluteString), ["https://premium.example/api/"])
+        XCTAssertEqual(fakeTokenClient.exchangeCodes, ["premium-code"])
+        XCTAssertEqual(configuration.token(for: .premium, baseURL: premiumGalleryURL), "premium-confirm-token")
+        XCTAssertEqual(configuration.token(for: .basic, baseURL: basicGalleryURL), "basic-token")
+        XCTAssertEqual(fakeClient.quotaCallCount, 0)
+    }
+
+    func testStatsRefreshUsesSelectedPremiumGalleryEndpoint() throws {
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        configuration.reconcilePremiumGalleryAvailability(
+            isAvailable: true,
+            storageURL: "https://premium.example/api/v1/"
+        )
+        configuration.storeToken("premium-token", galleryType: .premium, baseURL: premiumGalleryURL)
+        fakeClient.statsResponses = [.response(statusCode: 200, value: statsPayload(quota: 3000, totalUsed: 1200))]
+        let manager = XabberUploadManager(withOwner: owner)
+
+        let expectation = expectation(description: "premium quota refresh")
+        manager.refreshQuota(reason: .manual) { result in
+            XCTAssertEqual(result, .success)
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1)
+
+        XCTAssertEqual(fakeClient.statsBaseURLs.first?.absoluteString, "https://premium.example/api/")
+        XCTAssertEqual(fakeClient.statsTokens.first, "premium-token")
+        XCTAssertTrue(AccountGalleryConfiguration(owner: self.owner).cachedQuotaMatchesCurrentGallery())
+    }
+
+    func testSlotPreflightUsesSelectedPremiumGalleryEndpoint() {
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        configuration.reconcilePremiumGalleryAvailability(
+            isAvailable: true,
+            storageURL: "https://premium.example/api/v1/"
+        )
+        configuration.storeToken("premium-token", galleryType: .premium, baseURL: premiumGalleryURL)
+        fakeClient.slotResponses = [.response(statusCode: 200, value: [:])]
+        let manager = XabberUploadManager(withOwner: owner)
+        let expectation = expectation(description: "slot preflight")
+
+        manager.preflightUploadSlot(data: Data("file".utf8), filename: "file.txt", errorCallback: { _ in }, completion: { _ in
+            expectation.fulfill()
+        })
+        wait(for: [expectation], timeout: 1)
+
+        XCTAssertEqual(fakeClient.slotBaseURLs.first?.absoluteString, "https://premium.example/api/")
+        XCTAssertEqual(fakeClient.slotTokens.first, "premium-token")
     }
 
     func testMalformedStatsDoesNotOverwriteCachedQuota() throws {
@@ -8869,8 +10058,8 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
     func testUnauthorizedStatsTriggersTokenRefreshWithoutClearingCache() throws {
         seedQuota(quota: 3000, total: 1000, images: 250)
         fakeClient.statsResponses = [.response(statusCode: 401, value: ["status": 401])]
-        var expiredOwners: [String] = []
-        XabberUploadManager.tokenExpiredTestingHandler = { expiredOwners.append($0) }
+        var expiredContexts: [CloudStorageGalleryRequestContext] = []
+        XabberUploadManager.tokenExpiredTestingHandler = { expiredContexts.append($0) }
         let manager = XabberUploadManager(withOwner: owner)
 
         let expectation = expectation(description: "quota refresh")
@@ -8880,9 +10069,45 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         }
         wait(for: [expectation], timeout: 1)
 
-        XCTAssertEqual(expiredOwners, [owner])
+        XCTAssertEqual(expiredContexts.map(\.owner), [owner])
+        XCTAssertEqual(expiredContexts.map(\.galleryType), [.basic])
+        XCTAssertEqual(expiredContexts.map(\.token), ["basic-token"])
         let item = try XCTUnwrap(try WRealm.safe().object(ofType: AccountQuotaStorageItem.self, forPrimaryKey: owner))
         XCTAssertEqual(item.quotaBytes, 3000)
+    }
+
+    func testUnauthorizedClearsAndReauthsOnlyFailedGalleryToken() throws {
+        let account = makeAccount()
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        configuration.reconcilePremiumGalleryAvailability(isAvailable: true, storageURL: premiumGalleryURL.absoluteString)
+        configuration.storeToken("premium-token", galleryType: .premium, baseURL: premiumGalleryURL)
+        XCTAssertTrue(configuration.switchGallery(to: .basic))
+        fakeClient.quotaResponses = [.response(statusCode: 401, value: ["status": 401])]
+        let manager = account.cloudStorage
+        let expectation = expectation(description: "unauthorized quota refresh")
+
+        manager.refreshQuota(reason: .manual) { result in
+            XCTAssertEqual(result, .unauthorized)
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1)
+
+        XCTAssertEqual(configuration.token(for: .basic, baseURL: basicGalleryURL), "")
+        XCTAssertEqual(configuration.token(for: .premium, baseURL: premiumGalleryURL), "premium-token")
+        XCTAssertEqual(fakeTokenClient.codeRequestBaseURLs.map(\.absoluteString), ["https://gallery.example/api/"])
+        XCTAssertEqual(fakeTokenClient.codeRequestFullJIDs, [account.xmppStream.myJID?.full ?? ""])
+    }
+
+    func testEnableRequestsSelectedGalleryTokenWhenScopedTokenIsMissingEvenWithLegacyToken() {
+        let account = makeAccount()
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        configuration.clearToken(galleryType: .basic, baseURL: basicGalleryURL)
+        SettingManager.shared.saveItem(for: owner, scope: .xabberUploadManager, key: "userToken", value: "legacy-token")
+
+        account.cloudStorage.enable()
+
+        XCTAssertEqual(fakeTokenClient.codeRequestBaseURLs.map(\.absoluteString), ["https://gallery.example/api/"])
+        XCTAssertEqual(fakeTokenClient.codeRequestFullJIDs, [account.xmppStream.myJID?.full ?? ""])
     }
 
     func testNetworkFailureKeepsCachedQuota() throws {
@@ -8899,6 +10124,23 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
 
         let item = try XCTUnwrap(try WRealm.safe().object(ofType: AccountQuotaStorageItem.self, forPrimaryKey: owner))
         XCTAssertEqual(item.quotaBytes, 3000)
+        XCTAssertEqual(fakeClient.statsCallCount, 1)
+    }
+
+    func testPreUploadValidationRefreshWritesQuotaStorage() throws {
+        fakeClient.statsResponses = [.response(statusCode: 200, value: statsPayload(quota: 100, totalUsed: 99))]
+        let manager = XabberUploadManager(withOwner: owner)
+
+        let expectation = expectation(description: "pre-upload quota refresh")
+        manager.refreshQuota(reason: .preUploadValidation) { result in
+            XCTAssertEqual(result, .success)
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1)
+
+        let item = try XCTUnwrap(try WRealm.safe().object(ofType: AccountQuotaStorageItem.self, forPrimaryKey: owner))
+        XCTAssertEqual(item.quotaBytes, 100)
+        XCTAssertEqual(item.totalBytes, 99)
         XCTAssertEqual(fakeClient.statsCallCount, 1)
     }
 
@@ -8985,6 +10227,226 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         XCTAssertEqual(fakeClient.statsCallCount, 1)
     }
 
+    func testQuotaRefreshFetchesQuotaAndStatsFromSelectedPremiumGalleryEndpoint() throws {
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        configuration.reconcilePremiumGalleryAvailability(
+            isAvailable: true,
+            storageURL: "https://premium.example/api/v1/"
+        )
+        configuration.storeToken("premium-token", galleryType: .premium, baseURL: premiumGalleryURL)
+        fakeClient.statsResponses = [.response(statusCode: 200, value: statsPayload(quota: 3000, totalUsed: 1200))]
+        let manager = XabberUploadManager(withOwner: owner)
+        let expectation = expectation(description: "premium quota refresh")
+
+        manager.refreshQuota(reason: .manual) { result in
+            XCTAssertEqual(result, .success)
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1)
+
+        XCTAssertEqual(fakeClient.quotaBaseURLs.first?.absoluteString, "https://premium.example/api/")
+        XCTAssertEqual(fakeClient.statsBaseURLs.first?.absoluteString, "https://premium.example/api/")
+        XCTAssertEqual(fakeClient.quotaTokens.first, "premium-token")
+        XCTAssertEqual(fakeClient.statsTokens.first, "premium-token")
+        XCTAssertEqual(fakeClient.quotaCallCount, 1)
+        XCTAssertEqual(fakeClient.statsCallCount, 1)
+    }
+
+    func testStaleQuotaResponseFromPreviousGalleryDoesNotOverwriteCurrentGalleryCache() throws {
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        configuration.storeBasicGalleryURL("https://basic.example/api/")
+        configuration.storeToken("basic-token", galleryType: .basic, baseURL: URL(string: "https://basic.example/api/")!)
+        let manager = XabberUploadManager(withOwner: owner)
+
+        manager.refreshQuota(reason: .manual) { result in
+            XCTFail("Stale refresh should not complete with \(result)")
+        }
+        XCTAssertEqual(fakeClient.statsBaseURLs.first?.absoluteString, "https://basic.example/api/")
+
+        configuration.reconcilePremiumGalleryAvailability(isAvailable: true, storageURL: "https://premium.example/api/v1/")
+        configuration.storeToken("premium-token", galleryType: .premium, baseURL: premiumGalleryURL)
+        fakeClient.statsResponses = [.response(statusCode: 200, value: statsPayload(quota: 9000, totalUsed: 4000, imagesUsed: 300))]
+        let premiumExpectation = expectation(description: "premium refresh")
+        manager.refreshQuota(reason: .galleryEndpointChanged, force: true) { result in
+            XCTAssertEqual(result, .success)
+            premiumExpectation.fulfill()
+        }
+        wait(for: [premiumExpectation], timeout: 1)
+
+        fakeClient.completeStats(.response(statusCode: 200, value: statsPayload(quota: 100, totalUsed: 99, imagesUsed: 99)))
+
+        let item = try XCTUnwrap(try WRealm.safe().object(ofType: AccountQuotaStorageItem.self, forPrimaryKey: owner))
+        XCTAssertEqual(item.quotaBytes, 9000)
+        XCTAssertEqual(item.totalBytes, 4000)
+        XCTAssertEqual(item.imagesBytes, 300)
+        XCTAssertTrue(configuration.cachedQuotaMatchesCurrentGallery())
+    }
+
+    func testRapidGalleryAuthResponsesKeepTokensAndQuotaScopedToSelectedGallery() throws {
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        configuration.reconcilePremiumGalleryAvailability(isAvailable: true, storageURL: premiumGalleryURL.absoluteString)
+        fakeTokenClient.exchangeResponses = [
+            .response(statusCode: 200, value: ["token": "basic-token-1"]),
+            .response(statusCode: 200, value: ["token": "premium-token-1"]),
+            .response(statusCode: 200, value: ["token": "basic-token-2"])
+        ]
+        fakeClient.statsResponses = [
+            .response(statusCode: 200, value: statsPayload(quota: 1000, totalUsed: 100, imagesUsed: 10)),
+            .response(statusCode: 200, value: statsPayload(quota: 9000, totalUsed: 900, imagesUsed: 90)),
+            .response(statusCode: 200, value: statsPayload(quota: 2000, totalUsed: 200, imagesUsed: 20))
+        ]
+        let manager = XabberUploadManager(withOwner: owner)
+
+        XCTAssertTrue(configuration.switchGallery(to: .basic))
+        XCTAssertTrue(try manager.read(withIQ: makeConfirmIQ(code: "basic-1", url: "https://gallery.example/api/v1/account/xmpp_code_request/xmpp_auth")))
+        XCTAssertTrue(configuration.switchGallery(to: .premium))
+        XCTAssertTrue(try manager.read(withIQ: makeConfirmIQ(code: "premium-1", url: "https://premium.example/api/v1/account/xmpp_code_request/xmpp_auth")))
+        XCTAssertTrue(configuration.switchGallery(to: .basic))
+        XCTAssertTrue(try manager.read(withIQ: makeConfirmIQ(code: "basic-2", url: "https://gallery.example/api/v1/account/xmpp_code_request/xmpp_auth")))
+
+        XCTAssertEqual(configuration.token(for: .basic, baseURL: basicGalleryURL), "basic-token-2")
+        XCTAssertEqual(configuration.token(for: .premium, baseURL: premiumGalleryURL), "premium-token-1")
+        XCTAssertEqual(fakeClient.quotaBaseURLs.map(\.absoluteString), [
+            "https://gallery.example/api/",
+            "https://premium.example/api/",
+            "https://gallery.example/api/"
+        ])
+        XCTAssertEqual(fakeClient.quotaTokens, ["basic-token-1", "premium-token-1", "basic-token-2"])
+        let item = try XCTUnwrap(try WRealm.safe().object(ofType: AccountQuotaStorageItem.self, forPrimaryKey: owner))
+        XCTAssertEqual(item.quotaBytes, 2000)
+        XCTAssertEqual(item.totalBytes, 200)
+        XCTAssertTrue(configuration.cachedQuotaMatchesCurrentGallery())
+    }
+
+    func testFileListUsesSelectedPremiumGalleryEndpointAndMapsTypes() {
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        configuration.reconcilePremiumGalleryAvailability(
+            isAvailable: true,
+            storageURL: "https://premium.example/api/v1/"
+        )
+        configuration.storeToken("premium-token", galleryType: .premium, baseURL: premiumGalleryURL)
+        let manager = XabberUploadManager(withOwner: owner)
+        let expectation = expectation(description: "voice list")
+
+        manager.getFilesOfType(type: .audio, page: 3) { _, _, _, _ in
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1)
+
+        XCTAssertEqual(fakeClient.listBaseURLs.first?.absoluteString, "https://premium.example/api/")
+        XCTAssertEqual(fakeClient.listTokens.first, "premium-token")
+        XCTAssertEqual(fakeClient.listTypes, [.audio])
+        XCTAssertEqual(fakeClient.listPages, [3])
+        XCTAssertEqual(AlamofireCloudStorageQuotaAPIClient.fileTypeQueryValue(for: .image), "image")
+        XCTAssertEqual(AlamofireCloudStorageQuotaAPIClient.fileTypeQueryValue(for: .video), "video")
+        XCTAssertEqual(AlamofireCloudStorageQuotaAPIClient.fileTypeQueryValue(for: .file), "file")
+        XCTAssertEqual(AlamofireCloudStorageQuotaAPIClient.fileTypeQueryValue(for: .audio), "voice")
+        XCTAssertNil(AlamofireCloudStorageQuotaAPIClient.fileTypeQueryValue(for: .avatar))
+    }
+
+    func testAvatarListUsesSelectedPremiumGalleryEndpoint() {
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        configuration.reconcilePremiumGalleryAvailability(
+            isAvailable: true,
+            storageURL: "https://premium.example/api/v1/"
+        )
+        configuration.storeToken("premium-token", galleryType: .premium, baseURL: premiumGalleryURL)
+        let manager = XabberUploadManager(withOwner: owner)
+        let expectation = expectation(description: "avatar list")
+
+        manager.getAvatars(page: 2) { _, _, _, _ in
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1)
+
+        XCTAssertEqual(fakeClient.avatarListBaseURLs.first?.absoluteString, "https://premium.example/api/")
+        XCTAssertEqual(fakeClient.avatarListTokens.first, "premium-token")
+        XCTAssertEqual(fakeClient.avatarListCallCount, 1)
+    }
+
+    func testMediaUploadUsesSelectedPremiumGalleryEndpoint() {
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        configuration.reconcilePremiumGalleryAvailability(
+            isAvailable: true,
+            storageURL: "https://premium.example/api/v1/"
+        )
+        configuration.storeToken("premium-token", galleryType: .premium, baseURL: premiumGalleryURL)
+        fakeClient.slotResponses = [.response(statusCode: 200, value: [:])]
+        let manager = XabberUploadManager(withOwner: owner)
+        let expectation = expectation(description: "media upload")
+
+        manager.uploadMedia(data: Data("hello".utf8), filename: "hello.txt", mimeType: "text/plain") { response in
+            if case .response(let code, _) = response {
+                XCTAssertEqual(code, 200)
+            } else {
+                XCTFail("Expected upload response")
+            }
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1)
+
+        XCTAssertEqual(fakeClient.slotBaseURLs.first?.absoluteString, "https://premium.example/api/")
+        XCTAssertEqual(fakeClient.uploadBaseURLs.first?.absoluteString, "https://premium.example/api/")
+        XCTAssertEqual(fakeClient.slotTokens.first, "premium-token")
+        XCTAssertEqual(fakeClient.uploadTokens.first, "premium-token")
+    }
+
+    func testAvatarUploadUsesSelectedPremiumGalleryEndpoint() {
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        configuration.reconcilePremiumGalleryAvailability(
+            isAvailable: true,
+            storageURL: "https://premium.example/api/v1/"
+        )
+        configuration.storeToken("premium-token", galleryType: .premium, baseURL: premiumGalleryURL)
+        let manager = AvatarUploadManager(withOwner: owner)
+        let expectation = expectation(description: "avatar upload")
+
+        manager.setAvatar(image: testImage(), successCallback: {
+            expectation.fulfill()
+        }, failureCallback: { status, error in
+            XCTFail("Avatar upload failed: \(status) \(error)")
+        })
+        wait(for: [expectation], timeout: 1)
+
+        XCTAssertEqual(fakeClient.avatarUploadBaseURLs.first?.absoluteString, "https://premium.example/api/")
+        XCTAssertEqual(fakeClient.avatarUploadTokens.first, "premium-token")
+    }
+
+    func testDeletionUsesSelectedPremiumGalleryEndpoint() {
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        configuration.reconcilePremiumGalleryAvailability(
+            isAvailable: true,
+            storageURL: "https://premium.example/api/v1/"
+        )
+        configuration.storeToken("premium-token", galleryType: .premium, baseURL: premiumGalleryURL)
+        let manager = XabberUploadManager(withOwner: owner)
+
+        manager.deleteMediaFromServer(fileID: 42)
+
+        XCTAssertEqual(fakeClient.deleteBaseURLs.first?.absoluteString, "https://premium.example/api/")
+        XCTAssertEqual(fakeClient.deleteTokens.first, "premium-token")
+        XCTAssertEqual(fakeClient.deleteFileIDs, [42])
+    }
+
+    private func makeAccount() -> Account {
+        let account = Account(
+            jid: owner,
+            queue: DispatchQueue(label: "CloudStorageQuotaRefreshTests.\(UUID().uuidString)")
+        )
+        account.configureStream()
+        AccountManager.shared.users.append(account)
+        return account
+    }
+
+    private func makeConfirmIQ(code: String, url: String) throws -> XMPPIQ {
+        let document = try DDXMLDocument(xmlString: """
+        <iq type="get" id="media-gallery-token">
+          <confirm xmlns="http://jabber.org/protocol/http-auth" id="\(code)" url="\(url)"/>
+        </iq>
+        """, options: 0)
+        return XMPPIQ(from: try XCTUnwrap(document.rootElement()))
+    }
+
     private func seedQuota(quota: Int, total: Int, images: Int) {
         let realm = try! WRealm.safe()
         let item = AccountQuotaStorageItem()
@@ -9010,6 +10472,15 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
             "avatars": ["used": 0, "count": 0]
         ]
     }
+
+    private func testImage() -> UIImage {
+        UIGraphicsBeginImageContextWithOptions(CGSize(width: 1, height: 1), false, 1)
+        UIColor.red.setFill()
+        UIRectFill(CGRect(x: 0, y: 0, width: 1, height: 1))
+        let image = UIGraphicsGetImageFromCurrentImageContext() ?? UIImage()
+        UIGraphicsEndImageContext()
+        return image
+    }
 }
 
 final class SubscriptionEntitlementCacheTests: XCTestCase {
@@ -9020,6 +10491,8 @@ final class SubscriptionEntitlementCacheTests: XCTestCase {
         try! realm.write {
             realm.deleteAll()
         }
+        AccountManager.shared.users.removeAll()
+        SubscribtionsManager.shared.resetXMPPAccountStateConnectionCheckReservations()
     }
 
     func testStoreKitProductIdentifierComposesBackendProductAndPriceIds() {
@@ -9038,6 +10511,49 @@ final class SubscriptionEntitlementCacheTests: XCTestCase {
         )
 
         XCTAssertEqual(productId, "com_xabber_premium_account.yearly")
+    }
+
+    func testStoreKitProductIdentifierFallsBackToProductIdWhenPriceIdIsMissing() {
+        let productId = SubscribtionsManager.storeKitProductIdentifier(
+            productId: "com_xabber_premium_account",
+            priceId: ""
+        )
+
+        XCTAssertEqual(productId, "com_xabber_premium_account")
+    }
+
+    func testAccountProductsRequestParametersFilterActiveIOSProductsOnServer() {
+        let parameters = SubscribtionsManager.accountProductsRequestParameters()
+
+        XCTAssertEqual(parameters["status"] as? Int, 2)
+        XCTAssertEqual(parameters["product__group"] as? String, "ios")
+        XCTAssertEqual(parameters.count, 2)
+    }
+
+    func testPremiumSubscriptionPlanComparisonNormalizesFullAndShortAnnualIds() {
+        XCTAssertTrue(
+            SubscribtionsManager.isSamePremiumSubscriptionPlan(
+                "yearly",
+                "com_xabber_premium_account.yearly"
+            )
+        )
+        XCTAssertTrue(
+            SubscribtionsManager.isSamePremiumSubscriptionPlan(
+                "com_xabber_premium_account.yearly",
+                "com_xabber_premium_account.yearly"
+            )
+        )
+    }
+
+    func testPremiumSubscriptionPlanComparisonSeparatesAnnualAndMonthlyIds() {
+        XCTAssertFalse(
+            SubscribtionsManager.isSamePremiumSubscriptionPlan(
+                "com_xabber_premium_account.yearly",
+                "com_xabber_premium_account.monthly"
+            )
+        )
+        XCTAssertEqual(SubscribtionsManager.premiumPlanRank(for: "com_xabber_premium_account.yearly"), 2)
+        XCTAssertEqual(SubscribtionsManager.premiumPlanRank(for: "monthly"), 1)
     }
 
     func testAPIProductSelectionPrefersProductionPremiumProductOverTestProducts() {
@@ -9065,10 +10581,13 @@ final class SubscriptionEntitlementCacheTests: XCTestCase {
         XCTAssertEqual(items.map(\.title), ["3 GB File Storage", "Unlimited Message Storage"])
         XCTAssertNil(items.first?.desc)
 
-        guard case .symbol("xabber.checkmark")? = items.first?.kind else {
+        let firstKind = try XCTUnwrap(items.first?.kind)
+        guard case .symbol("xabber.checkmark") = firstKind else {
             return XCTFail("Expected API advantages to use xabber.checkmark")
         }
         XCTAssertEqual(items.first?.color, MDCPalette.green.tint500)
+        XCTAssertTrue(PremiumSubscribtionViewController.usesGreenCheckmarkStyle(for: firstKind))
+        XCTAssertFalse(PremiumSubscribtionViewController.usesGreenCheckmarkStyle(for: .numbered("1")))
     }
 
     func testStoreKitProductIdentifiersUseProductionProductAndPriceIds() throws {
@@ -9199,6 +10718,50 @@ final class SubscriptionEntitlementCacheTests: XCTestCase {
         XCTAssertEqual(selectedPriceId, "com_xabber_premium_account.yearly")
     }
 
+    func testResolvedSelectedPriceIdSkipsActivePlanByDefault() {
+        let sortedItems = PremiumSubscribtionViewController.sortedPeriodItems([
+            (name: "Monthly", period: "monthly", priceId: "com_xabber_premium_account.monthly", fallbackPrice: "5", storeProduct: nil),
+            (name: "Yearly", period: "yearly", priceId: "com_xabber_premium_account.yearly", fallbackPrice: "50", storeProduct: nil)
+        ])
+
+        let selectedPriceId = PremiumSubscribtionViewController.resolvedSelectedPriceId(
+            previousSelectedPriceId: nil,
+            items: sortedItems,
+            activeProductId: "com_xabber_premium_account.yearly"
+        )
+
+        XCTAssertEqual(selectedPriceId, "com_xabber_premium_account.monthly")
+    }
+
+    func testResolvedSelectedPriceIdDoesNotPreserveActiveSelection() {
+        let sortedItems = PremiumSubscribtionViewController.sortedPeriodItems([
+            (name: "Monthly", period: "monthly", priceId: "com_xabber_premium_account.monthly", fallbackPrice: "5", storeProduct: nil),
+            (name: "Yearly", period: "yearly", priceId: "com_xabber_premium_account.yearly", fallbackPrice: "50", storeProduct: nil)
+        ])
+
+        let selectedPriceId = PremiumSubscribtionViewController.resolvedSelectedPriceId(
+            previousSelectedPriceId: "com_xabber_premium_account.yearly",
+            items: sortedItems,
+            activeProductId: "com_xabber_premium_account.yearly"
+        )
+
+        XCTAssertEqual(selectedPriceId, "com_xabber_premium_account.monthly")
+    }
+
+    func testResolvedSelectedPriceIdReturnsNilWhenOnlyPlanIsActive() {
+        let sortedItems = PremiumSubscribtionViewController.sortedPeriodItems([
+            (name: "Yearly", period: "yearly", priceId: "com_xabber_premium_account.yearly", fallbackPrice: "50", storeProduct: nil)
+        ])
+
+        let selectedPriceId = PremiumSubscribtionViewController.resolvedSelectedPriceId(
+            previousSelectedPriceId: "com_xabber_premium_account.yearly",
+            items: sortedItems,
+            activeProductId: "yearly"
+        )
+
+        XCTAssertNil(selectedPriceId)
+    }
+
     func testSortedPeriodItemsFallsBackToBillingMonthsWhenPricesAreMissing() {
         let sortedItems = PremiumSubscribtionViewController.sortedPeriodItems([
             (name: "Monthly", period: "monthly", priceId: "com_xabber_premium_account.monthly", fallbackPrice: "", storeProduct: nil),
@@ -9251,6 +10814,7 @@ final class SubscriptionEntitlementCacheTests: XCTestCase {
     func testLoadingCTAStateIsVisibleAndDisabled() {
         let ctaState = PremiumSubscribtionViewController.ctaState(
             remoteState: .loading,
+            entitlementState: .resolved,
             selectedItem: nil,
             selectedAction: nil,
             isProcessing: false
@@ -9259,15 +10823,51 @@ final class SubscriptionEntitlementCacheTests: XCTestCase {
         XCTAssertEqual(ctaState, PremiumCTAState(title: "Loading Plans…", isEnabled: false))
     }
 
+    func testCheckingEntitlementCTAStateIsVisibleAndDisabled() throws {
+        let product = try XCTUnwrap(SubscribtionsManager.apiProduct(from: iosProductsResponse()))
+        let item: PremiumSubscribtionViewController.PeriodItem = (
+            name: "Monthly",
+            period: "monthly",
+            priceId: "com_xabber_premium_account.monthly",
+            fallbackPrice: "5",
+            storeProduct: nil
+        )
+
+        let ctaState = PremiumSubscribtionViewController.ctaState(
+            remoteState: .loaded(product: product, source: .remote, warning: nil),
+            entitlementState: .checking,
+            selectedItem: item,
+            selectedAction: .subscribe,
+            isProcessing: false
+        )
+
+        XCTAssertEqual(ctaState, PremiumCTAState(title: "Checking Subscription…", isEnabled: false))
+    }
+
     func testEmptyCTAStateIsDisabled() {
         let ctaState = PremiumSubscribtionViewController.ctaState(
             remoteState: .empty(warning: nil),
+            entitlementState: .resolved,
             selectedItem: nil,
             selectedAction: nil,
             isProcessing: false
         )
 
         XCTAssertEqual(ctaState, PremiumCTAState(title: "No Plans Available", isEnabled: false))
+    }
+
+    func testLoadedCTAStateHidesWhenNoSelectablePlanExists() throws {
+        let product = try XCTUnwrap(SubscribtionsManager.apiProduct(from: iosProductsResponse()))
+
+        let ctaState = PremiumSubscribtionViewController.ctaState(
+            remoteState: .loaded(product: product, source: .remote, warning: nil),
+            entitlementState: .resolved,
+            selectedItem: nil,
+            selectedAction: nil,
+            isProcessing: false
+        )
+
+        XCTAssertEqual(ctaState, PremiumCTAState(title: "No Plans Available", isEnabled: false, isVisible: false))
     }
 
     func testPremiumSkeletonHelperCountsMatchTwoRemoteRows() {
@@ -9309,10 +10909,49 @@ final class SubscriptionEntitlementCacheTests: XCTestCase {
         XCTAssertEqual(imageView.tintColor, .quaternaryLabel)
     }
 
+    func testActivePeriodRowIsNotSelectableSelectionTarget() {
+        XCTAssertFalse(PremiumSubscribtionViewController.isSelectableSelectionTarget(.active))
+        XCTAssertFalse(PremiumSubscribtionViewController.isSelectableSelectionTarget(.unavailable))
+        XCTAssertTrue(PremiumSubscribtionViewController.isSelectableSelectionTarget(.selectable))
+        XCTAssertTrue(PremiumSubscribtionViewController.isSelectableSelectionTarget(.scheduled))
+    }
+
     func testMalformedProductResponsesReturnNilInsteadOfCrashing() {
         XCTAssertNil(SubscribtionsManager.apiProduct(from: ["results": "bad"]))
         XCTAssertNil(SubscribtionsManager.apiProduct(from: ["items": []]))
         XCTAssertNil(SubscribtionsManager.apiProduct(from: ["results": [["product_id": "com_xabber_premium_account"]]]))
+    }
+
+    func testConnectionSubscriptionCheckGateIgnoresDuplicateSameAttempt() {
+        XCTAssertTrue(SubscribtionsManager.shared.reserveXMPPAccountStateCheckAfterConnection(jid: "alice@xabber.com", connectionAttemptID: 1))
+        XCTAssertFalse(SubscribtionsManager.shared.reserveXMPPAccountStateCheckAfterConnection(jid: "alice@xabber.com", connectionAttemptID: 1))
+    }
+
+    func testConnectionSubscriptionCheckGateAllowsDifferentUsersForSameAttempt() {
+        XCTAssertTrue(SubscribtionsManager.shared.reserveXMPPAccountStateCheckAfterConnection(jid: "alice@xabber.com", connectionAttemptID: 1))
+        XCTAssertTrue(SubscribtionsManager.shared.reserveXMPPAccountStateCheckAfterConnection(jid: "bob@xabber.com", connectionAttemptID: 1))
+    }
+
+    func testConnectionSubscriptionCheckGateAllowsLaterAttemptForSameUser() {
+        XCTAssertTrue(SubscribtionsManager.shared.reserveXMPPAccountStateCheckAfterConnection(jid: "alice@xabber.com", connectionAttemptID: 1))
+        XCTAssertTrue(SubscribtionsManager.shared.reserveXMPPAccountStateCheckAfterConnection(jid: "alice@xabber.com", connectionAttemptID: 2))
+    }
+
+    func testRequestTokenForMissingAccountCallsBackWithNil() {
+        let expectation = expectation(description: "missing account token callback")
+        var didReceiveCallback = false
+        var receivedToken: String? = "unexpected"
+
+        let didStart = XabberAccountManager.shared.requestToken(for: "missing@xabber.com") { token in
+            didReceiveCallback = true
+            receivedToken = token
+            expectation.fulfill()
+        }
+
+        XCTAssertFalse(didStart)
+        wait(for: [expectation], timeout: 0.1)
+        XCTAssertTrue(didReceiveCallback)
+        XCTAssertNil(receivedToken)
     }
 
     func testAccountScopedPremiumIgnoresAnotherAccountsActiveSubscription() {
@@ -9484,6 +11123,292 @@ final class SubscriptionEntitlementCacheTests: XCTestCase {
         XCTAssertEqual(SubscribtionsManager.shared.getPurchasedProductIds(for: "alice@xabber.com"), ["com_xabber_premium_account.monthly"])
     }
 
+    func testAccountProductsRefreshActiveAPIMonthlyOverridesLocalStoreKitAnnual() throws {
+        SubscribtionsManager.shared.saveSubscriptionInfo(
+            productId: "com_xabber_premium_account.yearly",
+            jid: "alice@xabber.com",
+            accountUUID: SubscribtionsManager.appAccountToken(for: "alice@xabber.com").uuidString,
+            expires: Date(timeIntervalSinceNow: 7200),
+            purchaseDate: Date(timeIntervalSinceNow: -60),
+            transactionId: "tx-local-yearly"
+        )
+        let products = accountProductsResponse(
+            status: "ACTIVE",
+            expires: Date(timeIntervalSinceNow: 3600).XMPPFormattedDate,
+            priceId: "monthly"
+        )
+
+        let isActive = try XCTUnwrap(SubscribtionsManager.shared.reconcileAccountProductsRefresh(products, for: "alice@xabber.com"))
+        let state = SubscribtionsManager.shared.subscriptionPresentationState(for: "alice@xabber.com")
+
+        XCTAssertTrue(isActive)
+        XCTAssertEqual(state.activeProductId, "com_xabber_premium_account.monthly")
+        XCTAssertEqual(SubscribtionsManager.shared.getPurchasedProductIds(for: "alice@xabber.com"), ["com_xabber_premium_account.monthly"])
+    }
+
+    func testAPIActiveMonthlyBlocksRepurchaseWithoutAppleEntitlement() throws {
+        let products = accountProductsResponse(
+            status: "ACTIVE",
+            expires: Date(timeIntervalSinceNow: 3600).XMPPFormattedDate,
+            priceId: "monthly"
+        )
+
+        let isActive = try XCTUnwrap(SubscribtionsManager.shared.reconcileAccountProductsRefresh(products, for: "alice@xabber.com"))
+        let state = SubscribtionsManager.shared.subscriptionPresentationState(for: "alice@xabber.com")
+
+        XCTAssertTrue(isActive)
+        XCTAssertEqual(state.activeProductId, "com_xabber_premium_account.monthly")
+        XCTAssertEqual(
+            PremiumSubscribtionViewController.action(
+                selectedName: "Monthly",
+                selectedPriceId: "com_xabber_premium_account.monthly",
+                selectedHasStoreProduct: true,
+                activeProductId: state.activeProductId
+            ),
+            .manage
+        )
+        XCTAssertEqual(
+            PremiumSubscribtionViewController.rowState(
+                forProductId: "com_xabber_premium_account.monthly",
+                activeProductId: state.activeProductId,
+                scheduledProductId: nil,
+                hasStoreProduct: false
+            ),
+            .active
+        )
+        XCTAssertEqual(
+            SubscribtionsManager.shared.premiumPurchasePreflightDecision(
+                targetProductId: "com_xabber_premium_account.monthly",
+                jid: "alice@xabber.com"
+            ),
+            .blockDuplicateActivePlan
+        )
+        XCTAssertEqual(
+            SubscribtionsManager.shared.premiumPurchasePreflightDecision(
+                targetProductId: "com_xabber_premium_account.yearly",
+                jid: "alice@xabber.com"
+            ),
+            .proceed
+        )
+    }
+
+    func testAccountProductsRefreshEmptyActiveIOSResponsePreservesLocalStoreKitState() throws {
+        SubscribtionsManager.shared.saveSubscriptionInfo(
+            productId: "com_xabber_premium_account.yearly",
+            jid: "alice@xabber.com",
+            accountUUID: SubscribtionsManager.appAccountToken(for: "alice@xabber.com").uuidString,
+            expires: Date(timeIntervalSinceNow: 7200),
+            purchaseDate: Date(timeIntervalSinceNow: -60),
+            transactionId: "tx-local-yearly"
+        )
+
+        let isActive = try XCTUnwrap(SubscribtionsManager.shared.reconcileAccountProductsRefresh([], for: "alice@xabber.com"))
+        let state = SubscribtionsManager.shared.subscriptionPresentationState(for: "alice@xabber.com")
+
+        XCTAssertTrue(isActive)
+        XCTAssertEqual(state.activeProductId, "com_xabber_premium_account.yearly")
+        XCTAssertEqual(SubscribtionsManager.shared.getPurchasedProductIds(for: "alice@xabber.com"), ["com_xabber_premium_account.yearly"])
+    }
+
+    func testActiveAccountProductWithGalleryServiceEnablesPremiumGalleryURL() throws {
+        let expires = Date(timeIntervalSinceNow: 3600)
+        let products = accountProductsResponse(
+            status: "ACTIVE",
+            expires: expires.XMPPFormattedDate,
+            priceId: "monthly",
+            services: [galleryService(storageURL: "https://premium.example/api/v1")]
+        )
+
+        let availability = try XCTUnwrap(SubscribtionsManager.activePremiumGalleryAvailability(from: products, now: Date()))
+
+        XCTAssertTrue(availability.isAvailable)
+        XCTAssertEqual(availability.storageURL, "https://premium.example/api/v1")
+    }
+
+    func testRealAccountProductsTopLevelAttributesEnablePremiumGalleryURLAndMetadata() throws {
+        let products = accountProductsRealResponse()
+        let now = try XCTUnwrap(Date.parseXMPPFormattedString("2026-04-30T06:43:35Z"))
+
+        let activeProducts = try XCTUnwrap(SubscribtionsManager.activePremiumAccountProducts(from: products, now: now))
+        let availability = try XCTUnwrap(SubscribtionsManager.activePremiumGalleryAvailability(from: products, now: now))
+
+        XCTAssertEqual(activeProducts.map { $0.accountProductId }, [109])
+        XCTAssertEqual(activeProducts.map { $0.storeKitProductId }, ["com_xabber_premium_account.monthly"])
+        XCTAssertTrue(availability.isAvailable)
+        XCTAssertEqual(availability.storageURL, "https://gallery.dev.xabber.com/api/v1")
+        XCTAssertEqual(availability.metadata?.storageMegabytes, 3072)
+        XCTAssertEqual(availability.metadata?.storageIncludes, ["3 GB included in current plan", "Safe Link Relay enabled"])
+        XCTAssertEqual(availability.metadata?.messageRetention, "Unlimited")
+        XCTAssertEqual(availability.metadata?.displayName, "Premium")
+        XCTAssertEqual(availability.metadata?.planDisplayText, "3 GB plan")
+    }
+
+    func testActiveGalleryServiceFallsBackToHardcodedURLWhenStorageURLIsMissingOrInvalid() throws {
+        let expires = Date(timeIntervalSinceNow: 3600)
+        let products = accountProductsResponse(
+            status: "ACTIVE",
+            expires: expires.XMPPFormattedDate,
+            priceId: "monthly",
+            services: [galleryService(storageURL: "not a url")]
+        )
+
+        let availability = try XCTUnwrap(SubscribtionsManager.activePremiumGalleryAvailability(from: products, now: Date()))
+
+        XCTAssertTrue(availability.isAvailable)
+        XCTAssertEqual(availability.storageURL, AccountGalleryConfiguration.hardcodedPremiumGalleryURL)
+    }
+
+    func testTopLevelPremiumStorageMetadataFallsBackToHardcodedURLWhenStorageURLIsInvalid() throws {
+        let expires = Date(timeIntervalSinceNow: 3600)
+        let products = accountProductsResponse(
+            status: "ACTIVE",
+            expires: expires.XMPPFormattedDate,
+            priceId: "monthly",
+            attributes: [
+                "storage": 3072,
+                "storage_url": "not a url",
+                "storage_description": "Premium storage"
+            ]
+        )
+
+        let availability = try XCTUnwrap(SubscribtionsManager.activePremiumGalleryAvailability(from: products, now: Date()))
+
+        XCTAssertTrue(availability.isAvailable)
+        XCTAssertEqual(availability.storageURL, AccountGalleryConfiguration.hardcodedPremiumGalleryURL)
+        XCTAssertEqual(availability.metadata?.storageMegabytes, 3072)
+    }
+
+    func testInactiveFreeExpiredAndZeroQuantityProductsDoNotEnablePremiumGallery() throws {
+        let future = Date(timeIntervalSinceNow: 3600).XMPPFormattedDate
+        let past = Date(timeIntervalSinceNow: -3600).XMPPFormattedDate
+        let storageAttributes: [String: Any] = [
+            "storage": 3072,
+            "storage_url": "https://premium.example/api/v1"
+        ]
+        let freeProducts = accountProductsResponse(
+            status: "ACTIVE",
+            expires: future,
+            priceId: "monthly",
+            attributes: storageAttributes,
+            productId: "tp_free",
+            group: "third_party"
+        )
+        let expiredProducts = accountProductsResponse(
+            status: "ACTIVE",
+            expires: past,
+            priceId: "monthly",
+            attributes: storageAttributes
+        )
+        let zeroQuantityProducts = accountProductsResponse(
+            status: "ACTIVE",
+            expires: future,
+            priceId: "monthly",
+            attributes: storageAttributes,
+            quantity: 0
+        )
+        let suspendedProducts = accountProductsResponse(
+            status: "SUSPENDED",
+            expires: future,
+            priceId: "monthly",
+            attributes: storageAttributes
+        )
+
+        XCTAssertEqual(
+            try XCTUnwrap(SubscribtionsManager.activePremiumGalleryAvailability(from: freeProducts, now: Date())),
+            PremiumGalleryAvailability(isAvailable: false, storageURL: nil)
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(SubscribtionsManager.activePremiumGalleryAvailability(from: expiredProducts, now: Date())),
+            PremiumGalleryAvailability(isAvailable: false, storageURL: nil)
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(SubscribtionsManager.activePremiumGalleryAvailability(from: zeroQuantityProducts, now: Date())),
+            PremiumGalleryAvailability(isAvailable: false, storageURL: nil)
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(SubscribtionsManager.activePremiumGalleryAvailability(from: suspendedProducts, now: Date())),
+            PremiumGalleryAvailability(isAvailable: false, storageURL: nil)
+        )
+    }
+
+    func testInactiveOrNonGalleryServicesDoNotEnablePremiumGallery() throws {
+        let expires = Date(timeIntervalSinceNow: 3600)
+        let inactiveProducts = accountProductsResponse(
+            status: "SUSPENDED",
+            expires: expires.XMPPFormattedDate,
+            priceId: "monthly",
+            services: [galleryService(storageURL: "https://premium.example/api/")]
+        )
+        let nonGalleryProducts = accountProductsResponse(
+            status: "ACTIVE",
+            expires: expires.XMPPFormattedDate,
+            priceId: "monthly",
+            services: [
+                [
+                    "service": "other",
+                    "attributes": ["storage_url": "https://premium.example/api/"]
+                ]
+            ]
+        )
+
+        XCTAssertEqual(
+            try XCTUnwrap(SubscribtionsManager.activePremiumGalleryAvailability(from: inactiveProducts, now: Date())),
+            PremiumGalleryAvailability(isAvailable: false, storageURL: nil)
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(SubscribtionsManager.activePremiumGalleryAvailability(from: nonGalleryProducts, now: Date())),
+            PremiumGalleryAvailability(isAvailable: false, storageURL: nil)
+        )
+    }
+
+    func testPremiumEntitlementParsingDoesNotRequireGalleryService() throws {
+        let expires = Date(timeIntervalSinceNow: 3600)
+        let products = accountProductsResponse(status: "ACTIVE", expires: expires.XMPPFormattedDate, priceId: "monthly")
+
+        let activeProducts = try XCTUnwrap(SubscribtionsManager.activePremiumAccountProducts(from: products, now: Date()))
+        let galleryAvailability = try XCTUnwrap(SubscribtionsManager.activePremiumGalleryAvailability(from: products, now: Date()))
+
+        XCTAssertEqual(activeProducts.map { $0.storeKitProductId }, ["com_xabber_premium_account.monthly"])
+        XCTAssertFalse(galleryAvailability.isAvailable)
+    }
+
+    func testMissingAccountProductPriceIdDoesNotCreatePaidIOSEntitlement() throws {
+        let expires = Date(timeIntervalSinceNow: 3600)
+        let products = accountProductsResponse(status: "ACTIVE", expires: expires.XMPPFormattedDate, priceId: nil)
+
+        let activeProducts = try XCTUnwrap(SubscribtionsManager.activePremiumAccountProducts(from: products, now: Date()))
+
+        XCTAssertTrue(activeProducts.isEmpty)
+    }
+
+    func testNullPriceDataDoesNotCreatePaidIOSEntitlement() throws {
+        let expires = Date(timeIntervalSinceNow: 3600)
+        let products = accountProductsResponse(
+            status: "ACTIVE",
+            expires: expires.XMPPFormattedDate,
+            priceId: "monthly",
+            priceDataIsNull: true
+        )
+
+        let activeProducts = try XCTUnwrap(SubscribtionsManager.activePremiumAccountProducts(from: products, now: Date()))
+
+        XCTAssertTrue(activeProducts.isEmpty)
+    }
+
+    func testMissingProductIdDoesNotCreatePaidIOSEntitlement() throws {
+        let expires = Date(timeIntervalSinceNow: 3600)
+        let products = accountProductsResponse(
+            status: "ACTIVE",
+            expires: expires.XMPPFormattedDate,
+            priceId: "monthly",
+            productId: ""
+        )
+
+        let activeProducts = try XCTUnwrap(SubscribtionsManager.activePremiumAccountProducts(from: products, now: Date()))
+
+        XCTAssertTrue(activeProducts.isEmpty)
+    }
+
     func testAccountProductsIntegerActiveStatusIsAccepted() throws {
         let expires = Date(timeIntervalSinceNow: 3600)
         let products = accountProductsResponse(status: 2, expires: expires.XMPPFormattedDate, priceId: "yearly")
@@ -9493,7 +11418,47 @@ final class SubscriptionEntitlementCacheTests: XCTestCase {
         XCTAssertEqual(activeProducts.map { $0.storeKitProductId }, ["com_xabber_premium_account.yearly"])
     }
 
-    func testAccountProductsExpiredResponseDowngradesStaleLocalPremium() throws {
+    func testInactiveIOSProductsDoNotCreatePaidEntitlements() throws {
+        let future = Date(timeIntervalSinceNow: 3600).XMPPFormattedDate
+        let products =
+            accountProductsResponse(status: "NEW", expires: future, priceId: "monthly")
+            + accountProductsResponse(status: "SUSPENDED", expires: future, priceId: "monthly")
+            + accountProductsResponse(status: "DISABLED", expires: future, priceId: "monthly")
+
+        let activeProducts = try XCTUnwrap(SubscribtionsManager.activePremiumAccountProducts(from: products, now: Date()))
+
+        XCTAssertTrue(activeProducts.isEmpty)
+    }
+
+    func testInvalidAPIProductsDoNotBlockPurchasePreflight() throws {
+        let future = Date(timeIntervalSinceNow: 3600).XMPPFormattedDate
+        let products =
+            accountProductsResponse(
+                status: "ACTIVE",
+                expires: future,
+                priceId: nil,
+                productId: "tp_free",
+                group: "third_party",
+                priceDataIsNull: true
+            )
+            + accountProductsResponse(status: "SUSPENDED", expires: future, priceId: "monthly")
+            + accountProductsResponse(status: "DISABLED", expires: future, priceId: "monthly")
+            + accountProductsResponse(status: "ACTIVE", expires: future, priceId: nil, priceDataIsNull: true)
+            + accountProductsResponse(status: "ACTIVE", expires: future, priceId: "monthly", productId: "")
+
+        let isActive = try XCTUnwrap(SubscribtionsManager.shared.reconcileAccountProductsRefresh(products, for: "alice@xabber.com"))
+
+        XCTAssertFalse(isActive)
+        XCTAssertEqual(
+            SubscribtionsManager.shared.premiumPurchasePreflightDecision(
+                targetProductId: "com_xabber_premium_account.monthly",
+                jid: "alice@xabber.com"
+            ),
+            .proceed
+        )
+    }
+
+    func testAccountProductsRefreshWithNoActivePaidIOSProductsPreservesLocalPremium() throws {
         SubscribtionsManager.shared.saveSubscriptionInfo(
             productId: "com_xabber_premium_account.monthly",
             jid: "alice@xabber.com",
@@ -9503,11 +11468,11 @@ final class SubscriptionEntitlementCacheTests: XCTestCase {
             transactionId: "tx-stale"
         )
         let products = accountProductsResponse(status: "SUSPENDED", expires: Date(timeIntervalSinceNow: -60).XMPPFormattedDate, priceId: "monthly")
-        let activeProducts = try XCTUnwrap(SubscribtionsManager.activePremiumAccountProducts(from: products, now: Date()))
 
-        XCTAssertTrue(SubscribtionsManager.shared.reconcileAccountProducts(activeProducts, for: "alice@xabber.com"))
+        let isActive = try XCTUnwrap(SubscribtionsManager.shared.reconcileAccountProductsRefresh(products, for: "alice@xabber.com"))
 
-        XCTAssertFalse(SubscribtionsManager.shared.hasActiveSubsription(for: "alice@xabber.com"))
+        XCTAssertTrue(isActive)
+        XCTAssertTrue(SubscribtionsManager.shared.hasActiveSubsription(for: "alice@xabber.com"))
     }
 
     func testMalformedAccountProductsResponseDoesNotDowngradeLocalPremium() {
@@ -9571,7 +11536,7 @@ final class SubscriptionEntitlementCacheTests: XCTestCase {
         XCTAssertEqual(state.activeProductId, "com_xabber_premium_account.yearly")
     }
 
-    func testSubscriptionPresentationStatePrefersNewerMonthlyOverOlderAnnual() {
+    func testSubscriptionPresentationStatePrefersActiveAnnualOverNewerMonthly() {
         let olderPurchaseDate = Date(timeIntervalSinceNow: -600)
         let newerPurchaseDate = Date(timeIntervalSinceNow: -60)
 
@@ -9594,7 +11559,53 @@ final class SubscriptionEntitlementCacheTests: XCTestCase {
 
         let state = SubscribtionsManager.shared.subscriptionPresentationState(for: "alice@xabber.com")
 
+        XCTAssertEqual(state.activeProductId, "com_xabber_premium_account.yearly")
+    }
+
+    func testSubscriptionPresentationStateUsesMonthlyWhenAnnualIsExpired() {
+        let olderPurchaseDate = Date(timeIntervalSinceNow: -600)
+        let newerPurchaseDate = Date(timeIntervalSinceNow: -60)
+
+        SubscribtionsManager.shared.saveSubscriptionInfo(
+            productId: "com_xabber_premium_account.yearly",
+            jid: "alice@xabber.com",
+            accountUUID: SubscribtionsManager.appAccountToken(for: "alice@xabber.com").uuidString,
+            expires: Date(timeIntervalSinceNow: -60),
+            purchaseDate: olderPurchaseDate,
+            transactionId: "tx-yearly-expired"
+        )
+        SubscribtionsManager.shared.saveSubscriptionInfo(
+            productId: "com_xabber_premium_account.monthly",
+            jid: "alice@xabber.com",
+            accountUUID: SubscribtionsManager.appAccountToken(for: "alice@xabber.com").uuidString,
+            expires: Date(timeIntervalSinceNow: 3600),
+            purchaseDate: newerPurchaseDate,
+            transactionId: "tx-monthly-active"
+        )
+
+        let state = SubscribtionsManager.shared.subscriptionPresentationState(for: "alice@xabber.com")
+
         XCTAssertEqual(state.activeProductId, "com_xabber_premium_account.monthly")
+    }
+
+    func testSubscriptionPresentationStateSuppressesScheduledPlanMatchingActivePlan() {
+        SubscribtionsManager.shared.saveSubscriptionInfo(
+            productId: "com_xabber_premium_account.yearly",
+            jid: "alice@xabber.com",
+            accountUUID: SubscribtionsManager.appAccountToken(for: "alice@xabber.com").uuidString,
+            expires: Date(timeIntervalSinceNow: 7200),
+            purchaseDate: Date(timeIntervalSinceNow: -60),
+            transactionId: "tx-yearly-active"
+        )
+
+        let state = SubscribtionsManager.shared.subscriptionPresentationState(
+            for: "alice@xabber.com",
+            scheduledProductId: "yearly",
+            scheduledEffectiveDate: Date(timeIntervalSinceNow: 7200)
+        )
+
+        XCTAssertEqual(state.activeProductId, "com_xabber_premium_account.yearly")
+        XCTAssertNil(state.scheduledProductId)
     }
 
     func testPremiumSubscriptionActionShowsUpgradeForAnnualSelection() {
@@ -9630,6 +11641,72 @@ final class SubscriptionEntitlementCacheTests: XCTestCase {
         XCTAssertEqual(action, .manage)
     }
 
+    func testPremiumSubscriptionActionShowsManageForActiveAnnualPlanSelection() {
+        let action = PremiumSubscribtionViewController.action(
+            selectedName: "Yearly",
+            selectedPriceId: "com_xabber_premium_account.yearly",
+            selectedHasStoreProduct: true,
+            activeProductId: "yearly"
+        )
+
+        XCTAssertEqual(action, .manage)
+    }
+
+    func testPremiumCTAShowsManageForActiveAnnualPlanSelection() {
+        let item: PremiumSubscribtionViewController.PeriodItem = (
+            name: "Yearly",
+            period: "yearly",
+            priceId: "com_xabber_premium_account.yearly",
+            fallbackPrice: "50",
+            storeProduct: nil
+        )
+
+        let state = PremiumSubscribtionViewController.ctaState(
+            remoteState: .loaded(
+                product: APIProduct(
+                    id: 25,
+                    productId: "com_xabber_premium_account",
+                    displayName: "Premium",
+                    group: "ios",
+                    weight: 2,
+                    description: nil,
+                    priceDescription: nil,
+                    isDefault: false,
+                    includes: [],
+                    prices: []
+                ),
+                source: .remote,
+                warning: nil
+            ),
+            entitlementState: .resolved,
+            selectedItem: item,
+            selectedAction: .manage,
+            isProcessing: false
+        )
+
+        XCTAssertEqual(state, PremiumCTAState(title: "Manage Subscription", isEnabled: false, isVisible: false))
+    }
+
+    func testManageSubscriptionSectionShowsOnlyForActiveEntitlement() {
+        let inactiveState = SubscriptionPresentationState(
+            activeProductId: nil,
+            activeExpires: nil,
+            scheduledProductId: nil,
+            scheduledEffectiveDate: nil,
+            hasActiveEntitlement: false
+        )
+        let activeState = SubscriptionPresentationState(
+            activeProductId: "com_xabber_premium_account.monthly",
+            activeExpires: Date().addingTimeInterval(3600),
+            scheduledProductId: nil,
+            scheduledEffectiveDate: nil,
+            hasActiveEntitlement: true
+        )
+
+        XCTAssertFalse(PremiumSubscribtionViewController.shouldShowManageSubscriptionSection(inactiveState))
+        XCTAssertTrue(PremiumSubscribtionViewController.shouldShowManageSubscriptionSection(activeState))
+    }
+
     func testPremiumSubscriptionActionShowsSubscribeWithoutActivePlan() {
         let action = PremiumSubscribtionViewController.action(
             selectedName: "Yearly",
@@ -9638,6 +11715,70 @@ final class SubscriptionEntitlementCacheTests: XCTestCase {
             activeProductId: nil
         )
 
+        XCTAssertEqual(action, .subscribe)
+    }
+
+    func testDuplicateActivePremiumPurchaseDetectsSameAnnualTarget() {
+        SubscribtionsManager.shared.saveSubscriptionInfo(
+            productId: "com_xabber_premium_account.yearly",
+            jid: "alice@xabber.com",
+            accountUUID: SubscribtionsManager.appAccountToken(for: "alice@xabber.com").uuidString,
+            expires: Date(timeIntervalSinceNow: 7200),
+            purchaseDate: Date(timeIntervalSinceNow: -60),
+            transactionId: "tx-yearly-active"
+        )
+
+        XCTAssertTrue(
+            SubscribtionsManager.shared.isDuplicateActivePremiumPurchase(
+                targetProductId: "yearly",
+                jid: "alice@xabber.com"
+            )
+        )
+    }
+
+    func testDuplicateActivePremiumPurchaseAllowsDifferentHigherTierTarget() {
+        SubscribtionsManager.shared.saveSubscriptionInfo(
+            productId: "com_xabber_premium_account.monthly",
+            jid: "alice@xabber.com",
+            accountUUID: SubscribtionsManager.appAccountToken(for: "alice@xabber.com").uuidString,
+            expires: Date(timeIntervalSinceNow: 3600),
+            purchaseDate: Date(timeIntervalSinceNow: -60),
+            transactionId: "tx-monthly-active"
+        )
+
+        XCTAssertFalse(
+            SubscribtionsManager.shared.isDuplicateActivePremiumPurchase(
+                targetProductId: "com_xabber_premium_account.yearly",
+                jid: "alice@xabber.com"
+            )
+        )
+    }
+
+    func testExpiredAnnualDoesNotBlockAnnualPurchaseTarget() {
+        SubscribtionsManager.shared.saveSubscriptionInfo(
+            productId: "com_xabber_premium_account.yearly",
+            jid: "alice@xabber.com",
+            accountUUID: SubscribtionsManager.appAccountToken(for: "alice@xabber.com").uuidString,
+            expires: Date(timeIntervalSinceNow: -60),
+            purchaseDate: Date(timeIntervalSinceNow: -7200),
+            transactionId: "tx-yearly-expired"
+        )
+
+        let state = SubscribtionsManager.shared.subscriptionPresentationState(for: "alice@xabber.com")
+        let action = PremiumSubscribtionViewController.action(
+            selectedName: "Yearly",
+            selectedPriceId: "com_xabber_premium_account.yearly",
+            selectedHasStoreProduct: true,
+            activeProductId: state.activeProductId
+        )
+
+        XCTAssertNil(state.activeProductId)
+        XCTAssertFalse(
+            SubscribtionsManager.shared.isDuplicateActivePremiumPurchase(
+                targetProductId: "com_xabber_premium_account.yearly",
+                jid: "alice@xabber.com"
+            )
+        )
         XCTAssertEqual(action, .subscribe)
     }
 
@@ -9654,7 +11795,7 @@ final class SubscriptionEntitlementCacheTests: XCTestCase {
         XCTAssertEqual(
             PremiumSubscribtionViewController.rowState(
                 forProductId: "com_xabber_premium_account.yearly",
-                activeProductId: "com_xabber_premium_account.yearly",
+                activeProductId: "yearly",
                 scheduledProductId: nil,
                 hasStoreProduct: true
             ),
@@ -9740,13 +11881,100 @@ final class SubscriptionEntitlementCacheTests: XCTestCase {
         iosProductsResponse() as NSDictionary
     }
 
-    private func accountProductsResponse(status: Any, expires: String?, priceId: String) -> [[String: Any]] {
-        [
+    private func accountProductsResponse(
+        status: Any,
+        expires: String?,
+        priceId: String?,
+        services: [[String: Any]] = [],
+        attributes: [String: Any] = [:],
+        productId: String = "com_xabber_premium_account",
+        group: String = "ios",
+        quantity: Any = 1,
+        priceDataIsNull: Bool = false
+    ) -> [[String: Any]] {
+        var productData: [String: Any] = [
+            "id": 25,
+            "product_id": productId,
+            "display_name": "Premium",
+            "weight": 2,
+            "group": group,
+            "default": false
+        ]
+        if services.isNotEmpty {
+            productData["services"] = services
+        }
+
+        var priceData: [String: Any] = [
+            "id": 1,
+            "name": priceId?.capitalized ?? "Premium",
+            "price": "5",
+            "product": 25,
+            "period": priceId ?? ""
+        ]
+        if let priceId = priceId {
+            priceData["price_id"] = priceId
+        }
+
+        return [
             [
                 "id": 1,
                 "expires": expires as Any,
                 "status": status,
-                "quantity": 1,
+                "quantity": quantity,
+                "product_data": productData,
+                "price_data": priceDataIsNull ? NSNull() : priceData,
+                "attributes": attributes
+            ]
+        ]
+    }
+
+    private func accountProductsRealResponse() -> [[String: Any]] {
+        return [
+            [
+                "id": 91,
+                "expires": NSNull(),
+                "status": "ACTIVE",
+                "product_data": [
+                    "id": 4,
+                    "product_id": "tp_free",
+                    "display_name": "Free",
+                    "weight": 0,
+                    "group": "third_party",
+                    "default": true
+                ],
+                "price_data": NSNull(),
+                "attributes": [
+                    "storage": 30,
+                    "storage_description": "Basic amount of cloud storage allocated for users. Files are deleted after 30 days."
+                ],
+                "quantity": 1
+            ],
+            [
+                "id": 92,
+                "expires": "2026-03-12T13:38:39Z",
+                "status": "SUSPENDED",
+                "product_data": [
+                    "id": 12,
+                    "product_id": "early_test_xabber_subs_1_month_prod_id",
+                    "display_name": "Test",
+                    "weight": 2,
+                    "group": "ios",
+                    "default": false
+                ],
+                "price_data": NSNull(),
+                "attributes": [
+                    "storage": 3072,
+                    "storage_url": "https://suspended.example/api/v1",
+                    "storage_includes": ["3 GB included in current plan", "Safe Link Relay enabled"],
+                    "storage_description": "Suspended Premium storage.",
+                    "message_retention": "Unlimited"
+                ],
+                "quantity": 1
+            ],
+            [
+                "id": 109,
+                "expires": "2026-05-01T04:56:58Z",
+                "status": "ACTIVE",
                 "product_data": [
                     "id": 25,
                     "product_id": "com_xabber_premium_account",
@@ -9756,15 +11984,709 @@ final class SubscriptionEntitlementCacheTests: XCTestCase {
                     "default": false
                 ],
                 "price_data": [
-                    "id": 1,
-                    "name": priceId.capitalized,
-                    "price": "5",
-                    "price_id": priceId,
+                    "id": 43,
+                    "name": "Monthly",
+                    "price": 5.0,
+                    "price_id": "monthly",
                     "product": 25,
-                    "period": priceId
+                    "period": "monthly"
                 ],
-                "attributes": [:]
+                "attributes": [
+                    "storage": 3072,
+                    "storage_url": "https://gallery.dev.xabber.com/api/v1",
+                    "storage_includes": ["3 GB included in current plan", "Safe Link Relay enabled"],
+                    "storage_description": "Improved amount of cloud storage for Premium Plan subscribers. Files are kept indefinitely.",
+                    "message_retention": "Unlimited"
+                ],
+                "quantity": 1
             ]
         ]
+    }
+
+    private func galleryService(storageURL: String?) -> [String: Any] {
+        var attributes: [String: Any] = [
+            "storage": 3072,
+            "storage_description": "Improved amount of cloud storage for Premium Plan subscribers. Files are kept indefinitely."
+        ]
+        if let storageURL = storageURL {
+            attributes["storage_url"] = storageURL
+        }
+        return [
+            "service": "gallery",
+            "attributes": attributes
+        ]
+    }
+}
+
+final class OmemoSessionLifecycleTests: XCTestCase {
+    private var previousRealmConfiguration: Realm.Configuration!
+    private var owners: [String] = []
+
+    override func setUp() {
+        super.setUp()
+        previousRealmConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(inMemoryIdentifier: "OmemoSessionLifecycleTests-\(name)")
+        let realm = try! WRealm.safe()
+        try! realm.write {
+            realm.deleteAll()
+        }
+    }
+
+    override func tearDown() {
+        owners.forEach { OmemoManager.remove(for: $0, commitTransaction: true) }
+        Realm.Configuration.defaultConfiguration = previousRealmConfiguration
+        owners.removeAll()
+        super.tearDown()
+    }
+
+    func testExistingSessionIsReusedForSecondOutgoingMessage() throws {
+        let owner = uniqueJid("alice")
+        let recipient = uniqueJid("bob")
+        let recipientDeviceId = 2201
+        let manager = try makeManager(owner: owner, deviceId: 1101)
+        try addRemoteBundle(
+            to: manager,
+            jid: recipient,
+            deviceId: recipientDeviceId,
+            trustState: .trusted
+        )
+
+        let first = try XCTUnwrap(try manager.encryptMessage(message: envelope("one"), to: recipient))
+        try deleteCachedBundle(owner: owner, jid: recipient, deviceId: recipientDeviceId)
+        let second = try XCTUnwrap(try manager.encryptMessage(message: envelope("two"), to: recipient))
+
+        XCTAssertEqual(keyExchangeFlag(in: first, jid: recipient, deviceId: recipientDeviceId), true)
+        XCTAssertNotNil(keyExchangeFlag(in: second, jid: recipient, deviceId: recipientDeviceId))
+        XCTAssertEqual(try storedSessionCount(owner: owner, jid: recipient), 1)
+    }
+
+    func testUnknownRecipientDevicesAreNotEncryptedTo() throws {
+        let owner = uniqueJid("alice")
+        let recipient = uniqueJid("bob")
+        let manager = try makeManager(owner: owner, deviceId: 1102)
+        try addRemoteBundle(
+            to: manager,
+            jid: recipient,
+            deviceId: 2202,
+            trustState: .unknown
+        )
+
+        XCTAssertThrowsError(try manager.encryptMessage(message: envelope("blocked"), to: recipient)) { error in
+            XCTAssertEqual(error as? OmemoManagerError, .noTrustedRecipientDevices)
+        }
+        XCTAssertEqual(try storedSessionCount(owner: owner, jid: recipient), 0)
+    }
+
+    func testIdentityChangeMarksDeviceAndDeletesSession() throws {
+        let owner = uniqueJid("alice")
+        let recipient = uniqueJid("bob")
+        let deviceId: Int32 = 2203
+        let store = XabberAxolotlStorage(withOwner: owner)
+        let oldIdentity = Data([1, 2, 3, 4])
+        let newIdentity = Data([4, 3, 2, 1])
+        let address = SignalAddress(name: recipient, deviceId: deviceId)
+        let realm = try WRealm.safe()
+
+        try realm.write {
+            let device = SignalDeviceStorageItem()
+            device.owner = owner
+            device.jid = recipient
+            device.deviceId = Int(deviceId)
+            device.primary = SignalDeviceStorageItem.genPrimary(owner: owner, jid: recipient, deviceId: Int(deviceId))
+            device.state = .trusted
+            device.isTrustedByCertificate = true
+            device.trustedByDeviceId = "manual"
+            realm.add(device, update: .modified)
+
+            let session = SessionRecordStorageItem()
+            session.owner = owner
+            session.jid = recipient
+            session.deviceId = Int(deviceId)
+            session.primary = SessionRecordStorageItem.genPrimary(owner, for: address)
+            session.record = Data([9, 9, 9])
+            realm.add(session, update: .modified)
+
+            let trusted = SignalTrustedIdentityStoreageItem()
+            trusted.owner = owner
+            trusted.jid = recipient
+            trusted.deviceId = Int(deviceId)
+            trusted.primary = SignalTrustedIdentityStoreageItem.genPrimary(owner, for: address)
+            trusted.identity = oldIdentity
+            realm.add(trusted, update: .modified)
+        }
+
+        XCTAssertFalse(store.isTrustedIdentity(address, identityKey: newIdentity))
+
+        let updatedDevice = try XCTUnwrap(realm.object(
+            ofType: SignalDeviceStorageItem.self,
+            forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: owner, jid: recipient, deviceId: Int(deviceId))
+        ))
+        XCTAssertEqual(updatedDevice.state, .fingerprintChanged)
+        XCTAssertFalse(updatedDevice.isTrustedByCertificate)
+        XCTAssertNil(updatedDevice.trustedByDeviceId)
+        XCTAssertEqual(updatedDevice.fingerprint, newIdentity.formattedFingerprint())
+        XCTAssertNil(realm.object(ofType: SessionRecordStorageItem.self, forPrimaryKey: SessionRecordStorageItem.genPrimary(owner, for: address)))
+        XCTAssertNil(realm.object(ofType: SignalTrustedIdentityStoreageItem.self, forPrimaryKey: SignalTrustedIdentityStoreageItem.genPrimary(owner, for: address)))
+    }
+
+    func testDecryptMissingRecipientKeyThrowsWithoutCrash() throws {
+        let owner = uniqueJid("alice")
+        let sender = uniqueJid("bob")
+        let manager = try makeManager(owner: owner, deviceId: 1104)
+        let message = try makeMessage(xml: """
+        <message from='\(sender)/ios' to='\(owner)' id='missing-key'>
+          <encrypted xmlns='urn:xmpp:omemo:2'>
+            <header sid='2204'>
+              <keys jid='\(owner)'/>
+            </header>
+            <payload>AA==</payload>
+          </encrypted>
+        </message>
+        """)
+
+        XCTAssertThrowsError(try manager.decryptMessage(message)) { error in
+            XCTAssertEqual(error as? OmemoManagerError, .missingRecipientKey)
+        }
+    }
+
+    private func uniqueJid(_ prefix: String) -> String {
+        let jid = "\(prefix)-\(UUID().uuidString.lowercased())@example.com"
+        owners.append(jid)
+        return jid
+    }
+
+    private func makeManager(owner: String, deviceId: Int) throws -> OmemoManager {
+        let manager = OmemoManager(withOwner: owner)
+        try manager.localStore.create(for: deviceId, context: manager.signalContext)
+        return manager
+    }
+
+    private func addRemoteBundle(
+        to manager: OmemoManager,
+        jid: String,
+        deviceId: Int,
+        trustState: SignalDeviceStorageItem.TrustState
+    ) throws {
+        let keyHelper = try XCTUnwrap(SignalKeyHelper(context: manager.signalContext))
+        let identity = try XCTUnwrap(keyHelper.generateIdentityKeyPair())
+        let signedPreKey = try XCTUnwrap(keyHelper.generateSignedPreKey(withIdentity: identity, signedPreKeyId: UInt32(deviceId + 100)))
+        let preKeys = keyHelper.generatePreKeys(withStartingPreKeyId: UInt(deviceId + 1), count: 3)
+        let realm = try WRealm.safe()
+
+        try realm.write {
+            let identityItem = SignalIdentityStorageItem()
+            identityItem.owner = manager.owner
+            identityItem.jid = jid
+            identityItem.deviceId = deviceId
+            identityItem.primary = SignalIdentityStorageItem.genRpimary(owner: manager.owner, jid: jid, deviceId: deviceId)
+            identityItem.identityKey = identity.publicKey.base64EncodedString()
+            identityItem.signedPreKey = signedPreKey.keyPair!.publicKey.base64EncodedString()
+            identityItem.signedPreKeySignature = signedPreKey.signature.base64EncodedString()
+            identityItem.signedPreKeyId = Int(signedPreKey.preKeyId)
+            realm.add(identityItem, update: .modified)
+
+            let device = SignalDeviceStorageItem()
+            device.owner = manager.owner
+            device.jid = jid
+            device.deviceId = deviceId
+            device.primary = SignalDeviceStorageItem.genPrimary(owner: manager.owner, jid: jid, deviceId: deviceId)
+            device.state = trustState
+            device.fingerprint = identity.publicKey.formattedFingerprint()
+            realm.add(device, update: .modified)
+
+            preKeys.forEach { preKey in
+                let preKeyItem = SignalPreKeysStorageItem()
+                preKeyItem.owner = manager.owner
+                preKeyItem.jid = jid
+                preKeyItem.deviceId = deviceId
+                preKeyItem.pkId = Int(preKey.preKeyId)
+                preKeyItem.preKey = preKey.keyPair!.publicKey.base64EncodedString()
+                preKeyItem.keyUUID = UUID().uuidString
+                preKeyItem.primary = SignalPreKeysStorageItem.genPrimary(keyUUID: preKeyItem.keyUUID)
+                realm.add(preKeyItem, update: .modified)
+            }
+        }
+    }
+
+    private func envelope(_ body: String) -> String {
+        """
+        <envelope xmlns='urn:xmpp:sce:1'>
+          <content>
+            <body xmlns='jabber:client'>\(body)</body>
+          </content>
+          <rpad>padding</rpad>
+        </envelope>
+        """
+    }
+
+    private func keyExchangeFlag(in encrypted: DDXMLElement, jid: String, deviceId: Int) -> Bool? {
+        encrypted
+            .element(forName: "header")?
+            .elements(forName: "keys")
+            .first(where: { $0.attributeStringValue(forName: "jid") == jid })?
+            .elements(forName: "key")
+            .first(where: { $0.attributeIntegerValue(forName: "rid") == deviceId })?
+            .attributeBoolValue(forName: "kex")
+    }
+
+    private func deleteCachedBundle(owner: String, jid: String, deviceId: Int) throws {
+        let realm = try WRealm.safe()
+        let identityPrimary = SignalIdentityStorageItem.genRpimary(owner: owner, jid: jid, deviceId: deviceId)
+        let preKeys = realm
+            .objects(SignalPreKeysStorageItem.self)
+            .filter("owner == %@ AND jid == %@ AND deviceId == %@", owner, jid, deviceId)
+        try realm.write {
+            if let identity = realm.object(ofType: SignalIdentityStorageItem.self, forPrimaryKey: identityPrimary) {
+                realm.delete(identity)
+            }
+            realm.delete(preKeys)
+        }
+    }
+
+    private func storedSessionCount(owner: String, jid: String) throws -> Int {
+        try WRealm.safe()
+            .objects(SessionRecordStorageItem.self)
+            .filter("owner == %@ AND jid == %@", owner, jid)
+            .count
+    }
+
+    private func makeMessage(xml: String) throws -> XMPPMessage {
+        let document = try DDXMLDocument(xmlString: xml, options: 0)
+        return XMPPMessage(from: document.rootElement()!)
+    }
+}
+
+final class XEPTrustProtocolTests: XCTestCase {
+
+    func testRequestBuilderAndParserPreserveTargetDevice() {
+        let trust = XEPTrustEnvelope.makeTrustElement(
+            sid: "sid-1",
+            expires: 4_102_444_800,
+            timestamp: 1_709_270_416,
+            kind: .request(deviceId: 1001, targetDeviceId: 2002)
+        )
+        let message = XMPPMessage(type: "chat", to: XMPPJID(string: "romeo@example.org/phone"))
+        message.addChild(trust)
+
+        XCTAssertEqual(trust.xmlns(), XEPTrustEnvelope.xmlns)
+        XCTAssertEqual(trust.attributeStringValue(forName: "sid"), "sid-1")
+        XCTAssertEqual(trust.element(forName: "request")?.attributeStringValue(forName: "device-id"), "1001")
+        XCTAssertEqual(trust.element(forName: "request")?.attributeStringValue(forName: "target-device-id"), "2002")
+
+        guard let envelope = XEPTrustEnvelope.parse(from: message) else {
+            return XCTFail("Expected XEP-TRUST request to parse")
+        }
+        XCTAssertEqual(envelope.sid, "sid-1")
+        XCTAssertEqual(envelope.timestamp, 1_709_270_416)
+        XCTAssertEqual(envelope.expires, 4_102_444_800)
+        if case let .request(deviceId, targetDeviceId) = envelope.kind {
+            XCTAssertEqual(deviceId, 1001)
+            XCTAssertEqual(targetDeviceId, 2002)
+        } else {
+            XCTFail("Expected request envelope")
+        }
+    }
+
+    func testCryptoPayloadStanzasRoundTripBase64Fields() {
+        let message = XMPPMessage(type: "chat", to: XMPPJID(string: "romeo@example.org/phone"))
+        message.addChild(XEPTrustEnvelope.makeTrustElement(
+            sid: "sid-2",
+            expires: 4_102_444_800,
+            timestamp: 1_709_270_417,
+            kind: .response(deviceId: 3003, ciphertext: "Y2lwaGVy", iv: "aXY=", hmac: "aG1hYw==")
+        ))
+
+        guard let envelope = XEPTrustEnvelope.parse(from: message) else {
+            return XCTFail("Expected XEP-TRUST response to parse")
+        }
+        if case let .response(deviceId, ciphertext, iv, hmac) = envelope.kind {
+            XCTAssertEqual(deviceId, 3003)
+            XCTAssertEqual(ciphertext, "Y2lwaGVy")
+            XCTAssertEqual(iv, "aXY=")
+            XCTAssertEqual(hmac, "aG1hYw==")
+        } else {
+            XCTFail("Expected response envelope")
+        }
+    }
+
+    func testAbortBuilderSupportsTimeoutReason() {
+        let message = XMPPMessage(type: "chat", to: XMPPJID(string: "romeo@example.org/phone"))
+        message.addChild(XEPTrustEnvelope.makeTrustElement(
+            sid: "sid-timeout",
+            expires: 4_102_444_800,
+            timestamp: 1_709_270_418,
+            kind: .abort(reason: .timeout)
+        ))
+
+        guard let envelope = XEPTrustEnvelope.parse(from: message) else {
+            return XCTFail("Expected XEP-TRUST abort to parse")
+        }
+        if case let .abort(reason) = envelope.kind {
+            XCTAssertEqual(reason, .timeout)
+        } else {
+            XCTFail("Expected abort envelope")
+        }
+    }
+
+    func testXENForwardedTrustMessageExtractsInnerMessageAndValidatesOriginalFrom() throws {
+        let outer = try makeMessage(xml: """
+        <message from='relay.example.org' to='juliet@example.org/phone'>
+          <notification xmlns='urn:xabber:xen:0'>
+            <forwarded xmlns='urn:xmpp:forward:0'>
+              <message from='romeo@example.org/watch' to='juliet@example.org/phone'>
+                <trust xmlns='urn:xmpp:trust:0' sid='sid-xen' timestamp='1709270416' expires='4102444800'>
+                  <request device-id='42'/>
+                </trust>
+              </message>
+            </forwarded>
+          </notification>
+          <addresses xmlns='http://jabber.org/protocol/address'>
+            <address type='ofrom' jid='romeo@example.org/watch'/>
+          </addresses>
+        </message>
+        """)
+
+        let extracted = XEPTrustForwardedExtractor.trustMessage(from: outer)
+
+        guard let extracted else {
+            return XCTFail("Expected XEN forwarded trust message to extract")
+        }
+        XCTAssertEqual(extracted.from?.full, "romeo@example.org/watch")
+        XCTAssertEqual(XEPTrustEnvelope.parse(from: extracted)?.sid, "sid-xen")
+    }
+
+    func testXENForwardedTrustMessageRejectsMismatchedOriginalFrom() throws {
+        let outer = try makeMessage(xml: """
+        <message from='relay.example.org' to='juliet@example.org/phone'>
+          <notification xmlns='urn:xabber:xen:0'>
+            <forwarded xmlns='urn:xmpp:forward:0'>
+              <message from='romeo@example.org/watch' to='juliet@example.org/phone'>
+                <trust xmlns='urn:xmpp:trust:0' sid='sid-xen' timestamp='1709270416' expires='4102444800'>
+                  <request device-id='42'/>
+                </trust>
+              </message>
+            </forwarded>
+          </notification>
+          <addresses xmlns='http://jabber.org/protocol/address'>
+            <address type='ofrom' jid='mallory@example.org/watch'/>
+          </addresses>
+        </message>
+        """)
+
+        XCTAssertNil(XEPTrustForwardedExtractor.trustMessage(from: outer))
+    }
+
+    func testTrustSharingCanonicalStringSortsContainersAndTypedEntriesDescending() {
+        let older = DDXMLElement(name: "trusted-items")
+        older.addAttribute(withName: "timestamp", stringValue: "1709270416")
+        older.addChild(entry(name: "trust", timestamp: 1709270116, value: "ADASDAXCZX"))
+
+        let newer = DDXMLElement(name: "trusted-items")
+        newer.addAttribute(withName: "timestamp", stringValue: "1709270516")
+        newer.addChild(entry(name: "distrust", timestamp: 1709270517, value: "REVOKED="))
+        newer.addChild(entry(name: "trust", timestamp: 1709270518, value: "TRUSTED="))
+
+        XCTAssertEqual(
+            TrustSharingSignature.canonicalString(for: [older, newer]),
+            "1709270516<trust:1709270518/TRUSTED=<distrust:1709270517/REVOKED=1709270416<trust:1709270116/ADASDAXCZX"
+        )
+    }
+
+    func testTrustSharingCanonicalStringRejectsMissingTimestamps() {
+        let trustedItems = DDXMLElement(name: "trusted-items")
+        trustedItems.addChild(entry(name: "trust", timestamp: 1709270116, value: "ADASDAXCZX"))
+
+        XCTAssertNil(TrustSharingSignature.canonicalString(for: [trustedItems]))
+    }
+
+    func testExpiredSessionCleanupPredicateDoesNotCrashAndMarksTimeout() throws {
+        let previousConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(inMemoryIdentifier: "XEPTrustProtocolTests-\(name)")
+        defer {
+            Realm.Configuration.defaultConfiguration = previousConfiguration
+        }
+
+        let owner = "alice@example.org"
+        let sid = "expired-sid"
+        let realm = try WRealm.safe()
+        try realm.write {
+            let expired = VerificationSessionStorageItem()
+            expired.owner = owner
+            expired.ownerJid = owner
+            expired.sid = sid
+            expired.primary = VerificationSessionStorageItem.genPrimary(owner: owner, sid: sid)
+            expired.jid = "bob@example.org"
+            expired.peerBareJid = "bob@example.org"
+            expired.state = .receivedRequest
+            expired.role = .responder
+            expired.expires = Date().timeIntervalSince1970 - 1
+            realm.add(expired, update: .modified)
+
+            let terminal = VerificationSessionStorageItem()
+            terminal.owner = owner
+            terminal.ownerJid = owner
+            terminal.sid = "trusted-sid"
+            terminal.primary = VerificationSessionStorageItem.genPrimary(owner: owner, sid: terminal.sid)
+            terminal.state = .trusted
+            terminal.expires = Date().timeIntervalSince1970 - 1
+            realm.add(terminal, update: .modified)
+        }
+
+        AuthenticatedKeyExchangeManager.checkVerificationSessionsTTL()
+
+        XCTAssertEqual(
+            realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: owner, sid: sid))?.state,
+            .timeout
+        )
+        XCTAssertEqual(
+            realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: owner, sid: "trusted-sid"))?.state,
+            .trusted
+        )
+
+        AuthenticatedKeyExchangeManager.checkVerificationSessionsTTL()
+        XCTAssertEqual(
+            realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: owner, sid: sid))?.state,
+            .timeout
+        )
+
+        let deletedSid = "deleted-sid"
+        try realm.write {
+            let deleted = VerificationSessionStorageItem()
+            deleted.owner = owner
+            deleted.ownerJid = owner
+            deleted.sid = deletedSid
+            deleted.primary = VerificationSessionStorageItem.genPrimary(owner: owner, sid: deletedSid)
+            deleted.jid = "bob@example.org"
+            deleted.state = .receivedRequest
+            deleted.expires = Date().timeIntervalSince1970 - 1
+            realm.add(deleted, update: .modified)
+            realm.delete(deleted)
+        }
+
+        AuthenticatedKeyExchangeManager.checkVerificationSessionsTTL()
+        XCTAssertNil(realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: owner, sid: deletedSid)))
+    }
+
+    private func makeMessage(xml: String) throws -> XMPPMessage {
+        let document = try DDXMLDocument(xmlString: xml, options: 0)
+        return XMPPMessage(from: document.rootElement()!)
+    }
+
+    private func entry(name: String, timestamp: Int64, value: String) -> DDXMLElement {
+        let element = DDXMLElement(name: name, stringValue: value)
+        element.addAttribute(withName: "timestamp", stringValue: String(timestamp))
+        return element
+    }
+}
+
+final class ModerationReportTests: XCTestCase {
+    private func makeMessage(
+        owner: String = "alice@test.xabber.org",
+        opponent: String = "bob@example.org",
+        conversationType: ClientSynchronizationManager.ConversationType = .regular
+    ) -> MessageStorageItem {
+        let message = MessageStorageItem()
+        message.primary = "message-primary-\(UUID().uuidString)"
+        message.owner = owner
+        message.opponent = opponent
+        message.messageId = "message-id"
+        message.archivedId = "stanza-id"
+        message.body = "Selected message text"
+        message.date = Date(timeIntervalSince1970: 1_774_800_000)
+        message.conversationType = conversationType
+        return message
+    }
+
+    func testMessageReportWithoutExcerptDoesNotIncludeBody() {
+        let message = makeMessage()
+
+        let report = ModerationReportFactory.messageReport(
+            message: message,
+            reason: .harassmentOrBullying,
+            comment: nil,
+            includeMessageExcerpt: false
+        )
+
+        XCTAssertEqual(report.reportTargetType, .message)
+        XCTAssertEqual(report.messageId, "message-id")
+        XCTAssertFalse(report.includeMessageExcerpt)
+        XCTAssertNil(report.messageExcerpt)
+        XCTAssertFalse(report.abuseMessageBody.contains("Selected message text"))
+    }
+
+    func testMessageReportWithExcerptIncludesOnlySelectedMessageBody() {
+        let message = makeMessage()
+
+        let report = ModerationReportFactory.messageReport(
+            message: message,
+            reason: .hateSpeech,
+            comment: "extra context",
+            includeMessageExcerpt: true
+        )
+
+        XCTAssertTrue(report.includeMessageExcerpt)
+        XCTAssertEqual(report.messageExcerpt, "Selected message text")
+        XCTAssertEqual(report.comment, "extra context")
+        XCTAssertTrue(report.abuseMessageBody.contains("Message excerpt:\nSelected message text"))
+        XCTAssertTrue(report.abuseMessageBody.contains("Reporter comment:\nextra context"))
+    }
+
+    func testUserAndRoomReportsContainTargetJids() {
+        let userReport = ModerationReportFactory.userReport(
+            owner: "alice@test.xabber.org",
+            reportedUserJid: "bob@example.org",
+            roomJid: "room@muc.example.org",
+            conversationId: "room@muc.example.org",
+            reason: .impersonation,
+            comment: nil
+        )
+        let roomReport = ModerationReportFactory.roomReport(
+            owner: "alice@test.xabber.org",
+            roomJid: "room@muc.example.org",
+            reason: .spamScamOrPhishing,
+            comment: nil
+        )
+
+        XCTAssertEqual(userReport.reportTargetType, .user)
+        XCTAssertEqual(userReport.reportedUserJid, "bob@example.org")
+        XCTAssertEqual(userReport.roomJid, "room@muc.example.org")
+        XCTAssertEqual(roomReport.reportTargetType, .room)
+        XCTAssertEqual(roomReport.roomJid, "room@muc.example.org")
+    }
+
+    func testUserReportBodyIsHumanReadableInsteadOfJSON() {
+        let report = ModerationReportFactory.userReport(
+            owner: "alice@test.xabber.org",
+            reportedUserJid: "bob@example.org",
+            roomJid: nil,
+            conversationId: "bob@example.org",
+            reason: .hateSpeech,
+            comment: nil
+        )
+        let body = report.abuseMessageBody
+
+        XCTAssertTrue(body.contains("Moderation report\n\n"))
+        XCTAssertTrue(body.contains("Target type: User"))
+        XCTAssertTrue(body.contains("Reported user JID: bob@example.org"))
+        XCTAssertTrue(body.contains("Reporter account JID: alice@test.xabber.org"))
+        XCTAssertTrue(body.contains("Conversation ID: bob@example.org"))
+        XCTAssertTrue(body.contains("Server domain: example.org"))
+        XCTAssertTrue(body.contains("Reason: Hate speech"))
+        XCTAssertTrue(body.contains("Created at:"))
+        XCTAssertTrue(body.contains("Platform: iOS"))
+        XCTAssertTrue(body.contains("App version:"))
+        XCTAssertTrue(body.contains("Report ID:"))
+        XCTAssertFalse(body.contains("{"))
+        XCTAssertFalse(body.contains("}"))
+        XCTAssertFalse(body.contains("\"reportTargetType\""))
+        XCTAssertTrue(report.jsonString.contains("\"reportTargetType\""))
+    }
+
+    func testRoomMessageAndMediaReportBodiesIncludeTargetMetadata() {
+        let roomReport = ModerationReportFactory.roomReport(
+            owner: "alice@test.xabber.org",
+            roomJid: "room@muc.example.org",
+            reason: .spamScamOrPhishing,
+            comment: nil
+        )
+        XCTAssertTrue(roomReport.abuseMessageBody.contains("Target type: Room"))
+        XCTAssertTrue(roomReport.abuseMessageBody.contains("Room JID: room@muc.example.org"))
+
+        let message = makeMessage()
+        let messageReport = ModerationReportFactory.messageReport(
+            message: message,
+            reason: .harassmentOrBullying,
+            comment: nil,
+            includeMessageExcerpt: false
+        )
+        XCTAssertTrue(messageReport.abuseMessageBody.contains("Target type: Message"))
+        XCTAssertTrue(messageReport.abuseMessageBody.contains("Message ID: message-id"))
+        XCTAssertTrue(messageReport.abuseMessageBody.contains("Stanza ID: stanza-id"))
+        XCTAssertTrue(messageReport.abuseMessageBody.contains("Message timestamp:"))
+
+        let reference = MessageReferenceStorageItem()
+        reference.primary = "reference-primary"
+        reference.messageId = message.primary
+        reference.owner = message.owner
+        reference.jid = message.opponent
+        reference.kind = .media
+        reference.mimeType = MimeIconTypes.image.rawValue
+        reference.url = "https://example.org/media/image.png"
+        let mediaReport = ModerationReportFactory.mediaReport(
+            message: message,
+            reference: reference,
+            attachment: nil,
+            owner: message.owner,
+            conversationJid: message.opponent,
+            conversationType: .regular,
+            reason: .sexualContentOrNudity,
+            comment: nil,
+            includeMessageExcerpt: false
+        )
+        XCTAssertTrue(mediaReport.abuseMessageBody.contains("Target type: Media"))
+        XCTAssertTrue(mediaReport.abuseMessageBody.contains("Attachment ID: reference-primary"))
+        XCTAssertTrue(mediaReport.abuseMessageBody.contains("Media type: media"))
+        XCTAssertTrue(mediaReport.abuseMessageBody.contains("MIME type: image"))
+        XCTAssertTrue(mediaReport.abuseMessageBody.contains("Media identifier:"))
+    }
+
+    func testMediaReportIncludesAttachmentMetadataWithoutFileUpload() {
+        let message = makeMessage()
+        let reference = MessageReferenceStorageItem()
+        reference.primary = "reference-primary"
+        reference.messageId = message.primary
+        reference.owner = message.owner
+        reference.jid = message.opponent
+        reference.kind = .media
+        reference.mimeType = MimeIconTypes.image.rawValue
+        reference.url = "https://example.org/media/image.png"
+
+        let report = ModerationReportFactory.mediaReport(
+            message: message,
+            reference: reference,
+            attachment: nil,
+            owner: message.owner,
+            conversationJid: message.opponent,
+            conversationType: .regular,
+            reason: .sexualContentOrNudity,
+            comment: nil,
+            includeMessageExcerpt: false
+        )
+
+        XCTAssertEqual(report.reportTargetType, .media)
+        XCTAssertEqual(report.attachmentId, "reference-primary")
+        XCTAssertEqual(report.mediaType, MessageReferenceStorageItem.Kind.media.rawValue)
+        XCTAssertEqual(report.mimeType, MimeIconTypes.image.rawValue)
+        XCTAssertNotNil(report.mediaUrlHashOrIdentifier)
+        XCTAssertNil(report.messageExcerpt)
+    }
+
+    func testLocalHideMarksMessageWithoutDeletingBody() throws {
+        let previousConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(inMemoryIdentifier: "ModerationReportTests-\(name)")
+        defer {
+            Realm.Configuration.defaultConfiguration = previousConfiguration
+        }
+
+        let realm = try WRealm.safe()
+        let message = makeMessage()
+        try realm.write {
+            realm.add(message)
+        }
+
+        let report = ModerationReportFactory.messageReport(
+            message: message,
+            reason: .violenceOrThreats,
+            comment: nil,
+            includeMessageExcerpt: false
+        )
+
+        ModerationReportLocalStateWriter.record(report: report, state: .submitted, hideLocally: true)
+
+        let stored = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: message.primary))
+        XCTAssertTrue(stored.isLocallyHiddenByReport)
+        XCTAssertEqual(stored.localReportState, ModerationLocalReportState.submitted.rawValue)
+        XCTAssertEqual(stored.body, "Selected message text")
+        XCTAssertFalse(stored.isDeleted)
     }
 }

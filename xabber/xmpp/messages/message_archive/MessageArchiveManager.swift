@@ -126,6 +126,11 @@ class MessageArchiveManager: AbstractXMPPManager {
         let max: Int
     }
 
+    private struct ArchiveDateConstraint {
+        let start: Date?
+        let shouldSkipRequest: Bool
+    }
+
     static func newestBootstrapPageRequest(pageSize: Int) -> PageRequestConfiguration {
         PageRequestConfiguration(nextPage: "", prevPage: nil, max: pageSize)
     }
@@ -140,6 +145,23 @@ class MessageArchiveManager: AbstractXMPPManager {
 
     static func newerPageRequest(messageId: String, pageSize: Int) -> PageRequestConfiguration {
         PageRequestConfiguration(nextPage: nil, prevPage: messageId, max: pageSize)
+    }
+
+    static func getArchiveLowerBoundForConversation(
+        conversationType: ClientSynchronizationManager.ConversationType,
+        requestedFrom: Date?,
+        accountCreatedAt: Date?
+    ) -> Date? {
+        guard conversationType == .omemo,
+              let accountCreatedAt = accountCreatedAt else {
+            return requestedFrom
+        }
+
+        guard let requestedFrom = requestedFrom else {
+            return accountCreatedAt
+        }
+
+        return requestedFrom < accountCreatedAt ? accountCreatedAt : requestedFrom
     }
     
     struct GapItem: Hashable, Equatable {
@@ -238,6 +260,69 @@ class MessageArchiveManager: AbstractXMPPManager {
             callbacks.onMessage?(item, queryId)
             self.temporaryMessageReceiverDelegate?.didReceiveMessage(item, queryId: queryId)
         }
+    }
+
+    private func accountCreatedAtForArchiveLimit(conversationType: ClientSynchronizationManager.ConversationType) -> Date? {
+        guard conversationType == .omemo else {
+            return nil
+        }
+
+        do {
+            let realm = try WRealm.safe()
+            return realm.object(ofType: AccountStorageItem.self, forPrimaryKey: self.owner)?.createdAt
+        } catch {
+            DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    private func archiveDateConstraint(
+        conversationType: ClientSynchronizationManager.ConversationType,
+        requestedStart: Date?,
+        requestedEnd: Date?
+    ) -> ArchiveDateConstraint {
+        let accountCreatedAt = self.accountCreatedAtForArchiveLimit(conversationType: conversationType)
+        let effectiveStart = Self.getArchiveLowerBoundForConversation(
+            conversationType: conversationType,
+            requestedFrom: requestedStart,
+            accountCreatedAt: accountCreatedAt
+        )
+        let shouldSkipRequest: Bool
+        if conversationType == .omemo,
+           let accountCreatedAt = accountCreatedAt,
+           let requestedEnd = requestedEnd {
+            shouldSkipRequest = requestedEnd < accountCreatedAt
+        } else {
+            shouldSkipRequest = false
+        }
+
+        return ArchiveDateConstraint(
+            start: effectiveStart,
+            shouldSkipRequest: shouldSkipRequest
+        )
+    }
+
+    private func completeSkippedArchiveRequest(
+        queryId: String,
+        before: String?,
+        callback: (() -> Void)?,
+        requestCallbacks: RequestCallbacks
+    ) {
+        let pageEndState = MessageArchivePageEndState(
+            queryExhausted: true,
+            archiveEnded: true,
+            persistedMessageCount: 0,
+            requestCursorId: before
+        )
+        self.completeCallback(callback)
+        self.notifyDidReceiveEndPage(
+            requestCallbacks,
+            queryId: queryId,
+            state: pageEndState,
+            first: "",
+            last: "",
+            count: 0
+        )
     }
 
     private func makePageEndState(
@@ -559,6 +644,21 @@ class MessageArchiveManager: AbstractXMPPManager {
     internal func requestArchive(_ stream: XMPPStream, jid: String?, isContinues: Bool, conversationType: ClientSynchronizationManager.ConversationType, purpose: RequestPurpose, queryId: String? = nil, searchText: String? = nil, ids: [String]? = nil, flipPage: Bool = true, before: String? = nil, beforeId: String? = nil, afterId: String? = nil, start: Date? = nil, end: Date? = nil, nextPage: String? = nil, prevPage: String? = nil, max: Int? = nil, tags: [Tags] = [], withCounter: Bool = false, consumerManagesArchiveEnd: Bool = false, consumerManagesHistoryCursor: Bool = false, callback: (() -> Void)? = nil, requestCallbacks: RequestCallbacks = .none) {
         let isGroupchat = [.group, .channel].contains(conversationType)
         let elementId = queryId ?? "MAM: \(NanoID.new(8))"
+        let dateConstraint = self.archiveDateConstraint(
+            conversationType: conversationType,
+            requestedStart: start,
+            requestedEnd: end
+        )
+        guard !dateConstraint.shouldSkipRequest else {
+            self.completeSkippedArchiveRequest(
+                queryId: elementId,
+                before: before,
+                callback: callback,
+                requestCallbacks: requestCallbacks
+            )
+            return
+        }
+        let effectiveStart = dateConstraint.start
         let query = DDXMLElement(name: "query", xmlns: getPrimaryNamespace())
         query.addAttribute(withName: "queryid", stringValue: elementId)
         let x = DDXMLElement(name: "x", xmlns: "jabber:x:data")
@@ -582,7 +682,7 @@ class MessageArchiveManager: AbstractXMPPManager {
             afterIdElement.addChild(DDXMLElement(name: "value", stringValue: afterId))
             x.addChild(afterIdElement)
         }
-        if let start = start {
+        if let start = effectiveStart {
             let startElement = DDXMLElement(name: "field")
             startElement.addAttribute(withName: "var", stringValue: "start")
             startElement.addChild(DDXMLElement(name: "value", stringValue: start.XMPPFormattedDate))
@@ -673,7 +773,7 @@ class MessageArchiveManager: AbstractXMPPManager {
             ids: ids,
             beforeId: beforeId,
             afterId: afterId,
-            start: start,
+            start: effectiveStart,
             end: end,
             tags: tags,
             withCounter: withCounter
@@ -690,13 +790,13 @@ class MessageArchiveManager: AbstractXMPPManager {
                     messageId: before,
                     conversationType: conversationType,
                     isContinues: isContinues,
-                    maxDate: start,
+                    maxDate: effectiveStart,
                     searchText: searchText,
                     queryId: queryId,
                     afterId: afterId,
                     max: max ?? pageSize,
                     tags: tags,
-                    start: start,
+                    start: effectiveStart,
                     end: end,
                     purpose: purpose,
                     archiveEndEligibility: archiveEndEligibility,

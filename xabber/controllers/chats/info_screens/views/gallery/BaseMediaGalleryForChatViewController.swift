@@ -80,7 +80,7 @@ class BaseMediaGalleryForChatViewController: SimpleBaseViewController {
             let realm = try WRealm.safe()
             self.collectionObserver = realm
                 .objects(MessageMediaAttachmentStorageItem.self)
-                .filter("owner == %@ AND jid == %@ AND conversationType_ == %@ AND kind_ == %@", self.owner, self.jid, self.conversationType.rawValue, self.kind.rawValue)
+                .filter("owner == %@ AND jid == %@ AND conversationType_ == %@ AND kind_ == %@ AND isLocallyHiddenByReport == false", self.owner, self.jid, self.conversationType.rawValue, self.kind.rawValue)
                 .sorted(by: [SortDescriptor(keyPath: "date", ascending: false)])
         } catch {
             DDLogDebug("MediaGalleryForChatViewController: \(#function). \(error.localizedDescription)")
@@ -139,6 +139,35 @@ class BaseMediaGalleryForChatViewController: SimpleBaseViewController {
 
 
 extension BaseMediaGalleryForChatViewController: UICollectionViewDelegate {
+    func presentReportMedia(primary: String) {
+        let vc = AbuseReportViewController()
+        vc.configureMediaReport(
+            owner: self.owner,
+            jid: self.jid,
+            conversationType: self.conversationType,
+            mediaAttachmentPrimary: primary
+        )
+        showModal(vc, parent: self)
+    }
+
+    @available(iOS 13.0, *)
+    func collectionView(_ collectionView: UICollectionView, contextMenuConfigurationForItemAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
+        guard indexPath.row < datasource.count else {
+            return nil
+        }
+        let primary = datasource[indexPath.row].primary
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in
+            UIMenu(children: [
+                UIAction(
+                    title: "Report Media".localizeString(id: "report_media_action", arguments: []),
+                    image: UIImage(systemName: "exclamationmark.circle"),
+                    handler: { [weak self] _ in
+                        self?.presentReportMedia(primary: primary)
+                    }
+                )
+            ])
+        }
+    }
     
 }
 

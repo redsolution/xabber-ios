@@ -243,6 +243,18 @@ extension ContactInfoViewController: InfoScreenHeaderDelegate {
             DDLogDebug("ContactInfoViewController: \(#function). \(error.localizedDescription)")
         }
     }
+
+    internal func reportUser() {
+        let vc = AbuseReportViewController()
+        vc.configureUserReport(
+            owner: self.owner,
+            jid: self.jid,
+            reportedUserJid: self.jid,
+            roomJid: nil,
+            conversationType: self.conversationType
+        )
+        showModal(vc, parent: self)
+    }
     
     internal func onDelete() {
         do {

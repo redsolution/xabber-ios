@@ -81,6 +81,8 @@ extension ContactInfoViewController: UITableViewDelegate {
                     showFingerprints()
                 case "encrypted":
                     onStartEncryptedChat()
+                case "report_user":
+                    reportUser()
                 case "images":
                     let vc = PhotoGalleryForChatViewController()
                     vc.owner = self.owner

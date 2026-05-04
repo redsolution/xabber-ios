@@ -26,6 +26,9 @@ import RealmSwift
 extension Account {
     
     func restore() {
+        guard EULAAcceptance.hasAcceptedCurrentVersion() else {
+            return
+        }
 //        if self.xmppStream.isAuthenticated && self.xmppStream.isConnected {
 //            return
 //        }
@@ -63,6 +66,10 @@ extension Account {
             self.roster.request(self.xmppStream)
         }
         self.connectionGate.markOnline()
+        SubscribtionsManager.shared.checkXMPPAccountStateAfterConnection(
+            jid: self.jid,
+            connectionAttemptID: self.connectionGate.snapshot().activeAttemptID
+        )
         self.queue.asyncAfter(deadline: .now() + 0.2) {
             let phase = self.connectionGate.snapshot().phase
             guard phase == .online else {

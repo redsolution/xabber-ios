@@ -14,6 +14,7 @@ class CloudStorageDeleteViewController: CloudStorageShowFilesViewController {
     var dateOfLastFile: String? = nil
     var datasource: [[Datasource]] = []
     let percent: Int
+    private var capturedGalleryIdentity: String?
     
     let collectionView: UICollectionView = {
         let collection = UICollectionView(frame: .zero, collectionViewLayout: UICollectionViewLayout.init())
@@ -37,6 +38,13 @@ class CloudStorageDeleteViewController: CloudStorageShowFilesViewController {
     init(percent: Int, owner: String, items: [NSDictionary], totalPages: Int) {
         self.percent = percent
         super.init(owner: owner, items: items, totalPages: totalPages)
+        capturedGalleryIdentity = AccountGalleryConfiguration(owner: owner).currentGalleryIdentity
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(cloudStorageGalleryDidChange(_:)),
+            name: .cloudStorageGalleryDidChange,
+            object: nil
+        )
         
         spinner.startAnimating()
         view.addSubview(spinner)
@@ -46,6 +54,7 @@ class CloudStorageDeleteViewController: CloudStorageShowFilesViewController {
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
             if totalPages == 1 {
                 DispatchQueue.main.async {
+                    guard self.gallerySelectionIsCurrent() else { return }
                     self.spinner.removeFromSuperview()
                     self.spinner.stopAnimating()
                     self.configureCollections()
@@ -53,10 +62,12 @@ class CloudStorageDeleteViewController: CloudStorageShowFilesViewController {
             } else {
                 for page in 2..<totalPages + 1 {
                     user.cloudStorage.getFilesToDeleteByPercent(percent: percent, page: page) { items, totalObjects, objPerPage, pages in
+                        guard self.gallerySelectionIsCurrent() else { return }
                         if items.isEmpty {
                             return
                         }
                         DispatchQueue.main.async {
+                            guard self.gallerySelectionIsCurrent() else { return }
                             self.items += items
                             if page == pages {
                                 self.spinner.removeFromSuperview()
@@ -73,6 +84,22 @@ class CloudStorageDeleteViewController: CloudStorageShowFilesViewController {
     
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self, name: .cloudStorageGalleryDidChange, object: nil)
+    }
+
+    func gallerySelectionIsCurrent() -> Bool {
+        return capturedGalleryIdentity == AccountGalleryConfiguration(owner: owner).currentGalleryIdentity
+    }
+
+    @objc private func cloudStorageGalleryDidChange(_ notification: Notification) {
+        guard notification.userInfo?["jid"] as? String == owner else { return }
+        items.removeAll()
+        datasource.removeAll()
+        collectionView.reloadData()
+        navigationController?.popViewController(animated: true)
     }
     
     internal func configureCollections() {

@@ -120,6 +120,8 @@ extension GroupchatInfoViewController: UITableViewDelegate {
                     onInvite()
                 case "leave":
                     onLeave()
+                case "report_room":
+                    reportRoom()
                     
                 case "members":
                     let vc = GroupchatMembersListViewController()

@@ -84,11 +84,11 @@ extension VoIPManager: VoIPCallDelegate {
     }
 
     func VoIPCallEndCallAnswerElsewhere(_ call: VoIPCall) {
-        self.finishCurrentCall(reason: .answeredElsewhere, sendReject: false, shouldReportToCallKit: true)
+        self.finishCurrentCall(reason: .answeredElsewhere, trigger: .remoteEvent, shouldReportToCallKit: true)
     }
     
     func VoIPCallEndCallRejected(_ call: VoIPCall) {
-        self.finishCurrentCall(reason: .declinedElsewhere, sendReject: false, shouldReportToCallKit: true)
+        self.finishCurrentCall(reason: .declinedElsewhere, trigger: .remoteEvent, shouldReportToCallKit: true)
     }
     
     func VoIPCallDidChangeState(_ call: VoIPCall, to state: VoIPCall.State) {
@@ -104,7 +104,11 @@ extension VoIPManager: VoIPCallDelegate {
             context.confirmationTimeoutTask = nil
             if !call.outgoing && context.didReportIncomingCall {
                 context.phase = .ringing
-                self.scheduleIncomingTimeout(for: context)
+                if context.pendingAnswerRequested {
+                    self.startConfirmedIncomingAnswer(call: call, context: context, action: context.pendingAnswerAction)
+                } else {
+                    self.scheduleIncomingTimeout(for: context)
+                }
             }
         case .accepted:
             if call.outgoing {
@@ -140,14 +144,14 @@ extension VoIPManager: VoIPCallDelegate {
     }
    
     func VoIPCallDidExpired(_ call: VoIPCall) {
-        self.finishCurrentCall(reason: .signalingError, sendReject: false, shouldReportToCallKit: true)
+        self.finishCurrentCall(reason: .signalingError, trigger: .confirmationFailure, shouldReportToCallKit: true)
     }
    
     func VoIPCallDidHeld(_ call: VoIPCall) {}
    
     func VoIPCallDidEndWith(_ call: VoIPCall, error: Error?, byActiveStream: Bool) {
         let reason = terminationReasonFor(error: error)
-        self.finishCurrentCall(reason: reason, sendReject: false, shouldReportToCallKit: true)
+        self.finishCurrentCall(reason: reason, trigger: .connectionFailure, shouldReportToCallKit: true)
 
         if byActiveStream {
             DispatchQueue.main.async {
@@ -162,24 +166,24 @@ extension VoIPManager: VoIPCallDelegate {
         switch sessionDescription.type {
         case .offer:
             guard call.outgoing, context.remoteAcceptReceived else {
-                self.finishCurrentCall(reason: .signalingError, sendReject: false, shouldReportToCallKit: true)
+                self.finishCurrentCall(reason: .signalingError, trigger: .confirmationFailure, shouldReportToCallKit: true)
                 return
             }
             context.remoteOfferReceived = true
             self.webRTC?.set(remoteSdp: sessionDescription) { error in
                 if let error {
                     DDLogDebug(error.localizedDescription)
-                    self.finishCurrentCall(reason: .webRTCFailure, sendReject: false, shouldReportToCallKit: true)
+                    self.finishCurrentCall(reason: .webRTCFailure, trigger: .mediaFailure, shouldReportToCallKit: true)
                     return
                 }
                 self.webRTC?.answer { sdp, answerError in
                     if let answerError {
                         DDLogDebug(answerError.localizedDescription)
-                        self.finishCurrentCall(reason: .webRTCFailure, sendReject: false, shouldReportToCallKit: true)
+                        self.finishCurrentCall(reason: .webRTCFailure, trigger: .mediaFailure, shouldReportToCallKit: true)
                         return
                     }
                     guard let sdp else {
-                        self.finishCurrentCall(reason: .webRTCFailure, sendReject: false, shouldReportToCallKit: true)
+                        self.finishCurrentCall(reason: .webRTCFailure, trigger: .mediaFailure, shouldReportToCallKit: true)
                         return
                     }
                     context.phase = .connectingMedia
@@ -192,19 +196,19 @@ extension VoIPManager: VoIPCallDelegate {
             self.webRTC?.set(remoteSdp: sessionDescription) { error in
                 if let error {
                     DDLogDebug(error.localizedDescription)
-                    self.finishCurrentCall(reason: .webRTCFailure, sendReject: false, shouldReportToCallKit: true)
+                    self.finishCurrentCall(reason: .webRTCFailure, trigger: .mediaFailure, shouldReportToCallKit: true)
                 }
             }
                
         case .answer:
             guard !call.outgoing, context.localAnswerRequested else {
-                self.finishCurrentCall(reason: .signalingError, sendReject: false, shouldReportToCallKit: true)
+                self.finishCurrentCall(reason: .signalingError, trigger: .confirmationFailure, shouldReportToCallKit: true)
                 return
             }
             self.webRTC?.set(remoteSdp: sessionDescription) { error in
                 if let error {
                     DDLogDebug(error.localizedDescription)
-                    self.finishCurrentCall(reason: .webRTCFailure, sendReject: false, shouldReportToCallKit: true)
+                    self.finishCurrentCall(reason: .webRTCFailure, trigger: .mediaFailure, shouldReportToCallKit: true)
                     return
                 }
                 context.remoteAnswerReceived = true
@@ -253,6 +257,6 @@ extension VoIPManager: VoIPCallDelegate {
             isCarbon: isCarbon,
             fromCurrentDevice: fromCurrentDevice
         )
-        self.finishCurrentCall(reason: reason, sendReject: false, shouldReportToCallKit: true)
+        self.finishCurrentCall(reason: reason, trigger: .remoteEvent, shouldReportToCallKit: true)
     }
 }

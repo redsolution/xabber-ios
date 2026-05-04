@@ -30,44 +30,10 @@ var _DEBUG: Bool = true
 
 func getAppVersion() -> String {
     let dictionary = Bundle.main.infoDictionary!
-    let version = dictionary["CFBundleShortVersionString"] as! String
-    let build = dictionary["CFBundleVersion"] as! String
+    let version = dictionary["CFBundleShortVersionString"] as? String ?? "0"
+    let build = dictionary["CFBundleVersion"] as? String ?? "0"
     return "\(version).\(build)"
 }
-
-import UIKit
-
-
-class SceneDelegate: UIResponder, UIWindowSceneDelegate {
-    var window: UIWindow?
-    var splitController: UISplitViewController? = nil
-    var tabController: UITabBarController? = nil
-    var currentPresentedVc: UIViewController? = nil
-    
-    func scene(
-        _ scene: UIScene,
-        willConnectTo session: UISceneSession,
-        options connectionOptions: UIScene.ConnectionOptions
-    ) {
-        // Confirm the scene is a window scene in iOS or iPadOS.
-        guard let windowScene = scene as? UIWindowScene else { return }
-        
-        window = UIWindow(windowScene: windowScene)
-//        window?.rootViewController = YourRootViewController()
-        let appDelegate = UIApplication.shared.delegate as? AppDelegate
-        appDelegate?.window = window
-        window?.makeKeyAndVisible()
-        var userInfo: [AnyHashable: Any]? = nil
-        if let notificationResponse = connectionOptions.notificationResponse {
-            userInfo = notificationResponse.notification.request.content.userInfo
-        }
-        
-        AppDelegate.setupRootViewController(instance: appDelegate, window: window, userInfo: userInfo)
-        
-    }
-    
-}
-
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -108,7 +74,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     
     func application(_ application: UIApplication, willFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
 
-        realmMigrations(scheme: 2)
+        realmMigrations(scheme: 4)
         #if RELEASE
         _DEBUG = false
         DDLog.add(DDOSLogger.sharedInstance, with: DDLogLevel.all)
@@ -129,105 +95,16 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     
     
     static func setupRootViewController(instance: AppDelegate?, window: UIWindow?, userInfo: [AnyHashable: Any]?) {
-        if AccountManager.shared.emptyAccountsList() {
-            CredentialsManager.shared.clearKeyachain()
-            DispatchQueue.main.async {
-                AccountManager.shared.connectingUsers.accept(Set<String>())
-            }
-            let vc = OnboardingViewController()
-            
-            let navigationController = UINavigationController(rootViewController: vc)
-            
-            navigationController.isNavigationBarHidden = true
-            window?.rootViewController = navigationController
-        } else {
-            switch CommonConfigManager.shared.interfaceType {
-                case .split:
-                    let vc = UISplitViewController(style: .tripleColumn)
-//                    vc.displayModeButtonVisibility = .never
-                    if CommonConfigManager.shared.config.use_large_title {
-                        vc.navigationItem.largeTitleDisplayMode = .automatic
-                    } else {
-                        vc.navigationItem.largeTitleDisplayMode = .never
-                    }
-                    vc.navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
-                    vc.restorationIdentifier = "MainSplitViewController"
-                    vc.restoresFocusAfterTransition = true
-                    let chatsVc = LastChatsViewController()
-                    let primaryVc = LeftMenuViewController()
-                    let emptyChatVc = EmptyChatViewController()
-                    var chatViewController: ChatViewController? = nil
-                    print("USER INFO: \(userInfo)")
-                    if let jid = userInfo?["jid"] as? String,
-                       let owner = userInfo?["owner"] as? String {
-                        chatViewController = ChatViewController()
-                        chatViewController?.jid = jid
-                        chatViewController?.owner = owner
-                        chatViewController?.conversationType = .regular
-                    }
-                    chatsVc.leftMenuSelectRootCategoryDelegate = primaryVc
-                    primaryVc.chatsVc = chatsVc
-                    chatsVc.splitDelegate = emptyChatVc
-                    if CommonConfigManager.shared.config.use_large_title {
-                        chatsVc.navigationItem.largeTitleDisplayMode = .automatic
-                    } else {
-                        chatsVc.navigationItem.largeTitleDisplayMode = .never
-                    }
-                    chatsVc.navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
-                    vc.displayModeButtonVisibility = .never
-                    vc.preferredDisplayMode = .oneBesideSecondary//.oneBesideSecondary//.allVisible
-                    vc.preferredSplitBehavior = .displace//.tile
-                    vc.primaryBackgroundStyle = .sidebar
-                    
-                    vc.delegate = instance
-                    
-                    let chatsNvc = UINavigationController(rootViewController: chatsVc)
-                    if CommonConfigManager.shared.config.use_large_title {
-                        chatsNvc.navigationItem.largeTitleDisplayMode = .automatic
-                    } else {
-                        chatsNvc.navigationItem.largeTitleDisplayMode = .never
-                    }
-                    chatsNvc.navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
-                    vc.viewControllers = [
-                        primaryVc,
-                        chatsNvc,
-                        UINavigationController(rootViewController: chatViewController ?? emptyChatVc)
-                    ]
-                    instance?.window?.rootViewController = vc
-                    instance?.splitController = vc
-                    NotifyManager.shared.leftMenuDelegate = primaryVc
-                case .tabs:
-                    let vc = XabberTabBarViewController()
-                    vc.restorationIdentifier = "MainSplitViewController"
-                    vc.restoresFocusAfterTransition = true
-                    let chatsVc = LastChatsViewController()
-                    let contactsVc = ContactsViewController()
-                    let archivedVc = LastChatsViewController()
-                    archivedVc.filter.accept(.archived)
-                    let notificationsVc = NotificationsListViewController()
-                    let callsVc = LastCallsViewController()
-                    if CommonConfigManager.shared.config.support_calls {
-                        vc.viewControllers = [
-                            NavBarController(rootViewController: chatsVc),
-                            NavBarController(rootViewController: contactsVc),
-                            NavBarController(rootViewController: notificationsVc),
-                            NavBarController(rootViewController: archivedVc),
-                            NavBarController(rootViewController: callsVc),
-                        ]
-                    } else {
-                        vc.viewControllers = [
-                            NavBarController(rootViewController: chatsVc),
-                            NavBarController(rootViewController: contactsVc),
-                            NavBarController(rootViewController: notificationsVc),
-                            NavBarController(rootViewController: archivedVc),
-                        ]
-                    }
-                    window?.rootViewController = vc
-                    instance?.tabController = vc
-            }
-            
+        guard let window = window ?? instance?.window else {
+            return
         }
-        ApplicationStateManager.shared.runPincodeTask(animated: false, force: true)
+
+        if let active = AppRootCoordinator.active, active.window === window {
+            active.rebuildRoot(userInfo: userInfo)
+        } else {
+            let coordinator = AppRootCoordinator(window: window, appDelegate: instance)
+            coordinator.rebuildRoot(userInfo: userInfo)
+        }
     }
     
     var startUserInfo: NSDictionary = NSDictionary() {
@@ -246,9 +123,13 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         
 //        setupRootViewController()
         
-        AccountManager.shared.load(!self.isPushKit)
+        if EULAAcceptance.hasAcceptedCurrentVersion() {
+            AccountManager.shared.load(!self.isPushKit)
+        }
         ApplicationStateManager.shared.prepare()
-        CloudStorageQuotaRefreshCoordinator.shared.refreshAll(reason: .appLaunch)
+        if EULAAcceptance.hasAcceptedCurrentVersion() {
+            CloudStorageQuotaRefreshCoordinator.shared.refreshAll(reason: .appLaunch)
+        }
         
         self.getNotificationSettings()
         
@@ -266,7 +147,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                                                name: .newLanguageSelected,
                                                object: nil)
         
-        ApplicationStateManager.shared.runPincodeTask(animated: false, force: true)
+        if EULAAcceptance.hasAcceptedCurrentVersion() {
+            ApplicationStateManager.shared.runPincodeTask(animated: false, force: true)
+        }
         return true
     }
     
@@ -277,26 +160,24 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     
     func applicationWillResignActive(_ application: UIApplication) {
         DDLogError("resign")
+        guard AppRootCoordinator.active == nil else {
+            return
+        }
         addBlurredScreen()
-        AccountManager.shared.load()
+        if EULAAcceptance.hasAcceptedCurrentVersion() {
+            AccountManager.shared.load()
+        }
     }
 
     func addBlurredScreen() {
-        guard self.excludeBlur == false else { return }
-        guard self.blurEffectView == nil,
-           !ApplicationStateManager.shared.isPincodeShowed else {
-            return
-        }
-        let blurEffect = UIBlurEffect(style: UIBlurEffect.Style.light)
-        self.blurEffectView = UIVisualEffectView(effect: blurEffect)
-        if let blurEffectView =  self.blurEffectView, let window = window {
-            blurEffectView.frame = window.frame
-            window.addSubview(blurEffectView)
-        }
+        AppRootCoordinator.active?.addBlurredScreen()
     }
      
     func applicationDidEnterBackground(_ application: UIApplication) {
         DDLogError("enter background")
+        guard AppRootCoordinator.active == nil else {
+            return
+        }
         AccountManager.shared.users.forEach {
             user in
             user.xmppStream.asyncSocket.disconnect()
@@ -314,6 +195,13 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func applicationWillEnterForeground(_ application: UIApplication) {
         DDLogError("enter foreground")
+        guard AppRootCoordinator.active == nil else {
+            return
+        }
+        guard EULAAcceptance.hasAcceptedCurrentVersion() else {
+            Self.setupRootViewController(instance: self, window: window, userInfo: nil)
+            return
+        }
         AccountManager.shared.prepare()
         CloudStorageQuotaRefreshCoordinator.shared.refreshAll(reason: .foreground)
         NotifyManager.shared.setLastChats(displayed: true)
@@ -322,6 +210,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func applicationDidBecomeActive(_ application: UIApplication) {
         DDLogError("did become active")
+        guard AppRootCoordinator.active == nil else {
+            return
+        }
         removeBlurredScreen()
     }
      
@@ -336,8 +227,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
      }
     
      func removeBlurredScreen() {
-         self.blurEffectView?.removeFromSuperview()
-         self.blurEffectView = nil
+         AppRootCoordinator.active?.removeBlurredScreen()
      }
      
     func applicationWillTerminate(_ application: UIApplication) {
@@ -460,6 +350,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                      open url: URL,
                      options: [UIApplication.OpenURLOptionsKey : Any] = [:] ) -> Bool {
 
+        guard EULAAcceptance.hasAcceptedCurrentVersion() else {
+            Self.setupRootViewController(instance: self, window: window, userInfo: nil)
+            return false
+        }
 
         // Determine who sent the URL.
         let sendingAppID = options[.sourceApplication]

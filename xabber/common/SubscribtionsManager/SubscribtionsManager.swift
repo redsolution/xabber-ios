@@ -34,7 +34,7 @@ public struct SubscribtionsSecretStore: Codable {
     var uuid_ns: String
     var api_url: String
     var product_list: Array<String>
-    
+
     static var bundle: SubscribtionsSecretStore? {
         get {
             guard let path = Bundle.main.path(forResource: "subscribtions_secret", ofType: "plist"),
@@ -88,6 +88,39 @@ struct AccountProductEntitlement {
     let expires: Date
 }
 
+enum PremiumPurchasePreflightDecision: Equatable {
+    case proceed
+    case blockDuplicateActivePlan
+}
+
+struct PremiumGalleryAvailability: Equatable {
+    let isAvailable: Bool
+    let storageURL: String?
+    let metadata: AccountGalleryPremiumMetadata?
+
+    init(isAvailable: Bool, storageURL: String?, metadata: AccountGalleryPremiumMetadata? = nil) {
+        self.isAvailable = isAvailable
+        self.storageURL = storageURL
+        self.metadata = metadata
+    }
+}
+
+private struct XMPPAccountStateConnectionCheckKey: Hashable {
+    let jid: String
+    let connectionAttemptID: UInt64?
+}
+
+private struct ActivePremiumAccountProduct {
+    let item: [String: Any]
+    let productData: [String: Any]
+    let expires: Date
+}
+
+private struct PremiumGalleryAccountProductCandidate {
+    let storageURL: String?
+    let metadata: AccountGalleryPremiumMetadata?
+}
+
 struct SubscriptionPresentationState: Equatable {
     let activeProductId: String?
     let activeExpires: Date?
@@ -107,49 +140,51 @@ class SubscribtionsManager: NSObject {
         static func == (lhs: AppSubscribtions, rhs: AppSubscribtions) -> Bool {
             return lhs.product_id == rhs.product_id && lhs.uuid == rhs.uuid
         }
-        
+
         let product_id: String
         let expires: Date
         let uuid: UUID
-        
+
         func hash(into hasher: inout Hasher) {
             hasher.combine(product_id)
             hasher.combine(uuid.uuidString)
         }
     }
-    
+
     struct AccountSubscriptions: Hashable {
         static func == (lhs: AccountSubscriptions, rhs: AccountSubscriptions) -> Bool {
             return lhs.jid == rhs.jid
         }
-        
+
         let jid: String
         let date: Date
-        
+
         func hash(into hasher: inout Hasher) {
             hasher.combine(jid)
         }
     }
-    
+
     open class var shared: SubscribtionsManager {
         struct SubscribtionsManagerSingleton {
             static let instance = SubscribtionsManager()
         }
         return SubscribtionsManagerSingleton.instance
     }
-    
+
     enum AccountState: Equatable {
         case active
         case expired
         case trial
     }
-    
+
     open var subscribtionsList: Set<AppSubscribtions> = Set()
-    
+
     open var accounts: Set<AccountSubscriptions> = Set()
-    
+
     var products: [Product] = []
     var apiProduct: APIProduct? = nil
+    private let xmppAccountStateConnectionCheckLock = NSLock()
+    private var xmppAccountStateConnectionCheckKeys: Set<XMPPAccountStateConnectionCheckKey> = Set()
 
     override init() {
         super.init()
@@ -168,7 +203,7 @@ class SubscribtionsManager: NSObject {
             }
         }
     }
-    
+
     func remove(for owner: String, commitTransaction: Bool) {
         do {
             let realm = try WRealm.safe()
@@ -186,7 +221,7 @@ class SubscribtionsManager: NSObject {
             DDLogDebug("XMPPNotificationsManager: \(#function). \(error.localizedDescription)")
         }
     }
-    
+
     func prepare() {
         self.loadProductList()
         self.restoreSubscriptions()
@@ -197,6 +232,9 @@ class SubscribtionsManager: NSObject {
     }
 
     static func storeKitProductIdentifier(productId: String, priceId: String) -> String {
+        guard priceId.isNotEmpty else {
+            return productId
+        }
         guard productId.isNotEmpty else {
             return priceId
         }
@@ -204,6 +242,73 @@ class SubscribtionsManager: NSObject {
             return priceId
         }
         return "\(productId).\(priceId)"
+    }
+
+    static func normalizedPremiumPlanKey(for productId: String?) -> String? {
+        guard let productId else {
+            return nil
+        }
+
+        let normalized = productId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard normalized.isNotEmpty else {
+            return nil
+        }
+
+        let premiumPrefix = "\(premiumProductId)."
+        let planComponent: String
+        if normalized.hasPrefix(premiumPrefix) {
+            planComponent = String(normalized.dropFirst(premiumPrefix.count))
+        } else if normalized == premiumProductId {
+            planComponent = normalized
+        } else {
+            planComponent = normalized.components(separatedBy: ".").last ?? normalized
+        }
+
+        if planComponent.contains("year") || planComponent.contains("annual") {
+            return "yearly"
+        }
+        if planComponent.contains("month") {
+            return "monthly"
+        }
+        return normalized
+    }
+
+    static func isSamePremiumSubscriptionPlan(_ lhs: String?, _ rhs: String?) -> Bool {
+        guard let lhsKey = normalizedPremiumPlanKey(for: lhs),
+              let rhsKey = normalizedPremiumPlanKey(for: rhs) else {
+            return false
+        }
+        return lhsKey == rhsKey
+    }
+
+    static func premiumPlanRank(for productId: String?) -> Int {
+        switch normalizedPremiumPlanKey(for: productId) {
+        case "yearly":
+            return 2
+        case "monthly":
+            return 1
+        default:
+            return 0
+        }
+    }
+
+    func isDuplicateActivePremiumPurchase(targetProductId: String, jid: String?) -> Bool {
+        premiumPurchasePreflightDecision(targetProductId: targetProductId, jid: jid) == .blockDuplicateActivePlan
+    }
+
+    func premiumPurchasePreflightDecision(targetProductId: String, jid: String?) -> PremiumPurchasePreflightDecision {
+        guard let jid, jid.isNotEmpty else {
+            return .proceed
+        }
+        let activeProductId = subscriptionPresentationState(for: jid).activeProductId
+        return Self.isSamePremiumSubscriptionPlan(targetProductId, activeProductId) ? .blockDuplicateActivePlan : .proceed
+    }
+
+    static func accountProductsRequestParameters() -> Parameters {
+        [
+            "status": 2,
+            "product__group": "ios"
+        ]
     }
 
     static func storeKitProductIdentifiers(for product: APIProduct, fallbackIds: [String]) -> [String] {
@@ -415,36 +520,151 @@ class SubscribtionsManager: NSObject {
         return ""
     }
 
+    private static func activeIOSAccountProduct(from item: [String: Any], now: Date) -> ActivePremiumAccountProduct? {
+        guard accountProductStatusIsActive(item["status"]),
+              let productData = dictionary(from: item["product_data"]),
+              string(from: productData["group"])?.lowercased() == "ios",
+              nonEmptyString(from: productData["product_id"]) != nil,
+              let expiresString = nonEmptyString(from: item["expires"]),
+              let expires = Date.parseXMPPFormattedString(expiresString),
+              expires > now else {
+            return nil
+        }
+        if let quantity = int(from: item["quantity"]), quantity <= 0 {
+            return nil
+        }
+        return ActivePremiumAccountProduct(item: item, productData: productData, expires: expires)
+    }
+
     static func activePremiumAccountProducts(from value: Any, now: Date = Date()) -> [AccountProductEntitlement]? {
         guard let products = dictionaries(from: value) else {
             return nil
         }
 
         return products.compactMap { item in
-            guard accountProductStatusIsActive(item["status"]),
-                  let productData = dictionary(from: item["product_data"]),
-                  string(from: productData["group"]) == "ios",
-                  string(from: productData["product_id"]) == premiumProductId,
-                  let expiresString = nonEmptyString(from: item["expires"]),
-                  let expires = Date.parseXMPPFormattedString(expiresString),
-                  expires > now else {
+            guard let activeProduct = activeIOSAccountProduct(from: item, now: now),
+                  let productId = nonEmptyString(from: activeProduct.productData["product_id"]),
+                  let priceData = dictionary(from: item["price_data"]),
+                  let priceId = nonEmptyString(from: priceData["price_id"]) else {
                 return nil
             }
 
-            let priceData = dictionary(from: item["price_data"])
-            let priceId = nonEmptyString(from: priceData?["price_id"]) ?? ""
-            let storeKitProductId = storeKitProductIdentifier(productId: premiumProductId, priceId: priceId)
+            let storeKitProductId = storeKitProductIdentifier(productId: productId, priceId: priceId)
             guard storeKitProductId.isNotEmpty else {
                 return nil
             }
 
             return AccountProductEntitlement(
                 accountProductId: int(from: item["id"]) ?? 0,
-                productId: premiumProductId,
+                productId: productId,
                 storeKitProductId: storeKitProductId,
-                expires: expires
+                expires: activeProduct.expires
             )
         }
+    }
+
+    static func activePremiumGalleryAvailability(from value: Any, now: Date = Date()) -> PremiumGalleryAvailability? {
+        guard let products = dictionaries(from: value) else {
+            return nil
+        }
+
+        for item in products {
+            guard let activeProduct = activeIOSAccountProduct(from: item, now: now) else {
+                continue
+            }
+
+            if let candidate = topLevelPremiumGalleryCandidate(from: activeProduct)
+                ?? servicePremiumGalleryCandidate(from: activeProduct) {
+                return PremiumGalleryAvailability(
+                    isAvailable: true,
+                    storageURL: candidate.storageURL ?? AccountGalleryConfiguration.hardcodedPremiumGalleryURL,
+                    metadata: candidate.metadata
+                )
+            }
+        }
+
+        return PremiumGalleryAvailability(isAvailable: false, storageURL: nil)
+    }
+
+    private static func topLevelPremiumGalleryCandidate(from activeProduct: ActivePremiumAccountProduct) -> PremiumGalleryAccountProductCandidate? {
+        guard let attributes = dictionary(from: activeProduct.item["attributes"]),
+              hasStorageMetadata(attributes) else {
+            return nil
+        }
+
+        return PremiumGalleryAccountProductCandidate(
+            storageURL: validStorageURL(from: attributes),
+            metadata: premiumGalleryMetadata(
+                from: attributes,
+                productData: activeProduct.productData,
+                expires: activeProduct.expires
+            )
+        )
+    }
+
+    private static func servicePremiumGalleryCandidate(from activeProduct: ActivePremiumAccountProduct) -> PremiumGalleryAccountProductCandidate? {
+        let services = dictionaries(from: activeProduct.productData["services"])
+            ?? dictionaries(from: activeProduct.item["services"])
+            ?? []
+
+        for service in services {
+            guard string(from: service["service"])?.lowercased() == "gallery" else {
+                continue
+            }
+            let attributes = dictionary(from: service["attributes"]) ?? dictionary(from: activeProduct.item["attributes"])
+            return PremiumGalleryAccountProductCandidate(
+                storageURL: validStorageURL(from: attributes),
+                metadata: premiumGalleryMetadata(
+                    from: attributes,
+                    productData: activeProduct.productData,
+                    expires: activeProduct.expires
+                )
+            )
+        }
+        return nil
+    }
+
+    private static func hasStorageMetadata(_ attributes: [String: Any]) -> Bool {
+        return attributes["storage_url"] != nil
+            || attributes["storage"] != nil
+            || attributes["storage_description"] != nil
+            || attributes["storage_includes"] != nil
+            || attributes["message_retention"] != nil
+    }
+
+    private static func validStorageURL(from attributes: [String: Any]?) -> String? {
+        guard let rawStorageURL = nonEmptyString(from: attributes?["storage_url"]),
+              AccountGalleryConfiguration.normalizedBaseURLString(from: rawStorageURL) != nil else {
+            return nil
+        }
+        return rawStorageURL
+    }
+
+    private static func premiumGalleryMetadata(
+        from attributes: [String: Any]?,
+        productData: [String: Any],
+        expires: Date
+    ) -> AccountGalleryPremiumMetadata? {
+        guard let attributes = attributes else {
+            return nil
+        }
+
+        let metadata = AccountGalleryPremiumMetadata(
+            storageMegabytes: int(from: attributes["storage"]),
+            storageDescription: nonEmptyString(from: attributes["storage_description"]),
+            storageIncludes: stringArray(from: attributes["storage_includes"]) ?? [],
+            messageRetention: nonEmptyString(from: attributes["message_retention"]),
+            expires: expires,
+            displayName: nonEmptyString(from: productData["display_name"])
+        )
+
+        guard metadata.storageMegabytes != nil
+            || metadata.storageDescription != nil
+            || metadata.storageIncludes.isNotEmpty
+            || metadata.messageRetention != nil else {
+            return nil
+        }
+        return metadata
     }
 
     private static func accountProductStatusIsActive(_ value: Any?) -> Bool {
@@ -475,9 +695,9 @@ class SubscribtionsManager: NSObject {
             }
         }
     }
-    
-    
-    
+
+
+
     func getState(account jid: String) -> AccountState {
         if hasActiveSubsription(for: jid) {
             return .active
@@ -510,7 +730,7 @@ class SubscribtionsManager: NSObject {
             }
         }
     }
-    
+
     func fetchProducts(jid: String, completion: @escaping (SubscriptionCatalogFetchResult) -> Void) {
         guard let apiUrl = SubscribtionsSecretStore.bundle?.api_url else {
             let fallbackIds = SubscribtionsSecretStore.bundle?.product_list ?? []
@@ -600,14 +820,42 @@ class SubscribtionsManager: NSObject {
     }
 
     public final func updateXMPPAccountsState() {
-        if CommonConfigManager.shared.config.should_block_application_when_subscribtion_end {
-            AccountManager.shared.users.forEach {
-                user in
-                self.checkXMPPAccountState(jid: user.jid)
-            }
+        AccountManager.shared.users.forEach {
+            user in
+            self.checkXMPPAccountState(jid: user.jid)
         }
     }
-    
+
+    @discardableResult
+    func reserveXMPPAccountStateCheckAfterConnection(jid: String, connectionAttemptID: UInt64?) -> Bool {
+        let key = XMPPAccountStateConnectionCheckKey(jid: jid, connectionAttemptID: connectionAttemptID)
+        xmppAccountStateConnectionCheckLock.lock()
+        defer { xmppAccountStateConnectionCheckLock.unlock() }
+
+        guard !xmppAccountStateConnectionCheckKeys.contains(key) else {
+            return false
+        }
+        xmppAccountStateConnectionCheckKeys.insert(key)
+        return true
+    }
+
+    func resetXMPPAccountStateConnectionCheckReservations() {
+        xmppAccountStateConnectionCheckLock.lock()
+        xmppAccountStateConnectionCheckKeys.removeAll()
+        xmppAccountStateConnectionCheckLock.unlock()
+    }
+
+    @discardableResult
+    public final func checkXMPPAccountStateAfterConnection(jid: String, connectionAttemptID: UInt64?) -> Bool {
+        guard reserveXMPPAccountStateCheckAfterConnection(jid: jid, connectionAttemptID: connectionAttemptID) else {
+            DDLogDebug("skip duplicate subscription check jid=\(jid) attempt=\(connectionAttemptID.map(String.init) ?? "none")")
+            return false
+        }
+
+        checkXMPPAccountState(jid: jid)
+        return true
+    }
+
     public func checkXMPPAccountState(jid: String, retry: Int? = nil, callback: ((Bool) -> Void)? = nil) {
         guard let api_url = SubscribtionsSecretStore.bundle?.api_url else {
             callback?(hasActiveSubsription(for: jid))
@@ -618,41 +866,45 @@ class SubscribtionsManager: NSObject {
         var headers = HTTPHeaders(["Cache-Control": "no-cache"])
         if let token = XabberAccountManager.shared.token(for: jid) {
             headers.add(name: "Authorization", value: "Bearer \(token)")
-        }
-        AF
-            .request(
-                url,
-                method: .get,
-                parameters: [
-                    "product__group": "ios",
-                    "product__product_id": Self.premiumProductId
-                ],
-                encoding: URLEncoding.default,
-                headers: headers
-            ).responseJSON {
-                response in
-//                print(response)
-                if (response.response?.statusCode ?? 500) >= 301 {
-                    callback?(self.hasActiveSubsription(for: jid))
-                    return
-                }
-                switch response.result {
-                    case .success(let value):
-                        guard let activeProducts = Self.activePremiumAccountProducts(from: value) else {
-                            callback?(self.hasActiveSubsription(for: jid))
-                            return
-                        }
+            AF
+                .request(
+                    url,
+                    method: .get,
+                    parameters: Self.accountProductsRequestParameters(),
+                    encoding: URLEncoding.default,
+                    headers: headers
+                ).responseJSON { [weak self] response in
+                    guard let self = self else { return }
+                    //                print(response)
+                    if (response.response?.statusCode ?? 500) >= 301 {
+                        callback?(self.hasActiveSubsription(for: jid))
+                        return
+                    }
+                    switch response.result {
+                        case .success(let value):
+                            guard let isActive = self.reconcileAccountProductsRefresh(value, for: jid) else {
+                                callback?(self.hasActiveSubsription(for: jid))
+                                return
+                            }
+                            callback?(isActive)
 
-                        let reconciled = self.reconcileAccountProducts(activeProducts, for: jid)
-                        callback?(reconciled ? !activeProducts.isEmpty : self.hasActiveSubsription(for: jid))
-                        
-                case .failure(let error):
-                    DDLogDebug(error.localizedDescription)
-                    callback?(self.hasActiveSubsription(for: jid))
+                        case .failure(let error):
+                            DDLogDebug(error.localizedDescription)
+                            callback?(self.hasActiveSubsription(for: jid))
+                    }
                 }
+        } else {
+            guard retry == nil else {
+                callback?(hasActiveSubsription(for: jid))
+                return
             }
+            _ = XabberAccountManager.shared.requestToken(for: jid) { [weak self] _ in
+                guard let self = self else { return }
+                self.checkXMPPAccountState(jid: jid, retry: 1, callback: callback)
+            }
+        }
     }
-    
+
     // MARK: - Purchase
 
     public final func purchase(
@@ -661,11 +913,42 @@ class SubscribtionsManager: NSObject {
         jid: String? = nil,
         callback: ((Bool, Transaction?) -> Void)?
     ) {
+        if premiumPurchasePreflightDecision(targetProductId: id, jid: jid) == .blockDuplicateActivePlan {
+            DDLogDebug("SubscribtionsManager: skip duplicate active subscription purchase for \(id)")
+            callback?(false, nil)
+            return
+        }
+
         guard let product = self.products.first(where: { $0.id == id }) else {
             callback?(false, nil)
             return
         }
 
+        guard let purchaseJid = jid, purchaseJid.isNotEmpty else {
+            performStoreKitPurchase(product: product, accountUUID: accountUUID, jid: jid, callback: callback)
+            return
+        }
+
+        checkXMPPAccountState(jid: purchaseJid) { [weak self] _ in
+            guard let self = self else {
+                callback?(false, nil)
+                return
+            }
+            if self.premiumPurchasePreflightDecision(targetProductId: id, jid: purchaseJid) == .blockDuplicateActivePlan {
+                DDLogDebug("SubscribtionsManager: skip duplicate active subscription purchase after account-products preflight for \(id)")
+                callback?(false, nil)
+                return
+            }
+            self.performStoreKitPurchase(product: product, accountUUID: accountUUID, jid: purchaseJid, callback: callback)
+        }
+    }
+
+    private func performStoreKitPurchase(
+        product: Product,
+        accountUUID: String?,
+        jid: String?,
+        callback: ((Bool, Transaction?) -> Void)?
+    ) {
         var options: Set<Product.PurchaseOption> = []
         if let accountUUID = accountUUID, let uuid = UUID(uuidString: accountUUID) {
             options.insert(.appAccountToken(uuid))
@@ -794,7 +1077,7 @@ class SubscribtionsManager: NSObject {
             let normalizedScheduledProductId: String?
             if let scheduledProductId,
                scheduledProductId.isNotEmpty,
-               scheduledProductId != activeRow?.productId {
+               !Self.isSamePremiumSubscriptionPlan(scheduledProductId, activeRow?.productId) {
                 normalizedScheduledProductId = scheduledProductId
             } else {
                 normalizedScheduledProductId = nil
@@ -835,12 +1118,21 @@ class SubscribtionsManager: NSObject {
     }
 
     private func preferredActiveSubscriptionRow(in realm: Realm, for jid: String?) -> SubsriptionInfoRealmStorage? {
-        activeSubscriptionRows(in: realm, for: jid)
-            .sorted(by: [
-                SortDescriptor(keyPath: "purchaseDate", ascending: false),
-                SortDescriptor(keyPath: "expires", ascending: false),
-                SortDescriptor(keyPath: "transactionId", ascending: false),
-            ])
+        Array(activeSubscriptionRows(in: realm, for: jid))
+            .sorted { lhs, rhs in
+                let lhsRank = Self.premiumPlanRank(for: lhs.productId)
+                let rhsRank = Self.premiumPlanRank(for: rhs.productId)
+                if lhsRank != rhsRank {
+                    return lhsRank > rhsRank
+                }
+                if lhs.purchaseDate != rhs.purchaseDate {
+                    return lhs.purchaseDate > rhs.purchaseDate
+                }
+                if lhs.expires != rhs.expires {
+                    return lhs.expires > rhs.expires
+                }
+                return lhs.transactionId > rhs.transactionId
+            }
             .first
     }
 
@@ -890,6 +1182,26 @@ class SubscribtionsManager: NSObject {
     }
 
     @discardableResult
+    func reconcileAccountProductsRefresh(_ value: Any, for jid: String) -> Bool? {
+        guard let activeProducts = Self.activePremiumAccountProducts(from: value),
+              let galleryAvailability = Self.activePremiumGalleryAvailability(from: value) else {
+            return nil
+        }
+
+        guard activeProducts.isNotEmpty else {
+            return hasActiveSubsription(for: jid)
+        }
+
+        let reconciled = reconcileAccountProducts(activeProducts, for: jid)
+        AccountGalleryConfiguration(owner: jid).reconcilePremiumGalleryAvailability(
+            isAvailable: galleryAvailability.isAvailable,
+            storageURL: galleryAvailability.storageURL,
+            metadata: galleryAvailability.metadata
+        )
+        return reconciled ? true : hasActiveSubsription(for: jid)
+    }
+
+    @discardableResult
     func reconcileAccountProducts(_ activeProducts: [AccountProductEntitlement], for jid: String) -> Bool {
         do {
             let realm = try WRealm.safe()
@@ -923,7 +1235,7 @@ class SubscribtionsManager: NSObject {
             return false
         }
     }
-    
+
     @discardableResult
     func saveSubscriptionInfo(
         productId: String,
@@ -954,7 +1266,7 @@ class SubscribtionsManager: NSObject {
             return false
         }
     }
-    
+
     private func postPremiumEntitlementDidChange(for jid: String) {
         guard jid.isNotEmpty else { return }
         NotificationCenter.default.post(

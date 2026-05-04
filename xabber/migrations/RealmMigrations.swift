@@ -34,7 +34,40 @@ func realmMigrations(scheme: UInt64) {
         
         migrationBlock: {
             migration, oldSchemaVersion in
-            
+            if oldSchemaVersion < 4 {
+                migration.enumerateObjects(ofType: MessageStorageItem.className()) { _, newObject in
+                    newObject?["isLocallyHiddenByReport"] = false
+                    newObject?["localReportState"] = nil
+                    newObject?["lastReportedAt"] = nil
+                    newObject?["lastReportReason"] = nil
+                    newObject?["reportCount"] = 0
+                }
+                migration.enumerateObjects(ofType: MessageReferenceStorageItem.className()) { _, newObject in
+                    newObject?["isLocallyHiddenByReport"] = false
+                    newObject?["localReportState"] = nil
+                    newObject?["lastReportedAt"] = nil
+                    newObject?["lastReportReason"] = nil
+                    newObject?["reportCount"] = 0
+                }
+                migration.enumerateObjects(ofType: MessageMediaAttachmentStorageItem.className()) { _, newObject in
+                    newObject?["isLocallyHiddenByReport"] = false
+                    newObject?["localReportState"] = nil
+                    newObject?["lastReportedAt"] = nil
+                    newObject?["lastReportReason"] = nil
+                    newObject?["reportCount"] = 0
+                }
+                migration.enumerateObjects(ofType: XMPPAbuseReportStorageItem.className()) { _, newObject in
+                    newObject?["reportId"] = ""
+                    newObject?["createdAt"] = nil
+                    newObject?["targetType"] = ""
+                    newObject?["reason"] = ""
+                    newObject?["comment"] = nil
+                    newObject?["state"] = nil
+                    newObject?["includeMessageExcerpt"] = false
+                    newObject?["messageExcerpt"] = nil
+                    newObject?["payload"] = nil
+                }
+            }
         },
         deleteRealmIfMigrationNeeded: true) { total, used in
             let limit = 100 * 1024 * 1024

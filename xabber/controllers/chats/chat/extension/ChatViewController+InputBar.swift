@@ -81,7 +81,11 @@ extension ChatViewController {
                         picker.modalPresentationStyle = .overFullScreen
                         self.present(picker, animated: false, completion: nil)
 //                        UIApplication.shared.windows.last?.rootViewController?.present(picker, animated: false, completion: nil)
+                    } else {
+                        ToastPresenter().presentError(message: "File transfer is unavailable for this account.".localizeString(id: "media_picker_error_upload_unavailable", arguments: []))
                     }
+                } else {
+                    ToastPresenter().presentError(message: "Photo Library access is required to select images.".localizeString(id: "media_picker_error_photo_permission", arguments: []))
                 }
             }
         }

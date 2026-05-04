@@ -57,11 +57,26 @@ extension ChatViewController: ContextMenuDelegate {
                 self.editMessageId.accept(primary)
             case "report":
                 let vc = AbuseReportViewController()
-                vc.jid = self.jid
-                vc.owner = self.owner
-                vc.message = primary
-                vc.conversationType = self.conversationType
-                
+                vc.configureMessageReport(
+                    owner: self.owner,
+                    jid: self.jid,
+                    conversationType: self.conversationType,
+                    messagePrimary: primary
+                )
+                showModal(vc, parent: self)
+            case "report_media":
+                guard let referencePrimary = self.reportableMediaReferencePrimary(for: primary) else {
+                    ToastPresenter().presentError(message: "Internal error".localizeString(id: "message_manager_error_internal", arguments: []))
+                    return false
+                }
+                let vc = AbuseReportViewController()
+                vc.configureMediaReport(
+                    owner: self.owner,
+                    jid: self.jid,
+                    conversationType: self.conversationType,
+                    messagePrimary: primary,
+                    referencePrimary: referencePrimary
+                )
                 showModal(vc, parent: self)
             case "delete":
                 self.deleteMessages(forIds: Set([primary]))
@@ -454,22 +469,60 @@ extension ChatViewController: MessageCellDelegate {
         if self.blockInputFieldByTimeSignature.value  {
             onSignButtonTouchUpInside()
         } else {
-            do {
-                let realm = try WRealm.safe()
-                if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
-                    try realm.write {
-                        instance.state = .sending
-                        instance.messageError = nil
+            retryMessageSendAfterQuotaCheck(primary)
+        }
+    }
+
+    private func retryMessageSendAfterQuotaCheck(_ primary: String) {
+        if mediaQuotaCheckIsRequired(for: primary) {
+            CloudStorageQuotaRefreshCoordinator.shared.refresh(owner: self.owner, reason: .preUploadValidation, force: true) { [weak self] _ in
+                DispatchQueue.main.async {
+                    guard let self = self else { return }
+                    switch MediaUploadQuotaPolicy.currentAccess(jid: self.owner) {
+                    case .available:
+                        self.performRetryMessageSend(primary)
+                    case .premiumRequired:
+                        let didPresent = SubscribtionsPresenter().present(animated: true, owner: self.owner, parent: self)
+                        if !didPresent {
+                            ToastPresenter().presentError(message: "Premium is required to send images.".localizeString(id: "media_picker_error_premium_required", arguments: []))
+                        }
                     }
                 }
-                LastChats.updateErrorState(for: self.jid, owner: self.owner, conversationType: self.conversationType)
-            } catch {
-                DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
             }
-            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                user.messages.retrySending(item: primary)
-            })
+        } else {
+            performRetryMessageSend(primary)
         }
+    }
+
+    private func mediaQuotaCheckIsRequired(for primary: String) -> Bool {
+        do {
+            let realm = try WRealm.safe()
+            guard let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) else {
+                return false
+            }
+            return instance.references.contains { $0.kind == .media }
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private func performRetryMessageSend(_ primary: String) {
+        do {
+            let realm = try WRealm.safe()
+            if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
+                try realm.write {
+                    instance.state = .sending
+                    instance.messageError = nil
+                }
+            }
+            LastChats.updateErrorState(for: self.jid, owner: self.owner, conversationType: self.conversationType)
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        }
+        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+            user.messages.retrySending(item: primary)
+        })
     }
     
     private func deleteSendingMessage(_ primary: String) {
@@ -579,6 +632,7 @@ extension ChatViewController: MessageCellDelegate {
         }
         let item = datasource[indexPath.section]
         let primary = item.primary
+        let hasMedia = item.images.isNotEmpty || item.videos.isNotEmpty || item.files.isNotEmpty || item.audios.isNotEmpty
 //        CM.updateWindow(window: self.view)
         
         CM.currentMessagePrimary = primary
@@ -589,28 +643,53 @@ extension ChatViewController: MessageCellDelegate {
                 ContextMenuItemWithImage(title: "Delete", image: imageLiteral("trash")!, value: "delete_error", danger: true)
             ]]
         } else if item.isOutgoing {
-            CM.items = [[
+            var actions = [
                 ContextMenuItemWithImage(title: "Reply", image: imageLiteral("arrowshape.turn.up.backward")!, value: "reply", danger: false),
                 ContextMenuItemWithImage(title: "Forward", image: imageLiteral("arrowshape.turn.up.right")!, value: "forward", danger: false),
                 ContextMenuItemWithImage(title: "Copy", image: imageLiteral("doc.on.doc")!, value: "copy", danger: false),
                 ContextMenuItemWithImage(title: "Edit", image: imageLiteral("xabber.pencil.cap")!, value: "edit", danger: false),
-                ContextMenuItemWithImage(title: "Select", image: imageLiteral("checkmark.circle")!, value: "select", danger: false)
-            ],[
+                ContextMenuItemWithImage(title: "Select", image: imageLiteral("checkmark.circle")!, value: "select", danger: false),
+                ContextMenuItemWithImage(title: "Report Message".localizeString(id: "report_message_action", arguments: []), image: imageLiteral("exclamationmark.circle")!, value: "report", danger: false)
+            ]
+            if hasMedia {
+                actions.append(ContextMenuItemWithImage(title: "Report Media".localizeString(id: "report_media_action", arguments: []), image: imageLiteral("exclamationmark.circle")!, value: "report_media", danger: false))
+            }
+            CM.items = [actions, [
                 ContextMenuItemWithImage(title: "Delete", image: imageLiteral("trash")!, value: "delete", danger: true)
             ]]
         } else {
-            CM.items = [[
+            var actions = [
                 ContextMenuItemWithImage(title: "Reply", image: imageLiteral("arrowshape.turn.up.backward")!, value: "reply", danger: false),
                 ContextMenuItemWithImage(title: "Forward", image: imageLiteral("arrowshape.turn.up.right")!, value: "forward", danger: false),
                 ContextMenuItemWithImage(title: "Copy", image: imageLiteral("doc.on.doc")!, value: "copy", danger: false),
                 ContextMenuItemWithImage(title: "Select", image: imageLiteral("checkmark.circle")!, value: "select", danger: false),
-                ContextMenuItemWithImage(title: "Report", image: imageLiteral("exclamationmark.circle")!, value: "report", danger: false)
-            ],[
+                ContextMenuItemWithImage(title: "Report Message".localizeString(id: "report_message_action", arguments: []), image: imageLiteral("exclamationmark.circle")!, value: "report", danger: false)
+            ]
+            if hasMedia {
+                actions.append(ContextMenuItemWithImage(title: "Report Media".localizeString(id: "report_media_action", arguments: []), image: imageLiteral("exclamationmark.circle")!, value: "report_media", danger: false))
+            }
+            CM.items = [actions, [
                 ContextMenuItemWithImage(title: "Delete", image: imageLiteral("trash")!, value: "delete", danger: true)
             ]]
         }
         dismissKeyboard()
         CM.showMenu(viewTargeted: cell.contentView, delegate: self, animated: true)
+    }
+
+    private func reportableMediaReferencePrimary(for messagePrimary: String) -> String? {
+        do {
+            let realm = try WRealm.safe()
+            return realm
+                .object(ofType: MessageStorageItem.self, forPrimaryKey: messagePrimary)?
+                .references
+                .first(where: { reference in
+                    !reference.isLocallyHiddenByReport && [.media, .voice].contains(reference.kind)
+                })?
+                .primary
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            return nil
+        }
     }
     
     func onSwipe(cell: MessageCollectionViewCell) {

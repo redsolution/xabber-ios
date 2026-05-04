@@ -29,7 +29,7 @@ import CocoaLumberjack
 import SwiftUI
 
 class AccountInfoViewController: BaseViewController {
-    
+
     class Datasource {
         enum Kind {
             case text
@@ -38,14 +38,14 @@ class AccountInfoViewController: BaseViewController {
             case button
             case storage
         }
-        
+
         var kind: Kind
         var title: String
         var subtitle: String?
         var key: String?
-        
+
         var childs: [Datasource]
-        
+
         init(_ kind: Kind, title: String, subtitle: String? = nil, key: String? = nil, childs: [Datasource] = []) {
             self.kind = kind
             self.title = title
@@ -58,7 +58,7 @@ class AccountInfoViewController: BaseViewController {
             self.childs = childs
         }
     }
-    
+
     class TokensDatasource {
         enum Kind {
             case current
@@ -66,7 +66,7 @@ class AccountInfoViewController: BaseViewController {
             case button
             case text
         }
-        
+
         var kind: Kind
         var title: String
         var value: String
@@ -75,7 +75,7 @@ class AccountInfoViewController: BaseViewController {
         var editable: Bool
         var current: Bool
         var childs: [TokensDatasource]
-        
+
         init(_ kind: Kind, title: String, value: String = "", date: Date = Date(), status: ResourceStatus = .offline, current: Bool = false, editable: Bool, childs: [TokensDatasource] = []) {
             self.kind = kind
             self.title = title
@@ -87,67 +87,67 @@ class AccountInfoViewController: BaseViewController {
             self.childs = childs
         }
     }
-    
+
     open var isModal: Bool = false
-    
+
     var quota: String = ""
     var used: String = ""
-    
+
     internal let refreshControl: UIRefreshControl = {
         let view = UIRefreshControl()
-        
+
         return view
     }()
-    
+
     internal let headerView: InfoScreenHeaderView = {
         let view = InfoScreenHeaderView(frame: .zero)
-                
+
         return view
     }()
-    
+
     internal let tableView: UITableView = {
 //        let view = UITableView(frame: .zero, style: .grouped)
         let view = UITableView(frame: .zero, style: .insetGrouped)
-        
+
         view.translatesAutoresizingMaskIntoConstraints = false
         view.register(UITableViewCell.self, forCellReuseIdentifier: "ButtonCell")
         view.register(StatusInfoCell.self, forCellReuseIdentifier: StatusInfoCell.cellName)
         view.register(ResourceInfoCell.self, forCellReuseIdentifier: ResourceInfoCell.cellName)
         view.register(QuotaInfoCell.self, forCellReuseIdentifier: QuotaInfoCell.cellName)
-        
+
         view.register(DeviceInfoTableCell.self, forCellReuseIdentifier: DeviceInfoTableCell.cellName)
         view.register(ButtonTableViewCell.self, forCellReuseIdentifier: ButtonTableViewCell.cellName)
         view.register(CenterButtonTableViewCell.self, forCellReuseIdentifier: CenterButtonTableViewCell.cellName)
-        
+
         view.register(UITableViewCell.self, forCellReuseIdentifier: "SettingsItem")
         view.register(SettingsItemDetailViewController.SelectorCell.self, forCellReuseIdentifier: SettingsItemDetailViewController.SelectorCell.cellName)
-        
+
         return view
     }()
-    
+
     internal var bag: DisposeBag = DisposeBag()
-    
+
     internal var headerConstraintSet: NSLayoutConstraintSet? = nil
-    
+
     internal var tokensDatasource: [TokensDatasource] = []
     internal var account: AccountStorageItem = AccountStorageItem()
     internal var tokens: Results<DeviceStorageItem>? = nil
     internal var currentToken: String = ""
     internal var tokenInstance: DeviceStorageItem? = nil
-    
+
     //internal var settingsDatasource: [SettingsViewController.Datasource] = []
     //internal var datasource: [Datasource] = []
     internal var datasource: [SettingsViewController.Datasource] = []
     internal var resources: Results<ResourceStorageItem>? = nil
-    
+
     internal var sessionsCount: Int = 0
     internal var blockedContactsCount: Int = 0
     internal var groupchatInvitationsCount: Int = 0
-    
+
     internal var nickname: String = ""
-    
+
     internal var currentResource: String? = nil
-    
+
     func loadTokens() {
         do {
             let realm = try Realm()
@@ -159,7 +159,7 @@ class AccountInfoViewController: BaseViewController {
             DDLogDebug("cant load info about account \(jid)")
         }
     }
-    
+
     internal func updateTokensDatasorce() {
         tokensDatasource = [TokensDatasource(.current,
                                  title: "This device".localizeString(id: "settings_account__label_current_session", arguments: []),
@@ -178,13 +178,13 @@ class AccountInfoViewController: BaseViewController {
                        editable: false,
                        childs: []))
         }
-        
+
         tokensDatasource.append(TokensDatasource(.text,
                                                  title: " ",
                                                  editable: false,
                                                  childs: [TokensDatasource(.button, title: "Quit account".localizeString(id: "settings_account__button_quit_account", arguments: []), editable: false )]))
     }
-    
+
     internal func updateDatasource() {
         datasource = []
         var profileChilds = [
@@ -218,13 +218,13 @@ class AccountInfoViewController: BaseViewController {
                 SettingsViewController.Datasource(section: .accountSettings, title: "Devices", key: .accountSessions)
             ]))
     }
-    
-    
+
+
     internal func subscribe() {
         bag = DisposeBag()
         do {
             let realm = try WRealm.safe()
-            
+
             resources = realm
                 .objects(ResourceStorageItem.self)
                 .filter("owner == %@ AND jid == %@", jid, jid)
@@ -232,7 +232,7 @@ class AccountInfoViewController: BaseViewController {
                     SortDescriptor(keyPath: "isCurrentResourceForAccount", ascending: false),
                     SortDescriptor(keyPath: "timestamp", ascending: false)
                 ])
-            
+
             if tokens != nil {
                 Observable
                     .changeset(from: tokens!)
@@ -243,7 +243,7 @@ class AccountInfoViewController: BaseViewController {
                     })
                     .disposed(by: bag)
             }
-            
+
             Observable
                 .collection(from: realm
                     .objects(AccountStorageItem.self)
@@ -252,7 +252,7 @@ class AccountInfoViewController: BaseViewController {
                 .subscribe(onNext: { (results) in
                     if let item = results.first {
                         self.nickname = item.username
-                        
+
                         if item.enabled {
                             self.currentResource = item.resource?.resource
                         } else {
@@ -272,7 +272,7 @@ class AccountInfoViewController: BaseViewController {
                         self.nickname = XMPPJID(string: self.jid)?.user ?? self.jid
                     }
                 }).disposed(by: bag)
-            
+
             Observable
                 .collection(from: realm.objects(BlockStorageItem.self)
                     .filter("owner == %@", self.jid))
@@ -299,15 +299,15 @@ class AccountInfoViewController: BaseViewController {
         }
     }
 
-    
+
     internal func unsubscribe() {
         bag = DisposeBag()
     }
-    
+
     internal func activateConstraints() {
-        
+
     }
-    
+
     internal func configure() {
         self.navigationController?.isNavigationBarHidden = false
         self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
@@ -318,14 +318,14 @@ class AccountInfoViewController: BaseViewController {
         self.tableView.delegate = self
         self.tableView.dataSource = self
 
-        
+
         if self.isModal {
             navigationItem.setLeftBarButton(UIBarButtonItem(barButtonSystemItem: .cancel, target: self, action: #selector(dismissScreen)), animated: true)
         }
         self.refreshControl.addTarget(self, action: #selector(onRefresh), for: .valueChanged)
         self.tableView.refreshControl = refreshControl
     }
-    
+
     func headerViewConfig() {
         tableView.fillSuperviewWithOffset(top: -56, bottom: 0, left: 0, right: 0)
         tableView.delegate = self
@@ -333,13 +333,13 @@ class AccountInfoViewController: BaseViewController {
         self.headerView.delegate = self
         self.headerView.applyHeaderLayout(to: tableView, width: view.bounds.width)
     }
-    
+
     open func configureTokens(for jid: String) {
         self.jid =  jid
         self.loadTokens()
         self.updateTokensDatasorce()
     }
-    
+
     func navigationBarButtonsConfigure() {
         let qrCodeButton = UIBarButtonItem(image: imageLiteral( "qrcode")?.withRenderingMode(.alwaysTemplate),
                                        style: .done,
@@ -353,9 +353,9 @@ class AccountInfoViewController: BaseViewController {
             navigationItem.setRightBarButtonItems([qrCodeButton], animated: false)
         } else {
             navigationItem.setRightBarButtonItems([qrCodeButton, paletteButton], animated: false)
-        } 
+        }
     }
-    
+
     @objc
     internal func showAccountColorViewController() {
         let vc = AccountColorViewController()
@@ -363,19 +363,36 @@ class AccountInfoViewController: BaseViewController {
         vc.configure(for: jid)
         showModal(vc, parent: self)
     }
-    
+
     private func getQuota() {
         do {
             let realm = try WRealm.safe()
             guard let quotaItem = realm.object(ofType: AccountQuotaStorageItem.self,
-                                               forPrimaryKey: self.jid) else { return }
+                                               forPrimaryKey: self.jid),
+                  AccountGalleryConfiguration(owner: jid).cachedQuotaMatchesCurrentGallery() else {
+                self.quota = ""
+                self.used = ""
+                return
+            }
             self.quota = quotaItem.quota
             self.used = quotaItem.total
         } catch {
             DDLogDebug("AccountInfoViewController: \(#function). \(error.localizedDescription)")
         }
     }
-    
+
+    func cloudStorageDetailText() -> String {
+        let galleryConfiguration = AccountGalleryConfiguration(owner: jid)
+        let galleryTitle = galleryConfiguration.currentGalleryType.displayTitle
+        guard used.isNotEmpty, quota.isNotEmpty else {
+            if let planDisplayText = galleryConfiguration.currentGalleryPlanDisplayText {
+                return galleryTitle + " · " + planDisplayText
+            }
+            return galleryTitle + " · " + "Updating..."
+        }
+        return galleryTitle + " · " + used + " of ".localizeString(id: "of", arguments: []) + quota
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         configure()
@@ -384,17 +401,17 @@ class AccountInfoViewController: BaseViewController {
         self.navigationController?.isNavigationBarHidden = false
         navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
         navigationController?.navigationBar.shadowImage = nil
-        
+
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(reloadDatasource),
                                                name: .newMaskSelected,
                                                object: nil)
     }
-    
+
     override func reloadDatasource() {
         headerView.setMask()
     }
-    
+
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         self.headerViewConfig()
@@ -405,10 +422,10 @@ class AccountInfoViewController: BaseViewController {
         navigationController?.navigationBar.shadowImage = nil
         XMPPUIActionManager.shared.open(owner: self.jid)
         self.tableView.reloadData()
-        
-        
+
+
     }
-    
+
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
 //        navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
@@ -428,12 +445,12 @@ class AccountInfoViewController: BaseViewController {
             })
         }
     }
-    
+
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         unsubscribe()
     }
-    
+
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
 //        if !isModal {
@@ -442,18 +459,18 @@ class AccountInfoViewController: BaseViewController {
 //        }
 //        getAppTabBar()?.updateColor()
     }
-    
+
     override func didReceiveMemoryWarning() {
         super.didReceiveMemoryWarning()
     }
-    
+
     @objc
     internal func dismissScreen() {
         self.dismiss(animated: true, completion: nil)
     }
-    
+
     @objc
     internal func onRefresh(_ sender: AnyObject) {
-        
+
     }
 }

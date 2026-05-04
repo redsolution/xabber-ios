@@ -24,21 +24,21 @@ import CryptoSwift
 import XMPPFramework
 
 class ServerDiscoManager: AbstractXMPPManager {
-    
+
     static let clientName: String = CommonConfigManager.shared.config.app_name
-    
+
     var hasCachedFeatures: Bool = false
     var features: SynchronizedArray<String> = SynchronizedArray<String>()
-    
+
     var clientFeatures: [String] = []
-    
+
     override init(withOwner owner: String) {
         super.init(withOwner: owner)
         clientFeatures.append("http://jabber.org/protocol/disco#info")
         clientFeatures.append("http://jabber.org/protocol/disco#items")
 //        clientFeatures.append("http://jabber.org/protocol/caps")
     }
-    
+
     open func register(_ module: AbstractXMPPManager) {
         module.namespaces().forEach { feature in
             if !features.contains(feature) {
@@ -46,7 +46,7 @@ class ServerDiscoManager: AbstractXMPPManager {
             }
         }
     }
-    
+
     open func configure(_ xmppStream: XMPPStream) {
         if !self.loadFeatures() {
             self.requestFeatures(xmppStream)
@@ -56,8 +56,8 @@ class ServerDiscoManager: AbstractXMPPManager {
 //            AccountManager.shared.changeNewUserState(for: owner, to: .capsReceived([]))
         }
     }
-    
-    
+
+
     open func generateVer() -> String {
         let featuresList: String = clientFeatures.sorted().compactMap { (item) -> String? in
             if item.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return nil }
@@ -74,7 +74,7 @@ class ServerDiscoManager: AbstractXMPPManager {
 //            .sha1()
 //            .base64EncodedString()
     }
-    
+
     func requestFeatures(_ xmppStream: XMPPStream) {
         let elementId = xmppStream.generateUUID
         xmppStream.send(XMPPIQ(iqType: .get,
@@ -83,7 +83,7 @@ class ServerDiscoManager: AbstractXMPPManager {
                                child: DDXMLElement(name: "query", xmlns: "http://jabber.org/protocol/disco#info")))
         self.queryIds.insert(elementId)
     }
-    
+
     func requestItems(_ xmppStream: XMPPStream) {
         let elementId = xmppStream.generateUUID
         xmppStream.send(XMPPIQ(iqType: .get,
@@ -92,7 +92,7 @@ class ServerDiscoManager: AbstractXMPPManager {
                                child: DDXMLElement(name: "query", xmlns: "http://jabber.org/protocol/disco#items")))
         self.queryIds.insert(elementId)
     }
-    
+
     func checkItem(_ xmppStream: XMPPStream, in jid: String, node: String?) {
         let elementId = xmppStream.generateUUID
         let query = DDXMLElement(name: "query", xmlns: "http://jabber.org/protocol/disco#info")
@@ -102,7 +102,7 @@ class ServerDiscoManager: AbstractXMPPManager {
         xmppStream.send(XMPPIQ(iqType: .get, to: XMPPJID(string: jid), elementID: elementId, child: query))
         self.queryIds.insert(elementId)
     }
-    
+
     override func read(withIQ iq: XMPPIQ) -> Bool {
         switch true {
         case readIdentityRequest(withIQ: iq): return true
@@ -128,7 +128,7 @@ class ServerDiscoManager: AbstractXMPPManager {
             self.queryIds.contains(elementId)  else {
                 return false
         }
-        
+
         switch query.xmlns() ?? "none" {
         case "http://jabber.org/protocol/disco#info":
             if parseClientIdentity(iq: iq) {
@@ -141,12 +141,12 @@ class ServerDiscoManager: AbstractXMPPManager {
                     default: break
                 }
             }
-                
+
             if let identity = query.element(forName: "identity") {
                 let type = identity.attributeStringValue(forName: "type")
                 let category = identity.attributeStringValue(forName: "category")
                 let name = identity.attributeStringValue(forName: "name")
-                
+
                 if category == "client" {
                     return true
                 } else if type == "file" && category == "store" {
@@ -165,9 +165,9 @@ class ServerDiscoManager: AbstractXMPPManager {
 //                    return true
 //                }
             }
-            
+
             self.parseAndStoreUrls(query: query, nspace: "urn:xabber:http:url")
-                        
+
             let features = query.elements(forName: "feature")
             var caps: [String] = []
             features.forEach {
@@ -238,16 +238,16 @@ class ServerDiscoManager: AbstractXMPPManager {
 
     private func parseAndStoreUrls(query: DDXMLElement, nspace: String) {
         var xDictionary: [String : String] = [:]
-        
+
         for x in query.elements(forName: "x") {
-            
+
             xDictionary = [:]
             let fields = x.elements(forName: "field")
-            
+
             for field in fields {
-                
+
                 let fieldType = field.attributeStringValue(forName: "var")
-                
+
                 switch fieldType {
                     case "FORM_TYPE":
                         if let value = field.element(forName: "value"),
@@ -275,23 +275,25 @@ class ServerDiscoManager: AbstractXMPPManager {
             }
 
             if let namespace = xDictionary["namespace"], namespace == nspace {
-                
+
                 if let galleryURL = xDictionary["galleryURL"] {
-                    SettingManager.shared.saveItem(for: self.owner, scope: .xabberUploadManager, key: "node", value: galleryURL)
+                    let galleryConfiguration = AccountGalleryConfiguration(owner: self.owner)
+                    galleryConfiguration.storeBasicGalleryURL(galleryURL)
                     AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, _ in
-                        user.cloudStorage.node = galleryURL
+                        let currentURL = galleryConfiguration.currentGalleryURL?.absoluteString ?? galleryURL
+                        user.cloudStorage.node = currentURL
                         user.cloudStorage.enable()
-                        user.avatarUploader.node = galleryURL
+                        user.avatarUploader.node = currentURL
                     })
                 }
-                
+
                 if let productsUrl = xDictionary["productsUrl"] {
                     SettingManager.shared.saveItem(for: self.owner, scope: .products, key: "productsUrl", value: productsUrl)
                 }
             }
         }
     }
-    
+
     private func getNotificationServiceNode(_ query: DDXMLElement, jid: String) -> Bool {
         if let identity = query.element(forName: "identity"),
            identity.attributeStringValue(forName: "type") == "notification",
@@ -301,7 +303,7 @@ class ServerDiscoManager: AbstractXMPPManager {
         }
         return false
     }
-    
+
     private func getFavoritesServiceNode(_ query: DDXMLElement, jid: String)-> Bool {
         guard XMPPFavoritesManager.supportsService(query) else {
             return false
@@ -310,7 +312,7 @@ class ServerDiscoManager: AbstractXMPPManager {
         AccountManager.shared.find(for: self.owner)?.favorites.configure(for: jid)
         return true
     }
-    
+
     private func parseHTTPSettings(_ query: DDXMLElement, node: String) {
         var namespace: String = ""
         for feature in query.elements(forName: "feature") {
@@ -343,19 +345,19 @@ class ServerDiscoManager: AbstractXMPPManager {
         }
         self.saveHTTPSettings(node, namespace: namespace, max: Int(maxFileSize))
     }
-    
+
     private func saveHTTPSettings(_ node: String, namespace: String, max fileSize: Int) {
         if node.isEmpty { return }
         SettingManager.shared.saveItem(for: owner, scope: .httpUploader, key: "node", value: node)
         SettingManager.shared.saveItem(for: owner, scope: .httpUploader, key: "namespace", value: namespace)
         SettingManager.shared.saveItem(for: owner, scope: .httpUploader, key: "max_file_size", value: "\(fileSize)")
-        
+
         //If XabberUploadManager will implemet disco in future
 //        SettingManager.shared.saveItem(for: owner, scope: .xabberUploadManager, key: "node", value: node)
 //        SettingManager.shared.saveItem(for: owner, scope: .xabberUploadManager, key: "namespace", value: namespace)
 //        SettingManager.shared.saveItem(for: owner, scope: .xabberUploadManager, key: "max_file_size", value: "\(fileSize)")
     }
-    
+
     private func parseReliableMessageDeliverySettings(_ features: [DDXMLElement]) {
         if features.map({ //item in
             return $0.attributeStringValue(forName: "var")
@@ -363,8 +365,8 @@ class ServerDiscoManager: AbstractXMPPManager {
             saveReliableMessageDeliverySettings("https://xabber.com/protocol/delivery")
         }
     }
-    
-    
+
+
     private func parseMessagesDeleteRewriteSettings(_ features: [DDXMLElement]) {
         if features.map({ //item in
             return $0.attributeStringValue(forName: "var")
@@ -372,7 +374,7 @@ class ServerDiscoManager: AbstractXMPPManager {
             saveMessagesDeleteRewriteSettings("https://xabber.com/protocol/rewrite")
         }
     }
-    
+
     private func saveReliableMessageDeliverySettings(_ node: String) {
         SettingManager.shared.saveItem(for: owner,
                                            scope: .reliableMessageDelivery,
@@ -382,7 +384,7 @@ class ServerDiscoManager: AbstractXMPPManager {
             user.deliveryManager.checkAvailability()
         })
     }
-    
+
     private func saveMessagesDeleteRewriteSettings(_ node: String) {
         SettingManager.shared.saveItem(for: owner,
                                            scope: .messageDeleteRewrite,
@@ -392,7 +394,7 @@ class ServerDiscoManager: AbstractXMPPManager {
             user.msgDeleteManager.checkAvailability()
         })
     }
-    
+
     func loadFeatures() -> Bool {
         if SettingManager
             .shared
@@ -401,7 +403,7 @@ class ServerDiscoManager: AbstractXMPPManager {
             .isNotEmpty ?? false { return true}
         return false
     }
-    
+
 //    Identity block
     open func sendIdentity(_ xmppStream: XMPPStream, to jid: XMPPJID?, for elementId: String) {
         let query = DDXMLElement(name: "query", xmlns: "http://jabber.org/protocol/disco#info")
@@ -419,7 +421,7 @@ class ServerDiscoManager: AbstractXMPPManager {
         query.addChild(identity)
         xmppStream.send(XMPPIQ(iqType: .result, to: jid, elementID: elementId, child: query))
     }
-    
+
     func readIdentityRequest(withIQ iq: XMPPIQ) -> Bool {
         if iq.iqType == .get {
             if iq.element(forName: "query")?.xmlns() == "http://jabber.org/protocol/disco#info" {
@@ -433,7 +435,7 @@ class ServerDiscoManager: AbstractXMPPManager {
         }
         return false
     }
-    
+
     private func parseClientIdentity(iq: XMPPIQ) -> Bool {
         guard let from = iq.from,
             let resource = from.resource,
@@ -442,7 +444,7 @@ class ServerDiscoManager: AbstractXMPPManager {
             category == "client" else { return false }
         return true
     }
-    
+
     func requestIdentity(_ xmppStream: XMPPStream, by presence: XMPPPresence) {
         guard let jid = presence.from else {
             return
@@ -455,7 +457,7 @@ class ServerDiscoManager: AbstractXMPPManager {
         }
         requestIdentity(xmppStream, for: jid, node: [node, ver].joined(separator: "#"))
     }
-    
+
     func requestIdentity(_ xmppStream: XMPPStream, for jid: XMPPJID, node: String? = nil) {
         if isResourseCached(for: jid) { return }
         let elementId = xmppStream.generateUUID
@@ -468,7 +470,7 @@ class ServerDiscoManager: AbstractXMPPManager {
         xmppStream.send(iq)
         self.queryIds.insert(elementId)
     }
-    
+
     func requestIdentityForAllResources(_ xmppStream: XMPPStream, for jid: String) {
         do {
             let realm = try WRealm.safe()
@@ -481,7 +483,7 @@ class ServerDiscoManager: AbstractXMPPManager {
             DDLogDebug("cant get roster item for jid \(jid), account: \(self.owner) to build list of resources")
         }
     }
-    
+
     func parseClientFeatures(_ query: DDXMLElement?) -> ClientDiscoStorageItem {
         let item = ClientDiscoStorageItem()
         if query == nil { return item }
@@ -492,11 +494,11 @@ class ServerDiscoManager: AbstractXMPPManager {
         }
         return item
     }
-    
+
     static func remove(for owner: String, commitTransaction: Bool) {
-        
+
     }
-    
+
     func isResourseCached(for jid: XMPPJID) -> Bool {
         do {
             let realm = try WRealm.safe()
@@ -506,7 +508,7 @@ class ServerDiscoManager: AbstractXMPPManager {
         }
         return false
     }
-    
+
     func isAnyClient(has feature: String, jid: String) -> Bool {
         do {
             let realm = try WRealm.safe()

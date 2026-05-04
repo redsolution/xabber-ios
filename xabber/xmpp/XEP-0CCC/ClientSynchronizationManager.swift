@@ -1153,7 +1153,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
 //                    }
                 }
                 
-                if VoIPManager.shared.onReceiveMessage(messageElement, owner: self.owner, archivedDate: conversationDate, commitTransaction: false) {
+                if VoIPManager.shared.onReceiveMessage(messageElement, owner: self.owner, archivedDate: conversationDate, commitTransaction: false, realm: realm) {
                     return nil
                 }
                 if ((AccountManager.shared.find(for: self.owner)?.groupchats.readMessage(withMessage: messageElement as! XMPPMessage, commitTransaction: false)) ?? false) {

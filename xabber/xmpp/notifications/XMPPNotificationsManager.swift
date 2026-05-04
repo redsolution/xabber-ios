@@ -73,6 +73,38 @@ class XMPPNotificationsManager: AbstractXMPPManager {
         XMPPNotificationsManagerStorageItem.genPrimary(owner: self.owner)
     }
     
+    public final func formIQ(to: XMPPJID, child: DDXMLElement) -> DDXMLElement {
+        let elementId = "XEN: \(NanoID.new(9))"
+        let notify = DDXMLElement(name: "notify", xmlns: self.getPrimaryNamespace())
+        let notification = DDXMLElement(name: "notification", xmlns: self.getPrimaryNamespace())
+
+        let addresses = DDXMLElement(name: "addresses", xmlns: "http://jabber.org/protocol/address")
+        let toAddress = DDXMLElement(name: "address")
+        toAddress.addAttribute(withName: "type", stringValue: "to")
+        let targetJid = to.full.isEmpty ? to.bare : to.full
+        toAddress.addAttribute(withName: "jid", stringValue: targetJid)
+        addresses.addChild(toAddress)
+
+        if let originalFrom = child.attributeStringValue(forName: "from"), !originalFrom.isEmpty {
+            let originalFromAddress = DDXMLElement(name: "address")
+            originalFromAddress.addAttribute(withName: "type", stringValue: "ofrom")
+            originalFromAddress.addAttribute(withName: "jid", stringValue: originalFrom)
+            addresses.addChild(originalFromAddress)
+        }
+
+        let forwarded = DDXMLElement(name: "forwarded", xmlns: "urn:xmpp:forward:0")
+        if let forwardedChild = child.copy() as? DDXMLElement {
+            forwarded.addChild(forwardedChild)
+        }
+        notification.addChild(forwarded)
+        notify.addChild(notification)
+        notify.addChild(addresses)
+
+        let iq = XMPPIQ(iqType: .set, to: to, elementID: elementId, child: notify)
+
+        return iq
+    }
+
     private final func loadLocal() {
         do {
             let realm = try WRealm.safe()

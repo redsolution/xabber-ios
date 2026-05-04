@@ -23,6 +23,19 @@ import SignalProtocolObjC
 import RealmSwift
 import CocoaLumberjack
 
+enum XabberAxolotlStorageError: LocalizedError {
+    case localIdentityKeyPairUnavailable
+    case localKeyMaterialUnavailable
+    
+    var errorDescription: String? {
+        switch self {
+        case .localIdentityKeyPairUnavailable:
+            return "Local OMEMO identity key pair is unavailable"
+        case .localKeyMaterialUnavailable:
+            return "Local OMEMO key material is unavailable"
+        }
+    }
+}
 
 //SignalSessionStore,
 //SignalPreKeyStore,
@@ -55,10 +68,14 @@ class XabberAxolotlStorage: NSObject, SignalStore {
     public func create(for deviceId: Int, context: SignalContext) throws {
         let realm = try WRealm.safe()
         if let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: deviceId)) {
+            self.deviceId = instance.deviceId
+            guard hasLocalIdentityKeyPair(), getLocalRegistrationId() != 0 else {
+                throw XabberAxolotlStorageError.localIdentityKeyPairUnavailable
+            }
             return
         }
         self.deviceId = deviceId
-        CredentialsManager.shared.setRegistrationId(Int(arc4random() % 16380), for: self.owner)
+        CredentialsManager.shared.setRegistrationId(Int(arc4random_uniform(XabberAxolotlStorage.deviceIdLimit - 1) + 1), for: self.owner)
         CredentialsManager.shared.setDeviceId(self.deviceId, for: owner)
         let keyHelper = SignalKeyHelper(context: context)!
         let instance = SignalIdentityStorageItem()
@@ -85,7 +102,7 @@ class XabberAxolotlStorage: NSObject, SignalStore {
         instance.identityKey = identityKey.publicKey.base64EncodedString()
         instance.signedPreKey = signedPreKey.keyPair!.publicKey.base64EncodedString()
         instance.signedPreKeySignature = signature.base64EncodedString()
-        instance.signedPreKeyId = Int(preKeys.first?.preKeyId ?? arc4random() % 16380)
+        instance.signedPreKeyId = Int(signedPreKey.preKeyId)
         
         try realm.write {
             realm.add(instance)
@@ -93,7 +110,9 @@ class XabberAxolotlStorage: NSObject, SignalStore {
         try preKeys.forEach {
             preKey in
             if let data = preKey.serializedData() {
-                _ = self.storePreKey(data, preKeyId: preKey.preKeyId)
+                guard self.storePreKey(data, preKeyId: preKey.preKeyId) else {
+                    throw XabberAxolotlStorageError.localKeyMaterialUnavailable
+                }
             }
             let instance = SignalPreKeysStorageItem()
             instance.owner = self.owner
@@ -115,9 +134,13 @@ class XabberAxolotlStorage: NSObject, SignalStore {
             publicKey: identityKey.publicKey,
             privateKey: identityKey.privateKey
         )
+        guard hasLocalIdentityKeyPair(), getLocalRegistrationId() != 0 else {
+            throw XabberAxolotlStorageError.localIdentityKeyPairUnavailable
+        }
         
-        if let data = signedPreKey.serializedData() {
-            _ = self.storeSignedPreKey(data, signedPreKeyId: signedPreKey.preKeyId)
+        guard let signedPreKeyData = signedPreKey.serializedData(),
+              self.storeSignedPreKey(signedPreKeyData, signedPreKeyId: signedPreKey.preKeyId) else {
+            throw XabberAxolotlStorageError.localKeyMaterialUnavailable
         }
         let deviceInstance: SignalDeviceStorageItem = SignalDeviceStorageItem()
         deviceInstance.name = [[UIDevice.modelName, ","].joined(),  "iOS", UIDevice.current.systemVersion].joined(separator: " ")
@@ -137,6 +160,18 @@ class XabberAxolotlStorage: NSObject, SignalStore {
     
     func localDeviceId() -> Int {
         return self.deviceId
+    }
+    
+    func hasLocalIdentityKeyPair() -> Bool {
+        return localIdentityKeyPair() != nil
+    }
+    
+    private func localIdentityKeyPair() -> SignalIdentityKeyPair? {
+        guard let publicKey = CredentialsManager.shared.getIdentityKeyPublicKey(for: self.owner),
+              let privateKey = CredentialsManager.shared.getIdentityKeyPrivateKey(for: self.owner) else {
+            return nil
+        }
+        return try? SignalIdentityKeyPair(publicKey: publicKey, privateKey: privateKey)
     }
 }
 extension XabberAxolotlStorage: SignalSessionStore {
@@ -279,7 +314,7 @@ extension XabberAxolotlStorage: SignalPreKeyStore {
     
     func storePreKey(_ preKey: Data, preKeyId: UInt32) -> Bool {
         CredentialsManager.shared.setPreKey(for: self.owner, id: Int(preKeyId), key: preKey)
-        return true
+        return containsPreKey(withId: preKeyId)
     }
     
     func containsPreKey(withId preKeyId: UInt32) -> Bool {
@@ -301,7 +336,7 @@ extension XabberAxolotlStorage: SignalSignedPreKeyStore {
     
     func storeSignedPreKey(_ signedPreKey: Data, signedPreKeyId: UInt32) -> Bool {
         CredentialsManager.shared.setSignedPreKey(for: self.owner, id: Int(signedPreKeyId), key: signedPreKey)
-        return true
+        return containsSignedPreKey(withId: signedPreKeyId)
     }
     
     func containsSignedPreKey(withId signedPreKeyId: UInt32) -> Bool {
@@ -318,10 +353,9 @@ extension XabberAxolotlStorage: SignalSignedPreKeyStore {
 extension XabberAxolotlStorage: SignalIdentityKeyStore {
     
     func getIdentityKeyPair() -> SignalIdentityKeyPair {
-        guard let publicKey = CredentialsManager.shared.getIdentityKeyPublicKey(for: self.owner),
-              let privateKey = CredentialsManager.shared.getIdentityKeyPrivateKey(for: self.owner),
-              let keyPair = try? SignalIdentityKeyPair(publicKey: publicKey, privateKey: privateKey) else {
-            fatalError()
+        guard let keyPair = localIdentityKeyPair() else {
+            DDLogError("XabberAxolotlStorage: local OMEMO identity key pair is unavailable")
+            preconditionFailure("Local OMEMO identity key pair is unavailable")
         }
         return keyPair
     }
@@ -333,6 +367,12 @@ extension XabberAxolotlStorage: SignalIdentityKeyStore {
     func saveIdentity(_ address: SignalAddress, identityKey: Data?) -> Bool {
         do {
             let realm = try WRealm.safe()
+            if let identityKey = identityKey,
+               let storedIdentity = storedIdentity(for: address, in: realm),
+               storedIdentity != identityKey {
+                markIdentityChanged(address: address, newIdentityKey: identityKey, in: realm)
+                return false
+            }
             let instance = SignalTrustedIdentityStoreageItem()
             instance.owner = self.owner
             instance.jid = address.name
@@ -356,15 +396,79 @@ extension XabberAxolotlStorage: SignalIdentityKeyStore {
     }
     
     func isTrustedIdentity(_ address: SignalAddress, identityKey: Data) -> Bool {
-        return true
-//        do {
-//            let realm = try WRealm.safe()
-//            return realm.object(ofType: SignalTrustedIdentityStoreageItem.self, forPrimaryKey: SignalTrustedIdentityStoreageItem.genPrimary(self.owner, for: address)) != nil
-//        } catch {
-//            DDLogDebug("XabberAxolotlStorage: \(#function). \(error.localizedDescription)")
-//        }
+        do {
+            let realm = try WRealm.safe()
+            guard let storedIdentity = storedIdentity(for: address, in: realm) else {
+                return true
+            }
+            if storedIdentity == identityKey {
+                return true
+            }
+            markIdentityChanged(address: address, newIdentityKey: identityKey, in: realm)
+        } catch {
+            DDLogDebug("XabberAxolotlStorage: \(#function). \(error.localizedDescription)")
+        }
+        return false
     }
     
+    private func storedIdentity(for address: SignalAddress, in realm: Realm) -> Data? {
+        if let trustedIdentity = realm.object(
+            ofType: SignalTrustedIdentityStoreageItem.self,
+            forPrimaryKey: SignalTrustedIdentityStoreageItem.genPrimary(self.owner, for: address)
+        )?.identity {
+            return trustedIdentity
+        }
+        
+        guard let storedBundle = realm.object(
+            ofType: SignalIdentityStorageItem.self,
+            forPrimaryKey: SignalIdentityStorageItem.genRpimary(
+                owner: self.owner,
+                jid: address.name,
+                deviceId: Int(address.deviceId)
+            )
+        )?.identityKey else {
+            return nil
+        }
+        
+        return Data(base64Encoded: storedBundle, options: .ignoreUnknownCharacters)
+    }
+    
+    private func markIdentityChanged(address: SignalAddress, newIdentityKey: Data, in realm: Realm) {
+        do {
+            let devicePrimary = SignalDeviceStorageItem.genPrimary(
+                owner: self.owner,
+                jid: address.name,
+                deviceId: Int(address.deviceId)
+            )
+            let sessionPrimary = SessionRecordStorageItem.genPrimary(self.owner, for: address)
+            let trustedPrimary = SignalTrustedIdentityStoreageItem.genPrimary(self.owner, for: address)
+            
+            try realm.write {
+                if let device = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: devicePrimary),
+                   !device.isInvalidated {
+                    device.state = .fingerprintChanged
+                    device.fingerprint = newIdentityKey.formattedFingerprint()
+                    device.trustDate = Date(timeIntervalSince1970: -1)
+                    device.trustedByDeviceId = nil
+                    device.isTrustedByCertificate = false
+                    device.signedAt = -1
+                    device.signedBy = nil
+                }
+                
+                if let session = realm.object(ofType: SessionRecordStorageItem.self, forPrimaryKey: sessionPrimary),
+                   !session.isInvalidated {
+                    realm.delete(session)
+                }
+                
+                if let trusted = realm.object(ofType: SignalTrustedIdentityStoreageItem.self, forPrimaryKey: trustedPrimary),
+                   !trusted.isInvalidated {
+                    realm.delete(trusted)
+                }
+            }
+        } catch {
+            DDLogDebug("XabberAxolotlStorage: \(#function). \(error.localizedDescription)")
+        }
+    }
 }
 
 

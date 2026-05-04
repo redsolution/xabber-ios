@@ -45,6 +45,7 @@ class SignalDeviceStorageItem: Object {
     @objc dynamic var updateDate: Date = Date()
     @objc dynamic var trustDate: Date = Date(timeIntervalSince1970: -1)
     @objc dynamic var lastTrustedItemsUpdateTimestamp: String = ""
+    @objc dynamic var lastTrustSharingTimestamp: Int64 = 0
     @objc dynamic var trustedByDeviceId: String? = nil
     @objc dynamic var fingerprint: String = ""
     @objc dynamic var freshlyUpdated: Bool = false

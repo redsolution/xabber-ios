@@ -217,6 +217,9 @@ extension ContactInfoViewController: UITableViewDataSource {
 //    }
     
     func tableView(_ tableView: UITableView, viewForFooterInSection section: Int) -> UIView? {
+        if datasource.isEmpty {
+            return nil
+        }
         if datasource[section].key == "about_section" {
 //            let label = UILabel()
             let button = UIButton()

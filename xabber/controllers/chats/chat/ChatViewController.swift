@@ -857,6 +857,17 @@ class ChatViewController: MessagesViewController {
             return upperSlotY(lowerSlotY: lowerSlot, controlHeight: mentionHeight)
         }
     }
+
+    internal enum ScrollDownButtonStartupVisibilityPolicy {
+        static let suppressionInterval: TimeInterval = 2.0
+
+        static func isSuppressed(now: Date = Date(), until suppressedUntil: Date?) -> Bool {
+            guard let suppressedUntil else {
+                return false
+            }
+            return now < suppressedUntil
+        }
+    }
     
     internal let scrollDownButton: UIButton = {
         let button = UIButton(frame: CGRect(square: 38))
@@ -867,9 +878,14 @@ class ChatViewController: MessagesViewController {
         button.backgroundColor = .systemGroupedBackground
         
         button.setImage(imageLiteral("chevron.down"), for: .normal)
+        button.isHidden = true
+        button.isUserInteractionEnabled = false
         
         return button
     }()
+    private var hasPositionedScrollDownButton = false
+    private var scrollDownButtonVisibilitySuppressedUntil: Date? = nil
+    private var scrollDownButtonVisibilitySuppressionWorkItem: DispatchWorkItem? = nil
 
     internal let unreadMentionsNavigatorView: UnreadMentionsNavigatorView = {
         let view = UnreadMentionsNavigatorView(frame: .zero)
@@ -955,6 +971,30 @@ class ChatViewController: MessagesViewController {
         self.scrollToLastOrUnreadItem()
     }
 
+    internal func suppressScrollDownButtonVisibilityAfterAppearance() {
+        self.scrollDownButtonVisibilitySuppressionWorkItem?.cancel()
+
+        let suppressedUntil = Date().addingTimeInterval(ScrollDownButtonStartupVisibilityPolicy.suppressionInterval)
+        self.scrollDownButtonVisibilitySuppressedUntil = suppressedUntil
+        self.scrollDownButton.isHidden = true
+        self.scrollDownButton.isUserInteractionEnabled = false
+        self.updateScrollDownButtonFrame(animated: false)
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else {
+                return
+            }
+            self.scrollDownButtonVisibilitySuppressedUntil = nil
+            self.scrollDownButtonVisibilitySuppressionWorkItem = nil
+            self.updateScrollDownButtonFrame(animated: true)
+        }
+        self.scrollDownButtonVisibilitySuppressionWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + ScrollDownButtonStartupVisibilityPolicy.suppressionInterval,
+            execute: workItem
+        )
+    }
+
     internal func floatingControlsInputHeight() -> CGFloat {
         var inputHeight: CGFloat = 49
         if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
@@ -998,21 +1038,41 @@ class ChatViewController: MessagesViewController {
     }
 
     internal func updateScrollDownButtonFrame(animated: Bool) {
-        let shouldShowButton = ChatUnreadMentionFloatingControlPolicy.shouldShowScrollDownButton(
+        let requestedShowButton = ChatUnreadMentionFloatingControlPolicy.shouldShowScrollDownButton(
             requested: self.shouldShowScrollDownButton.value,
             navigatorVisible: self.shouldShowUnreadMentionsNavigator.value
         )
+        let isVisibilitySuppressed = ScrollDownButtonStartupVisibilityPolicy.isSuppressed(
+            until: self.scrollDownButtonVisibilitySuppressedUntil
+        )
+        let shouldShowButton = requestedShowButton && !isVisibilitySuppressed
+
+        guard self.view.bounds.width > 0, self.view.bounds.height > 0 else {
+            self.hasPositionedScrollDownButton = false
+            self.scrollDownButton.isHidden = true
+            self.scrollDownButton.isUserInteractionEnabled = false
+            return
+        }
+
         let frame = shouldShowButton ? self.scrollDownButtonVisibleFrame() : self.scrollDownButtonHiddenFrame()
+        let shouldAnimate = animated && self.hasPositionedScrollDownButton && !isVisibilitySuppressed
         let updates = {
             self.scrollDownButton.frame = frame
         }
 
-        if animated {
+        self.hasPositionedScrollDownButton = true
+        self.scrollDownButton.isUserInteractionEnabled = shouldShowButton
+
+        if shouldAnimate {
+            self.scrollDownButton.isHidden = false
             UIView.animate(withDuration: 0.33, delay: 0.0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0.8, options: [.curveEaseIn]) {
                 updates()
+            } completion: { _ in
+                self.scrollDownButton.isHidden = !shouldShowButton
             }
         } else {
             updates()
+            self.scrollDownButton.isHidden = !shouldShowButton
         }
     }
 
@@ -2243,6 +2303,7 @@ class ChatViewController: MessagesViewController {
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        self.suppressScrollDownButtonVisibilityAfterAppearance()
         self.hasCompletedInitialHistoryViewAppearance = true
         self.finishInitialHistoryAppearanceIfPossible()
         self.performPendingOpenMessageRequestIfNeeded()

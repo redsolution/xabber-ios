@@ -20,6 +20,7 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
     var deleteSelectedFilesButton: UIBarButtonItem? = nil
     var infoVCDelegate: InfoVCDelegate? = nil
     var isSelectModeEnabled: Bool = false
+    private var capturedGalleryIdentity: String?
     let impactFeedbackGenerator: UIImpactFeedbackGenerator
     
     @objc func optionButtonTapped() {
@@ -143,11 +144,40 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
         impactFeedbackGenerator = UIImpactFeedbackGenerator(style: .rigid)
         self.selectedType = selectedType
         super.init(owner: owner)
+        capturedGalleryIdentity = AccountGalleryConfiguration(owner: owner).currentGalleryIdentity
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(cloudStorageGalleryDidChange(_:)),
+            name: .cloudStorageGalleryDidChange,
+            object: nil
+        )
+        loadFiles()
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self, name: .cloudStorageGalleryDidChange, object: nil)
+    }
+
+    private func gallerySelectionIsCurrent() -> Bool {
+        return capturedGalleryIdentity == AccountGalleryConfiguration(owner: owner).currentGalleryIdentity
+    }
+
+    @objc private func cloudStorageGalleryDidChange(_ notification: Notification) {
+        guard notification.userInfo?["jid"] as? String == owner else { return }
+        items.removeAll()
+        datasource.removeAll()
+        collectionView.reloadData()
+        navigationController?.popViewController(animated: true)
+    }
+
+    private func loadFiles() {
         AccountManager.shared.find(for: self.owner)?.action({ user, _ in
             if self.selectedType == .avatar {
                 user.cloudStorage.getAvatars(page: 1) { items, totalObjects, objPerPage, totalPages in
+                    guard self.gallerySelectionIsCurrent() else { return }
                     if items.isEmpty {
                         DispatchQueue.main.async {
+                            guard self.gallerySelectionIsCurrent() else { return }
                             self.spinner.removeFromSuperview()
                             self.spinner.stopAnimating()
                             self.configureCollections()
@@ -159,6 +189,7 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
                     self.items = items
                     if totalPages == 1 {
                         DispatchQueue.main.async {
+                            guard self.gallerySelectionIsCurrent() else { return }
                             self.spinner.removeFromSuperview()
                             self.spinner.stopAnimating()
                             self.configureCollections()
@@ -166,7 +197,9 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
                     } else {
                         for page in 2..<totalPages + 1 {
                             user.cloudStorage.getAvatars(page: page) { items, totalObjects, objPerPage, pages in
+                                guard self.gallerySelectionIsCurrent() else { return }
                                 DispatchQueue.main.async {
+                                    guard self.gallerySelectionIsCurrent() else { return }
                                     if items.isEmpty {
                                         return
                                     }
@@ -181,9 +214,11 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
                 }
                 return
             } else {
-                user.cloudStorage.getFilesOfType(type: selectedType, page: 1) { items, totalObjects, objPerPage, totalPages in
+                user.cloudStorage.getFilesOfType(type: self.selectedType, page: 1) { items, totalObjects, objPerPage, totalPages in
+                    guard self.gallerySelectionIsCurrent() else { return }
                     if items.isEmpty {
                         DispatchQueue.main.async {
+                            guard self.gallerySelectionIsCurrent() else { return }
                             self.spinner.removeFromSuperview()
                             self.spinner.stopAnimating()
                             self.configureCollections()
@@ -194,14 +229,17 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
                     self.items = items
                     if totalPages == 1 {
                         DispatchQueue.main.async {
+                            guard self.gallerySelectionIsCurrent() else { return }
                             self.spinner.removeFromSuperview()
                             self.spinner.stopAnimating()
                             self.configureCollections()
                         }
                     } else {
                         for page in 2..<totalPages + 1 {
-                            user.cloudStorage.getFilesOfType(type: selectedType, page: page) { items, totalObjects, objPerPage, pages in
+                            user.cloudStorage.getFilesOfType(type: self.selectedType, page: page) { items, totalObjects, objPerPage, pages in
+                                guard self.gallerySelectionIsCurrent() else { return }
                                 DispatchQueue.main.async {
+                                    guard self.gallerySelectionIsCurrent() else { return }
                                     if items.isEmpty {
                                         return
                                     }
@@ -216,8 +254,6 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
                 }
             }
         })
-        
-        
     }
     
     required init?(coder: NSCoder) {
@@ -351,7 +387,7 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
             }
         }
         
-        datasource.sort(by: { $0.dateFormatted! > $1.dateFormatted! })
+        datasource.sort(by: { ($0.dateFormatted ?? .distantPast) > ($1.dateFormatted ?? .distantPast) })
         optionButton = UIBarButtonItem(image: UIImage(systemName: "ellipsis.circle")!.withRenderingMode(.alwaysTemplate), style: .plain, target: self, action: #selector(optionButtonTapped))
         if items.isEmpty {
             optionButton?.isEnabled = false

@@ -41,7 +41,7 @@ extension VoIPManager: CXProviderDelegate {
         }
         context.localEndRequested = true
         let reason = self.terminationReasonForLocalEnd(call: call, context: context)
-        self.finishCurrentCall(reason: reason, sendReject: true, shouldReportToCallKit: false)
+        self.finishCurrentCall(reason: reason, trigger: .localEnd, shouldReportToCallKit: false)
         action.fulfill(withDateEnded: Date())
     }
        
@@ -59,39 +59,7 @@ extension VoIPManager: CXProviderDelegate {
             self.callScreenDelegate = callScreenPresenter.present(animated: true) {}
         }
 
-        context.localAnswerRequested = true
-        context.incomingTimeoutTask?.cancel()
-        context.incomingTimeoutTask = nil
-
-        guard call.acceptCall() else {
-            action.fail()
-            self.finishCurrentCall(reason: .signalingError, sendReject: false, shouldReportToCallKit: true)
-            return
-        }
-
-        self.isCallAccepted = true
-        self.inCallingProcess = true
-        context.phase = .creatingLocalOffer
-        self.scheduleMediaSetupTimeout(for: context)
-       
-        self.webRTC = WebRTCClient()
-        self.webRTC?.delegate = self
-        self.webRTC?.offer { sdp, error in
-            if let error {
-                print(error.localizedDescription)
-                self.finishCurrentCall(reason: .webRTCFailure, sendReject: false, shouldReportToCallKit: true)
-                return
-            }
-            guard let sdp else {
-                self.finishCurrentCall(reason: .webRTCFailure, sendReject: false, shouldReportToCallKit: true)
-                return
-            }
-            context.phase = .connectingMedia
-            context.localOfferSent = true
-            self.currentCall?.sessionDescription(sessionDescription: sdp)
-        }
-       
-        action.fulfill()
+        self.requestIncomingAnswer(call: call, context: context, action: action)
     }
    
     func provider(_ provider: CXProvider, perform action: CXSetMutedCallAction) {
@@ -100,7 +68,16 @@ extension VoIPManager: CXProviderDelegate {
     }
    
     func provider(_ provider: CXProvider, timedOutPerforming action: CXAction) {
-        self.finishCurrentCall(reason: .signalingError, sendReject: true, shouldReportToCallKit: true)
+        let trigger: CallTerminationTrigger
+        switch action {
+        case is CXEndCallAction:
+            trigger = .endActionTimeout
+        case is CXAnswerCallAction:
+            trigger = .answerActionTimeout
+        default:
+            trigger = .appAcceptFailure
+        }
+        self.finishCurrentCall(reason: .signalingError, trigger: trigger, shouldReportToCallKit: true)
         action.fulfill()
     }
    

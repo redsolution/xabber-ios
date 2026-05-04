@@ -28,6 +28,10 @@ import Curve25519Kit
 //import Realm
 
 class CredentialsManager: NSObject {
+    private static var testDataStore: [String: Data] = [:]
+    private static var testIntStore: [String: Int] = [:]
+    private static let testStoreLock = NSLock()
+    
     open class var shared: CredentialsManager {
         struct CredentialsManagerManagerSingleton {
             static let instance = CredentialsManager()
@@ -481,30 +485,99 @@ class CredentialsManager: NSObject {
         }
     }
        
+    private final func primaryKeychain() -> KeychainWrapper {
+        return KeychainWrapper(
+            serviceName: CredentialsManager.uniqueServiceName(),
+            accessGroup: CredentialsManager.uniqueAccessGroup()
+        )
+    }
+    
+    private final func fallbackKeychain() -> KeychainWrapper {
+        return KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName())
+    }
+    
+    private final var isRunningTests: Bool {
+        return ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+    
+    private final func storeTestData(_ value: Data, for key: String) {
+        guard isRunningTests else { return }
+        CredentialsManager.testStoreLock.lock()
+        CredentialsManager.testDataStore[key] = value
+        CredentialsManager.testStoreLock.unlock()
+    }
+    
+    private final func loadTestData(for key: String) -> Data? {
+        guard isRunningTests else { return nil }
+        CredentialsManager.testStoreLock.lock()
+        defer { CredentialsManager.testStoreLock.unlock() }
+        return CredentialsManager.testDataStore[key]
+    }
+    
+    private final func removeTestData(for key: String) {
+        guard isRunningTests else { return }
+        CredentialsManager.testStoreLock.lock()
+        CredentialsManager.testDataStore.removeValue(forKey: key)
+        CredentialsManager.testStoreLock.unlock()
+    }
+    
+    private final func storeTestInt(_ value: Int, for key: String) {
+        guard isRunningTests else { return }
+        CredentialsManager.testStoreLock.lock()
+        CredentialsManager.testIntStore[key] = value
+        CredentialsManager.testStoreLock.unlock()
+    }
+    
+    private final func loadTestInt(for key: String) -> Int? {
+        guard isRunningTests else { return nil }
+        CredentialsManager.testStoreLock.lock()
+        defer { CredentialsManager.testStoreLock.unlock() }
+        return CredentialsManager.testIntStore[key]
+    }
+    
+    private final func removeTestInt(for key: String) {
+        guard isRunningTests else { return }
+        CredentialsManager.testStoreLock.lock()
+        CredentialsManager.testIntStore.removeValue(forKey: key)
+        CredentialsManager.testStoreLock.unlock()
+    }
+    
     private final func storeData(value: Data, for key: String) {
-        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
-        
-        _ = keychain.set(
+        storeTestData(value, for: key)
+        let keychain = primaryKeychain()
+        let didStore = keychain.set(
             value,
             forKey: key,
             withAccessibility: .always,
             isSynchronizable: false
         )
+        
+        guard !didStore else { return }
+        
+        let didStoreFallback = fallbackKeychain().set(
+            value,
+            forKey: key,
+            withAccessibility: .always,
+            isSynchronizable: false
+        )
+        if didStoreFallback {
+            NSLog("CredentialsManager: stored secure data with fallback keychain service")
+        } else {
+            NSLog("CredentialsManager: failed to store secure data")
+        }
     }
     
     private final func loadData(for key: String) -> Data? {
-        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
-        
-        return keychain.data(forKey: key)
+        if let data = primaryKeychain().data(forKey: key) {
+            return data
+        }
+        return fallbackKeychain().data(forKey: key) ?? loadTestData(for: key)
     }
     
     private final func removeData(for key: String) {
-        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
-        
-        keychain.removeObject(forKey: key)
+        primaryKeychain().removeObject(forKey: key)
+        fallbackKeychain().removeObject(forKey: key)
+        removeTestData(for: key)
     }
     
 //    public final func setKey(for jid: String, type keyType: StoredKeyType, value: Data) {
@@ -561,35 +634,50 @@ class CredentialsManager: NSObject {
     }
     
     public final func getRegistrationId(for jid: String) -> Int? {
-        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
-        return keychain.integer(forKey: [jid, "registrationId"].prp())
+        let key = [jid, "registrationId"].prp()
+        return primaryKeychain().integer(forKey: key) ?? fallbackKeychain().integer(forKey: key) ?? loadTestInt(for: key)
     }
     
     public final func getDeviceId(for jid: String) -> Int? {
-        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
-        return keychain.integer(forKey: [jid, "deviceId"].prp())
+        let key = [jid, "deviceId"].prp()
+        return primaryKeychain().integer(forKey: key) ?? fallbackKeychain().integer(forKey: key) ?? loadTestInt(for: key)
     }
     
     public final func setDeviceId(_ deviceId: Int, for jid: String) {
-        
-        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
-        _ = keychain.set(deviceId, forKey: [jid, "deviceId"].prp(), withAccessibility: .always)
+        let key = [jid, "deviceId"].prp()
+        storeTestInt(deviceId, for: key)
+        if !primaryKeychain().set(deviceId, forKey: key, withAccessibility: .always) {
+            let didStoreFallback = fallbackKeychain().set(deviceId, forKey: key, withAccessibility: .always)
+            if didStoreFallback {
+                NSLog("CredentialsManager: stored device id with fallback keychain service")
+            } else {
+                NSLog("CredentialsManager: failed to store device id")
+            }
+        }
     }
     
     public final func setRegistrationId(_ registrationId: Int, for jid: String) {
-        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
-        keychain.set(registrationId, forKey: [jid, "registrationId"].prp(), withAccessibility: .always)
+        let key = [jid, "registrationId"].prp()
+        storeTestInt(registrationId, for: key)
+        if !primaryKeychain().set(registrationId, forKey: key, withAccessibility: .always) {
+            let didStoreFallback = fallbackKeychain().set(registrationId, forKey: key, withAccessibility: .always)
+            if didStoreFallback {
+                NSLog("CredentialsManager: stored registration id with fallback keychain service")
+            } else {
+                NSLog("CredentialsManager: failed to store registration id")
+            }
+        }
     }
     
     public final func removeDeviceId(for jid: String) {
-        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
-        keychain.removeObject(forKey: [jid, "deviceId"].prp())
-        keychain.removeObject(forKey: [jid, "registrationId"].prp())
+        let deviceIdKey = [jid, "deviceId"].prp()
+        let registrationIdKey = [jid, "registrationId"].prp()
+        primaryKeychain().removeObject(forKey: deviceIdKey)
+        primaryKeychain().removeObject(forKey: registrationIdKey)
+        fallbackKeychain().removeObject(forKey: deviceIdKey)
+        fallbackKeychain().removeObject(forKey: registrationIdKey)
+        removeTestInt(for: deviceIdKey)
+        removeTestInt(for: registrationIdKey)
     }
     
     //END OMEMO

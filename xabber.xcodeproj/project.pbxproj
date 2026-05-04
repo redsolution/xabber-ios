@@ -280,6 +280,7 @@
 		66520E6923858C0E00430953 /* CreateNewGroupViewController+GroupInfoCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66520E6823858C0E00430953 /* CreateNewGroupViewController+GroupInfoCell.swift */; };
 		6652EB45203BF95B0088C8FA /* ImageToBase64.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6652EB44203BF95B0088C8FA /* ImageToBase64.swift */; };
 		6653DF5021ABBD3000DA4352 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6653DF4F21ABBD2F00DA4352 /* AppDelegate.swift */; };
+		4E0000022F60000000ABC001 /* AppRootCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E0000012F60000000ABC001 /* AppRootCoordinator.swift */; };
 		665451A922A8EA750077635D /* AccountEditViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 665451A822A8EA750077635D /* AccountEditViewController.swift */; };
 		665451AD22A8F3D40077635D /* AccountEditViewController+UITableViewDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 665451AC22A8F3D40077635D /* AccountEditViewController+UITableViewDelegate.swift */; };
 		665451AF22A8F3FA0077635D /* AccountEditViewController+UITableViewDatasource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 665451AE22A8F3FA0077635D /* AccountEditViewController+UITableViewDatasource.swift */; };
@@ -1263,6 +1264,7 @@
 		66520E6823858C0E00430953 /* CreateNewGroupViewController+GroupInfoCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CreateNewGroupViewController+GroupInfoCell.swift"; sourceTree = "<group>"; };
 		6652EB44203BF95B0088C8FA /* ImageToBase64.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageToBase64.swift; sourceTree = "<group>"; };
 		6653DF4F21ABBD2F00DA4352 /* AppDelegate.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		4E0000012F60000000ABC001 /* AppRootCoordinator.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AppRootCoordinator.swift; sourceTree = "<group>"; };
 		665451A822A8EA750077635D /* AccountEditViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountEditViewController.swift; sourceTree = "<group>"; };
 		665451AC22A8F3D40077635D /* AccountEditViewController+UITableViewDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AccountEditViewController+UITableViewDelegate.swift"; sourceTree = "<group>"; };
 		665451AE22A8F3FA0077635D /* AccountEditViewController+UITableViewDatasource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AccountEditViewController+UITableViewDatasource.swift"; sourceTree = "<group>"; };
@@ -4293,6 +4295,7 @@
 			isa = PBXGroup;
 			children = (
 				6653DF4F21ABBD2F00DA4352 /* AppDelegate.swift */,
+				4E0000012F60000000ABC001 /* AppRootCoordinator.swift */,
 				66FD4F7F2085F50C00557252 /* AppDelegatePushKitExtension.swift */,
 				66FD4F852085F79200557252 /* AppDelegateNotificationExtension.swift */,
 			);
@@ -5082,6 +5085,7 @@
 				6635A04325CC1A1E00EA57FE /* NewCallViewController.swift in Sources */,
 				667C0A7C21F83BF300B73C60 /* UIImageCircular.swift in Sources */,
 				6653DF5021ABBD3000DA4352 /* AppDelegate.swift in Sources */,
+				4E0000022F60000000ABC001 /* AppRootCoordinator.swift in Sources */,
 				4D784637288E57AB00DB706A /* ChangePasswordTableViewController.swift in Sources */,
 				6648841C26EA068F00323013 /* ChatViewController+SearchBar.swift in Sources */,
 				66C8CA7B2510AA6C00CA7271 /* XMPPBackgroundTask+Delegate.swift in Sources */,

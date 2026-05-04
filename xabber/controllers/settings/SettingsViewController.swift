@@ -39,29 +39,71 @@ struct SettingsCloudStorageQuotaDisplayState: Equatable {
         quotaBytes: Int,
         isRefreshing: Bool,
         lastRefreshFailed: Bool,
-        isAvailable: Bool
+        isAvailable: Bool,
+        galleryType: AccountGalleryType? = nil,
+        fallbackPlanText: String? = nil
     ) -> SettingsCloudStorageQuotaDisplayState {
+        func withGalleryPrefix(_ value: String) -> String {
+            guard let galleryType = galleryType else {
+                return value
+            }
+            return galleryType.displayTitle + " · " + value
+        }
+
         if hasCachedQuota {
             return SettingsCloudStorageQuotaDisplayState(
-                detailText: quotaText(usedBytes: usedBytes, quotaBytes: quotaBytes)
+                detailText: withGalleryPrefix(quotaText(usedBytes: usedBytes, quotaBytes: quotaBytes))
             )
         }
 
         if lastRefreshFailed || !isAvailable {
-            return SettingsCloudStorageQuotaDisplayState(detailText: "Unavailable")
+            return SettingsCloudStorageQuotaDisplayState(detailText: withGalleryPrefix("Unavailable"))
+        }
+
+        if let fallbackPlanText = fallbackPlanText, fallbackPlanText.isNotEmpty {
+            return SettingsCloudStorageQuotaDisplayState(detailText: withGalleryPrefix(fallbackPlanText))
         }
 
         if isRefreshing {
-            return SettingsCloudStorageQuotaDisplayState(detailText: "Updating...")
+            return SettingsCloudStorageQuotaDisplayState(detailText: withGalleryPrefix("Updating..."))
         }
 
-        return SettingsCloudStorageQuotaDisplayState(detailText: "Updating...")
+        return SettingsCloudStorageQuotaDisplayState(detailText: withGalleryPrefix("Updating..."))
     }
 
     private static func quotaText(usedBytes: Int, quotaBytes: Int) -> String {
         let used = AccountQuotaStorageItem.beautify(size: usedBytes)
         let quota = quotaBytes < 0 ? "Unlimited" : AccountQuotaStorageItem.beautify(size: quotaBytes)
         return used + " of ".localizeString(id: "of", arguments: []) + quota
+    }
+}
+
+final class SafetyReportingViewController: SimpleBaseViewController {
+    private let textView: UITextView = {
+        let textView = UITextView()
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.alwaysBounceVertical = true
+        textView.backgroundColor = .systemBackground
+        textView.textContainerInset = UIEdgeInsets(top: 24, left: 20, bottom: 24, right: 20)
+        textView.adjustsFontForContentSizeCategory = true
+        textView.font = UIFont.preferredFont(forTextStyle: .body)
+        textView.accessibilityIdentifier = "settings.safety_reporting"
+        return textView
+    }()
+
+    override func setupSubviews() {
+        super.setupSubviews()
+        view.addSubview(textView)
+        textView.fillSuperview()
+    }
+
+    override func configure() {
+        super.configure()
+        title = "Safety and Reporting".localizeString(id: "settings_safety_reporting_title", arguments: [])
+        let support = ModerationReportConfiguration.supportEmail
+        textView.text = "To report objectionable content, abusive users, or safety concerns, use the Report action in chats, profiles, or room screens. You can also contact us at %@."
+            .localizeString(id: "settings_safety_reporting_body", arguments: [support])
     }
 }
 
@@ -102,6 +144,8 @@ class SettingsViewController: BaseViewController {
             case avatarChatPosition = "avatar_chat_vertical_position"
             case messageCornerStyle = "message_corner_style"
             case messageCornerRadius = "message_corner_radius"
+            case eula = "eula"
+            case safetyReporting = "safety_reporting"
             case afterburnTimer = "afterburn_timer"
             case afterburnEnabled = "burn_messages_enabled"
 //            case privacy
@@ -607,7 +651,8 @@ class SettingsViewController: BaseViewController {
     }
 
     private func updateCloudStorageQuota(from item: AccountQuotaStorageItem?, reloadRow: Bool) {
-        if let item = item {
+        if let item = item,
+           AccountGalleryConfiguration(owner: jid).cachedQuotaMatchesCurrentGallery() {
             cloudStorageHasCachedQuota = true
             cloudStorageUsedBytes = item.totalBytes
             cloudStorageQuotaBytes = item.quotaBytes
@@ -634,7 +679,9 @@ class SettingsViewController: BaseViewController {
                 quotaBytes: cloudStorageQuotaBytes,
                 isRefreshing: isCloudStorageQuotaRefreshing,
                 lastRefreshFailed: cloudStorageQuotaRefreshFailed,
-                isAvailable: cloudStorageQuotaAvailable
+                isAvailable: cloudStorageQuotaAvailable,
+                galleryType: AccountGalleryConfiguration(owner: jid).currentGalleryType,
+                fallbackPlanText: AccountGalleryConfiguration(owner: jid).currentGalleryPlanDisplayText
             )
             .detailText
     }
@@ -686,6 +733,19 @@ class SettingsViewController: BaseViewController {
             }
         }
         return nil
+    }
+
+    @objc private func cloudStorageGalleryDidChange(_ notification: Notification) {
+        guard notification.userInfo?["jid"] as? String == self.jid else { return }
+        do {
+            let realm = try WRealm.safe()
+            updateCloudStorageQuota(
+                from: realm.object(ofType: AccountQuotaStorageItem.self, forPrimaryKey: self.jid),
+                reloadRow: true
+            )
+        } catch {
+            updateCloudStorageQuota(from: nil, reloadRow: true)
+        }
     }
 
     func navigationBarButtonsConfigure(multiAccounts: Bool) {
@@ -931,6 +991,20 @@ class SettingsViewController: BaseViewController {
                     ])
                 ]),
             Datasource(section: .settings, title: "Debug", icon:"custom.ant.square.fill", color: UIColor.systemGreen, key: .developer),
+            Datasource(
+                section: .settings,
+                title: "End User License Agreement".localizeString(id: "eula_settings_title", arguments: []),
+                icon:"custom.text.document.square.fill",
+                color: UIColor.systemGreen,
+                key: .eula
+            ),
+            Datasource(
+                section: .settings,
+                title: "Safety and Reporting".localizeString(id: "settings_safety_reporting_title", arguments: []),
+                icon:"exclamationmark.bubble.fill",
+                color: UIColor.systemRed,
+                key: .safetyReporting
+            ),
             Datasource(section: .settings, title: "Language", icon:"xabber.translate.square.fill", color: UIColor.systemPurple, key: .languages)
             ]))
 
@@ -1003,6 +1077,10 @@ class SettingsViewController: BaseViewController {
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(reloadDatasource),
                                                name: .newMaskSelected,
+                                               object: nil)
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(cloudStorageGalleryDidChange(_:)),
+                                               name: .cloudStorageGalleryDidChange,
                                                object: nil)
         AccountManager.shared.find(for: self.jid)?.action { user, stream in
             if CredentialsManager.getXabberAccountUUID(for: self.jid) == nil {

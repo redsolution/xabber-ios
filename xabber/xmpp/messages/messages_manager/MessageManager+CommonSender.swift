@@ -138,6 +138,20 @@ extension MessageManager {
                 stanzaToSave.addChild($0.copy() as! DDXMLElement)
             }
             
+            func failEncryptedSend(_ error: Error? = nil) {
+                try? realm.write {
+                    item.state = .error
+                    item.messageError = "Can`t find any OMEMO device".localizeString(id: "message_manager_error_no_omemo", arguments: [])
+                    item.messageErrorCode = "omemo"
+                }
+                if let error = error {
+                    DDLogDebug("MessageManager; \(#function). OMEMO encryption failed: \(error.localizedDescription)")
+                } else {
+                    DDLogDebug("MessageManager; \(#function). OMEMO encryption failed")
+                }
+                LastChats.updateErrorState(for: item.opponent, owner: self.owner, conversationType: item.conversationType)
+            }
+            
             switch conversationType {
                 case .omemo, .omemo1, .axolotl:
                     
@@ -172,15 +186,18 @@ extension MessageManager {
                         additionalContent: [forwardedMessages, mentions, references].flatMap({ $0 }),
                         ignoreTimeSignature: item.displayAs == .system
                     ) else {
+                        failEncryptedSend()
                         return
                     }
                     do {
                         let encrypted = try AccountManager.shared.find(for: self.owner)?.omemo.encryptMessage(message: payload, to: item.opponent)
-                        if let encrypted = encrypted {
-                            stanza.addChild(encrypted)
+                        guard let encrypted = encrypted else {
+                            throw OmemoManagerError.encryptionFailed
                         }
+                        stanza.addChild(encrypted)
                     } catch {
-                        DDLogDebug("MessageManager; \(#function). \(error.localizedDescription)")
+                        failEncryptedSend(error)
+                        return
                     }
                     let encryptionElement = DDXMLElement(name: "encryption", xmlns: "urn:xmpp:eme:0")
                     encryptionElement.addAttribute(withName: "namespace", stringValue: conversationType.rawValue)

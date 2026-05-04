@@ -14,6 +14,7 @@ class FileDeletionConfirmation: BaseViewController {
     var dateOfLastFile: String? = nil
     var totalPages: Int = 0
     var items: [NSDictionary] = []
+    private var capturedGalleryIdentity: String?
     
     let tableView: UITableView = {
         let view = UITableView(frame: .zero, style: .insetGrouped)
@@ -35,19 +36,42 @@ class FileDeletionConfirmation: BaseViewController {
         self.init()
         self.percent = percent
         self.owner = owner
+        self.capturedGalleryIdentity = AccountGalleryConfiguration(owner: owner).currentGalleryIdentity
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(cloudStorageGalleryDidChange(_:)),
+            name: .cloudStorageGalleryDidChange,
+            object: nil
+        )
         
         AccountManager.shared.find(for: self.owner)?.action({ user, _ in
             user.cloudStorage.getFilesToDeleteByPercent(percent: self.percent, page: 1) { items, totalObjects, objPerPage, pages in
+                guard self.gallerySelectionIsCurrent() else { return }
                 DispatchQueue.main.async {
+                    guard self.gallerySelectionIsCurrent() else { return }
                     self.totalPages = pages
                     self.items = items
-                    self.dateOfLastFile = items[0]["created_at"] as? String
+                    self.dateOfLastFile = items.first?["created_at"] as? String
                     self.spinner.removeFromSuperview()
                     self.spinner.stopAnimating()
                     self.configure()
                 }
             }
         })
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self, name: .cloudStorageGalleryDidChange, object: nil)
+    }
+
+    private func gallerySelectionIsCurrent() -> Bool {
+        return capturedGalleryIdentity == AccountGalleryConfiguration(owner: owner).currentGalleryIdentity
+    }
+
+    @objc private func cloudStorageGalleryDidChange(_ notification: Notification) {
+        guard notification.userInfo?["jid"] as? String == owner else { return }
+        items.removeAll()
+        navigationController?.popViewController(animated: true)
     }
     
     func configure() {
@@ -138,6 +162,7 @@ extension FileDeletionConfirmation: UITableViewDataSource {
 
 extension FileDeletionConfirmation: UITableViewDelegate {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        guard gallerySelectionIsCurrent() else { return }
         tableView.deselectRow(at: indexPath, animated: true)
         if indexPath.section == 0 {
             self.navigationItem.title = ""

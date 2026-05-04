@@ -26,7 +26,7 @@ import Foundation
 //import Coco
 
 open class SettingManager: NSObject {
-    
+
     open class var shared: SettingManager {
         struct SettingsManagerSingleton {
             static let instance = SettingManager()
@@ -51,15 +51,15 @@ open class SettingManager: NSObject {
         case products = "products"
         case burnMessages = "burn_messages"
     }
-    
+
     enum DatasourceKind {
         case title
         case group
         case bool
         case selector
-        
+
     }
-    
+
     open class Datasource: NSCopying {
         var key: String = ""
         var label: String = ""
@@ -67,11 +67,11 @@ open class SettingManager: NSObject {
         var childs: [Datasource] = []
         var values: [String] = []
         var value: Any = ""
-        
+
         init() {
-            
+
         }
-        
+
         init(key: String, label: String, kind: DatasourceKind, childs: [Datasource], values: [String], value: Any) {
             self.key = key
             self.label = label
@@ -81,7 +81,7 @@ open class SettingManager: NSObject {
             self.values = values
             self.value = value
         }
-        
+
         public func copy(with zone: NSZone? = nil) -> Any {
             let copy = Datasource(key: self.key,
                                   label: self.label,
@@ -92,9 +92,9 @@ open class SettingManager: NSObject {
             return copy
         }
     }
-    
+
     private var isLogEnabled: Bool? = nil
-    
+
     static var logEnabled: Bool {
         get {
             guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
@@ -113,19 +113,19 @@ open class SettingManager: NSObject {
 //            }
 //        }
 //    }
-    
+
     open var chatSettings: Datasource = Datasource()
     open var rosterSettings: Datasource = Datasource()
     open var languageSettings: Datasource = Datasource()
     open var notificationSettings: Datasource = Datasource()
     open var privacySettings: Datasource = Datasource()
     open var developerSettings: Datasource = Datasource()
-    
+
     override init() {
         super.init()
         loadSettings()
     }
-    
+
     public final func loadSettings() {
         guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
             fatalError()
@@ -209,7 +209,7 @@ open class SettingManager: NSObject {
                                                   ],
                                          values: [],
                                          value: false)
-        
+
         self.notificationSettings = Datasource(key: "notification",
                                                label: "Notifications".localizeString(id: "account_settings_notificaions", arguments: []),
                                                kind: .title,
@@ -298,7 +298,7 @@ open class SettingManager: NSObject {
                                                               value: "")],
                                           values: [],
                                           value: false)
-        
+
         self.languageSettings = Datasource(key: "languages",
                                            label: "Choose language".localizeString(id: "settings_choose_language", arguments: []),
                                            kind: .group,
@@ -310,11 +310,11 @@ open class SettingManager: NSObject {
                                                                value: TranslationsManager.shared.currentLang ?? "Default")],
                                            values: [],
                                            value: "")
-        
+
         TranslationsManager.Languages.allCases.forEach({
             self.languageSettings.childs.first?.values.append($0.rawValue)
         })
-        
+
         self.developerSettings = Datasource(key: "developer",
                                             label: "Developer".localizeString(id: "account_settings_developer", arguments: []),
                                             kind: .title,
@@ -333,9 +333,9 @@ open class SettingManager: NSObject {
                                             values: [],
                                             value: false)
     }
-    
+
     public final func updateValue(key: String, value: Any) {
-        
+
         func updateItem(in settings: Datasource) -> Bool {
             for item in settings.childs.enumerated() {
                 if item.element.key == key {
@@ -361,7 +361,7 @@ open class SettingManager: NSObject {
         default: break
         }
     }
-    
+
     public final func writeDefault() {
         guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
             fatalError()
@@ -371,9 +371,9 @@ open class SettingManager: NSObject {
         if userDefaults.value(forKey: "default_settingsCached") != nil {
             return
         }
-        
+
         let defaultBackground = CommonConfigManager.shared.config.locked_background.isNotEmpty ? CommonConfigManager.shared.config.locked_background : "Flowers"
-        
+
         let defaults: NSDictionary = [
             "default_settingsCached": true,
             "chat_fontSize":"regular",
@@ -410,18 +410,18 @@ open class SettingManager: NSObject {
             userDefaults.set(item.value, forKey: item.key as! String)
         }
     }
-    
+
     enum PrivacyLevel: String {
         case incognito = "incognito"
         case server = "server"
         case serverContacts = "server_contacts"
     }
-    
+
     enum PrivacySettings: String {
         case typingNotification = "privacy_typing_notifications"
     }
-    
-    
+
+
     public final func getDatasource(by key: String) -> Datasource? {
         switch key {
         case "chat": return chatSettings
@@ -433,14 +433,14 @@ open class SettingManager: NSObject {
         default: return nil
         }
     }
-    
+
     public final func saveItem(key: String, value: Int) {
         guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
             fatalError()
         }
         userDefaults.set(value, forKey: key)
     }
-    
+
     public final func saveItem(key: String, bool: Bool) {
         guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
             fatalError()
@@ -452,7 +452,7 @@ open class SettingManager: NSObject {
             updateValue(key: key, value: bool)
         }
     }
-    
+
     public final func saveItem(key: String, string: String) {
         guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
             fatalError()
@@ -464,7 +464,7 @@ open class SettingManager: NSObject {
             updateValue(key: key, value: string)
         }
     }
-    
+
     public final func removeItem(for jid: String, scope: KeyScope, key: String) {
         guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
             fatalError()
@@ -472,22 +472,22 @@ open class SettingManager: NSObject {
         let computedKey: String = [scope.rawValue, key, jid].prp()
         userDefaults.removeObject(forKey: computedKey)
     }
-    
+
     public final func saveItem(for jid: String, scope: KeyScope, key: String, value: Int) {
         let computedKey: String = [scope.rawValue, key, jid].prp()
         saveItem(key: computedKey, value: value)
     }
-    
+
     public final func saveItem(for jid: String, scope: KeyScope, key: String, value: String) {
         let computedKey: String = [scope.rawValue, key, jid].prp()
         saveItem(key: computedKey, string: value)
     }
-    
+
     public final func saveItem(for jid: String, scope: KeyScope, key: String, value: Bool) {
         let computedKey: String = [scope.rawValue, key, jid].prp()
         saveItem(key: computedKey, bool: value)
     }
-    
+
     public final func getKey(for jid: String, scope: KeyScope, key: String) -> String? {
         guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
 //            print("SettingsManager: \(#function). Can`t load UserDefaults")
@@ -496,7 +496,7 @@ open class SettingManager: NSObject {
         let computedKey: String = [scope.rawValue, key, jid].prp()
         return userDefaults.string(forKey: computedKey)
     }
-    
+
     public final func getInt(for jid: String, scope: KeyScope, key: String) -> Int {
         guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
 //            print("SettingsManager: \(#function). Can`t load UserDefaults")
@@ -505,7 +505,7 @@ open class SettingManager: NSObject {
         let computedKey: String = [scope.rawValue, key, jid].prp()
         return userDefaults.integer(forKey: computedKey)
     }
-    
+
     public final func getKeyBool(for jid: String, scope: KeyScope, key: String) -> Bool? {
         guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
 //            print("SettingsManager: \(#function). Can`t load UserDefaults")
@@ -514,21 +514,21 @@ open class SettingManager: NSObject {
         let computedKey: String = [scope.rawValue, key, jid].prp()
         return userDefaults.bool(forKey: computedKey)
     }
-    
+
     public final func get(bool key: String) -> Bool {
         guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
             fatalError()
         }
         return userDefaults.bool(forKey: key)
     }
-    
+
     public final func getString(for key: String) -> String? {
         guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
             fatalError()
         }
         return userDefaults.string(forKey: key)
     }
-    
+
     public final func clear(for jid: String) {
         removeItem(for: jid, scope: .clientSynchronization, key: "version")
         removeItem(for: jid, scope: .trustCertificatePolicy, key: "allowed")
@@ -536,8 +536,20 @@ open class SettingManager: NSObject {
         removeItem(for: jid, scope: .messageArchive, key: "version")
         removeItem(for: jid, scope: .messageArchive, key: "initial")
         removeItem(for: jid, scope: .xabberUploadManager, key: "node")
+        removeItem(for: jid, scope: .xabberUploadManager, key: "premium_gallery_url")
+        removeItem(for: jid, scope: .xabberUploadManager, key: "premium_gallery_available")
+        removeItem(for: jid, scope: .xabberUploadManager, key: "premium_gallery_storage_mb")
+        removeItem(for: jid, scope: .xabberUploadManager, key: "premium_gallery_storage_description")
+        removeItem(for: jid, scope: .xabberUploadManager, key: "premium_gallery_storage_includes")
+        removeItem(for: jid, scope: .xabberUploadManager, key: "premium_gallery_message_retention")
+        removeItem(for: jid, scope: .xabberUploadManager, key: "premium_gallery_expires")
+        removeItem(for: jid, scope: .xabberUploadManager, key: "premium_gallery_display_name")
+        removeItem(for: jid, scope: .xabberUploadManager, key: "selected_gallery_type")
+        removeItem(for: jid, scope: .xabberUploadManager, key: "gallery_selection_manual")
+        removeItem(for: jid, scope: .xabberUploadManager, key: "quota_gallery_type")
+        removeItem(for: jid, scope: .xabberUploadManager, key: "quota_gallery_url")
         removeItem(for: jid, scope: .avatarUploadManager, key: "node")
         removeItem(for: jid, scope: .httpUploader, key: "node")
     }
-    
+
 }

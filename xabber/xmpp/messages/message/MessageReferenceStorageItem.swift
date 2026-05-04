@@ -71,6 +71,11 @@ class MessageReferenceStorageItem: Object {
     
     @objc dynamic var isSensitive: Bool = false
     @objc dynamic var isSensitiveChecked: Bool = false
+    @objc dynamic var isLocallyHiddenByReport: Bool = false
+    @objc dynamic var localReportState: String? = nil
+    @objc dynamic var lastReportedAt: Date? = nil
+    @objc dynamic var lastReportReason: String? = nil
+    @objc dynamic var reportCount: Int = 0
     
     override static func ignoredProperties() -> [String] {
         return ["temporaryData", "cachedMetadata", "model", "conversationType"]

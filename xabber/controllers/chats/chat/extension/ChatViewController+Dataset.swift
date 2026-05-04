@@ -940,7 +940,7 @@ extension ChatViewController {
         var audio: [AudioAttachment] = []
         var files: [FileAttachment] = []
 
-        references.forEach { item in
+        references.filter { !$0.isLocallyHiddenByReport }.forEach { item in
             switch item.mimeType {
             case MimeIconTypes.image.rawValue:
                 images.append(ImageAttachment(primary: item.primary, url: item.downloadUrl ?? item.videoPreviewUrl, size: item.sizeInPx ?? CGSize(square: 128), isSensitive: item.isSensitive))

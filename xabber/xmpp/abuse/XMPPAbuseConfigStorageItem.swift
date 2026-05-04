@@ -40,6 +40,15 @@ class XMPPAbuseReportStorageItem: Object {
     @objc dynamic var abuseAddress: String = ""
     
     @objc dynamic var messageId: String = ""
+    @objc dynamic var reportId: String = ""
+    @objc dynamic var createdAt: Date? = nil
+    @objc dynamic var targetType: String = ""
+    @objc dynamic var reason: String = ""
+    @objc dynamic var comment: String? = nil
+    @objc dynamic var state: String? = nil
+    @objc dynamic var includeMessageExcerpt: Bool = false
+    @objc dynamic var messageExcerpt: String? = nil
+    @objc dynamic var payload: String? = nil
     
     
     @objc dynamic var updateAt: Date = Date()

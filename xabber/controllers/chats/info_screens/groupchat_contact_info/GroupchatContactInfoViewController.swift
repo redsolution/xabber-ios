@@ -203,6 +203,11 @@ class GroupchatContactInfoViewController: SimpleBaseViewController {
                                 set.append(Datasource(.status, title: ""))
                                 self.datasource.append(Datasource(.text, title: "", key: "gcc_status", childs: set))
                             }
+                            if !item.isMe {
+                                self.datasource.append(Datasource(.text, title: "Safety".localizeString(id: "report_safety_section", arguments: []), childs: [
+                                    Datasource(.button, title: "Report User".localizeString(id: "report_user_action", arguments: []), key: "report_user")
+                                ]))
+                            }
                             fullReload = true
                         } else {
                             if self.userOnline != item.isOnline {
@@ -473,6 +478,18 @@ class GroupchatContactInfoViewController: SimpleBaseViewController {
     
     override func reloadDatasource() {
         headerView.setMask()
+    }
+
+    internal func reportUser() {
+        let vc = AbuseReportViewController()
+        vc.configureUserReport(
+            owner: self.owner,
+            jid: self.jid,
+            reportedUserJid: userJid ?? userId,
+            roomJid: self.jid,
+            conversationType: .group
+        )
+        showModal(vc, parent: self)
     }
     
     override func viewWillAppear(_ animated: Bool) {

@@ -45,5 +45,11 @@ extension GroupchatContactInfoViewController: UITableViewDelegate {
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
+        if indexPath.section < datasource.count {
+            let item = datasource[indexPath.section].childs[indexPath.row]
+            if item.key == "report_user" {
+                reportUser()
+            }
+        }
     }
 }

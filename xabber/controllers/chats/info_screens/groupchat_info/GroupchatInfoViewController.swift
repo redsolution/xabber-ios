@@ -312,6 +312,10 @@ class GroupchatInfoViewController: SimpleBaseViewController {
                             Datasource(.button, title: "Files", subtitle: String(filesCount), key: "files"),
                             Datasource(.button, title: "Voice", subtitle: String(audiosCount), key: "voice")
                         ]))
+
+                        newDatasource.append(Datasource(.text, title: "Safety".localizeString(id: "report_safety_section", arguments: []), childs: [
+                            Datasource(.button, title: "Report Room".localizeString(id: "report_room_action", arguments: []), icon: "exclamationmark.circle", key: "report_room")
+                        ]))
                         
                         if self.datasource.count != newDatasource.count {
                             fullReload = true
@@ -558,6 +562,17 @@ class GroupchatInfoViewController: SimpleBaseViewController {
                         self.onLeave()
                     }
                 ),
+                UIAction(
+                    title: "Report Room".localizeString(id: "report_room_action", arguments: []),
+                    image: UIImage(systemName: "exclamationmark.circle"),
+                    identifier: .none,
+                    discoverabilityTitle: "Report Room".localizeString(id: "report_room_action", arguments: []),
+                    attributes: [],
+                    state: .off,
+                    handler: { action in
+                        self.reportRoom()
+                    }
+                ),
             ]
             more.menu = UIMenu(options: [], children: childs)
             more.showsMenuAsPrimaryAction = true
@@ -575,6 +590,12 @@ class GroupchatInfoViewController: SimpleBaseViewController {
     @objc
     internal func onWriteButtonTouchUpInside(_ sender: InfoHeaderButton) {
         self.openChat()
+    }
+
+    internal func reportRoom() {
+        let vc = AbuseReportViewController()
+        vc.configureRoomReport(owner: self.owner, roomJid: self.jid)
+        showModal(vc, parent: self)
     }
     
     @objc

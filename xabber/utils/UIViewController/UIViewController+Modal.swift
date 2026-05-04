@@ -9,19 +9,25 @@
 import Foundation
 import UIKit
 
-func showModal(_ vc: UIViewController, parent parentVc: UIViewController? = nil, replaceParent: Bool = true) {
+@discardableResult
+func showModal(_ vc: UIViewController, parent parentVc: UIViewController? = nil, replaceParent: Bool = true) -> Bool {
     var parent: UIViewController? = parentVc
 //    if (UIApplication.shared.delegate as? AppDelegate)?.currentPresentedVc != nil {
 //        parent = (UIApplication.shared.delegate as? AppDelegate)?.currentPresentedVc
 //    } else {
     switch CommonConfigManager.shared.interfaceType {
         case .tabs:
-            parent = (UIApplication.shared.delegate as? AppDelegate)?.tabController
+            parent = AppRootCoordinator.active?.tabController
         case .split:
-            parent = (UIApplication.shared.delegate as? AppDelegate)?.splitController
+            parent = AppRootCoordinator.active?.splitController
+    }
+    parent = parent ?? SceneWindowProvider.presentationRootViewController
+    guard let parent = parent else {
+        return false
     }
     
     if replaceParent {
+        AppRootCoordinator.active?.currentPresentedVc = vc
         (UIApplication.shared.delegate as? AppDelegate)?.currentPresentedVc = vc
     }
 //    }
@@ -30,8 +36,8 @@ func showModal(_ vc: UIViewController, parent parentVc: UIViewController? = nil,
     nvc.modalTransitionStyle = .coverVertical
     if UIDevice.current.userInterfaceIdiom == .pad {
         if let popoverController = nvc.popoverPresentationController {
-            popoverController.sourceView = parent?.view
-            popoverController.sourceRect = CGRect(x: parent?.view.bounds.midX ?? 0, y: parent?.view.bounds.midY ?? 0, width: 0, height: 0)
+            popoverController.sourceView = parent.view
+            popoverController.sourceRect = CGRect(x: parent.view.bounds.midX, y: parent.view.bounds.midY, width: 0, height: 0)
             popoverController.permittedArrowDirections = [.any]
         }
     }
@@ -40,12 +46,13 @@ func showModal(_ vc: UIViewController, parent parentVc: UIViewController? = nil,
         nvc.presentationController?.delegate = adaptiveDelegate
     }
     
-    parent?.definesPresentationContext = true
-    if parent?.presentedViewController != nil {
-        parent?.presentedViewController?.present(nvc, animated: true)
+    parent.definesPresentationContext = true
+    if let presentedViewController = parent.presentedViewController {
+        presentedViewController.present(nvc, animated: true)
     } else {
-        parent?.present(nvc, animated: true, completion: nil)
+        parent.present(nvc, animated: true, completion: nil)
     }
+    return true
 }
 
 public func showStacked(_ vc: UIViewController, in presenter: UIViewController) {
@@ -72,12 +79,12 @@ public func showDetail(_ vc: UIViewController, currentVc: UIViewController?) {
         case .split:
             if let currentVc = currentVc {
                 currentVc.dismiss(animated: true) {
-                    (UIApplication.shared.delegate as? AppDelegate)?.splitController?.showDetailViewController(NavBarController(rootViewController: vc), sender: currentVc)
-                    (UIApplication.shared.delegate as? AppDelegate)?.splitController?.hide(.primary)
+                    AppRootCoordinator.active?.splitController?.showDetailViewController(NavBarController(rootViewController: vc), sender: currentVc)
+                    AppRootCoordinator.active?.splitController?.hide(.primary)
                 }
             } else {
-                (UIApplication.shared.delegate as? AppDelegate)?.splitController?.showDetailViewController(NavBarController(rootViewController: vc), sender: currentVc)
-                (UIApplication.shared.delegate as? AppDelegate)?.splitController?.hide(.primary)
+                AppRootCoordinator.active?.splitController?.showDetailViewController(NavBarController(rootViewController: vc), sender: currentVc)
+                AppRootCoordinator.active?.splitController?.hide(.primary)
             }
     }
 }

@@ -88,6 +88,7 @@ class CommonConfigManager: NSObject {
         var chat_avatar_size: Int
         var use_large_title: Bool
         var default_report_address: String
+        var developer_operated_xmpp_domains: [String]?
         var support_xabber_account: Bool
         var xabber_account_url: String
         var xabber_account_api_url: String

@@ -43,6 +43,7 @@ extension CloudStorageDeleteViewController: UICollectionViewDelegateFlowLayout {
     }
     
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        guard gallerySelectionIsCurrent() else { return }
         collectionView.deselectItem(at: indexPath, animated: true)
         if indexPath.section == datasource.count {
             ActionSheetPresenter()

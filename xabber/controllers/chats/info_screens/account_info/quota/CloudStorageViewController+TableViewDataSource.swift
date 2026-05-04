@@ -39,7 +39,7 @@ extension CloudStorageViewController: UITableViewDataSource {
         case "quota_info":
             let cell = tableView.dequeueReusableCell(withIdentifier: QuotaInfoCell.cellName, for: indexPath) as? QuotaInfoCell
             cell?.selectionStyle = .none
-            cell?.setup(title: item.title, owner: jid)
+            cell?.setup(title: item.title, owner: jid, displayState: currentDisplayState())
             return cell!
         case "storage_upsell":
             let cell = tableView.dequeueReusableCell(withIdentifier: CloudStorageUpsellCardCell.cellName, for: indexPath) as? CloudStorageUpsellCardCell
@@ -62,11 +62,23 @@ extension CloudStorageViewController: UITableViewDataSource {
             cell.contentConfiguration = listContentConfiguration
             return cell
         default:
+            if shouldShowStatSkeleton(for: item.key) {
+                let cell = tableView.dequeueReusableCell(withIdentifier: CloudStorageStatSkeletonCell.cellName, for: indexPath) as? CloudStorageStatSkeletonCell
+                cell?.configure(title: item.title)
+                return cell!
+            }
             let cell = UITableViewCell(style: .value1, reuseIdentifier: "value1CellReuseID")
             cell.textLabel?.text = item.title
             cell.detailTextLabel?.text = item.subtitle
             cell.accessoryType = .disclosureIndicator
             return cell
         }
+    }
+
+    private func shouldShowStatSkeleton(for key: String?) -> Bool {
+        guard currentDisplayState() == .loading else {
+            return false
+        }
+        return ["images", "videos", "files", "audio", "avatars"].contains(key ?? "")
     }
 }

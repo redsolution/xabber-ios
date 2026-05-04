@@ -114,6 +114,78 @@ struct AutoDeleteMessagesPolicy {
     }
 }
 
+struct MediaUploadQuotaPolicy {
+    enum Access: Equatable {
+        case available
+        case premiumRequired
+    }
+
+    static func access(
+        subscriptionsEnabled: Bool,
+        hasActiveSubscription: Bool,
+        hasQuotaItem: Bool,
+        quotaBytes: Int,
+        totalBytes: Int
+    ) -> Access {
+        guard subscriptionsEnabled else {
+            return .available
+        }
+
+        guard !hasActiveSubscription else {
+            return .available
+        }
+
+        guard hasQuotaItem else {
+            return .available
+        }
+
+        if quotaBytes < 0 {
+            return .available
+        }
+
+        if quotaBytes == 0 || totalBytes >= quotaBytes {
+            return .premiumRequired
+        }
+
+        return .available
+    }
+
+    static func currentAccess(jid: String?) -> Access {
+        let subscriptionsEnabled = CommonConfigManager.shared.config.support_subscribtions
+        let hasActiveSubscription = SubscribtionsManager.shared.hasActiveSubsription(for: jid)
+
+        guard subscriptionsEnabled, !hasActiveSubscription else {
+            return .available
+        }
+
+        guard let jid = jid, jid.isNotEmpty else {
+            return .available
+        }
+
+        do {
+            let realm = try WRealm.safe()
+            realm.refresh()
+            guard let quotaItem = realm.object(
+                ofType: AccountQuotaStorageItem.self,
+                forPrimaryKey: AccountQuotaStorageItem.genPrimary(jid: jid)
+            ) else {
+                return .available
+            }
+
+            return access(
+                subscriptionsEnabled: subscriptionsEnabled,
+                hasActiveSubscription: hasActiveSubscription,
+                hasQuotaItem: true,
+                quotaBytes: quotaItem.quotaBytes,
+                totalBytes: quotaItem.totalBytes
+            )
+        } catch {
+            DDLogDebug("MediaUploadQuotaPolicy: \(#function). \(error.localizedDescription)")
+            return .available
+        }
+    }
+}
+
 final class PasscodeLockCoordinator {
     static let shared = PasscodeLockCoordinator()
 
@@ -183,7 +255,7 @@ final class PasscodeLockCoordinator {
 
     private func makeWindow() -> UIWindow? {
         if #available(iOS 13.0, *) {
-            if let scene = (UIApplication.shared.delegate as? AppDelegate)?.window?.windowScene {
+            if let scene = SceneWindowProvider.activeWindow?.windowScene {
                 return UIWindow(windowScene: scene)
             }
 
@@ -202,7 +274,7 @@ final class PasscodeLockCoordinator {
     }
 
     private func restoreMainWindow() {
-        (UIApplication.shared.delegate as? AppDelegate)?.window?.makeKeyAndVisible()
+        SceneWindowProvider.activeWindow?.makeKeyAndVisible()
     }
 }
 

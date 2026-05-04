@@ -49,6 +49,11 @@ class MessageMediaAttachmentStorageItem: Object {
     @objc dynamic var isDownloaded: Bool = false
     @objc dynamic var verySmallThumb: String? = nil
     @objc dynamic var sizeBytes: Int = 0
+    @objc dynamic var isLocallyHiddenByReport: Bool = false
+    @objc dynamic var localReportState: String? = nil
+    @objc dynamic var lastReportedAt: Date? = nil
+    @objc dynamic var lastReportReason: String? = nil
+    @objc dynamic var reportCount: Int = 0
     
     @objc dynamic var metadata_: String = ""
     

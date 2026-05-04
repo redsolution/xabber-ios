@@ -11,748 +11,669 @@ import XMPPFramework
 import CryptoKit
 import Curve25519Kit
 import CryptoSwift
+import RealmSwift
 
+struct TrustSharingSignature {
+    static let xmlns = "urn:xmpp:trustsharing:0"
+    static let usage = "urn:xmpp:omemo:2"
+    static let node = "urn:xmpp:trustsharing:0:items"
+
+    static func trustedItems(from share: DDXMLElement) -> [DDXMLElement] {
+        let modern = share.elements(forName: "trusted-items")
+        if modern.isNotEmpty {
+            return modern
+        }
+        return share.elements(forName: "items")
+    }
+
+    static func canonicalString(for containers: [DDXMLElement]) -> String? {
+        var canonical = ""
+        let sortedContainers = containers.sorted { lhs, rhs in
+            timestamp(lhs) > timestamp(rhs)
+        }
+
+        for container in sortedContainers {
+            let containerTimestamp = timestamp(container)
+            guard containerTimestamp > 0 else {
+                return nil
+            }
+            canonical += String(containerTimestamp)
+
+            let entries = (container.elements(forName: "trust")
+                + container.elements(forName: "distrust")
+                + container.elements(forName: "revoked"))
+                .sorted { lhs, rhs in
+                    let lhsTimestamp = timestamp(lhs)
+                    let rhsTimestamp = timestamp(rhs)
+                    if lhsTimestamp == rhsTimestamp {
+                        return (lhs.name ?? "") < (rhs.name ?? "")
+                    }
+                    return lhsTimestamp > rhsTimestamp
+                }
+
+            for entry in entries {
+                guard let name = entry.name,
+                      let value = entry.stringValue,
+                      timestamp(entry) > 0 else {
+                    return nil
+                }
+                canonical += "<\(name):\(timestamp(entry))/\(value)"
+            }
+        }
+
+        return canonical
+    }
+
+    static func hashCanonicalString(_ canonical: String) -> Data {
+        return Data(SHA256.hash(data: Data(canonical.utf8)))
+    }
+
+    static func timestamp(_ element: DDXMLElement) -> Int64 {
+        guard let raw = element.attributeStringValue(forName: "timestamp") else {
+            return 0
+        }
+        return Int64(raw) ?? 0
+    }
+}
 
 class TrustSharingManager: AbstractXMPPManager {
-    let node = "urn:xmpp:trustsharing:0:items"
-    
+    let node = TrustSharingSignature.node
+
     static let receivedTrustedDevicesAfterVerification = NSNotification.Name("com.xabber.ios.ake.receivedTrustedDevicesAfterVerification")
-    
+
     override func namespaces() -> [String] {
         return [
-            "urn:xmpp:trustsharing:0",
-            "urn:xmpp:trustsharing:0:items+notify"
+            TrustSharingSignature.xmlns,
+            "\(TrustSharingSignature.node)+notify"
         ]
     }
-    
+
     override func getPrimaryNamespace() -> String {
-        return namespaces().first!
+        return TrustSharingSignature.xmlns
     }
-    
-    override func onStreamPrepared(_ stream: XMPPStream) {
-        super.onStreamPrepared(stream)
-    }
-    
+
     func didReceivedListOfContactsDevices(message: XMPPMessage) -> Bool {
-        guard let notify = message.element(forName: "notify", xmlns: XMPPNotificationsManager.xmlns) ?? message.element(forName: "notification", xmlns: XMPPNotificationsManager.xmlns),
-              let encryptedMessage = notify.element(forName: "forwarded")?.element(forName: "message"),
-              let omemoManager = AccountManager.shared.find(for: self.owner)?.omemo else {
+        guard let forwardedMessage = forwardedPayloadMessage(from: message),
+              let omemoManager = AccountManager.shared.find(for: owner)?.omemo else {
             return false
         }
-        
-        let messageContainer: DDXMLElement
+
+        let decrypted: DDXMLElement
         do {
-            guard let messageContainerr = try omemoManager.decryptMessage(XMPPMessage(from: encryptedMessage)) else {
+            guard let messageContainer = try omemoManager.decryptMessage(forwardedMessage) else {
                 return false
             }
-            messageContainer = messageContainerr
+            decrypted = messageContainer
         } catch {
-            return false
-        }
-        
-        guard let content = messageContainer.element(forName: "content"),
-              let jid = messageContainer.element(forName: "from")?.attributeStringValue(forName: "jid"),
-              let share = content.element(forName: "share", xmlns: getPrimaryNamespace()) ?? content.element(forName: "update", xmlns: getPrimaryNamespace()),
-              let signature = try! share.element(forName: "signature")?.stringValue?.base64decoded(),
-              let identity = share.element(forName: "identity"),
-              let deviceIdRaw = identity.attributeStringValue(forName: "id"),
-              let deviceId = Int(deviceIdRaw) else {
-            return false
-        }
-        
-        if deviceId == omemoManager.localStore.localDeviceId() {
+            DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
             return true
         }
-        
-        // a delay of 2 sec is set so that the device has time to change its status to trusted if the list was requested after successful verification
-        DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(2)) {
-            do {
-                let realm = try WRealm.safe()
-                guard let instance = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@ AND deviceId == %@", self.owner, jid, deviceId).first else {
-                    return
-                }
-                if instance.state != SignalDeviceStorageItem.TrustState.trusted {
-                    return
-                }
-            } catch {
-                DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
-            }
-            
-            let itemsList = share.elements(forName: "items").sorted(by: { $0.attributeStringValue(forName: "timestamp") ?? "" > $1.attributeStringValue(forName: "timestamp") ?? "" })
-            
-            if !self.checkItemSignature(jid: jid, deviceId: deviceId, signature: Data(signature), itemsList: itemsList) {
-                return
-            }
-            
-            self.handleTrustItems(publisherDeviceId: deviceId, itemsList: itemsList, shouldRequestTrustedDevices: true)
-            
+
+        let author = decrypted.element(forName: "from")?.attributeStringValue(forName: "jid")
+            ?? forwardedMessage.from?.bare
+            ?? message.from?.bare
+            ?? owner
+        let share = decrypted.element(forName: "content")?.element(forName: "share", xmlns: getPrimaryNamespace())
+            ?? decrypted.element(forName: "content")?.element(forName: "share")
+            ?? decrypted.element(forName: "share", xmlns: getPrimaryNamespace())
+            ?? decrypted.element(forName: "share")
+
+        guard let share else {
+            return false
         }
-        
-        return true
+
+        return applyShare(share, publisherBareJid: author, shouldRequestTrustedDevices: true)
     }
-    
+
     func didReceivedTrustedSharingEvent(message: XMPPMessage) -> Bool {
         guard let jid = message.from,
               let event = message.element(forName: "event"),
               let pubsubItems = event.element(forName: "items"),
-              pubsubItems.attributeStringValue(forName: "node") == self.node,
-              let pubsubItem = pubsubItems.element(forName: "item"),
-              let publisherDeviceIdRaw = pubsubItem.attributeStringValue(forName: "id"),
-              let publisherDeviceId = Int(publisherDeviceIdRaw),
-              let share = pubsubItem.element(forName: "share"),
-              let trustedItemsList = share.element(forName: "items") ?? share.element(forName: "trusted-items"),
-              let timestamp = trustedItemsList.attributeStringValue(forName: "timestamp") else {
+              pubsubItems.attributeStringValue(forName: "node") == node else {
             return false
         }
-        
-        var signature: [UInt8] = []
-        do {
-            signature = try share.element(forName: "signature")?.stringValue?.base64decoded() ?? []
 
-        } catch {
-            DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
-            return true
-        }
-        
-        guard let deviceId = AccountManager.shared.find(for: self.owner)?.omemo.localStore.localDeviceId() else {
-            DDLogDebug("TrustSharingManager: \(#function).")
-            return true
-        }
-        if String(deviceId) == publisherDeviceIdRaw {
-            return true
-        }
-        
-        var isPublicationNeeded = false
-        let predicateForSessions = NSPredicate(format: "owner == %@ AND jid == %@ AND deviceId == %@", argumentArray: [self.owner, jid.bare, publisherDeviceId])
-        
-        do {
-            let realm = try WRealm.safe()
-            guard let instance = realm.objects(SignalDeviceStorageItem.self).filter(predicateForSessions).first else {
-                return true
-            }
-            if instance.state != SignalDeviceStorageItem.TrustState.trusted {
-                self.getUserTrustedDevices(jid: jid.bare)
-                
-                return true
-            }
-            
-            if instance.lastTrustedItemsUpdateTimestamp == timestamp {
-                return true
-            } else {
-                try realm.write {
-                    instance.lastTrustedItemsUpdateTimestamp = timestamp
-                }
-            }
-            
-            if !self.checkItemSignature(jid: jid.bare, deviceId: publisherDeviceId, signature: Data(signature), itemsList: [trustedItemsList]) {
-                return true
-            }
-            
-            self.handleTrustItems(jid: jid.bare, publisherDeviceId: publisherDeviceId, itemsList: [trustedItemsList])
-            
-        } catch {
-            DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
-            return true
-        }
-        
-        if isPublicationNeeded {
-            guard let localStore = AccountManager.shared.find(for: owner)?.omemo.localStore else {
-                DDLogDebug("TrustSharingManager: \(#function).")
-                return true
-            }
-            self.publicOwnTrustedDevices(publisherDeviceId: String(localStore.localDeviceId()))
-        }
-        
+        getUserTrustedDevices(jid: jid.bare)
         return true
     }
-    
+
     override func read(withIQ iq: XMPPIQ) -> Bool {
         guard let jid = iq.from,
               let pubsub = iq.element(forName: "pubsub", xmlns: "http://jabber.org/protocol/pubsub"),
-              let items = pubsub.element(forName: "items") ?? pubsub.element(forName: "trusted-items") else {
+              let items = pubsub.element(forName: "items"),
+              items.attributeStringValue(forName: "node") == node else {
             return false
         }
-        
-        let itemList = items.elements(forName: "item")
-        if itemList.isEmpty {
-            return false
-        }
-        
-        var isPublicationNeeded = false
-        for item in itemList {
-            guard let publisherDeviceIdRaw = item.attributeStringValue(forName: "id"),
-                  let publisherDeviceId = Int(publisherDeviceIdRaw),
-                  let share = item.element(forName: "share"),
-                  let timestamp = share.element(forName: "items")?.attributeStringValue(forName: "timestamp") ?? share.element(forName: "trusted-items")?.attributeStringValue(forName: "timestamp"),
-                  let signature = try! share.element(forName: "signature")?.stringValue?.base64decoded() else {
-                return false
-            }
-            
-            let trustedItemsList = share.element(forName: "items") ?? share.element(forName: "trusted-items")
-            if trustedItemsList == nil {
-                return true
-            }
-            
-            let predicateForDevices = NSPredicate(format: "owner == %@ AND jid == %@ AND deviceId == %@", argumentArray: [self.owner, jid.bare, publisherDeviceId])
-            do {
-                let realm = try WRealm.safe()
-                if let instance = realm.objects(SignalDeviceStorageItem.self).filter(predicateForDevices).first {
-                    if instance.state != SignalDeviceStorageItem.TrustState.trusted || instance.lastTrustedItemsUpdateTimestamp == timestamp {
-                        continue
-                    }
-                    try realm.write {
-                        instance.lastTrustedItemsUpdateTimestamp = timestamp
-                    }
-                }
-            } catch {
-                DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
-                return true
-            }
-            
-            if !self.checkItemSignature(jid: jid.bare, deviceId: publisherDeviceId, signature: Data(signature), itemsList: [trustedItemsList!]) {
+
+        var applied = false
+        for item in items.elements(forName: "item") {
+            guard let share = item.element(forName: "share", xmlns: getPrimaryNamespace()) ?? item.element(forName: "share") else {
                 continue
             }
-            
-            self.handleTrustItems(jid: jid.bare, publisherDeviceId: publisherDeviceId, itemsList: [trustedItemsList!])
-
+            applied = applyShare(share, publisherBareJid: jid.bare, forcedPublisherDeviceId: Int(item.attributeStringValue(forName: "id") ?? "")) || applied
         }
-        
-        if isPublicationNeeded {
-            guard let localStore = AccountManager.shared.find(for: owner)?.omemo.localStore else {
-                DDLogDebug("TrustSharingManager: \(#function).")
-                return true
-            }
-            self.publicOwnTrustedDevices(publisherDeviceId: String(localStore.localDeviceId()))
-        } else if !isPublicationNeeded && self.owner == jid.bare {
-            do {
-                let realm = try WRealm.safe()
-                let instance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, jid.bare).first
-                if instance != nil {
-                    try realm.write {
-                        realm.delete(instance!)
-                    }
-                }
-            } catch {
-                DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
+
+        if applied {
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: TrustSharingManager.receivedTrustedDevicesAfterVerification, object: self, userInfo: ["owner": self.owner, "jid": jid.bare])
             }
         }
         return true
     }
-    
+
     func checkItemSignature(jid: String, deviceId: Int, signature: Data, itemsList: [DDXMLElement]) -> Bool {
-        var stringToVerifySignature = ""
-        
-        for item in itemsList {
-            guard let timestamp = item.attribute(forName: "timestamp")?.stringValue else {
-                DDLogDebug("TrustSharingManager: \(#function).")
-                return false
-            }
-            stringToVerifySignature += timestamp
-            
-            let trustItems = item.elements(forName: SignalDeviceStorageItem.TrustState.trusted.rawValue)
-            let distrustedItems = item.elements(forName: SignalDeviceStorageItem.TrustState.distrusted.rawValue)
-            let revokedItems = item.elements(forName: SignalDeviceStorageItem.TrustState.revoked.rawValue)
-            
-            let devicesList = (trustItems + distrustedItems + revokedItems).sorted(by: { $0.attributeStringValue(forName: "timestamp") ?? "" > $1.attributeStringValue(forName: "timestamp") ?? "" })
-            
-            for trust in devicesList {
-                guard let timestamp = trust.attributeStringValue(forName: "timestamp"),
-                      let trustKey = trust.stringValue else {
-                    DDLogDebug("TrustSharingManager: \(#function).")
-                    return true
-                }
-                stringToVerifySignature += "<" + timestamp + "/" + trustKey
-            }
-        }
-        
-        var pubKey: [UInt8]? = nil
-        do {
-            let realm = try WRealm.safe()
-            if let storedBundle = realm.object(ofType: SignalIdentityStorageItem.self, forPrimaryKey: SignalIdentityStorageItem.genRpimary(owner: self.owner, jid: jid, deviceId: deviceId)) {
-                pubKey = try storedBundle.identityKey?.base64decoded()
-                
-                if pubKey == nil {
-                    return false
-                }
-                
-                if pubKey!.count == 33 {
-                    pubKey = Array(pubKey!.dropFirst())
-                }
-            } else {
-                return false
-            }
-        } catch {
-            DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
-        }
-        
-        guard let pubKey = pubKey else {
+        guard let canonical = TrustSharingSignature.canonicalString(for: itemsList) else {
             return false
         }
-        
-        if !Ed25519.verifySignature(signature, publicKey: Data(pubKey), data: Data(stringToVerifySignature.bytes)) {
-            return false
-        }
-        
-        return true
+        return verifySignature(signature, canonicalString: canonical, publisherBareJid: jid, publisherDeviceId: deviceId)
     }
-    
+
     func handleTrustItems(jid: String? = nil, publisherDeviceId: Int, itemsList: [DDXMLElement], shouldRequestTrustedDevices: Bool = false) {
-        for item in itemsList {
-            guard let jid = jid ?? item.attributeStringValue(forName: "owner") else {
-                return
-            }
-            
-            let trustItems = item.elements(forName: SignalDeviceStorageItem.TrustState.trusted.rawValue)
-            let distrustedItems = item.elements(forName: SignalDeviceStorageItem.TrustState.distrusted.rawValue)
-            let revokedItems = item.elements(forName: SignalDeviceStorageItem.TrustState.revoked.rawValue)
-            
-            let devicesList = trustItems + distrustedItems + revokedItems
-            
-            for itemDevice in devicesList {
-                do {
-                    guard let trustKeyBytes = try itemDevice.stringValue?.base64decoded(),
-                          let trustKey = String(bytes: trustKeyBytes, encoding: .utf8),
-                          let deviceId = Int(trustKey.components(separatedBy: "::")[0]),
-                          let state = SignalDeviceStorageItem.TrustState(rawValue: itemDevice.name ?? "") else {
-                        continue
-                    }
-                    
-                    let realm = try WRealm.safe()
-                    if let instance = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@ AND deviceId == %@", self.owner, jid, deviceId).first {
-                        if instance.state != state {
-                            try realm.write {
-                                instance.state = state
-                                if state == .trusted {
-                                    instance.trustDate = Date()
-                                    instance.trustedByDeviceId = String(publisherDeviceId)
-                                } else if state == .distrusted {
-                                    instance.trustDate = Date(timeIntervalSince1970: -1)
-                                    instance.trustedByDeviceId = nil
-                                    instance.lastTrustedItemsUpdateTimestamp = ""
-                                }
-                            }
-                            
-                            if state == .trusted && shouldRequestTrustedDevices {
-                                self.getUserTrustedDevices(jid: jid, deviceId: String(deviceId))
-                            }
-                            
-                            if self.owner == jid {
-                                guard let myDeviceId = AccountManager.shared.find(for: self.owner)?.omemo.localStore.localDeviceId() else {
-                                    return
-                                }
-                                self.publicOwnTrustedDevices(publisherDeviceId: String(myDeviceId))
-                            }
-                            
-                        }
-                        
-                    } else if state == .revoked {
-                        let instance = SignalDeviceStorageItem()
-                        instance.owner = self.owner
-                        instance.jid = jid
-                        instance.primary = SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: jid, deviceId: deviceId)
-                        instance.deviceId = deviceId
-                        instance.state = .revoked
-                        instance.freshlyUpdated = true
-                        
-                        try realm.write {
-                            realm.add(instance)
-                        }
-                        
-                    }
-                    
-                } catch {
-                    DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
-                }
-            }
-        }
+        _ = applyTrustedItems(itemsList, fallbackOwner: jid, publisherDeviceId: publisherDeviceId, shouldRequestTrustedDevices: shouldRequestTrustedDevices)
     }
-    
+
     func sendUpdateOfContactsDevices(jid: String, updatedDevicesIds: [Int]) {
-        let update = DDXMLElement(name: "update", xmlns: self.getPrimaryNamespace())
-        update.addAttribute(withName: "usage", stringValue: "urn:xmpp:omemo:2")
-        
-        let items = DDXMLElement(name: "items")
-        items.addAttribute(withName: "owner", stringValue: jid)
-        let itemsTimestamp = String(Int(Date().timeIntervalSince1970.rounded()))
-        items.addAttribute(withName: "timestamp", stringValue: itemsTimestamp)
-        
-        var stringToHash = ""
-        stringToHash += itemsTimestamp
-        
-        let localDeviceId = AccountManager.shared.find(for: self.owner)?.omemo.localStore.localDeviceId()
-        if localDeviceId == nil {
+        let items = buildContactTrustedItems(filterJid: jid, filterDeviceIds: Set(updatedDevicesIds))
+        guard items.isNotEmpty else {
             return
         }
-        
-        var omemoFingerprint = ""
-        
-        do {
-            let realm = try WRealm.safe()
-            for device in updatedDevicesIds {
-                let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: jid, deviceId: device))
-                if instance == nil {
-                    return
-                }
-                
-                let trustedKey = String(instance!.deviceId) + "::" + instance!.fingerprint
-                let deviceItem = DDXMLElement(name: instance!.state_, stringValue: trustedKey.toBase64())
-                let trustTimestamp = String(Int(instance!.trustDate.timeIntervalSince1970.rounded()))
-                deviceItem.addAttribute(withName: "timestamp", stringValue: trustTimestamp)
-                items.addChild(deviceItem)
-            }
-            
-            let deviceInstance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: localDeviceId!))
-            if deviceInstance == nil {
-                return
-            }
-            
-            omemoFingerprint = deviceInstance!.fingerprint.replacingOccurrences(of: " ", with: "").lowercased()
-        } catch {
-            DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
-        }
-        
-        update.addChild(items)
-        
-        let trustItems = items.elements(forName: SignalDeviceStorageItem.TrustState.trusted.rawValue)
-        let distrustedItems = items.elements(forName: SignalDeviceStorageItem.TrustState.distrusted.rawValue)
-        let revokedItems = items.elements(forName: SignalDeviceStorageItem.TrustState.revoked.rawValue)
-        
-        let devicesList = (trustItems + distrustedItems + revokedItems).sorted(by: { $0.attributeStringValue(forName: "timestamp") ?? "" > $1.attributeStringValue(forName: "timestamp") ?? "" })
-        
-        for item in devicesList {
-            guard let timestamp = item.attributeStringValue(forName: "timestamp"),
-                  let trustKey = item.stringValue else {
-                DDLogDebug("TrustSharingManager: \(#function).")
-                return
-            }
-            stringToHash += "<" + timestamp + "/" + trustKey
-        }
-        
-        let keyPair = AccountManager.shared.find(for: self.owner)?.omemo.localStore.getIdentityKeyPair()
-        if keyPair == nil {
-            return
-        }
-//        let privateKey = keyPair.privateKey.bytes
-        
-//        let publicKey = AccountManager.shared.find(for: self.owner)?.akeManager.getUsersPublicKey(jid: self.owner, deviceId: localDeviceId)
-        
-        let identityXML = DDXMLElement(name: "identity", stringValue: omemoFingerprint)
-        identityXML.addAttribute(withName: "id", stringValue: String(localDeviceId!))
-        update.addChild(identityXML)
-        
-        let ecKeyPair = Curve25519.load(fromPublicKey: keyPair!.publicKey, andPrivateKey: keyPair!.privateKey)
-        guard let signature = Ed25519.sign(Data(stringToHash.bytes), with: ecKeyPair) else {
-            DDLogDebug("TrustSharingManager: \(#function).")
-            return
-        }
-
-        let signatureXML = DDXMLElement(name: "signature", stringValue: signature.base64EncodedString())
-        signatureXML.addAttribute(withName: "xmlns", stringValue: self.getPrimaryNamespace())
-        update.addChild(signatureXML)
-        
-        let omemoEnvelope = AccountManager.shared.find(for: self.owner)?.omemo.prepareStanzaContent(message: "", date: Date(), jid: self.owner, additionalContent: [update], ignoreTimeSignature: true)
-        if omemoEnvelope == nil {
-            return
-        }
-        
-        var omemoEncrypted: DDXMLElement? = nil
-        do {
-            omemoEncrypted = try AccountManager.shared.find(for: self.owner)?.omemo.encryptMessage(message: omemoEnvelope!, to: self.owner)
-            
-        } catch {
-            DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
-            return
-        }
-        
-        if omemoEncrypted == nil {
-            return
-        }
-        
-        let omemoMessage = XMPPMessage(messageType: .chat, to: XMPPJID(string: self.owner), elementID: UUID().uuidString)
-        omemoMessage.addChild(omemoEncrypted!.copy() as! DDXMLElement)
-        omemoMessage.addBody("Message was encrypted by OMEMO".localizeString(id: "message_omemo_encryption", arguments: []))
-        let encryptionElement = DDXMLElement(name: "encryption", xmlns: "urn:xmpp:eme:0")
-        encryptionElement.addAttribute(withName: "namespace", stringValue: "urn:xmpp:omemo:2")
-        omemoMessage.addChild(encryptionElement)
-        omemoMessage.addOriginId(UUID().uuidString)
-        omemoMessage.addAttribute(withName: "from", stringValue: self.owner)
-        
-        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-            let packet = user.akeManager.getSignalMessagePacket(message: XMPPMessage(from: omemoMessage), to: XMPPJID(string: self.owner)!, ttl: 300)
-            stream.send(packet)
-        })
-        
+        sendContactShare(items)
     }
-    
+
     func sendListOfContactsDevices() {
-        let share = DDXMLElement(name: "share", xmlns: self.getPrimaryNamespace())
-        share.addAttribute(withName: "usage", stringValue: "urn:xmpp:omemo:2")
-        
-//        guard let localStore = AccountManager.shared.find(for: self.owner)?.omemo.localStore else {
-//            return
-//        }
-        let localDeviceId = AccountManager.shared.find(for: self.owner)?.omemo.localStore.localDeviceId()
-        if localDeviceId == nil {
+        let items = buildContactTrustedItems()
+        guard items.isNotEmpty else {
             return
         }
-        
-        var omemoFingerprint = ""
-        
-        do {
-            let realm = try WRealm.safe()
-            
-            // Search for all devices that need to be sent
-            let instances = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid != %@ AND state_ IN %@", self.owner, self.owner, [SignalDeviceStorageItem.TrustState.trusted.rawValue, SignalDeviceStorageItem.TrustState.distrusted.rawValue, SignalDeviceStorageItem.TrustState.revoked.rawValue])
-            if instances.isEmpty {
-                return
-            }
-            
-            var jids: [String] = []
-            for instance in instances {
-                if !jids.contains(where: { $0 == instance.jid }) {
-                    jids.append(instance.jid)
-                }
-            }
-            for jid in jids {
-                let items = DDXMLElement(name: "items")
-                items.addAttribute(withName: "owner", stringValue: jid)
-                items.addAttribute(withName: "timestamp", stringValue: String(Int(Date().timeIntervalSince1970.rounded())))
-                for instance in instances {
-                    if instance.jid == jid {
-                        let trustedKey = String(instance.deviceId) + "::" + instance.fingerprint
-                        let deviceItem = DDXMLElement(name: instance.state_, stringValue: trustedKey.toBase64())
-                        deviceItem.addAttribute(withName: "timestamp", stringValue: String(Int(instance.trustDate.timeIntervalSince1970.rounded())))
-                        items.addChild(deviceItem)
-                    }
-                }
-                share.addChild(items)
-            }
-            
-            guard let deviceInstance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: localDeviceId!)) else {
-                DDLogDebug("TrustSharingManager: \(#function).")
-                return
-            }
-            
-            omemoFingerprint = deviceInstance.fingerprint.replacingOccurrences(of: " ", with: "").lowercased()
-        } catch {
-            DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
-            return
-        }
-        
-//        guard let localStore = AccountManager.shared.find(for: owner)?.omemo.localStore else {
-//            DDLogDebug("TrustSharingManager: \(#function).")
-//            return
-//        }
-        
-        let keyPair = AccountManager.shared.find(for: owner)?.omemo.localStore.getIdentityKeyPair()
-//        let privateKey = keyPair?.privateKey.bytes
-        
-//        guard let akeManager = AccountManager.shared.find(for: self.owner)?.akeManager,
-//              let omemoManager = AccountManager.shared.find(for: self.owner)?.omemo else {
-//            DDLogDebug("TrustSharingManager: \(#function).")
-//            return
-//        }
-        
-        let publicKey = AccountManager.shared.find(for: self.owner)?.akeManager.getUsersPublicKey(jid: self.owner, deviceId: localDeviceId!)
-        let fingerprint = publicKey?.toHexString()
-        
-        let identityXML = DDXMLElement(name: "identity", stringValue: omemoFingerprint)
-        identityXML.addAttribute(withName: "id", stringValue: String(localDeviceId!))
-        share.addChild(identityXML)
-        
-        var stringToHash = ""
-        let trustedItemsList = share.elements(forName: "items").sorted(by: { $0.attributeStringValue(forName: "timestamp") ?? "" > $1.attributeStringValue(forName: "timestamp") ?? "" })
-        
-        for item in trustedItemsList {
-            guard let timestamp = item.attribute(forName: "timestamp")?.stringValue else {
-                DDLogDebug("TrustSharingManager: \(#function).")
-                return
-            }
-            
-            stringToHash += timestamp
-            
-            let trustItems = item.elements(forName: SignalDeviceStorageItem.TrustState.trusted.rawValue)
-            let distrustedItems = item.elements(forName: SignalDeviceStorageItem.TrustState.distrusted.rawValue)
-            let revokedItems = item.elements(forName: SignalDeviceStorageItem.TrustState.revoked.rawValue)
-            
-            let devicesList = (trustItems + distrustedItems + revokedItems).sorted(by: { $0.attributeStringValue(forName: "timestamp") ?? "" > $1.attributeStringValue(forName: "timestamp") ?? "" })
-            
-//            let devicesList = item.elements(forName: SignalDeviceStorageItem.TrustState.trusted.rawValue).sorted(by: { $0.attributeStringValue(forName: "timestamp") ?? "" > $1.attributeStringValue(forName: "timestamp") ?? "" })
-            
-            for item in devicesList {
-                guard let timestamp = item.attributeStringValue(forName: "timestamp"),
-                      let trustKey = item.stringValue else {
-                    DDLogDebug("TrustSharingManager: \(#function).")
-                    return
-                }
-                stringToHash += "<" + timestamp + "/" + trustKey
-            }
-        }
-        
-        let ecKeyPair = Curve25519.load(fromPublicKey: keyPair?.publicKey, andPrivateKey: keyPair?.privateKey)
-        guard let signature = Ed25519.sign(Data(stringToHash.bytes), with: ecKeyPair),
-              let myFullJid = AccountManager.shared.find(for: self.owner)?.xmppStream.myJID?.full else {
-            DDLogDebug("TrustSharingManager: \(#function).")
-            return
-        }
-
-        let signatureXML = DDXMLElement(name: "signature", stringValue: signature.base64EncodedString())
-        signatureXML.addAttribute(withName: "xmlns", stringValue: self.getPrimaryNamespace())
-        share.addChild(signatureXML)
-        
-        guard let omemoEnvelope = AccountManager.shared.find(for: self.owner)?.omemo.prepareStanzaContent(message: "", date: Date(), jid: self.owner, additionalContent: [share], ignoreTimeSignature: true) else {
-            DDLogDebug("TrustSharingManager: \(#function).")
-            return
-        }
-        
-        var omemoEncrypted: DDXMLElement? = nil
-        do {
-            omemoEncrypted = try AccountManager.shared.find(for: self.owner)?.omemo.encryptMessage(message: omemoEnvelope, to: self.owner)
-        } catch {
-            DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
-            return
-        }
-        
-        if omemoEncrypted == nil {
-            return
-        }
-        
-        let omemoMessage = XMPPMessage(messageType: .chat, to: XMPPJID(string: self.owner), elementID: UUID().uuidString, child: omemoEncrypted)
-        omemoMessage.addBody("Message was encrypted by OMEMO".localizeString(id: "message_omemo_encryption", arguments: []))
-        let encryptionElement = DDXMLElement(name: "encryption", xmlns: "urn:xmpp:eme:0")
-        encryptionElement.addAttribute(withName: "namespace", stringValue: "urn:xmpp:omemo:2")
-        omemoMessage.addChild(encryptionElement)
-        omemoMessage.addOriginId(UUID().uuidString)
-        omemoMessage.addAttribute(withName: "from", stringValue: self.owner)
-        
-//        let iq = akeManager.getNotificationContainer(message: XMPPMessage(from: omemoMessage), notificationTo: XMPPJID(string: self.owner)!)
-        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-            let packet = user.akeManager.getSignalMessagePacket(message: XMPPMessage(from: omemoMessage), to: XMPPJID(string: self.owner)!, ttl: 300)
-            stream.send(packet)
-        })
+        sendContactShare(items)
     }
-    
-    func publicOwnTrustedDevices(publisherDeviceId: String) {
-        let share = DDXMLElement(name: "share", xmlns: self.getPrimaryNamespace())
-        share.addAttribute(withName: "usage", stringValue: "urn:xmpp:omemo:2")
-        
-        var omemoFingerprint = ""
-        
-        do {
-            let realm = try WRealm.safe()
-            let predicate = NSPredicate(format: "owner == %@ AND jid == %@ AND state_ == %@", argumentArray: [self.owner, self.owner, SignalDeviceStorageItem.TrustState.trusted.rawValue])
-            let instances = realm.objects(SignalDeviceStorageItem.self).filter(predicate)
-            let trustedItems = DDXMLElement(name: "items")
-            trustedItems.addAttribute(withName: "timestamp", stringValue: String(Int(Date().timeIntervalSince1970.rounded())))
-            for instance in instances {
-                let trustedKey = String(instance.deviceId) + "::" + instance.fingerprint.replacingOccurrences(of: " ", with: "").lowercased()
-                let trust = DDXMLElement(name: "trust", stringValue: trustedKey.toBase64())
-                trust.addAttribute(withName: "timestamp", stringValue: String(Int(instance.trustDate.timeIntervalSince1970.rounded())))
-                trustedItems.addChild(trust)
-            }
-            share.addChild(trustedItems)
-            
-            guard let publisherdeviceIdInt = Int(publisherDeviceId) else {
-                DDLogDebug("TrustSharingManager: \(#function).")
-                return
-            }
-            
-            guard let deviceInstance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: publisherdeviceIdInt)) else {
-                DDLogDebug("TrustSharingManager: \(#function).")
-                return
-            }
-            omemoFingerprint = deviceInstance.fingerprint.replacingOccurrences(of: " ", with: "").lowercased()
-        } catch {
-            DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
-            return
-        }
-        
-        guard let localStore = AccountManager.shared.find(for: owner)?.omemo.localStore else {
-            DDLogDebug("TrustSharingManager: \(#function).")
-            return
-        }
-        
-        let keyPair = localStore.getIdentityKeyPair()
-        let publicKey = keyPair.publicKey.dropFirst()
-        
-        let identityXML = DDXMLElement(name: "identity", stringValue: omemoFingerprint)
-        identityXML.addAttribute(withName: "id", stringValue: String(publisherDeviceId))
-        share.addChild(identityXML)
-        
-        var stringToHash = ""
-        let trustedItemsList = share.elements(forName: "items").sorted(by: { $0.attributeStringValue(forName: "timestamp") ?? "" > $1.attributeStringValue(forName: "timestamp") ?? "" })
-        
-        for item in trustedItemsList {
-            guard let timestamp = item.attribute(forName: "timestamp")?.stringValue else {
-                DDLogDebug("TrustSharingManager: \(#function).")
-                return
-            }
-            stringToHash += timestamp
-            let trustsList = item.elements(forName: "trust").sorted(by: { $0.attributeStringValue(forName: "timestamp") ?? "" > $1.attributeStringValue(forName: "timestamp") ?? "" })
-            for trust in trustsList {
-                guard let timestamp = trust.attributeStringValue(forName: "timestamp"),
-                      let trustKey = trust.stringValue else {
-                    DDLogDebug("TrustSharingManager: \(#function).")
-                    return
-                }
-                stringToHash += "<" + timestamp + "/" + trustKey
-            }
-        }
-        
-        let keyPairCurve25519 = Curve25519.load(fromPublicKey: keyPair.publicKey, andPrivateKey: keyPair.privateKey)
-        guard let signature = Ed25519.sign(Data(stringToHash.bytes), with: keyPairCurve25519) else {
-            DDLogDebug("TrustSharingManager: \(#function).")
+
+    func publishOwnTrustedDevices(publisherDeviceId: String) {
+        guard let publisherDeviceIdInt = Int(publisherDeviceId),
+              let share = buildOwnTrustedDevicesShare(publisherDeviceId: publisherDeviceIdInt) else {
             return
         }
 
-        let signatureXML = DDXMLElement(name: "signature", stringValue: signature.base64EncodedString())
-        signatureXML.addAttribute(withName: "xmlns", stringValue: self.getPrimaryNamespace())
-        share.addChild(signatureXML)
-        
         let item = DDXMLElement(name: "item")
-        item.addChild(share)
         item.addAttribute(withName: "id", stringValue: publisherDeviceId)
+        item.addChild(share)
+
         let publish = DDXMLElement(name: "publish")
-        publish.addAttribute(withName: "node", stringValue: self.node)
+        publish.addAttribute(withName: "node", stringValue: node)
         publish.addChild(item)
+
         let pubsub = DDXMLElement(name: "pubsub", xmlns: "http://jabber.org/protocol/pubsub")
         pubsub.addChild(publish)
+
         let iq = XMPPIQ(iqType: .set, child: pubsub)
-        
-        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+        AccountManager.shared.find(for: owner)?.action { _, stream in
             stream.send(iq)
-        })
+        }
     }
-    
+
+    func publicOwnTrustedDevices(publisherDeviceId: String) {
+        publishOwnTrustedDevices(publisherDeviceId: publisherDeviceId)
+    }
+
     func getUserTrustedDevices(jid: String, deviceId: String? = nil) {
         guard let jid = XMPPJID(string: jid) else {
             return
         }
-        
+
         let items = DDXMLElement(name: "items")
-        items.addAttribute(withName: "node", stringValue: self.node)
-        
-        if deviceId != nil {
+        items.addAttribute(withName: "node", stringValue: node)
+        if let deviceId {
             let item = DDXMLElement(name: "item")
-            item.addAttribute(withName: "id", stringValue: deviceId!)
+            item.addAttribute(withName: "id", stringValue: deviceId)
             items.addChild(item)
         }
-        
+
         let pubsub = DDXMLElement(name: "pubsub", xmlns: "http://jabber.org/protocol/pubsub")
         pubsub.addChild(items)
-        
+
         let iq = XMPPIQ(iqType: .get, to: jid, child: pubsub)
-        
-        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
+        if let id = iq.elementID {
+            queryIds.append(id)
+        }
+
+        AccountManager.shared.find(for: owner)?.action { _, stream in
             stream.send(iq)
-        })
+        }
     }
-    
+
+    private func forwardedPayloadMessage(from message: XMPPMessage) -> XMPPMessage? {
+        if message.element(forName: "encrypted", xmlns: "urn:xmpp:omemo:2") != nil || message.element(forName: "share", xmlns: getPrimaryNamespace()) != nil {
+            return message
+        }
+
+        let bareMessage = recursivelyUnwrapped(message)
+        if bareMessage.element(forName: "encrypted", xmlns: "urn:xmpp:omemo:2") != nil || bareMessage.element(forName: "share", xmlns: getPrimaryNamespace()) != nil {
+            return bareMessage
+        }
+
+        guard let notification = bareMessage.element(forName: "notification", xmlns: XMPPNotificationsManager.xmlns)
+                ?? bareMessage.element(forName: "notification")
+                ?? bareMessage.element(forName: "notify", xmlns: XMPPNotificationsManager.xmlns)?.element(forName: "notification", xmlns: XMPPNotificationsManager.xmlns)
+                ?? bareMessage.element(forName: "notify", xmlns: XMPPNotificationsManager.xmlns)?.element(forName: "notification"),
+              notification.xmlns() == XMPPNotificationsManager.xmlns,
+              let forwarded = notification.element(forName: "forwarded", xmlns: "urn:xmpp:forward:0")
+                ?? notification.element(forName: "forwarded"),
+              let inner = forwarded.element(forName: "message") else {
+            return nil
+        }
+
+        let innerMessage = XMPPMessage(from: inner)
+        if let originalFrom = originalFromAddress(in: bareMessage),
+           let forwardedFrom = innerMessage.attributeStringValue(forName: "from"),
+           !jidMatches(originalFrom, forwardedFrom) {
+            return nil
+        }
+        return innerMessage
+    }
+
+    private func recursivelyUnwrapped(_ message: XMPPMessage) -> XMPPMessage {
+        var current = message
+        var depth = 0
+        while depth < 4 {
+            let next: XMPPMessage?
+            if isArchivedMessage(current) {
+                next = getArchivedMessageContainer(current)
+            } else if isPriorityMessage(current) {
+                next = getPriorityMessageContainer(current)
+            } else if isCarbonCopy(current) {
+                next = getCarbonCopyMessageContainer(current)
+            } else if isCarbonForwarded(current) {
+                next = getCarbonForwardedMessageContainer(current)
+            } else {
+                next = getForwardedMessage(current)
+            }
+            guard let next else {
+                break
+            }
+            current = next
+            depth += 1
+        }
+        return current
+    }
+
+    private func originalFromAddress(in message: XMPPMessage) -> String? {
+        let addresses = message.element(forName: "addresses", xmlns: "http://jabber.org/protocol/address")
+            ?? message.element(forName: "addresses")
+            ?? message.element(forName: "notify", xmlns: XMPPNotificationsManager.xmlns)?.element(forName: "addresses", xmlns: "http://jabber.org/protocol/address")
+            ?? message.element(forName: "notify", xmlns: XMPPNotificationsManager.xmlns)?.element(forName: "addresses")
+        return addresses?.elements(forName: "address").first(where: { $0.attributeStringValue(forName: "type") == "ofrom" })?.attributeStringValue(forName: "jid")
+    }
+
+    private func jidMatches(_ lhs: String, _ rhs: String) -> Bool {
+        if lhs == rhs {
+            return true
+        }
+        guard let left = XMPPJID(string: lhs), let right = XMPPJID(string: rhs) else {
+            return false
+        }
+        if left.resource != nil && right.resource != nil {
+            return left.full == right.full
+        }
+        return left.bare == right.bare
+    }
+
+    private func applyShare(_ share: DDXMLElement, publisherBareJid: String, forcedPublisherDeviceId: Int? = nil, shouldRequestTrustedDevices: Bool = false) -> Bool {
+        guard share.xmlns() == getPrimaryNamespace(),
+              share.attributeStringValue(forName: "usage", withDefaultValue: TrustSharingSignature.usage) == TrustSharingSignature.usage,
+              let identity = share.element(forName: "identity"),
+              let identityDeviceIdRaw = identity.attributeStringValue(forName: "id"),
+              let identityDeviceId = Int(identityDeviceIdRaw),
+              forcedPublisherDeviceId == nil || forcedPublisherDeviceId == identityDeviceId,
+              let identityFingerprint = identity.stringValue?.replacingOccurrences(of: " ", with: "").lowercased(),
+              let signatureRaw = share.element(forName: "signature", xmlns: getPrimaryNamespace())?.stringValue ?? share.element(forName: "signature")?.stringValue else {
+            return false
+        }
+
+        let publisherDeviceId = forcedPublisherDeviceId ?? identityDeviceId
+        guard fingerprintMatches(jid: publisherBareJid, deviceId: publisherDeviceId, fingerprint: identityFingerprint),
+              let signature = try? signatureRaw.base64decoded() else {
+            return false
+        }
+
+        let containers = TrustSharingSignature.trustedItems(from: share)
+        guard containers.isNotEmpty,
+              checkPublisherTimestamp(publisherBareJid: publisherBareJid, publisherDeviceId: publisherDeviceId, containers: containers),
+              let canonical = TrustSharingSignature.canonicalString(for: containers),
+              verifySignature(Data(signature), canonicalString: canonical, publisherBareJid: publisherBareJid, publisherDeviceId: publisherDeviceId) else {
+            return false
+        }
+
+        return applyTrustedItems(containers, fallbackOwner: publisherBareJid, publisherDeviceId: publisherDeviceId, shouldRequestTrustedDevices: shouldRequestTrustedDevices)
+    }
+
+    private func verifySignature(_ signature: Data, canonicalString: String, publisherBareJid: String, publisherDeviceId: Int) -> Bool {
+        let publicKey = AccountManager.shared.find(for: owner)?.akeManager.getUsersPublicKey(jid: publisherBareJid, deviceId: publisherDeviceId) ?? []
+        guard publicKey.isNotEmpty else {
+            return false
+        }
+        let signedHash = TrustSharingSignature.hashCanonicalString(canonicalString)
+        return Ed25519.verifySignature(signature, publicKey: Data(publicKey), data: signedHash)
+    }
+
+    private func fingerprintMatches(jid: String, deviceId: Int, fingerprint: String) -> Bool {
+        do {
+            let realm = try WRealm.safe()
+            guard let device = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: owner, jid: jid, deviceId: deviceId)) else {
+                return false
+            }
+            let stored = device.fingerprint.replacingOccurrences(of: " ", with: "").lowercased()
+            return stored == fingerprint
+        } catch {
+            DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private func checkPublisherTimestamp(publisherBareJid: String, publisherDeviceId: Int, containers: [DDXMLElement]) -> Bool {
+        let latestTimestamp = containers.map { TrustSharingSignature.timestamp($0) }.max() ?? 0
+        guard latestTimestamp > 0 else {
+            return false
+        }
+
+        do {
+            let realm = try WRealm.safe()
+            guard let device = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: owner, jid: publisherBareJid, deviceId: publisherDeviceId)) else {
+                return false
+            }
+            if latestTimestamp <= device.lastTrustSharingTimestamp {
+                return false
+            }
+            try realm.write {
+                device.lastTrustSharingTimestamp = latestTimestamp
+                device.lastTrustedItemsUpdateTimestamp = String(latestTimestamp)
+            }
+            return true
+        } catch {
+            DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private func applyTrustedItems(_ containers: [DDXMLElement], fallbackOwner: String?, publisherDeviceId: Int, shouldRequestTrustedDevices: Bool) -> Bool {
+        var applied = false
+
+        for container in containers {
+            let itemOwner = container.attributeStringValue(forName: "owner") ?? fallbackOwner
+            guard let jid = itemOwner else {
+                continue
+            }
+
+            let entries = container.elements(forName: "trust")
+                + container.elements(forName: "distrust")
+                + container.elements(forName: "revoked")
+
+            for entry in entries {
+                guard let state = state(from: entry.name),
+                      let value = entry.stringValue,
+                      let trustKeyBytes = try? value.base64decoded(),
+                      let trustKey = String(bytes: trustKeyBytes, encoding: .utf8),
+                      let deviceIdRaw = trustKey.components(separatedBy: "::").first,
+                      let deviceId = Int(deviceIdRaw) else {
+                    continue
+                }
+
+                let entryTimestamp = TrustSharingSignature.timestamp(entry)
+                guard entryTimestamp > 0 else {
+                    continue
+                }
+
+                do {
+                    let realm = try WRealm.safe()
+                    let primary = SignalDeviceStorageItem.genPrimary(owner: owner, jid: jid, deviceId: deviceId)
+                    if let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: primary) {
+                        if entryTimestamp <= instance.lastTrustSharingTimestamp {
+                            continue
+                        }
+                        try realm.write {
+                            apply(state, timestamp: entryTimestamp, publisherDeviceId: publisherDeviceId, to: instance)
+                        }
+                        applied = true
+                    } else if state == .revoked {
+                        let instance = SignalDeviceStorageItem()
+                        instance.owner = owner
+                        instance.jid = jid
+                        instance.primary = primary
+                        instance.deviceId = deviceId
+                        instance.state = .revoked
+                        instance.freshlyUpdated = true
+                        instance.lastTrustSharingTimestamp = entryTimestamp
+                        try realm.write {
+                            realm.add(instance)
+                        }
+                        applied = true
+                    }
+                } catch {
+                    DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
+                }
+
+                if state == .trusted && shouldRequestTrustedDevices {
+                    getUserTrustedDevices(jid: jid)
+                }
+                if jid == owner, let localDeviceId = AccountManager.shared.find(for: owner)?.omemo.localStore.localDeviceId() {
+                    publishOwnTrustedDevices(publisherDeviceId: String(localDeviceId))
+                }
+            }
+        }
+
+        return applied
+    }
+
+    private func apply(_ state: SignalDeviceStorageItem.TrustState, timestamp: Int64, publisherDeviceId: Int, to instance: SignalDeviceStorageItem) {
+        instance.state = state
+        instance.lastTrustSharingTimestamp = timestamp
+        instance.lastTrustedItemsUpdateTimestamp = String(timestamp)
+        switch state {
+        case .trusted:
+            instance.trustDate = Date(timeIntervalSince1970: TimeInterval(timestamp))
+            instance.trustedByDeviceId = String(publisherDeviceId)
+        case .distrusted:
+            instance.trustDate = Date(timeIntervalSince1970: -1)
+            instance.trustedByDeviceId = nil
+        case .revoked:
+            instance.trustDate = Date(timeIntervalSince1970: -1)
+            instance.trustedByDeviceId = nil
+            instance.freshlyUpdated = true
+        default:
+            break
+        }
+    }
+
+    private func state(from elementName: String?) -> SignalDeviceStorageItem.TrustState? {
+        switch elementName {
+        case "trust":
+            return .trusted
+        case "distrust":
+            return .distrusted
+        case "revoked":
+            return .revoked
+        default:
+            return nil
+        }
+    }
+
+    private func elementName(for state: SignalDeviceStorageItem.TrustState) -> String? {
+        switch state {
+        case .trusted:
+            return "trust"
+        case .distrusted:
+            return "distrust"
+        case .revoked:
+            return "revoked"
+        default:
+            return nil
+        }
+    }
+
+    private func sendContactShare(_ items: [DDXMLElement]) {
+        guard let account = AccountManager.shared.find(for: owner) else {
+            return
+        }
+
+        let localDeviceId = account.omemo.localStore.localDeviceId()
+        guard let share = buildShare(items: items, identityDeviceId: localDeviceId, identityJid: owner) else {
+            return
+        }
+
+        guard let omemoEnvelope = account.omemo.prepareStanzaContent(message: "", date: Date(), jid: owner, additionalContent: [share], ignoreTimeSignature: true) else {
+            return
+        }
+
+        let encrypted: DDXMLElement
+        do {
+            guard let encryptedRaw = try account.omemo.encryptMessage(message: omemoEnvelope, to: owner) else {
+                return
+            }
+            encrypted = encryptedRaw
+        } catch {
+            DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
+            return
+        }
+
+        let omemoMessage = XMPPMessage(messageType: .chat, to: XMPPJID(string: owner), elementID: UUID().uuidString, child: encrypted)
+        omemoMessage.addBody("Message was encrypted by OMEMO".localizeString(id: "message_omemo_encryption", arguments: []))
+        let encryptionElement = DDXMLElement(name: "encryption", xmlns: "urn:xmpp:eme:0")
+        encryptionElement.addAttribute(withName: "namespace", stringValue: "urn:xmpp:omemo:2")
+        omemoMessage.addChild(encryptionElement)
+        omemoMessage.addOriginId(UUID().uuidString)
+        if let myFullJid = account.xmppStream.myJID?.full {
+            omemoMessage.addAttribute(withName: "from", stringValue: myFullJid)
+        }
+
+        guard let toJid = XMPPJID(string: owner) else {
+            return
+        }
+        account.action { user, stream in
+            let packet = user.akeManager.getSignalMessagePacket(message: XMPPMessage(from: omemoMessage), to: toJid, ttl: 300)
+            stream.send(packet)
+        }
+    }
+
+    private func buildShare(items: [DDXMLElement], identityDeviceId: Int, identityJid: String) -> DDXMLElement? {
+        guard let identityFingerprint = fingerprint(jid: identityJid, deviceId: identityDeviceId),
+              let canonical = TrustSharingSignature.canonicalString(for: items),
+              let signature = signCanonicalString(canonical) else {
+            return nil
+        }
+
+        let share = DDXMLElement(name: "share", xmlns: getPrimaryNamespace())
+        share.addAttribute(withName: "usage", stringValue: TrustSharingSignature.usage)
+        for item in items {
+            if let copy = item.copy() as? DDXMLElement {
+                share.addChild(copy)
+            }
+        }
+
+        let identity = DDXMLElement(name: "identity", stringValue: identityFingerprint)
+        identity.addAttribute(withName: "id", stringValue: String(identityDeviceId))
+        share.addChild(identity)
+
+        let signatureElement = DDXMLElement(name: "signature", xmlns: getPrimaryNamespace())
+        signatureElement.stringValue = signature.base64EncodedString()
+        share.addChild(signatureElement)
+        return share
+    }
+
+    private func buildContactTrustedItems(filterJid: String? = nil, filterDeviceIds: Set<Int>? = nil) -> [DDXMLElement] {
+        do {
+            let realm = try WRealm.safe()
+            let allowedStates = [
+                SignalDeviceStorageItem.TrustState.trusted.rawValue,
+                SignalDeviceStorageItem.TrustState.distrusted.rawValue,
+                SignalDeviceStorageItem.TrustState.revoked.rawValue
+            ]
+            var devices = Array(realm.objects(SignalDeviceStorageItem.self)
+                .filter("owner == %@ AND jid != %@ AND state_ IN %@", owner, owner, allowedStates)
+                .map { $0 })
+            if let filterJid {
+                devices = devices.filter { $0.jid == filterJid }
+            }
+            if let filterDeviceIds {
+                devices = devices.filter { filterDeviceIds.contains($0.deviceId) }
+            }
+
+            let grouped = Dictionary(grouping: devices, by: { $0.jid })
+            return grouped.compactMap { jid, devices in
+                trustedItemsElement(owner: jid, devices: devices)
+            }
+        } catch {
+            DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
+            return []
+        }
+    }
+
+    private func buildOwnTrustedDevicesShare(publisherDeviceId: Int) -> DDXMLElement? {
+        do {
+            let realm = try WRealm.safe()
+            let devices = Array(realm.objects(SignalDeviceStorageItem.self)
+                .filter("owner == %@ AND jid == %@ AND state_ == %@", owner, owner, SignalDeviceStorageItem.TrustState.trusted.rawValue)
+                .map { $0 })
+            guard let items = trustedItemsElement(owner: nil, devices: devices) else {
+                return nil
+            }
+            return buildShare(items: [items], identityDeviceId: publisherDeviceId, identityJid: owner)
+        } catch {
+            DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    private func trustedItemsElement(owner itemOwner: String?, devices: [SignalDeviceStorageItem]) -> DDXMLElement? {
+        let filteredDevices = devices.filter { elementName(for: $0.state) != nil }
+        guard filteredDevices.isNotEmpty else {
+            return nil
+        }
+
+        let timestamp = Int(Date().timeIntervalSince1970.rounded())
+        let items = DDXMLElement(name: "trusted-items", xmlns: getPrimaryNamespace())
+        items.addAttribute(withName: "timestamp", stringValue: String(timestamp))
+        if let itemOwner {
+            items.addAttribute(withName: "owner", stringValue: itemOwner)
+        }
+
+        for device in filteredDevices {
+            guard let name = elementName(for: device.state) else {
+                continue
+            }
+            let key = "\(device.deviceId)::\(device.fingerprint.replacingOccurrences(of: " ", with: "").lowercased())"
+            let entry = DDXMLElement(name: name, stringValue: key.toBase64())
+            let entryTimestamp = max(Int(device.trustDate.timeIntervalSince1970.rounded()), timestamp)
+            entry.addAttribute(withName: "timestamp", stringValue: String(entryTimestamp))
+            items.addChild(entry)
+        }
+
+        return items
+    }
+
+    private func fingerprint(jid: String, deviceId: Int) -> String? {
+        do {
+            let realm = try WRealm.safe()
+            return realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: owner, jid: jid, deviceId: deviceId))?
+                .fingerprint
+                .replacingOccurrences(of: " ", with: "")
+                .lowercased()
+        } catch {
+            DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    private func signCanonicalString(_ canonical: String) -> Data? {
+        guard let keyPair = AccountManager.shared.find(for: owner)?.omemo.localStore.getIdentityKeyPair() else {
+            return nil
+        }
+        let curveKeyPair = Curve25519.load(fromPublicKey: keyPair.publicKey, andPrivateKey: keyPair.privateKey)
+        return Ed25519.sign(TrustSharingSignature.hashCanonicalString(canonical), with: curveKeyPair)
+    }
+
     static func remove(for owner: String, commitTransaction: Bool) {
         do {
             let realm = try WRealm.safe()
-            let collection = realm.objects(VerificationSessionStorageItem.self)
-                .filter("owner == %@", owner)
+            let collection = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@", owner)
             if commitTransaction {
                 try realm.write {
                     realm.delete(collection)
@@ -761,7 +682,7 @@ class TrustSharingManager: AbstractXMPPManager {
                 realm.delete(collection)
             }
         } catch {
-            DDLogDebug("PresenceManager: \(#function). \(error.localizedDescription)")
+            DDLogDebug("TrustSharingManager: \(#function). \(error.localizedDescription)")
         }
     }
 }

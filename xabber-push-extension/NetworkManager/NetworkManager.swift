@@ -91,12 +91,10 @@ class NetworkManager: NSObject {
             .first {
             var payload: [String: String] = ["stanza": stanza.compactXMLString()]
             var groupchatReference: DDXMLElement? = nil
-            if let authElement = message.elements(forName: "authenticated-key-exchange").first {
-                if let verificationElement = authElement.elements(forName: "verification-start").first {
-                    let from = message.attribute(forName: "from")?.stringValue?.split(separator: "@").first as? String
-                    self.delegate?.didReceiveStartVerification(payload: ["from": from ?? "somebody"])
-                    return
-                }
+            if let verificationMessage = verificationRequestMessage(from: message) {
+                let from = verificationMessage.attribute(forName: "from")?.stringValue?.split(separator: "@").first.map(String.init)
+                self.delegate?.didReceiveStartVerification(payload: ["from": from ?? "somebody"])
+                return
             }
             if let groupchatReferences = message.elements(forName: "x").first(where: { $0.xmlns() == "https://xabber.com/protocol/groups" })?.elements(forName: "reference") {
                 print("GROUPCHAT", groupchatReferences)
@@ -201,6 +199,53 @@ class NetworkManager: NSObject {
             return user.elements(forName: "jid").first?.stringValue
         }
         return nil
+    }
+
+    private func verificationRequestMessage(from message: DDXMLElement) -> DDXMLElement? {
+        if containsTrustRequest(message) {
+            return message
+        }
+
+        guard let notification = message.elements(forName: "notification").first(where: { $0.xmlns() == "urn:xabber:xen:0" }),
+              let forwarded = notification.elements(forName: "forwarded").first(where: { $0.xmlns() == "urn:xmpp:forward:0" || $0.xmlns() == nil }),
+              let innerMessage = forwarded.elements(forName: "message").first,
+              containsTrustRequest(innerMessage) else {
+            return nil
+        }
+
+        if let originalFrom = originalFromAddress(in: message),
+           let forwardedFrom = innerMessage.attribute(forName: "from")?.stringValue,
+           !jidMatches(originalFrom, forwardedFrom) {
+            return nil
+        }
+
+        return innerMessage
+    }
+
+    private func containsTrustRequest(_ message: DDXMLElement) -> Bool {
+        guard let trust = message.elements(forName: "trust").first(where: { $0.xmlns() == "urn:xmpp:trust:0" }) else {
+            return false
+        }
+        return !trust.elements(forName: "request").isEmpty
+    }
+
+    private func originalFromAddress(in message: DDXMLElement) -> String? {
+        guard let addresses = message.elements(forName: "addresses").first(where: { $0.xmlns() == "http://jabber.org/protocol/address" }) else {
+            return nil
+        }
+        return addresses
+            .elements(forName: "address")
+            .first(where: { $0.attribute(forName: "type")?.stringValue == "ofrom" })?
+            .attribute(forName: "jid")?
+            .stringValue
+    }
+
+    private func jidMatches(_ lhs: String, _ rhs: String) -> Bool {
+        return lhs == rhs || bareJid(lhs) == bareJid(rhs)
+    }
+
+    private func bareJid(_ jid: String) -> String {
+        return jid.split(separator: "/").first.map(String.init) ?? jid
     }
     
     func getReferenceType(_ ref: DDXMLElement) -> String? {

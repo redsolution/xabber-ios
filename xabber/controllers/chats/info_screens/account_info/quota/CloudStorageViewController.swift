@@ -192,6 +192,55 @@ final class CloudStorageUpsellCardCell: UITableViewCell {
     }
 }
 
+final class CloudStorageStatSkeletonCell: UITableViewCell {
+    static let cellName = "CloudStorageStatSkeletonCell"
+
+    private let valueSkeleton: SkeletonView = {
+        let view = SkeletonView()
+        view.backgroundColor = .systemGray5
+        view.layer.cornerRadius = 6
+        view.layer.masksToBounds = true
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        setupSubviews()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(title: String) {
+        textLabel?.text = title
+        detailTextLabel?.text = nil
+        selectionStyle = .none
+        accessoryType = .none
+        DispatchQueue.main.async { [weak self] in
+            self?.valueSkeleton.startAnimating()
+        }
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        if valueSkeleton.gradientLayer != nil {
+            valueSkeleton.stopAnimating()
+        }
+    }
+
+    private func setupSubviews() {
+        contentView.addSubview(valueSkeleton)
+        NSLayoutConstraint.activate([
+            valueSkeleton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            valueSkeleton.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            valueSkeleton.widthAnchor.constraint(equalToConstant: 86),
+            valueSkeleton.heightAnchor.constraint(equalToConstant: 16)
+        ])
+    }
+}
+
 class CloudStorageViewController: BaseViewController {
     class Datasource {
         enum Kind {
@@ -230,6 +279,7 @@ class CloudStorageViewController: BaseViewController {
     private var isRefreshingQuota: Bool = false
     private var lastQuotaRefreshFailed: Bool = false
     private var quotaServiceAvailable: Bool = true
+    private var gallerySwitcher: UISegmentedControl?
 
     var bag: DisposeBag = DisposeBag()
 
@@ -239,6 +289,7 @@ class CloudStorageViewController: BaseViewController {
         let tableView = UITableView(frame: .zero, style: .insetGrouped)
         tableView.register(QuotaInfoCell.self, forCellReuseIdentifier: QuotaInfoCell.cellName)
         tableView.register(CloudStorageUpsellCardCell.self, forCellReuseIdentifier: CloudStorageUpsellCardCell.cellName)
+        tableView.register(CloudStorageStatSkeletonCell.self, forCellReuseIdentifier: CloudStorageStatSkeletonCell.cellName)
         tableView.estimatedRowHeight = 96
         tableView.rowHeight = UITableView.automaticDimension
 
@@ -271,7 +322,7 @@ class CloudStorageViewController: BaseViewController {
         datasource = []
 
         datasource.append(Datasource(.text, title: "", children: [
-            Datasource(.text, title: "Media Gallery".localizeString(id: "account_media_gallery", arguments: []),
+            Datasource(.text, title: galleryConfiguration().currentGalleryType.displayTitle,
                        key: "quota_info")
         ]))
 
@@ -289,45 +340,96 @@ class CloudStorageViewController: BaseViewController {
             Datasource(.text, title: "Avatars".localizeString(id: "avatars", arguments: []),subtitle: avatarUsed,  key: "avatars")
         ]))
 
-        let upsellState = currentUpsellCardState()
-        datasource.append(Datasource(.text, title: "", children: [
-            Datasource(.button,
-                       title: upsellState.title,
-                       subtitle: upsellState.body,
-                       key: "storage_upsell")
-        ]))
-
+        if CommonConfigManager.shared.config.support_subscribtions {
+            let upsellState = currentUpsellCardState()
+            datasource.append(Datasource(.text, title: "", children: [
+                Datasource(.button,
+                           title: upsellState.title,
+                           subtitle: upsellState.body,
+                           key: "storage_upsell")
+            ]))
+        }
         datasource.append(Datasource(.text, title: "", children: [
             Datasource(.button, title: "Free up space".localizeString(id: "account_delete_files", arguments: []),
                        key: "delete_files")
         ]))
     }
 
+    private func galleryConfiguration() -> AccountGalleryConfiguration {
+        return AccountGalleryConfiguration(owner: jid)
+    }
+
+    private func configureGallerySwitcher() {
+        let configuration = galleryConfiguration()
+        guard configuration.isPremiumGalleryAvailable else {
+            gallerySwitcher = nil
+            navigationItem.rightBarButtonItem = nil
+            return
+        }
+
+        let switcher = UISegmentedControl(items: [
+            AccountGalleryType.basic.segmentTitle,
+            AccountGalleryType.premium.segmentTitle
+        ])
+        switcher.selectedSegmentIndex = configuration.currentGalleryType == .premium ? 1 : 0
+        switcher.setEnabled(configuration.basicGalleryURL != nil, forSegmentAt: 0)
+        switcher.setEnabled(configuration.premiumGalleryURL != nil, forSegmentAt: 1)
+        switcher.addTarget(self, action: #selector(gallerySwitcherChanged(_:)), for: .valueChanged)
+        gallerySwitcher = switcher
+        navigationItem.rightBarButtonItem = UIBarButtonItem(customView: switcher)
+    }
+
+    @objc private func gallerySwitcherChanged(_ sender: UISegmentedControl) {
+        let type: AccountGalleryType = sender.selectedSegmentIndex == 1 ? .premium : .basic
+        guard galleryConfiguration().switchGallery(to: type) else {
+            configureGallerySwitcher()
+            return
+        }
+        isRefreshingQuota = true
+        lastQuotaRefreshFailed = false
+        quotaServiceAvailable = true
+        resetQuotaMetrics()
+        rebuildDatasource()
+        updateDisplayState()
+        tableView.reloadData()
+        CloudStorageQuotaRefreshCoordinator.shared.refresh(owner: jid, reason: .galleryEndpointChanged, force: true)
+    }
+
+    private func resetQuotaMetrics() {
+        hasQuotaItem = false
+        imagesUsed = "0 KiB"
+        videosUsed = "0 KiB"
+        filesUsed = "0 KiB"
+        audioUsed = "0 KiB"
+        avatarUsed = "0 KiB"
+        usedQuota = 0
+        quota = 0
+    }
+
+    private func applyQuotaItem(_ item: AccountQuotaStorageItem?) {
+        guard let item = item,
+              galleryConfiguration().cachedQuotaMatchesCurrentGallery() else {
+            resetQuotaMetrics()
+            return
+        }
+
+        hasQuotaItem = true
+        imagesUsed = item.imagesUsed
+        videosUsed = item.videosUsed
+        filesUsed = item.filesUsed
+        audioUsed = item.voicesUsed
+        avatarUsed = item.avatarUsed
+        usedQuota = item.totalBytes
+        quota = item.quotaBytes
+    }
+
     func subscribe() {
         do {
             let realm = try WRealm.safe()
             let collection = realm.objects(AccountQuotaStorageItem.self).filter("jid == %@", self.jid)
-            if let item = collection.first {
-                self.hasQuotaItem = true
-                self.imagesUsed = item.imagesUsed
-                self.videosUsed = item.videosUsed
-                self.filesUsed = item.filesUsed
-                self.audioUsed = item.voicesUsed
-                self.avatarUsed = item.avatarUsed
-                self.usedQuota = item.totalBytes
-                self.quota = item.quotaBytes
-            }
+            applyQuotaItem(collection.first)
             Observable.collection(from: collection).debounce(.milliseconds(5), scheduler: MainScheduler.asyncInstance).subscribe { results in
-                if let item = results.first {
-                    self.hasQuotaItem = true
-                    self.imagesUsed = item.imagesUsed
-                    self.videosUsed = item.videosUsed
-                    self.filesUsed = item.filesUsed
-                    self.audioUsed = item.voicesUsed
-                    self.avatarUsed = item.avatarUsed
-                    self.usedQuota = item.totalBytes
-                    self.quota = item.quotaBytes
-                }
+                self.applyQuotaItem(results.first)
                 self.datasource[1].children.forEach {
                     switch $0.key {
                     case "images":
@@ -371,16 +473,24 @@ class CloudStorageViewController: BaseViewController {
             name: .cloudStorageQuotaRefreshDidFinish,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(cloudStorageGalleryDidChange(_:)),
+            name: .cloudStorageGalleryDidChange,
+            object: nil
+        )
     }
 
     func unsubscribe() {
         self.bag = DisposeBag()
         NotificationCenter.default.removeObserver(self, name: .cloudStorageQuotaRefreshDidStart, object: nil)
         NotificationCenter.default.removeObserver(self, name: .cloudStorageQuotaRefreshDidFinish, object: nil)
+        NotificationCenter.default.removeObserver(self, name: .cloudStorageGalleryDidChange, object: nil)
     }
 
     @objc private func quotaRefreshDidStart(_ notification: Notification) {
         guard notification.userInfo?["jid"] as? String == self.jid else { return }
+        guard notificationMatchesCurrentGallery(notification) else { return }
         isRefreshingQuota = true
         lastQuotaRefreshFailed = false
         updateDisplayState()
@@ -388,11 +498,31 @@ class CloudStorageViewController: BaseViewController {
 
     @objc private func quotaRefreshDidFinish(_ notification: Notification) {
         guard notification.userInfo?["jid"] as? String == self.jid else { return }
+        guard notificationMatchesCurrentGallery(notification) else { return }
         isRefreshingQuota = false
         let result = notification.userInfo?["result"] as? String
         lastQuotaRefreshFailed = result == CloudStorageQuotaRefreshResult.failure.rawValue || result == CloudStorageQuotaRefreshResult.unauthorized.rawValue
         quotaServiceAvailable = result != CloudStorageQuotaRefreshResult.unavailable.rawValue
         updateDisplayState()
+    }
+
+    @objc private func cloudStorageGalleryDidChange(_ notification: Notification) {
+        guard notification.userInfo?["jid"] as? String == self.jid else { return }
+        configureGallerySwitcher()
+        isRefreshingQuota = true
+        lastQuotaRefreshFailed = false
+        quotaServiceAvailable = true
+        resetQuotaMetrics()
+        rebuildDatasource()
+        updateDisplayState()
+        tableView.reloadData()
+    }
+
+    private func notificationMatchesCurrentGallery(_ notification: Notification) -> Bool {
+        guard let identity = notification.userInfo?["galleryIdentity"] as? String else {
+            return true
+        }
+        return identity == galleryConfiguration().currentGalleryIdentity
     }
 
     func currentDisplayState() -> CloudStorageQuotaDisplayState {
@@ -407,6 +537,12 @@ class CloudStorageViewController: BaseViewController {
     }
 
     func canFreeUpSpace() -> Bool {
+        switch currentDisplayState() {
+        case .loading, .error, .unavailable:
+            return false
+        case .content, .empty, .unlimited:
+            break
+        }
         guard quota > 0, usedQuota > 0 else { return false }
         return imagesUsed != "0 KiB" || videosUsed != "0 KiB" || audioUsed != "0 KiB" || filesUsed != "0 KiB"
     }
@@ -426,8 +562,7 @@ class CloudStorageViewController: BaseViewController {
 
         switch currentDisplayState() {
         case .loading:
-            label.text = "Loading Cloud Storage..."
-            tableView.backgroundView = label
+            tableView.backgroundView = nil
         case .error:
             label.text = hasQuotaItem ? nil : "Cloud Storage is unavailable."
             tableView.backgroundView = label.text == nil ? nil : label
@@ -443,6 +578,7 @@ class CloudStorageViewController: BaseViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         navigationItem.backButtonDisplayMode = .minimal
+        configureGallerySwitcher()
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -450,6 +586,7 @@ class CloudStorageViewController: BaseViewController {
 
 //        self.navigationController?.navigationBar.prefersLargeTitles = false
         rebuildDatasource()
+        configureGallerySwitcher()
         tableView.reloadData()
         subscribe()
         subscribeQuotaRefreshNotifications()

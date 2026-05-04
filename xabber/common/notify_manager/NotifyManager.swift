@@ -829,8 +829,24 @@ class NotifyManager {
             }
         }
     }
+
+    private func canHandleNotificationContentAction(handler completionHandler: (() -> Void)? = nil) -> Bool {
+        guard EULAAcceptance.hasAcceptedCurrentVersion() else {
+            DispatchQueue.main.async {
+                AppRootCoordinator.active?.rebuildRoot(userInfo: nil)
+            }
+            completionHandler?()
+            return false
+        }
+
+        return true
+    }
     
     public final func onMarkAsReadMessageNotification(response: UNNotificationResponse, handler completionHandler: (() -> Void)? = nil) -> Bool {
+        guard canHandleNotificationContentAction(handler: completionHandler) else {
+            return false
+        }
+
         let userInfo = response.notification.request.content.userInfo
         guard let owner = userInfo["owner"] as? String,
             let jid = userInfo["jid"] as? String,
@@ -858,6 +874,10 @@ class NotifyManager {
     }
     
     public final func onReplyMessageNotification(response: UNNotificationResponse, handler completionHandler: (() -> Void)? = nil) -> Bool {
+        guard canHandleNotificationContentAction(handler: completionHandler) else {
+            return false
+        }
+
         let userInfo = response.notification.request.content.userInfo
         guard let owner = userInfo["owner"] as? String,
             let jid = userInfo["jid"] as? String,
@@ -875,6 +895,10 @@ class NotifyManager {
     }
     
     public final func onSubscribeContactNotification(response: UNNotificationResponse, handler completionHandler: (() -> Void)? = nil) -> Bool {
+        guard canHandleNotificationContentAction(handler: completionHandler) else {
+            return false
+        }
+
         let userInfo = response.notification.request.content.userInfo
         guard let owner = userInfo["owner"] as? String,
             let jid = userInfo["jid"] as? String else {
@@ -889,6 +913,10 @@ class NotifyManager {
     }
     
     public final func onUnsubscribeContactNotification(response: UNNotificationResponse, handler completionHandler: (() -> Void)? = nil) -> Bool {
+        guard canHandleNotificationContentAction(handler: completionHandler) else {
+            return false
+        }
+
         let userInfo = response.notification.request.content.userInfo
         guard let owner = userInfo["owner"] as? String,
             let jid = userInfo["jid"] as? String else {
@@ -908,6 +936,10 @@ class NotifyManager {
     }
     
     public final func onJoinGroupNotification(response: UNNotificationResponse, handler completionHandler: (() -> Void)? = nil) -> Bool {
+        guard canHandleNotificationContentAction(handler: completionHandler) else {
+            return false
+        }
+
         let userInfo = response.notification.request.content.userInfo
         guard let owner = userInfo["owner"] as? String,
             let jid = userInfo["groupchat"] as? String else {
@@ -921,6 +953,10 @@ class NotifyManager {
     }
     
     public final func onDeclineGroupNotification(response: UNNotificationResponse, handler completionHandler: (() -> Void)? = nil) -> Bool {
+        guard canHandleNotificationContentAction(handler: completionHandler) else {
+            return false
+        }
+
         let userInfo = response.notification.request.content.userInfo
         guard let owner = userInfo["owner"] as? String,
             let jid = userInfo["groupchat"] as? String else {
@@ -935,6 +971,10 @@ class NotifyManager {
     }
     
     public final func onTouchMessageNotification(userInfo: [AnyHashable: Any], atStart: Bool, handler completionHandler: (() -> Void)? = nil) {
+        guard canHandleNotificationContentAction(handler: completionHandler) else {
+            return
+        }
+
         guard let owner = userInfo["owner"] as? String,
             let jid = userInfo["jid"] as? String,
             jid != owner else {
@@ -1075,9 +1115,16 @@ class NotifyManager {
             }
             
             let stanzaId = userInfo["stanzaId"]  as? String
-            self.leftMenuDelegate?.openChatlistWithChat(owner: owner, jid: jid, conversationType: conversationType) { vc in
-                if let stanzaId = stanzaId {
-                    vc?.scrollToMessageAtIndex(archivedId: stanzaId, date: Date())
+            if let leftMenuDelegate = self.leftMenuDelegate {
+                leftMenuDelegate.openChatlistWithChat(owner: owner, jid: jid, conversationType: conversationType) { vc in
+                    if let stanzaId = stanzaId {
+                        vc?.scrollToMessageAtIndex(archivedId: stanzaId, date: Date())
+                    }
+                }
+            } else {
+                let opened = AppRootCoordinator.active?.route(.chat(owner: owner, jid: jid, conversationType: conversationType)) ?? false
+                if !opened {
+                    self.openViewControllerPayload = ["owner": owner, "jid": jid, "action": "foregroundChat"]
                 }
             }
             Timer.scheduledTimer(withTimeInterval: 3, repeats: false) { (_) in
@@ -1087,6 +1134,10 @@ class NotifyManager {
     }
     
     public final func onTouchVerificationNotification(userInfo: [AnyHashable: Any], handler completionHandler: (() -> Void)? = nil) {
+        guard canHandleNotificationContentAction(handler: completionHandler) else {
+            return
+        }
+
         guard let owner = userInfo["owner"] as? String,
               let sid = userInfo["sid"] as? String else {
             return

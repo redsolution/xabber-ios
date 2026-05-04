@@ -22,16 +22,47 @@ import Foundation
 import UIKit
 
 struct SubscribtionsPresenter {
-    
-    
-    func present(animated: Bool) {
+    @discardableResult
+    func present(animated: Bool, owner: String? = nil, parent: UIViewController? = nil) -> Bool {
         if ApplicationStateManager.shared.isSubscribtionsShowed {
-            return
+            return false
+        }
+        if Self.isPremiumAlreadyPresented() {
+            return false
+        }
+        let account = owner ?? AccountManager.shared.users.first?.jid ?? ""
+        guard account.isNotEmpty else {
+            return false
         }
         ApplicationStateManager.shared.isSubscribtionsShowed = true
         let vc = PremiumSubscribtionViewController()
-        vc.jid = AccountManager.shared.users.first?.jid ?? ""
-        vc.owner = AccountManager.shared.users.first?.jid ?? ""
-        showModal(vc)
+        vc.jid = account
+        vc.owner = account
+        vc.onDismiss = {
+            ApplicationStateManager.shared.isSubscribtionsShowed = false
+        }
+        let didPresent = showModal(vc, parent: parent)
+        if !didPresent {
+            ApplicationStateManager.shared.isSubscribtionsShowed = false
+        }
+        return didPresent
+    }
+
+    private static func isPremiumAlreadyPresented() -> Bool {
+        guard let top = UIApplication.getTopMostViewController() else {
+            return false
+        }
+        if top is PremiumSubscribtionViewController {
+            return true
+        }
+        if let navigation = top as? UINavigationController,
+           navigation.viewControllers.contains(where: { $0 is PremiumSubscribtionViewController }) {
+            return true
+        }
+        if let navigation = top.navigationController,
+           navigation.viewControllers.contains(where: { $0 is PremiumSubscribtionViewController }) {
+            return true
+        }
+        return false
     }
 }

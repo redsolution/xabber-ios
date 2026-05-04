@@ -26,22 +26,44 @@ import CryptoSwift
 import XMPPFramework
 import CryptoKit
 
-enum OmemoManagerError: Error {
+enum OmemoManagerError: Error, Equatable {
     case bundleNotFound
     case preKeyNotFound
+    case encryptionFailed
+    case invalidEncryptedPayload
+    case invalidDecryptedPayload
+    case missingRecipientKey
+    case noTrustedRecipientDevices
+    case sessionCreationFailed
+    case payloadAuthenticationFailed
+}
+
+extension OmemoManagerError: LocalizedError {
+    var errorDescription: String? {
+        switch self {
+        case .bundleNotFound: return "OMEMO bundle not found"
+        case .preKeyNotFound: return "OMEMO pre-key not found"
+        case .encryptionFailed: return "OMEMO encryption failed"
+        case .invalidEncryptedPayload: return "Invalid OMEMO encrypted payload"
+        case .invalidDecryptedPayload: return "Invalid OMEMO decrypted payload"
+        case .missingRecipientKey: return "OMEMO recipient key not found"
+        case .noTrustedRecipientDevices: return "No trusted OMEMO recipient devices"
+        case .sessionCreationFailed: return "OMEMO session creation failed"
+        case .payloadAuthenticationFailed: return "OMEMO payload authentication failed"
+        }
+    }
 }
 
 extension OmemoManager {
+    private static let sessionQueue = DispatchQueue(label: "com.xabber.omemo.session.queue")
     
     func testRatchet() {
         
     }
     
-    func doubleUnratched(_ encrypted: String, jid: String, deviceId: Int, keyExchange: Bool) throws -> Data? {
-        let realm = try WRealm.safe()
-        
+    func doubleUnratched(_ encrypted: String, jid: String, deviceId: Int, keyExchange: Bool) throws -> Data {
         guard let encryptedData = Data(base64Encoded: encrypted, options: .ignoreUnknownCharacters) else {
-            return nil
+            throw OmemoManagerError.invalidEncryptedPayload
         }
         
         let address = SignalAddress(name: jid, deviceId: Int32(deviceId))
@@ -54,7 +76,30 @@ extension OmemoManager {
         return unratched
     }
     
-    func doubleRatchet( hmac: Data, jid: String, deviceId: Int) throws -> DDXMLElement? {
+    func doubleRatchet(hmac: Data, jid: String, deviceId: Int) throws -> DDXMLElement {
+        let address = SignalAddress(name: jid, deviceId: Int32(deviceId))
+        let cipherText = try OmemoManager.sessionQueue.sync {
+            if !self.localStore.sessionRecordExists(for: address) {
+                try self.createSession(jid: jid, deviceId: deviceId)
+            }
+            
+            let cipher = SignalSessionCipher(address: address, context: self.signalContext)
+            return try cipher.encryptData(hmac)
+        }
+        
+        let keyElement = DDXMLElement(name: "key")
+        keyElement.addAttribute(withName: "rid", integerValue: deviceId)
+        keyElement.addAttribute(withName: "kex", stringValue: cipherText.type == .preKeyMessage ? "true" : "false")
+        keyElement.stringValue = cipherText.data.base64EncodedString()
+        
+        return keyElement
+    }
+    
+    private func createSession(jid: String, deviceId: Int) throws {
+        guard self.localStore.hasLocalIdentityKeyPair(), self.localStore.getLocalRegistrationId() != 0 else {
+            DDLogError("OmemoManager: cannot create OMEMO session because local identity state is unavailable")
+            throw OmemoManagerError.sessionCreationFailed
+        }
         
         let realm = try WRealm.safe()
         
@@ -66,11 +111,11 @@ extension OmemoManager {
                 deviceId: deviceId
             )
         ) else {
-            return nil
+            throw OmemoManagerError.bundleNotFound
         }
                 
         guard let preKey = realm.objects(SignalPreKeysStorageItem.self).filter("owner == %@ AND jid == %@ AND deviceId == %@", self.owner, jid, deviceId).toArray().randomElement() else {
-            return nil
+            throw OmemoManagerError.preKeyNotFound
         }
         
         guard let storedPreKey64 = preKey.preKey,
@@ -81,11 +126,11 @@ extension OmemoManager {
               let storedIdentityKey = Data(base64Encoded: storedIdentityKey64, options: .ignoreUnknownCharacters),
               let storedSignedPreKey = Data(base64Encoded: storedSignedPreKey64, options: .ignoreUnknownCharacters),
               let storedSignature = Data(base64Encoded: storedSignature64, options: .ignoreUnknownCharacters) else {
-            return nil
+            throw OmemoManagerError.bundleNotFound
         }
         
         
-        let bundle = try! SignalPreKeyBundle(
+        let bundle = try SignalPreKeyBundle(
             registrationId: UInt32(deviceId),
             deviceId: UInt32(deviceId),
             preKeyId: UInt32(preKey.pkId),
@@ -97,30 +142,8 @@ extension OmemoManager {
         )
         
         let address = SignalAddress(name: jid, deviceId: Int32(deviceId))
-        
         let sessionBuilder = SignalSessionBuilder(address: address, context: self.signalContext)
-        
-        
-        try! sessionBuilder.processPreKeyBundle(bundle)
-                
-        let cipher = SignalSessionCipher(address: address, context: self.signalContext)
-        
-        let cipherText = try! cipher.encryptData(hmac)
-        
-        
-        let needKex: Bool = cipherText.type == .preKeyMessage
-        
-        let message: Data = cipherText.data
-        
-        let keyElement = DDXMLElement(name: "key")
-        
-        keyElement.addAttribute(withName: "rid", integerValue: deviceId)
-        keyElement.addAttribute(withName: "kex", stringValue: needKex ? "true" : "false")
-        keyElement.stringValue = message.base64EncodedString()
-        
-//        print(keyElement)
-                
-        return keyElement
+        try sessionBuilder.processPreKeyBundle(bundle)
     }
     
     func encryptMessage(message: String, to jid: String) throws -> DDXMLElement? {
@@ -170,32 +193,46 @@ extension OmemoManager {
         localKeysElement.addAttribute(withName: "jid", stringValue: self.owner)
 
         let realm = try WRealm.safe()
-        
-        try realm
-            .objects(SignalDeviceStorageItem.self)
-            .filter("owner == %@ AND jid == %@ AND (state_ == %@ OR state_ == %@)",
-                    self.owner,
-                    jid,
-                    SignalDeviceStorageItem.TrustState.trusted.rawValue,
-                    SignalDeviceStorageItem.TrustState.unknown.rawValue)
-            .toArray()
-            .compactMap { return try doubleRatchet(hmac: Data(keyData), jid: jid, deviceId: $0.deviceId) }
-            .forEach { remoteKeysElement.addChild($0) }
-        
-        header.addChild(remoteKeysElement)
+        var recipientKeyCount = 0
         
         try realm
             .objects(SignalDeviceStorageItem.self)
             .filter("owner == %@ AND jid == %@ AND state_ == %@ AND deviceId != %@",
                     self.owner,
-                    self.owner,
+                    jid,
                     SignalDeviceStorageItem.TrustState.trusted.rawValue,
                     self.localStore.localDeviceId())
             .toArray()
-            .compactMap { return try doubleRatchet(hmac: Data(keyData), jid: self.owner,  deviceId: $0.deviceId) }
-            .forEach { localKeysElement.addChild($0) }
+            .compactMap { return try self.doubleRatchet(hmac: Data(keyData), jid: jid, deviceId: $0.deviceId) }
+            .forEach {
+                recipientKeyCount += 1
+                remoteKeysElement.addChild($0)
+            }
         
-        header.addChild(localKeysElement)
+        if !(remoteKeysElement.children?.isEmpty ?? true) {
+            header.addChild(remoteKeysElement)
+        }
+        
+        if jid != self.owner {
+            try realm
+                .objects(SignalDeviceStorageItem.self)
+                .filter("owner == %@ AND jid == %@ AND state_ == %@ AND deviceId != %@",
+                        self.owner,
+                        self.owner,
+                        SignalDeviceStorageItem.TrustState.trusted.rawValue,
+                        self.localStore.localDeviceId())
+                .toArray()
+                .compactMap { return try self.doubleRatchet(hmac: Data(keyData), jid: self.owner,  deviceId: $0.deviceId) }
+                .forEach { localKeysElement.addChild($0) }
+        }
+        
+        if !(localKeysElement.children?.isEmpty ?? true) {
+            header.addChild(localKeysElement)
+        }
+        
+        guard recipientKeyCount > 0 else {
+            throw OmemoManagerError.noTrustedRecipientDevices
+        }
 
         encryptedElement.addChild(header)
 

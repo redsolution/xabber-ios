@@ -30,6 +30,22 @@ import CocoaLumberjack
 import AVKit
 
 class ImagePickerViewController: UIViewController {
+    private enum PickerError: Error {
+        case unavailableMedia
+        case unableToPrepare
+        case fileTooLarge(limit: Int)
+
+        var message: String {
+            switch self {
+            case .unavailableMedia:
+                return "Selected file is unavailable. Please choose it again.".localizeString(id: "media_picker_error_unavailable", arguments: [])
+            case .unableToPrepare:
+                return "Selected file could not be prepared. Please choose it again.".localizeString(id: "media_picker_error_prepare_failed", arguments: [])
+            case .fileTooLarge(let limit):
+                return "File is too large. Maximum size is \(AccountQuotaStorageItem.beautify(size: limit)).".localizeString(id: "media_picker_error_file_too_large", arguments: [])
+            }
+        }
+    }
     
     public var jid: String = ""
     public var owner: String = ""
@@ -78,6 +94,59 @@ class ImagePickerViewController: UIViewController {
     
     var sendDismissButton: UIButton?
     var sendLabel: UILabel?
+    private var isSending = false
+
+    private var maxUploadFileSize: Int? {
+        if let manager = AccountManager.shared.find(for: owner)?.cloudStorage {
+            _ = manager.isAvailable()
+            if let maxFileSize = manager.maxFileSize, maxFileSize > 0 {
+                return maxFileSize
+            }
+        }
+        guard let rawValue = SettingManager.shared.getKey(for: owner, scope: .xabberUploadManager, key: "max_file_size"),
+              let value = Int(rawValue),
+              value > 0 else {
+            return nil
+        }
+        return value
+    }
+
+    private func showError(_ message: String) {
+        DispatchQueue.main.async {
+            ToastPresenter().presentError(message: message)
+        }
+    }
+
+    private func showError(_ error: PickerError) {
+        showError(error.message)
+    }
+
+    private func validateMediaDataOrThrow(_ data: Data?) throws -> Data {
+        guard let data = data, !data.isEmpty else {
+            throw PickerError.unableToPrepare
+        }
+        if let maxUploadFileSize = maxUploadFileSize, data.count > maxUploadFileSize {
+            throw PickerError.fileTooLarge(limit: maxUploadFileSize)
+        }
+        return data
+    }
+
+    private func generatedMediaURL(pathExtension: String) -> URL {
+        return URL(string: [UUID().uuidString, pathExtension].joined(separator: "."))
+            ?? URL(fileURLWithPath: [UUID().uuidString, pathExtension].joined(separator: "."))
+    }
+
+    private func setSending(_ sending: Bool) {
+        isSending = sending
+        sendDismissButton?.isEnabled = !sending
+        sendDismissButton?.alpha = sending ? 0.6 : 1.0
+        if sending {
+            sendLabel?.text = "Sending...".localizeString(id: "sending", arguments: [])
+            sendLabel?.isHidden = false
+        } else {
+            updateSendButton()
+        }
+    }
     
     internal func setupCaptureSession() {
         if UIImagePickerController.isSourceTypeAvailable(.camera) {
@@ -88,21 +157,28 @@ class ImagePickerViewController: UIViewController {
             self.present(cameraPickerVC, animated: true, completion: nil)
         } else {
             DDLogDebug("camera denied")
+            showError("Camera is unavailable.".localizeString(id: "media_picker_error_camera_unavailable", arguments: []))
         }
     }
     
     
     
     internal func updateSendButton() {
-        if self.itemsSelected.count > 0 {
+        guard !isSending else { return }
+        let selectedCount = self.itemsSelected.count + self.media.count
+        if selectedCount > 0 {
 //            enable send button
-            self.sendLabel!.text = "Send (\(self.itemsSelected.count))"
-            self.sendLabel!.isHidden = false
-            self.configiureSend(self.sendDismissButton!)
+            self.sendLabel?.text = "Send (\(selectedCount))"
+            self.sendLabel?.isHidden = false
+            if let button = self.sendDismissButton {
+                self.configiureSend(button)
+            }
         } else {
 //            disable send button
-            self.sendLabel!.isHidden = true
-            self.configureDissmiss(self.sendDismissButton!)
+            self.sendLabel?.isHidden = true
+            if let button = self.sendDismissButton {
+                self.configureDissmiss(button)
+            }
         }
     }
     
@@ -120,6 +196,8 @@ class ImagePickerViewController: UIViewController {
             galleryPickerVC.videoQuality = .typeMedium
             galleryPickerVC.mediaTypes = UIImagePickerController.availableMediaTypes(for: .photoLibrary) ?? []
             self.present(galleryPickerVC, animated: true, completion: nil)
+        } else {
+            showError("Photo library is unavailable.".localizeString(id: "media_picker_error_library_unavailable", arguments: []))
         }
     }
     
@@ -134,53 +212,134 @@ class ImagePickerViewController: UIViewController {
     }
     
     @objc
-    internal func dismissModal(_ force: Bool = false) {
+    internal func dismissModal() {
+        dismissModal(completion: nil)
+    }
+
+    @objc
+    private func dismissModalAction() {
+        dismissModal()
+    }
+
+    private func dismissModal(completion: (() -> Void)?) {
         self.delegate?.onDismissPicker()
         UIView.animate(withDuration: 0.1, animations: {
             self.baseView.frame = CGRect(x: 0, y: self.view.frame.height, width: self.view.frame.width, height: 190)
             self.dimmed.alpha = 0.0
             self.blurredEffectView.frame = self.baseView.bounds
         }) { _ in
-            self.dismiss(animated: false, completion: nil)
+            self.dismiss(animated: false, completion: completion)
         }
     }
     
     @objc
     internal func send() {
-//        DispatchQueue.global(qos: .default).async {
-            
-            
-            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                if self.itemsSelected.isEmpty && self.media.isEmpty { return }
-                self.itemsSelected.forEach {
-                    index in
-                    let asset = self.moments!.object(at: index)
-                    
-                    let options: PHImageRequestOptions = PHImageRequestOptions()
-                    options.resizeMode = .exact
-                    options.isNetworkAccessAllowed = true
-                    options.deliveryMode = .highQualityFormat
-                    options.isSynchronous = true
-                    PHImageManager.default().requestImage(for: asset,
-                                                          targetSize: CGSize(square: 1024),
-                                                          contentMode: PHImageContentMode.aspectFit,
-                                                          options: options,
-                                                          resultHandler: { (image, info) in
-                        if let url = URL(string: [UUID().uuidString, "jpg"].joined(separator: ".")),
-                            let image = image {
-                            self.media.append(self.addImageBy(url, image: image))
+        guard !isSending else { return }
+        guard !itemsSelected.isEmpty || !media.isEmpty else {
+            dismissModal()
+            return
+        }
+
+        guard AccountManager.shared.find(for: owner)?.cloudStorage.isAvailable() ?? false else {
+            showError("File transfer is unavailable for this account.".localizeString(id: "media_picker_error_upload_unavailable", arguments: []))
+            return
+        }
+
+        setSending(true)
+        CloudStorageQuotaRefreshCoordinator.shared.refresh(owner: owner, reason: .preUploadValidation, force: true) { [weak self] _ in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                switch MediaUploadQuotaPolicy.currentAccess(jid: self.owner) {
+                case .available:
+                    self.prepareAndSendMedia()
+                case .premiumRequired:
+                    self.setSending(false)
+                    self.media.removeAll()
+                    self.dismissModal {
+                        let didPresent = SubscribtionsPresenter().present(animated: true, owner: self.owner, parent: self.presentingViewController)
+                        if !didPresent {
+                            self.showError("Premium is required to send images.".localizeString(id: "media_picker_error_premium_required", arguments: []))
                         }
-                    })
+                    }
                 }
-                DispatchQueue.global(qos: .userInitiated).async {
-                    user.messages.sendMediaMessage(self.media, to: self.jid, forwarded: self.forwardedMessages, conversationType: self.conversationType)
-                    
+            }
+        }
+    }
+
+    private func prepareAndSendMedia() {
+        var preparedMedia = media
+        var failedSelections = 0
+
+        if !itemsSelected.isEmpty {
+            guard let moments = moments else {
+                setSending(false)
+                showError(.unableToPrepare)
+                return
+            }
+
+            let options = PHImageRequestOptions()
+            options.resizeMode = .exact
+            options.isNetworkAccessAllowed = true
+            options.deliveryMode = .highQualityFormat
+            options.isSynchronous = true
+
+            for index in itemsSelected.sorted() {
+                guard index >= 0, index < moments.count else {
+                    failedSelections += 1
+                    continue
+                }
+
+                let asset = moments.object(at: index)
+                var preparedImage: UIImage?
+                PHImageManager.default().requestImage(
+                    for: asset,
+                    targetSize: CGSize(square: 1024),
+                    contentMode: .aspectFit,
+                    options: options
+                ) { image, _ in
+                    preparedImage = image
+                }
+
+                guard let image = preparedImage,
+                      let reference = addImageBy(generatedMediaURL(pathExtension: "jpg"), image: image) else {
+                    failedSelections += 1
+                    continue
+                }
+                preparedMedia.append(reference)
+            }
+        }
+
+        guard !preparedMedia.isEmpty else {
+            setSending(false)
+            showError(failedSelections > 0 ? .unableToPrepare : .unavailableMedia)
+            return
+        }
+
+        if failedSelections > 0 {
+            showError("\(failedSelections) item(s) could not be prepared and were skipped.".localizeString(id: "media_picker_error_some_items_skipped", arguments: []))
+        }
+
+        guard let account = AccountManager.shared.find(for: owner) else {
+            setSending(false)
+            showError("Account is unavailable. Please try again.".localizeString(id: "media_picker_error_account_unavailable", arguments: []))
+            return
+        }
+
+        media = preparedMedia
+        let attachments = preparedMedia
+        let recipient = jid
+        let forwarded = forwardedMessages
+        let type = conversationType
+        account.action { user, _ in
+            DispatchQueue.global(qos: .userInitiated).async {
+                user.messages.sendMediaMessage(attachments, to: recipient, forwarded: forwarded, conversationType: type)
+                DispatchQueue.main.async {
+                    self.media.removeAll()
                     self.delegate?.onSendMessage()
+                    self.dismissModal()
                 }
-                
-            })
-//        }
-        self.dismissModal()
+            }
+        }
     }
     
     internal func getLastSavedImages() {
@@ -216,14 +375,16 @@ class ImagePickerViewController: UIViewController {
     }
     
     internal func configureDissmiss(_ button: UIButton) {// -> UIButton {
+        button.removeTarget(nil, action: nil, for: .touchUpInside)
         button.setImage(imageLiteral("chevron.down"), for: .normal)
         button.tintColor = .white
         button.backgroundColor = .systemGray
         button.imageEdgeInsets = UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
-        button.addTarget(self, action: #selector(self.dismissModal), for: .touchUpInside)
+        button.addTarget(self, action: #selector(self.dismissModalAction), for: .touchUpInside)
     }
     
     internal func configiureSend(_ button: UIButton) {
+        button.removeTarget(nil, action: nil, for: .touchUpInside)
         button.setImage(imageLiteral("xabber.paperplane.fill"), for: .normal)
         button.tintColor = .white
         button.backgroundColor = .systemGreen
@@ -258,7 +419,7 @@ class ImagePickerViewController: UIViewController {
         dimmed.backgroundColor = UIColor.black.withAlphaComponent(0.2)
         
         let tapGesture = UITapGestureRecognizer(target: dimmed, action: nil)//, action: #selector(handleTapGesture))
-        tapGesture.addTarget(self, action: #selector(dismissModal))
+        tapGesture.addTarget(self, action: #selector(dismissModalAction))
         tapGesture.delaysTouchesBegan = true
         
         dimmed.addGestureRecognizer(tapGesture)
@@ -305,8 +466,12 @@ class ImagePickerViewController: UIViewController {
             $0.isHidden = true
         }
         
-        baseView.addSubview(self.sendDismissButton!)
-        baseView.addSubview(self.sendLabel!)
+        if let sendDismissButton = self.sendDismissButton {
+            baseView.addSubview(sendDismissButton)
+        }
+        if let sendLabel = self.sendLabel {
+            baseView.addSubview(sendLabel)
+        }
     }
     
     internal func configureCollectionView() {
@@ -314,17 +479,18 @@ class ImagePickerViewController: UIViewController {
         collectionLayout.scrollDirection = .horizontal
         collectionLayout.minimumInteritemSpacing = 8
         collectionView = UICollectionView(frame: CGRect(x: 8, y: 8, width: self.baseView.frame.width - 16, height: 88), collectionViewLayout: collectionLayout)
-        collectionView!.delegate = self
-        collectionView!.dataSource = self
-        collectionView!.backgroundColor = .clear
-        collectionView!.contentMode = .left
+        guard let collectionView = collectionView else { return }
+        collectionView.delegate = self
+        collectionView.dataSource = self
+        collectionView.backgroundColor = .clear
+        collectionView.contentMode = .left
         
-        collectionView!.allowsSelection = true
-        collectionView!.allowsMultipleSelection = true
+        collectionView.allowsSelection = true
+        collectionView.allowsMultipleSelection = true
         
-        collectionView!.contentSize = CGSize(width: collectionViewImageSize.width * CGFloat(moments?.countOfAssets(with: .image) ?? 0), height: collectionViewImageSize.height + 12)
-        collectionView!.register(ImagePickerCollectionViewCell.self, forCellWithReuseIdentifier: "imagePickerCell")
-        baseView.addSubview(collectionView!)
+        collectionView.contentSize = CGSize(width: collectionViewImageSize.width * CGFloat(moments?.countOfAssets(with: .image) ?? 0), height: collectionViewImageSize.height + 12)
+        collectionView.register(ImagePickerCollectionViewCell.self, forCellWithReuseIdentifier: "imagePickerCell")
+        baseView.addSubview(collectionView)
     }
     
     internal func requestAccess() {
@@ -346,10 +512,12 @@ class ImagePickerViewController: UIViewController {
         case .limited:
             self.refresh()
         case .denied, .restricted:
+            showError("Photo Library access is required to select images.".localizeString(id: "media_picker_error_photo_permission", arguments: []))
             self.dismissModal()
         case .authorized:
             self.refresh()
         @unknown default:
+            showError("Photo Library access is unavailable.".localizeString(id: "media_picker_error_photo_permission_unavailable", arguments: []))
             self.dismissModal()
         }
     }
@@ -419,6 +587,10 @@ class ImagePickerViewController: UIViewController {
     override func didReceiveMemoryWarning() {
         super.didReceiveMemoryWarning()
     }
+
+    deinit {
+        PHPhotoLibrary.shared().unregisterChangeObserver(self)
+    }
 }
 
 extension ImagePickerViewController: UICollectionViewDelegateFlowLayout {
@@ -448,7 +620,7 @@ extension ImagePickerViewController: UICollectionViewDataSource {
             .dequeueReusableCell(withReuseIdentifier: "imagePickerCell",
                                  for: indexPath) as? ImagePickerCollectionViewCell
             else {
-                fatalError("cant dequeue cell with name: imagePickerCell")
+                return UICollectionViewCell()
             }
         cell.configure()
         cell.contentView.backgroundColor = .white
@@ -457,19 +629,21 @@ extension ImagePickerViewController: UICollectionViewDataSource {
         requestOption.deliveryMode = .highQualityFormat
         
         let imageView = UIImageView(frame: cell.contentView.bounds)
-        PHImageManager
-            .default()
-            .requestImage(
-                for: moments!.object(at: indexPath.row),
-                targetSize: collectionViewImageSizeHD,
-                contentMode: .aspectFill,
-                options: requestOption) {
-                    (image, result) in
-                    DispatchQueue.main.async {
-                        imageView.image = image
-                        imageView.contentMode = .scaleAspectFill
+        if let moments = moments, indexPath.row < moments.count {
+            PHImageManager
+                .default()
+                .requestImage(
+                    for: moments.object(at: indexPath.row),
+                    targetSize: collectionViewImageSizeHD,
+                    contentMode: .aspectFill,
+                    options: requestOption) {
+                        (image, _) in
+                        DispatchQueue.main.async {
+                            imageView.image = image
+                            imageView.contentMode = .scaleAspectFill
+                        }
                     }
-                }
+        }
         cell.contentView.addSubview(imageView)
         cell.updateSelection()
         return cell
@@ -497,7 +671,10 @@ extension ImagePickerViewController: UICollectionViewDataSource {
 
 extension ImagePickerViewController: UIImagePickerControllerDelegate {
     
-    internal func addImageDataBy(_ url: URL, data: Data, size: CGSize) -> MessageReferenceStorageItem {
+    internal func addImageDataBy(_ url: URL, data: Data, size: CGSize) -> MessageReferenceStorageItem? {
+        guard let data = try? validateMediaDataOrThrow(data) else {
+            return nil
+        }
         let item = MessageReferenceStorageItem()
         item.kind = .media
         item.owner = self.owner
@@ -518,17 +695,23 @@ extension ImagePickerViewController: UIImagePickerControllerDelegate {
         ImageCache.default.storeToDisk(data, forKey: url.absoluteString)
         item.primary = UUID().uuidString
         item.localFileUrl = item.temporaryData?.saveToTemporaryDir(name: url.lastPathComponent)
+        guard item.localFileUrl != nil else {
+            return nil
+        }
         return item
     }
     
-    internal func addImageBy(_ url: URL, image: UIImage) -> MessageReferenceStorageItem {
+    internal func addImageBy(_ url: URL, image: UIImage) -> MessageReferenceStorageItem? {
+        guard let data = try? validateMediaDataOrThrow(image.jpegData(compressionQuality: 0.9)) else {
+            return nil
+        }
         let item = MessageReferenceStorageItem()
         item.kind = .media
         item.owner = self.owner
         item.jid = self.jid
         item.conversationType = self.conversationType
         item.mimeType = MimeIcon(MimeType(url: url).value).value.rawValue
-        item.temporaryData = image.jpegData(compressionQuality: 0.9)
+        item.temporaryData = data
         item.metadata = [
             "name": "Image".localizeString(id: "chat_message_image", arguments: []),
             "filename": url.lastPathComponent,
@@ -543,6 +726,9 @@ extension ImagePickerViewController: UIImagePickerControllerDelegate {
         item.primary = UUID().uuidString
         item.videoPreviewKey = url.absoluteString
         item.localFileUrl = item.temporaryData?.saveToTemporaryDir(name: url.lastPathComponent)
+        guard item.localFileUrl != nil else {
+            return nil
+        }
         return item
     }
     
@@ -563,41 +749,45 @@ extension ImagePickerViewController: UIImagePickerControllerDelegate {
             
             if let asset = info[UIImagePickerController.InfoKey.phAsset] as? PHAsset,
                 asset.playbackStyle == .imageAnimated {
-                print("ITS GIF")
                 asset.getURL { url in
-                    if let url = url,
-                       let data = try? Data(contentsOf: url) {
-                        print("asset data", data)
-                        self.media.append(self.addImageDataBy(url, data: data, size: imageRaw.size))
+                    DispatchQueue.main.async {
+                        guard let url = url,
+                              let data = try? Data(contentsOf: url),
+                              let reference = self.addImageDataBy(url, data: data, size: imageRaw.size) else {
+                            self.showError(.unableToPrepare)
+                            picker.dismiss(animated: true, completion: nil)
+                            return
+                        }
+                        self.media.append(reference)
                         picker.dismiss(animated: true) {
-                            DispatchQueue.main.async {
-                                self.send()
-                                self.dismissModal()
-                            }
+                            self.send()
                         }
                     }
                 }
             } else {
                 let image = imageRaw.fixOrientation().safeResize(to: 768)
-                let imageUrl = url ?? URL(string: [UUID().uuidString, ".jpg"].joined(separator: "."))!
-                media.append(addImageBy(imageUrl, image: image))
+                let imageUrl = url ?? generatedMediaURL(pathExtension: "jpg")
+                guard let reference = addImageBy(imageUrl, image: image) else {
+                    showError(.unableToPrepare)
+                    picker.dismiss(animated: true, completion: nil)
+                    return
+                }
+                media.append(reference)
                 picker.dismiss(animated: true) {
-                    DispatchQueue.main.async {
-                        self.send()
-                        self.dismissModal()
-                    }
+                    self.send()
                 }
             }
         } else {
             url = info[UIImagePickerController.InfoKey.mediaURL] as? URL
-            if let url = url {
-                media.append(addMediaBy(url))
-                picker.dismiss(animated: true) {
-                    DispatchQueue.main.async {
-                        self.send()
-                        self.dismissModal()
-                    }
-                }
+            guard let url = url,
+                  let reference = addMediaBy(url) else {
+                showError(.unavailableMedia)
+                picker.dismiss(animated: true, completion: nil)
+                return
+            }
+            media.append(reference)
+            picker.dismiss(animated: true) {
+                self.send()
             }
         }
     }
@@ -614,10 +804,39 @@ extension ImagePickerViewController: UINavigationControllerDelegate {
 }
 
 extension ImagePickerViewController: UIDocumentPickerDelegate {
-    internal func addMediaBy(_ url: URL) -> MessageReferenceStorageItem {
+    internal func addMediaBy(_ url: URL) -> MessageReferenceStorageItem? {
+        let didStartAccessing = url.startAccessingSecurityScopedResource()
+        defer {
+            if didStartAccessing {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        guard FileManager.default.isReadableFile(atPath: url.path) || didStartAccessing else {
+            showError(.unavailableMedia)
+            return nil
+        }
+
+        let data: Data
+        do {
+            data = try validateMediaDataOrThrow(try Data(contentsOf: url))
+        } catch let error as PickerError {
+            showError(error)
+            return nil
+        } catch {
+            DDLogDebug("ImagePickerViewController: \(#function). \(error.localizedDescription)")
+            showError(.unableToPrepare)
+            return nil
+        }
+
+        guard url.lastPathComponent.isNotEmpty else {
+            showError(.unableToPrepare)
+            return nil
+        }
+
         let item = MessageReferenceStorageItem()
         item.kind = .media
-        item.temporaryData = try? Data(contentsOf: url)
+        item.temporaryData = data
         let mimeType = MimeIcon(MimeType(url: url).value).value
         item.mimeType = mimeType.rawValue
         item.owner = self.owner
@@ -632,6 +851,10 @@ extension ImagePickerViewController: UIDocumentPickerDelegate {
         
         item.primary = UUID().uuidString
         item.localFileUrl = item.temporaryData?.saveToTemporaryDir(name: url.lastPathComponent)
+        guard item.localFileUrl != nil else {
+            showError(.unableToPrepare)
+            return nil
+        }
         
         switch mimeType {
             case .image:
@@ -661,8 +884,8 @@ extension ImagePickerViewController: UIDocumentPickerDelegate {
                 item.videoOrientation = orientation
                 
                 // add initialization of videoPreviewKey and videoDuration
-                let url = item.metadata?["uri"] as! String
-                let key = [jid, owner, url].prp()
+                guard let mediaURLString = item.metadata?["uri"] as? String else { break }
+                let key = [jid, owner, mediaURLString].prp()
                 let result = item.extractFrameFromVideo(forKey: key)
                 item.isDownloaded = true
                 item.videoPreviewKey = key
@@ -682,11 +905,12 @@ extension ImagePickerViewController: UIDocumentPickerDelegate {
     }
     
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentAt url: URL) {
-        self.media.append(addMediaBy(url))
+        if let reference = addMediaBy(url) {
+            self.media.append(reference)
+        }
         controller.dismiss(animated: true) {
-            DispatchQueue.main.async {
+            if !self.media.isEmpty {
                 self.send()
-                self.dismissModal()
             }
         }
     }
@@ -698,13 +922,15 @@ extension ImagePickerViewController: UIDocumentPickerDelegate {
 
     
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-        urls.forEach { self.media.append(addMediaBy($0)) }
-        controller.dismiss(animated: true) {
-            
+        urls.forEach {
+            if let reference = self.addMediaBy($0) {
+                self.media.append(reference)
+            }
         }
-        DispatchQueue.main.async {
-            self.send()
-            self.dismissModal()
+        controller.dismiss(animated: true) {
+            if !self.media.isEmpty {
+                self.send()
+            }
         }
     }
     
@@ -719,7 +945,7 @@ extension PHAsset {
                 return true
             }
             self.requestContentEditingInput(with: options, completionHandler: {(contentEditingInput: PHContentEditingInput?, info: [AnyHashable : Any]) -> Void in
-                completionHandler(contentEditingInput!.fullSizeImageURL as URL?)
+                completionHandler(contentEditingInput?.fullSizeImageURL)
             })
         } else if self.mediaType == .video {
             let options: PHVideoRequestOptions = PHVideoRequestOptions()
@@ -732,6 +958,8 @@ extension PHAsset {
                     completionHandler(nil)
                 }
             })
+        } else {
+            completionHandler(nil)
         }
     }
 }

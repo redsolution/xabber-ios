@@ -42,6 +42,17 @@ protocol VoIPCallManagerDelegate {
     func didChangeMicState(to enabled: Bool)
 }
 
+extension VoIPCall.State {
+    var shouldRetryFromCallScreen: Bool {
+        switch self {
+        case .notConfirmed, .disconnected, .ended:
+            return true
+        default:
+            return false
+        }
+    }
+}
+
 class CallScreenViewController: BaseViewController {
     
     private var username: String = ""
@@ -640,30 +651,36 @@ class CallScreenViewController: BaseViewController {
             print(state, "observable")
             switch state {
             case .initiated:
+                self.configureEndCallButtonForHangup()
                 self.statusLabel.text = "Calling..."
                     .localizeString(id: "dialog_jingle_message__status_calling", arguments: [])
                 self.backgroundView.update(.calling, animate: true)
             case .proposed:
+                self.configureEndCallButtonForHangup()
                 self.playDualTone()
                 self.statusLabel.text = "Calling..."
                     .localizeString(id: "dialog_jingle_message__status_calling", arguments: [])
                 self.backgroundView.update(.calling, animate: true)
             case .confirmed:
+                self.configureEndCallButtonForHangup()
                 self.statusLabel.text = "Calling..."
                     .localizeString(id: "dialog_jingle_message__status_calling", arguments: [])
                 self.backgroundView.update(.calling, animate: true)
             case .notConfirmed:
-                break
+                self.configureEndCallButtonForRetry()
             case .accepted:
+                self.configureEndCallButtonForHangup()
                 self.playConnecting()
                 self.statusLabel.text = "Connecting..."
                     .localizeString(id: "dialog_jingle_message__status_connecting", arguments: [])
                 self.backgroundView.update(.calling, animate: true)
             case .connecting:
+                self.configureEndCallButtonForHangup()
                 self.statusLabel.text = "Connecting..."
                     .localizeString(id: "dialog_jingle_message__status_connecting", arguments: [])
                 self.backgroundView.update(.connecting, animate: true)
             case .connected:
+                self.configureEndCallButtonForHangup()
                 self.player?.stop()
                 FeedbackManager.shared.generate(feedback: .success)
 //                if self.initalCallType == .video {
@@ -676,6 +693,7 @@ class CallScreenViewController: BaseViewController {
                 self.backgroundView.update(.connected, animate: true)
                 self.startTimeUpdate()
             case .disconnected:
+                self.configureEndCallButtonForRetry()
                 FeedbackManager.shared.generate(feedback: .error)
                 self.statusLabel.text = "Disconnected"
                     .localizeString(id: "dialog_jingle_message__status_disconnected", arguments: [])
@@ -691,6 +709,7 @@ class CallScreenViewController: BaseViewController {
             case .holded:
                 break
             case .ended:
+                self.configureEndCallButtonForRetry()
                 self.startCallDate = nil
                 self.statusLabel.text = "Call ended"
                     .localizeString(id: "dialog_jingle_message__status_ended", arguments: [])
@@ -717,9 +736,37 @@ class CallScreenViewController: BaseViewController {
         
     }
     
+    private func configureEndCallButtonForHangup() {
+        endCallButton.setImage(imageLiteral( "phone.down.fill"), for: .normal)
+        endCallButton.performLayout(isEndCall: true)
+    }
+
+    private func configureEndCallButtonForRetry() {
+        endCallButton.setImage(imageLiteral( "phone.fill"), for: .normal)
+        endCallButton.performLayout(isEndCall: false)
+        endCallButton.backgroundColor = UIColor(red: 0.3, green: 0.69, blue: 0.31, alpha: 1.0)
+    }
+
+    private func retryCallFromTerminalState() {
+        let owner = self.owner
+        let jid = self.jid
+        let startCall = {
+            VoIPManager.shared.startCall(owner: owner, jid: jid)
+        }
+        guard self.presentingViewController != nil else {
+            startCall()
+            return
+        }
+        self.dismiss(animated: true, completion: startCall)
+    }
+
     private func subscribeControls() {
         endCallButton.rx.tap.bind {
 //            DispatchQueue.main.async {
+                if self.callState.value.shouldRetryFromCallScreen {
+                    self.retryCallFromTerminalState()
+                    return
+                }
                 print("end call")
                 VoIPManager.shared.endCall()
                 self.dismiss(animated: true, completion: {

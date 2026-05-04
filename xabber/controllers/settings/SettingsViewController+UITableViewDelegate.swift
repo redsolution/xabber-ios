@@ -118,6 +118,18 @@ extension SettingsViewController: UITableViewDelegate {
                     vc.configure(for: datasource)
                     navigationController?.pushViewController(vc, animated: true)
                     return
+
+                case .eula:
+                    let vc = EULAViewController(mode: .viewOnly)
+                    vc.hidesBottomBarWhenPushed = true
+                    navigationController?.pushViewController(vc, animated: true)
+                    return
+
+                case .safetyReporting:
+                    let vc = SafetyReportingViewController()
+                    vc.hidesBottomBarWhenPushed = true
+                    navigationController?.pushViewController(vc, animated: true)
+                    return
                 
                 case .yubikey:
                     if SignatureManager.shared.certificate != nil {

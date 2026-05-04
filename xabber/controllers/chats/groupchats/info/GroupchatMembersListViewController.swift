@@ -530,12 +530,22 @@ extension GroupchatMembersListViewController: UITableViewDelegate {
         
         promoteAction.image = imageLiteral("xabber.person.star.fill")
         promoteAction.backgroundColor = .systemBlue
+
+        let reportAction = UIContextualAction(style: .normal, title: "Report User".localizeString(id: "report_user_action", arguments: [])) { action, view, handler in
+            let item = self.datasource[index]
+            self.onReportUser(item)
+            handler(true)
+        }
+
+        reportAction.image = imageLiteral("exclamationmark.circle")
+        reportAction.backgroundColor = .systemOrange
         
         var actions: [UIContextualAction] = []
         
         if item.isMe {
             actions.append(infoAction)
         } else {
+            actions.append(reportAction)
             if item.canKick {
                 actions.append(kickAction)
             }
@@ -658,6 +668,18 @@ extension GroupchatMembersListViewController {
     
     private func onInfoUser(userId: String) {
         
+    }
+
+    private func onReportUser(_ item: Datasource) {
+        let vc = AbuseReportViewController()
+        vc.configureUserReport(
+            owner: self.owner,
+            jid: self.jid,
+            reportedUserJid: item.jid.isNotEmpty ? item.jid : item.userId,
+            roomJid: self.jid,
+            conversationType: .group
+        )
+        showModal(vc, parent: self)
     }
     
     private func onAddAdmin() {

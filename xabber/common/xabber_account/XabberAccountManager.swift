@@ -22,6 +22,7 @@ class XabberAccountManager: NSObject {
         var requestId: String
         var callback: ((String?) -> Void)?
         var requestDate: Date = Date()
+        var timeoutWorkItem: DispatchWorkItem?
         
         init(requestId: String, callback: ((String?) -> Void)? = nil) {
             self.requestId = requestId
@@ -30,6 +31,45 @@ class XabberAccountManager: NSObject {
     }
     
     var tasks: [AuthTaskItem] = []
+    private let tasksLock = NSLock()
+    private let tokenRequestTimeout: TimeInterval = 15
+
+    private func appendTask(_ task: AuthTaskItem) {
+        tasksLock.lock()
+        tasks.append(task)
+        tasksLock.unlock()
+    }
+
+    private func hasTask(requestId: String?) -> Bool {
+        guard let requestId = requestId else { return false }
+        tasksLock.lock()
+        defer { tasksLock.unlock() }
+        return tasks.contains(where: { $0.requestId == requestId })
+    }
+
+    private func takeTask(requestId: String?) -> AuthTaskItem? {
+        guard let requestId = requestId else { return nil }
+        tasksLock.lock()
+        let index = tasks.firstIndex(where: { $0.requestId == requestId })
+        let task = index.map { tasks.remove(at: $0) }
+        tasksLock.unlock()
+        task?.timeoutWorkItem?.cancel()
+        return task
+    }
+
+    private func scheduleTokenRequestTimeout(for task: AuthTaskItem) {
+        let workItem = DispatchWorkItem { [weak self, weak task] in
+            guard let self = self,
+                  let task = task,
+                  let timedOutTask = self.takeTask(requestId: task.requestId) else {
+                return
+            }
+            DDLogDebug("XabberAccountManager: token request timed out requestId=\(task.requestId)")
+            timedOutTask.callback?(nil)
+        }
+        task.timeoutWorkItem = workItem
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + tokenRequestTimeout, execute: workItem)
+    }
     
     func token(for account: String) -> String? {
         if let token = CredentialsManager.getXabberAccountToken(for: account) {
@@ -55,7 +95,7 @@ class XabberAccountManager: NSObject {
         account.addChild(create)
         let iq = XMPPIQ(iqType: .set, to: services, elementID: requestId, child: account)
         stream.send(iq)
-        self.tasks.append(AuthTaskItem(requestId: requestId, callback: callback))
+        appendTask(AuthTaskItem(requestId: requestId, callback: callback))
     }
     
     struct AccountResponse: Decodable {
@@ -78,11 +118,7 @@ class XabberAccountManager: NSObject {
     }
     
     private func onRegisterAccount(_ stream: XMPPStream, iq: XMPPIQ) -> Bool {
-        guard self.tasks.isNotEmpty else {
-            return false
-        }
-        let taskIds = Set(self.tasks.compactMap{ $0.requestId })
-        guard taskIds.contains(iq.elementID ?? "none") else {
+        guard hasTask(requestId: iq.elementID) else {
             return false
         }
         let response_b64: String = ""
@@ -92,23 +128,19 @@ class XabberAccountManager: NSObject {
             return false
         }
         
-        guard let taskId = self.tasks.firstIndex(where: { $0.requestId == iq.elementID }) else {
+        guard let task = takeTask(requestId: iq.elementID) else {
             return false
         }
-        self.tasks[taskId].callback?(account.accountId)
+        task.callback?(account.accountId)
         CredentialsManager.shared.setXabberAccountUUID(for: jid, uuid: account.accountId)
         return true
     }
     
     private func onFailToRegisterAccount(_ stream: XMPPStream, iq: XMPPIQ) -> Bool {
-        guard self.tasks.isNotEmpty else {
-            return false
-        }
         guard iq.iqType == .error else {
             return false
         }
-        let taskIds = Set(self.tasks.compactMap{ $0.requestId })
-        guard taskIds.contains(iq.elementID ?? "none") else {
+        guard hasTask(requestId: iq.elementID) else {
             return false
         }
         let response_b64: String = ""
@@ -117,10 +149,10 @@ class XabberAccountManager: NSObject {
             return false
         }
         
-        guard let taskId = self.tasks.firstIndex(where: { $0.requestId == iq.elementID }) else {
+        guard let task = takeTask(requestId: iq.elementID) else {
             return false
         }
-        self.tasks[taskId].callback?(nil)
+        task.callback?(nil)
         CredentialsManager.shared.removeXabberAccountUUID(for: jid)
         return true
     }
@@ -129,6 +161,7 @@ class XabberAccountManager: NSObject {
             
         let stringUrl = CommonConfigManager.shared.config.xabber_account_api_url + "xmpp_auth/code_request/"
         guard let jid = AccountManager.shared.find(for: account)?.xmppStream.myJID?.full else {
+            callback?(nil)
             return false
         }
         
@@ -137,6 +170,7 @@ class XabberAccountManager: NSObject {
         let headers: [String: String] = [:]
         
         guard let url = URL(string: stringUrl) else {
+            callback?(nil)
             return false
         }
         AF
@@ -146,7 +180,11 @@ class XabberAccountManager: NSObject {
                 parameters: params,
                 encoding: JSONEncoding.default,
                 headers: HTTPHeaders(headers)
-            ).responseJSON { response in
+            ).responseJSON { [weak self] response in
+                guard let self = self else {
+                    callback?(nil)
+                    return
+                }
                 print("ResponseJSON: \(response)")
                 
                 switch response.result {
@@ -154,22 +192,22 @@ class XabberAccountManager: NSObject {
                         DDLogDebug(value)
                         guard let data = value as? NSDictionary,
                               let requestId = data["request_id"] as? String else {
+                            callback?(nil)
                             return
                         }
-                        self.tasks.append(AuthTaskItem(requestId: requestId, callback: callback))
+                        let task = AuthTaskItem(requestId: requestId, callback: callback)
+                        self.appendTask(task)
+                        self.scheduleTokenRequestTimeout(for: task)
                     case .failure(let error):
                         DDLogDebug(error.localizedDescription)
+                        callback?(nil)
                 }
             }
         return true
     }
     
     private func onCodeResponse(_ xmppStream: XMPPStream, with iq: XMPPIQ) -> Bool {
-        guard self.tasks.isNotEmpty else {
-            return false
-        }
-        let taskIds = Set(self.tasks.compactMap{ $0.requestId })
-        guard taskIds.contains(iq.elementID ?? "none") else {
+        guard hasTask(requestId: iq.elementID) else {
             return false
         }
         guard let confirm = iq.element(forName: "confirm", xmlns: "http://jabber.org/protocol/http-auth"),
@@ -179,14 +217,15 @@ class XabberAccountManager: NSObject {
             return false
         }
         
-        guard let taskId = self.tasks.firstIndex(where: { $0.requestId == iq.elementID }) else {
+        guard let task = takeTask(requestId: iq.elementID) else {
             return false
         }
         
         let iq = XMPPIQ(iqType: .result, to: iq.from, elementID: iq.elementID)
         xmppStream.send(iq)
         guard let jid = xmppStream.myJID?.bare else {
-            return false
+            task.callback?(nil)
+            return true
         }
         
         let params: [String: String] = ["jid": jid,
@@ -199,7 +238,7 @@ class XabberAccountManager: NSObject {
                 parameters: params,
                 encoding: JSONEncoding.default,
                 headers: HTTPHeaders(headers)
-            ).responseJSON { response in
+            ).responseJSON { [weak self] response in
                 print("ResponseJSON: \(response)")
                 
                 switch response.result {
@@ -211,12 +250,14 @@ class XabberAccountManager: NSObject {
                               let token = data["token"] as? String,
                               let expires = data["expires"] as? String,
                               let expiresTS = formatter.date(from: expires)?.timeIntervalSince1970 else {
+                            task.callback?(nil)
                             return
                         }
-                        self.storeToken(for: jid, token: token, expire: expiresTS)
-                        self.tasks[taskId].callback?(token)
+                        self?.storeToken(for: jid, token: token, expire: expiresTS)
+                        task.callback?(token)
                     case .failure(let error):
                         DDLogDebug(error.localizedDescription)
+                        task.callback?(nil)
                 }
             }
         

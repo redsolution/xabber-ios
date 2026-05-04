@@ -103,6 +103,11 @@ class MessageStorageItem: Object {
     
     @objc dynamic var errorMetadata_: String? = nil
     @objc dynamic var systemMetadata_: String? = nil
+    @objc dynamic var isLocallyHiddenByReport: Bool = false
+    @objc dynamic var localReportState: String? = nil
+    @objc dynamic var lastReportedAt: Date? = nil
+    @objc dynamic var lastReportReason: String? = nil
+    @objc dynamic var reportCount: Int = 0
     
     var references: List<MessageReferenceStorageItem> = List<MessageReferenceStorageItem>()
     
@@ -237,6 +242,27 @@ class MessageStorageItem: Object {
     }
     
     var originalStanza: XMPPMessage? = nil
+
+    static let reportHiddenMessageText: String = "This message was hidden after your report."
+        .localizeString(id: "report_hidden_message_placeholder", arguments: [])
+    static let reportHiddenMediaText: String = "This media was hidden after your report."
+        .localizeString(id: "report_hidden_media_placeholder", arguments: [])
+
+    var localReportPlaceholderText: String? {
+        if isLocallyHiddenByReport {
+            return MessageStorageItem.reportHiddenMessageText
+        }
+        let hiddenMedia = references.contains { reference in
+            reference.isLocallyHiddenByReport && [.media, .voice].contains(reference.kind)
+        }
+        let visibleMedia = references.contains { reference in
+            !reference.isLocallyHiddenByReport && [.media, .voice].contains(reference.kind)
+        }
+        if hiddenMedia && !visibleMedia && body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return MessageStorageItem.reportHiddenMediaText
+        }
+        return nil
+    }
     
     var displayAs: MessageDisplayType {
         get {
@@ -300,11 +326,15 @@ class MessageStorageItem: Object {
     }
     
     public final func shouldShowAsSystemMessage() -> Bool {
+        if localReportPlaceholderText != nil {
+            return false
+        }
         switch displayAs {
             case .text, .system:
                 var resultBody: String = ""
                 let images: [ImageAttachment] = self.references.toArray().filter {
                     item in
+                    !item.isLocallyHiddenByReport &&
                     item.mimeType == MimeIconTypes.image.rawValue
                 }.compactMap {
                     item in
@@ -315,7 +345,7 @@ class MessageStorageItem: Object {
                 }
                 
                 let videos: [VideoAttachment] = self.references.toArray().filter {
-                    $0.mimeType == MimeIconTypes.video.rawValue
+                    !$0.isLocallyHiddenByReport && $0.mimeType == MimeIconTypes.video.rawValue
                 } .compactMap {
                     item in
                     guard let url = item.downloadUrl else {
@@ -325,14 +355,14 @@ class MessageStorageItem: Object {
                 }
                 
                 let audio: [AudioAttachment] = self.references.toArray().filter {
-                    $0.kind_ == "voice"
+                    !$0.isLocallyHiddenByReport && $0.kind_ == "voice"
                 } .compactMap {
                     item in
                     return AudioAttachment(primary: item.primary, url: item.decodedUrl, size: 10, name: "name", duration: Double(item.duration ?? 0), downloaded: item.isDownloaded, pcm: item.meteringLevels ?? [])
                 }
                 
                 let files: [FileAttachment] = self.references.toArray().filter {
-                    return $0.kind == .media && ![MimeIconTypes.image.rawValue, MimeIconTypes.video.rawValue, MimeIconTypes.audio.rawValue].contains($0.mimeType)
+                    return !$0.isLocallyHiddenByReport && $0.kind == .media && ![MimeIconTypes.image.rawValue, MimeIconTypes.video.rawValue, MimeIconTypes.audio.rawValue].contains($0.mimeType)
                 } .compactMap {
                     item in
                     if item.kind_ == "groupchat" {
@@ -374,11 +404,15 @@ class MessageStorageItem: Object {
     }
     
     public final func displayedBody() -> String {
+        if let placeholder = localReportPlaceholderText {
+            return placeholder
+        }
         switch displayAs {
             case .text, .system:
                 var resultBody: String = ""
                 let images: [ImageAttachment] = self.references.toArray().filter {
                     item in
+                    !item.isLocallyHiddenByReport &&
                     item.mimeType == MimeIconTypes.image.rawValue
                 }.compactMap {
                     item in
@@ -389,7 +423,7 @@ class MessageStorageItem: Object {
                 }
                 
                 let videos: [VideoAttachment] = self.references.toArray().filter {
-                    $0.mimeType == MimeIconTypes.video.rawValue
+                    !$0.isLocallyHiddenByReport && $0.mimeType == MimeIconTypes.video.rawValue
                 } .compactMap {
                     item in
                     guard let url = item.downloadUrl else {
@@ -399,14 +433,14 @@ class MessageStorageItem: Object {
                 }
                 
                 let audio: [AudioAttachment] = self.references.toArray().filter {
-                    $0.kind_ == "voice"
+                    !$0.isLocallyHiddenByReport && $0.kind_ == "voice"
                 } .compactMap {
                     item in
                     return AudioAttachment(primary: item.primary, url: item.decodedUrl, size: 10, name: "name", duration: Double(item.duration ?? 0), downloaded: item.isDownloaded, pcm: item.meteringLevels ?? [])
                 }
                 
                 let files: [FileAttachment] = self.references.toArray().filter {
-                    return $0.kind == .media && ![MimeIconTypes.image.rawValue, MimeIconTypes.video.rawValue, MimeIconTypes.audio.rawValue].contains($0.mimeType)
+                    return !$0.isLocallyHiddenByReport && $0.kind == .media && ![MimeIconTypes.image.rawValue, MimeIconTypes.video.rawValue, MimeIconTypes.audio.rawValue].contains($0.mimeType)
                 } .compactMap {
                     item in
                     if item.kind_ == "groupchat" {
@@ -1421,6 +1455,13 @@ class MessageStorageItem: Object {
     }
     
     public final func createRefBody(_ attrs: [NSAttributedString.Key: Any], searchedText: String? = nil, searchedTextColor: UIColor? = nil) -> NSAttributedString {
+        if let placeholder = localReportPlaceholderText {
+            let string = NSMutableAttributedString(string: placeholder)
+            string.addAttributes(attrs, range: NSRange(location: 0, length: string.length))
+            string.addAttribute(.foregroundColor, value: UIColor.secondaryLabel, range: NSRange(location: 0, length: string.length))
+            string.addAttribute(.font, value: UIFont.preferredFont(forTextStyle: .body).italic(), range: NSRange(location: 0, length: string.length))
+            return string
+        }
         let string = NSMutableAttributedString(string: body.trimmingCharacters(in: .newlines))
 //        let string = NSMutableAttributedString(string: "\(self.body), \(self.isRead), \(Date(timeIntervalSince1970: self.burnDate))")
         string.addAttributes(attrs, range: NSRange(location: 0, length: string.length))
@@ -1430,7 +1471,7 @@ class MessageStorageItem: Object {
 //        paragraph.maximumLineHeight = 1.5
         paragraph.lineSpacing = 1.5
         paragraph.allowsDefaultTighteningForTruncation = true
-        for reference in references {
+        for reference in references where !reference.isLocallyHiddenByReport {
             if reference.end <= reference.begin { continue }
             if reference.end > body.count { continue }
             switch reference.kind {

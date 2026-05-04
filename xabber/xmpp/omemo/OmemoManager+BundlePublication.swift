@@ -53,7 +53,7 @@ extension OmemoManager {
             ],
             [
                 "var": "pubsub#max_items",
-                "value": node == .update ? "1" : "32"
+                "value": node == .bundle ? "max" : (node == .update ? "1" : "32")
             ]
         ]
         

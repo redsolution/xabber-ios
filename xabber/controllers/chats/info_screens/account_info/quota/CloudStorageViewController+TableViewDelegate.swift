@@ -94,27 +94,41 @@ extension CloudStorageViewController: UITableViewDelegate {
                 }
             return
         case "images":
+            guard canOpenStorageSection() else { return }
             let viewController = CloudStorageGalleryViewController(selectedType: .image, owner: self.jid)
             navigationController?.pushViewController(viewController, animated: true)
             return
         case "videos":
+            guard canOpenStorageSection() else { return }
             let viewController = CloudStorageGalleryViewController(selectedType: .video, owner: self.jid)
             navigationController?.pushViewController(viewController, animated: true)
             return
         case "audio":
+            guard canOpenStorageSection() else { return }
             let viewController = CloudStorageGalleryViewController(selectedType: .audio, owner: self.jid)
             navigationController?.pushViewController(viewController, animated: true)
             return
         case "files":
+            guard canOpenStorageSection() else { return }
             let viewController = CloudStorageGalleryViewController(selectedType: .file, owner: self.jid)
             navigationController?.pushViewController(viewController, animated: true)
             return
         case "avatars":
+            guard canOpenStorageSection() else { return }
             let viewController = CloudStorageGalleryViewController(selectedType: .avatar, owner: self.jid)
             navigationController?.pushViewController(viewController, animated: true)
             break
         default:
             break
+        }
+    }
+
+    private func canOpenStorageSection() -> Bool {
+        switch currentDisplayState() {
+        case .content, .empty, .unlimited:
+            return true
+        case .loading, .error, .unavailable:
+            return false
         }
     }
 }

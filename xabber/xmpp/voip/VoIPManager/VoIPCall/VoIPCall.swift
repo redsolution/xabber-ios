@@ -99,6 +99,7 @@ final class VoIPCall: NSObject {
     internal var shouldDisconnectAfterQueuedRejectSend: Bool = false
     internal var queuedRejectTimeoutWorkItem: DispatchWorkItem?
     internal var queuedRejectDidFinish: (() -> Void)?
+    internal var shouldStartSignalingForQueuedReject: Bool = true
     
     var backgroundUpdateTask: UIBackgroundTaskIdentifier = UIBackgroundTaskIdentifier(rawValue: 0)
     
@@ -173,6 +174,17 @@ final class VoIPCall: NSObject {
 
     public final func start(shouldConfirmOnAuthenticate: Bool) {
         self.shouldConfirmOnAuthenticate = shouldConfirmOnAuthenticate
+        self.connect()
+    }
+
+    private final func startSignalingIfNeededForQueuedSend() {
+        guard shouldStartSignalingForQueuedReject,
+              !stream.isAuthenticated,
+              !stream.isConnected,
+              !stream.isConnecting else {
+            return
+        }
+        self.shouldConfirmOnAuthenticate = false
         self.connect()
     }
     
@@ -382,8 +394,9 @@ extension VoIPCall {
         self.start = Date()
         self.state = .accepted
         
-        self.stream.send(message)
-        if !self.stream.isAuthenticated {
+        if self.stream.isAuthenticated {
+            self.stream.send(message)
+        } else {
             self.enqueue(stanza: message)
         }
         return true
@@ -515,6 +528,7 @@ extension VoIPCall {
             self.disconnect()
         } else {
             self.shouldDisconnectAfterQueuedRejectSend = true
+            self.startSignalingIfNeededForQueuedSend()
             let timeout = DispatchWorkItem { [weak self] in
                 self?.finishQueuedRejectSend()
             }

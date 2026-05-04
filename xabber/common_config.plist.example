@@ -92,6 +92,8 @@
 	<false/>
 	<key>default_report_address</key>
 	<string></string>
+	<key>developer_operated_xmpp_domains</key>
+	<array/>
 	<key>support_xabber_account</key>
 	<true/>
 	<key>xabber_account_url</key>

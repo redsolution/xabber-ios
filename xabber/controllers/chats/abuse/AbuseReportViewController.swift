@@ -8,464 +8,561 @@
 
 import Foundation
 import UIKit
-import Realm
 import RealmSwift
-import MaterialComponents.MDCPalettes
 import CocoaLumberjack
-import RxSwift
-import RxCocoa
-import RxRelay
 import XMPPFramework.XMPPJID
 
+enum AbuseReportTargetContext {
+    case message(primary: String)
+    case media(messagePrimary: String?, referencePrimary: String?, attachmentPrimary: String?)
+    case user(reportedUserJid: String, roomJid: String?)
+    case room(roomJid: String)
+}
 
 class AbuseReportViewController: SimpleBaseViewController {
-    class CustomAbuseTextFieldCell: UITableViewCell {
-        static let cellName: String = "CustomAbuseTextFieldCell"
-        
-        var key: String = ""
-        
-        var stack: UIStackView = {
-            let stack = UIStackView()
-            
-            stack.axis = .vertical
-            stack.alignment = .leading
-            stack.spacing = 8
-            stack.isLayoutMarginsRelativeArrangement = true
-            stack.layoutMargins = UIEdgeInsets(top: 4, bottom: 4, left: 20, right: 16)
-            
-            return stack
+    private enum Section: Int, CaseIterable {
+        case explanation
+        case metadata
+        case reasons
+        case options
+        case comment
+    }
+
+    private enum Option {
+        case includeExcerpt
+        case hideLocally
+    }
+
+    final class CommentCell: UITableViewCell, UITextViewDelegate {
+        static let cellName = "AbuseReportCommentCell"
+
+        let textView: UITextView = {
+            let textView = UITextView()
+            textView.font = UIFont.preferredFont(forTextStyle: .body)
+            textView.adjustsFontForContentSizeCategory = true
+            textView.isScrollEnabled = false
+            textView.backgroundColor = .clear
+            textView.textContainerInset = UIEdgeInsets(top: 8, left: 0, bottom: 8, right: 0)
+            textView.accessibilityIdentifier = "report.comment"
+            return textView
         }()
-        
-        var field: UITextField = {
-            let field = UITextField()
-            
-            field.autocorrectionType = .default
-            field.clearButtonMode = .never
-            field.autocapitalizationType = .sentences
-            field.spellCheckingType = .yes
-            field.keyboardType = .default
-            field.returnKeyType = .done
-            
-            return field
-        }()
-        
-        var callback: ((UITextField?, String, String?) -> Void)? = nil
-        
-        private func activateConstraints() {
-            field.heightAnchor.constraint(equalToConstant: 30).isActive = true
-            field.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 0.95).isActive = true
-        }
-        
-        func configure(_ title: String, value: String?, key: String) {
-            field.text = value
-            field.placeholder = title
-            field.clearButtonMode = .always
-            self.key = key
-        }
-        
-        func configureField(_ block: ((UITextField) -> Void)) {
-            block(field)
-        }
-        
-        private func setupSubviews() {
-            contentView.addSubview(stack)
+
+        var onChange: ((String) -> Void)?
+
+        override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+            super.init(style: style, reuseIdentifier: reuseIdentifier)
             selectionStyle = .none
-            stack.fillSuperview()
-            stack.addArrangedSubview(field)
-            backgroundColor = .systemBackground
-            activateConstraints()
+            contentView.addSubview(textView)
+            textView.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                textView.topAnchor.constraint(equalTo: contentView.layoutMarginsGuide.topAnchor),
+                textView.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
+                textView.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+                textView.bottomAnchor.constraint(equalTo: contentView.layoutMarginsGuide.bottomAnchor),
+                textView.heightAnchor.constraint(greaterThanOrEqualToConstant: 96)
+            ])
+            textView.delegate = self
         }
-        
-        override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-            super.init(style: style, reuseIdentifier: reuseIdentifier)
-            setupSubviews()
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
         }
-        
-        required init?(coder aDecoder: NSCoder) {
-            super.init(coder: aDecoder)
-            setupSubviews()
+
+        func configure(text: String, placeholder: String) {
+            textView.text = text
+            textView.accessibilityLabel = placeholder
         }
-        
-        override func awakeFromNib() {
-            super.awakeFromNib()
-        }
-        
-        override func setSelected(_ selected: Bool, animated: Bool) {
-            super.setSelected(selected, animated: animated)
-        }
-        
-        @objc
-        internal func fieldDidChange(_ sender: UITextField) {
-            callback?(self.field, self.key, sender.text)
+
+        func textViewDidChange(_ textView: UITextView) {
+            onChange?(textView.text)
         }
     }
-    
-    class AbuseGroupItemCell: UITableViewCell {
-        static let cellName: String = "AbuseGroupItemCell"
-                
-        var stack: UIStackView = {
-            let stack = UIStackView()
-            
-            stack.axis = .vertical
-            stack.alignment = .leading
-            stack.spacing = 8
-            stack.isLayoutMarginsRelativeArrangement = true
-            stack.layoutMargins = UIEdgeInsets(top: 4, bottom: 4, left: 20, right: 16)
-            
-            return stack
-        }()
-        
-        var titleLabel: UILabel = {
-            let label = UILabel()
-            
-            label.font = UIFont.preferredFont(forTextStyle: .body)
-            label.textColor = .label
-            
-            return label
-        }()
-        
-        private func activateConstraints() {
-            
-        }
-        
-        func configure(_ title: String) {
-            self.titleLabel.text = title
-        }
-                
-        private func setupSubviews() {
-            contentView.addSubview(stack)
-            stack.fillSuperview()
-            stack.addArrangedSubview(titleLabel)
-            backgroundColor = .systemBackground
-            activateConstraints()
-        }
-        
-        override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-            super.init(style: style, reuseIdentifier: reuseIdentifier)
-            setupSubviews()
-        }
-        
-        required init?(coder aDecoder: NSCoder) {
-            super.init(coder: aDecoder)
-            setupSubviews()
-        }
-        
-        override func awakeFromNib() {
-            super.awakeFromNib()
-        }
-        
-        override func setSelected(_ selected: Bool, animated: Bool) {
-            super.setSelected(selected, animated: animated)
-        }
-        
-    }
-    
-    class Datasource {
-        enum Kind {
-            case group
-            case field
-        }
-        
-        var kind: Kind
-        var value: String
-        var originalStatus: Bool
-        var isChecked: Bool
-        var isChanged: Bool
-        
-        init(_ kind: Kind, value: String, isChecked: Bool, isChanged: Bool) {
-            self.kind = kind
-            self.value = value
-            self.isChecked = isChecked
-            self.originalStatus = isChecked
-            self.isChanged = isChanged
-        }
-    }
-    
-    
+
     let tableView: UITableView = {
         let view = UITableView(frame: .zero, style: .insetGrouped)
-        
-        view.register(CustomAbuseTextFieldCell.self, forCellReuseIdentifier: CustomAbuseTextFieldCell.cellName)
-        view.register(AbuseGroupItemCell.self, forCellReuseIdentifier: AbuseGroupItemCell.cellName)
-        
+        view.register(UITableViewCell.self, forCellReuseIdentifier: "ReportCell")
+        view.register(UITableViewCell.self, forCellReuseIdentifier: "ReportValueCell")
+        view.register(CommentCell.self, forCellReuseIdentifier: CommentCell.cellName)
+        view.estimatedRowHeight = 56
+        view.rowHeight = UITableView.automaticDimension
         return view
     }()
-    
-    open var message: String = ""
-    
-    open var conversationType: ClientSynchronizationManager.ConversationType = .regular
-    
-    var datasource: [Datasource] = []
-    
-    internal var changesObserver: BehaviorRelay<Bool> = BehaviorRelay(value: false)
-    
-    internal let saveBarButton: UIBarButtonItem = {
-        let button = UIBarButtonItem(title: "Send")
-        
-        return button
-    }()
-    
-    internal var cancelBarButton: UIBarButtonItem = {
-        let button = UIBarButtonItem(systemItem: .cancel)
-        
-        return button
-    }()
-    
-    
-    @objc
-    func keyboardWillShowNotification(_ notification: Notification) {
-        guard
-            let userInfo = notification.userInfo,
-            let keyboardFrameValue = userInfo[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue
-        else { return }
-        
-        if let frameValue = userInfo[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue {
-            let frame = frameValue.cgRectValue
-            let keyboardVisibleHeight = frame.size.height
-//                print("keyboardVisibleHeight", keyboardVisibleHeight)
-            switch (userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber, userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber) {
-                case let (.some(duration), .some(curve)):
-                    guard let window = self.view.window else { return }
-                    let options = UIView.AnimationOptions(rawValue: curve.uintValue)
-                    let keyboardFrameInScreen = keyboardFrameValue.cgRectValue
-                    let keyboardFrameInView = self.view.convert(keyboardFrameInScreen, from: window)
-                    let overlapHeight = max(0, self.view.bounds.height - keyboardFrameInView.minY)
-                    let bottomInset = overlapHeight
-                    let contentInsets = UIEdgeInsets(top: self.tableView.contentInset.top,
-                                                     left: self.tableView.contentInset.left,
-                                                     bottom: bottomInset,
-                                                     right: self.tableView.contentInset.right)
-                    UIView.animate(withDuration: TimeInterval(duration.doubleValue),
-                                   delay: 0,
-                                   options: options,
-                                   animations: {
-                        self.tableView.contentInset = contentInsets
-                        self.tableView.scrollIndicatorInsets = contentInsets
-                    })
-            default:
-                break
-            }
-        }
-        
-        
-    }
-    
-    @objc func keyboardWillHideNotification(_ notification: NSNotification) {
-        if let userInfo = notification.userInfo {
-            
-            switch (userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber, userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber) {
-            case let (.some(duration), .some(curve)):
-                let options = UIView.AnimationOptions(rawValue: curve.uintValue)
-                
-                UIView.animate(
-                    withDuration: TimeInterval(duration.doubleValue),
-                    delay: 0,
-                    options: options,
-                    animations: {
-                        self.tableView.contentInset.bottom = 0
-                        self.tableView.scrollIndicatorInsets.bottom = 0
-                    }, completion: { finished in
-                })
-            default:
-                break
-            }
-        }
-    }
-    
-    override func subscribe() {
-        super.subscribe()
-        
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(self.keyboardWillShowNotification(_:)),
-            name: UIWindow.keyboardWillShowNotification,
-            object: nil
-        )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(self.keyboardWillHideNotification(_:)),
-            name: UIWindow.keyboardWillHideNotification,
-            object: nil
-        )
-        
-        self.changesObserver
-            .asObservable()
-            .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
-            .subscribe { value in
-                if value {
-                    self.navigationItem.setLeftBarButton(self.cancelBarButton, animated: true)
-                    self.navigationItem.setRightBarButton(self.saveBarButton, animated: true)
-                } else {
-                    self.navigationItem.setLeftBarButton(self.navigationItem.backBarButtonItem, animated: true)
-                    self.navigationItem.setRightBarButton(nil, animated: true)
-                }
-            }
-            .disposed(by: self.bag)
 
+    open var message: String = ""
+    open var conversationType: ClientSynchronizationManager.ConversationType = .regular
+
+    private var targetContext: AbuseReportTargetContext?
+    private var metadataRows: [(title: String, value: String)] = []
+    private var selectedReason: ReportReason?
+    private var includeMessageExcerpt: Bool = false
+    private var hideLocally: Bool = false
+    private var comment: String = ""
+    private var isSubmitting: Bool = false
+
+    private lazy var submitButton: UIBarButtonItem = {
+        let button = UIBarButtonItem(
+            title: "Submit Report".localizeString(id: "report_submit_button", arguments: []),
+            style: .done,
+            target: self,
+            action: #selector(onSubmit)
+        )
+        button.accessibilityIdentifier = "report.submit"
+        button.isEnabled = false
+        return button
+    }()
+
+    private lazy var cancelButton: UIBarButtonItem = {
+        let button = UIBarButtonItem(
+            title: "Cancel".localizeString(id: "cancel", arguments: []),
+            style: .plain,
+            target: self,
+            action: #selector(onCancel)
+        )
+        button.accessibilityIdentifier = "report.cancel"
+        return button
+    }()
+
+    func configureMessageReport(owner: String, jid: String, conversationType: ClientSynchronizationManager.ConversationType, messagePrimary: String) {
+        self.owner = owner
+        self.jid = jid
+        self.conversationType = conversationType
+        self.message = messagePrimary
+        self.targetContext = .message(primary: messagePrimary)
     }
-    
-    override func loadDatasource() {
-        super.loadDatasource()
-        
-        self.datasource = [
-            Datasource(.group, value: "Spam or unsolicited advertising", isChecked: false, isChanged: false),
-            Datasource(.group, value: "Harassment or bullying", isChecked: false, isChanged: false),
-            Datasource(.group, value: "Hate speech or discrimination", isChecked: false, isChanged: false),
-            Datasource(.group, value: "Threats or violence", isChecked: false, isChanged: false),
-            Datasource(.group, value: "Illegal content (e.g., drugs, weapons)", isChecked: false, isChanged: false),
-            Datasource(.group, value: "Misinformation or scams", isChecked: false, isChanged: false),
-            Datasource(.group, value: "Inappropriate or explicit material", isChecked: false, isChanged: false),
-            Datasource(.field, value: "", isChecked: false, isChanged: false),
-        ]
+
+    func configureMediaReport(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        messagePrimary: String? = nil,
+        referencePrimary: String? = nil,
+        mediaAttachmentPrimary: String? = nil
+    ) {
+        self.owner = owner
+        self.jid = jid
+        self.conversationType = conversationType
+        self.targetContext = .media(
+            messagePrimary: messagePrimary,
+            referencePrimary: referencePrimary,
+            attachmentPrimary: mediaAttachmentPrimary
+        )
     }
-    
+
+    func configureUserReport(owner: String, jid: String, reportedUserJid: String, roomJid: String? = nil, conversationType: ClientSynchronizationManager.ConversationType = .regular) {
+        self.owner = owner
+        self.jid = jid
+        self.conversationType = conversationType
+        self.targetContext = .user(reportedUserJid: reportedUserJid, roomJid: roomJid)
+    }
+
+    func configureRoomReport(owner: String, roomJid: String) {
+        self.owner = owner
+        self.jid = roomJid
+        self.conversationType = .group
+        self.targetContext = .room(roomJid: roomJid)
+    }
+
     override func setupSubviews() {
         super.setupSubviews()
-        self.view.addSubview(self.tableView)
-        self.tableView.fillSuperview()
+        view.addSubview(tableView)
+        tableView.fillSuperview()
     }
-    
+
     override func configure() {
         super.configure()
-        self.title = "Report Message"
-        self.tableView.delegate = self
-        self.tableView.dataSource = self
-        self.tableView.setEditing(true, animated: false)
-        self.tableView.allowsMultipleSelection = true
-        self.tableView.allowsMultipleSelectionDuringEditing = true
-        self.cancelBarButton.action = #selector(onCancelButtonTouchUpInside)
-        self.cancelBarButton.target = self
-        self.saveBarButton.action = #selector(onSaveButtonTouchUpInside)
-        self.saveBarButton.target = self
+        title = "Report".localizeString(id: "report_title", arguments: [])
+        view.accessibilityIdentifier = "report.screen"
+        tableView.delegate = self
+        tableView.dataSource = self
+        navigationItem.leftBarButtonItem = cancelButton
+        navigationItem.rightBarButtonItem = submitButton
     }
-    
-    @objc
-    internal func onCancelButtonTouchUpInside(_ sender: AnyObject) {
-        self.navigationController?.popViewController(animated: true)
+
+    override func subscribe() {
+        super.subscribe()
+        if targetContext == nil, message.isNotEmpty {
+            targetContext = .message(primary: message)
+        }
+        metadataRows = makeMetadataRows()
+        updateSubmitState()
     }
-        
-    @objc
-    internal func onSaveButtonTouchUpInside(_ sender: AnyObject) {
-        let changes = self.datasource.filter({ $0.isChecked }).compactMap({
-            if $0.kind == .field {
-                return "Other - \($0.value)"
+
+    private var effectiveTarget: AbuseReportTargetContext? {
+        if let targetContext = targetContext {
+            return targetContext
+        }
+        if message.isNotEmpty {
+            return .message(primary: message)
+        }
+        return nil
+    }
+
+    private var options: [Option] {
+        guard let target = effectiveTarget else {
+            return []
+        }
+        switch target {
+        case .message:
+            return [.includeExcerpt, .hideLocally]
+        case .media:
+            return [.hideLocally]
+        case .user, .room:
+            return []
+        }
+    }
+
+    private func makeMetadataRows() -> [(String, String)] {
+        guard let target = effectiveTarget else {
+            return []
+        }
+        do {
+            let realm = try WRealm.safe()
+            switch target {
+            case .message(let primary):
+                guard let message = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) else {
+                    return [("Conversation".localizeString(id: "report_metadata_conversation", arguments: []), jid)]
+                }
+                var rows = commonRows(conversationJid: message.opponent, roomJid: message.conversationType == .group ? message.opponent : nil)
+                if message.conversationType == .group {
+                    if let author = message.groupchatMetadata?["jid"] as? String ?? message.groupchatAuthorId {
+                        rows.append(("Reported user JID".localizeString(id: "report_metadata_reported_user_jid", arguments: []), author))
+                    }
+                } else if !message.outgoing {
+                    rows.append(("Reported user JID".localizeString(id: "report_metadata_reported_user_jid", arguments: []), message.opponent))
+                }
+                rows.append(("Conversation".localizeString(id: "report_metadata_conversation", arguments: []), message.opponent))
+                rows.append(("Message timestamp".localizeString(id: "report_metadata_message_timestamp", arguments: []), DateFormatter.localizedString(from: message.date, dateStyle: .medium, timeStyle: .short)))
+                if message.messageId.isNotEmpty {
+                    rows.append(("Message ID".localizeString(id: "report_metadata_message_id", arguments: []), message.messageId))
+                }
+                if message.archivedId.isNotEmpty {
+                    rows.append(("Stanza ID".localizeString(id: "report_metadata_stanza_id", arguments: []), message.archivedId))
+                }
+                let preview = message.displayedBody()
+                if preview.isNotEmpty {
+                    rows.append(("Message preview".localizeString(id: "report_metadata_message_preview", arguments: []), preview))
+                }
+                return rows
+            case .media(let messagePrimary, let referencePrimary, let attachmentPrimary):
+                let reference = referencePrimary.flatMap { realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: $0) }
+                let attachment = attachmentPrimary.flatMap { realm.object(ofType: MessageMediaAttachmentStorageItem.self, forPrimaryKey: $0) }
+                let resolvedMessagePrimary = messagePrimary ?? reference?.messageId ?? attachment?.messagePrimary
+                let message = resolvedMessagePrimary.flatMap { realm.object(ofType: MessageStorageItem.self, forPrimaryKey: $0) }
+                var rows = commonRows(conversationJid: message?.opponent ?? attachment?.jid ?? jid, roomJid: conversationType == .group ? jid : nil)
+                rows.append(("Conversation".localizeString(id: "report_metadata_conversation", arguments: []), message?.opponent ?? attachment?.jid ?? jid))
+                if let primary = reference?.primary ?? attachment?.primary {
+                    rows.append(("Attachment ID".localizeString(id: "report_metadata_attachment_id", arguments: []), primary))
+                }
+                if let kind = reference?.kind.rawValue ?? attachment?.kind.rawValue, kind.isNotEmpty {
+                    rows.append(("Media type".localizeString(id: "report_metadata_media_type", arguments: []), kind))
+                }
+                if let mimeType = reference?.mimeType, mimeType.isNotEmpty {
+                    rows.append(("MIME type".localizeString(id: "report_metadata_mime_type", arguments: []), mimeType))
+                }
+                if let filename = reference?.filename ?? reference?.name ?? attachment?.filename, filename.isNotEmpty {
+                    rows.append(("File name".localizeString(id: "report_metadata_file_name", arguments: []), filename))
+                }
+                return rows
+            case .user(let reportedUserJid, let roomJid):
+                var rows = commonRows(conversationJid: roomJid ?? reportedUserJid, roomJid: roomJid)
+                rows.append(("Reported user JID".localizeString(id: "report_metadata_reported_user_jid", arguments: []), reportedUserJid))
+                return rows
+            case .room(let roomJid):
+                var rows = commonRows(conversationJid: roomJid, roomJid: roomJid)
+                rows.append(("Room JID".localizeString(id: "report_metadata_room_jid", arguments: []), roomJid))
+                return rows
             }
-            return "\($0.value),"
-        })
-        guard changes.isNotEmpty else {
+        } catch {
+            DDLogDebug("AbuseReportViewController: \(#function). \(error.localizedDescription)")
+            return []
+        }
+    }
+
+    private func commonRows(conversationJid: String, roomJid: String?) -> [(String, String)] {
+        var rows: [(String, String)] = []
+        if let domain = XMPPJID(string: roomJid ?? conversationJid)?.domain {
+            rows.append(("Server domain".localizeString(id: "report_metadata_server_domain", arguments: []), domain))
+        }
+        if let roomJid = roomJid, roomJid.isNotEmpty {
+            rows.append(("Room JID".localizeString(id: "report_metadata_room_jid", arguments: []), roomJid))
+        }
+        rows.append(("Reporter account".localizeString(id: "report_metadata_reporter_account", arguments: []), owner))
+        return rows
+    }
+
+    private func makeReport(reason: ReportReason) -> ModerationReport? {
+        guard let target = effectiveTarget else {
+            return nil
+        }
+        do {
+            let realm = try WRealm.safe()
+            switch target {
+            case .message(let primary):
+                guard let message = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) else {
+                    return nil
+                }
+                return ModerationReportFactory.messageReport(
+                    message: message,
+                    reason: reason,
+                    comment: comment,
+                    includeMessageExcerpt: includeMessageExcerpt
+                )
+            case .media(let messagePrimary, let referencePrimary, let attachmentPrimary):
+                let reference = referencePrimary.flatMap { realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: $0) }
+                let attachment = attachmentPrimary.flatMap { realm.object(ofType: MessageMediaAttachmentStorageItem.self, forPrimaryKey: $0) }
+                let resolvedMessagePrimary = messagePrimary ?? reference?.messageId ?? attachment?.messagePrimary
+                let message = resolvedMessagePrimary.flatMap { realm.object(ofType: MessageStorageItem.self, forPrimaryKey: $0) }
+                return ModerationReportFactory.mediaReport(
+                    message: message,
+                    reference: reference,
+                    attachment: attachment,
+                    owner: owner,
+                    conversationJid: message?.opponent ?? attachment?.jid ?? jid,
+                    conversationType: conversationType,
+                    reason: reason,
+                    comment: comment,
+                    includeMessageExcerpt: false
+                )
+            case .user(let reportedUserJid, let roomJid):
+                return ModerationReportFactory.userReport(
+                    owner: owner,
+                    reportedUserJid: reportedUserJid,
+                    roomJid: roomJid,
+                    conversationId: roomJid ?? jid,
+                    reason: reason,
+                    comment: comment
+                )
+            case .room(let roomJid):
+                return ModerationReportFactory.roomReport(owner: owner, roomJid: roomJid, reason: reason, comment: comment)
+            }
+        } catch {
+            DDLogDebug("AbuseReportViewController: \(#function). \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    private func updateSubmitState() {
+        submitButton.isEnabled = selectedReason != nil && !isSubmitting
+    }
+
+    private func messageForFailure(_ state: ModerationReportSubmissionState) -> String {
+        switch state {
+        case .missingConfiguration:
+            return "Report submission is not configured. Please contact support at %@."
+                .localizeString(id: "report_error_missing_configuration", arguments: [ModerationReportConfiguration.supportEmail])
+        case .networkError:
+            return "Report could not be submitted. Please check your connection and try again."
+                .localizeString(id: "report_error_network", arguments: [])
+        case .serverError:
+            return "Report could not be submitted due to a server error. Please try again later or contact support at %@."
+                .localizeString(id: "report_error_server", arguments: [ModerationReportConfiguration.supportEmail])
+        case .validationError:
+            return "Please select a reason before submitting your report."
+                .localizeString(id: "report_error_validation", arguments: [])
+        case .success:
+            return ""
+        }
+    }
+
+    private func successMessage(for report: ModerationReport) -> String {
+        if ModerationReportConfiguration.isDeveloperOperated(serverDomain: report.serverDomain) {
+            return "Report submitted. Thank you for helping keep the service safe. Reports for developer-operated services are reviewed within 24 hours."
+                .localizeString(id: "report_success_developer_operated", arguments: [])
+        }
+        return "Report submitted. Because this server may be operated by a third party, moderation actions may depend on the server operator."
+            .localizeString(id: "report_success_third_party", arguments: [])
+    }
+
+    @objc private func onCancel() {
+        dismiss(animated: true)
+    }
+
+    @objc private func onSubmit() {
+        guard let reason = selectedReason else {
+            view.makeToast(messageForFailure(.validationError), danger: true)
             return
         }
-        let report = changes.joined(separator: "\n")
-        print(report)
-        
-        AccountManager.shared.find(for: self.owner)?.action { user, stream in
-            user.abuse.report(stream, message: self.message, reason: report)
+        guard let report = makeReport(reason: reason) else {
+            view.makeToast("Internal error".localizeString(id: "message_manager_error_internal", arguments: []), danger: true)
+            return
         }
-        
-
-        self.dismiss(animated: true)
+        guard let account = AccountManager.shared.find(for: owner) else {
+            ModerationReportLocalStateWriter.record(report: report, state: .failed, hideLocally: false)
+            view.makeToast(messageForFailure(.networkError), danger: true)
+            return
+        }
+        isSubmitting = true
+        updateSubmitState()
+        ModerationReportLocalStateWriter.record(report: report, state: .pending, hideLocally: false)
+        account.action { [weak self] user, stream in
+            user.abuse.report(stream, report: report) { state in
+                DispatchQueue.main.async {
+                    guard let self = self else { return }
+                    self.isSubmitting = false
+                    self.updateSubmitState()
+                    switch state {
+                    case .success:
+                        ModerationReportLocalStateWriter.record(report: report, state: .submitted, hideLocally: self.hideLocally)
+                        let message = self.successMessage(for: report)
+                        self.dismiss(animated: true) {
+                            ToastPresenter().presentSuccess(message: message)
+                        }
+                    default:
+                        ModerationReportLocalStateWriter.record(report: report, state: .failed, hideLocally: false)
+                        self.view.makeToast(self.messageForFailure(state), danger: true)
+                    }
+                }
+            }
+        }
     }
 }
 
 extension AbuseReportViewController: UITableViewDataSource {
+    func numberOfSections(in tableView: UITableView) -> Int {
+        return Section.allCases.count
+    }
+
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        self.datasource.count
+        switch Section(rawValue: section) {
+        case .explanation:
+            return 1
+        case .metadata:
+            return metadataRows.count
+        case .reasons:
+            return ReportReason.allCases.count
+        case .options:
+            return options.count
+        case .comment:
+            return 1
+        case .none:
+            return 0
+        }
     }
-    
-    
+
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        return "This report will go to the abuse service of \(XMPPJID(string: jid)?.domain ?? jid) — the server that hosts this \(self.conversationType == .group ? "group" : "user"). It will include your XMPP address, so the administrators can handle it properly.\nChoose one or more reasons below to assist with keeping things safe:"
-    }
-    internal func onAddNewGroup(_ textField: UITextField?, key: String, value: String?) {
-//        if let value = value {
-            
-//            self.tableView.performBatchUpdates {
-//                self.datasource.insert(Datasource(.group, value: value, isChecked: true, isChanged: true), at: 1)
-//                self.tableView.insertRows(at: [IndexPath(row: 1, section: 0)], with: .automatic)
-//            }
-//            self.tableView.selectRow(at: IndexPath(row: 1, section: 0), animated: true, scrollPosition: .none)
-//            textField?.text = nil
-//            textField?.resignFirstResponder()
-        if let index = self.datasource.firstIndex(where: { $0.kind == .field }) {
-            self.datasource[index].isChanged = value != nil
-            self.datasource[index].isChecked = value != nil
-            self.datasource[index].value = value ?? ""
+        switch Section(rawValue: section) {
+        case .metadata:
+            return metadataRows.isEmpty ? nil : "Details".localizeString(id: "report_section_details", arguments: [])
+        case .reasons:
+            return "Reason".localizeString(id: "report_section_reason", arguments: [])
+        case .options:
+            return options.isEmpty ? nil : "Options".localizeString(id: "report_section_options", arguments: [])
+        case .comment:
+            return "Additional details".localizeString(id: "report_section_comment", arguments: [])
+        default:
+            return nil
         }
-        self.updateChanges()
-        self.dismissKeyboard()
     }
-    
-    func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
-        if indexPath.row == self.datasource.count - 1 {
-            return false
+
+    func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
+        guard Section(rawValue: section) == .options,
+              conversationType.isEncrypted,
+              options.contains(.includeExcerpt) else {
+            return nil
         }
-        return true
+        return "Including the excerpt will submit the displayed decrypted message text for moderation review."
+            .localizeString(id: "report_encrypted_excerpt_warning", arguments: [])
     }
-    
+
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let item = self.datasource[indexPath.row]
-        switch item.kind {
-            case .field:
-                guard let cell = tableView.dequeueReusableCell(withIdentifier: CustomAbuseTextFieldCell.cellName, for: indexPath) as? CustomAbuseTextFieldCell else {
-                    fatalError()
-                }
-                
-                cell.configure("Other", value: nil, key: "custom_abuse_text")
-                cell.callback = onAddNewGroup
-                cell.configureField { field in
-                    field.delegate = self
-                }
-                
-                cell.selectionStyle = .none
-                
-                
-                return cell
-            case .group:
-                guard let cell = tableView.dequeueReusableCell(withIdentifier: AbuseGroupItemCell.cellName, for: indexPath) as? AbuseGroupItemCell else {
-                    fatalError()
-                }
-                
-                cell.configure(item.value)
-                
-                let view = UIView()
-                view.backgroundColor = .systemBackground
-                cell.selectedBackgroundView = view
-                
-                return cell
+        switch Section(rawValue: indexPath.section) {
+        case .explanation:
+            let cell = tableView.dequeueReusableCell(withIdentifier: "ReportCell", for: indexPath)
+            var config = cell.defaultContentConfiguration()
+            config.text = "Reports help us review objectionable content and abusive behavior. For developer-operated services, reports are reviewed within 24 hours. For third-party XMPP servers, moderation actions may depend on the server operator."
+                .localizeString(id: "report_explanation", arguments: [])
+            config.textProperties.font = UIFont.preferredFont(forTextStyle: .body)
+            config.textProperties.adjustsFontForContentSizeCategory = true
+            config.textProperties.numberOfLines = 0
+            cell.contentConfiguration = config
+            cell.selectionStyle = .none
+            return cell
+        case .metadata:
+            let cell = tableView.dequeueReusableCell(withIdentifier: "ReportValueCell", for: indexPath)
+            let row = metadataRows[indexPath.row]
+            var config = cell.defaultContentConfiguration()
+            config.text = row.title
+            config.secondaryText = row.value
+            config.textProperties.font = UIFont.preferredFont(forTextStyle: .body)
+            config.secondaryTextProperties.font = UIFont.preferredFont(forTextStyle: .body)
+            config.textProperties.adjustsFontForContentSizeCategory = true
+            config.secondaryTextProperties.adjustsFontForContentSizeCategory = true
+            config.secondaryTextProperties.color = .secondaryLabel
+            config.prefersSideBySideTextAndSecondaryText = false
+            cell.contentConfiguration = config
+            cell.selectionStyle = .none
+            return cell
+        case .reasons:
+            let reason = ReportReason.allCases[indexPath.row]
+            let cell = tableView.dequeueReusableCell(withIdentifier: "ReportCell", for: indexPath)
+            var config = cell.defaultContentConfiguration()
+            config.text = reason.title
+            config.textProperties.font = UIFont.preferredFont(forTextStyle: .body)
+            config.textProperties.adjustsFontForContentSizeCategory = true
+            cell.contentConfiguration = config
+            cell.accessoryType = reason == selectedReason ? .checkmark : .none
+            cell.accessibilityIdentifier = "report.reason.\(reason.rawValue)"
+            cell.accessibilityTraits = [.button]
+            return cell
+        case .options:
+            let option = options[indexPath.row]
+            let cell = tableView.dequeueReusableCell(withIdentifier: "ReportCell", for: indexPath)
+            var config = cell.defaultContentConfiguration()
+            switch option {
+            case .includeExcerpt:
+                config.text = "Include message excerpt in report".localizeString(id: "report_include_excerpt", arguments: [])
+                config.image = UIImage(systemName: includeMessageExcerpt ? "checkmark.square.fill" : "square")
+                cell.accessibilityIdentifier = "report.include_excerpt"
+                cell.accessibilityValue = includeMessageExcerpt ? "Selected" : "Not selected"
+            case .hideLocally:
+                config.text = "Hide this content locally".localizeString(id: "report_hide_locally", arguments: [])
+                config.image = UIImage(systemName: hideLocally ? "checkmark.square.fill" : "square")
+                cell.accessibilityIdentifier = "report.hide_locally"
+                cell.accessibilityValue = hideLocally ? "Selected" : "Not selected"
+            }
+            config.textProperties.font = UIFont.preferredFont(forTextStyle: .body)
+            config.textProperties.adjustsFontForContentSizeCategory = true
+            config.textProperties.numberOfLines = 0
+            config.imageProperties.tintColor = .tintColor
+            cell.contentConfiguration = config
+            cell.accessibilityTraits = [.button]
+            return cell
+        case .comment:
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: CommentCell.cellName, for: indexPath) as? CommentCell else {
+                fatalError()
+            }
+            cell.configure(
+                text: comment,
+                placeholder: "Optional extra details".localizeString(id: "report_comment_placeholder", arguments: [])
+            )
+            cell.onChange = { [weak self] text in
+                self?.comment = text
+            }
+            return cell
+        case .none:
+            return UITableViewCell()
         }
     }
-    
-    
 }
 
 extension AbuseReportViewController: UITableViewDelegate {
-    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return 52
-    }
-    
-    private func updateChanges() {
-        self.changesObserver.accept(self.datasource.filter({ $0.isChanged }).isNotEmpty)
-    }
-    
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        self.datasource[indexPath.row].isChecked = true
-        self.datasource[indexPath.row].isChanged = self.datasource[indexPath.row].isChecked != self.datasource[indexPath.row].originalStatus
-        updateChanges()
-    }
-    
-    func tableView(_ tableView: UITableView, didDeselectRowAt indexPath: IndexPath) {
-        self.datasource[indexPath.row].isChecked = false
-        self.datasource[indexPath.row].isChanged = self.datasource[indexPath.row].isChecked != self.datasource[indexPath.row].originalStatus
-        updateChanges()
+        tableView.deselectRow(at: indexPath, animated: true)
+        switch Section(rawValue: indexPath.section) {
+        case .reasons:
+            selectedReason = ReportReason.allCases[indexPath.row]
+            updateSubmitState()
+            tableView.reloadSections(IndexSet(integer: indexPath.section), with: .none)
+        case .options:
+            switch options[indexPath.row] {
+            case .includeExcerpt:
+                includeMessageExcerpt.toggle()
+            case .hideLocally:
+                hideLocally.toggle()
+            }
+            tableView.reloadRows(at: [indexPath], with: .none)
+        default:
+            break
+        }
     }
 }
-
-extension AbuseReportViewController: UITextFieldDelegate {
-        
-    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-        self.onAddNewGroup(textField, key: "", value: textField.text)
-        return true
-    }
-}
-
-

@@ -59,7 +59,7 @@ extension VoIPManager: WebRTCClientDelegate {
             call.state = .disconnected
         case .failed, .closed:
             call.state = .disconnected
-            self.finishCurrentCall(reason: .webRTCFailure, sendReject: false, shouldReportToCallKit: true)
+            self.finishCurrentCall(reason: .webRTCFailure, trigger: .mediaFailure, shouldReportToCallKit: true)
         default:
             break
         }
@@ -67,7 +67,7 @@ extension VoIPManager: WebRTCClientDelegate {
 
     func webRTCClient(_ client: WebRTCClient, didFail error: Error) {
         DispatchQueue.main.async {
-            self.finishCurrentCall(reason: .webRTCFailure, sendReject: false, shouldReportToCallKit: true)
+            self.finishCurrentCall(reason: .webRTCFailure, trigger: .mediaFailure, shouldReportToCallKit: true)
         }
     }
 

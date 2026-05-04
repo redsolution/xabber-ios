@@ -25,7 +25,7 @@ import RealmSwift
 import CocoaLumberjack
 
 extension AccountInfoViewController: UITableViewDataSource {
-    
+
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         if section < datasource.count {
 //            if datasource[section].kind == .resource {
@@ -34,7 +34,7 @@ extension AccountInfoViewController: UITableViewDataSource {
             return datasource[section].childs.count
         } else {
             let item = tokensDatasource[section - datasource.count]
-        
+
             switch item.kind {
             case .current, .button, .text:
                 return item.childs.count
@@ -43,11 +43,11 @@ extension AccountInfoViewController: UITableViewDataSource {
             }
         }
     }
-    
+
     func numberOfSections(in tableView: UITableView) -> Int {
         return datasource.count + tokensDatasource.count
     }
-    
+
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
 //        func getQuotaDetails(successCallback: @escaping ((Int, Int, Int, Int, Int) -> Void)) {
 //            do {
@@ -75,7 +75,7 @@ extension AccountInfoViewController: UITableViewDataSource {
 //                DDLogDebug("AccountInfoViewController: \(#function). \(error.localizedDescription)")
 //            }
 //        }
-        
+
         if indexPath.section >= datasource.count {
             var item = tokensDatasource[indexPath.section - datasource.count]
 
@@ -107,7 +107,7 @@ extension AccountInfoViewController: UITableViewDataSource {
                     cell.configure(for: item.title, style: .danger)
                     return cell
                 }
-            
+
             case .token:
                 guard let cell = tableView.dequeueReusableCell(withIdentifier: DeviceInfoTableCell.cellName, for: indexPath) as? DeviceInfoTableCell,
                     let tokenItem = tokens?[indexPath.row] else {
@@ -125,7 +125,7 @@ extension AccountInfoViewController: UITableViewDataSource {
                 )
                 cell.accessoryType = .none
                 return cell
-            
+
             case .text:
                 item = item.childs[indexPath.row]
                 switch item.kind {
@@ -140,22 +140,22 @@ extension AccountInfoViewController: UITableViewDataSource {
                 }
             }
         }
-        
+
         let item = datasource[indexPath.section].childs[indexPath.row]
-        
+
         if let key = item.key {
             switch key {
             case .manageStorage:
                 let cell = UITableViewCell(style: .value1, reuseIdentifier: "value1CellReuseID")
                 cell.textLabel?.text = item.title
-                cell.detailTextLabel?.text = "\(used) of \(quota)"
+                cell.detailTextLabel?.text = cloudStorageDetailText()
                 cell.accessoryType = .disclosureIndicator
                 return cell
-            
+
             default: break
             }
         }
-        
+
         let cell = tableView.dequeueReusableCell(withIdentifier: "SettingsItem", for: indexPath)
         cell.textLabel?.text = item.title
         cell.accessoryType = .disclosureIndicator
@@ -163,8 +163,8 @@ extension AccountInfoViewController: UITableViewDataSource {
             cell.imageView?.image = imageLiteral(asset)?.withRenderingMode(.alwaysTemplate)
         }
         return cell
-        
-        
+
+
 //        if datasource[indexPath.section].kind == .resource {
 //            guard let resource = self.resources?[indexPath.row],
 //                let cell = tableView.dequeueReusableCell(withIdentifier: ResourceInfoCell.cellName,
@@ -271,7 +271,7 @@ extension AccountInfoViewController: UITableViewDataSource {
 //            }
 //        }
     }
-    
+
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         if section < datasource.count {
             //return datasource[section].title.isNotEmpty ? datasource[section].title : nil
@@ -283,7 +283,7 @@ extension AccountInfoViewController: UITableViewDataSource {
             return tokensDatasource[section - datasource.count].title
         }
     }
-    
+
     func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
         if section < datasource.count {
             return datasource[section].subtitle
@@ -294,7 +294,7 @@ extension AccountInfoViewController: UITableViewDataSource {
             return tokensDatasource[section - datasource.count].value
         }
     }
-    
+
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
     }
 }

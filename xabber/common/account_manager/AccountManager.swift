@@ -230,6 +230,10 @@ public class AccountManager: NSObject {
     }
     
     func load(_ autoConnect: Bool = true) {
+        guard EULAAcceptance.hasAcceptedCurrentVersion() else {
+            return
+        }
+
         do {
             let realm = try WRealm.safe()
             realm
@@ -241,7 +245,6 @@ public class AccountManager: NSObject {
                     DDLogDebug("Add account \($0), autoconnect \(autoConnect)")
                     self.add(withJid: $0, autoConnect: autoConnect)
                 }
-            SubscribtionsManager.shared.updateXMPPAccountsState()
         } catch {
             DDLogDebug("cant load accounts list from db")
         }
@@ -252,6 +255,10 @@ public class AccountManager: NSObject {
     }
     
     public final func create(jid: String, password: String, nickname: String?, isFromRegister: Bool) {
+        guard EULAAcceptance.hasAcceptedCurrentVersion() else {
+            return
+        }
+
         self.newAccountJid = jid
         SettingManager.shared.clear(for: jid)
         self.changeNewUserState(for: jid, to: .none)
@@ -278,9 +285,7 @@ public class AccountManager: NSObject {
         let newAccount = Account(jid: jid, queue: queue)
         self.users.append(newAccount)
         newAccount.asyncConnect(trigger: .initialLoad)
-        
-        SubscribtionsManager.shared.updateXMPPAccountsState()
-        
+
         if let nickname = nickname {
             newAccount.username = nickname
         }
@@ -300,6 +305,9 @@ public class AccountManager: NSObject {
     }
     
     func add(withJid jid: String, autoConnect: Bool = true) {
+        guard EULAAcceptance.hasAcceptedCurrentVersion() else {
+            return
+        }
         
         if find(for: jid) != nil {
             if autoConnect {
@@ -345,6 +353,10 @@ public class AccountManager: NSObject {
     }
     
     func enable(jid: String) {
+        guard EULAAcceptance.hasAcceptedCurrentVersion() else {
+            return
+        }
+
         add(withJid: jid)
         do {
             let realm = try WRealm.safe()
@@ -493,6 +505,10 @@ public class AccountManager: NSObject {
     }
     
     final func prepareForForeground() {
+        guard EULAAcceptance.hasAcceptedCurrentVersion() else {
+            return
+        }
+
         load()
     }
     

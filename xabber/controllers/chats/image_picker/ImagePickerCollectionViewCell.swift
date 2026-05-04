@@ -46,7 +46,9 @@ class ImagePickerCollectionViewCell: UICollectionViewCell {
         selectedView.frame = CGRect(x: self.contentView.frame.width - 28, y: 4, width: 22, height: 22)
         selectedView.layer.masksToBounds = true
         selectedView.layer.cornerRadius = selectedView.frame.height/2
-        self.contentView.addSubview(selectedView)
+        if selectedView.superview == nil {
+            self.contentView.addSubview(selectedView)
+        }
     }
 
 }

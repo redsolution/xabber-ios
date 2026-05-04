@@ -29,7 +29,7 @@ struct XTokenInvalidatePresenter {
         let bounds = UIScreen.main.bounds
         if UIDevice.current.userInterfaceIdiom == .pad {
             if let popoverController = alert.popoverPresentationController {
-                popoverController.sourceView = (UIApplication.shared.delegate as? AppDelegate)?.window?.rootViewController?.view
+                popoverController.sourceView = SceneWindowProvider.presentationRootViewController?.view
                 popoverController.sourceRect = CGRect(x: bounds.midX,
                                                       y: bounds.midY,
                                                       width: 0,
@@ -37,6 +37,6 @@ struct XTokenInvalidatePresenter {
                 popoverController.permittedArrowDirections = []
             }
         }
-        (UIApplication.shared.delegate as? AppDelegate)?.window?.rootViewController?.present(alert, animated: true, completion: completion)
+        SceneWindowProvider.topMostViewController()?.present(alert, animated: true, completion: completion)
     }
 }

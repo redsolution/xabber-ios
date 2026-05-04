@@ -71,6 +71,19 @@ enum CallSessionPhase {
     case ended
 }
 
+enum CallTerminationTrigger {
+    case localEnd
+    case incomingUnansweredTimeout
+    case outgoingUnansweredTimeout
+    case confirmationFailure
+    case mediaFailure
+    case appAcceptFailure
+    case answerActionTimeout
+    case endActionTimeout
+    case remoteEvent
+    case connectionFailure
+}
+
 enum CallTerminationReason: String {
     case missed
     case rejectedByCallee
@@ -138,6 +151,8 @@ final class CallSessionContext {
     var localOfferSent: Bool = false
     var remoteAnswerReceived: Bool = false
     var lastTerminationReason: CallTerminationReason?
+    var pendingAnswerRequested: Bool = false
+    var pendingAnswerAction: CXAnswerCallAction?
 
     init(callId: String, callUUID: UUID, owner: String, jid: String, outgoing: Bool, phase: CallSessionPhase) {
         self.callId = callId
@@ -157,6 +172,20 @@ final class CallSessionContext {
         outgoingTimeoutTask = nil
         confirmationTimeoutTask = nil
         mediaSetupTimeoutTask = nil
+    }
+
+    func setPendingAnswerAction(_ action: CXAnswerCallAction?) {
+        pendingAnswerAction?.fail()
+        pendingAnswerRequested = true
+        pendingAnswerAction = action
+    }
+
+    func clearPendingAnswerRequest(failAction: Bool) {
+        if failAction {
+            pendingAnswerAction?.fail()
+        }
+        pendingAnswerAction = nil
+        pendingAnswerRequested = false
     }
 }
 
@@ -297,7 +326,11 @@ class VoIPManager: NSObject {
             guard let self,
                   self.currentSession?.callId == context.callId,
                   context.phase == .ringing else { return }
-            self.finishCurrentCall(reason: .incomingUnansweredTimeout, sendReject: true, shouldReportToCallKit: true)
+            self.finishCurrentCall(
+                reason: .incomingUnansweredTimeout,
+                trigger: .incomingUnansweredTimeout,
+                shouldReportToCallKit: true
+            )
         }
     }
 
@@ -307,7 +340,11 @@ class VoIPManager: NSObject {
             guard let self,
                   self.currentSession?.callId == context.callId,
                   [.awaitingConfirmation, .waitingRemoteOffer].contains(context.phase) else { return }
-            self.finishCurrentCall(reason: .outgoingUnansweredTimeout, sendReject: true, shouldReportToCallKit: true)
+            self.finishCurrentCall(
+                reason: .outgoingUnansweredTimeout,
+                trigger: .outgoingUnansweredTimeout,
+                shouldReportToCallKit: true
+            )
         }
     }
 
@@ -317,7 +354,11 @@ class VoIPManager: NSObject {
             guard let self,
                   self.currentSession?.callId == context.callId,
                   context.phase == .awaitingConfirmation else { return }
-            self.finishCurrentCall(reason: .signalingError, sendReject: false, shouldReportToCallKit: true)
+            self.finishCurrentCall(
+                reason: .signalingError,
+                trigger: .confirmationFailure,
+                shouldReportToCallKit: true
+            )
         }
     }
 
@@ -328,7 +369,7 @@ class VoIPManager: NSObject {
                   self.currentSession?.callId == context.callId,
                   [.waitingRemoteOffer, .creatingLocalOffer, .connectingMedia].contains(context.phase) else { return }
             let reason: CallTerminationReason = context.remoteAnswerReceived ? .webRTCFailure : .signalingError
-            self.finishCurrentCall(reason: reason, sendReject: false, shouldReportToCallKit: true)
+            self.finishCurrentCall(reason: reason, trigger: .mediaFailure, shouldReportToCallKit: true)
         }
     }
 
@@ -416,14 +457,57 @@ class VoIPManager: NSObject {
             duration: duration
         ).legacyState(outgoing: outgoing)
     }
+
+    internal func shouldDismissCallScreenAfterFinish(reason: CallTerminationReason, outgoing: Bool) -> Bool {
+        switch reason {
+        case .outgoingUnansweredTimeout:
+            return outgoing
+        default:
+            return false
+        }
+    }
+
+    internal func notifyCallScreenDidFinish(reason: CallTerminationReason, outgoing: Bool) {
+        self.callScreenDelegate?.didChangeState(to: .ended)
+        if shouldDismissCallScreenAfterFinish(reason: reason, outgoing: outgoing) {
+            self.callScreenDelegate?.shouldDismiss()
+        }
+    }
+
+    internal func shouldSendReject(
+        trigger: CallTerminationTrigger,
+        call: VoIPCall,
+        context: CallSessionContext
+    ) -> Bool {
+        guard call.shouldSendReject,
+              context.phase != .ending,
+              context.phase != .ended else {
+            return false
+        }
+
+        switch trigger {
+        case .localEnd, .endActionTimeout, .outgoingUnansweredTimeout:
+            return true
+        case .incomingUnansweredTimeout,
+             .confirmationFailure,
+             .mediaFailure,
+             .appAcceptFailure,
+             .answerActionTimeout,
+             .remoteEvent,
+             .connectionFailure:
+            return false
+        }
+    }
    
     public final func reset() {
         self.reset(keepPendingSignalingCalls: false)
     }
 
     internal final func reset(keepPendingSignalingCalls: Bool) {
-        currentSession?.cancelTimers()
-        sessionsByCallId.values.forEach { $0.cancelTimers() }
+        sessionsByCallId.values.forEach {
+            $0.clearPendingAnswerRequest(failAction: true)
+            $0.cancelTimers()
+        }
         sessionsByCallId.removeAll()
         currentSession = nil
         if !keepPendingSignalingCalls {
@@ -453,6 +537,31 @@ class VoIPManager: NSObject {
 
     internal func finishCurrentCall(
         reason: CallTerminationReason,
+        trigger: CallTerminationTrigger,
+        shouldReportToCallKit: Bool
+    ) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async {
+                self.finishCurrentCall(
+                    reason: reason,
+                    trigger: trigger,
+                    shouldReportToCallKit: shouldReportToCallKit
+                )
+            }
+            return
+        }
+        guard let call = self.currentCall,
+              let context = self.session(for: call.callId) else { return }
+        let sendReject = self.shouldSendReject(trigger: trigger, call: call, context: context)
+        self.finishCurrentCall(
+            reason: reason,
+            sendReject: sendReject,
+            shouldReportToCallKit: shouldReportToCallKit
+        )
+    }
+
+    internal func finishCurrentCall(
+        reason: CallTerminationReason,
         sendReject: Bool,
         shouldReportToCallKit: Bool
     ) {
@@ -473,6 +582,7 @@ class VoIPManager: NSObject {
         context.phase = .ending
         context.lastTerminationReason = reason
         context.cancelTimers()
+        context.clearPendingAnswerRequest(failAction: true)
 
         if call.end == nil {
             call.end = Date()
@@ -523,10 +633,98 @@ class VoIPManager: NSObject {
             )
         }
 
-        DispatchQueue.main.async {
-            self.callScreenDelegate?.didChangeState(to: .ended)
-        }
+        self.notifyCallScreenDidFinish(reason: reason, outgoing: call.outgoing)
         self.reset(keepPendingSignalingCalls: shouldKeepPendingSignalingCall)
+    }
+
+    internal func requestIncomingAnswer(
+        call: VoIPCall,
+        context: CallSessionContext,
+        action: CXAnswerCallAction?
+    ) {
+        guard !call.outgoing else {
+            action?.fail()
+            self.finishCurrentCall(
+                reason: .signalingError,
+                trigger: .appAcceptFailure,
+                shouldReportToCallKit: true
+            )
+            return
+        }
+
+        if context.phase == .awaitingConfirmation {
+            context.incomingTimeoutTask?.cancel()
+            context.incomingTimeoutTask = nil
+            context.setPendingAnswerAction(action)
+            return
+        }
+
+        guard context.phase == .ringing, call.isConfirmed else {
+            action?.fail()
+            self.finishCurrentCall(
+                reason: .signalingError,
+                trigger: .appAcceptFailure,
+                shouldReportToCallKit: true
+            )
+            return
+        }
+
+        self.startConfirmedIncomingAnswer(call: call, context: context, action: action)
+    }
+
+    internal func startConfirmedIncomingAnswer(
+        call: VoIPCall,
+        context: CallSessionContext,
+        action: CXAnswerCallAction?
+    ) {
+        context.clearPendingAnswerRequest(failAction: false)
+        context.incomingTimeoutTask?.cancel()
+        context.incomingTimeoutTask = nil
+
+        guard !call.outgoing, call.isConfirmed else {
+            action?.fail()
+            self.finishCurrentCall(
+                reason: .signalingError,
+                trigger: .appAcceptFailure,
+                shouldReportToCallKit: true
+            )
+            return
+        }
+
+        guard call.acceptCall() else {
+            action?.fail()
+            self.finishCurrentCall(
+                reason: .signalingError,
+                trigger: .appAcceptFailure,
+                shouldReportToCallKit: true
+            )
+            return
+        }
+
+        context.localAnswerRequested = true
+        self.isCallAccepted = true
+        self.inCallingProcess = true
+        context.phase = .creatingLocalOffer
+        self.scheduleMediaSetupTimeout(for: context)
+
+        self.webRTC = WebRTCClient()
+        self.webRTC?.delegate = self
+        self.webRTC?.offer { sdp, error in
+            if let error {
+                print(error.localizedDescription)
+                self.finishCurrentCall(reason: .webRTCFailure, trigger: .mediaFailure, shouldReportToCallKit: true)
+                return
+            }
+            guard let sdp else {
+                self.finishCurrentCall(reason: .webRTCFailure, trigger: .mediaFailure, shouldReportToCallKit: true)
+                return
+            }
+            context.phase = .connectingMedia
+            context.localOfferSent = true
+            self.currentCall?.sessionDescription(sessionDescription: sdp)
+        }
+
+        action?.fulfill()
     }
    
     private final func internalStartCall(owner: String, jid: String) {
@@ -840,7 +1038,7 @@ class VoIPManager: NSObject {
             if let error {
                 DDLogDebug(error.localizedDescription)
                 let reason = self.terminationReasonForLocalEnd(call: call, context: context)
-                self.finishCurrentCall(reason: reason, sendReject: true, shouldReportToCallKit: true)
+                self.finishCurrentCall(reason: reason, trigger: .localEnd, shouldReportToCallKit: true)
             }
         }
     }
@@ -899,7 +1097,7 @@ class VoIPManager: NSObject {
         }
     }
    
-    public final func onReceiveMessage(_ message: DDXMLElement, owner: String, archivedDate: Date?, commitTransaction: Bool = true, runtime: Bool = false, outgoing: Bool = false) -> Bool {
+    public final func onReceiveMessage(_ message: DDXMLElement, owner: String, archivedDate: Date?, commitTransaction: Bool = true, runtime: Bool = false, outgoing: Bool = false, realm activeRealm: Realm? = nil) -> Bool {
         do {
             if message.element(forName: "propose", xmlns: VoIPCall.namespace) != nil {
                 guard let fromJidUnwr = message.attributeStringValue(forName: "from"),
@@ -945,7 +1143,7 @@ class VoIPManager: NSObject {
                    let currentCall = self.currentCall,
                    callId == currentCall.callId {
                     currentCall.shouldSendReject = false
-                    self.finishCurrentCall(reason: .answeredElsewhere, sendReject: false, shouldReportToCallKit: true)
+                    self.finishCurrentCall(reason: .answeredElsewhere, trigger: .remoteEvent, shouldReportToCallKit: true)
                     return true
                 }
 
@@ -964,7 +1162,8 @@ class VoIPManager: NSObject {
                     owner: owner,
                     callStqte: .made,
                     duration: nil,
-                    terminationReason: nil
+                    terminationReason: nil,
+                    realm: activeRealm
                 )
                 return true
             } else if let reject = message.element(forName: "reject", xmlns: VoIPCall.namespace) {
@@ -1022,7 +1221,8 @@ class VoIPManager: NSObject {
                             owner: owner,
                             callStqte: terminationReason.legacyState(outgoing: originalCallOutgoing),
                             duration: duration > 0 ? duration : nil,
-                            terminationReason: terminationReason
+                            terminationReason: terminationReason,
+                            realm: activeRealm
                         )
                         return true
                     }
@@ -1061,7 +1261,8 @@ class VoIPManager: NSObject {
                     owner: owner,
                     callStqte: terminationReason.legacyState(outgoing: originalCallOutgoing),
                     duration: duration > 0 ? duration : nil,
-                    terminationReason: terminationReason
+                    terminationReason: terminationReason,
+                    realm: activeRealm
                 )
                 return true
             }
@@ -1152,7 +1353,7 @@ class VoIPManager: NSObject {
             )
 
             currentCall.shouldSendReject = false
-            self.finishCurrentCall(reason: terminationReason, sendReject: false, shouldReportToCallKit: true)
+            self.finishCurrentCall(reason: terminationReason, trigger: .remoteEvent, shouldReportToCallKit: true)
         default:
             return false
         }
@@ -1165,17 +1366,18 @@ class VoIPManager: NSObject {
         owner: String,
         callStqte: MessageStorageItem.VoIPCallState? = nil,
         duration: TimeInterval? = nil,
-        terminationReason: CallTerminationReason? = nil
+        terminationReason: CallTerminationReason? = nil,
+        realm activeRealm: Realm? = nil
     ) {
         guard let jid = XMPPJID(string: jid)?.bare else { return }
         do {
-            let realm = try WRealm.safe()
+            let realm = try activeRealm ?? WRealm.safe()
             if let referencePrimary = realm
                 .object(ofType: MessageStorageItem.self,
                         forPrimaryKey: MessageStorageItem.messageIdForVoIPCall(owner: owner, jid: jid, callId: callId))?
                 .references.first?.primary,
                let instance = realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: referencePrimary) {
-                try realm.write {
+                let updateBlock = {
                     if instance.isInvalidated { return }
                     if let callState = callStqte {
                         instance.metadata?["callState"] = callState.rawValue
@@ -1188,6 +1390,13 @@ class VoIPManager: NSObject {
                     }
                     realm.object(ofType: MessageStorageItem.self,
                                  forPrimaryKey: MessageStorageItem.messageIdForVoIPCall(owner: owner, jid: jid, callId: callId))?.isRead = true
+                }
+                if realm.isInWriteTransaction {
+                    updateBlock()
+                } else {
+                    try realm.write {
+                        updateBlock()
+                    }
                 }
             }
         } catch {

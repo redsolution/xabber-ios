@@ -35,10 +35,9 @@ class XabberTabBarViewController: UITabBarController {
     
     override func viewDidLoad() {
         super.viewDidLoad()
-//        configure()
+        configure()
     }
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        configure()
     }
 }

@@ -335,6 +335,10 @@ class ContactInfoViewController: BaseViewController {
                         Datasource(.button, title: "Files", subtitle: String(filesCount), key: "files"),
                         Datasource(.button, title: "Voice", subtitle: String(audiosCount), key: "voice")
                     ]))
+
+                    newDatasource.append(Datasource(.text, title: "Safety".localizeString(id: "report_safety_section", arguments: []), childs: [
+                        Datasource(.button, icon: "exclamationmark.circle", title: "Report User".localizeString(id: "report_user_action", arguments: []), key: "report_user")
+                    ]))
                     
                     self.datasource = newDatasource
                     self.tableView.reloadData()
@@ -511,6 +515,17 @@ class ContactInfoViewController: BaseViewController {
                             self.onBlock()
                         }
                     ),
+                    UIAction(
+                        title: "Report User".localizeString(id: "report_user_action", arguments: []),
+                        image: UIImage(systemName: "exclamationmark.circle"),
+                        identifier: .none,
+                        discoverabilityTitle: "Report User".localizeString(id: "report_user_action", arguments: []),
+                        attributes: [],
+                        state: .off,
+                        handler: { action in
+                            self.reportUser()
+                        }
+                    ),
                 ]
             } else {
                 childs = [
@@ -547,6 +562,17 @@ class ContactInfoViewController: BaseViewController {
                         state: .off,//filter.value == .all ? .on : .off,
                         handler: { action in
                             self.onBlock()
+                        }
+                    ),
+                    UIAction(
+                        title: "Report User".localizeString(id: "report_user_action", arguments: []),
+                        image: UIImage(systemName: "exclamationmark.circle"),
+                        identifier: .none,
+                        discoverabilityTitle: "Report User".localizeString(id: "report_user_action", arguments: []),
+                        attributes: [],
+                        state: .off,
+                        handler: { action in
+                            self.reportUser()
                         }
                     ),
                 ]
