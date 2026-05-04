@@ -12509,9 +12509,12 @@ final class ModerationReportTests: XCTestCase {
 
         XCTAssertEqual(report.reportTargetType, .message)
         XCTAssertEqual(report.messageId, "message-id")
+        XCTAssertEqual(report.forwardedAttachmentId, message.primary)
+        XCTAssertEqual(report.forwardedAttachmentIds, [message.primary])
         XCTAssertFalse(report.includeMessageExcerpt)
         XCTAssertNil(report.messageExcerpt)
         XCTAssertFalse(report.abuseMessageBody.contains("Selected message text"))
+        XCTAssertTrue(report.abuseMessageBody.contains("Forwarded attachment ID: \(message.primary)"))
     }
 
     func testMessageReportWithExcerptIncludesOnlySelectedMessageBody() {
@@ -12601,6 +12604,7 @@ final class ModerationReportTests: XCTestCase {
         )
         XCTAssertTrue(messageReport.abuseMessageBody.contains("Target type: Message"))
         XCTAssertTrue(messageReport.abuseMessageBody.contains("Message ID: message-id"))
+        XCTAssertTrue(messageReport.abuseMessageBody.contains("Forwarded attachment ID: \(message.primary)"))
         XCTAssertTrue(messageReport.abuseMessageBody.contains("Stanza ID: stanza-id"))
         XCTAssertTrue(messageReport.abuseMessageBody.contains("Message timestamp:"))
 
@@ -12627,7 +12631,9 @@ final class ModerationReportTests: XCTestCase {
         XCTAssertTrue(mediaReport.abuseMessageBody.contains("Attachment ID: reference-primary"))
         XCTAssertTrue(mediaReport.abuseMessageBody.contains("Media type: media"))
         XCTAssertTrue(mediaReport.abuseMessageBody.contains("MIME type: image"))
+        XCTAssertTrue(mediaReport.abuseMessageBody.contains("Media URL: https://example.org/media/image.png"))
         XCTAssertTrue(mediaReport.abuseMessageBody.contains("Media identifier:"))
+        XCTAssertTrue(mediaReport.forwardedAttachmentIds.isEmpty)
     }
 
     func testMediaReportIncludesAttachmentMetadataWithoutFileUpload() {
@@ -12657,7 +12663,9 @@ final class ModerationReportTests: XCTestCase {
         XCTAssertEqual(report.attachmentId, "reference-primary")
         XCTAssertEqual(report.mediaType, MessageReferenceStorageItem.Kind.media.rawValue)
         XCTAssertEqual(report.mimeType, MimeIconTypes.image.rawValue)
+        XCTAssertEqual(report.mediaUrl, "https://example.org/media/image.png")
         XCTAssertNotNil(report.mediaUrlHashOrIdentifier)
+        XCTAssertTrue(report.abuseMessageBody.contains("Media URL: https://example.org/media/image.png"))
         XCTAssertNil(report.messageExcerpt)
     }
 

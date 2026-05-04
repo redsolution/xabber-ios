@@ -78,12 +78,14 @@ struct ModerationReport: Codable {
     let roomJid: String?
     let conversationId: String?
     let messageId: String?
+    let forwardedAttachmentId: String?
     let stanzaId: String?
     let messageTimestamp: Date?
     let messageKind: String?
     let attachmentId: String?
     let mediaType: String?
     let mimeType: String?
+    let mediaUrl: String?
     let mediaUrlHashOrIdentifier: String?
     let reportTargetType: ReportTargetType
     let reason: ReportReason
@@ -119,12 +121,14 @@ struct ModerationReport: Codable {
         append("Conversation ID", conversationId, to: &lines)
         append("Server domain", serverDomain, to: &lines)
         append("Message ID", messageId, to: &lines)
+        append("Forwarded attachment ID", forwardedAttachmentId, to: &lines)
         append("Stanza ID", stanzaId, to: &lines)
         append("Message timestamp", messageTimestamp.map(Self.isoDateFormatter.string(from:)), to: &lines)
         append("Message kind", messageKind, to: &lines)
         append("Attachment ID", attachmentId, to: &lines)
         append("Media type", mediaType, to: &lines)
         append("MIME type", mimeType, to: &lines)
+        append("Media URL", mediaUrl, to: &lines)
         append("Media identifier", mediaUrlHashOrIdentifier, to: &lines)
         append("Reason", reason.bodyTitle, to: &lines)
         append("Created at", Self.isoDateFormatter.string(from: createdAt), to: &lines)
@@ -146,6 +150,15 @@ struct ModerationReport: Codable {
         }
 
         return lines.joined(separator: "\n")
+    }
+
+    var forwardedAttachmentIds: [String] {
+        guard reportTargetType == .message,
+              let forwardedAttachmentId = forwardedAttachmentId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              forwardedAttachmentId.isNotEmpty else {
+            return []
+        }
+        return [forwardedAttachmentId]
     }
 
     private static let isoDateFormatter: ISO8601DateFormatter = {
@@ -272,12 +285,14 @@ struct ModerationReportFactory {
             roomJid: roomJid,
             conversationId: message.opponent,
             messageId: message.messageId,
+            forwardedAttachmentId: message.primary,
             stanzaId: message.archivedId.isNotEmpty ? message.archivedId : nil,
             messageTimestamp: message.date,
             messageKind: message.messageType,
             attachmentId: nil,
             mediaType: nil,
             mimeType: nil,
+            mediaUrl: nil,
             mediaUrlHashOrIdentifier: nil,
             reason: reason,
             comment: comment,
@@ -306,7 +321,7 @@ struct ModerationReportFactory {
             reportedUserJid = conversationJid
             roomJid = nil
         }
-        let mediaUrl = reference?.url ?? attachment?.url_ ?? reference?.downloadUrl?.absoluteString ?? attachment?.url?.absoluteString
+        let mediaUrl = firstNonEmpty(reference?.url, attachment?.url_, reference?.downloadUrl?.absoluteString, attachment?.url?.absoluteString)
         return baseReport(
             targetType: .media,
             owner: owner,
@@ -315,12 +330,14 @@ struct ModerationReportFactory {
             roomJid: roomJid,
             conversationId: conversationJid,
             messageId: message?.messageId ?? reference?.messageId,
+            forwardedAttachmentId: nil,
             stanzaId: message?.archivedId.isNotEmpty == true ? message?.archivedId : attachment?.archiveId,
             messageTimestamp: message?.date ?? attachment?.date,
             messageKind: message?.messageType,
             attachmentId: reference?.primary ?? attachment?.primary,
             mediaType: reference?.kind.rawValue ?? attachment?.kind.rawValue,
             mimeType: reference?.mimeType,
+            mediaUrl: mediaUrl,
             mediaUrlHashOrIdentifier: mediaIdentifier(for: mediaUrl, fallback: reference?.filehash ?? reference?.fileID.map { "\($0)" }),
             reason: reason,
             comment: comment,
@@ -345,12 +362,14 @@ struct ModerationReportFactory {
             roomJid: roomJid,
             conversationId: conversationId,
             messageId: nil,
+            forwardedAttachmentId: nil,
             stanzaId: nil,
             messageTimestamp: nil,
             messageKind: nil,
             attachmentId: nil,
             mediaType: nil,
             mimeType: nil,
+            mediaUrl: nil,
             mediaUrlHashOrIdentifier: nil,
             reason: reason,
             comment: comment,
@@ -368,12 +387,14 @@ struct ModerationReportFactory {
             roomJid: roomJid,
             conversationId: roomJid,
             messageId: nil,
+            forwardedAttachmentId: nil,
             stanzaId: nil,
             messageTimestamp: nil,
             messageKind: nil,
             attachmentId: nil,
             mediaType: nil,
             mimeType: nil,
+            mediaUrl: nil,
             mediaUrlHashOrIdentifier: nil,
             reason: reason,
             comment: comment,
@@ -397,6 +418,12 @@ struct ModerationReportFactory {
         return url.sha256Data.hexEncodedString()
     }
 
+    private static func firstNonEmpty(_ values: String?...) -> String? {
+        return values
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { $0.isNotEmpty }
+    }
+
     private static func baseReport(
         targetType: ReportTargetType,
         owner: String,
@@ -405,12 +432,14 @@ struct ModerationReportFactory {
         roomJid: String?,
         conversationId: String?,
         messageId: String?,
+        forwardedAttachmentId: String?,
         stanzaId: String?,
         messageTimestamp: Date?,
         messageKind: String?,
         attachmentId: String?,
         mediaType: String?,
         mimeType: String?,
+        mediaUrl: String?,
         mediaUrlHashOrIdentifier: String?,
         reason: ReportReason,
         comment: String?,
@@ -427,12 +456,14 @@ struct ModerationReportFactory {
             roomJid: roomJid,
             conversationId: conversationId,
             messageId: messageId,
+            forwardedAttachmentId: forwardedAttachmentId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
             stanzaId: stanzaId,
             messageTimestamp: messageTimestamp,
             messageKind: messageKind,
             attachmentId: attachmentId,
             mediaType: mediaType,
             mimeType: mimeType,
+            mediaUrl: mediaUrl?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
             mediaUrlHashOrIdentifier: mediaUrlHashOrIdentifier,
             reportTargetType: targetType,
             reason: reason,
@@ -542,7 +573,7 @@ class XMPPAbuseManager: AbstractXMPPManager {
         }
         _ = account
             .messages
-            .sendSimpleMessage(report.abuseMessageBody, to: abuseJid, forwarded: [], conversationType: .regular, isReport: true)
+            .sendSimpleMessage(report.abuseMessageBody, to: abuseJid, forwarded: report.forwardedAttachmentIds, conversationType: .regular, isReport: true)
         completion?(.success)
     }
 

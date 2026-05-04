@@ -490,8 +490,10 @@ extension MessageManager {
             let instance = MessageStorageItem()
             var legacyBody: String = ""
             let toForward: [ForwardedMessageItem] =   formForwardedMessages(forwarded)
-            toForward.forEach {
-                legacyBody += "\($0.body)\n"
+            if isReport == false {
+                toForward.forEach {
+                    legacyBody += "\($0.body)\n"
+                }
             }
             legacyBody += body
             references.forEach {
