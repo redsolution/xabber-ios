@@ -27,7 +27,6 @@ import RxRealm
 import DeepDiff
 import CocoaLumberjack
 import MaterialComponents.MDCPalettes
-import SensitiveContentAnalysis
 import XMPPFramework
 
 struct ChatDatasourceSnapshot {
@@ -934,22 +933,45 @@ extension ChatViewController {
         return formatter
     }()
 
-    internal static func mapReferenceAttachments(_ references: [MessageReferenceStorageItem]) -> (images: [ImageAttachment], videos: [VideoAttachment], audio: [AudioAttachment], files: [FileAttachment]) {
+    internal static func mapReferenceAttachments(
+        _ references: [MessageReferenceStorageItem],
+        revealedSensitiveMediaPrimaries: Set<String> = Set<String>()
+    ) -> (images: [ImageAttachment], videos: [VideoAttachment], audio: [AudioAttachment], files: [FileAttachment]) {
         var images: [ImageAttachment] = []
         var videos: [VideoAttachment] = []
         var audio: [AudioAttachment] = []
         var files: [FileAttachment] = []
 
         references.filter { !$0.isLocallyHiddenByReport }.forEach { item in
-            switch item.mimeType {
-            case MimeIconTypes.image.rawValue:
-                images.append(ImageAttachment(primary: item.primary, url: item.downloadUrl ?? item.videoPreviewUrl, size: item.sizeInPx ?? CGSize(square: 128), isSensitive: item.isSensitive))
-            case MimeIconTypes.video.rawValue:
-                videos.append(VideoAttachment(primary: item.primary, url: item.downloadUrl, size: item.sizeInPx ?? CGSize(square: 128), previewUrl: item.videoPreviewUrl, duration: 0, downloaded: item.isDownloaded))
-            default:
+            let mediaType = SensitiveMediaAnalysisService.sensitiveAnalyzableMediaType(
+                kind: item.kind,
+                mimeType: item.mimeType,
+                mediaType: item.metadata?["media-type"] as? String
+            )
+            switch mediaType {
+            case .image:
+                images.append(ImageAttachment(
+                    primary: item.primary,
+                    url: item.downloadUrl ?? item.videoPreviewUrl,
+                    size: item.sizeInPx ?? CGSize(square: 128),
+                    isSensitive: item.isSensitive,
+                    isSensitiveRevealed: revealedSensitiveMediaPrimaries.contains(item.primary)
+                ))
+            case .video:
+                videos.append(VideoAttachment(
+                    primary: item.primary,
+                    url: item.downloadUrl,
+                    size: item.sizeInPx ?? CGSize(square: 128),
+                    previewUrl: item.videoPreviewUrl,
+                    duration: 0,
+                    downloaded: item.isDownloaded,
+                    isSensitive: item.isSensitive,
+                    isSensitiveRevealed: revealedSensitiveMediaPrimaries.contains(item.primary)
+                ))
+            case .unsupported:
                 if item.kind_ == "voice" {
                     audio.append(AudioAttachment(primary: item.primary, url: item.decodedUrl, size: 10, name: "name", duration: Double(item.duration ?? 0), downloaded: item.isDownloaded, pcm: item.meteringLevels ?? []))
-                } else if item.kind == .media && ![MimeIconTypes.image.rawValue, MimeIconTypes.video.rawValue, MimeIconTypes.audio.rawValue].contains(item.mimeType) && item.kind_ != "groupchat" {
+                } else if item.kind == .media && MimeIcon(item.mimeType).value != .audio && item.kind_ != "groupchat" {
                     files.append(FileAttachment(primary: item.primary, url: item.downloadUrl, size: Double(item.sizeInBytesRaw), name: item.filename ?? item.name ?? "file", downloaded: item.isDownloaded))
                 }
             }
@@ -1003,7 +1025,7 @@ extension ChatViewController {
     
     internal func mapAttachment(_ attachment: MessageForwardsInlineStorageItem) -> MessageAttachment {
         let references = attachment.references.toArray()
-        let mappedReferences = Self.mapReferenceAttachments(references)
+        let mappedReferences = Self.mapReferenceAttachments(references, revealedSensitiveMediaPrimaries: self.revealedSensitiveMediaPrimaries)
         let timeString = Self.attachmentTimeFormatter.string(from: attachment.originalDate ?? Date())
         let timeMarkerString = NSAttributedString(
             string: timeString,
@@ -2225,7 +2247,7 @@ extension ChatViewController {
             
             
             let references = item.references.toArray()
-            let mappedReferences = Self.mapReferenceAttachments(references)
+            let mappedReferences = Self.mapReferenceAttachments(references, revealedSensitiveMediaPrimaries: self.revealedSensitiveMediaPrimaries)
             let forwards: [MessageAttachment] = item.inlineForwards.toArray().compactMap({ return mapAttachment($0) })
             var indicator: IndicatorType = .none
             if item.outgoing {

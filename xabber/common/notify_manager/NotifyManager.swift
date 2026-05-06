@@ -831,14 +831,7 @@ class NotifyManager {
     }
 
     private func canHandleNotificationContentAction(handler completionHandler: (() -> Void)? = nil) -> Bool {
-        guard EULAAcceptance.hasAcceptedCurrentVersion() else {
-            DispatchQueue.main.async {
-                AppRootCoordinator.active?.rebuildRoot(userInfo: nil)
-            }
-            completionHandler?()
-            return false
-        }
-
+        _ = completionHandler
         return true
     }
     

@@ -254,7 +254,14 @@ import RealmSwift
 class InlineVideosGridView: InlineAttachmentView {
     
     class InlineMessageVideoView: UIImageView {
+        var primary: String
         var url: URL?
+        var isSensitive: Bool {
+            didSet {
+                sensitiveOverlay.isHidden = !isSensitive
+            }
+        }
+        private let sensitiveOverlay = SensitiveMediaOverlayView()
         
         internal let playButton: UIButton = {
             var conf = UIButton.Configuration.borderless()
@@ -271,15 +278,29 @@ class InlineVideosGridView: InlineAttachmentView {
             return button
         }()
         
-        init(frame: CGRect, url: URL?) {
+        init(frame: CGRect, primary: String, url: URL?, isSensitive: Bool) {
+            self.primary = primary
             self.url = url
+            self.isSensitive = isSensitive
             super.init(frame: frame)
             playButton.center = self.center
             addSubview(playButton)
+            addSubview(sensitiveOverlay)
+            sensitiveOverlay.frame = bounds
+            sensitiveOverlay.isUserInteractionEnabled = false
+            sensitiveOverlay.isHidden = !isSensitive
         }
         
         required init?(coder: NSCoder) {
             fatalError("init(coder:) has not been implemented")
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            playButton.center = CGPoint(x: bounds.midX, y: bounds.midY)
+            sensitiveOverlay.frame = bounds
+            bringSubviewToFront(playButton)
+            bringSubviewToFront(sensitiveOverlay)
         }
     }
     
@@ -376,7 +397,12 @@ class InlineVideosGridView: InlineAttachmentView {
         self.views = []
         prepareGrid(attachments).enumerated().forEach {
             index, rect in
-            let view = InlineMessageVideoView(frame: rect, url: attachments[index].url)
+            let view = InlineMessageVideoView(
+                frame: rect,
+                primary: attachments[index].primary,
+                url: attachments[index].url,
+                isSensitive: attachments[index].isSensitive && !attachments[index].isSensitiveRevealed
+            )
             self.contentViews.append(view)
             view.contentMode = .scaleAspectFill
             view.layer.cornerRadius = 7
@@ -408,13 +434,13 @@ class InlineVideosGridView: InlineAttachmentView {
         
     }
     
-    func handleTouch(at point: CGPoint, callback: (([URL], URL) -> Void)?) -> Bool {
+    func handleTouch(at point: CGPoint, callback: (([URL], URL, String, Bool) -> Void)?) -> Bool {
         var isMyTouch: Bool = false
         let urls = views.compactMap { $0.url }
-        for (index, item) in views.enumerated() {
+        for item in views {
             if item.frame.contains(point) {
                 if let url = item.url {
-                    callback?(urls, url)
+                    callback?(urls, url, item.primary, item.isSensitive)
                 }
                 isMyTouch = true
             }

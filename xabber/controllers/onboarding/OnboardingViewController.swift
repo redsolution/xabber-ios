@@ -214,6 +214,12 @@ class OnboardingViewController: SimpleBaseViewController {
     @objc
     private final func onSignUpButtonTouchUp(_ sender: UIButton) {
         FeedbackManager.shared.tap()
+        EULANavigationGate.continueAfterAcceptance(from: self) { [weak self] in
+            self?.continueToSignUp()
+        }
+    }
+
+    private final func continueToSignUp() {
 //        func showVC(_ host: String) {
 //            DispatchQueue.main.async {
 //                let vc = SignUpSelectNicknameViewController()
@@ -251,6 +257,12 @@ class OnboardingViewController: SimpleBaseViewController {
     @objc
     private final func onSignInButtonTouchUp(_ sender: UIButton) {
         FeedbackManager.shared.tap()
+        EULANavigationGate.continueAfterAcceptance(from: self) { [weak self] in
+            self?.continueToSignIn()
+        }
+    }
+
+    private final func continueToSignIn() {
         let vc = SignInCreditionalsViewController()
         self.navigationController?.pushViewController(vc, animated: true)
     }

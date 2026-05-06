@@ -24,7 +24,6 @@ import CocoaLumberjack
 import Kingfisher
 import AVFoundation
 import CryptoSwift
-import SensitiveContentAnalysis
 
 
 class MessageReferenceStorageItem: Object {
@@ -71,6 +70,10 @@ class MessageReferenceStorageItem: Object {
     
     @objc dynamic var isSensitive: Bool = false
     @objc dynamic var isSensitiveChecked: Bool = false
+    @objc dynamic var sensitivityCheckedAt: Date? = nil
+    @objc dynamic var sensitivityAnalysisFailedAt: Date? = nil
+    @objc dynamic var sensitivityAnalysisError: String? = nil
+    @objc dynamic var sensitivitySource: String? = nil
     @objc dynamic var isLocallyHiddenByReport: Bool = false
     @objc dynamic var localReportState: String? = nil
     @objc dynamic var lastReportedAt: Date? = nil
@@ -367,13 +370,13 @@ class MessageReferenceStorageItem: Object {
             let realm = try  WRealm.safe()
             if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
                 instance.references.forEach{
-                    if $0.mimeType == "video" {
+                    if SensitiveMediaAnalysisService.sensitiveAnalyzableMediaType(kind: $0.kind, mimeType: $0.mimeType, mediaType: $0.metadata?["media-type"] as? String) == .video {
                         $0.prepare()
                     }
                 }
                 instance.inlineForwards.forEach {
                     $0.references.forEach {
-                        if $0.mimeType == "video" {
+                        if SensitiveMediaAnalysisService.sensitiveAnalyzableMediaType(kind: $0.kind, mimeType: $0.mimeType, mediaType: $0.metadata?["media-type"] as? String) == .video {
                             $0.prepare()
                         }
                     }
@@ -401,94 +404,7 @@ class MessageReferenceStorageItem: Object {
     }
     
     func checkIsSensitive() {
-        if #available(iOS 17.0, *) {
-            let primaryKey = self.primary
-            let analyzer = SCSensitivityAnalyzer()
-            let policy = analyzer.analysisPolicy
-            if policy == .disabled {
-                if self.isSensitive {
-                    do {
-                        let realm = try WRealm.safe()
-                        try realm.write {
-                            realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: primaryKey)?.isSensitive = false
-                        }
-                    } catch {
-                        DDLogDebug("MessageReferenceStorageItem: \(#function). \(error.localizedDescription)")
-                    }
-                }
-                return
-            }
-            if isSensitiveChecked {
-                return
-            }
-            let kind = self.kind
-            let mimeType = self.mimeType
-            let downloadUrl = self.downloadUrl
-                switch kind {
-                    case .media:
-                        
-//                        var isSensitive: Bool? = nil
-                        switch mimeType {
-                            case "video":
-                                break
-//                                if let url = downloadUrl {
-//                                    let handler = analyzer.videoAnalysis(forFileAt: url)
-//                                    
-//                                    isSensitive = (try? await handler.hasSensitiveContent().isSensitive ) ?? false
-//                                }
-                            case "image":
-                                if let url = downloadUrl {
-                                    ImageDownloader.default.downloadImage(with: url, options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory, .cacheOriginalImage, .backgroundDecode, .waitForCache])) {
-                                        result in
-                                        switch result {
-                                            case .success(let value):
-                                                guard let image = value.image.cgImage else {
-                                                    return
-                                                }
-                                                
-                                                Task {
-                                                    do {
-                                                        try await analyzer.analyzeImage(image) { result, error in
-                                                            if let error = error {
-                                                                print(error)
-                                                            } else {
-                                                                do {
-                                                                    let realm = try WRealm.safe()
-                                                                    let isSensitive = result?.isSensitive ?? false
-                                                                    if let instance =  realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: primaryKey) {
-                                                                        if instance.isSensitive != isSensitive {
-                                                                            try realm.write {
-                                                                                instance.isSensitive = isSensitive
-                                                                                instance.isSensitiveChecked = true
-                                                                                if let messageInstance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: instance.messageId) {
-                                                                                    messageInstance.queryIds = "\(messageInstance.queryIds ?? "") "
-                                                                                }
-                                                                            }
-                                                                        }
-                                                                    }
-                                                                } catch {
-                                                                    DDLogDebug("MessageReferenceStorageItem: \(#function). \(error.localizedDescription)")
-                                                                }
-                                                            }
-                                                        }
-                                                    } catch {
-                                                        DDLogDebug("MessageReferenceStorageItem: \(#function). \(error.localizedDescription)")
-                                                    }
-                                                }
-                                            case .failure(_):
-                                                break
-                                        }
-                                    }
-                                }
-                            default:
-                                break
-                        }
-                        
-                    default:
-                        break
-                }
-            
-        }
+        SensitiveMediaAnalysisService.shared.checkIsSensitive(messageReferencePrimaryKey: self.primary)
     }
     
     func prepare() {

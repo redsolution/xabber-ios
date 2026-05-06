@@ -50,6 +50,12 @@ extension SettingsViewController {
 
     @objc
     internal func addAccount() {
+        EULANavigationGate.continueAfterAcceptance(from: self) { [weak self] in
+            self?.continueToAddAccount()
+        }
+    }
+
+    private func continueToAddAccount() {
         let vc = SignInCreditionalsViewController()
         vc.isModal = true
         showModal(vc, parent: self)

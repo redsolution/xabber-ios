@@ -126,24 +126,16 @@ extension ChatViewController: ContextMenuDelegate {
 //}
 
 extension ChatViewController: SensitiveContentFirstPaneViewControllerDelegate {
-    func onViewGallery(messagePrimary: String, urls: [URL], url: URL) {
-//        self.showGallery(urls: urls, from: url)
-        DispatchQueue.global(qos: .userInitiated).async {
-            do {
-                let realm = try WRealm.safe()
-                let objects = realm.objects(MessageReferenceStorageItem.self)
-                    .filter("owner == %@ AND jid == %@ AND messageId == %@", self.owner, self.jid, messagePrimary)
-                try realm.write {
-                    objects.forEach {
-                        $0.isSensitive = false
-                    }
-                    if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: messagePrimary) {
-                        instance.queryIds = "\(instance.queryIds ?? "") "
-                    }
-                }
-            } catch {
-                DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-            }
+    func onViewSensitiveMedia(messagePrimary: String, referencePrimary: String, urls: [URL], url: URL, isVideo: Bool) {
+        if referencePrimary.isNotEmpty {
+            revealedSensitiveMediaPrimaries.insert(referencePrimary)
+            messagesCollectionView.reloadDataAndKeepOffset()
+        }
+
+        if isVideo {
+            playVideo(withURL: url)
+        } else {
+            showGallery(urls: urls, from: url)
         }
     }
 }
@@ -157,7 +149,7 @@ extension ChatViewController: MessageCellDelegate {
         self.openFile(url)
     }
     
-    func didTapOnPhoto(message messagePrimary: String, urls: [URL], url: URL, isSensitive: Bool) {
+    func didTapOnPhoto(message messagePrimary: String, urls: [URL], url: URL, referencePrimary: String, isSensitive: Bool) {
         if isSensitive {
             let vc = SensitiveContentFirstPaneViewController()
             vc.isFirstStep = true
@@ -165,6 +157,8 @@ extension ChatViewController: MessageCellDelegate {
             vc.url = url
             vc.delegate = self
             vc.messagePrimary = messagePrimary
+            vc.referencePrimary = referencePrimary
+            vc.isVideo = false
 //            let nvc = UINavigationController(rootViewController: vc)
             showModal(vc)
         } else {
@@ -172,8 +166,21 @@ extension ChatViewController: MessageCellDelegate {
         }
     }
     
-    func didTapOnVideo(url: URL?) {
-        self.playVideo(withURL: url)
+    func didTapOnVideo(message messagePrimary: String, url: URL?, referencePrimary: String, isSensitive: Bool) {
+        guard let url = url else { return }
+        if isSensitive {
+            let vc = SensitiveContentFirstPaneViewController()
+            vc.isFirstStep = true
+            vc.urls = [url]
+            vc.url = url
+            vc.delegate = self
+            vc.messagePrimary = messagePrimary
+            vc.referencePrimary = referencePrimary
+            vc.isVideo = true
+            showModal(vc)
+        } else {
+            self.playVideo(withURL: url)
+        }
     }
     
     func didStopPlayingAudioCell() {

@@ -230,10 +230,6 @@ public class AccountManager: NSObject {
     }
     
     func load(_ autoConnect: Bool = true) {
-        guard EULAAcceptance.hasAcceptedCurrentVersion() else {
-            return
-        }
-
         do {
             let realm = try WRealm.safe()
             realm
@@ -255,10 +251,6 @@ public class AccountManager: NSObject {
     }
     
     public final func create(jid: String, password: String, nickname: String?, isFromRegister: Bool) {
-        guard EULAAcceptance.hasAcceptedCurrentVersion() else {
-            return
-        }
-
         self.newAccountJid = jid
         SettingManager.shared.clear(for: jid)
         self.changeNewUserState(for: jid, to: .none)
@@ -305,10 +297,6 @@ public class AccountManager: NSObject {
     }
     
     func add(withJid jid: String, autoConnect: Bool = true) {
-        guard EULAAcceptance.hasAcceptedCurrentVersion() else {
-            return
-        }
-        
         if find(for: jid) != nil {
             if autoConnect {
                 find(for: jid)?.restore()
@@ -353,10 +341,6 @@ public class AccountManager: NSObject {
     }
     
     func enable(jid: String) {
-        guard EULAAcceptance.hasAcceptedCurrentVersion() else {
-            return
-        }
-
         add(withJid: jid)
         do {
             let realm = try WRealm.safe()
@@ -505,10 +489,6 @@ public class AccountManager: NSObject {
     }
     
     final func prepareForForeground() {
-        guard EULAAcceptance.hasAcceptedCurrentVersion() else {
-            return
-        }
-
         load()
     }
     

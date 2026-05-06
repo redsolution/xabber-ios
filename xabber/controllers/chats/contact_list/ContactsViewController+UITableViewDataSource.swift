@@ -32,74 +32,11 @@ extension ContactsViewController: UITableViewDataSource {
     }
     
     func getEmptyStateString() -> String? {
-        if let category = self.category {
-            switch category {
-                case "all":
-                    if self.filteredGroups.isNotEmpty {
-                        let groupsString = self.filteredGroups.sorted().joined(separator: ", ")
-                        return "No contacts found for \(groupsString)"
-                    }
-                    return "No contacts found"
-                case "online":
-                    if self.filteredGroups.isNotEmpty {
-                        let groupsString = self.filteredGroups.sorted().joined(separator: ", ")
-                        return "No online contacts found for \(groupsString)"
-                    }
-                    return "No contacts online"
-                case "subscriptions":
-                    return "No contact requests"
-                case "requests":
-                    return "No outgoing contact requests"
-                case "public":
-                    if self.filteredGroups.isNotEmpty {
-                        let groupsString = self.filteredGroups.sorted().joined(separator: ", ")
-                        return "No public groups found for \(groupsString)"
-                    }
-                    return "No public groups found"
-                case "incognito":
-                    if self.filteredGroups.isNotEmpty {
-                        let groupsString = self.filteredGroups.sorted().joined(separator: ", ")
-                        return "No incognito groups found for \(groupsString)"
-                    }
-                    return "No incognito groups found"
-                case "private":
-                    if self.filteredGroups.isNotEmpty {
-                        let groupsString = self.filteredGroups.sorted().joined(separator: ", ")
-                        return "No private chats found for \(groupsString)"
-                    }
-                    return "No private chats found"
-                case "invitations":
-                    return "No invitations found"
-                default:
-                    if isGroup {
-                        if self.filteredGroups.isNotEmpty {
-                            let groupsString = self.filteredGroups.sorted().joined(separator: ", ")
-                            return "No groups found for \(groupsString)"
-                        }
-                        return "No groups found"
-                    } else {
-                        if self.filteredGroups.isNotEmpty {
-                            let groupsString = self.filteredGroups.sorted().joined(separator: ", ")
-                            return "No contacts found for \(groupsString)"
-                        }
-                        return "No contacts found"
-                    }
-            }
-        } else {
-            if isGroup {
-                if self.filteredGroups.isNotEmpty {
-                    let groupsString = self.filteredGroups.sorted().joined(separator: ", ")
-                    return "No groups found for \(groupsString)"
-                }
-                return "No groups found"
-            } else {
-                if self.filteredGroups.isNotEmpty {
-                    let groupsString = self.filteredGroups.sorted().joined(separator: ", ")
-                    return "No contacts found for \(groupsString)"
-                }
-                return "No contacts found"
-            }
-        }
+        ContactsViewController.emptyStateTitle(
+            isGroup: isGroup,
+            category: category,
+            filteredGroups: filteredGroups
+        )
     }
     
     func getFooterString() -> String? {

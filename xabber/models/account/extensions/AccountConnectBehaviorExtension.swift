@@ -26,9 +26,6 @@ import RealmSwift
 extension Account {
     
     func restore() {
-        guard EULAAcceptance.hasAcceptedCurrentVersion() else {
-            return
-        }
 //        if self.xmppStream.isAuthenticated && self.xmppStream.isConnected {
 //            return
 //        }

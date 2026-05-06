@@ -19,6 +19,7 @@
 
 import XCTest
 import UIKit
+import CallKit
 import RealmSwift
 import XMPPFramework
 import MaterialComponents
@@ -93,58 +94,76 @@ final class EULAAcceptanceTests: XCTestCase {
 }
 
 final class EULAGateRoutingTests: XCTestCase {
-    func testRootSelectionReturnsEULABeforeOnboardingWhenNotAccepted() {
-        XCTAssertEqual(
-            AppRootCoordinator.rootKind(
-                hasAcceptedCurrentEULA: false,
-                hasAccounts: false,
-                interfaceType: .tabs
-            ),
-            .eula
-        )
+    private func makeDefaults(file: StaticString = #filePath, line: UInt = #line) throws -> (UserDefaults, String) {
+        let suiteName = "xabber.eula.gate.tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), file: file, line: line)
+        defaults.removePersistentDomain(forName: suiteName)
+        return (defaults, suiteName)
     }
 
-    func testRootSelectionReturnsEULABeforeChatRootsWhenNotAccepted() {
-        XCTAssertEqual(
-            AppRootCoordinator.rootKind(
-                hasAcceptedCurrentEULA: false,
-                hasAccounts: true,
-                interfaceType: .split
-            ),
-            .eula
-        )
+    private func removeDefaults(_ suiteName: String) {
+        UserDefaults.standard.removePersistentDomain(forName: suiteName)
+        UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
     }
 
-    func testAcceptedCurrentVersionAllowsNormalRoots() {
+    func testRootSelectionReturnsOnboardingWithoutAccountsRegardlessOfEULA() {
         XCTAssertEqual(
             AppRootCoordinator.rootKind(
-                hasAcceptedCurrentEULA: true,
                 hasAccounts: false,
                 interfaceType: .tabs
             ),
             .onboarding
         )
+    }
+
+    func testRootSelectionReturnsChatRootsRegardlessOfEULA() {
         XCTAssertEqual(
             AppRootCoordinator.rootKind(
-                hasAcceptedCurrentEULA: true,
-                hasAccounts: true,
-                interfaceType: .tabs
-            ),
-            .tabs
-        )
-        XCTAssertEqual(
-            AppRootCoordinator.rootKind(
-                hasAcceptedCurrentEULA: true,
                 hasAccounts: true,
                 interfaceType: .split
             ),
             .split
         )
+        XCTAssertEqual(
+            AppRootCoordinator.rootKind(
+                hasAccounts: true,
+                interfaceType: .tabs
+            ),
+            .tabs
+        )
     }
 
-    func testNotificationAndDeepLinkRoutesAreBlockedUntilAccepted() {
-        XCTAssertFalse(AppRootCoordinator.canRoute(hasAcceptedCurrentEULA: false))
-        XCTAssertTrue(AppRootCoordinator.canRoute(hasAcceptedCurrentEULA: true))
+    func testRoutesAreNotBlockedByEULA() {
+        XCTAssertTrue(AppRootCoordinator.canRoute())
+    }
+
+    func testNavigationGateDecisionRequiresEULAWhenNotAccepted() {
+        XCTAssertEqual(
+            EULANavigationGate.decision(hasAcceptedCurrentVersion: false),
+            .presentEULA
+        )
+    }
+
+    func testNavigationGateDecisionContinuesWhenAccepted() {
+        XCTAssertEqual(
+            EULANavigationGate.decision(hasAcceptedCurrentVersion: true),
+            .continueNavigation
+        )
+    }
+
+    func testNavigationGateDecisionRequiresEULAForStaleAcceptance() throws {
+        let (defaults, suiteName) = try makeDefaults()
+        defer { removeDefaults(suiteName) }
+
+        defaults.set(true, forKey: EULAAcceptance.acceptedKey)
+        defaults.set("2026-01-01", forKey: EULAAcceptance.versionKey)
+
+        XCTAssertEqual(
+            EULANavigationGate.decision(
+                hasAcceptedCurrentVersion: EULAAcceptance.hasAcceptedCurrentVersion(defaults: defaults)
+            ),
+            .presentEULA
+        )
     }
 }
 
@@ -261,6 +280,7 @@ private final class NoOpVoIPTimeoutScheduler: VoIPCallTimeoutScheduling {
 private final class TestCallScreenDelegate: VoIPCallManagerDelegate {
     private(set) var dismissCount = 0
     private(set) var states: [VoIPCall.State] = []
+    private(set) var micStates: [Bool] = []
 
     func shouldDismiss() {
         dismissCount += 1
@@ -273,11 +293,76 @@ private final class TestCallScreenDelegate: VoIPCallManagerDelegate {
     func didChangeMyVideoMode(to state: VoIPCall.VideoState) {}
     func didChangeOpponentVideoMode(to state: VoIPCall.VideoState) {}
     func didChangeSpeakerState(to enabled: Bool) {}
-    func didChangeMicState(to enabled: Bool) {}
+    func didChangeMicState(to enabled: Bool) {
+        micStates.append(enabled)
+    }
 }
 
 @MainActor
 final class VoIPTerminationReasonTests: XCTestCase {
+
+    func testProviderConfigurationMatchesSingleCallCapabilities() {
+        let configuration = VoIPManager.providerConfiguration()
+
+        XCTAssertEqual(configuration.maximumCallGroups, 1)
+        XCTAssertEqual(configuration.maximumCallsPerCallGroup, 1)
+        XCTAssertTrue(configuration.supportsVideo)
+        XCTAssertEqual(configuration.supportedHandleTypes, [.emailAddress])
+        XCTAssertFalse(configuration.includesCallsInRecents)
+    }
+
+    func testCallUpdateCapabilitiesDisableUnsupportedCallKitActions() {
+        let update = VoIPManager.callUpdate()
+
+        XCTAssertTrue(update.hasVideo)
+        XCTAssertFalse(update.supportsHolding)
+        XCTAssertFalse(update.supportsGrouping)
+        XCTAssertFalse(update.supportsUngrouping)
+        XCTAssertFalse(update.supportsDTMF)
+    }
+
+    func testCallKitMuteActionUpdatesCurrentCall() {
+        let manager = VoIPManager()
+        let delegate = TestCallScreenDelegate()
+        manager.callScreenDelegate = delegate
+        manager.currentCall = VoIPCall(
+            owner: "owner@example.com",
+            fullJid: "peer@example.com/resource",
+            callId: "call-id",
+            callUUID: UUID(),
+            outgoing: true
+        )
+        let action = CXSetMutedCallAction(call: UUID(), muted: true)
+
+        manager.provider(manager.provider, perform: action)
+
+        XCTAssertEqual(delegate.micStates, [false])
+    }
+
+    func testUnsupportedCallKitActionsDoNotMutateCurrentCallState() {
+        let manager = VoIPManager()
+        let delegate = TestCallScreenDelegate()
+        let call = VoIPCall(
+            owner: "owner@example.com",
+            fullJid: "peer@example.com/resource",
+            callId: "call-id",
+            callUUID: UUID(),
+            outgoing: true
+        )
+        manager.callScreenDelegate = delegate
+        manager.currentCall = call
+        let holdAction = CXSetHeldCallAction(call: UUID(), onHold: true)
+        let groupAction = CXSetGroupCallAction(call: UUID(), callUUIDToGroupWith: UUID())
+        let dtmfAction = CXPlayDTMFCallAction(call: UUID(), digits: "1", type: .singleTone)
+
+        manager.provider(manager.provider, perform: holdAction)
+        manager.provider(manager.provider, perform: groupAction)
+        manager.provider(manager.provider, perform: dtmfAction)
+
+        XCTAssertTrue(manager.currentCall === call)
+        XCTAssertTrue(delegate.states.isEmpty)
+        XCTAssertTrue(delegate.micStates.isEmpty)
+    }
 
     func testLegacyStateMappingRespectsDirectionSensitiveReasons() {
         XCTAssertEqual(CallTerminationReason.canceledByCaller.legacyState(outgoing: false), .missed)
@@ -2972,13 +3057,15 @@ final class ChatDatasetPerformanceHelpersTests: XCTestCase {
     func testMapReferenceAttachmentsPartitionsReferencesInOnePass() {
         let image = MessageReferenceStorageItem()
         image.primary = "image"
-        image.mimeType = MimeIconTypes.image.rawValue
+        image.mimeType = "image/jpeg"
         image.kind = .media
+        image.isSensitive = true
 
         let video = MessageReferenceStorageItem()
         video.primary = "video"
-        video.mimeType = MimeIconTypes.video.rawValue
+        video.mimeType = "video/mp4"
         video.kind = .media
+        video.isSensitive = true
 
         let audio = MessageReferenceStorageItem()
         audio.primary = "audio"
@@ -3003,6 +3090,32 @@ final class ChatDatasetPerformanceHelpersTests: XCTestCase {
         XCTAssertEqual(result.videos.map(\.primary), ["video"])
         XCTAssertEqual(result.audio.map(\.primary), ["audio"])
         XCTAssertEqual(result.files.map(\.primary), ["file"])
+        XCTAssertTrue(result.images.first?.isSensitive == true)
+        XCTAssertTrue(result.videos.first?.isSensitive == true)
+    }
+
+    func testMapReferenceAttachmentsKeepsSensitiveFlagWhenRevealedInCurrentSession() {
+        let image = MessageReferenceStorageItem()
+        image.primary = "image"
+        image.mimeType = "image/png"
+        image.kind = .media
+        image.isSensitive = true
+
+        let video = MessageReferenceStorageItem()
+        video.primary = "video"
+        video.mimeType = "video/quicktime"
+        video.kind = .media
+        video.isSensitive = true
+
+        let result = ChatViewController.mapReferenceAttachments(
+            [image, video],
+            revealedSensitiveMediaPrimaries: ["image", "video"]
+        )
+
+        XCTAssertTrue(result.images.first?.isSensitive == true)
+        XCTAssertTrue(result.images.first?.isSensitiveRevealed == true)
+        XCTAssertTrue(result.videos.first?.isSensitive == true)
+        XCTAssertTrue(result.videos.first?.isSensitiveRevealed == true)
     }
 
     func testChatDatasourceSnapshotBuildsLookupMaps() {
@@ -3173,6 +3286,323 @@ final class ChatDatasetPerformanceHelpersTests: XCTestCase {
                 new: snapshot
             )
         )
+    }
+}
+
+private struct SensitiveMediaAnalysisTestError: Error, LocalizedError {
+    var errorDescription: String? {
+        return "analysis failed"
+    }
+}
+
+private final class FakeSensitiveMediaAnalyzer: SensitiveMediaAnalyzing {
+    var analysisPolicy: SensitiveMediaAnalysisPolicy
+    var imageFileResult: Result<Bool, Error>
+    var imageResult: Result<Bool, Error>
+    var videoFileResult: Result<Bool, Error>
+    var delayNanoseconds: UInt64
+
+    private let lock = NSLock()
+    private var _imageFileCallCount = 0
+    private var _imageCallCount = 0
+    private var _videoFileCallCount = 0
+
+    var imageFileCallCount: Int {
+        locked { _imageFileCallCount }
+    }
+
+    var imageCallCount: Int {
+        locked { _imageCallCount }
+    }
+
+    var videoFileCallCount: Int {
+        locked { _videoFileCallCount }
+    }
+
+    init(
+        analysisPolicy: SensitiveMediaAnalysisPolicy = .enabled,
+        imageFileResult: Result<Bool, Error> = .success(false),
+        imageResult: Result<Bool, Error> = .success(false),
+        videoFileResult: Result<Bool, Error> = .success(false),
+        delayNanoseconds: UInt64 = 0
+    ) {
+        self.analysisPolicy = analysisPolicy
+        self.imageFileResult = imageFileResult
+        self.imageResult = imageResult
+        self.videoFileResult = videoFileResult
+        self.delayNanoseconds = delayNanoseconds
+    }
+
+    func analyzeImageFile(at url: URL) async throws -> Bool {
+        incrementImageFileCalls()
+        try await delayIfNeeded()
+        return try imageFileResult.get()
+    }
+
+    func analyzeImage(_ cgImage: CGImage) async throws -> Bool {
+        incrementImageCalls()
+        try await delayIfNeeded()
+        return try imageResult.get()
+    }
+
+    func analyzeVideoFile(at url: URL) async throws -> Bool {
+        incrementVideoFileCalls()
+        try await delayIfNeeded()
+        return try videoFileResult.get()
+    }
+
+    private func delayIfNeeded() async throws {
+        if delayNanoseconds > 0 {
+            try await Task.sleep(nanoseconds: delayNanoseconds)
+        }
+    }
+
+    private func incrementImageFileCalls() {
+        locked { _imageFileCallCount += 1 }
+    }
+
+    private func incrementImageCalls() {
+        locked { _imageCallCount += 1 }
+    }
+
+    private func incrementVideoFileCalls() {
+        locked { _videoFileCallCount += 1 }
+    }
+
+    private func locked<T>(_ body: () -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body()
+    }
+}
+
+private final class FakeSensitiveMediaFileProvider: SensitiveMediaFileProviding {
+    var imageResult: Result<CGImage, Error>
+    var videoResult: Result<SensitiveMediaAnalysisLocalFile, Error>
+
+    init(
+        imageResult: Result<CGImage, Error> = .success(FakeSensitiveMediaFileProvider.makeCGImage()),
+        videoResult: Result<SensitiveMediaAnalysisLocalFile, Error> = .failure(SensitiveMediaAnalysisTestError())
+    ) {
+        self.imageResult = imageResult
+        self.videoResult = videoResult
+    }
+
+    func downloadImageCGImage(from url: URL) async throws -> CGImage {
+        return try imageResult.get()
+    }
+
+    func localVideoFile(from url: URL) async throws -> SensitiveMediaAnalysisLocalFile {
+        return try videoResult.get()
+    }
+
+    private static func makeCGImage() -> CGImage {
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let data = Data([255, 0, 0, 255]) as CFData
+        let provider = CGDataProvider(data: data)!
+        return CGImage(
+            width: 1,
+            height: 1,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: 4,
+            space: colorSpace,
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: false,
+            intent: .defaultIntent
+        )!
+    }
+}
+
+final class SensitiveMediaAnalysisServiceTests: XCTestCase {
+    private var previousRealmConfiguration: Realm.Configuration!
+    private var tempURLs: [URL] = []
+
+    override func setUp() {
+        super.setUp()
+        previousRealmConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(inMemoryIdentifier: "SensitiveMediaAnalysisServiceTests-\(name)")
+    }
+
+    override func tearDown() {
+        tempURLs.forEach { try? FileManager.default.removeItem(at: $0) }
+        tempURLs.removeAll()
+        Realm.Configuration.defaultConfiguration = previousRealmConfiguration
+        previousRealmConfiguration = nil
+        super.tearDown()
+    }
+
+    func testMIMEDetectionSupportsImagesAndVideos() {
+        XCTAssertEqual(SensitiveMediaAnalysisService.sensitiveAnalyzableMediaType(kind: .media, mimeType: "image/jpeg", mediaType: nil), .image)
+        XCTAssertEqual(SensitiveMediaAnalysisService.sensitiveAnalyzableMediaType(kind: .media, mimeType: "image/png", mediaType: nil), .image)
+        XCTAssertEqual(SensitiveMediaAnalysisService.sensitiveAnalyzableMediaType(kind: .media, mimeType: "video/mp4", mediaType: nil), .video)
+        XCTAssertEqual(SensitiveMediaAnalysisService.sensitiveAnalyzableMediaType(kind: .media, mimeType: "video/quicktime", mediaType: nil), .video)
+        XCTAssertEqual(SensitiveMediaAnalysisService.sensitiveAnalyzableMediaType(kind: .media, mimeType: "application/pdf", mediaType: nil), .unsupported)
+        XCTAssertEqual(SensitiveMediaAnalysisService.sensitiveAnalyzableMediaType(kind: .voice, mimeType: "audio/ogg", mediaType: nil), .unsupported)
+    }
+
+    func testImageSensitiveResultTruePersistsCheckedStateAndInvalidatesMessage() async throws {
+        let referencePrimary = try insertMediaReference(primary: "image-true", mimeType: "image/jpeg", mediaType: "image", fileExtension: "jpg")
+        let analyzer = FakeSensitiveMediaAnalyzer(imageFileResult: .success(true))
+        let service = SensitiveMediaAnalysisService(analyzer: analyzer, fileProvider: FakeSensitiveMediaFileProvider(), dateProvider: { Date(timeIntervalSince1970: 100) })
+
+        await service.analyzeMessageReference(primaryKey: referencePrimary)
+
+        let realm = try WRealm.safe()
+        let reference = try XCTUnwrap(realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: referencePrimary))
+        let attachment = try XCTUnwrap(realm.object(ofType: MessageMediaAttachmentStorageItem.self, forPrimaryKey: "attachment-\(referencePrimary)"))
+        let message = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: "message-\(referencePrimary)"))
+        XCTAssertTrue(reference.isSensitive)
+        XCTAssertTrue(reference.isSensitiveChecked)
+        XCTAssertEqual(reference.sensitivityCheckedAt, Date(timeIntervalSince1970: 100))
+        XCTAssertEqual(reference.sensitivitySource, SensitiveMediaAnalysisService.sourceAppleSCA)
+        XCTAssertNil(reference.sensitivityAnalysisFailedAt)
+        XCTAssertTrue(attachment.isSensitive)
+        XCTAssertTrue(attachment.isSensitiveChecked)
+        XCTAssertTrue(message.queryIds?.contains("sensitivity") == true)
+        XCTAssertEqual(analyzer.imageFileCallCount, 1)
+    }
+
+    func testImageSensitiveResultFalseStillPersistsCheckedState() async throws {
+        let referencePrimary = try insertMediaReference(primary: "image-false", mimeType: "image/png", mediaType: "image", fileExtension: "png")
+        let analyzer = FakeSensitiveMediaAnalyzer(imageFileResult: .success(false))
+        let service = SensitiveMediaAnalysisService(analyzer: analyzer, fileProvider: FakeSensitiveMediaFileProvider())
+
+        await service.analyzeMessageReference(primaryKey: referencePrimary)
+
+        let realm = try WRealm.safe()
+        let reference = try XCTUnwrap(realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: referencePrimary))
+        XCTAssertFalse(reference.isSensitive)
+        XCTAssertTrue(reference.isSensitiveChecked)
+        XCTAssertEqual(reference.sensitivitySource, SensitiveMediaAnalysisService.sourceAppleSCA)
+    }
+
+    func testVideoSensitiveResultTruePersistsCheckedState() async throws {
+        let referencePrimary = try insertMediaReference(primary: "video-true", mimeType: "video/mp4", mediaType: "video", fileExtension: "mp4")
+        let analyzer = FakeSensitiveMediaAnalyzer(videoFileResult: .success(true))
+        let service = SensitiveMediaAnalysisService(analyzer: analyzer, fileProvider: FakeSensitiveMediaFileProvider())
+
+        await service.analyzeMessageReference(primaryKey: referencePrimary)
+
+        let realm = try WRealm.safe()
+        let reference = try XCTUnwrap(realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: referencePrimary))
+        XCTAssertTrue(reference.isSensitive)
+        XCTAssertTrue(reference.isSensitiveChecked)
+        XCTAssertEqual(analyzer.videoFileCallCount, 1)
+    }
+
+    func testVideoSensitiveResultFalseStillPersistsCheckedState() async throws {
+        let referencePrimary = try insertMediaReference(primary: "video-false", mimeType: "video/quicktime", mediaType: "video", fileExtension: "mov")
+        let analyzer = FakeSensitiveMediaAnalyzer(videoFileResult: .success(false))
+        let service = SensitiveMediaAnalysisService(analyzer: analyzer, fileProvider: FakeSensitiveMediaFileProvider())
+
+        await service.analyzeMessageReference(primaryKey: referencePrimary)
+
+        let realm = try WRealm.safe()
+        let reference = try XCTUnwrap(realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: referencePrimary))
+        XCTAssertFalse(reference.isSensitive)
+        XCTAssertTrue(reference.isSensitiveChecked)
+    }
+
+    func testDisabledPolicyDoesNotClearExistingSensitiveFlagOrMarkChecked() async throws {
+        let referencePrimary = try insertMediaReference(primary: "disabled", mimeType: "image/jpeg", mediaType: "image", fileExtension: "jpg", isSensitive: true)
+        let analyzer = FakeSensitiveMediaAnalyzer(analysisPolicy: .disabled, imageFileResult: .success(false))
+        let service = SensitiveMediaAnalysisService(analyzer: analyzer, fileProvider: FakeSensitiveMediaFileProvider())
+
+        await service.analyzeMessageReference(primaryKey: referencePrimary)
+
+        let realm = try WRealm.safe()
+        let reference = try XCTUnwrap(realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: referencePrimary))
+        XCTAssertTrue(reference.isSensitive)
+        XCTAssertFalse(reference.isSensitiveChecked)
+        XCTAssertNil(reference.sensitivityCheckedAt)
+        XCTAssertNil(reference.sensitivityAnalysisFailedAt)
+        XCTAssertEqual(analyzer.imageFileCallCount, 0)
+    }
+
+    func testAnalysisFailureDoesNotMarkContentSafeOrChecked() async throws {
+        let referencePrimary = try insertMediaReference(primary: "failure", mimeType: "image/jpeg", mediaType: "image", fileExtension: "jpg", isSensitive: true)
+        let analyzer = FakeSensitiveMediaAnalyzer(imageFileResult: .failure(SensitiveMediaAnalysisTestError()))
+        let service = SensitiveMediaAnalysisService(analyzer: analyzer, fileProvider: FakeSensitiveMediaFileProvider(), dateProvider: { Date(timeIntervalSince1970: 200) })
+
+        await service.analyzeMessageReference(primaryKey: referencePrimary)
+
+        let realm = try WRealm.safe()
+        let reference = try XCTUnwrap(realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: referencePrimary))
+        XCTAssertTrue(reference.isSensitive)
+        XCTAssertFalse(reference.isSensitiveChecked)
+        XCTAssertEqual(reference.sensitivityAnalysisFailedAt, Date(timeIntervalSince1970: 200))
+        XCTAssertEqual(reference.sensitivityAnalysisError, "analysis failed")
+    }
+
+    func testDuplicateAnalysisIsNotStartedForSamePrimaryKey() async throws {
+        let referencePrimary = try insertMediaReference(primary: "duplicate", mimeType: "image/jpeg", mediaType: "image", fileExtension: "jpg")
+        let analyzer = FakeSensitiveMediaAnalyzer(imageFileResult: .success(true), delayNanoseconds: 200_000_000)
+        let service = SensitiveMediaAnalysisService(analyzer: analyzer, fileProvider: FakeSensitiveMediaFileProvider())
+
+        async let first: Void = service.analyzeMessageReference(primaryKey: referencePrimary)
+        try await Task.sleep(nanoseconds: 20_000_000)
+        async let second: Void = service.analyzeMessageReference(primaryKey: referencePrimary)
+        _ = await (first, second)
+
+        XCTAssertEqual(analyzer.imageFileCallCount, 1)
+    }
+
+    private func insertMediaReference(
+        primary: String,
+        mimeType: String,
+        mediaType: String,
+        fileExtension: String,
+        isSensitive: Bool = false
+    ) throws -> String {
+        let fileURL = try temporaryFileURL(fileExtension: fileExtension)
+        let message = MessageStorageItem()
+        message.primary = "message-\(primary)"
+        message.owner = "owner@example.com"
+        message.opponent = "romeo@example.com"
+
+        let reference = MessageReferenceStorageItem()
+        reference.primary = primary
+        reference.messageId = message.primary
+        reference.owner = message.owner
+        reference.jid = message.opponent
+        reference.kind = .media
+        reference.mimeType = mimeType
+        reference.url = fileURL.absoluteString
+        reference.metadata = [
+            "localFileUri": fileURL.absoluteString,
+            "media-type": mediaType
+        ]
+        reference.isSensitive = isSensitive
+        reference.isSensitiveChecked = false
+
+        let attachment = MessageMediaAttachmentStorageItem()
+        attachment.primary = "attachment-\(primary)"
+        attachment.owner = message.owner
+        attachment.jid = message.opponent
+        attachment.messagePrimary = message.primary
+        attachment.archiveId = "archive-\(primary)"
+        attachment.url = fileURL
+        attachment.kind = mediaType == "video" ? .video : .image
+
+        let realm = try WRealm.safe()
+        try realm.write {
+            realm.add(message, update: .modified)
+            realm.add(reference, update: .modified)
+            realm.add(attachment, update: .modified)
+        }
+        return primary
+    }
+
+    private func temporaryFileURL(fileExtension: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SensitiveMediaAnalysisServiceTests-\(UUID().uuidString)")
+            .appendingPathExtension(fileExtension)
+        try Data([0]).write(to: url)
+        tempURLs.append(url)
+        return url
     }
 }
 
@@ -7136,6 +7566,306 @@ final class ChatListUnreadMentionBadgeTests: XCTestCase {
 
         XCTAssertEqual(mapped.count, 1)
         XCTAssertTrue(mapped.first?.hasUnreadMention == true)
+    }
+}
+
+final class ChatListEmptyStateTests: XCTestCase {
+
+    func testMainChatsEmptyShowsEmptyStateWhenNotLoadingAndSearchInactive() {
+        XCTAssertTrue(
+            LastChatsViewController.shouldShowEmptyState(
+                filter: .chats,
+                isLoading: false,
+                isSearchActive: false,
+                datasourceIsEmpty: true
+            )
+        )
+    }
+
+    func testNonEmptyDatasourceHidesEmptyState() {
+        XCTAssertFalse(
+            LastChatsViewController.shouldShowEmptyState(
+                filter: .chats,
+                isLoading: false,
+                isSearchActive: false,
+                datasourceIsEmpty: false
+            )
+        )
+    }
+
+    func testLoadingHidesEmptyState() {
+        XCTAssertFalse(
+            LastChatsViewController.shouldShowEmptyState(
+                filter: .chats,
+                isLoading: true,
+                isSearchActive: false,
+                datasourceIsEmpty: true
+            )
+        )
+    }
+
+    func testActiveSearchHidesEmptyState() {
+        XCTAssertFalse(
+            LastChatsViewController.shouldShowEmptyState(
+                filter: .chats,
+                isLoading: false,
+                isSearchActive: true,
+                datasourceIsEmpty: true
+            )
+        )
+    }
+
+    func testEmptyViewConfiguresAddContactButtonAndInvokesCallback() {
+        let view = LastChatsViewController.EmptyView()
+        var didTapAddContact = false
+
+        view.configure {
+            didTapAddContact = true
+        }
+
+        XCTAssertEqual(view.titleLabel.text, "No chats yet".localizeString(id: "last_chats_empty_title", arguments: []))
+        XCTAssertEqual(view.subtitleLabel.text, "Add your first contact to start messaging.".localizeString(id: "last_chats_empty_subtitle", arguments: []))
+        XCTAssertEqual(view.addContactButton.configuration?.title, "Add Contact".localizeString(id: "last_chats_empty_add_contact", arguments: []))
+        XCTAssertEqual(view.addContactButton.accessibilityIdentifier, "last_chats_empty_add_contact_button")
+        XCTAssertFalse(view.addContactButton.isHidden)
+
+        view.addContactButton.sendActions(for: .touchUpInside)
+
+        XCTAssertTrue(didTapAddContact)
+    }
+
+    func testUnreadAndArchivedEmptyStatesHideAddContactButton() {
+        let view = LastChatsViewController.EmptyView()
+        view.configure {}
+
+        view.update(for: .unread)
+        XCTAssertTrue(view.addContactButton.isHidden)
+
+        view.update(for: .archived)
+        XCTAssertTrue(view.addContactButton.isHidden)
+    }
+}
+
+final class ListEmptyStateTests: XCTestCase {
+
+    func testSharedEmptyStateConfiguresButtonIdentifierAndInvokesCallback() {
+        let view = EmptyStateView()
+        var didTapButton = false
+
+        view.configure(
+            image: nil,
+            title: "Title",
+            subtitle: "Subtitle",
+            buttonTitle: "Continue",
+            buttonAccessibilityIdentifier: "empty_state_continue_button"
+        ) {
+            didTapButton = true
+        }
+
+        XCTAssertEqual(view.titleLabel.text, "Title")
+        XCTAssertEqual(view.subtitleLabel.text, "Subtitle")
+        XCTAssertEqual(view.button.configuration?.title, "Continue")
+        XCTAssertEqual(view.button.accessibilityIdentifier, "empty_state_continue_button")
+        XCTAssertFalse(view.button.isHidden)
+
+        view.button.sendActions(for: .touchUpInside)
+
+        XCTAssertTrue(didTapButton)
+    }
+
+    func testContactsTrueEmptyShowsAddContactDescriptor() {
+        let descriptor = ContactsViewController.emptyStateDescriptor(
+            isGroup: false,
+            category: "all",
+            filteredGroups: Set<String>(),
+            visibleDatasourceIsEmpty: true,
+            featureHasAnyContent: false,
+            isSearchActive: false
+        )
+
+        XCTAssertEqual(descriptor?.title, "No contacts yet".localizeString(id: "contacts_empty_title", arguments: []))
+        XCTAssertEqual(descriptor?.subtitle, "Add your first contact to start messaging and calling.".localizeString(id: "contacts_empty_subtitle", arguments: []))
+        XCTAssertEqual(descriptor?.buttonTitle, "Add Contact".localizeString(id: "contacts_empty_add_contact", arguments: []))
+        XCTAssertEqual(descriptor?.buttonAccessibilityIdentifier, "contacts_empty_add_contact_button")
+        XCTAssertEqual(descriptor?.action, .addContact)
+    }
+
+    func testContactsFilteredEmptyWithExistingContentHasNoCTA() {
+        let descriptor = ContactsViewController.emptyStateDescriptor(
+            isGroup: false,
+            category: "online",
+            filteredGroups: Set<String>(),
+            visibleDatasourceIsEmpty: true,
+            featureHasAnyContent: true,
+            isSearchActive: false
+        )
+
+        XCTAssertEqual(descriptor?.title, "No contacts online")
+        XCTAssertNil(descriptor?.buttonTitle)
+        XCTAssertNil(descriptor?.buttonAccessibilityIdentifier)
+        XCTAssertNil(descriptor?.action)
+    }
+
+    func testContactsEmptyStateIsHiddenForSearchAndNonEmptyLists() {
+        XCTAssertNil(
+            ContactsViewController.emptyStateDescriptor(
+                isGroup: false,
+                category: "all",
+                filteredGroups: Set<String>(),
+                visibleDatasourceIsEmpty: true,
+                featureHasAnyContent: false,
+                isSearchActive: true
+            )
+        )
+        XCTAssertNil(
+            ContactsViewController.emptyStateDescriptor(
+                isGroup: false,
+                category: "all",
+                filteredGroups: Set<String>(),
+                visibleDatasourceIsEmpty: false,
+                featureHasAnyContent: false,
+                isSearchActive: false
+            )
+        )
+    }
+
+    func testGroupsTrueFeatureWideEmptyShowsCreatePublicGroupDescriptor() {
+        let descriptor = ContactsViewController.emptyStateDescriptor(
+            isGroup: true,
+            category: "public",
+            filteredGroups: Set<String>(),
+            visibleDatasourceIsEmpty: true,
+            featureHasAnyContent: false,
+            isSearchActive: false
+        )
+
+        XCTAssertEqual(descriptor?.title, "No groups yet".localizeString(id: "groups_empty_title", arguments: []))
+        XCTAssertEqual(descriptor?.subtitle, "Create a public group to start a shared conversation.".localizeString(id: "groups_empty_subtitle", arguments: []))
+        XCTAssertEqual(descriptor?.buttonTitle, "Create Public Group".localizeString(id: "groups_empty_create_public_group", arguments: []))
+        XCTAssertEqual(descriptor?.buttonAccessibilityIdentifier, "groups_empty_create_public_group_button")
+        XCTAssertEqual(descriptor?.action, .createPublicGroup)
+    }
+
+    func testGroupsFilteredEmptyWithGroupContentElsewhereHasNoCTA() {
+        let descriptor = ContactsViewController.emptyStateDescriptor(
+            isGroup: true,
+            category: "public",
+            filteredGroups: Set<String>(),
+            visibleDatasourceIsEmpty: true,
+            featureHasAnyContent: true,
+            isSearchActive: false
+        )
+
+        XCTAssertEqual(descriptor?.title, "No public groups found")
+        XCTAssertNil(descriptor?.buttonTitle)
+        XCTAssertNil(descriptor?.buttonAccessibilityIdentifier)
+        XCTAssertNil(descriptor?.action)
+    }
+
+    func testCallsEmptyWithCallableContactsShowsStartCallDescriptor() {
+        let descriptor = LastCallsViewController.emptyStateDescriptor(
+            isLoading: false,
+            isSearchActive: false,
+            callHistoryIsEmpty: true,
+            hasCallableContacts: true
+        )
+
+        XCTAssertEqual(descriptor?.title, "No calls yet".localizeString(id: "calls_empty_title", arguments: []))
+        XCTAssertEqual(descriptor?.subtitle, "Start a call with one of your contacts.".localizeString(id: "calls_empty_start_subtitle", arguments: []))
+        XCTAssertEqual(descriptor?.buttonTitle, "Start Call".localizeString(id: "calls_empty_start_call", arguments: []))
+        XCTAssertEqual(descriptor?.buttonAccessibilityIdentifier, "calls_empty_start_call_button")
+        XCTAssertEqual(descriptor?.action, .startCall)
+    }
+
+    func testCallsEmptyWithoutCallableContactsShowsAddContactDescriptor() {
+        let descriptor = LastCallsViewController.emptyStateDescriptor(
+            isLoading: false,
+            isSearchActive: false,
+            callHistoryIsEmpty: true,
+            hasCallableContacts: false
+        )
+
+        XCTAssertEqual(descriptor?.subtitle, "Add your first contact before starting a call.".localizeString(id: "calls_empty_add_contact_subtitle", arguments: []))
+        XCTAssertEqual(descriptor?.buttonTitle, "Add Contact".localizeString(id: "calls_empty_add_contact", arguments: []))
+        XCTAssertEqual(descriptor?.buttonAccessibilityIdentifier, "calls_empty_add_contact_button")
+        XCTAssertEqual(descriptor?.action, .addContact)
+    }
+
+    func testCallsEmptyStateIsHiddenWhileLoadingSearchingOrNonEmpty() {
+        XCTAssertNil(
+            LastCallsViewController.emptyStateDescriptor(
+                isLoading: true,
+                isSearchActive: false,
+                callHistoryIsEmpty: true,
+                hasCallableContacts: true
+            )
+        )
+        XCTAssertNil(
+            LastCallsViewController.emptyStateDescriptor(
+                isLoading: false,
+                isSearchActive: true,
+                callHistoryIsEmpty: true,
+                hasCallableContacts: true
+            )
+        )
+        XCTAssertNil(
+            LastCallsViewController.emptyStateDescriptor(
+                isLoading: false,
+                isSearchActive: false,
+                callHistoryIsEmpty: false,
+                hasCallableContacts: true
+            )
+        )
+    }
+
+    func testNotificationsEmptyDescriptorsHaveNoButton() {
+        let allDescriptor = NotificationsListViewController.emptyStateDescriptor(
+            filter: .all,
+            isLoading: false,
+            hasNotificationRows: false
+        )
+        let mentionsDescriptor = NotificationsListViewController.emptyStateDescriptor(
+            filter: .mentions,
+            isLoading: false,
+            hasNotificationRows: false
+        )
+
+        XCTAssertEqual(allDescriptor?.title, "No notifications yet".localizeString(id: "notifications_empty_title", arguments: []))
+        XCTAssertEqual(allDescriptor?.subtitle, "Security alerts, mentions, and updates will appear here.".localizeString(id: "notifications_empty_subtitle", arguments: []))
+        XCTAssertNil(allDescriptor?.buttonTitle)
+        XCTAssertNil(allDescriptor?.action)
+        XCTAssertEqual(mentionsDescriptor?.title, "No mentions yet".localizeString(id: "notifications_empty_mentions_title", arguments: []))
+        XCTAssertNil(mentionsDescriptor?.buttonTitle)
+        XCTAssertNil(mentionsDescriptor?.action)
+    }
+
+    func testNotificationsEmptyStateIsHiddenWhileLoadingOrWhenRowsExist() {
+        XCTAssertNil(
+            NotificationsListViewController.emptyStateDescriptor(
+                filter: .all,
+                isLoading: true,
+                hasNotificationRows: false
+            )
+        )
+        XCTAssertNil(
+            NotificationsListViewController.emptyStateDescriptor(
+                filter: .all,
+                isLoading: false,
+                hasNotificationRows: true
+            )
+        )
+    }
+
+    func testArchivedChatEmptyStateHasSubtitleAndNoButton() {
+        let view = LastChatsViewController.EmptyView()
+        view.configure {}
+
+        view.update(for: .archived)
+
+        XCTAssertEqual(view.titleLabel.text, "No archived chats yet".localizeString(id: "archived_chats_empty_title", arguments: []))
+        XCTAssertEqual(view.subtitleLabel.text, "Chats you archive will appear here.".localizeString(id: "archived_chats_empty_subtitle", arguments: []))
+        XCTAssertFalse(view.subtitleLabel.isHidden)
+        XCTAssertTrue(view.addContactButton.isHidden)
     }
 }
 

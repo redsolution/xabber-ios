@@ -20,11 +20,24 @@
 
 import Foundation
 import UIKit
-import MaterialComponents.MDCPalettes
+
+enum CoreListEmptyStateAction: Equatable {
+    case addContact
+    case createPublicGroup
+    case startCall
+}
+
+struct CoreListEmptyStateDescriptor: Equatable {
+    let iconSystemName: String
+    let title: String
+    let subtitle: String
+    let buttonTitle: String?
+    let buttonAccessibilityIdentifier: String?
+    let action: CoreListEmptyStateAction?
+}
 
 class EmptyStateView: UIView {
-    
-    
+
     let stack: UIStackView = {
         let stack = UIStackView()
         
@@ -40,10 +53,10 @@ class EmptyStateView: UIView {
         
         stack.axis = .vertical
         stack.alignment = .center
-        stack.spacing = 16
+        stack.spacing = 12
         
         stack.isLayoutMarginsRelativeArrangement = true
-        stack.layoutMargins = UIEdgeInsets(top: 8, bottom: 8, left: 24, right: 24)
+        stack.layoutMargins = UIEdgeInsets(top: 8, bottom: 8, left: 28, right: 28)
         
         return stack
     }()
@@ -51,7 +64,9 @@ class EmptyStateView: UIView {
     let iconImage: UIImageView = {
         let image = UIImageView()
         
-        image.tintColor = MDCPalette.grey.tint200
+        image.tintColor = .tertiaryLabel
+        image.contentMode = .scaleAspectFit
+        image.isAccessibilityElement = false
         
         return image
     }()
@@ -60,7 +75,11 @@ class EmptyStateView: UIView {
         let label = UILabel()
         
         label.font = UIFont.preferredFont(forTextStyle: .title2)
-        label.textColor = MDCPalette.grey.tint600
+        label.adjustsFontForContentSizeCategory = true
+        label.textColor = .label
+        label.textAlignment = .center
+        label.numberOfLines = 0
+        label.accessibilityIdentifier = "empty_state_title_label"
         
         return label
     }()
@@ -68,8 +87,12 @@ class EmptyStateView: UIView {
     let subtitleLabel: UILabel = {
         let label = UILabel()
         
-        label.font = UIFont.preferredFont(forTextStyle: .title2)
-        label.textColor = MDCPalette.grey.tint400
+        label.font = UIFont.preferredFont(forTextStyle: .body)
+        label.adjustsFontForContentSizeCategory = true
+        label.textColor = .secondaryLabel
+        label.textAlignment = .center
+        label.numberOfLines = 0
+        label.accessibilityIdentifier = "empty_state_subtitle_label"
         
         return label
     }()
@@ -77,7 +100,21 @@ class EmptyStateView: UIView {
     let button: UIButton = {
         let button = UIButton()
         
-        button.setTitleColor(.systemBlue, for: .normal)
+        var configuration = UIButton.Configuration.filled()
+        configuration.baseForegroundColor = .white
+        configuration.baseBackgroundColor = .tintColor
+        configuration.cornerStyle = .medium
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 22, bottom: 10, trailing: 22)
+        configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+            var outgoing = incoming
+            outgoing.font = UIFont.preferredFont(forTextStyle: .headline)
+            return outgoing
+        }
+
+        button.configuration = configuration
+        button.titleLabel?.adjustsFontForContentSizeCategory = true
+        button.titleLabel?.numberOfLines = 1
+        button.titleLabel?.lineBreakMode = .byTruncatingTail
         
         return button
     }()
@@ -85,17 +122,58 @@ class EmptyStateView: UIView {
     internal var callback: (() -> Void)? = nil
     
     internal func activaateConstraints() {
-        
+        iconImage.widthAnchor.constraint(equalToConstant: 72).isActive = true
+        iconImage.heightAnchor.constraint(equalToConstant: 72).isActive = true
+        centerStack.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -48).isActive = true
+        button.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
     }
     
     public final func configure(image: UIImage?, title: String, subtitle: String, buttonTitle: String, onButtonTouchUp: (() -> Void)?) {
-        self.update(image: image, title: title, subtitle: subtitle, buttonTitle: buttonTitle)
+        self.configure(
+            image: image,
+            title: title,
+            subtitle: subtitle,
+            buttonTitle: buttonTitle,
+            buttonAccessibilityIdentifier: buttonTitle.isEmpty ? nil : "empty_state_primary_button",
+            onButtonTouchUp: onButtonTouchUp
+        )
+    }
+
+    public final func configure(
+        image: UIImage?,
+        title: String,
+        subtitle: String,
+        buttonTitle: String,
+        buttonAccessibilityIdentifier: String?,
+        onButtonTouchUp: (() -> Void)?
+    ) {
+        self.update(
+            image: image,
+            title: title,
+            subtitle: subtitle,
+            buttonTitle: buttonTitle,
+            buttonAccessibilityIdentifier: buttonAccessibilityIdentifier
+        )
         callback = onButtonTouchUp
+    }
+
+    internal final func configure(descriptor: CoreListEmptyStateDescriptor, onButtonTouchUp: (() -> Void)?) {
+        let symbolConfiguration = UIImage.SymbolConfiguration(pointSize: 56, weight: .regular)
+        configure(
+            image: UIImage(systemName: descriptor.iconSystemName, withConfiguration: symbolConfiguration)?.withRenderingMode(.alwaysTemplate),
+            title: descriptor.title,
+            subtitle: descriptor.subtitle,
+            buttonTitle: descriptor.buttonTitle ?? "",
+            buttonAccessibilityIdentifier: descriptor.buttonAccessibilityIdentifier,
+            onButtonTouchUp: onButtonTouchUp
+        )
     }
     
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .systemBackground
+        isAccessibilityElement = false
+        accessibilityIdentifier = "empty_state_view"
         addSubview(stack)
         stack.fillSuperview()
         stack.addArrangedSubview(UIStackView())
@@ -104,8 +182,8 @@ class EmptyStateView: UIView {
         centerStack.addArrangedSubview(iconImage)
         centerStack.addArrangedSubview(titleLabel)
         centerStack.addArrangedSubview(subtitleLabel)
-        button.titleLabel?.numberOfLines = 0
-        button.titleLabel?.textAlignment = .center
+        centerStack.setCustomSpacing(20, after: subtitleLabel)
+        centerStack.addArrangedSubview(button)
         button.addTarget(self, action: #selector(onButtonPressed), for: .touchUpInside)
         activaateConstraints()
     }
@@ -115,9 +193,32 @@ class EmptyStateView: UIView {
     }
     
     public final func update(image: UIImage?, title: String, subtitle: String, buttonTitle: String) {
+        update(
+            image: image,
+            title: title,
+            subtitle: subtitle,
+            buttonTitle: buttonTitle,
+            buttonAccessibilityIdentifier: buttonTitle.isEmpty ? nil : "empty_state_primary_button"
+        )
+    }
+
+    public final func update(
+        image: UIImage?,
+        title: String,
+        subtitle: String,
+        buttonTitle: String,
+        buttonAccessibilityIdentifier: String?
+    ) {
         titleLabel.text = title
         subtitleLabel.text = subtitle
-        button.setTitle(buttonTitle, for: .normal)
+        var configuration = button.configuration ?? UIButton.Configuration.filled()
+        configuration.title = buttonTitle
+        button.configuration = configuration
+        button.isHidden = buttonTitle.isEmpty
+        button.accessibilityLabel = buttonTitle.isEmpty ? nil : buttonTitle
+        button.accessibilityIdentifier = buttonAccessibilityIdentifier
+        subtitleLabel.isHidden = subtitle.isEmpty
+        iconImage.isHidden = image == nil
         iconImage.image = image
     }
     

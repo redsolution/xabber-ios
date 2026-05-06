@@ -124,7 +124,6 @@ enum EULAAcceptance {
 }
 
 enum AppRootKind: Equatable {
-    case eula
     case onboarding
     case split
     case tabs
@@ -387,6 +386,63 @@ final class EULAViewController: SimpleBaseViewController {
     }
 }
 
+enum EULANavigationGate {
+    enum Decision: Equatable {
+        case continueNavigation
+        case presentEULA
+    }
+
+    static func decision(hasAcceptedCurrentVersion: Bool = EULAAcceptance.hasAcceptedCurrentVersion()) -> Decision {
+        hasAcceptedCurrentVersion ? .continueNavigation : .presentEULA
+    }
+
+    static func continueAfterAcceptance(from presenter: UIViewController, navigation: @escaping () -> Void) {
+        switch decision() {
+        case .continueNavigation:
+            navigation()
+        case .presentEULA:
+            let vc = EULAAcceptanceNavigationController(onAccepted: navigation)
+            presenter.present(vc, animated: true)
+        }
+    }
+}
+
+private final class EULAAcceptanceNavigationController: UINavigationController {
+    private let onAccepted: () -> Void
+
+    init(onAccepted: @escaping () -> Void) {
+        self.onAccepted = onAccepted
+        super.init(nibName: nil, bundle: nil)
+
+        let vc = EULAViewController(mode: .acceptance(onAccept: { [weak self] in
+            self?.acceptAndContinue()
+        }))
+        vc.navigationItem.rightBarButtonItem = UIBarButtonItem(
+            barButtonSystemItem: .cancel,
+            target: self,
+            action: #selector(cancelTapped)
+        )
+        setViewControllers([vc], animated: false)
+        modalPresentationStyle = .formSheet
+        modalTransitionStyle = .coverVertical
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    @objc
+    private func cancelTapped() {
+        dismiss(animated: true)
+    }
+
+    private func acceptAndContinue() {
+        dismiss(animated: true) { [onAccepted] in
+            onAccepted()
+        }
+    }
+}
+
 enum AppRoute {
     case chat(owner: String, jid: String, conversationType: ClientSynchronizationManager.ConversationType)
     case externalURL(URL)
@@ -415,14 +471,9 @@ final class AppRootCoordinator: NSObject {
     static var active: AppRootCoordinator?
 
     static func rootKind(
-        hasAcceptedCurrentEULA: Bool,
         hasAccounts: Bool,
         interfaceType: CommonConfigManager.InterfaceType
     ) -> AppRootKind {
-        guard hasAcceptedCurrentEULA else {
-            return .eula
-        }
-
         guard hasAccounts else {
             return .onboarding
         }
@@ -435,8 +486,8 @@ final class AppRootCoordinator: NSObject {
         }
     }
 
-    static func canRoute(hasAcceptedCurrentEULA: Bool = EULAAcceptance.hasAcceptedCurrentVersion()) -> Bool {
-        hasAcceptedCurrentEULA
+    static func canRoute() -> Bool {
+        true
     }
 
     let window: UIWindow
@@ -483,15 +534,9 @@ final class AppRootCoordinator: NSObject {
         currentPresentedVc = nil
 
         switch Self.rootKind(
-            hasAcceptedCurrentEULA: EULAAcceptance.hasAcceptedCurrentVersion(),
             hasAccounts: !AccountManager.shared.emptyAccountsList(),
             interfaceType: CommonConfigManager.shared.interfaceType
         ) {
-        case .eula:
-            window.rootViewController = makeEULARoot()
-            applyCompatibilityReferences()
-            return
-
         case .onboarding:
             CredentialsManager.shared.clearKeyachain()
             DispatchQueue.main.async {
@@ -512,9 +557,7 @@ final class AppRootCoordinator: NSObject {
 
     func sceneWillResignActive() {
         addBlurredScreen()
-        if EULAAcceptance.hasAcceptedCurrentVersion() {
-            AccountManager.shared.load()
-        }
+        AccountManager.shared.load()
     }
 
     func sceneDidEnterBackground() {
@@ -533,11 +576,6 @@ final class AppRootCoordinator: NSObject {
     }
 
     func sceneWillEnterForeground() {
-        guard EULAAcceptance.hasAcceptedCurrentVersion() else {
-            rebuildRoot(userInfo: nil)
-            return
-        }
-
         AccountManager.shared.prepare()
         CloudStorageQuotaRefreshCoordinator.shared.refreshAll(reason: .foreground)
         NotifyManager.shared.setLastChats(displayed: true)
@@ -558,11 +596,6 @@ final class AppRootCoordinator: NSObject {
 
     @discardableResult
     func route(_ route: AppRoute) -> Bool {
-        guard Self.canRoute() else {
-            rebuildRoot(userInfo: nil)
-            return false
-        }
-
         switch route {
         case let .chat(owner, jid, conversationType):
             return openChat(owner: owner, jid: jid, conversationType: conversationType)
@@ -604,10 +637,6 @@ final class AppRootCoordinator: NSObject {
     }
 
     func restorationActivity() -> NSUserActivity? {
-        guard EULAAcceptance.hasAcceptedCurrentVersion() else {
-            return nil
-        }
-
         let activityType = [Bundle.main.bundleIdentifier ?? "xabber", "scene"].joined(separator: ".")
         let activity = NSUserActivity(activityType: activityType)
         activity.title = "Xabber Scene"
@@ -649,20 +678,6 @@ final class AppRootCoordinator: NSObject {
             return nil
         }
         return .userActivity(restorationActivity)
-    }
-
-    private func makeEULARoot() -> UIViewController {
-        let vc = EULAViewController(mode: .acceptance(onAccept: { [weak self] in
-            guard let self else {
-                return
-            }
-            AccountManager.shared.load(!(self.appDelegate?.isPushKit ?? false))
-            CloudStorageQuotaRefreshCoordinator.shared.refreshAll(reason: .appLaunch)
-            self.rebuildRoot(userInfo: nil)
-        }))
-        let navigationController = UINavigationController(rootViewController: vc)
-        navigationController.isNavigationBarHidden = true
-        return navigationController
     }
 
     private func makeOnboardingRoot() -> UIViewController {

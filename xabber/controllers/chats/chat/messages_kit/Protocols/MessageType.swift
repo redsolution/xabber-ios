@@ -75,12 +75,14 @@ class ImageAttachment {
     var url: URL?
     var size: CGSize
     var isSensitive: Bool
+    var isSensitiveRevealed: Bool
     
-    init(primary: String, url: URL? = nil, size: CGSize, isSensitive: Bool) {
+    init(primary: String, url: URL? = nil, size: CGSize, isSensitive: Bool = false, isSensitiveRevealed: Bool = false) {
         self.primary = primary
         self.url = url
         self.size = size
         self.isSensitive = isSensitive
+        self.isSensitiveRevealed = isSensitiveRevealed
     }
     
 }
@@ -92,14 +94,18 @@ class VideoAttachment {
     var previewUrl: URL?
     var duration: Double
     var downloaded: Bool
+    var isSensitive: Bool
+    var isSensitiveRevealed: Bool
     
-    init(primary: String, url: URL?, size: CGSize, previewUrl: URL? = nil, duration: Double, downloaded: Bool) {
+    init(primary: String, url: URL?, size: CGSize, previewUrl: URL? = nil, duration: Double, downloaded: Bool, isSensitive: Bool = false, isSensitiveRevealed: Bool = false) {
         self.primary = primary
         self.url = url
         self.size = size
         self.previewUrl = previewUrl
         self.duration = duration
         self.downloaded = downloaded
+        self.isSensitive = isSensitive
+        self.isSensitiveRevealed = isSensitiveRevealed
     }
 }
 

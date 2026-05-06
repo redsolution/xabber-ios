@@ -204,7 +204,7 @@ extension XMPPRegistrationManager: XMPPStreamDelegate {
     
     func xmppStreamDidDisconnect(_ sender: XMPPStream, withError error: Error?) {
         if state == .closed { return }
-        try? sender.connect(withTimeout: 5)
+        try? sender.connect(withTimeout: 15)
     }
     
     @objc

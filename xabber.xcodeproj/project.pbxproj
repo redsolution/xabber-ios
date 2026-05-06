@@ -70,6 +70,7 @@
 		4DD4C5772910EAE600CD50C9 /* StoreKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4DD4C5762910EAE600CD50C9 /* StoreKit.framework */; };
 		4DDD5CA8292DEC18003AD478 /* MusicBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DDD5CA7292DEC18003AD478 /* MusicBox.swift */; };
 		4DFF74FE2851E4550036AE0D /* SimpleTableViewController+SwitchCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DFF74FD2851E4550036AE0D /* SimpleTableViewController+SwitchCell.swift */; };
+		4E0000022F60000000ABC001 /* AppRootCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E0000012F60000000ABC001 /* AppRootCoordinator.swift */; };
 		660093C722DEEDBD00C5F16B /* LastChatsViewController+UITableViewAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660093C622DEEDBD00C5F16B /* LastChatsViewController+UITableViewAction.swift */; };
 		660093C922DF2A5F00C5F16B /* LastCallsViewController+EmptyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660093C822DF2A5F00C5F16B /* LastCallsViewController+EmptyView.swift */; };
 		660093CB22DF2CFD00C5F16B /* LastCallsViewController+UITableViewAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660093CA22DF2CFD00C5F16B /* LastCallsViewController+UITableViewAction.swift */; };
@@ -280,7 +281,6 @@
 		66520E6923858C0E00430953 /* CreateNewGroupViewController+GroupInfoCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66520E6823858C0E00430953 /* CreateNewGroupViewController+GroupInfoCell.swift */; };
 		6652EB45203BF95B0088C8FA /* ImageToBase64.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6652EB44203BF95B0088C8FA /* ImageToBase64.swift */; };
 		6653DF5021ABBD3000DA4352 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6653DF4F21ABBD2F00DA4352 /* AppDelegate.swift */; };
-		4E0000022F60000000ABC001 /* AppRootCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E0000012F60000000ABC001 /* AppRootCoordinator.swift */; };
 		665451A922A8EA750077635D /* AccountEditViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 665451A822A8EA750077635D /* AccountEditViewController.swift */; };
 		665451AD22A8F3D40077635D /* AccountEditViewController+UITableViewDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 665451AC22A8F3D40077635D /* AccountEditViewController+UITableViewDelegate.swift */; };
 		665451AF22A8F3FA0077635D /* AccountEditViewController+UITableViewDatasource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 665451AE22A8F3FA0077635D /* AccountEditViewController+UITableViewDatasource.swift */; };
@@ -471,6 +471,7 @@
 		66A15B4E281C086100FC1E65 /* SignalPreKeyStorageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66A15B4D281C086100FC1E65 /* SignalPreKeyStorageItem.swift */; };
 		66A15B50281C087200FC1E65 /* SignalDeviceStorageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66A15B4F281C087200FC1E65 /* SignalDeviceStorageItem.swift */; };
 		66A1B95E28C23747003BC67B /* UploadProtocols.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66A1B95D28C23747003BC67B /* UploadProtocols.swift */; };
+		66A1BC012FABC00100123456 /* SensitiveMediaAnalysisService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66A1BC002FABC00100123456 /* SensitiveMediaAnalysisService.swift */; };
 		66A3168922AE34B500EA0773 /* ContactChatMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66A3168822AE34B500EA0773 /* ContactChatMetadata.swift */; };
 		66A3168B22AE53CB00EA0773 /* ErrorMessagePresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66A3168A22AE53CB00EA0773 /* ErrorMessagePresenter.swift */; };
 		66A3168D22AE64C700EA0773 /* AccountEditViewController+UIImagePickerControllerDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66A3168C22AE64C700EA0773 /* AccountEditViewController+UIImagePickerControllerDelegate.swift */; };
@@ -1057,6 +1058,7 @@
 		4DD4C5762910EAE600CD50C9 /* StoreKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = StoreKit.framework; path = System/Library/Frameworks/StoreKit.framework; sourceTree = SDKROOT; };
 		4DDD5CA7292DEC18003AD478 /* MusicBox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicBox.swift; sourceTree = "<group>"; };
 		4DFF74FD2851E4550036AE0D /* SimpleTableViewController+SwitchCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SimpleTableViewController+SwitchCell.swift"; sourceTree = "<group>"; };
+		4E0000012F60000000ABC001 /* AppRootCoordinator.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AppRootCoordinator.swift; sourceTree = "<group>"; };
 		58D918EA4C5D9244619D4BEE /* Pods_xabberTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_xabberTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		5A01438B65BCB76802280911 /* Pods-xabber.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-xabber.release.xcconfig"; path = "Target Support Files/Pods-xabber/Pods-xabber.release.xcconfig"; sourceTree = "<group>"; };
 		660093C622DEEDBD00C5F16B /* LastChatsViewController+UITableViewAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LastChatsViewController+UITableViewAction.swift"; sourceTree = "<group>"; };
@@ -1264,7 +1266,6 @@
 		66520E6823858C0E00430953 /* CreateNewGroupViewController+GroupInfoCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CreateNewGroupViewController+GroupInfoCell.swift"; sourceTree = "<group>"; };
 		6652EB44203BF95B0088C8FA /* ImageToBase64.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageToBase64.swift; sourceTree = "<group>"; };
 		6653DF4F21ABBD2F00DA4352 /* AppDelegate.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
-		4E0000012F60000000ABC001 /* AppRootCoordinator.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AppRootCoordinator.swift; sourceTree = "<group>"; };
 		665451A822A8EA750077635D /* AccountEditViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountEditViewController.swift; sourceTree = "<group>"; };
 		665451AC22A8F3D40077635D /* AccountEditViewController+UITableViewDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AccountEditViewController+UITableViewDelegate.swift"; sourceTree = "<group>"; };
 		665451AE22A8F3FA0077635D /* AccountEditViewController+UITableViewDatasource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AccountEditViewController+UITableViewDatasource.swift"; sourceTree = "<group>"; };
@@ -1453,6 +1454,7 @@
 		66A15B4D281C086100FC1E65 /* SignalPreKeyStorageItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalPreKeyStorageItem.swift; sourceTree = "<group>"; };
 		66A15B4F281C087200FC1E65 /* SignalDeviceStorageItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalDeviceStorageItem.swift; sourceTree = "<group>"; };
 		66A1B95D28C23747003BC67B /* UploadProtocols.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadProtocols.swift; sourceTree = "<group>"; };
+		66A1BC002FABC00100123456 /* SensitiveMediaAnalysisService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SensitiveMediaAnalysisService.swift; sourceTree = "<group>"; };
 		66A3168822AE34B500EA0773 /* ContactChatMetadata.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ContactChatMetadata.swift; sourceTree = "<group>"; };
 		66A3168A22AE53CB00EA0773 /* ErrorMessagePresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorMessagePresenter.swift; sourceTree = "<group>"; };
 		66A3168C22AE64C700EA0773 /* AccountEditViewController+UIImagePickerControllerDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AccountEditViewController+UIImagePickerControllerDelegate.swift"; sourceTree = "<group>"; };
@@ -2467,6 +2469,7 @@
 				66B5F2D623FEA68A00A22F64 /* MessageForwardsInlineStorageItem.swift */,
 				663B3769219BF27200FEB27E /* MessageStanzaStorageItem.swift */,
 				66F985D6231E37400013A0BD /* MessageReferenceStorageItem.swift */,
+				66A1BC002FABC00100123456 /* SensitiveMediaAnalysisService.swift */,
 				66F985D8231E43E80013A0BD /* MessageReferenceParser.swift */,
 				666D80322439C4D500BD33B1 /* TemporaryMessageStanzaStorageItem.swift */,
 			);
@@ -4690,63 +4693,12 @@
 			buildActionMask = 2147483647;
 			files = (
 			);
-			inputPaths = (
-				"${PODS_ROOT}/Target Support Files/Pods-xabberTests/Pods-xabberTests-frameworks.sh",
-				"${BUILT_PRODUCTS_DIR}/Alamofire/Alamofire.framework",
-				"${BUILT_PRODUCTS_DIR}/Cache/Cache.framework",
-				"${BUILT_PRODUCTS_DIR}/CocoaAsyncSocket/CocoaAsyncSocket.framework",
-				"${BUILT_PRODUCTS_DIR}/CocoaLumberjack/CocoaLumberjack.framework",
-				"${BUILT_PRODUCTS_DIR}/CryptoSwift/CryptoSwift.framework",
-				"${BUILT_PRODUCTS_DIR}/Curve25519Kit/Curve25519Kit.framework",
-				"${BUILT_PRODUCTS_DIR}/DeepDiff/DeepDiff.framework",
-				"${BUILT_PRODUCTS_DIR}/Kingfisher/Kingfisher.framework",
-				"${BUILT_PRODUCTS_DIR}/KissXML/KissXML.framework",
-				"${BUILT_PRODUCTS_DIR}/LetterAvatarKit/LetterAvatarKit.framework",
-				"${BUILT_PRODUCTS_DIR}/MaterialComponents/MaterialComponents.framework",
-				"${BUILT_PRODUCTS_DIR}/Punycode/Punycode.framework",
-				"${BUILT_PRODUCTS_DIR}/Realm/Realm.framework",
-				"${BUILT_PRODUCTS_DIR}/RealmSwift/RealmSwift.framework",
-				"${BUILT_PRODUCTS_DIR}/RxCocoa/RxCocoa.framework",
-				"${BUILT_PRODUCTS_DIR}/RxRealm/RxRealm.framework",
-				"${BUILT_PRODUCTS_DIR}/RxRelay/RxRelay.framework",
-				"${BUILT_PRODUCTS_DIR}/RxSwift/RxSwift.framework",
-				"${BUILT_PRODUCTS_DIR}/SignalProtocolC/SignalProtocolC.framework",
-				"${BUILT_PRODUCTS_DIR}/SignalProtocolObjC/SignalProtocolObjC.framework",
-				"${BUILT_PRODUCTS_DIR}/SwiftKeychainWrapper/SwiftKeychainWrapper.framework",
-				"${BUILT_PRODUCTS_DIR}/XMPPFramework/XMPPFramework.framework",
-				"${BUILT_PRODUCTS_DIR}/YubiKit/YubiKit.framework",
-				"${BUILT_PRODUCTS_DIR}/libidn/libidn.framework",
-				"${PODS_XCFRAMEWORKS_BUILD_DIR}/OpenSSL-Universal/OpenSSL.framework/OpenSSL",
-				"${PODS_XCFRAMEWORKS_BUILD_DIR}/WebRTC-SDK/WebRTC.framework/WebRTC",
+			inputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-xabberTests/Pods-xabberTests-frameworks-${CONFIGURATION}-input-files.xcfilelist",
 			);
 			name = "[CP] Embed Pods Frameworks";
-			outputPaths = (
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/Alamofire.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/Cache.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/CocoaAsyncSocket.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/CocoaLumberjack.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/CryptoSwift.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/Curve25519Kit.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/DeepDiff.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/Kingfisher.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/KissXML.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/LetterAvatarKit.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/MaterialComponents.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/Punycode.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/Realm.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/RealmSwift.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/RxCocoa.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/RxRealm.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/RxRelay.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/RxSwift.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/SignalProtocolC.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/SignalProtocolObjC.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/SwiftKeychainWrapper.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/XMPPFramework.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/YubiKit.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/libidn.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/OpenSSL.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/WebRTC.framework",
+			outputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-xabberTests/Pods-xabberTests-frameworks-${CONFIGURATION}-output-files.xcfilelist",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -4786,71 +4738,19 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "
-";
+			shellScript = "\n";
 		};
 		C9B687BEC5A32CF38B4F1BD7 /* [CP] Embed Pods Frameworks */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
-			inputPaths = (
-				"${PODS_ROOT}/Target Support Files/Pods-xabber/Pods-xabber-frameworks.sh",
-				"${BUILT_PRODUCTS_DIR}/Alamofire/Alamofire.framework",
-				"${BUILT_PRODUCTS_DIR}/Cache/Cache.framework",
-				"${BUILT_PRODUCTS_DIR}/CocoaAsyncSocket/CocoaAsyncSocket.framework",
-				"${BUILT_PRODUCTS_DIR}/CocoaLumberjack/CocoaLumberjack.framework",
-				"${BUILT_PRODUCTS_DIR}/CryptoSwift/CryptoSwift.framework",
-				"${BUILT_PRODUCTS_DIR}/Curve25519Kit/Curve25519Kit.framework",
-				"${BUILT_PRODUCTS_DIR}/DeepDiff/DeepDiff.framework",
-				"${BUILT_PRODUCTS_DIR}/Kingfisher/Kingfisher.framework",
-				"${BUILT_PRODUCTS_DIR}/KissXML/KissXML.framework",
-				"${BUILT_PRODUCTS_DIR}/LetterAvatarKit/LetterAvatarKit.framework",
-				"${BUILT_PRODUCTS_DIR}/MaterialComponents/MaterialComponents.framework",
-				"${BUILT_PRODUCTS_DIR}/Punycode/Punycode.framework",
-				"${BUILT_PRODUCTS_DIR}/Realm/Realm.framework",
-				"${BUILT_PRODUCTS_DIR}/RealmSwift/RealmSwift.framework",
-				"${BUILT_PRODUCTS_DIR}/RxCocoa/RxCocoa.framework",
-				"${BUILT_PRODUCTS_DIR}/RxRealm/RxRealm.framework",
-				"${BUILT_PRODUCTS_DIR}/RxRelay/RxRelay.framework",
-				"${BUILT_PRODUCTS_DIR}/RxSwift/RxSwift.framework",
-				"${BUILT_PRODUCTS_DIR}/SignalProtocolC/SignalProtocolC.framework",
-				"${BUILT_PRODUCTS_DIR}/SignalProtocolObjC/SignalProtocolObjC.framework",
-				"${BUILT_PRODUCTS_DIR}/SwiftKeychainWrapper/SwiftKeychainWrapper.framework",
-				"${BUILT_PRODUCTS_DIR}/XMPPFramework/XMPPFramework.framework",
-				"${BUILT_PRODUCTS_DIR}/YubiKit/YubiKit.framework",
-				"${BUILT_PRODUCTS_DIR}/libidn/libidn.framework",
-				"${PODS_XCFRAMEWORKS_BUILD_DIR}/OpenSSL-Universal/OpenSSL.framework/OpenSSL",
-				"${PODS_XCFRAMEWORKS_BUILD_DIR}/WebRTC-SDK/WebRTC.framework/WebRTC",
+			inputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-xabber/Pods-xabber-frameworks-${CONFIGURATION}-input-files.xcfilelist",
 			);
 			name = "[CP] Embed Pods Frameworks";
-			outputPaths = (
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/Alamofire.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/Cache.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/CocoaAsyncSocket.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/CocoaLumberjack.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/CryptoSwift.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/Curve25519Kit.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/DeepDiff.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/Kingfisher.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/KissXML.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/LetterAvatarKit.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/MaterialComponents.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/Punycode.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/Realm.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/RealmSwift.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/RxCocoa.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/RxRealm.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/RxRelay.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/RxSwift.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/SignalProtocolC.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/SignalProtocolObjC.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/SwiftKeychainWrapper.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/XMPPFramework.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/YubiKit.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/libidn.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/OpenSSL.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/WebRTC.framework",
+			outputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-xabber/Pods-xabber-frameworks-${CONFIGURATION}-output-files.xcfilelist",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -5419,6 +5319,7 @@
 				665451B122A916070077635D /* AccountEditViewController+ProfileCell.swift in Sources */,
 				849D262A2C4F7C29000A19D2 /* ChatFilesViewController+Extensions.swift in Sources */,
 				66F985D7231E37400013A0BD /* MessageReferenceStorageItem.swift in Sources */,
+				66A1BC012FABC00100123456 /* SensitiveMediaAnalysisService.swift in Sources */,
 				6643F30E21C2650E00333229 /* UIColor+Extensions.swift in Sources */,
 				66EB6A7A238D659E0024531C /* TextViewPresenter.swift in Sources */,
 				66DB6E052BFF27AD00AAEA94 /* NotificationsCategoriesViewController.swift in Sources */,

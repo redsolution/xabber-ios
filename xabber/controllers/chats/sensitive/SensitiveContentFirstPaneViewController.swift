@@ -9,7 +9,7 @@ import Foundation
 import UIKit
 
 protocol SensitiveContentFirstPaneViewControllerDelegate {
-    func onViewGallery(messagePrimary: String, urls: [URL], url: URL)
+    func onViewSensitiveMedia(messagePrimary: String, referencePrimary: String, urls: [URL], url: URL, isVideo: Bool)
 }
 
 class SensitiveContentFirstPaneViewController: SimpleBaseViewController {
@@ -56,6 +56,8 @@ class SensitiveContentFirstPaneViewController: SimpleBaseViewController {
     open var urls: [URL] = []
     open var url: URL?
     open var messagePrimary: String = ""
+    open var referencePrimary: String = ""
+    open var isVideo: Bool = false
     
     private func configure_first_step() {
         let imageView = UIImageView(image: "🤔".image(fontSize: 48, bgColor: .systemBackground, imageSize: CGSize(square: 64)))
@@ -64,7 +66,8 @@ class SensitiveContentFirstPaneViewController: SimpleBaseViewController {
         label.numberOfLines = 0
         label.textAlignment = .center
         label.font = UIFont.preferredFont(forTextStyle: .largeTitle)
-        label.text = "This could be sensitive\nAre you sure you want to view?"
+        label.text = "Sensitive Content".localizeString(id: "sensitive_media_overlay_title", arguments: [])
+        label.accessibilityIdentifier = "sensitive_media_warning_title"
         stack.addArrangedSubview(label)
         let substack1 = UIStackView()
         let substack2 = UIStackView()
@@ -79,10 +82,10 @@ class SensitiveContentFirstPaneViewController: SimpleBaseViewController {
         let imageView2 = UIImageView(image: "🌄".image(fontSize: 24, bgColor: .systemBackground, imageSize: CGSize(square: 48)))
         let label1 = UILabel()
         label1.numberOfLines = 0
-        label1.text = "Nude photos and videos can be used to hurt people. Once you view this, you can`t unsee it"
+        label1.text = "This media may contain sensitive content.".localizeString(id: "sensitive_media_overlay_body", arguments: [])
         let label2 = UILabel()
         label2.numberOfLines = 0
-        label2.text = "The person in this may not have given consent to share it. How would they feel knowing other people saw it?"
+        label2.text = "Choose whether to view this media.".localizeString(id: "sensitive_media_warning_choice", arguments: [])
         
         substack1.addArrangedSubview(imageView1)
         substack1.addArrangedSubview(label1)
@@ -95,7 +98,7 @@ class SensitiveContentFirstPaneViewController: SimpleBaseViewController {
         stack.setCustomSpacing(32, after: label)
         
         var cancelButtonConf = UIButton.Configuration.filled()
-        cancelButtonConf.title = "Not Now"
+        cancelButtonConf.title = "Not Now".localizeString(id: "sensitive_media_not_now", arguments: [])
         cancelButtonConf.buttonSize = .large
         cancelButtonConf.titleAlignment = .center
         var helpConfiguration = UIButton.Configuration.plain()
@@ -103,15 +106,17 @@ class SensitiveContentFirstPaneViewController: SimpleBaseViewController {
         helpConfiguration.buttonSize = .large
         helpConfiguration.titleAlignment = .center
         var continueConfiguration = UIButton.Configuration.plain()
-        continueConfiguration.title = "I`m Sure"
+        continueConfiguration.title = "View".localizeString(id: "sensitive_media_overlay_view", arguments: [])
         continueConfiguration.buttonSize = .large
         continueConfiguration.titleAlignment = .center
         
         let cancelButton = UIButton(configuration: cancelButtonConf, primaryAction: nil)
+        cancelButton.accessibilityIdentifier = "sensitive_media_not_now_button"
         cancelButton.addTarget(self, action: #selector(cancelButtonTouchUpInside), for: .touchUpInside)
         let helpButton = UIButton(configuration: helpConfiguration)
         helpButton.addTarget(self, action: #selector(helpButtonTouchUpInside), for: .touchUpInside)
         let continueButton = UIButton(configuration: continueConfiguration)
+        continueButton.accessibilityIdentifier = "sensitive_media_view_button"
         continueButton.addTarget(self, action: #selector(continueButtonTouchUpInside), for: .touchUpInside)
         stack.addArrangedSubview(UIStackView())
         stack.addArrangedSubview(cancelButton)
@@ -146,7 +151,7 @@ class SensitiveContentFirstPaneViewController: SimpleBaseViewController {
         label.numberOfLines = 0
         label.textAlignment = .center
         label.font = UIFont.preferredFont(forTextStyle: .largeTitle)
-        label.text = "It`s your choice, but make sure you feel safe."
+        label.text = "Sensitive Content".localizeString(id: "sensitive_media_overlay_title", arguments: [])
         stack.addArrangedSubview(label)
         let substack1 = UIStackView()
         let substack2 = UIStackView()
@@ -161,10 +166,10 @@ class SensitiveContentFirstPaneViewController: SimpleBaseViewController {
         let imageView2 = UIImageView(image: "🙊".image(fontSize: 24, bgColor: .systemBackground, imageSize: CGSize(square: 48)))
         let label1 = UILabel()
         label1.numberOfLines = 0
-        label1.text = "Don`t share anything you don`t want to. Talk to someone you trust if you feel pressured to view naked photos or videos."
+        label1.text = "This media may contain sensitive content.".localizeString(id: "sensitive_media_overlay_body", arguments: [])
         let label2 = UILabel()
         label2.numberOfLines = 0
-        label2.text = "Do you feel OK? You`re not alone, and can alwaus talk with someone who`s trained to help."
+        label2.text = "Choose whether to view this media.".localizeString(id: "sensitive_media_warning_choice", arguments: [])
         
         substack1.addArrangedSubview(imageView1)
         substack1.addArrangedSubview(label1)
@@ -177,7 +182,7 @@ class SensitiveContentFirstPaneViewController: SimpleBaseViewController {
         stack.setCustomSpacing(32, after: label)
         
         var cancelButtonConf = UIButton.Configuration.filled()
-        cancelButtonConf.title = "Don`t view"
+        cancelButtonConf.title = "Do Not View".localizeString(id: "sensitive_media_do_not_view", arguments: [])
         cancelButtonConf.buttonSize = .large
         cancelButtonConf.titleAlignment = .center
         var helpConfiguration = UIButton.Configuration.plain()
@@ -185,7 +190,7 @@ class SensitiveContentFirstPaneViewController: SimpleBaseViewController {
         helpConfiguration.buttonSize = .large
         helpConfiguration.titleAlignment = .center
         var continueConfiguration = UIButton.Configuration.plain()
-        continueConfiguration.title = "View"
+        continueConfiguration.title = "View".localizeString(id: "sensitive_media_overlay_view", arguments: [])
         continueConfiguration.buttonSize = .large
         continueConfiguration.titleAlignment = .center
         
@@ -243,11 +248,19 @@ class SensitiveContentFirstPaneViewController: SimpleBaseViewController {
             vc.url = self.url
             vc.urls = self.urls
             vc.messagePrimary = self.messagePrimary
+            vc.referencePrimary = self.referencePrimary
+            vc.isVideo = self.isVideo
             self.navigationController?.pushViewController(vc, animated: true)
         } else {
             self.dismiss(animated: true) {
                 if let url = self.url {
-                    self.delegate?.onViewGallery(messagePrimary: self.messagePrimary, urls: self.urls, url: url)
+                    self.delegate?.onViewSensitiveMedia(
+                        messagePrimary: self.messagePrimary,
+                        referencePrimary: self.referencePrimary,
+                        urls: self.urls,
+                        url: url,
+                        isVideo: self.isVideo
+                    )
                 }
             }
         }

@@ -142,7 +142,7 @@ class XMPPUIActionManager: NSObject {
         queue.async {
             do {
                 DDLogDebug("ui-action stream connect jid=\(owner) resource=\(self.stream.myJID?.resource ?? "none")")
-                try self.stream.connect(withTimeout: 5)
+                try self.stream.connect(withTimeout: 15)
             } catch {
                 self.connectionGate.markFailed()
                 DDLogDebug("XMPPActionManager: \(#function). \(error.localizedDescription)")
@@ -230,7 +230,7 @@ class XMPPUIActionManager: NSObject {
             self.stream.keepAliveInterval = 10
             do {
                 DDLogDebug("ui-action stream connect jid=\(owner) resource=\(self.stream.myJID?.resource ?? "none")")
-                try self.stream.connect(withTimeout: 5)
+                try self.stream.connect(withTimeout: 15)
             } catch {
                 self.connectionGate.markFailed()
                 DDLogDebug("XMPPActionManager: \(#function). \(error.localizedDescription)")

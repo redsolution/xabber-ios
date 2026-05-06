@@ -459,8 +459,8 @@ class LastChatsViewController: BaseViewController {
         return view
     }()
     
-    internal let emptyView: EmptyStateView = {
-        let view = EmptyStateView()
+    internal let emptyView: EmptyView = {
+        let view = EmptyView()
         
         return view
     }()
@@ -738,15 +738,6 @@ class LastChatsViewController: BaseViewController {
                 .collection(from: chatsObserver!)
                 .subscribe(onNext: { (results) in
                     self.skeletonItemsCount = max(results.count, 10)
-                    if results.isEmpty {
-                        if !self.isEmptyViewShowed.value {
-                            self.isEmptyViewShowed.accept(true)
-                        }
-                    } else {
-                        if self.isEmptyViewShowed.value {
-                            self.isEmptyViewShowed.accept(false)
-                        }
-                    }
                     if self.filter.value == .unread {
                         UIView.animate(withDuration: 0.1) {
                             self.unreadAllMessagesButton.isHidden = self.filter.value == .unread ? results.filter{ $0.unread != 0 }.isEmpty : false
@@ -796,6 +787,39 @@ class LastChatsViewController: BaseViewController {
             },
             uniquingKeysWith: { _, new in new }
         )
+        self.refreshEmptyStateVisibility()
+    }
+
+    internal static func shouldShowEmptyState(
+        filter: Filter,
+        isLoading: Bool,
+        isSearchActive: Bool,
+        datasourceIsEmpty: Bool
+    ) -> Bool {
+        guard datasourceIsEmpty, !isLoading, !isSearchActive else {
+            return false
+        }
+
+        switch filter {
+        case .chats, .unread, .archived:
+            return true
+        case .saved:
+            return false
+        }
+    }
+
+    internal final func refreshEmptyStateVisibility(isSearchActive: Bool? = nil) {
+        let shouldShow = Self.shouldShowEmptyState(
+            filter: filter.value,
+            isLoading: showSkeleton.value,
+            isSearchActive: isSearchActive ?? searchController.isActive,
+            datasourceIsEmpty: datasource.isEmpty
+        )
+
+        if isEmptyViewShowed.value != shouldShow {
+            isEmptyViewShowed.accept(shouldShow)
+        }
+        emptyView.isHidden = !shouldShow
     }
     
     private final func excludedDomains(from accounts: Set<String>) -> [String] {
@@ -1440,34 +1464,7 @@ class LastChatsViewController: BaseViewController {
             .asObservable()
             .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
             .subscribe(onNext: { (value) in
-                switch value {
-                case .chats:
-                    self.emptyView.update(
-                        image:  imageLiteral( "buffer160")?.withRenderingMode(.alwaysTemplate),
-                        title: "Chats list is empty".localizeString(id: "chats_list_is_empty", arguments: []),
-                        subtitle: "Try to start a new chat".localizeString(id: "try_to_start_new_chat", arguments: []),
-                        buttonTitle: "Start new chat".localizeString(id: "start_new_chat", arguments: [])
-                    )
-                    break
-                case .unread:
-                    self.emptyView.update(
-                        image:  imageLiteral( "buffer160")?.withRenderingMode(.alwaysTemplate),
-                        title: "No unread chats".localizeString(id: "unreaded_chats_list_empty", arguments: []),
-                        subtitle: " ",
-                        buttonTitle: " "
-                    )
-                    break
-                case .archived:
-                    self.emptyView.update(
-                        image:  imageLiteral( "buffer160")?.withRenderingMode(.alwaysTemplate),
-                        title: "Your archived chats list is empty".localizeString(id: "archived_chats_list_empty", arguments: []),
-                        subtitle: " ",
-                        buttonTitle: " "
-                    )
-                    break
-                default:
-                    break
-                }
+                self.emptyView.update(for: value)
                 self.updateDatasource(value)
                 self.updateTitle(value)
                 self.bottomBar.leftButton.setImage(imageLiteral(self.filter.value == .unread ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")?.upscale(dimension: 24).withRenderingMode(.alwaysTemplate), for: .normal)
@@ -1577,13 +1574,8 @@ class LastChatsViewController: BaseViewController {
 //        tableView.backgroundColor = .clear
         
         
-        emptyView.configure(image: imageLiteral( "buffer160")?.withRenderingMode(.alwaysTemplate),
-                            title: "Chats list is empty".localizeString(id: "chats_list_is_empty", arguments: []),
-                            subtitle: "Try to start a new chat".localizeString(id: "try_to_start_new_chat", arguments: []),
-                            buttonTitle: "Start new chat".localizeString(id: "start_new_chat", arguments: [])) {
-            let vc = CreateNewEntityViewController()
-            vc.leftMenuSelectRootCategoryDelegate = self.leftMenuSelectRootCategoryDelegate
-            showModal(vc, parent: self)
+        emptyView.configure {
+            self.openAddContactFlow()
         }
         
         emptyView.isHidden = true
@@ -1796,6 +1788,12 @@ class LastChatsViewController: BaseViewController {
     @objc
     func onAddButtonTouchUpInside(_ sender: AnyObject) {
         let vc = CreateNewEntityViewController()
+        vc.leftMenuSelectRootCategoryDelegate = leftMenuSelectRootCategoryDelegate
+        showModal(vc, parent: self)
+    }
+
+    internal func openAddContactFlow() {
+        let vc = AddNewContactViewController()
         vc.leftMenuSelectRootCategoryDelegate = leftMenuSelectRootCategoryDelegate
         showModal(vc, parent: self)
     }

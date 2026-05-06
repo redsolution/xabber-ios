@@ -23,13 +23,24 @@ import CallKit
 import UIKit
 import XMPPFramework
 import AVFoundation
+import WebRTC
+import CocoaLumberjack
 
 extension VoIPManager: CXProviderDelegate {
+    func providerDidBegin(_ provider: CXProvider) {
+        DDLogDebug("VoIPManager: CallKit provider did begin")
+    }
+
     func providerDidReset(_ provider: CXProvider) {
         self.reset()
     }
+
+    func provider(_ provider: CXProvider, execute transaction: CXTransaction) -> Bool {
+        return false
+    }
    
     func provider(_ provider: CXProvider, perform action: CXStartCallAction) {
+        SoundManager.configureAudioSession()
         action.fulfill()
     }
    
@@ -63,6 +74,15 @@ extension VoIPManager: CXProviderDelegate {
     }
    
     func provider(_ provider: CXProvider, perform action: CXSetMutedCallAction) {
+        guard self.currentCall != nil else {
+            action.fail()
+            return
+        }
+        if action.isMuted {
+            self.disableAudio()
+        } else {
+            self.enableAudio()
+        }
         self.callScreenDelegate?.didChangeMicState(to: !action.isMuted)
         action.fulfill()
     }
@@ -82,7 +102,7 @@ extension VoIPManager: CXProviderDelegate {
     }
    
     func provider(_ provider: CXProvider, perform action: CXSetHeldCallAction) {
-        action.fulfill()
+        action.fail()
     }
    
     func provider(_ provider: CXProvider, perform action: CXSetGroupCallAction) {
@@ -90,14 +110,18 @@ extension VoIPManager: CXProviderDelegate {
     }
    
     func provider(_ provider: CXProvider, perform action: CXPlayDTMFCallAction) {
-        action.fulfill()
+        action.fail()
     }
-   
+
     func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {
-        print(#function)
+        let rtcSession = RTCAudioSession.sharedInstance()
+        rtcSession.audioSessionDidActivate(audioSession)
+        rtcSession.isAudioEnabled = true
     }
    
     func provider(_ provider: CXProvider, didDeactivate audioSession: AVAudioSession) {
-        print(#function)
+        let rtcSession = RTCAudioSession.sharedInstance()
+        rtcSession.isAudioEnabled = false
+        rtcSession.audioSessionDidDeactivate(audioSession)
     }
 }

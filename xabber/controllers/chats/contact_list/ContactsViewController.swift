@@ -161,6 +161,16 @@ enum ContactsListSupport {
             }
     }
 
+    static func hasAnyContactAreaContent(context: Context) -> Bool {
+        context.joinedContactRosterItems.isNotEmpty ||
+        context.contactRosterItems.contains { $0.ask_ == "in" || $0.ask_ == "out" }
+    }
+
+    static func hasAnyGroupAreaContent(context: Context) -> Bool {
+        visibleJoinedGroupRosterItems(context: context).isNotEmpty ||
+        context.invites.contains { $0.isRead == false }
+    }
+
     static func filteredGroupsMatch(itemGroups: Set<String>, state: ContactsFilterState) -> Bool {
         guard state.filteredGroups.isNotEmpty else {
             return true
@@ -563,6 +573,7 @@ class ContactsViewController: BaseViewController {
     internal var datasource: [[Datasource]] = []
     internal var datasetGeneration: Int = 0
     internal var lastRequestedInviteGroupKeys: Set<String> = []
+    internal var currentFeatureHasAnyContent: Bool = false
     
     var pinnedAccount: Int = 0
     
@@ -681,6 +692,83 @@ class ContactsViewController: BaseViewController {
             showOffline: showOffline,
             isGroup: isGroup
         )
+    }
+
+    internal static func visibleDatasourceIsEmpty(_ datasource: [[Datasource]]) -> Bool {
+        !datasource.contains { section in
+            section.contains { !$0.isHeader }
+        }
+    }
+
+    internal static func emptyStateDescriptor(
+        isGroup: Bool,
+        category: String?,
+        filteredGroups: Set<String>,
+        visibleDatasourceIsEmpty: Bool,
+        featureHasAnyContent: Bool,
+        isSearchActive: Bool
+    ) -> CoreListEmptyStateDescriptor? {
+        guard visibleDatasourceIsEmpty, !isSearchActive else {
+            return nil
+        }
+
+        if !featureHasAnyContent {
+            if isGroup {
+                return CoreListEmptyStateDescriptor(
+                    iconSystemName: "person.2.circle",
+                    title: "No groups yet".localizeString(id: "groups_empty_title", arguments: []),
+                    subtitle: "Create a public group to start a shared conversation.".localizeString(id: "groups_empty_subtitle", arguments: []),
+                    buttonTitle: "Create Public Group".localizeString(id: "groups_empty_create_public_group", arguments: []),
+                    buttonAccessibilityIdentifier: "groups_empty_create_public_group_button",
+                    action: .createPublicGroup
+                )
+            }
+
+            return CoreListEmptyStateDescriptor(
+                iconSystemName: "person.crop.circle.badge.plus",
+                title: "No contacts yet".localizeString(id: "contacts_empty_title", arguments: []),
+                subtitle: "Add your first contact to start messaging and calling.".localizeString(id: "contacts_empty_subtitle", arguments: []),
+                buttonTitle: "Add Contact".localizeString(id: "contacts_empty_add_contact", arguments: []),
+                buttonAccessibilityIdentifier: "contacts_empty_add_contact_button",
+                action: .addContact
+            )
+        }
+
+        return CoreListEmptyStateDescriptor(
+            iconSystemName: isGroup ? "person.2.circle" : "person.crop.circle",
+            title: emptyStateTitle(isGroup: isGroup, category: category, filteredGroups: filteredGroups),
+            subtitle: "",
+            buttonTitle: nil,
+            buttonAccessibilityIdentifier: nil,
+            action: nil
+        )
+    }
+
+    internal static func emptyStateTitle(isGroup: Bool, category: String?, filteredGroups: Set<String>) -> String {
+        let groupsString = filteredGroups.sorted().joined(separator: ", ")
+        switch category {
+        case "all":
+            return filteredGroups.isNotEmpty ? "No contacts found for \(groupsString)" : "No contacts found"
+        case "online":
+            return filteredGroups.isNotEmpty ? "No online contacts found for \(groupsString)" : "No contacts online"
+        case "subscriptions", "subscribtions":
+            return "No contact requests"
+        case "requests":
+            return "No outgoing contact requests"
+        case "public":
+            return filteredGroups.isNotEmpty ? "No public groups found for \(groupsString)" : "No public groups found"
+        case "incognito":
+            return filteredGroups.isNotEmpty ? "No incognito groups found for \(groupsString)" : "No incognito groups found"
+        case "private":
+            return filteredGroups.isNotEmpty ? "No private chats found for \(groupsString)" : "No private chats found"
+        case "invitations":
+            return "No invitations found"
+        default:
+            if isGroup {
+                return filteredGroups.isNotEmpty ? "No groups found for \(groupsString)" : "No groups found"
+            }
+            return filteredGroups.isNotEmpty ? "No contacts found for \(groupsString)" : "No contacts found"
+        }
     }
     
     private final func mapDataset(state: ContactsFilterState, context: ContactsListSupport.Context) -> [[Datasource]] {
@@ -1110,44 +1198,47 @@ class ContactsViewController: BaseViewController {
         updateQueue.async { [weak self] in
             guard let self = self else { return }
             let realm = try? WRealm.safe()
-            let newDatasource = realm.map {
-                ContactsListCoordinator.deriveState(
+            let result: (datasource: [[Datasource]], featureHasAnyContent: Bool) = realm.map {
+                let derivedState = ContactsListCoordinator.deriveState(
                     realm: $0,
                     state: state,
                     datasourceBuilder: self.mapDataset(state:context:)
-                ).datasource
-            } ?? [[]]
+                )
+                let featureState = ContactsFilterState(
+                    category: nil,
+                    filteredAccounts: [],
+                    filteredGroups: [],
+                    showOffline: true,
+                    isGroup: state.isGroup
+                )
+                let featureContext = ContactsListSupport.makeContext(realm: $0, state: featureState)
+                let featureHasAnyContent = state.isGroup
+                    ? ContactsListSupport.hasAnyGroupAreaContent(context: featureContext)
+                    : ContactsListSupport.hasAnyContactAreaContent(context: featureContext)
+
+                return (datasource: derivedState.datasource, featureHasAnyContent: featureHasAnyContent)
+            } ?? (datasource: [[]], featureHasAnyContent: false)
             
             DispatchQueue.main.async {
                 guard self.datasetGeneration == generation else { return }
-                self.applyMappedDataset(newDatasource, forceFullReload: force)
+                self.applyMappedDataset(
+                    result.datasource,
+                    featureHasAnyContent: result.featureHasAnyContent,
+                    forceFullReload: force
+                )
                 self.postprocessDataset()
             }
         }
     }
     
-    internal final func applyMappedDataset(_ newDatasource: [[Datasource]], forceFullReload: Bool) {
-        if let lastPart = newDatasource.last {
-            if lastPart.count == 0 {
-                if !self.isEmptyViewShowed.value {
-                    emptyView.configure(image: imageLiteral( "person.3")?.upscale(dimension: 100).withRenderingMode(.alwaysTemplate),
-                                        title: getEmptyStateString() ?? "",
-                                        subtitle: "",
-                                        buttonTitle: "Add contact".localizeString(id: "application_action_no_contacts", arguments: [])) {
-                        
-                    }
-                    self.isEmptyViewShowed.accept(true)
-                }
-            } else if lastPart.first?.isHeader == true {
-                if !self.isEmptyViewShowed.value {
-                    self.isEmptyViewShowed.accept(true)
-                }
-            } else {
-                if self.isEmptyViewShowed.value {
-                    self.isEmptyViewShowed.accept(false)
-                }
-            }
-        }
+    internal final func applyMappedDataset(_ newDatasource: [[Datasource]], featureHasAnyContent: Bool, forceFullReload: Bool) {
+        currentFeatureHasAnyContent = featureHasAnyContent
+        updateEmptyState(
+            for: newDatasource,
+            featureHasAnyContent: featureHasAnyContent,
+            isSearchActive: searchController.isActive
+        )
+
         func forceReload() {
             self.datasource = newDatasource
             self.tableView.reloadData()
@@ -1184,6 +1275,53 @@ class ContactsViewController: BaseViewController {
             if !changedPrefixSections.isEmpty {
                 reloadCompatibleSections(changedPrefixSections)
             }
+        }
+    }
+
+    internal final func refreshEmptyStateVisibility(isSearchActive: Bool? = nil) {
+        updateEmptyState(
+            for: datasource,
+            featureHasAnyContent: currentFeatureHasAnyContent,
+            isSearchActive: isSearchActive ?? searchController.isActive
+        )
+    }
+
+    private final func updateEmptyState(for datasource: [[Datasource]], featureHasAnyContent: Bool, isSearchActive: Bool) {
+        let descriptor = Self.emptyStateDescriptor(
+            isGroup: isGroup,
+            category: category,
+            filteredGroups: filteredGroups,
+            visibleDatasourceIsEmpty: Self.visibleDatasourceIsEmpty(datasource),
+            featureHasAnyContent: featureHasAnyContent,
+            isSearchActive: isSearchActive
+        )
+
+        if let descriptor = descriptor {
+            configureEmptyView(with: descriptor)
+        }
+
+        let shouldShowEmptyState = descriptor != nil
+        if isEmptyViewShowed.value != shouldShowEmptyState {
+            isEmptyViewShowed.accept(shouldShowEmptyState)
+        }
+        emptyView.isHidden = !shouldShowEmptyState
+    }
+
+    private final func configureEmptyView(with descriptor: CoreListEmptyStateDescriptor) {
+        emptyView.accessibilityIdentifier = isGroup ? "groups_empty_view" : "contacts_empty_view"
+        emptyView.configure(descriptor: descriptor) { [weak self] in
+            self?.performEmptyStateAction(descriptor.action)
+        }
+    }
+
+    private final func performEmptyStateAction(_ action: CoreListEmptyStateAction?) {
+        switch action {
+        case .addContact:
+            openAddContactFlow()
+        case .createPublicGroup:
+            openCreatePublicGroupFlow()
+        case .startCall, .none:
+            break
         }
     }
 
@@ -1392,6 +1530,19 @@ class ContactsViewController: BaseViewController {
     func onAddButtonTouchUpInside(_ sender: AnyObject) {
         let vc = CreateNewEntityViewController()
         
+        showModal(vc, parent: self)
+    }
+
+    internal func openAddContactFlow() {
+        let vc = AddNewContactViewController()
+        vc.leftMenuSelectRootCategoryDelegate = leftMenuDelegate
+        showModal(vc, parent: self)
+    }
+
+    internal func openCreatePublicGroupFlow() {
+        let vc = CreateNewGroupViewController()
+        vc.createIncognitoGroup = false
+        vc.leftMenuSelectRootCategoryDelegate = leftMenuDelegate
         showModal(vc, parent: self)
     }
     
@@ -1771,13 +1922,6 @@ class ContactsViewController: BaseViewController {
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 92
         self.tableView.tableFooterView = UIView()
-        
-        emptyView.configure(image: imageLiteral( "person.3")?.upscale(dimension: 100).withRenderingMode(.alwaysTemplate),
-                            title: getEmptyStateString() ?? "",
-                            subtitle: "",
-                            buttonTitle: "Add contact".localizeString(id: "application_action_no_contacts", arguments: [])) {
-            
-        }
         
         emptyView.isHidden = true
         view.addSubview(emptyView)

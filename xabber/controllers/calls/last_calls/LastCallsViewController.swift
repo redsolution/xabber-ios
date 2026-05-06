@@ -104,6 +104,50 @@ class LastCallsViewController: BaseViewController {
             return outgoing ? .outgoing : .incoming
         }
     }
+
+    internal static func emptyStateDescriptor(
+        isLoading: Bool,
+        isSearchActive: Bool,
+        callHistoryIsEmpty: Bool,
+        hasCallableContacts: Bool
+    ) -> CoreListEmptyStateDescriptor? {
+        guard !isLoading, !isSearchActive, callHistoryIsEmpty else {
+            return nil
+        }
+
+        if hasCallableContacts {
+            return CoreListEmptyStateDescriptor(
+                iconSystemName: "phone.circle",
+                title: "No calls yet".localizeString(id: "calls_empty_title", arguments: []),
+                subtitle: "Start a call with one of your contacts.".localizeString(id: "calls_empty_start_subtitle", arguments: []),
+                buttonTitle: "Start Call".localizeString(id: "calls_empty_start_call", arguments: []),
+                buttonAccessibilityIdentifier: "calls_empty_start_call_button",
+                action: .startCall
+            )
+        }
+
+        return CoreListEmptyStateDescriptor(
+            iconSystemName: "phone.circle",
+            title: "No calls yet".localizeString(id: "calls_empty_title", arguments: []),
+            subtitle: "Add your first contact before starting a call.".localizeString(id: "calls_empty_add_contact_subtitle", arguments: []),
+            buttonTitle: "Add Contact".localizeString(id: "calls_empty_add_contact", arguments: []),
+            buttonAccessibilityIdentifier: "calls_empty_add_contact_button",
+            action: .addContact
+        )
+    }
+
+    internal static func hasCallableContacts(in realm: Realm, enabledAccounts: Set<String>) -> Bool {
+        realm
+            .objects(RosterStorageItem.self)
+            .filter(
+                "owner IN %@ AND subscription_ == %@ AND jid != owner",
+                Array(enabledAccounts),
+                RosterStorageItem.Subsccribtion.both.rawValue
+            )
+            .contains {
+                ($0.getPrimaryResource()?.entity ?? .contact) == .contact
+            }
+    }
     
     struct Datasource: DiffAware {
         
@@ -144,6 +188,7 @@ class LastCallsViewController: BaseViewController {
     internal var displayNames: Results<RosterDisplayNameStorageItem>? = nil
     internal var enabledAccounts: BehaviorRelay<Set<String>> = BehaviorRelay(value: Set<String>())
     internal var isEmptyViewShowed: BehaviorRelay<Bool> = BehaviorRelay(value: false)
+    internal var isCallHistoryLoaded: Bool = false
     
     internal var topAccountJid: String = ""
     
@@ -328,15 +373,6 @@ class LastCallsViewController: BaseViewController {
                     }
                 }
                 .subscribe { (results) in
-                    if results.isEmpty {
-                        if !self.isEmptyViewShowed.value {
-                            self.isEmptyViewShowed.accept(true)
-                        }
-                    } else {
-                        if self.isEmptyViewShowed.value {
-                            self.isEmptyViewShowed.accept(false)
-                        }
-                    }
                     let changes = diff(old: self.datasource, new: results)
                     UIView.performWithoutAnimation {
                         self.tableView.reload(
@@ -351,6 +387,8 @@ class LastCallsViewController: BaseViewController {
                             
                         }
                     }
+                    self.isCallHistoryLoaded = true
+                    self.refreshEmptyStateVisibility(callHistoryIsEmpty: results.isEmpty)
                    
                 } onError: { (error) in
                     
@@ -358,6 +396,22 @@ class LastCallsViewController: BaseViewController {
                     
                 } onDisposed: {
                     
+                }
+                .disposed(by: bag)
+
+            Observable
+                .collection(from: realm
+                    .objects(RosterStorageItem.self)
+                    .filter("owner IN %@", Array(enabledAccounts.value)))
+                .debounce(.milliseconds(150), scheduler: MainScheduler.asyncInstance)
+                .subscribe { _ in
+                    self.refreshEmptyStateVisibility()
+                } onError: { _ in
+
+                } onCompleted: {
+
+                } onDisposed: {
+
                 }
                 .disposed(by: bag)
 
@@ -385,6 +439,52 @@ class LastCallsViewController: BaseViewController {
     private final func showAddDialog() {
         let vc = NewCallViewController()
         showModal(vc, parent: self)
+    }
+
+    internal func openAddContactFlow() {
+        let vc = AddNewContactViewController()
+        vc.leftMenuSelectRootCategoryDelegate = leftMenuDelegate
+        showModal(vc, parent: self)
+    }
+
+    internal final func refreshEmptyStateVisibility(isSearchActive: Bool? = nil, callHistoryIsEmpty: Bool? = nil) {
+        let hasCallableContacts: Bool
+        do {
+            hasCallableContacts = Self.hasCallableContacts(in: try WRealm.safe(), enabledAccounts: enabledAccounts.value)
+        } catch {
+            hasCallableContacts = false
+        }
+
+        let descriptor = Self.emptyStateDescriptor(
+            isLoading: !isCallHistoryLoaded,
+            isSearchActive: isSearchActive ?? searchController.isActive,
+            callHistoryIsEmpty: callHistoryIsEmpty ?? datasource.isEmpty,
+            hasCallableContacts: hasCallableContacts
+        )
+
+        if let descriptor = descriptor {
+            emptyView.accessibilityIdentifier = "calls_empty_view"
+            emptyView.configure(descriptor: descriptor) { [weak self] in
+                self?.performEmptyStateAction(descriptor.action)
+            }
+        }
+
+        let shouldShowEmptyState = descriptor != nil
+        if isEmptyViewShowed.value != shouldShowEmptyState {
+            isEmptyViewShowed.accept(shouldShowEmptyState)
+        }
+        emptyView.isHidden = !shouldShowEmptyState
+    }
+
+    private final func performEmptyStateAction(_ action: CoreListEmptyStateAction?) {
+        switch action {
+        case .startCall:
+            showAddDialog()
+        case .addContact:
+            openAddContactFlow()
+        case .createPublicGroup, .none:
+            break
+        }
     }
     
     @objc
@@ -542,13 +642,6 @@ class LastCallsViewController: BaseViewController {
         tableView.dataSource = self
         tableView.delegate = self
         
-        emptyView.configure(image: (UIImage(systemName: "phone")?.upscale(dimension: 160).withRenderingMode(.alwaysTemplate))!,
-                            title: "No calls yet",
-                            subtitle: "",
-                            buttonTitle: "Make a call".localizeString(id: "chat_make_call_hint", arguments: [])) {
-            self.showAddDialog()
-            
-        }
         emptyView.isHidden = true
         view.addSubview(emptyView)
         emptyView.fillSuperview()

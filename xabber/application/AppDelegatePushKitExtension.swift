@@ -43,6 +43,10 @@ extension AppDelegate: PKPushRegistryDelegate {
     }
     
     func pushRegistry(_ registry: PKPushRegistry, didReceiveIncomingPushWith payload: PKPushPayload, for type: PKPushType, completion: @escaping () -> Void) {
+        guard type == .voIP else {
+            completion()
+            return
+        }
         DDLogDebug("pushkit push payload \(payload.dictionaryPayload)")
         self.isPushKit = true
 //        print("receive push for completion \(payload.dictionaryPayload)")

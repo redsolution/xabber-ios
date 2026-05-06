@@ -40,6 +40,7 @@ class VideoGalleryForChatViewController: BaseMediaGalleryForChatViewController {
             
             return view
         }()
+        private let sensitiveOverlay = SensitiveMediaOverlayView()
 
         override init(frame: CGRect) {
             super.init(frame: frame)
@@ -52,13 +53,17 @@ class VideoGalleryForChatViewController: BaseMediaGalleryForChatViewController {
         private func setup() {
             self.contentView.addSubview(self.imageView)
             self.imageView.fillSuperview()
+            self.contentView.addSubview(sensitiveOverlay)
+            sensitiveOverlay.fillSuperview()
+            sensitiveOverlay.isUserInteractionEnabled = false
             self.contentView.layer.cornerRadius = 4
             self.contentView.layer.masksToBounds = true
             self.contentView.layer.borderWidth = 1
             self.contentView.layer.borderColor = MDCPalette.grey.tint300.cgColor
         }
 
-        func configure(url: URL, title: String, subtitle: String, thumb: UIImage?) {
+        func configure(url: URL, title: String, subtitle: String, thumb: UIImage?, isSensitive: Bool) {
+            sensitiveOverlay.isHidden = !isSensitive
             let placeholderView = GalleryPlaceholderView(frame: CGRect(square: 64))
             placeholderView.image.image = imageLiteral("custom.photo.badge.clock")
 //            self.imageView.addSubview(placeholderView)
@@ -92,6 +97,7 @@ class VideoGalleryForChatViewController: BaseMediaGalleryForChatViewController {
             super.prepareForReuse()
             label.text = nil
             self.imageView.subviews.forEach { $0.removeFromSuperview() }
+            sensitiveOverlay.isHidden = true
         }
     }
     
@@ -154,7 +160,7 @@ class VideoGalleryForChatViewController: BaseMediaGalleryForChatViewController {
         }
         let item  = self.datasource[indexPath.row]
         
-        cell.configure(url: item.url, title: item.title, subtitle: item.subtitle, thumb: item.thumb)
+        cell.configure(url: item.url, title: item.title, subtitle: item.subtitle, thumb: item.thumb, isSensitive: item.isSensitive && !item.isSensitiveRevealed)
         
         return cell
     }
@@ -179,11 +185,39 @@ class VideoGalleryForChatViewController: BaseMediaGalleryForChatViewController {
     
     override func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         let url = self.datasource[indexPath.row].url
+        let item = self.datasource[indexPath.row]
+        if item.isSensitive && !item.isSensitiveRevealed {
+            let vc = SensitiveContentFirstPaneViewController()
+            vc.isFirstStep = true
+            vc.urls = [url]
+            vc.url = url
+            vc.delegate = self
+            vc.messagePrimary = item.messagePrimary
+            vc.referencePrimary = item.primary
+            vc.isVideo = true
+            showModal(vc, parent: self)
+            return
+        }
         let player = AVPlayer(url: url)
         
         let controller = AVPlayerViewController()
         controller.player = player
         
+        present(controller, animated: true) {
+            player.play()
+        }
+    }
+}
+
+extension VideoGalleryForChatViewController: SensitiveContentFirstPaneViewControllerDelegate {
+    func onViewSensitiveMedia(messagePrimary: String, referencePrimary: String, urls: [URL], url: URL, isVideo: Bool) {
+        if referencePrimary.isNotEmpty {
+            revealedSensitiveMediaPrimaries.insert(referencePrimary)
+            collectionView.reloadData()
+        }
+        let player = AVPlayer(url: url)
+        let controller = AVPlayerViewController()
+        controller.player = player
         present(controller, animated: true) {
             player.play()
         }

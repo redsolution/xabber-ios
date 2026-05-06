@@ -56,17 +56,21 @@ extension LastChatsViewController: UISearchControllerDelegate {
     
     func willPresentSearchController(_ searchController: UISearchController) {
         print("UISearchControllerDelegate invoked method: \(#function).")
+        refreshEmptyStateVisibility(isSearchActive: true)
     }
     
     func didPresentSearchController(_ searchController: UISearchController) {
         print("UISearchControllerDelegate invoked method: \(#function).")
+        refreshEmptyStateVisibility(isSearchActive: true)
     }
     
     func willDismissSearchController(_ searchController: UISearchController) {
         print("UISearchControllerDelegate invoked method: \(#function).")
+        refreshEmptyStateVisibility(isSearchActive: false)
     }
     
     func didDismissSearchController(_ searchController: UISearchController) {
         print("UISearchControllerDelegate invoked method: \(#function).")
+        refreshEmptyStateVisibility(isSearchActive: false)
     }
 }

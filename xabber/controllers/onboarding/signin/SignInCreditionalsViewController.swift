@@ -499,6 +499,12 @@ class SignInCreditionalsViewController: SimpleBaseViewController {
     
     @objc
     private final func onSubtitleTouchUp(_ sender: UIButton) {
+        EULANavigationGate.continueAfterAcceptance(from: self) { [weak self] in
+            self?.continueToSignUp()
+        }
+    }
+
+    private final func continueToSignUp() {
         if self.loginFieldValue.isNotEmpty {
             AccountManager.shared.deleteAccount(by: self.loginFieldValue)
         }

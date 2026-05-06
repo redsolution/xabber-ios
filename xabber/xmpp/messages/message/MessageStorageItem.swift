@@ -332,10 +332,10 @@ class MessageStorageItem: Object {
         switch displayAs {
             case .text, .system:
                 var resultBody: String = ""
-                let images: [ImageAttachment] = self.references.toArray().filter {
-                    item in
-                    !item.isLocallyHiddenByReport &&
-                    item.mimeType == MimeIconTypes.image.rawValue
+	                let images: [ImageAttachment] = self.references.toArray().filter {
+	                    item in
+	                    !item.isLocallyHiddenByReport &&
+	                    SensitiveMediaAnalysisService.sensitiveAnalyzableMediaType(kind: item.kind, mimeType: item.mimeType, mediaType: item.metadata?["media-type"] as? String) == .image
                 }.compactMap {
                     item in
                     guard let url = item.downloadUrl else {
@@ -344,14 +344,14 @@ class MessageStorageItem: Object {
                     return ImageAttachment(primary: item.primary, url: url, size: item.sizeInPx ?? CGSize(square: 128), isSensitive: item.isSensitive)
                 }
                 
-                let videos: [VideoAttachment] = self.references.toArray().filter {
-                    !$0.isLocallyHiddenByReport && $0.mimeType == MimeIconTypes.video.rawValue
+	                let videos: [VideoAttachment] = self.references.toArray().filter {
+	                    !$0.isLocallyHiddenByReport && SensitiveMediaAnalysisService.sensitiveAnalyzableMediaType(kind: $0.kind, mimeType: $0.mimeType, mediaType: $0.metadata?["media-type"] as? String) == .video
                 } .compactMap {
                     item in
                     guard let url = item.downloadUrl else {
                         return nil
                     }
-                    return VideoAttachment(primary: item.primary, url: url, size: item.sizeInPx ?? CGSize(square: 128), previewUrl: nil, duration: 0, downloaded: item.isDownloaded)
+                    return VideoAttachment(primary: item.primary, url: url, size: item.sizeInPx ?? CGSize(square: 128), previewUrl: nil, duration: 0, downloaded: item.isDownloaded, isSensitive: item.isSensitive)
                 }
                 
                 let audio: [AudioAttachment] = self.references.toArray().filter {
@@ -361,8 +361,8 @@ class MessageStorageItem: Object {
                     return AudioAttachment(primary: item.primary, url: item.decodedUrl, size: 10, name: "name", duration: Double(item.duration ?? 0), downloaded: item.isDownloaded, pcm: item.meteringLevels ?? [])
                 }
                 
-                let files: [FileAttachment] = self.references.toArray().filter {
-                    return !$0.isLocallyHiddenByReport && $0.kind == .media && ![MimeIconTypes.image.rawValue, MimeIconTypes.video.rawValue, MimeIconTypes.audio.rawValue].contains($0.mimeType)
+	                let files: [FileAttachment] = self.references.toArray().filter {
+	                    return !$0.isLocallyHiddenByReport && $0.kind == .media && SensitiveMediaAnalysisService.sensitiveAnalyzableMediaType(kind: $0.kind, mimeType: $0.mimeType, mediaType: $0.metadata?["media-type"] as? String) == .unsupported && MimeIcon($0.mimeType).value != .audio
                 } .compactMap {
                     item in
                     if item.kind_ == "groupchat" {
@@ -410,10 +410,10 @@ class MessageStorageItem: Object {
         switch displayAs {
             case .text, .system:
                 var resultBody: String = ""
-                let images: [ImageAttachment] = self.references.toArray().filter {
-                    item in
-                    !item.isLocallyHiddenByReport &&
-                    item.mimeType == MimeIconTypes.image.rawValue
+	                let images: [ImageAttachment] = self.references.toArray().filter {
+	                    item in
+	                    !item.isLocallyHiddenByReport &&
+	                    SensitiveMediaAnalysisService.sensitiveAnalyzableMediaType(kind: item.kind, mimeType: item.mimeType, mediaType: item.metadata?["media-type"] as? String) == .image
                 }.compactMap {
                     item in
                     guard let url = item.downloadUrl else {
@@ -422,14 +422,14 @@ class MessageStorageItem: Object {
                     return ImageAttachment(primary: item.primary, url: url, size: item.sizeInPx ?? CGSize(square: 128), isSensitive: item.isSensitive)
                 }
                 
-                let videos: [VideoAttachment] = self.references.toArray().filter {
-                    !$0.isLocallyHiddenByReport && $0.mimeType == MimeIconTypes.video.rawValue
+	                let videos: [VideoAttachment] = self.references.toArray().filter {
+	                    !$0.isLocallyHiddenByReport && SensitiveMediaAnalysisService.sensitiveAnalyzableMediaType(kind: $0.kind, mimeType: $0.mimeType, mediaType: $0.metadata?["media-type"] as? String) == .video
                 } .compactMap {
                     item in
                     guard let url = item.downloadUrl else {
                         return nil
                     }
-                    return VideoAttachment(primary: item.primary, url: url, size: item.sizeInPx ?? CGSize(square: 128), previewUrl: nil, duration: 0, downloaded: item.isDownloaded)
+                    return VideoAttachment(primary: item.primary, url: url, size: item.sizeInPx ?? CGSize(square: 128), previewUrl: nil, duration: 0, downloaded: item.isDownloaded, isSensitive: item.isSensitive)
                 }
                 
                 let audio: [AudioAttachment] = self.references.toArray().filter {
@@ -439,8 +439,8 @@ class MessageStorageItem: Object {
                     return AudioAttachment(primary: item.primary, url: item.decodedUrl, size: 10, name: "name", duration: Double(item.duration ?? 0), downloaded: item.isDownloaded, pcm: item.meteringLevels ?? [])
                 }
                 
-                let files: [FileAttachment] = self.references.toArray().filter {
-                    return !$0.isLocallyHiddenByReport && $0.kind == .media && ![MimeIconTypes.image.rawValue, MimeIconTypes.video.rawValue, MimeIconTypes.audio.rawValue].contains($0.mimeType)
+	                let files: [FileAttachment] = self.references.toArray().filter {
+	                    return !$0.isLocallyHiddenByReport && $0.kind == .media && SensitiveMediaAnalysisService.sensitiveAnalyzableMediaType(kind: $0.kind, mimeType: $0.mimeType, mediaType: $0.metadata?["media-type"] as? String) == .unsupported && MimeIcon($0.mimeType).value != .audio
                 } .compactMap {
                     item in
                     if item.kind_ == "groupchat" {

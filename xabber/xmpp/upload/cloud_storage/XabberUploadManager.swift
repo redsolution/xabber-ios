@@ -1625,9 +1625,10 @@ class XabberUploadManager: AbstractXMPPManager {
                     self.finishQuotaRefresh(generation: generation, context: context, reason: reason, result: .unauthorized)
                 } else if let code = code, code >= 200 && code < 300,
                           let quotaPayload = CloudStorageAccountQuotaPayload.parse(value) {
-                    self.fetchStatsAndStoreQuota(quotaPayload: quotaPayload, context: context, generation: generation, reason: reason)
+                    self.fetchStatsAndStoreQuota(context: context, generation: generation, reason: reason)
                 } else {
-                    self.finishQuotaRefresh(generation: generation, context: context, reason: reason, result: .failure)
+                    self.fetchStatsAndStoreQuota(context: context, generation: generation, reason: reason)
+//                    self.finishQuotaRefresh(generation: generation, context: context, reason: reason, result: .failure)
                 }
 
             case .failure(let code, let error):
@@ -1636,14 +1637,14 @@ class XabberUploadManager: AbstractXMPPManager {
                     self.finishQuotaRefresh(generation: generation, context: context, reason: reason, result: .unauthorized)
                 } else {
                     DDLogDebug("XabberUploadManager: \(#function). \(error?.localizedDescription ?? "Unknown error")")
-                    self.finishQuotaRefresh(generation: generation, context: context, reason: reason, result: .failure)
+                    self.fetchStatsAndStoreQuota(context: context, generation: generation, reason: reason)
+//                    self.finishQuotaRefresh(generation: generation, context: context, reason: reason, result: .failure)
                 }
             }
         }
     }
 
     private func fetchStatsAndStoreQuota(
-        quotaPayload: CloudStorageAccountQuotaPayload,
         context: CloudStorageGalleryRequestContext,
         generation: Int,
         reason: CloudStorageQuotaRefreshReason
@@ -1658,7 +1659,7 @@ class XabberUploadManager: AbstractXMPPManager {
                     self.tokenWasExpired(context)
                     self.finishQuotaRefresh(generation: generation, context: context, reason: reason, result: .unauthorized)
                 } else if let code = code, code >= 200 && code < 300, let value = value, let payload = CloudStorageQuotaStatsPayload.parse(value) {
-                    let result: CloudStorageQuotaRefreshResult = self.storeQuota(quotaPayload: quotaPayload, statsPayload: payload, context: context) ? .success : .failure
+                    let result: CloudStorageQuotaRefreshResult = self.storeQuota(statsPayload: payload, context: context) ? .success : .failure
                     self.finishQuotaRefresh(generation: generation, context: context, reason: reason, result: result)
                 } else {
                     self.finishQuotaRefresh(generation: generation, context: context, reason: reason, result: .failure)
@@ -1678,7 +1679,6 @@ class XabberUploadManager: AbstractXMPPManager {
 
     @discardableResult
     private func storeQuota(
-        quotaPayload: CloudStorageAccountQuotaPayload,
         statsPayload payload: CloudStorageQuotaStatsPayload,
         context: CloudStorageGalleryRequestContext
     ) -> Bool {
@@ -1696,8 +1696,8 @@ class XabberUploadManager: AbstractXMPPManager {
             }
 
             try realm.write {
-                item.quotaBytes = quotaPayload.quota
-                item.totalBytes = quotaPayload.used
+                item.quotaBytes = payload.quota
+                item.totalBytes = payload.total.used
                 item.totalCount = payload.total.count
                 self.apply(payload.images, bytes: \.imagesBytes, count: \.imagesCount, to: item)
                 self.apply(payload.videos, bytes: \.videosBytes, count: \.videosCount, to: item)

@@ -30,6 +30,7 @@ class InlineImagesGridView: InlineAttachmentView {
     
     class InlineMessageImageView: UIImageView {
         
+        var primary: String
         var url: URL
         var isSensitive: Bool {
             didSet {
@@ -37,36 +38,10 @@ class InlineImagesGridView: InlineAttachmentView {
             }
         }
         
-        // Blur overlay using UIVisualEffectView
-        private let blurOverlay: UIVisualEffectView = {
-            let blurEffect = UIBlurEffect(style: .dark)   // .dark, .light, .regular, .prominent, .systemMaterial...
-            let effectView = UIVisualEffectView(effect: blurEffect)
-            effectView.isHidden = true
-//            effectView.translatesAutoresizingMaskIntoConstraints = false
-            return effectView
-        }()
+        private let sensitiveOverlay = SensitiveMediaOverlayView()
         
-        // "Sensitive content" label with vibrancy (makes text pop nicely on blur)
-        private let sensitiveLabel: UILabel = {
-            let lbl = UILabel()
-            lbl.text = "Sensitive content"
-            lbl.textColor = .white
-            lbl.font = .systemFont(ofSize: 16, weight: .semibold)
-            lbl.textAlignment = .center
-            lbl.numberOfLines = 1
-            lbl.translatesAutoresizingMaskIntoConstraints = false
-            return lbl
-        }()
-        
-        // Optional: vibrancy container (makes text look better on blur)
-        private lazy var vibrancyContainer: UIVisualEffectView = {
-            let vibrancyEffect = UIVibrancyEffect(blurEffect: (blurOverlay.effect as! UIBlurEffect))
-            let v = UIVisualEffectView(effect: vibrancyEffect)
-//            v.translatesAutoresizingMaskIntoConstraints = false
-            return v
-        }()
-        
-        init(frame: CGRect, url: URL, isSensitive: Bool) {
+        init(frame: CGRect, primary: String, url: URL, isSensitive: Bool) {
+            self.primary = primary
             self.url = url
             self.isSensitive = isSensitive
             super.init(frame: frame)
@@ -79,47 +54,21 @@ class InlineImagesGridView: InlineAttachmentView {
         }
         
         private func setup() {
-            // Add blur overlay
             self.layer.masksToBounds = true
-            addSubview(blurOverlay)
-            blurOverlay.frame = CGRect(origin: .zero, size: self.bounds.size)
-//            NSLayoutConstraint.activate([
-//                blurOverlay.topAnchor.constraint(equalTo: topAnchor),
-//                blurOverlay.bottomAnchor.constraint(equalTo: bottomAnchor),
-//                blurOverlay.leadingAnchor.constraint(equalTo: leadingAnchor),
-//                blurOverlay.trailingAnchor.constraint(equalTo: trailingAnchor)
-//            ])
-            
-            // Optional vibrancy for nicer text appearance (recommended)
-            blurOverlay.contentView.addSubview(vibrancyContainer)
-            vibrancyContainer.frame = blurOverlay.bounds
-//            NSLayoutConstraint.activate([
-//                vibrancyContainer.topAnchor.constraint(equalTo: blurOverlay.contentView.topAnchor),
-//                vibrancyContainer.bottomAnchor.constraint(equalTo: blurOverlay.contentView.bottomAnchor),
-//                vibrancyContainer.leadingAnchor.constraint(equalTo: blurOverlay.contentView.leadingAnchor),
-//                vibrancyContainer.trailingAnchor.constraint(equalTo: blurOverlay.contentView.trailingAnchor)
-//            ])
-            
-            // Add label inside vibrancy container
-            vibrancyContainer.contentView.addSubview(sensitiveLabel)
-            NSLayoutConstraint.activate([
-                sensitiveLabel.centerXAnchor.constraint(equalTo: vibrancyContainer.contentView.centerXAnchor),
-                sensitiveLabel.centerYAnchor.constraint(equalTo: vibrancyContainer.contentView.centerYAnchor)
-            ])
+            addSubview(sensitiveOverlay)
+            sensitiveOverlay.frame = bounds
+            sensitiveOverlay.isUserInteractionEnabled = false
         }
         
         private func updateSensitiveAppearance() {
-            blurOverlay.isHidden = !isSensitive
-            
-            // Optional: hide image completely or dim it while blurred
-            // alpha = isSensitive ? 0.4 : 1.0
-            // or: image = isSensitive ? nil : image  (if you want to remove it)
+            sensitiveOverlay.isHidden = !isSensitive
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            sensitiveOverlay.frame = bounds
         }
         
-        // Call this when user taps to reveal (e.g. "Show anyway")
-        func revealContent() {
-            isSensitive = false
-        }
     }
     
     var views: [InlineMessageImageView] = []
@@ -217,7 +166,7 @@ class InlineImagesGridView: InlineAttachmentView {
         prepareGrid(attachments).enumerated().forEach {
             index, rect in
             if let url = attachments[index].url {
-                let view = InlineMessageImageView(frame: rect, url: url, isSensitive: attachments[index].isSensitive)
+                let view = InlineMessageImageView(frame: rect, primary: attachments[index].primary, url: url, isSensitive: attachments[index].isSensitive && !attachments[index].isSensitiveRevealed)
                 self.contentViews.append(view)
                 view.contentMode = .scaleAspectFill
 //                view.layer.masksToBounds = true
@@ -251,14 +200,14 @@ class InlineImagesGridView: InlineAttachmentView {
         
     }
     
-    func handleTouch(at point: CGPoint, callback: (([URL], URL, Bool) -> Void)?) -> Bool {
+    func handleTouch(at point: CGPoint, callback: (([URL], URL, String, Bool) -> Void)?) -> Bool {
         var isMyTouch: Bool = false
         let urls = views.compactMap { $0.url }
         views.forEach {
             item in
             if !isMyTouch {
                 if item.frame.contains(point) {
-                    callback?(urls, item.url, item.isSensitive)
+                    callback?(urls, item.url, item.primary, item.isSensitive)
                     isMyTouch = true
                 }
             }

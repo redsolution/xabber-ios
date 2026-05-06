@@ -74,7 +74,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     
     func application(_ application: UIApplication, willFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
 
-        realmMigrations(scheme: 4)
+        realmMigrations(scheme: 5)
         #if RELEASE
         _DEBUG = false
         DDLog.add(DDOSLogger.sharedInstance, with: DDLogLevel.all)
@@ -123,13 +123,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         
 //        setupRootViewController()
         
-        if EULAAcceptance.hasAcceptedCurrentVersion() {
-            AccountManager.shared.load(!self.isPushKit)
-        }
+        AccountManager.shared.load(!self.isPushKit)
         ApplicationStateManager.shared.prepare()
-        if EULAAcceptance.hasAcceptedCurrentVersion() {
-            CloudStorageQuotaRefreshCoordinator.shared.refreshAll(reason: .appLaunch)
-        }
+        CloudStorageQuotaRefreshCoordinator.shared.refreshAll(reason: .appLaunch)
         
         self.getNotificationSettings()
         
@@ -147,9 +143,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                                                name: .newLanguageSelected,
                                                object: nil)
         
-        if EULAAcceptance.hasAcceptedCurrentVersion() {
-            ApplicationStateManager.shared.runPincodeTask(animated: false, force: true)
-        }
+        ApplicationStateManager.shared.runPincodeTask(animated: false, force: true)
         return true
     }
     
@@ -164,9 +158,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             return
         }
         addBlurredScreen()
-        if EULAAcceptance.hasAcceptedCurrentVersion() {
-            AccountManager.shared.load()
-        }
+        AccountManager.shared.load()
     }
 
     func addBlurredScreen() {
@@ -196,10 +188,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func applicationWillEnterForeground(_ application: UIApplication) {
         DDLogError("enter foreground")
         guard AppRootCoordinator.active == nil else {
-            return
-        }
-        guard EULAAcceptance.hasAcceptedCurrentVersion() else {
-            Self.setupRootViewController(instance: self, window: window, userInfo: nil)
             return
         }
         AccountManager.shared.prepare()
@@ -349,11 +337,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      open url: URL,
                      options: [UIApplication.OpenURLOptionsKey : Any] = [:] ) -> Bool {
-
-        guard EULAAcceptance.hasAcceptedCurrentVersion() else {
-            Self.setupRootViewController(instance: self, window: window, userInfo: nil)
-            return false
-        }
 
         // Determine who sent the URL.
         let sendingAppID = options[.sourceApplication]

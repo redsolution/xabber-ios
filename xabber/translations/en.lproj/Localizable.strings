@@ -2297,6 +2297,21 @@ I don\'t need luck. I have ammo.";
 "chat_make_call_hint" = "Make a call";
 
 
+"calls_empty_title" = "No calls yet";
+
+
+"calls_empty_start_subtitle" = "Start a call with one of your contacts.";
+
+
+"calls_empty_add_contact_subtitle" = "Add your first contact before starting a call.";
+
+
+"calls_empty_start_call" = "Start Call";
+
+
+"calls_empty_add_contact" = "Add Contact";
+
+
 "chat_no_calls_hint" = "You don\'t have any calls";
 
 
@@ -2328,6 +2343,21 @@ I don\'t need luck. I have ammo.";
 
 
 "chats_list_is_empty" = "Chats list is empty";
+
+
+"last_chats_empty_title" = "No chats yet";
+
+
+"last_chats_empty_subtitle" = "Add your first contact to start messaging.";
+
+
+"last_chats_empty_add_contact" = "Add Contact";
+
+
+"archived_chats_empty_title" = "No archived chats yet";
+
+
+"archived_chats_empty_subtitle" = "Chats you archive will appear here.";
 
 
 "try_to_start_new_chat" = "Try to start a new chat";
@@ -2872,6 +2902,30 @@ I don\'t need luck. I have ammo.";
 "configure_notifications" = "Configure notifications";
 
 
+"notifications_empty_title" = "No notifications yet";
+
+
+"notifications_empty_subtitle" = "Security alerts, mentions, and updates will appear here.";
+
+
+"notifications_empty_security_title" = "No security notifications yet";
+
+
+"notifications_empty_security_subtitle" = "Security alerts for your account will appear here.";
+
+
+"notifications_empty_mentions_title" = "No mentions yet";
+
+
+"notifications_empty_mentions_subtitle" = "When someone mentions you in a chat, it will appear here.";
+
+
+"notifications_empty_info_title" = "No information notifications yet";
+
+
+"notifications_empty_info_subtitle" = "Updates and system messages will appear here.";
+
+
 "NO_SUCH_ACCOUNT" = "Account not found";
 
 
@@ -3158,6 +3212,24 @@ I don\'t need luck. I have ammo.";
 
 
 "you_dont_have_any_contacts_message" = "You don\'t have any contacts";
+
+
+"contacts_empty_title" = "No contacts yet";
+
+
+"contacts_empty_subtitle" = "Add your first contact to start messaging and calling.";
+
+
+"contacts_empty_add_contact" = "Add Contact";
+
+
+"groups_empty_title" = "No groups yet";
+
+
+"groups_empty_subtitle" = "Create a public group to start a shared conversation.";
+
+
+"groups_empty_create_public_group" = "Create Public Group";
 
 
 "search_contacts_and_messages" = "Search contacts and messages";
@@ -6389,6 +6461,12 @@ What’s your name?";
 "report_success_third_party" = "Report submitted. Because this server may be operated by a third party, moderation actions may depend on the server operator.";
 "report_hidden_message_placeholder" = "This message was hidden after your report.";
 "report_hidden_media_placeholder" = "This media was hidden after your report.";
+"sensitive_media_overlay_title" = "Sensitive Content";
+"sensitive_media_overlay_body" = "This media may contain sensitive content.";
+"sensitive_media_overlay_view" = "View";
+"sensitive_media_not_now" = "Not Now";
+"sensitive_media_do_not_view" = "Do Not View";
+"sensitive_media_warning_choice" = "Choose whether to view this media.";
 "report_metadata_reported_user_jid" = "Reported user JID";
 "report_metadata_server_domain" = "Server domain";
 "report_metadata_room_jid" = "Room JID";

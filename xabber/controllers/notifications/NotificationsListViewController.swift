@@ -257,83 +257,8 @@ class NotificationsListViewController: SimpleBaseViewController {
         )
     }
     
-    class EmptyView: UIView {
-        
-        let stack: UIStackView = {
-            let stack = UIStackView()
-            
-            stack.axis = .vertical
-            stack.alignment = .center
-            stack.distribution = .equalSpacing
-            
-            return stack
-        }()
-        
-        let centerStack: UIStackView = {
-            let stack = UIStackView()
-            
-            stack.axis = .vertical
-            stack.alignment = .center
-            stack.spacing = 16
-            
-            stack.isLayoutMarginsRelativeArrangement = true
-            stack.layoutMargins = UIEdgeInsets(top: 8, bottom: 8, left: 24, right: 24)
-            
-            return stack
-        }()
-        
-        let titleLabel: UILabel = {
-            let label = UILabel()
-            
-            label.font = UIFont.preferredFont(forTextStyle: .title2)
-//            if #available(iOS 13.0, *) {
-//                label.textColor = .label
-//            } else {
-                label.textColor = MDCPalette.grey.tint500//.systemGray
-//            }//MDCPalette.grey.tint900
-            
-            return label
-        }()
-        
-        let newChatButton: UIButton = {
-            let button = UIButton()
-            
-            button.setTitleColor(MDCPalette.grey.tint500, for: .normal)
-            
-            return button
-        }()
-        
-        internal var callback: (() -> Void)? = nil
-        
-        internal func activaateConstraints() {
-//            titleLabel.heightAnchor.constraint(lessThanOrEqualToConstant: 64).isActive = true
-        }
-        
-        open func configure(onCreateChatCallback: @escaping (() -> Void)) {
-            backgroundColor = .systemBackground
-            addSubview(stack)
-            stack.fillSuperview()
-            stack.addArrangedSubview(UIStackView())
-            stack.addArrangedSubview(centerStack)
-            stack.addArrangedSubview(UIStackView())
-            centerStack.addArrangedSubview(titleLabel)
-//            centerStack.addArrangedSubview(newChatButton)
-            titleLabel.text = "You don't have any notifications"
-            newChatButton.titleLabel?.numberOfLines = 0
-            newChatButton.titleLabel?.textAlignment = .center
-            activaateConstraints()
-            callback = onCreateChatCallback
-        }
-        
-        
-        @objc
-        internal func onButtonPressed(_ sender: UIButton) {
-            callback?()
-        }
-    }
-    
-    let emptyView: EmptyView = {
-        let view = EmptyView()
+    let emptyView: EmptyStateView = {
+        let view = EmptyStateView()
         
         return view
     }()
@@ -414,11 +339,10 @@ class NotificationsListViewController: SimpleBaseViewController {
         if UIDevice.current.userInterfaceIdiom == .pad {
             self.title = nil
         } else {
-            self.title = "Notifications"
+        self.title = "Notifications"
         }
         self.tableView.dataSource = self
         self.tableView.delegate = self
-        self.emptyView.configure { }
     }
     
     override func loadDatasource() {
@@ -433,6 +357,61 @@ class NotificationsListViewController: SimpleBaseViewController {
         case security = "security"
         case mentions = "mentions"
         case info = "info"
+    }
+
+    internal static func hasNotificationRows(_ datasource: [Datasource]) -> Bool {
+        datasource.contains { section in
+            section.childs.contains { !$0.isHeader }
+        }
+    }
+
+    internal static func emptyStateDescriptor(
+        filter: Filter,
+        isLoading: Bool,
+        hasNotificationRows: Bool
+    ) -> CoreListEmptyStateDescriptor? {
+        guard !isLoading, !hasNotificationRows else {
+            return nil
+        }
+
+        switch filter {
+        case .all:
+            return CoreListEmptyStateDescriptor(
+                iconSystemName: "bell.circle",
+                title: "No notifications yet".localizeString(id: "notifications_empty_title", arguments: []),
+                subtitle: "Security alerts, mentions, and updates will appear here.".localizeString(id: "notifications_empty_subtitle", arguments: []),
+                buttonTitle: nil,
+                buttonAccessibilityIdentifier: nil,
+                action: nil
+            )
+        case .security:
+            return CoreListEmptyStateDescriptor(
+                iconSystemName: "shield",
+                title: "No security notifications yet".localizeString(id: "notifications_empty_security_title", arguments: []),
+                subtitle: "Security alerts for your account will appear here.".localizeString(id: "notifications_empty_security_subtitle", arguments: []),
+                buttonTitle: nil,
+                buttonAccessibilityIdentifier: nil,
+                action: nil
+            )
+        case .mentions:
+            return CoreListEmptyStateDescriptor(
+                iconSystemName: "at.circle",
+                title: "No mentions yet".localizeString(id: "notifications_empty_mentions_title", arguments: []),
+                subtitle: "When someone mentions you in a chat, it will appear here.".localizeString(id: "notifications_empty_mentions_subtitle", arguments: []),
+                buttonTitle: nil,
+                buttonAccessibilityIdentifier: nil,
+                action: nil
+            )
+        case .info:
+            return CoreListEmptyStateDescriptor(
+                iconSystemName: "info.circle",
+                title: "No information notifications yet".localizeString(id: "notifications_empty_info_title", arguments: []),
+                subtitle: "Updates and system messages will appear here.".localizeString(id: "notifications_empty_info_subtitle", arguments: []),
+                buttonTitle: nil,
+                buttonAccessibilityIdentifier: nil,
+                action: nil
+            )
+        }
     }
     
     var filter: BehaviorRelay<Filter> = BehaviorRelay(value: .all)
@@ -812,7 +791,18 @@ class NotificationsListViewController: SimpleBaseViewController {
                 let previousDatasource = self.datasource
                 let isCompatible = self.compatibleSectionShape(old: previousDatasource, new: snapshot)
                 self.datasource = snapshot
-                self.emptyScreenShowObserver.accept(snapshot.isEmpty)
+                let descriptor = Self.emptyStateDescriptor(
+                    filter: filter,
+                    isLoading: false,
+                    hasNotificationRows: Self.hasNotificationRows(snapshot)
+                )
+                if let descriptor = descriptor {
+                    self.emptyView.accessibilityIdentifier = "notifications_empty_view"
+                    self.emptyView.configure(descriptor: descriptor, onButtonTouchUp: nil)
+                }
+                let shouldShowEmptyState = descriptor != nil
+                self.emptyScreenShowObserver.accept(shouldShowEmptyState)
+                self.emptyView.isHidden = !shouldShowEmptyState
                 self.updateBarsIfNeeded(filter: filter, filterAccount: filterAccount)
                 guard isCompatible else {
                     self.tableView.reloadData()

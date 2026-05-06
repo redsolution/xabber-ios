@@ -47,7 +47,7 @@ struct SettingsCloudStorageQuotaDisplayState: Equatable {
             guard let galleryType = galleryType else {
                 return value
             }
-            return galleryType.displayTitle + " · " + value
+            return galleryType.displayTitle // + " · " + value
         }
 
         if hasCachedQuota {
@@ -991,20 +991,7 @@ class SettingsViewController: BaseViewController {
                     ])
                 ]),
             Datasource(section: .settings, title: "Debug", icon:"custom.ant.square.fill", color: UIColor.systemGreen, key: .developer),
-            Datasource(
-                section: .settings,
-                title: "End User License Agreement".localizeString(id: "eula_settings_title", arguments: []),
-                icon:"custom.text.document.square.fill",
-                color: UIColor.systemGreen,
-                key: .eula
-            ),
-            Datasource(
-                section: .settings,
-                title: "Safety and Reporting".localizeString(id: "settings_safety_reporting_title", arguments: []),
-                icon:"exclamationmark.bubble.fill",
-                color: UIColor.systemRed,
-                key: .safetyReporting
-            ),
+            
             Datasource(section: .settings, title: "Language", icon:"xabber.translate.square.fill", color: UIColor.systemPurple, key: .languages)
             ]))
 
@@ -1038,6 +1025,23 @@ class SettingsViewController: BaseViewController {
                     Datasource(section: .security, title: "Yubikey signature", icon: "custom.key.square.fill", color: UIColor.systemOrange, viewController: YubikeySetupViewController.self, key: .yubikey),
                 ]))
         }
+        datasource.append(Datasource(section: .premiumFeatures, title: "", childs: [
+            Datasource(
+                section: .settings,
+                title: "End User License Agreement".localizeString(id: "eula_settings_title", arguments: []),
+                icon:"custom.text.document.square.fill",
+                color: UIColor.systemGreen,
+                key: .eula
+            ),
+            Datasource(
+                section: .settings,
+                title: "Safety and Reporting".localizeString(id: "settings_safety_reporting_title", arguments: []),
+                icon:"exclamationmark.bubble.fill",
+                color: UIColor.systemRed,
+                key: .safetyReporting
+            )
+        ]))
+        
     }
 
     internal func configure() {

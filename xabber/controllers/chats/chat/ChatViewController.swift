@@ -407,6 +407,7 @@ class ChatViewController: MessagesViewController {
     var forwardedIds: BehaviorRelay<Set<String>> = BehaviorRelay(value: Set<String>())
     var attachedMessagesIds: BehaviorRelay<[String]> = BehaviorRelay(value: [])
     var inTypingMode: BehaviorRelay<Bool?> = BehaviorRelay(value: nil)
+    var revealedSensitiveMediaPrimaries: Set<String> = Set<String>()
     
 // edit messages
     var editMessageId: BehaviorRelay<String?> = BehaviorRelay(value: nil)

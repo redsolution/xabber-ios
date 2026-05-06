@@ -256,6 +256,20 @@ class VoIPManager: NSObject {
         configuration.iconTemplateImageData = UIImage(named: "xabber_icon_call_kit")?.pngData()
         return configuration
     }
+
+    static func callUpdate() -> CXCallUpdate {
+        let update = CXCallUpdate()
+        configureCallUpdateCapabilities(update)
+        return update
+    }
+
+    static func configureCallUpdateCapabilities(_ update: CXCallUpdate) {
+        update.hasVideo = true
+        update.supportsHolding = false
+        update.supportsGrouping = false
+        update.supportsUngrouping = false
+        update.supportsDTMF = false
+    }
    
     override init() {
         let configuration = VoIPManager.providerConfiguration()
@@ -767,7 +781,7 @@ class VoIPManager: NSObject {
             }
            
             self.inCallingProcess = true
-            self.update = CXCallUpdate()
+            self.update = Self.callUpdate()
            
             do {
                 let realm = try WRealm.safe()
@@ -812,54 +826,52 @@ class VoIPManager: NSObject {
    
     public final func receiveAnotherCall(payload: [AnyHashable: Any]) {
         let callUUID = UUID()
-       
-        provider.reportNewIncomingCall(with: callUUID, update: update!) { error in
+
+        guard let body = payload["body"] as? String else { return }
+
+        let data = EncryptedPushDate(body)
+
+        guard let target = payload["target"] as? String,
+              let defaults = UserDefaults(suiteName: CredentialsManager.uniqueAccessGroup()),
+              let credentials = defaults.dictionary(forKey: target),
+              let secret = credentials["secret"] as? String, !secret.isEmpty,
+              let username = credentials["username"] as? String,
+              let host = credentials["host"] as? String else {
+            return
+        }
+
+        let owner = [username, host].joined(separator: "@")
+
+        guard let decrypted = data.payloadStanza(key: secret),
+              let from = decrypted.attributeStringValue(forName: "from"),
+              let propose = decrypted.element(forName: "propose", xmlns: VoIPCall.namespace),
+              let callId = propose.attributeStringValue(forName: "id") else {
+            return
+        }
+
+        let bareJid = XMPPJID(string: from)?.bare ?? from
+        let anotherUpdate = Self.callUpdate()
+
+        do {
+            let realm = try WRealm.safe()
+            if let name = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: [bareJid, owner].prp())?.displayName {
+                anotherUpdate.localizedCallerName = name
+            } else {
+                anotherUpdate.localizedCallerName = bareJid
+            }
+        } catch {
+            DDLogDebug("VoIPManager: \(#function). \(error.localizedDescription)")
+            anotherUpdate.localizedCallerName = bareJid
+        }
+
+        anotherUpdate.remoteHandle = CXHandle(type: .emailAddress, value: bareJid)
+
+        provider.reportNewIncomingCall(with: callUUID, update: anotherUpdate) { error in
             if let error = error {
                 DDLogDebug(error.localizedDescription)
-                return
             }
-           
-            self.callScreenDelegate?.shouldDismiss()
-           
-            guard let body = payload["body"] as? String else { return }
-           
-            let data = EncryptedPushDate(body)
-           
-            guard let target = payload["target"] as? String,
-                  let defaults = UserDefaults(suiteName: CredentialsManager.uniqueAccessGroup()),
-                  let credentials = defaults.dictionary(forKey: target),
-                  let secret = credentials["secret"] as? String, !secret.isEmpty,
-                  let username = credentials["username"] as? String,
-                  let host = credentials["host"] as? String else {
-                return
-            }
-           
-            let owner = [username, host].joined(separator: "@")
-           
-            guard let decrypted = data.payloadStanza(key: secret),
-                  let from = decrypted.attributeStringValue(forName: "from"),
-                  let propose = decrypted.element(forName: "propose", xmlns: VoIPCall.namespace),
-                  let callId = propose.attributeStringValue(forName: "id") else {
-                return
-            }
-           
-            let bareJid = XMPPJID(string: from)?.bare ?? from
-           
-            do {
-                let realm = try WRealm.safe()
-                if let name = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: [bareJid, owner].prp())?.displayName {
-                    self.update?.localizedCallerName = name
-                } else {
-                    self.update?.localizedCallerName = bareJid
-                }
-            } catch {
-                DDLogDebug("VoIPManager: \(#function). \(error.localizedDescription)")
-            }
-           
-            self.update?.remoteHandle = CXHandle(type: .emailAddress, value: bareJid)
-            self.provider.reportCall(with: callUUID, updated: self.update!)
             self.provider.reportCall(with: callUUID, endedAt: nil, reason: .failed)
-           
+
             let anotherCall = VoIPCall(owner: owner, fullJid: from, callId: callId, callUUID: callUUID, outgoing: false)
             anotherCall.start(shouldConfirmOnAuthenticate: false)
             anotherCall.rejectCall(reason: .busy)
@@ -890,10 +902,10 @@ class VoIPManager: NSObject {
         self.inCallingProcess = false
        
         let callUUID = UUID()
-        self.update = CXCallUpdate()
+        self.update = Self.callUpdate()
        
         guard let body = payload["body"] as? String else {
-            completion()
+            self.reportFailedIncomingPush(callUUID: callUUID, completion: completion)
             return
         }
        
@@ -905,7 +917,7 @@ class VoIPManager: NSObject {
               let secret = credentials["secret"] as? String, !secret.isEmpty,
               let username = credentials["username"] as? String,
               let host = credentials["host"] as? String else {
-            completion()
+            self.reportFailedIncomingPush(callUUID: callUUID, completion: completion)
             return
         }
        
@@ -917,7 +929,7 @@ class VoIPManager: NSObject {
               fromJid.isFull,
               let propose = decrypted.element(forName: "propose", xmlns: VoIPCall.namespace),
               let callId = propose.attributeStringValue(forName: "id") else {
-            completion()
+            self.reportFailedIncomingPush(callUUID: callUUID, completion: completion)
             return
         }
 
@@ -1021,6 +1033,21 @@ class VoIPManager: NSObject {
                 return
             }
             processIncomingCall()
+        }
+    }
+
+    private func reportFailedIncomingPush(callUUID: UUID, completion: @escaping () -> Void) {
+        let failedUpdate = Self.callUpdate()
+        failedUpdate.localizedCallerName = "Xabber voice call"
+        failedUpdate.remoteHandle = CXHandle(type: .emailAddress, value: "unknown")
+        provider.reportNewIncomingCall(with: callUUID, update: failedUpdate) { error in
+            if let error {
+                DDLogDebug(error.localizedDescription)
+                completion()
+                return
+            }
+            self.provider.reportCall(with: callUUID, endedAt: Date(), reason: .failed)
+            completion()
         }
     }
    

@@ -837,6 +837,12 @@ class SignInServerFeaturesViewController: UIViewController {
     }
     
     private final func onRegisterButtonTouchUp() {
+        EULANavigationGate.continueAfterAcceptance(from: self) { [weak self] in
+            self?.continueToRegistration()
+        }
+    }
+
+    private final func continueToRegistration() {
         AccountManager.shared.deleteAccount(by: self.jid)
         let rootVc = OnboardingViewController()
         rootVc.title = " "

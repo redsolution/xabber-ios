@@ -311,18 +311,18 @@ class InlineMessageAttachmentView: ModernContainerView {
             }
         } else if self.imagesView.frame.contains(touchPoint) {
             let translatedPoint = touchPoint.translate(x: -self.imagesView.frame.minX, y: -self.imagesView.frame.minY)
-            if self.imagesView.handleTouch(at: translatedPoint, callback: { (urls, url, isSensitive) in
+            if self.imagesView.handleTouch(at: translatedPoint, callback: { (urls, url, referencePrimary, isSensitive) in
 //                if isSensitive {
 ////                    fatalError()
 //                }
-                self.delegate?.didTapOnPhoto(message: self.messagePrimary, urls: urls, url: url, isSensitive: isSensitive)
+                self.delegate?.didTapOnPhoto(message: self.messagePrimary, urls: urls, url: url, referencePrimary: referencePrimary, isSensitive: isSensitive)
             }) {
                 return true
             }
         } else if self.videosView.frame.contains(touchPoint) {
-            let translatedPoint = touchPoint.translate(x: -self.imagesView.frame.minX, y: -self.videosView.frame.minY)
-            if self.videosView.handleTouch(at: translatedPoint, callback: { (urls, url) in
-//                self.delegate?.didTapOnVideo(urls: urls, url: url)
+            let translatedPoint = touchPoint.translate(x: -self.videosView.frame.minX, y: -self.videosView.frame.minY)
+            if self.videosView.handleTouch(at: translatedPoint, callback: { (_, url, referencePrimary, isSensitive) in
+                self.delegate?.didTapOnVideo(message: self.messagePrimary, url: url, referencePrimary: referencePrimary, isSensitive: isSensitive)
             }) {
                 return true
             }

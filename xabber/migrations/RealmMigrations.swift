@@ -68,6 +68,22 @@ func realmMigrations(scheme: UInt64) {
                     newObject?["payload"] = nil
                 }
             }
+            if oldSchemaVersion < 5 {
+                migration.enumerateObjects(ofType: MessageReferenceStorageItem.className()) { _, newObject in
+                    newObject?["sensitivityCheckedAt"] = nil
+                    newObject?["sensitivityAnalysisFailedAt"] = nil
+                    newObject?["sensitivityAnalysisError"] = nil
+                    newObject?["sensitivitySource"] = nil
+                }
+                migration.enumerateObjects(ofType: MessageMediaAttachmentStorageItem.className()) { _, newObject in
+                    newObject?["isSensitive"] = false
+                    newObject?["isSensitiveChecked"] = false
+                    newObject?["sensitivityCheckedAt"] = nil
+                    newObject?["sensitivityAnalysisFailedAt"] = nil
+                    newObject?["sensitivityAnalysisError"] = nil
+                    newObject?["sensitivitySource"] = nil
+                }
+            }
         },
         deleteRealmIfMigrationNeeded: true) { total, used in
             let limit = 100 * 1024 * 1024

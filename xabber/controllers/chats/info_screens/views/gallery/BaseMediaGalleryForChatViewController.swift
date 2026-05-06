@@ -40,8 +40,10 @@ class BaseMediaGalleryForChatViewController: SimpleBaseViewController {
         
         static func compareContent(_ a: Datasource, _ b: Datasource) -> Bool {
             return a.primary == b.primary &&
-            a.url == b.url &&
-            a.title == b.title
+                a.url == b.url &&
+                a.title == b.title &&
+                a.isSensitive == b.isSensitive &&
+                a.isSensitiveRevealed == b.isSensitiveRevealed
         }
         
         var kind: MessageMediaAttachmentStorageItem.Kind
@@ -53,8 +55,10 @@ class BaseMediaGalleryForChatViewController: SimpleBaseViewController {
         var isDownloaded: Bool
         var messageId: String
         var thumb: UIImage?
+        var isSensitive: Bool
+        var isSensitiveRevealed: Bool
         
-        init(kind: MessageMediaAttachmentStorageItem.Kind, primary: String, title: String, subtitle: String, url: URL, messagePrimary: String, isDownloaded: Bool, messageId: String, thumb: UIImage?) {
+        init(kind: MessageMediaAttachmentStorageItem.Kind, primary: String, title: String, subtitle: String, url: URL, messagePrimary: String, isDownloaded: Bool, messageId: String, thumb: UIImage?, isSensitive: Bool, isSensitiveRevealed: Bool) {
             self.kind = kind
             self.primary = primary
             self.title = title
@@ -64,10 +68,13 @@ class BaseMediaGalleryForChatViewController: SimpleBaseViewController {
             self.subtitle = subtitle
             self.messageId = messageId
             self.thumb = thumb
+            self.isSensitive = isSensitive
+            self.isSensitiveRevealed = isSensitiveRevealed
         }
     }
     
     internal var datasource: [Datasource] = []
+    internal var revealedSensitiveMediaPrimaries: Set<String> = Set<String>()
     
     open var kind: MessageMediaAttachmentStorageItem.Kind = .file
     open var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
@@ -113,7 +120,19 @@ class BaseMediaGalleryForChatViewController: SimpleBaseViewController {
         return results.compactMap {
             item in
             if let url = item.url {
-                return Datasource(kind: self.kind, primary: item.primary, title: item.filename, subtitle: item.subtitle(), url: url, messagePrimary: item.messagePrimary, isDownloaded: item.isDownloaded, messageId: item.archiveId, thumb: item.thumb)
+                return Datasource(
+                    kind: self.kind,
+                    primary: item.primary,
+                    title: item.filename,
+                    subtitle: item.subtitle(),
+                    url: url,
+                    messagePrimary: item.messagePrimary,
+                    isDownloaded: item.isDownloaded,
+                    messageId: item.archiveId,
+                    thumb: item.thumb,
+                    isSensitive: item.isSensitive,
+                    isSensitiveRevealed: self.revealedSensitiveMediaPrimaries.contains(item.primary)
+                )
             }
             return nil
         }

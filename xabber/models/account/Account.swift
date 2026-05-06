@@ -590,7 +590,7 @@ final class Account: NSObject {
         do {
             DDLogDebug("primary stream connect jid=\(self.jid) trigger=\(trigger.rawValue) attempt=\(attemptID) resource=\(self.xmppStream.myJID?.resource ?? "none")")
             AccountManager.shared.markAsConnecting(jid: self.jid)
-            try self.xmppStream.connect(withTimeout: 5)
+            try self.xmppStream.connect(withTimeout: 15)
         } catch {
             DDLogDebug("cant connect: \(error.localizedDescription)")
             self.connectionGate.markFailed()
