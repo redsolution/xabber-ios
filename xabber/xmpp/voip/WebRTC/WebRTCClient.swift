@@ -35,13 +35,32 @@ enum WebRTCClientError: Error {
     case failedToAddRemoteCandidate
 }
 
+extension VoIPICEServerConfiguration {
+    func rtcIceServer() -> RTCIceServer? {
+        guard !urls.isEmpty else {
+            return nil
+        }
+        if let username = username, !username.isEmpty,
+           let credential = credential, !credential.isEmpty {
+            return RTCIceServer(urlStrings: urls, username: username, credential: credential)
+        }
+        return RTCIceServer(urlStrings: urls)
+    }
+}
+
+enum VoIPICEConfiguration {
+    static func rtcIceServers(from configurations: [VoIPICEServerConfiguration]?) -> [RTCIceServer] {
+        return (configurations ?? []).compactMap { $0.rtcIceServer() }
+    }
+}
+
 class WebRTCClient: NSObject {
     private struct RemoteCandidateKey: Hashable {
         let sdp: String
         let sdpMLineIndex: Int32
         let sdpMid: String?
     }
-        
+
     private let factory: RTCPeerConnectionFactory
     let peerConnection: RTCPeerConnection
     weak var delegate: WebRTCClientDelegate?
@@ -52,6 +71,9 @@ class WebRTCClient: NSObject {
     private var videoCapturer: RTCVideoCapturer?
     private var remoteStream: RTCMediaStream?
     private var localVideoTrack: RTCVideoTrack?
+    private var remoteVideoTrack: RTCVideoTrack?
+    private var localVideoRenderers: [ObjectIdentifier: RTCVideoRenderer] = [:]
+    private var remoteVideoRenderers: [ObjectIdentifier: RTCVideoRenderer] = [:]
     private var pendingRemoteCandidates: [RTCIceCandidate] = []
     private var pendingRemoteCandidateKeys: Set<RemoteCandidateKey> = []
     private var appliedRemoteCandidateKeys: Set<RemoteCandidateKey> = []
@@ -70,15 +92,15 @@ class WebRTCClient: NSObject {
         )
         let config = RTCConfiguration()
 //        config.certificate
-        // We use Google's public stun/turn server. For production apps you should deploy your own stun/turn servers.
-        config.iceServers = [
-            RTCIceServer(urlStrings: ["stun:stun01.pool-01.fckrkn202102.cyou:3478"]),
-            RTCIceServer(urlStrings: ["turn:stun01.pool-01.fckrkn202102.cyou:3478"],
-                         username: "xclient",
-                         credential: "eix3Poh5eu")
-        ]
+        config.iceServers = VoIPICEConfiguration.rtcIceServers(
+            from: CommonConfigManager.shared.config.voip_ice_servers
+        )
+        if config.iceServers.isEmpty {
+            DDLogWarn("VoIP WebRTC ICE servers are not configured; only host candidates will be gathered")
+        }
         // Unified plan is more superior than planB
         config.sdpSemantics = .unifiedPlan
+        config.bundlePolicy = .maxBundle
         config.enableDscp = true
         config.disableIPV6OnWiFi = false
         config.iceTransportPolicy = .all
@@ -90,11 +112,10 @@ class WebRTCClient: NSObject {
             fatalError()
         }
         self.peerConnection = connectiion
-                
+
         super.init()
         self.addAudioTrack()
-        self.addVideoTrack()
-        self.disableVideo()
+        self.addVideoTrack(enabled: false)
         self.peerConnection.delegate = self
     }
     
@@ -174,31 +195,46 @@ class WebRTCClient: NSObject {
     }
     
     func stopCaptureLocalVideo(_ completionHandler: (() -> Void)?) {
-        if !isCaptureStart { return}
-        guard let capturer = self.videoCapturer as? RTCCameraVideoCapturer else {
+        if !isCaptureStart {
+            localVideoRenderers.values.forEach { renderer in
+                localVideoTrack?.remove(renderer)
+            }
+            localVideoRenderers.removeAll()
+            completionHandler?()
             return
         }
-        capturer.stopCapture(completionHandler: completionHandler)
+        guard let capturer = self.videoCapturer as? RTCCameraVideoCapturer else {
+            localVideoRenderers.values.forEach { renderer in
+                localVideoTrack?.remove(renderer)
+            }
+            localVideoRenderers.removeAll()
+            completionHandler?()
+            return
+        }
+        capturer.stopCapture { [weak self] in
+            self?.localVideoRenderers.values.forEach { renderer in
+                self?.localVideoTrack?.remove(renderer)
+            }
+            self?.localVideoRenderers.removeAll()
+            completionHandler?()
+        }
         isCaptureStart = false
     }
     
     func startCaptureLocalVideo(renderer: RTCVideoRenderer, camera: AVCaptureDevice.Position) {
+        let rendererId = ObjectIdentifier(renderer as AnyObject)
+        localVideoRenderers[rendererId] = renderer
+        if localVideoTrack == nil {
+            addVideoTrack(enabled: true)
+        }
+        localVideoTrack?.add(renderer)
+
         guard let capturer = self.videoCapturer as? RTCCameraVideoCapturer,
               let frontCamera = (RTCCameraVideoCapturer.captureDevices().first { $0.position == camera }),
-              let format = (RTCCameraVideoCapturer.supportedFormats(for: frontCamera).sorted {
-                    (f1, f2) -> Bool in
-                    let width1 = CMVideoFormatDescriptionGetDimensions(f1.formatDescription).width
-                    let width2 = CMVideoFormatDescriptionGetDimensions(f2.formatDescription).width
-                    return width1 < width2
-                })
-                .reversed()
-                .first(where: {
-                    item in
-                    let width = CMVideoFormatDescriptionGetDimensions(item.formatDescription).width
-                    return width == 640
-                }) else {
-                    return
-                }
+              let format = Self.captureFormat(for: frontCamera) else {
+            DDLogWarn("VoIP WebRTC local video capture cannot start: camera or format unavailable")
+            return
+        }
         
         let widht = CMVideoFormatDescriptionGetDimensions(format.formatDescription).width
         let height = CMVideoFormatDescriptionGetDimensions(format.formatDescription).height
@@ -212,22 +248,29 @@ class WebRTCClient: NSObject {
         )
         
         isCaptureStart = true
-        
-        self.localVideoTrack?.add(renderer)
     }
     
-    func addVideoTrack() {
+    func addVideoTrack(enabled: Bool = true) {
+        guard self.localVideoTrack == nil else {
+            self.setVideoEnabled(enabled)
+            return
+        }
         let videoTrack = self.createVideoTrack()
+        videoTrack.isEnabled = enabled
         self.peerConnection.add(videoTrack, streamIds: ["stream0"])
         self.localVideoTrack = videoTrack
     }
     
     func renderRemoteVideo(to renderer: RTCVideoRenderer) {
-        self.remoteStream?.videoTracks.first?.add(renderer)
+        let rendererId = ObjectIdentifier(renderer as AnyObject)
+        remoteVideoRenderers[rendererId] = renderer
+        currentRemoteVideoTrack()?.add(renderer)
     }
     
     func stopRenderRemoteVideo(_ renderer: RTCVideoRenderer) {
-        self.remoteStream?.videoTracks.first?.remove(renderer)
+        let rendererId = ObjectIdentifier(renderer as AnyObject)
+        remoteVideoRenderers.removeValue(forKey: rendererId)
+        currentRemoteVideoTrack()?.remove(renderer)
     }
     
     func muteAudio() {
@@ -239,6 +282,9 @@ class WebRTCClient: NSObject {
     }
     
     func enableVideo() {
+        if self.localVideoTrack == nil {
+            self.addVideoTrack(enabled: true)
+        }
         self.setVideoEnabled(true)
     }
     
@@ -269,6 +315,45 @@ class WebRTCClient: NSObject {
         let videoTrack = self.factory.videoTrack(with: videoSource, trackId: "video0")
         return videoTrack
     }
+
+    private static func captureFormat(for camera: AVCaptureDevice) -> AVCaptureDevice.Format? {
+        let formats = RTCCameraVideoCapturer.supportedFormats(for: camera)
+        return formats
+            .sorted { first, second in
+                let firstDimensions = CMVideoFormatDescriptionGetDimensions(first.formatDescription)
+                let secondDimensions = CMVideoFormatDescriptionGetDimensions(second.formatDescription)
+                return firstDimensions.width < secondDimensions.width
+            }
+            .last { format in
+                let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+                return dimensions.width <= 640
+            } ?? formats.first
+    }
+
+    private func currentRemoteVideoTrack() -> RTCVideoTrack? {
+        if let remoteVideoTrack {
+            return remoteVideoTrack
+        }
+        if let streamTrack = remoteStream?.videoTracks.first {
+            remoteVideoTrack = streamTrack
+            return streamTrack
+        }
+        if let receiverTrack = peerConnection
+            .receivers
+            .compactMap({ $0.track as? RTCVideoTrack })
+            .first {
+            remoteVideoTrack = receiverTrack
+            return receiverTrack
+        }
+        return nil
+    }
+
+    private func attachRemoteRenderers() {
+        guard let remoteVideoTrack = currentRemoteVideoTrack() else { return }
+        remoteVideoRenderers.values.forEach { renderer in
+            remoteVideoTrack.add(renderer)
+        }
+    }
     
     private func setAudioEnabled(_ isEnabled: Bool) {
         self.peerConnection
@@ -288,6 +373,8 @@ class WebRTCClient: NSObject {
         pendingRemoteCandidates.removeAll()
         pendingRemoteCandidateKeys.removeAll()
         appliedRemoteCandidateKeys.removeAll()
+        localVideoRenderers.removeAll()
+        remoteVideoRenderers.removeAll()
         remoteDescriptionWasApplied = false
         peerConnection.close()
     }
@@ -332,7 +419,16 @@ extension WebRTCClient: RTCPeerConnectionDelegate {
     
     func peerConnection(_ peerConnection: RTCPeerConnection, didAdd stream: RTCMediaStream) {
         self.remoteStream = stream
+        self.remoteVideoTrack = stream.videoTracks.first
+        self.attachRemoteRenderers()
         //print("peerConnection did add stream")
+    }
+
+    func peerConnection(_ peerConnection: RTCPeerConnection, didAdd rtpReceiver: RTCRtpReceiver, streams mediaStreams: [RTCMediaStream]) {
+        if let videoTrack = rtpReceiver.track as? RTCVideoTrack {
+            self.remoteVideoTrack = videoTrack
+            self.attachRemoteRenderers()
+        }
     }
     
     func peerConnection(_ peerConnection: RTCPeerConnection, didRemove stream: RTCMediaStream) {
@@ -355,6 +451,9 @@ extension WebRTCClient: RTCPeerConnectionDelegate {
     
     func peerConnection(_ peerConnection: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {
         //print(["generate", candidate.sdp].joined(separator: ": "))
+        guard candidate.sdpMLineIndex <= 0 else {
+            return
+        }
         self.localCandidates.append(candidate)
         self.delegate?.webRTCClient(self, didDiscoverLocalCandidate: candidate)
     }

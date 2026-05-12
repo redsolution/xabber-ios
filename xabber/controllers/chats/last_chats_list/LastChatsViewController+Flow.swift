@@ -25,9 +25,9 @@ import CocoaLumberjack
 import YubiKit
 
 extension LastChatsViewController {
-    
 
-    
+
+
     internal final func showRegisterYubikeyDialog() {
         if SignatureManager.shared.certificate != nil {
             let vc = YubikeySetupViewController()
@@ -48,12 +48,12 @@ extension LastChatsViewController {
             }
         }
     }
-    
+
     @objc
     internal func onRegisterYubikey() {
         showRegisterYubikeyDialog()
     }
-    
+
     @objc
     internal func onReadAllMessages(_ sender: UIButton) {
         do {
@@ -79,15 +79,15 @@ extension LastChatsViewController {
         }
         self.filter.accept(.chats)
 //        DispatchQueue.main.async {
-//            
+//
 //            getAppTabBar()?.tabBar.items?.first?.image = imageLiteral( "chat-outline")
 //            getAppTabBar()?.tabBar.items?.first?.selectedImage = imageLiteral( "chat-outline")
 //            getAppTabBar()?.tabBar.items?.first?.title = "Chats".localizeString(id: "toolbar__menu_item__chats", arguments: [])
 //        }
     }
-    
+
     internal final func pinChat(jid: String, owner: String, conversationType: ClientSynchronizationManager.ConversationType) {
-        
+
         func fallback() {
             DispatchQueue.main.async {
                 self.view.makeToast("Your server doesn`t support pinned chats. Please use Clandestino server."
@@ -106,7 +106,29 @@ extension LastChatsViewController {
             })
 //        }
     }
-    
+
+    internal func onCall(jid: String, owner: String) {
+        VoIPManager.shared.startCall(owner: owner, jid: jid)
+    }
+
+    internal func onBlock(jid: String, owner: String, displayName: String) {
+        YesNoPresenter().present(
+            in: self,
+            style: .actionSheet,
+            title: "Block contact".localizeString(id: "contact_block", arguments: []),
+            message: "Do you really want to block contact \(displayName)?"
+                .localizeString(id: "contact_block_confirmation", arguments: [displayName]),
+            yesText: "Block".localizeString(id: "block", arguments: []),
+            dangerYes: true,
+            noText: "Cancel".localizeString(id: "cancel", arguments: []),
+            animated: true) { value in
+                guard value else { return }
+                AccountManager.shared.find(for: owner)?.action { user, stream in
+                    user.blocked.blockContact(stream, jid: jid)
+                }
+            }
+    }
+
     internal func onGroupchatInfo(_ jid: String, owner: String) {
         XMPPUIActionManager.shared.open(owner: owner)
         let vc = GroupchatInfoViewController()
@@ -118,7 +140,7 @@ extension LastChatsViewController {
         self.navigationController?.navigationBar.layoutIfNeeded()
         self.navigationController?.pushViewController(vc, animated: true)
     }
-    
+
     internal func onContactInfo(_ jid: String, owner: String) {
         XMPPUIActionManager.shared.open(owner: owner)
         let vc = ContactInfoViewController()
@@ -130,7 +152,7 @@ extension LastChatsViewController {
         self.navigationController?.navigationBar.layoutIfNeeded()
         self.navigationController?.pushViewController(vc, animated: true)
     }
-    
+
     internal func onArchive(_ jid: String, owner: String, conversationType: ClientSynchronizationManager.ConversationType, reverse: Bool) {
         do {
             let realm = try  WRealm.safe()
@@ -163,9 +185,9 @@ extension LastChatsViewController {
             DDLogDebug("cant change archive state for \(jid)")
         }
     }
-    
+
     internal func onDelete(_ jid: String, owner: String, conversationType: ClientSynchronizationManager.ConversationType, displayName: String) {
-        
+
         YesNoPresenter().present(
             in: self,
             style: .actionSheet,
@@ -207,7 +229,7 @@ extension LastChatsViewController {
 //                    }
                     do {
                         let realm = try  WRealm.safe()
-                        
+
                         if let instance = realm.object(
                             ofType: LastChatsStorageItem.self,
                             forPrimaryKey: LastChatsStorageItem.genPrimary(
@@ -216,16 +238,16 @@ extension LastChatsViewController {
                                 conversationType: conversationType
                             )
                         ) {
-                            
+
                             try realm.write {
                                 realm.delete(instance)
                             }
-                            
+
                             if conversationType == .saved {
                                 try AccountManager.shared.find(for: owner)?.favorites.createLastChatsStorageItem()
                             }
                         }
-                        
+
                         self.canUpdateDataset = true
                         self.runDatasetUpdateTask()
                     } catch {
@@ -235,7 +257,7 @@ extension LastChatsViewController {
                 }
             }
     }
-    
+
     internal func updateArchivedSectionTitle() -> NSAttributedString {
         let out = NSMutableAttributedString()
         let inactiveColor: UIColor
@@ -250,7 +272,7 @@ extension LastChatsViewController {
         } else {
             activeColor = .darkText
         }
-        
+
         archivedChats?.enumerated().forEach {
             (offset, item) in
             let text: String
@@ -267,7 +289,7 @@ extension LastChatsViewController {
                 ]
             ))
         }
-        
+
         let textRange = NSRange(location: 0, length: (out.string as NSString).length)
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineSpacing = 1.43
@@ -275,10 +297,10 @@ extension LastChatsViewController {
 //        paragraphStyle.
         out.addAttribute(NSAttributedString.Key.paragraphStyle, value:paragraphStyle, range: textRange)
         out.addAttribute(NSAttributedString.Key.kern, value: -0.22, range: textRange)
-        
+
         return out
     }
-    
+
     internal func onChangeNotifications(jid: String, owner: String, isMuted: Bool, conversationType: ClientSynchronizationManager.ConversationType) {
         XMPPUIActionManager.shared.open(owner: owner)
         if isMuted {
@@ -334,6 +356,5 @@ extension LastChatsViewController {
             }
         }
     }
-    
-}
 
+}

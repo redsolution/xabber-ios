@@ -574,6 +574,7 @@ class ContactsViewController: BaseViewController {
     internal var datasetGeneration: Int = 0
     internal var lastRequestedInviteGroupKeys: Set<String> = []
     internal var currentFeatureHasAnyContent: Bool = false
+    internal var currentSnapshotIsResolved: Bool = false
     
     var pinnedAccount: Int = 0
     
@@ -704,11 +705,12 @@ class ContactsViewController: BaseViewController {
         isGroup: Bool,
         category: String?,
         filteredGroups: Set<String>,
+        hasResolvedSnapshot: Bool,
         visibleDatasourceIsEmpty: Bool,
         featureHasAnyContent: Bool,
         isSearchActive: Bool
     ) -> CoreListEmptyStateDescriptor? {
-        guard visibleDatasourceIsEmpty, !isSearchActive else {
+        guard hasResolvedSnapshot, visibleDatasourceIsEmpty, !isSearchActive else {
             return nil
         }
 
@@ -1198,7 +1200,7 @@ class ContactsViewController: BaseViewController {
         updateQueue.async { [weak self] in
             guard let self = self else { return }
             let realm = try? WRealm.safe()
-            let result: (datasource: [[Datasource]], featureHasAnyContent: Bool) = realm.map {
+            let result: (datasource: [[Datasource]], featureHasAnyContent: Bool, hasResolvedSnapshot: Bool) = realm.map {
                 let derivedState = ContactsListCoordinator.deriveState(
                     realm: $0,
                     state: state,
@@ -1215,15 +1217,21 @@ class ContactsViewController: BaseViewController {
                 let featureHasAnyContent = state.isGroup
                     ? ContactsListSupport.hasAnyGroupAreaContent(context: featureContext)
                     : ContactsListSupport.hasAnyContactAreaContent(context: featureContext)
+                let hasResolvedSnapshot = derivedState.context.accountJids.isNotEmpty || featureContext.accountJids.isNotEmpty
 
-                return (datasource: derivedState.datasource, featureHasAnyContent: featureHasAnyContent)
-            } ?? (datasource: [[]], featureHasAnyContent: false)
+                return (
+                    datasource: derivedState.datasource,
+                    featureHasAnyContent: featureHasAnyContent,
+                    hasResolvedSnapshot: hasResolvedSnapshot
+                )
+            } ?? (datasource: [[]], featureHasAnyContent: false, hasResolvedSnapshot: false)
             
             DispatchQueue.main.async {
                 guard self.datasetGeneration == generation else { return }
                 self.applyMappedDataset(
                     result.datasource,
                     featureHasAnyContent: result.featureHasAnyContent,
+                    hasResolvedSnapshot: result.hasResolvedSnapshot,
                     forceFullReload: force
                 )
                 self.postprocessDataset()
@@ -1231,13 +1239,18 @@ class ContactsViewController: BaseViewController {
         }
     }
     
-    internal final func applyMappedDataset(_ newDatasource: [[Datasource]], featureHasAnyContent: Bool, forceFullReload: Bool) {
+    internal final func applyMappedDataset(_ newDatasource: [[Datasource]], featureHasAnyContent: Bool, hasResolvedSnapshot: Bool, forceFullReload: Bool) {
         currentFeatureHasAnyContent = featureHasAnyContent
-        updateEmptyState(
-            for: newDatasource,
-            featureHasAnyContent: featureHasAnyContent,
-            isSearchActive: searchController.isActive
-        )
+        currentSnapshotIsResolved = hasResolvedSnapshot
+
+        func refreshEmptyStateAfterDatasourceUpdate() {
+            self.updateEmptyState(
+                for: self.datasource,
+                featureHasAnyContent: featureHasAnyContent,
+                hasResolvedSnapshot: hasResolvedSnapshot,
+                isSearchActive: self.searchController.isActive
+            )
+        }
 
         func forceReload() {
             self.datasource = newDatasource
@@ -1252,16 +1265,20 @@ class ContactsViewController: BaseViewController {
         }
         if forceFullReload {
             forceReload()
+            refreshEmptyStateAfterDatasourceUpdate()
         } else if newDatasource.isEmpty {
             forceReload()
+            refreshEmptyStateAfterDatasourceUpdate()
         } else if self.datasource.count != newDatasource.count {
             forceReload()
+            refreshEmptyStateAfterDatasourceUpdate()
         } else {
             guard let lastPartOldDatasource = self.datasource.last,
                   !(lastPartOldDatasource.first?.isHeader ?? false),
                   let lastPartNewDatasource = newDatasource.last,
                   !(lastPartNewDatasource.first?.isHeader ?? false) else {
                 forceReload()
+                refreshEmptyStateAfterDatasourceUpdate()
                 return
             }
             let changes = diff(old: lastPartOldDatasource, new: lastPartNewDatasource)
@@ -1275,6 +1292,7 @@ class ContactsViewController: BaseViewController {
             if !changedPrefixSections.isEmpty {
                 reloadCompatibleSections(changedPrefixSections)
             }
+            refreshEmptyStateAfterDatasourceUpdate()
         }
     }
 
@@ -1282,15 +1300,17 @@ class ContactsViewController: BaseViewController {
         updateEmptyState(
             for: datasource,
             featureHasAnyContent: currentFeatureHasAnyContent,
+            hasResolvedSnapshot: currentSnapshotIsResolved,
             isSearchActive: isSearchActive ?? searchController.isActive
         )
     }
 
-    private final func updateEmptyState(for datasource: [[Datasource]], featureHasAnyContent: Bool, isSearchActive: Bool) {
+    private final func updateEmptyState(for datasource: [[Datasource]], featureHasAnyContent: Bool, hasResolvedSnapshot: Bool, isSearchActive: Bool) {
         let descriptor = Self.emptyStateDescriptor(
             isGroup: isGroup,
             category: category,
             filteredGroups: filteredGroups,
+            hasResolvedSnapshot: hasResolvedSnapshot,
             visibleDatasourceIsEmpty: Self.visibleDatasourceIsEmpty(datasource),
             featureHasAnyContent: featureHasAnyContent,
             isSearchActive: isSearchActive
@@ -1410,19 +1430,20 @@ class ContactsViewController: BaseViewController {
         bag = DisposeBag()
         do {
             let realm = try  WRealm.safe()
-            let enabledJids = realm.objects(AccountStorageItem.self).filter("enabled == true").toArray().compactMap(\.jid)
-            let rosterCollection = realm.objects(RosterStorageItem.self).filter("owner IN %@", enabledJids)
-            let groupchatCollection = realm.objects(GroupChatStorageItem.self).filter("owner IN %@", enabledJids)
+            let accountsCollection = realm.objects(AccountStorageItem.self).filter("enabled == true")
+            let rosterCollection = realm.objects(RosterStorageItem.self)
+            let groupchatCollection = realm.objects(GroupChatStorageItem.self)
             let groupUsersCollection = realm.objects(GroupchatUserStorageItem.self).filter("isHidden == false")
-            let groupsCollection = realm.objects(RosterGroupStorageItem.self).filter("owner IN %@ AND isSystemGroup == false", enabledJids)
+            let groupsCollection = realm.objects(RosterGroupStorageItem.self).filter("isSystemGroup == false")
             
             var invalidations: [Observable<Void>] = [
+                Observable.collection(from: accountsCollection).map { _ in () },
                 Observable.collection(from: rosterCollection).map { _ in () },
                 Observable.collection(from: groupsCollection).map { _ in () }
             ]
             
             if isGroup {
-                let invitesCollection = realm.objects(GroupchatInvitesStorageItem.self).filter("owner IN %@", enabledJids)
+                let invitesCollection = realm.objects(GroupchatInvitesStorageItem.self)
                 invalidations.append(Observable.collection(from: invitesCollection).map { _ in () })
                 invalidations.append(Observable.collection(from: groupchatCollection).map { _ in () })
                 invalidations.append(Observable.collection(from: groupUsersCollection).map { _ in () })
@@ -1534,7 +1555,7 @@ class ContactsViewController: BaseViewController {
     }
 
     internal func openAddContactFlow() {
-        let vc = AddNewContactViewController()
+        let vc = CreateNewEntityViewController()
         vc.leftMenuSelectRootCategoryDelegate = leftMenuDelegate
         showModal(vc, parent: self)
     }

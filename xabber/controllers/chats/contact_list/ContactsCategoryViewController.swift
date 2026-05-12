@@ -123,18 +123,19 @@ class ContactsCategoryViewController: BaseViewController {
     private func subscribeToCollections() {
         do {
             let realm = try WRealm.safe()
-            let enabledJids = realm.objects(AccountStorageItem.self).filter("enabled == true").toArray().compactMap(\.jid)
-            let rosterCollection = realm.objects(RosterStorageItem.self).filter("owner IN %@", enabledJids)
-            let groupsCollection = realm.objects(RosterGroupStorageItem.self).filter("owner IN %@ AND isSystemGroup == false", enabledJids)
+            let accountsCollection = realm.objects(AccountStorageItem.self).filter("enabled == true")
+            let rosterCollection = realm.objects(RosterStorageItem.self)
+            let groupsCollection = realm.objects(RosterGroupStorageItem.self).filter("isSystemGroup == false")
 
             var invalidations: [Observable<Void>] = [
+                Observable.collection(from: accountsCollection).map { _ in () },
                 Observable.collection(from: rosterCollection).map { _ in () },
                 Observable.collection(from: groupsCollection).map { _ in () }
             ]
 
             if isGroup {
-                let invitesCollection = realm.objects(GroupchatInvitesStorageItem.self).filter("owner IN %@", enabledJids)
-                let groupchatCollection = realm.objects(GroupChatStorageItem.self).filter("owner IN %@", enabledJids)
+                let invitesCollection = realm.objects(GroupchatInvitesStorageItem.self)
+                let groupchatCollection = realm.objects(GroupChatStorageItem.self)
                 let groupUsersCollection = realm.objects(GroupchatUserStorageItem.self).filter("isHidden == false")
                 invalidations.append(Observable.collection(from: invitesCollection).map { _ in () })
                 invalidations.append(Observable.collection(from: groupchatCollection).map { _ in () })

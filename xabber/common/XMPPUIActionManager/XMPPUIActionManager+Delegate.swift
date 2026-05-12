@@ -194,6 +194,7 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
         case (AccountManager.shared.find(for: self.currentJid ?? "")?.omemo.read(withIQ: iq) ?? false):
             return true
         case (self.vcardManager?.read(withIQ: iq) ?? false): return true
+        case (self.avatarUploader?.read(withIQ: iq) ?? false): return true
         case (self.blocked?.read(withIQ: iq) ?? false): return true
         case (self.retract?.read(withIQ: iq) ?? false): return true
 //        case (self.xtokens?.read(withIQ: iq) ?? false): return true

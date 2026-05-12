@@ -207,37 +207,13 @@ extension SettingsViewController: InfoScreenHeaderDelegate {
         self.beforeSettingAvatar()
         AccountManager.shared.find(for: jid)?.action({ (user, stream) in
             user.avatarUploader.setAvatar(image: image, successCallback: {
-                do {
-                    let realm = try WRealm.safe()
-                    let account = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: self.jid)
-                    DefaultAvatarManager.shared.getAvatar(url: account?.avatarMaxUrl, jid: self.jid, owner: self.jid, size: 128) { image in
-                        if let image = image {
-                            self.headerView.imageButton.setImage(image, for: .normal)
-                        } else {
-                            self.headerView.imageButton.setImage(UIImageView.getDefaultAvatar(for: self.jid, owner: self.jid, size: 256), for: .normal)
-                        }
-                    }
-                } catch {
-                    DDLogDebug("dsg")
-                }
+                self.afterSettingAvatar(image: image)
                 AccountManager.shared.find(for: self.jid)?.action({ user, _ in
                     user.cloudStorage.getStats()
                 })
             }, failureCallback: {
                 status, error in
-                do {
-                    let realm = try WRealm.safe()
-                    let account = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: self.jid)
-                    DefaultAvatarManager.shared.getAvatar(url: account?.avatarMaxUrl, jid: self.jid, owner: self.jid, size: 128) { image in
-                        if let image = image {
-                            self.headerView.imageButton.setImage(image, for: .normal)
-                        } else {
-                            self.headerView.imageButton.setImage(UIImageView.getDefaultAvatar(for: self.jid, owner: self.jid, size: 256), for: .normal)
-                        }
-                    }
-                } catch {
-                    DDLogDebug("dsg")
-                }
+                self.afterFailedSettingAvatar()
                 DispatchQueue.main.async {
                     let errorMessage = "Unable to send file: out of Cloud Storage"//item.messageError
                     let itemsWithQuota = [
@@ -261,6 +237,8 @@ extension SettingsViewController: InfoScreenHeaderDelegate {
                         }
                 }
                 DDLogDebug("SettingsViewController, InfoScreenButtonDelegate: \(#function). Fail to set avatar.")
+            }, queuedCallback: {
+                self.afterSettingAvatar(image: image)
             })
         })
     }
@@ -285,6 +263,28 @@ extension SettingsViewController: InfoScreenHeaderDelegate {
             } else {
                 self.headerView.imageButton.setImage(image?.resize(targetSize: CGSize(square: 128)), for: .normal)
             }
+        }
+    }
+
+    private func afterFailedSettingAvatar() {
+        DispatchQueue.main.async {
+            self.headerView.imageButton.hideLoading()
+        }
+
+        do {
+            let realm = try WRealm.safe()
+            let account = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: self.jid)
+            DefaultAvatarManager.shared.getAvatar(url: account?.avatarMaxUrl, jid: self.jid, owner: self.jid, size: 128) { image in
+                DispatchQueue.main.async {
+                    if let image = image {
+                        self.headerView.imageButton.setImage(image, for: .normal)
+                    } else {
+                        self.headerView.imageButton.setImage(UIImageView.getDefaultAvatar(for: self.jid, owner: self.jid, size: 256), for: .normal)
+                    }
+                }
+            }
+        } catch {
+            DDLogDebug("SettingsViewController, InfoScreenButtonDelegate: \(#function). \(error.localizedDescription)")
         }
     }
     

@@ -201,16 +201,10 @@ extension ChatViewController {
             .observe(on: MainScheduler.asyncInstance)
             .subscribe { value in
             if value {
-                let width: CGFloat = 340
-                let height: CGFloat = 340
-                let frame = CGRect(
-                    origin: CGPoint(x: (self.view.frame.width - width) / 2, y: (self.view.frame.height - height) / 2),
-                    size: CGSize(width: width, height: height)
-                )
                 if self.initialMessageOverlayView.superview == nil {
                     self.view.addSubview(self.initialMessageOverlayView)
                 }
-                self.initialMessageOverlayView.update(frame: frame, conversationType: self.conversationType)
+                self.updateInitialMessageOverlayFrame()
                 self.initialMessageOverlayView.isHidden = false
             } else {
                 self.initialMessageOverlayView.isHidden = true

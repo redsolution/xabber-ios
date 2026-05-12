@@ -278,11 +278,13 @@ class ServerDiscoManager: AbstractXMPPManager {
 
                 if let galleryURL = xDictionary["galleryURL"] {
                     let galleryConfiguration = AccountGalleryConfiguration(owner: self.owner)
-                    galleryConfiguration.storeBasicGalleryURL(galleryURL)
+                    let didStoreBasicGalleryURL = galleryConfiguration.storeBasicGalleryURL(galleryURL)
                     AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, _ in
+                        if didStoreBasicGalleryURL, let basicGalleryURL = galleryConfiguration.basicGalleryURL {
+                            user.cloudStorage.requestAuthIfNeeded(galleryType: .basic, baseURL: basicGalleryURL)
+                        }
                         let currentURL = galleryConfiguration.currentGalleryURL?.absoluteString ?? galleryURL
                         user.cloudStorage.node = currentURL
-                        user.cloudStorage.enable()
                         user.avatarUploader.node = currentURL
                     })
                 }

@@ -593,9 +593,9 @@ extension LeftMenuViewController: UITableViewDataSource {
         
         cell.configure(title: item.title, badge: item.subtitle, icon: item.icon, isImportant: true)
         if item.key == "archive" {
-            cell.badgeView.configuration?.baseBackgroundColor = .systemGray
+            cell.badgeView.backgroundColor = .systemGray
         } else {
-            cell.badgeView.configuration?.baseBackgroundColor = UIColor(red: 0.2196, green: 0.5569, blue: 0.2353, alpha: 1.0)
+            cell.badgeView.backgroundColor = UIColor(red: 0.2196, green: 0.5569, blue: 0.2353, alpha: 1.0)
         }
         cell.selectionStyle = .none
         return cell
@@ -709,6 +709,24 @@ class MenuItemHeaderTableCell: UITableViewCell {
 
 class MenuItemTableCell: UITableViewCell {
     static let cellName: String = "MenuItemTableCell"
+
+    private final class BadgeButton: UIButton {
+        private static let minSize: CGFloat = 20
+        private static let horizontalPadding: CGFloat = 8
+
+        override var intrinsicContentSize: CGSize {
+            let titleWidth = titleLabel?.intrinsicContentSize.width ?? 0
+            return CGSize(
+                width: max(Self.minSize, ceil(titleWidth + Self.horizontalPadding)),
+                height: Self.minSize
+            )
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            layer.cornerRadius = bounds.height / 2
+        }
+    }
     
     let stack: UIStackView = {
         let stack = UIStackView()
@@ -716,6 +734,7 @@ class MenuItemTableCell: UITableViewCell {
         stack.axis = .horizontal
         stack.distribution = .fill
         stack.alignment = .center
+        stack.spacing = 8
         stack.layoutMargins = UIEdgeInsets(top: 2, bottom: 0, left: 16, right: 16)
         stack.isLayoutMarginsRelativeArrangement = true
         
@@ -726,38 +745,76 @@ class MenuItemTableCell: UITableViewCell {
         let label = UILabel()
         
         label.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        label.lineBreakMode = .byTruncatingTail
         
         return label
     }()
+
+    let subtitleLabel: UILabel = {
+        let label = UILabel()
+
+        label.font = .preferredFont(forTextStyle: .footnote)
+        label.textColor = .secondaryLabel
+        label.numberOfLines = 1
+        label.isHidden = true
+
+        return label
+    }()
+
+    let labelsStack: UIStackView = {
+        let stack = UIStackView()
+
+        stack.axis = .vertical
+        stack.spacing = 1
+        stack.alignment = .fill
+        stack.distribution = .fill
+        stack.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        stack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        return stack
+    }()
     
     let badgeView: UIButton = {
-        let view = UIButton()
+        let view = BadgeButton(type: .custom)
+
+        view.layer.cornerRadius = 10
+        view.layer.masksToBounds = true
+        view.isUserInteractionEnabled = false
+        view.titleLabel?.font = UIFont.systemFont(ofSize: 13, weight: .regular)
+        view.setContentHuggingPriority(.required, for: .horizontal)
+        view.setContentCompressionResistancePriority(.required, for: .horizontal)
+        view.isHidden = true
 
         return view
     }()
     
-    func configure(title: String, badge: String, icon: String, isImportant: Bool) {
+    func configure(
+        title: String,
+        subtitle: String = "",
+        badge: String,
+        icon: String,
+        isImportant: Bool,
+        iconRenderingMode: UIImage.RenderingMode = .alwaysTemplate
+    ) {
         self.titleLabel.text = title
-        self.imageView?.image = (UIImage(named: icon) ?? UIImage(systemName: icon))?.withRenderingMode(.alwaysTemplate)
-        self.badgeView.setTitle("\(badge)", for: .normal)
-        self.badgeView.isHidden = badge == "0" ? true : false
+        self.subtitleLabel.text = subtitle
+        self.subtitleLabel.isHidden = subtitle.isEmpty
+        self.imageView?.image = (UIImage(named: icon) ?? UIImage(systemName: icon))?.withRenderingMode(iconRenderingMode)
+        self.imageView?.contentMode = iconRenderingMode == .alwaysOriginal ? .scaleAspectFill : .scaleAspectFit
+        self.imageView?.clipsToBounds = iconRenderingMode == .alwaysOriginal
+        self.imageView?.layer.cornerRadius = iconRenderingMode == .alwaysOriginal ? 6 : 0
+        self.badgeView.setTitle(badge, for: .normal)
+        self.badgeView.isHidden = badge.isEmpty || badge == "0"
         if isImportant {
-            var configuration = UIButton.Configuration.filled()
-            configuration.baseBackgroundColor = UIColor(red: 0.2196, green: 0.5569, blue: 0.2353, alpha: 1.0)
-            configuration.baseForegroundColor = .white
-            configuration.buttonSize = .mini
-            configuration.cornerStyle = .capsule
-            self.badgeView.configuration = configuration
+            self.badgeView.backgroundColor = UIColor(red: 0.2196, green: 0.5569, blue: 0.2353, alpha: 1.0)
+            self.badgeView.setTitleColor(.white, for: .normal)
         } else {
-            var configuration = UIButton.Configuration.filled()
-            configuration.baseBackgroundColor = .clear
-            configuration.baseForegroundColor = .secondaryLabel
-            configuration.buttonSize = .mini
-            configuration.cornerStyle = .capsule
-            self.badgeView.configuration = configuration
+            self.badgeView.backgroundColor = .clear
+            self.badgeView.setTitleColor(.secondaryLabel, for: .normal)
         }
-        self.badgeView.updateConfiguration()
         self.badgeView.setNeedsLayout()
+        self.badgeView.invalidateIntrinsicContentSize()
         self.badgeView.layoutIfNeeded()
     }
     
@@ -767,8 +824,30 @@ class MenuItemTableCell: UITableViewCell {
         self.layer.masksToBounds = true
         self.contentView.addSubview(stack)
         self.stack.fillSuperviewWithOffset(top: 0, bottom: 4, left: 56, right: 4)
-        self.stack.addArrangedSubview(self.titleLabel)
+        self.stack.addArrangedSubview(self.labelsStack)
+        self.labelsStack.addArrangedSubview(self.titleLabel)
+        self.labelsStack.addArrangedSubview(self.subtitleLabel)
         self.stack.addArrangedSubview(self.badgeView)
+        self.activateConstraints()
+    }
+
+    func activateConstraints() {
+        NSLayoutConstraint.activate([
+            self.badgeView.widthAnchor.constraint(greaterThanOrEqualToConstant: 20),
+            self.badgeView.heightAnchor.constraint(equalToConstant: 20)
+        ])
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        self.titleLabel.text = nil
+        self.subtitleLabel.text = nil
+        self.subtitleLabel.isHidden = true
+        self.imageView?.image = nil
+        self.badgeView.setTitle(nil, for: .normal)
+        self.badgeView.backgroundColor = UIColor(red: 0.2196, green: 0.5569, blue: 0.2353, alpha: 1.0)
+        self.badgeView.setTitleColor(.white, for: .normal)
+        self.badgeView.isHidden = true
     }
     
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {

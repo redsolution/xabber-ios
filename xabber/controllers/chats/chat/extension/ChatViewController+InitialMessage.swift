@@ -11,6 +11,82 @@ import UIKit
 import MaterialComponents
 
 extension ChatViewController {
+    enum InitialMessageOverlayLayoutPolicy {
+        private static let preferredSize = CGSize(width: 340, height: 340)
+        private static let horizontalMargin: CGFloat = 16
+        private static let verticalMargin: CGFloat = 12
+
+        static func frame(
+            viewBounds: CGRect,
+            safeAreaInsets: UIEdgeInsets,
+            inputTopY: CGFloat
+        ) -> CGRect {
+            guard viewBounds.width > 0, viewBounds.height > 0 else {
+                return .zero
+            }
+
+            let availableTop = viewBounds.minY + max(0, safeAreaInsets.top) + verticalMargin
+            let safeBottom = viewBounds.maxY - max(0, safeAreaInsets.bottom)
+            let inputLimit = inputTopY.isFinite ? inputTopY : safeBottom
+            let availableBottom = min(safeBottom, inputLimit) - verticalMargin
+            let availableWidth = max(0, viewBounds.width - horizontalMargin * 2)
+            let availableHeight = max(0, availableBottom - availableTop)
+
+            guard availableWidth > 0, availableHeight > 0 else {
+                return CGRect(x: viewBounds.midX, y: availableTop, width: 0, height: 0)
+            }
+
+            let width = min(preferredSize.width, availableWidth)
+            let height = min(preferredSize.height, availableHeight)
+            return CGRect(
+                x: viewBounds.midX - width / 2,
+                y: availableTop + (availableHeight - height) / 2,
+                width: width,
+                height: height
+            )
+        }
+    }
+
+    internal func updateInitialMessageOverlayFrame() {
+        guard self.shouldShowInitialMessage.value,
+              self.initialMessageOverlayView.superview != nil,
+              self.view.bounds.width > 0,
+              self.view.bounds.height > 0 else {
+            return
+        }
+
+        let inputTopY = currentInputTopYForInitialMessageOverlay()
+        let frame = InitialMessageOverlayLayoutPolicy.frame(
+            viewBounds: self.view.bounds,
+            safeAreaInsets: self.view.safeAreaInsets,
+            inputTopY: inputTopY
+        )
+        self.initialMessageOverlayView.update(frame: frame, conversationType: self.conversationType)
+        self.keepInteractiveChatControlsAboveInitialMessage()
+    }
+
+    private func currentInputTopYForInitialMessageOverlay() -> CGFloat {
+        guard let inputView = self.xabberInputView,
+              inputView.superview != nil,
+              inputView.frame.height > 0,
+              inputView.frame.minY.isFinite else {
+            return self.view.bounds.maxY
+        }
+
+        return inputView.frame.minY
+    }
+
+    private func keepInteractiveChatControlsAboveInitialMessage() {
+        self.view.bringSubviewToFront(self.scrollDownButton)
+        if let inputView = self.xabberInputView {
+            self.view.bringSubviewToFront(inputView)
+            if inputView.mentionPanel.superview === self.view {
+                self.view.bringSubviewToFront(inputView.mentionPanel)
+            }
+        }
+        self.view.bringSubviewToFront(self.unreadMentionsNavigatorView)
+    }
+
     class InitialMessageOverlayView: UIView {
         private enum Layout {
             static let horizontalInset: CGFloat = 8
@@ -18,6 +94,9 @@ extension ChatViewController {
             static let bottomInset: CGFloat = 8
             static let titleHeight: CGFloat = 24
             static let learnMoreHeight: CGFloat = 24
+            static let preferredContainerWidth: CGFloat = 320
+            static let preferredContainerHeight: CGFloat = 232
+            static let preferredIconSize: CGFloat = 64
         }
 
         internal let containerView: UIView = {
@@ -118,15 +197,20 @@ extension ChatViewController {
             self.frame = frame
             self.containerView.layer.cornerRadius = 8
             self.containerView.layer.masksToBounds = true
-            let width: CGFloat = 320
-            let height: CGFloat = 232
+
+            let iconButtonSize = self.iconButtonSize(for: self.bounds)
+            let iconOverlap = iconButtonSize / 2
+            let width = min(Layout.preferredContainerWidth, max(0, self.bounds.width - 20))
+            let height = min(Layout.preferredContainerHeight, max(0, self.bounds.height - iconOverlap))
+            let contentHeight = height + iconOverlap
+            let contentOriginY = max(0, (self.bounds.height - contentHeight) / 2)
+
             self.containerView.frame = CGRect(
-                origin: CGPoint(x: (frame.width - width) / 2, y: (frame.height - height) / 2),
+                origin: CGPoint(x: (self.bounds.width - width) / 2, y: contentOriginY + iconOverlap),
                 size: CGSize(width: width, height: height)
             )
-            let iconButtonSize: CGFloat = 64
             self.iconButton.frame = CGRect(
-                origin: CGPoint(x: (frame.width - iconButtonSize) / 2, y: (frame.height - height) / 2 - (iconButtonSize / 2)),
+                origin: CGPoint(x: (self.bounds.width - iconButtonSize) / 2, y: contentOriginY),
                 size: CGSize(square: iconButtonSize)
             )
             self.iconButton.layer.cornerRadius = iconButtonSize / 2
@@ -202,6 +286,14 @@ extension ChatViewController {
             }
         }
 
+        private func iconButtonSize(for bounds: CGRect) -> CGFloat {
+            guard bounds.width > 0, bounds.height > 0 else {
+                return 0
+            }
+
+            return min(Layout.preferredIconSize, bounds.width, bounds.height / 3)
+        }
+
         override func layoutSubviews() {
             super.layoutSubviews()
             layoutOverlayContents()
@@ -209,11 +301,12 @@ extension ChatViewController {
 
         private func layoutOverlayContents() {
             blurredEffectView.frame = containerView.bounds
+            let topInset = min(Layout.topInset, max(0, containerView.bounds.height * 0.25))
             let width = max(0, containerView.bounds.width - (Layout.horizontalInset * 2))
-            let height = max(0, containerView.bounds.height - Layout.topInset - Layout.bottomInset)
+            let height = max(0, containerView.bounds.height - topInset - Layout.bottomInset)
             containerStack.frame = CGRect(
                 x: Layout.horizontalInset,
-                y: Layout.topInset,
+                y: topInset,
                 width: width,
                 height: height
             )

@@ -367,10 +367,11 @@ class NotificationsListViewController: SimpleBaseViewController {
 
     internal static func emptyStateDescriptor(
         filter: Filter,
+        hasResolvedSnapshot: Bool,
         isLoading: Bool,
         hasNotificationRows: Bool
     ) -> CoreListEmptyStateDescriptor? {
-        guard !isLoading, !hasNotificationRows else {
+        guard hasResolvedSnapshot, !isLoading, !hasNotificationRows else {
             return nil
         }
 
@@ -420,6 +421,18 @@ class NotificationsListViewController: SimpleBaseViewController {
     private let datasourceQueue = DispatchQueue(label: "com.xabber.notifications.datasource", qos: .userInitiated)
     private var datasourceGeneration: Int = 0
     private var lastConfiguredBarsState: (filter: Filter, account: String?)?
+
+    struct DatasourceSnapshot {
+        let datasource: [Datasource]
+        let hasResolvedSnapshot: Bool
+    }
+
+    internal static func enabledOwnerJids(in realm: Realm) -> [String] {
+        realm.objects(AccountStorageItem.self)
+            .filter("enabled == true")
+            .toArray()
+            .compactMap { $0.jid }
+    }
     
     func configureBars() {
         lastConfiguredBarsState = (filter: filter.value, account: filterAccount.value)
@@ -702,11 +715,11 @@ class NotificationsListViewController: SimpleBaseViewController {
         return out
     }
 
-    func buildDatasourceSnapshot(filter: Filter, filterAccount: String?) -> [Datasource] {
+    func buildDatasourceSnapshot(filter: Filter, filterAccount: String?) -> DatasourceSnapshot {
         do {
             let realm = try WRealm.safe()
-            let owners = AccountManager.shared.users.map { $0.jid }
-            return NotificationsListCoordinator.deriveState(
+            let owners = Self.enabledOwnerJids(in: realm)
+            let datasource = NotificationsListCoordinator.deriveState(
                 realm: realm,
                 owners: owners,
                 filter: filter,
@@ -714,9 +727,10 @@ class NotificationsListViewController: SimpleBaseViewController {
                 headerBuilder: self.headerSection(for:),
                 listMapper: self.mapResultByDate(_:rosterMap:)
             ).listDatasource
+            return DatasourceSnapshot(datasource: datasource, hasResolvedSnapshot: filterAccount != nil || owners.isNotEmpty)
         } catch {
             DDLogDebug("NotificationsListViewController: \(#function). \(error.localizedDescription)")
-            return []
+            return DatasourceSnapshot(datasource: [], hasResolvedSnapshot: false)
         }
     }
 
@@ -789,12 +803,13 @@ class NotificationsListViewController: SimpleBaseViewController {
                     return
                 }
                 let previousDatasource = self.datasource
-                let isCompatible = self.compatibleSectionShape(old: previousDatasource, new: snapshot)
-                self.datasource = snapshot
+                let isCompatible = self.compatibleSectionShape(old: previousDatasource, new: snapshot.datasource)
+                self.datasource = snapshot.datasource
                 let descriptor = Self.emptyStateDescriptor(
                     filter: filter,
+                    hasResolvedSnapshot: snapshot.hasResolvedSnapshot,
                     isLoading: false,
-                    hasNotificationRows: Self.hasNotificationRows(snapshot)
+                    hasNotificationRows: Self.hasNotificationRows(snapshot.datasource)
                 )
                 if let descriptor = descriptor {
                     self.emptyView.accessibilityIdentifier = "notifications_empty_view"
@@ -809,7 +824,7 @@ class NotificationsListViewController: SimpleBaseViewController {
                     return
                 }
 
-                let changes = self.changedSectionsAndRows(old: previousDatasource, new: snapshot)
+                let changes = self.changedSectionsAndRows(old: previousDatasource, new: snapshot.datasource)
                 if changes.sections.isEmpty && changes.rows.isEmpty {
                     return
                 }
@@ -885,12 +900,11 @@ class NotificationsListViewController: SimpleBaseViewController {
     
     override func subscribe() {
         super.subscribe()
-        
-        let jids = AccountManager.shared.users.map { $0.jid }
-        
+
         do {
             let realm = try WRealm.safe()
-            let collectionObserver = realm.objects(NotificationStorageItem.self).filter("owner IN %@ AND shouldShow == true", jids)
+            let accountsObserver = realm.objects(AccountStorageItem.self).filter("enabled == true")
+            let notificationObserver = realm.objects(NotificationStorageItem.self).filter("shouldShow == true")
             self.filter
                 .asObservable()
                 .distinctUntilChanged()
@@ -921,9 +935,11 @@ class NotificationsListViewController: SimpleBaseViewController {
             
             
             Observable
-                .collection(from: collectionObserver)
+                .merge([
+                    Observable.collection(from: accountsObserver).map { _ in () },
+                    Observable.collection(from: notificationObserver).map { _ in () }
+                ])
                 .debounce(.milliseconds(200), scheduler: MainScheduler.asyncInstance)
-                .skip(1)
                 .subscribe { _ in
                     self.scheduleDatasourceReload()
                 } onError: { _ in

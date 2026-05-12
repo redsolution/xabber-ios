@@ -1069,6 +1069,8 @@ extension GroupchatSettingsViewControllerT {
                         }
                 }
                 DDLogDebug("AccountInfoVC, InfoScreenButtonDelegate: \(#function). Fail to set avatar.")
+            }, queuedCallback: {
+                self.afterSettingAvatar(image: image)
             })
         } fail: {
             AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
@@ -1102,6 +1104,8 @@ extension GroupchatSettingsViewControllerT {
                             }
                     }
                     DDLogDebug("AccountInfoVC, InfoScreenButtonDelegate: \(#function). Fail to set avatar.")
+                }, queuedCallback: {
+                    self.afterSettingAvatar(image: image)
                 })
             })
         }

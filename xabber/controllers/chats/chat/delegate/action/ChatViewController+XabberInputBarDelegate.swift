@@ -511,6 +511,8 @@ extension ChatViewController: XabberInputBarDelegate {
             self.messagesCollectionView.contentOffset.y = -height - 8
         }
         self.messagesCollectionView.contentInset = UIEdgeInsets(top: height + 8, left: 0, bottom: 0, right: 0)
+        self.messagesCollectionView.scrollIndicatorInsets = self.messagesCollectionView.contentInset
+        self.updateInitialMessageOverlayFrame()
 //        let offset = messagesCollectionView.contentOffset.y
 //        messageCollectionViewTopInset = height + 4 //offset - height + barHeight
 //        messagesCollectionView.setContentOffset(CGPoint(x: 0, y: -height), animated: true)

@@ -93,101 +93,79 @@ extension ChatViewController {
     
     @objc
     func keyboardWillChangeFrameNotification(_ notification: Notification) {
-
+        self.handleKeyboardFrameChange(notification)
     }
     
     @objc
     func keyboardWillShowNotification(_ notification: Notification) {
-        if let userInfo = notification.userInfo {
-            if let frameValue = userInfo[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue {
-                let frame = frameValue.cgRectValue
-                let keyboardVisibleHeight = frame.size.height
-//                print("keyboardVisibleHeight", keyboardVisibleHeight)
-                switch (userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber, userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber) {
-                case let (.some(duration), .some(curve)):
-                        let inputHeight: CGFloat = self.xabberInputView.barHeight + keyboardVisibleHeight
-                    
-//                    let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
-                    let options = UIView.AnimationOptions(rawValue: curve.uintValue)
-//                    print("duration, options", duration, options)
-                    UIView.animate(
-                        withDuration: TimeInterval(duration.doubleValue),
-                        delay: 0,
-                        options: options,
-                        animations: {
-                            self.xabberInputView.update(screenHeight: self.view.bounds.height, keyboardHeight: keyboardVisibleHeight)
-                            self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 0, right: 0)
-                            
-                            if self.messagesCollectionView.contentOffset.y < 100 {
-                                self.messagesCollectionView.contentOffset.y = -inputHeight - 8
-//                                print("-inputHeight - 8", -inputHeight - 8)
-                            }
-                            if self.shouldShowInitialMessage.value {
-                                let width: CGFloat = 340
-                                let height: CGFloat = 300
-                                var y = (self.view.frame.height - height) / 2
-                                if y + height > self.view.frame.height - inputHeight {
-                                    y = self.view.frame.height - inputHeight - height
-                                }
-                                let frame = CGRect(
-                                    origin: CGPoint(x: (self.view.frame.width - width) / 2, y: y),
-                                    size: CGSize(width: width, height: height)
-                                )
-                                self.initialMessageOverlayView.update(frame: frame, conversationType: self.conversationType)
-                            }
-                            return
-                        }, completion: { finished in
-                    })
-                default:
-                    
-                    break
-                }
-            }
-        }
-        
+        self.handleKeyboardFrameChange(notification)
     }
     
     @objc func keyboardWillHideNotification(_ notification: NSNotification) {
-//            keyboardVisibleHeight = 0
-//            self.updateConstant()
-        
-        if let userInfo = notification.userInfo {
-            
-            switch (userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber, userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber) {
-            case let (.some(duration), .some(curve)):
-                let options = UIView.AnimationOptions(rawValue: curve.uintValue)
-//                print("duration, options", duration, options)
-                var inputHeight: CGFloat = self.xabberInputView.barHeight
-                if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
-                    inputHeight += bottomInset
-                }
-                
-                UIView.animate(
-                    withDuration: TimeInterval(duration.doubleValue),
-                    delay: 0,
-                    options: options,
-                    animations: {
-                        self.xabberInputView.update(screenHeight: self.view.bounds.height, keyboardHeight: 0)
-                        self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 0, right: 0)
-                        if self.shouldShowInitialMessage.value {
-                            let width: CGFloat = 340
-                            let height: CGFloat = 300
-                            var y = (self.view.frame.height - height) / 2
-                            if y + height > self.view.frame.height - inputHeight {
-                                y = self.view.frame.height - inputHeight - height
-                            }
-                            let frame = CGRect(
-                                origin: CGPoint(x: (self.view.frame.width - width) / 2, y: y),
-                                size: CGSize(width: width, height: height)
-                            )
-                            self.initialMessageOverlayView.update(frame: frame, conversationType: self.conversationType)
-                        }
-                        return
-                    }, completion: { finished in
-                })
-            default:
-                break
+        self.handleKeyboardFrameChange(notification as Notification)
+    }
+
+    internal static func keyboardOverlapHeight(viewBounds: CGRect, keyboardFrameInView: CGRect) -> CGFloat {
+        guard viewBounds.width > 0,
+              viewBounds.height > 0,
+              !keyboardFrameInView.isEmpty else {
+            return 0
+        }
+
+        let intersection = viewBounds.intersection(keyboardFrameInView)
+        guard !intersection.isNull, !intersection.isEmpty else {
+            return 0
+        }
+
+        return max(0, intersection.height)
+    }
+
+    internal func keyboardOverlapHeight(from keyboardFrameInScreenCoordinates: CGRect) -> CGFloat {
+        let keyboardFrameInView = self.view.convert(keyboardFrameInScreenCoordinates, from: self.view.window)
+        return Self.keyboardOverlapHeight(
+            viewBounds: self.view.bounds,
+            keyboardFrameInView: keyboardFrameInView
+        )
+    }
+
+    private func handleKeyboardFrameChange(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let frameValue = userInfo[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue,
+              let inputView = self.xabberInputView else {
+            return
+        }
+
+        let keyboardVisibleHeight = self.keyboardOverlapHeight(from: frameValue.cgRectValue)
+        let duration = (userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber)?.doubleValue ?? 0
+        let curveValue = (userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber)?.uintValue
+        let options = curveValue
+            .map { UIView.AnimationOptions(rawValue: $0 << 16).union(.beginFromCurrentState) }
+            ?? [.beginFromCurrentState, .curveEaseInOut]
+
+        let updates = {
+            inputView.update(screenHeight: self.view.bounds.height, keyboardHeight: keyboardVisibleHeight)
+            let inputHeight = inputView.bounds.height
+            self.messagesCollectionView.contentInset = UIEdgeInsets(top: inputHeight + 8, left: 0, bottom: 0, right: 0)
+            self.messagesCollectionView.scrollIndicatorInsets = self.messagesCollectionView.contentInset
+
+            if keyboardVisibleHeight > 0, self.messagesCollectionView.contentOffset.y < 100 {
+                self.messagesCollectionView.contentOffset.y = -inputHeight - 8
             }
+
+            self.updateInitialMessageOverlayFrame()
+            self.view.layoutIfNeeded()
+        }
+
+        if duration > 0 {
+            UIView.animate(
+                withDuration: TimeInterval(duration),
+                delay: 0,
+                options: options,
+                animations: updates,
+                completion: nil
+            )
+        } else {
+            updates()
         }
     }
 }

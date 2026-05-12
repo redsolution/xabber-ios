@@ -24,6 +24,53 @@
 import Foundation
 import UIKit.UIFont
 
+struct VoIPICEServerConfiguration: Codable, Equatable {
+    let urls: [String]
+    let username: String?
+    let credential: String?
+
+    enum CodingKeys: String, CodingKey {
+        case urls
+        case url
+        case username
+        case credential
+    }
+
+    init(urls: [String], username: String? = nil, credential: String? = nil) {
+        self.urls = urls
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        self.username = username?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.credential = credential?.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedUrls: [String]
+        if let urls = try? container.decode([String].self, forKey: .urls) {
+            decodedUrls = urls
+        } else if let url = try? container.decode(String.self, forKey: .urls) {
+            decodedUrls = [url]
+        } else if let url = try? container.decode(String.self, forKey: .url) {
+            decodedUrls = [url]
+        } else {
+            decodedUrls = []
+        }
+        self.init(
+            urls: decodedUrls,
+            username: try? container.decode(String.self, forKey: .username),
+            credential: try? container.decode(String.self, forKey: .credential)
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(urls, forKey: .urls)
+        try container.encodeIfPresent(username, forKey: .username)
+        try container.encodeIfPresent(credential, forKey: .credential)
+    }
+}
+
 class CommonConfigManager: NSObject {
     open class var shared: CommonConfigManager {
         struct CommonConfigManagerSingleton {
@@ -60,6 +107,7 @@ class CommonConfigManager: NSObject {
         var allow_registration: Bool
         var locked_host: String
         var support_calls: Bool
+        var voip_ice_servers: [VoIPICEServerConfiguration]?
         var support_groupchats: Bool
         var allow_conversations_from_all_hosts: Bool
         var application_color: String

@@ -45,7 +45,7 @@ protocol VoIPCallManagerDelegate {
 extension VoIPCall.State {
     var shouldRetryFromCallScreen: Bool {
         switch self {
-        case .notConfirmed, .disconnected, .ended:
+        case .notConfirmed, .disconnected:
             return true
         default:
             return false
@@ -54,6 +54,12 @@ extension VoIPCall.State {
 }
 
 class CallScreenViewController: BaseViewController {
+    private enum Layout {
+        static let localVideoCornerRadius: CGFloat = 4
+        static let localVideoHorizontalInset: CGFloat = 16
+        static let localVideoControlsSpacing: CGFloat = 16
+        static let localVideoFallbackBottomOffset: CGFloat = 96
+    }
     
     private var username: String = ""
         
@@ -209,7 +215,7 @@ class CallScreenViewController: BaseViewController {
         let view = UIView()
         view.backgroundColor = .clear
         
-        view.layer.cornerRadius = 4
+        view.layer.cornerRadius = Layout.localVideoCornerRadius
         view.layer.masksToBounds = true
         
         return view
@@ -489,6 +495,8 @@ class CallScreenViewController: BaseViewController {
                 if self.remoteVideoEnabled.value {
                     let localRenderer = RTCMTLVideoView(frame: self.localVideoView.bounds)
                     localRenderer.contentMode = .scaleAspectFill
+                    localRenderer.layer.cornerRadius = Layout.localVideoCornerRadius
+                    localRenderer.clipsToBounds = true
                     VoIPManager.shared.enableLocalVideo(localRenderer)
                     self.localVideoView.addSubview(localRenderer)
                     localRenderer.fillSuperview()
@@ -554,7 +562,9 @@ class CallScreenViewController: BaseViewController {
                     }
                     let origin = self.localVideoView.frame.origin
                     UIView.animate(withDuration: 0.33, animations: {
-                        self.localVideoView.frame = CGRect(origin: origin, size: CGSize(width: width, height: height))
+                        let frameSize = CGSize(width: width, height: height)
+                        let shouldHide = origin.x >= self.view.bounds.maxX
+                        self.localVideoView.frame = self.localVideoFrame(size: frameSize, hide: shouldHide)
                     })
                 }
             })
@@ -709,7 +719,7 @@ class CallScreenViewController: BaseViewController {
             case .holded:
                 break
             case .ended:
-                self.configureEndCallButtonForRetry()
+                self.configureEndCallButtonForClose()
                 self.startCallDate = nil
                 self.statusLabel.text = "Call ended"
                     .localizeString(id: "dialog_jingle_message__status_ended", arguments: [])
@@ -741,6 +751,11 @@ class CallScreenViewController: BaseViewController {
         endCallButton.performLayout(isEndCall: true)
     }
 
+    private func configureEndCallButtonForClose() {
+        endCallButton.setImage(imageLiteral("xmark"), for: .normal)
+        endCallButton.performLayout(isEndCall: true)
+    }
+
     private func configureEndCallButtonForRetry() {
         endCallButton.setImage(imageLiteral( "phone.fill"), for: .normal)
         endCallButton.performLayout(isEndCall: false)
@@ -760,6 +775,13 @@ class CallScreenViewController: BaseViewController {
         self.dismiss(animated: true, completion: startCall)
     }
 
+    private func closeCallScreen() {
+        self.dismiss(animated: true, completion: {
+            self.unsubscribeStates()
+            self.unsubscribeControls()
+        })
+    }
+
     private func subscribeControls() {
         endCallButton.rx.tap.bind {
 //            DispatchQueue.main.async {
@@ -767,12 +789,13 @@ class CallScreenViewController: BaseViewController {
                     self.retryCallFromTerminalState()
                     return
                 }
+                if self.callState.value == .ended {
+                    self.closeCallScreen()
+                    return
+                }
                 print("end call")
                 VoIPManager.shared.endCall()
-                self.dismiss(animated: true, completion: {
-                    self.unsubscribeStates()
-                    self.unsubscribeControls()
-                })
+                self.closeCallScreen()
 //            }
         }
         .disposed(by: bag)
@@ -836,17 +859,36 @@ class CallScreenViewController: BaseViewController {
         let height = self.view.frame.height / 6
         let width: CGFloat = (height * CGFloat(resolution.width)) / CGFloat(resolution.height)
         let frameSize = CGSize(width: width, height: height)
-        let origin: CGPoint
-        localVideoView.layer.cornerRadius = 2
+        localVideoView.layer.cornerRadius = Layout.localVideoCornerRadius
         localVideoView.clipsToBounds = true
+        localVideoView.frame = localVideoFrame(size: frameSize, hide: hide)
+    }
+
+    private func localVideoFrame(size frameSize: CGSize, hide: Bool) -> CGRect {
+        view.layoutIfNeeded()
+
+        let x: CGFloat
         if hide {
-            origin = CGPoint(x: self.view.frame.width + 16,
-                                 y: self.view.frame.height - frameSize.height - 96)
+            x = view.bounds.width + Layout.localVideoHorizontalInset
         } else {
-            origin = CGPoint(x: self.view.frame.width - frameSize.width - 16,
-                                 y: self.view.frame.height - frameSize.height - 96)
+            x = view.bounds.width - frameSize.width - Layout.localVideoHorizontalInset
         }
-        localVideoView.frame = CGRect(origin: origin, size: frameSize)
+
+        let fallbackY = view.bounds.height - frameSize.height - Layout.localVideoFallbackBottomOffset
+        let controlsFrame = buttonsStack.convert(buttonsStack.bounds, to: view)
+        let controlsTop = controlsFrame.minY
+        let y: CGFloat
+        if controlsTop.isFinite, controlsTop > 0 {
+            y = controlsTop - frameSize.height - Layout.localVideoControlsSpacing
+        } else {
+            y = fallbackY
+        }
+        let safeTop = view.safeAreaInsets.top + Layout.localVideoHorizontalInset
+
+        return CGRect(
+            origin: CGPoint(x: x, y: max(safeTop, y)),
+            size: frameSize
+        )
     }
     
     private func collapse(reverse: Bool = false) {

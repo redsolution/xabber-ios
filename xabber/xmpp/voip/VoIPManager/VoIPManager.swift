@@ -62,6 +62,7 @@ final class DispatchVoIPCallTimeoutScheduler: VoIPCallTimeoutScheduling {
 
 enum CallSessionPhase {
     case awaitingConfirmation
+    case startingSignaling
     case ringing
     case waitingRemoteOffer
     case creatingLocalOffer
@@ -140,6 +141,7 @@ final class CallSessionContext {
 
     var phase: CallSessionPhase
     var incomingTimeoutTask: VoIPScheduledTask?
+    var proposeSendTimeoutTask: VoIPScheduledTask?
     var outgoingTimeoutTask: VoIPScheduledTask?
     var confirmationTimeoutTask: VoIPScheduledTask?
     var mediaSetupTimeoutTask: VoIPScheduledTask?
@@ -165,10 +167,12 @@ final class CallSessionContext {
 
     func cancelTimers() {
         incomingTimeoutTask?.cancel()
+        proposeSendTimeoutTask?.cancel()
         outgoingTimeoutTask?.cancel()
         confirmationTimeoutTask?.cancel()
         mediaSetupTimeoutTask?.cancel()
         incomingTimeoutTask = nil
+        proposeSendTimeoutTask = nil
         outgoingTimeoutTask = nil
         confirmationTimeoutTask = nil
         mediaSetupTimeoutTask = nil
@@ -353,10 +357,27 @@ class VoIPManager: NSObject {
         context.outgoingTimeoutTask = timeoutScheduler.schedule(after: 30.0) { [weak self] in
             guard let self,
                   self.currentSession?.callId == context.callId,
-                  [.awaitingConfirmation, .waitingRemoteOffer].contains(context.phase) else { return }
+                  context.phase == .waitingRemoteOffer else { return }
             self.finishCurrentCall(
                 reason: .outgoingUnansweredTimeout,
                 trigger: .outgoingUnansweredTimeout,
+                shouldReportToCallKit: true
+            )
+        }
+    }
+
+    internal func scheduleProposeSendTimeout(for context: CallSessionContext) {
+        context.proposeSendTimeoutTask?.cancel()
+        context.proposeSendTimeoutTask = timeoutScheduler.schedule(after: 30.0) { [weak self] in
+            guard let self,
+                  let call = self.currentCall,
+                  self.currentSession?.callId == context.callId,
+                  context.phase == .startingSignaling else { return }
+            DDLogDebug("VoIPManager: propose send timeout owner=\(context.owner) callId=\(context.callId) phase=\(context.phase) queued=\(call.stanzaQueue.count)")
+            call.clearQueuedPropose()
+            self.finishCurrentCall(
+                reason: .connectionError,
+                trigger: .connectionFailure,
                 shouldReportToCallKit: true
             )
         }
@@ -500,8 +521,10 @@ class VoIPManager: NSObject {
         }
 
         switch trigger {
-        case .localEnd, .endActionTimeout, .outgoingUnansweredTimeout:
+        case .localEnd, .endActionTimeout:
             return true
+        case .outgoingUnansweredTimeout:
+            return context.phase == .waitingRemoteOffer
         case .incomingUnansweredTimeout,
              .confirmationFailure,
              .mediaFailure,
@@ -770,7 +793,7 @@ class VoIPManager: NSObject {
             owner: owner,
             jid: jid,
             outgoing: true,
-            phase: .awaitingConfirmation
+            phase: .startingSignaling
         )
        
         self.controller.request(transaction) { error in
@@ -796,10 +819,9 @@ class VoIPManager: NSObject {
            
             self.webRTC = WebRTCClient()
             self.webRTC?.delegate = self
+            self.scheduleProposeSendTimeout(for: context)
             self.currentCall?.start(shouldConfirmOnAuthenticate: false)
             self.currentCall?.proposeCall()
-            context.phase = .waitingRemoteOffer
-            self.scheduleOutgoingTimeout(for: context)
            
             let messageItem = MessageStorageItem()
             messageItem.configureVoIPCallMessage(
@@ -1123,6 +1145,31 @@ class VoIPManager: NSObject {
             self.webRTC?.startCaptureLocalVideo(renderer: local, camera: self.cameraPosition)
         }
     }
+
+    internal func shouldFinishAcceptAsAnsweredElsewhere(
+        owner: String,
+        fromJid: String?,
+        fromDeviceId: String?,
+        currentDeviceId: String?,
+        acceptCallId: String,
+        currentCall: VoIPCall?
+    ) -> Bool {
+        guard let currentCall,
+              !currentCall.outgoing,
+              currentCall.callId == acceptCallId,
+              let currentDeviceId,
+              currentDeviceId.isNotEmpty,
+              let fromDeviceId,
+              fromDeviceId.isNotEmpty,
+              currentDeviceId != fromDeviceId,
+              let fromJid,
+              let fromBare = XMPPJID(string: fromJid)?.bare else {
+            return false
+        }
+
+        let ownerBare = XMPPJID(string: owner)?.bare ?? owner
+        return fromBare == ownerBare
+    }
    
     public final func onReceiveMessage(_ message: DDXMLElement, owner: String, archivedDate: Date?, commitTransaction: Bool = true, runtime: Bool = false, outgoing: Bool = false, realm activeRealm: Realm? = nil) -> Bool {
         do {
@@ -1163,18 +1210,23 @@ class VoIPManager: NSObject {
                 return true
             } else if let accept = message.element(forName: "accept", xmlns: VoIPCall.namespace),
                       let callId = accept.attributeStringValue(forName: "id") {
+                let fromJidRaw = message.attributeStringValue(forName: "from")
                 if runtime,
-                   let deviceId = AccountManager.shared.find(for: owner)?.devices.deviceId,
-                   let fromDeviceId = message.element(forName: "device")?.attributeStringValue(forName: "id"),
-                   deviceId != fromDeviceId,
-                   let currentCall = self.currentCall,
-                   callId == currentCall.callId {
+                   self.shouldFinishAcceptAsAnsweredElsewhere(
+                    owner: owner,
+                    fromJid: fromJidRaw,
+                    fromDeviceId: message.element(forName: "device")?.attributeStringValue(forName: "id"),
+                    currentDeviceId: AccountManager.shared.find(for: owner)?.devices.deviceId,
+                    acceptCallId: callId,
+                    currentCall: self.currentCall
+                   ),
+                   let currentCall = self.currentCall {
                     currentCall.shouldSendReject = false
                     self.finishCurrentCall(reason: .answeredElsewhere, trigger: .remoteEvent, shouldReportToCallKit: true)
                     return true
                 }
 
-                guard let fromJidUnwr = message.attributeStringValue(forName: "from"),
+                guard let fromJidUnwr = fromJidRaw,
                       let fromJid = XMPPJID(string: fromJidUnwr)?.bare,
                       let toJidUnwr = message.attributeStringValue(forName: "to"),
                       let toJid = XMPPJID(string: toJidUnwr)?.bare else {

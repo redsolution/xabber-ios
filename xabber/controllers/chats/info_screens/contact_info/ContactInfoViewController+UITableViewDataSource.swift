@@ -205,6 +205,9 @@ extension ContactInfoViewController: UITableViewDataSource {
     }
     
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+        guard datasource.isNotEmpty else {
+            return nil
+        }
         let title = datasource[section].title
         return title.isEmpty ? nil : title
     }

@@ -62,6 +62,8 @@
 	<string>rounded_square</string>
 	<key>support_calls</key>
 	<true/>
+	<key>voip_ice_servers</key>
+	<array/>
 	<key>support_groupchats</key>
 	<false/>
 	<key>allow_conversations_from_all_hosts</key>

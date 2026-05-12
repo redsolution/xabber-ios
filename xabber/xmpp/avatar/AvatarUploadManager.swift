@@ -34,9 +34,43 @@ class AvatarUploadManager: AbstractXMPPManager {
 
     internal var node: String? = nil
     internal var maxFileSize: Int? = nil
+    private var pendingAvatarUploads: [AvatarUploadTarget: PendingAvatarUpload] = [:]
+
+    private enum AvatarUploadTarget: Hashable {
+        case account
+        case groupchat(String)
+    }
+
+    private struct PendingAvatarUpload {
+        let target: AvatarUploadTarget
+        let imageData: Data
+        let mimeType: String
+    }
 
     override init(withOwner owner: String) {
         super.init(withOwner: owner)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(cloudStorageGalleryDidChange(_:)),
+            name: .cloudStorageGalleryDidChange,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(cloudStorageGalleryTokenDidChange(_:)),
+            name: .cloudStorageGalleryTokenDidChange,
+            object: nil
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    override func clearSession() {
+        NotificationCenter.default.removeObserver(self)
+        pendingAvatarUploads.removeAll()
+        super.clearSession()
     }
 
     open func isAvailable() -> Bool {
@@ -52,11 +86,102 @@ class AvatarUploadManager: AbstractXMPPManager {
         return CloudStorageGalleryRequestContext.resolve(owner: owner)
     }
 
-    fileprivate func posGroupAvatarUpdate(groupchat: String, image imageData: Data, mimeType: String, callback successCallback: (() -> Void)? = nil, failCallback: ((Int, String) -> Void)? = nil) {
-        uploadAvatar(data: imageData,
-                     filename: "\(NanoID.new(5)).png",
-                     mimeType: mimeType,
-                     successCallback: { (avatar) in
+    @objc private func cloudStorageGalleryDidChange(_ notification: Notification) {
+        guard notification.userInfo?["jid"] as? String == owner else { return }
+        flushPendingAvatarUploadsIfReady()
+    }
+
+    @objc private func cloudStorageGalleryTokenDidChange(_ notification: Notification) {
+        guard notification.userInfo?["jid"] as? String == owner else { return }
+        flushPendingAvatarUploadsIfReady()
+    }
+
+    private func enqueueAvatarUpload(_ upload: PendingAvatarUpload, queuedCallback: (() -> Void)?) {
+        pendingAvatarUploads[upload.target] = upload
+        queuedCallback?()
+        requestAuthForCurrentGalleryIfPossible()
+        DDLogDebug("AvatarUploadManager: queued avatar upload for \(owner).")
+    }
+
+    private func requeueAvatarUploadIfLatestSlotIsEmpty(_ upload: PendingAvatarUpload) {
+        guard pendingAvatarUploads[upload.target] == nil else { return }
+        pendingAvatarUploads[upload.target] = upload
+    }
+
+    private func flushPendingAvatarUploadsIfReady() {
+        guard !pendingAvatarUploads.isEmpty else { return }
+        guard currentGalleryRequestContext() != nil else {
+            requestAuthForCurrentGalleryIfPossible()
+            return
+        }
+
+        let uploads = Array(pendingAvatarUploads.values)
+        uploads.forEach { pendingAvatarUploads.removeValue(forKey: $0.target) }
+        uploads.forEach { uploadPendingAvatar($0) }
+    }
+
+    private func uploadPendingAvatar(_ upload: PendingAvatarUpload) {
+        uploadAvatar(
+            upload,
+            successCallback: { [weak self] avatar in
+                self?.handleAvatarUploadSuccess(avatar, upload: upload, successCallback: nil)
+            },
+            failCallback: { [weak self] status, error in
+                self?.handleQueuedAvatarUploadFailure(upload, status: status, error: error)
+            },
+            queuedCallback: nil
+        )
+    }
+
+    private func handleQueuedAvatarUploadFailure(_ upload: PendingAvatarUpload, status: Int, error: String) {
+        DDLogDebug("AvatarUploadManager: queued avatar upload failed for \(owner). \(status): \(error)")
+        switch status {
+        case 401:
+            requeueAvatarUploadIfLatestSlotIsEmpty(upload)
+            requestAuthForCurrentGalleryIfPossible()
+        case 409:
+            requeueAvatarUploadIfLatestSlotIsEmpty(upload)
+            DispatchQueue.main.async { [weak self] in
+                self?.flushPendingAvatarUploadsIfReady()
+            }
+        default:
+            break
+        }
+    }
+
+    private func requestAuthForCurrentGalleryIfPossible() {
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        guard let baseURL = configuration.currentGalleryURL,
+              configuration.token(for: configuration.currentGalleryType, baseURL: baseURL).isEmpty else {
+            return
+        }
+
+        AccountManager.shared.find(for: owner)?.unsafeAction({ user, _ in
+            user.cloudStorage.requestAuthIfNeeded(galleryType: configuration.currentGalleryType, baseURL: baseURL)
+        })
+    }
+
+    fileprivate func posGroupAvatarUpdate(groupchat: String, image imageData: Data, mimeType: String, callback successCallback: (() -> Void)? = nil, failCallback: ((Int, String) -> Void)? = nil, queuedCallback: (() -> Void)? = nil) {
+        let upload = PendingAvatarUpload(target: .groupchat(groupchat), imageData: imageData, mimeType: mimeType)
+        uploadAvatar(upload,
+                     successCallback: { [weak self] avatar in
+            self?.handleAvatarUploadSuccess(avatar, upload: upload, successCallback: successCallback)
+        }, failCallback: { status, failError in
+            failCallback?(status, failError)
+            DDLogDebug("AvatarUploadManager: \(#function). \(failError)")
+        }, queuedCallback: queuedCallback)
+    }
+
+    private func handleAvatarUploadSuccess(_ avatar: AvatarResponse, upload: PendingAvatarUpload, successCallback: (() -> Void)?) {
+        switch upload.target {
+        case .groupchat(let groupchat):
+            handleGroupAvatarUploadSuccess(groupchat: groupchat, avatar: avatar, imageData: upload.imageData, successCallback: successCallback)
+        case .account:
+            handleAccountAvatarUploadSuccess(avatar: avatar, imageData: upload.imageData, successCallback: successCallback)
+        }
+    }
+
+    private func handleGroupAvatarUploadSuccess(groupchat: String, avatar: AvatarResponse, imageData: Data, successCallback: (() -> Void)?) {
 
 
 
@@ -92,7 +217,7 @@ class AvatarUploadManager: AbstractXMPPManager {
                 if let image = UIImage(data: imageData) {
                     ImageCache.default.store(image, forKey: maxUrl, options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory]))
                     let thumbImage = image.resize(targetSize: CGSize(square: 256))
-                    if let thumb = thumbImage.pngData(),
+                    if thumbImage.pngData() != nil,
                        let minUrl = minUrl {
                         ImageCache.default.store(thumbImage, forKey: minUrl, options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory]))
                     }
@@ -116,17 +241,20 @@ class AvatarUploadManager: AbstractXMPPManager {
             } catch {
                 DDLogDebug("AvatarUploadManager: \(#function). \(error.localizedDescription)")
             }
+    }
+
+    fileprivate func posAvatarUpdate(image imageData: Data, mimeType: String, callback successCallback: (() -> Void)? = nil, failCallback: ((Int, String) -> Void)? = nil, queuedCallback: (() -> Void)? = nil) {
+        let upload = PendingAvatarUpload(target: .account, imageData: imageData, mimeType: mimeType)
+        uploadAvatar(upload,
+                     successCallback: { [weak self] avatar in
+            self?.handleAvatarUploadSuccess(avatar, upload: upload, successCallback: successCallback)
         }, failCallback: { status, failError in
             failCallback?(status, failError)
             DDLogDebug("AvatarUploadManager: \(#function). \(failError)")
-        })
+        }, queuedCallback: queuedCallback)
     }
 
-    fileprivate func posAvatarUpdate(image imageData: Data, mimeType: String, callback successCallback: (() -> Void)? = nil, failCallback: ((Int, String) -> Void)? = nil) {
-        uploadAvatar(data: imageData,
-                     filename: "\(NanoID.new(5)).png",
-                     mimeType: mimeType,
-                     successCallback: { (avatar) in
+    private func handleAccountAvatarUploadSuccess(avatar: AvatarResponse, imageData: Data, successCallback: (() -> Void)?) {
 
 
 
@@ -162,7 +290,7 @@ class AvatarUploadManager: AbstractXMPPManager {
                 if let image = UIImage(data: imageData) {
                     ImageCache.default.store(image, forKey: maxUrl, options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory]))
                     let thumbImage = image.resize(targetSize: CGSize(square: 256))
-                    if let thumb = thumbImage.pngData(),
+                    if thumbImage.pngData() != nil,
                        let minUrl = minUrl {
                         ImageCache.default.store(thumbImage, forKey: minUrl, options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory]))
                     }
@@ -186,13 +314,9 @@ class AvatarUploadManager: AbstractXMPPManager {
             } catch {
                 DDLogDebug("AvatarUploadManager: \(#function). \(error.localizedDescription)")
             }
-        }, failCallback: { status, failError in
-            failCallback?(status, failError)
-            DDLogDebug("AvatarUploadManager: \(#function). \(failError)")
-        })
     }
 
-    public final func setGrpoupAvatar(groupchat: String, image: UIImage?, successCallback: (() -> Void)? = nil, failureCallback: ((Int, String) -> Void)? = nil) {
+    public final func setGrpoupAvatar(groupchat: String, image: UIImage?, successCallback: (() -> Void)? = nil, failureCallback: ((Int, String) -> Void)? = nil, queuedCallback: (() -> Void)? = nil) {
         guard let imageData = image?.pngData() else { return }
 
         posGroupAvatarUpdate(
@@ -200,18 +324,20 @@ class AvatarUploadManager: AbstractXMPPManager {
             image: imageData,
             mimeType: "image/png",
             callback: successCallback,
-            failCallback: failureCallback
+            failCallback: failureCallback,
+            queuedCallback: queuedCallback
         )
     }
 
-    public final func setAvatar(image: UIImage?, successCallback: (() -> Void)? = nil, failureCallback: ((Int, String) -> Void)? = nil) {
+    public final func setAvatar(image: UIImage?, successCallback: (() -> Void)? = nil, failureCallback: ((Int, String) -> Void)? = nil, queuedCallback: (() -> Void)? = nil) {
         guard let imageData = image?.pngData() else { return }
 
         posAvatarUpdate(
             image: imageData,
             mimeType: "image/png",
             callback: successCallback,
-            failCallback: failureCallback
+            failCallback: failureCallback,
+            queuedCallback: queuedCallback
         )
     }
 
@@ -221,7 +347,7 @@ class AvatarUploadManager: AbstractXMPPManager {
         let width: Int
     }
 
-    struct AvatarResponse: Codable {
+    struct AvatarResponse: Decodable {
         let file: String
         let hash: String
         let name: String
@@ -229,6 +355,35 @@ class AvatarUploadManager: AbstractXMPPManager {
         let used: Int
         let size: Int
         let thumbnails: [Thumbnail]
+
+        private enum CodingKeys: String, CodingKey {
+            case file
+            case hash
+            case name
+            case quota
+            case used
+            case size
+            case thumbnail
+            case thumbnails
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            file = try container.decode(String.self, forKey: .file)
+            hash = try container.decode(String.self, forKey: .hash)
+            name = try container.decode(String.self, forKey: .name)
+            quota = try container.decode(Int.self, forKey: .quota)
+            used = try container.decode(Int.self, forKey: .used)
+            size = try container.decode(Int.self, forKey: .size)
+
+            if let thumbnails = try container.decodeIfPresent([Thumbnail].self, forKey: .thumbnails) {
+                self.thumbnails = thumbnails
+            } else if let thumbnail = try container.decodeIfPresent(Thumbnail.self, forKey: .thumbnail) {
+                self.thumbnails = [thumbnail]
+            } else {
+                self.thumbnails = []
+            }
+        }
     }
 
     private static func avatarResponse(from value: Any?) -> AvatarResponse? {
@@ -255,21 +410,23 @@ class AvatarUploadManager: AbstractXMPPManager {
     }
 
     //MARK: - Sends avatar to the server, receives its thumbnails' urls
-    private func uploadAvatar(data: Data, filename: String, mimeType: String,
+    private func uploadAvatar(_ upload: PendingAvatarUpload,
                               successCallback: @escaping ((AvatarResponse) -> Void),
-                              failCallback: @escaping ((Int, String) -> Void)) {
+                              failCallback: @escaping ((Int, String) -> Void),
+                              queuedCallback: (() -> Void)?) {
         guard let context = currentGalleryRequestContext() else {
-            failCallback(400, "File upload not available")
+            enqueueAvatarUpload(upload, queuedCallback: queuedCallback)
             return
         }
 
-        XabberUploadManager.quotaAPIClient.uploadAvatar(
+        XabberUploadManager.quotaAPIClient.uploadFile(
             baseURL: context.baseURL,
             token: context.token,
-            data: data,
-            filename: filename,
-            mimeType: mimeType,
-            createThumbnails: true
+            data: upload.imageData,
+            filename: "\(NanoID.new(5)).png",
+            mimeType: upload.mimeType,
+            metadata: nil,
+            context: "avatar"
         ) { [weak self] response in
             guard let self = self else { return }
             guard context.matchesCurrentSelection() else {

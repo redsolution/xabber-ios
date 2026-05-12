@@ -50,6 +50,7 @@ extension Notification.Name {
     static let cloudStorageQuotaRefreshDidStart = Notification.Name("CloudStorageQuotaRefreshDidStart")
     static let cloudStorageQuotaRefreshDidFinish = Notification.Name("CloudStorageQuotaRefreshDidFinish")
     static let cloudStorageGalleryDidChange = Notification.Name("CloudStorageGalleryDidChange")
+    static let cloudStorageGalleryTokenDidChange = Notification.Name("CloudStorageGalleryTokenDidChange")
     static let premiumEntitlementDidChange = Notification.Name("PremiumEntitlementDidChange")
 }
 
@@ -681,7 +682,6 @@ protocol CloudStorageQuotaAPIClient {
     func getStats(baseURL: URL, token: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
     func requestSlot(baseURL: URL, token: String, request: CloudStorageUploadSlotRequest, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
     func uploadFile(baseURL: URL, token: String, data: Data, filename: String, mimeType: String, metadata: [String: String]?, context: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
-    func uploadAvatar(baseURL: URL, token: String, data: Data, filename: String, mimeType: String, createThumbnails: Bool, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
     func deleteMedia(baseURL: URL, token: String, fileID: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
     func deleteAvatar(baseURL: URL, token: String, fileID: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
     func deleteGallery(baseURL: URL, token: String, jid: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
@@ -796,26 +796,6 @@ final class AlamofireCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
                 if let metadataData = metadataData {
                     formData.append(metadataData, withName: "metadata")
                 }
-            },
-            to: url,
-            method: .post,
-            headers: Self.authHeaders(token)
-        ).validate().responseJSON { Self.complete($0, completion: completion) }
-    }
-
-    func uploadAvatar(baseURL: URL, token: String, data: Data, filename: String, mimeType: String, createThumbnails: Bool, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
-        guard let url = Self.apiURL(baseURL: baseURL, path: "v1/avatar/upload/"),
-              let mimeData = mimeType.data(using: .utf8),
-              let thumbnailsData = String(createThumbnails).data(using: .utf8) else {
-            completion(.failure(statusCode: nil, error: nil))
-            return
-        }
-
-        AF.upload(
-            multipartFormData: { formData in
-                formData.append(data, withName: "file", fileName: filename, mimeType: mimeType)
-                formData.append(mimeData, withName: "media_type")
-                formData.append(thumbnailsData, withName: "create_thumbnails")
             },
             to: url,
             method: .post,
@@ -2085,12 +2065,18 @@ class XabberUploadManager: AbstractXMPPManager {
     }
 
     public final func enable() {
-        guard let target = currentGalleryTokenTarget(),
-              AccountGalleryConfiguration(owner: owner).token(for: target.galleryType, baseURL: target.baseURL).isEmpty,
+        guard let target = currentGalleryTokenTarget() else {
+            return
+        }
+        requestAuthIfNeeded(galleryType: target.galleryType, baseURL: target.baseURL)
+    }
+
+    final func requestAuthIfNeeded(galleryType: AccountGalleryType, baseURL: URL) {
+        guard AccountGalleryConfiguration(owner: owner).token(for: galleryType, baseURL: baseURL).isEmpty,
               let fulljid = AccountManager.shared.find(for: self.owner)?.xmppStream.myJID?.full else {
             return
         }
-        getCode(fullJID: fulljid, target: target)
+        getCode(fullJID: fulljid, target: GalleryTokenRequestTarget(owner: owner, galleryType: galleryType, baseURL: baseURL))
     }
 
     //MARK: - Sends inquiry to the server in order to get non-permanent code
@@ -2155,6 +2141,7 @@ class XabberUploadManager: AbstractXMPPManager {
                     return
                 }
                 AccountGalleryConfiguration(owner: self.owner).storeToken(token, galleryType: target.galleryType, baseURL: target.baseURL)
+                self.postGalleryTokenDidChange(target: target)
                 if AccountGalleryConfiguration(owner: self.owner).currentGalleryIdentity == target.identity {
                     self.refreshQuota(reason: .tokenReceived, force: true)
                 }
@@ -2163,6 +2150,19 @@ class XabberUploadManager: AbstractXMPPManager {
                 failCallback?(error)
             }
         }
+    }
+
+    private func postGalleryTokenDidChange(target: GalleryTokenRequestTarget) {
+        NotificationCenter.default.post(
+            name: .cloudStorageGalleryTokenDidChange,
+            object: self,
+            userInfo: [
+                "jid": self.owner,
+                "galleryType": target.galleryType.rawValue,
+                "galleryURL": target.baseURL.absoluteString,
+                "galleryIdentity": target.identity
+            ]
+        )
     }
 
 

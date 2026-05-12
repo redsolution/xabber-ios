@@ -17,16 +17,48 @@ import RxCocoa
 import RxRealm
 
 class CreateNewEntityViewController: UIViewController {
-        
+
+    struct BotDefinition: Equatable {
+        let title: String
+        let jid: String
+        let description: String
+        let avatarAssetName: String
+    }
+
+    static let botDefinitions: [BotDefinition] = [
+        BotDefinition(
+            title: "Call Me Bot",
+            jid: "call.me.bot@test.xabber.org",
+            description: "Answers calls and mirrors your camera video.",
+            avatarAssetName: "create_new_entity_call_me_bot_avatar"
+        ),
+        BotDefinition(
+            title: "Reply Me Bot",
+            jid: "reply.me.bot@test.xabber.org",
+            description: "Echo bot that sends your messages back.",
+            avatarAssetName: "create_new_entity_reply_me_bot_avatar"
+        )
+    ]
+
+    static func shouldEnsureRoster(for subscription: RosterStorageItem.Subsccribtion?) -> Bool {
+        return subscription != .both
+    }
+
     struct Datasource {
         let title: String
-        let iconImage: UIImage?
         let icon: String
         let key: String
         var subtitle: String
+        var jid: String?
+        var iconRenderingMode: UIImage.RenderingMode
+    }
+
+    struct DatasourceSection {
+        let title: String?
+        let items: [Datasource]
     }
     
-    var datasource: [[Datasource]] = []
+    var datasource: [DatasourceSection] = []
     
     var chatsVc: LastChatsViewController? = nil
     var archivedVc: LastChatsViewController? = nil
@@ -44,86 +76,236 @@ class CreateNewEntityViewController: UIViewController {
         view.register(MenuItemTableCell.self, forCellReuseIdentifier: MenuItemTableCell.cellName)
         view.separatorStyle = .singleLine
         
-        view.isScrollEnabled = false
+        view.isScrollEnabled = true
         
         return view
     }()
+
+    private var botSelectionInProgress: Bool = false
     
+    private static func datasource(
+        title: String,
+        icon: String,
+        key: String,
+        subtitle: String = "",
+        jid: String? = nil,
+        iconRenderingMode: UIImage.RenderingMode = .alwaysTemplate
+    ) -> Datasource {
+        return Datasource(
+            title: title,
+            icon: icon,
+            key: key,
+            subtitle: subtitle,
+            jid: jid,
+            iconRenderingMode: iconRenderingMode
+        )
+    }
+
+    private static func botSection() -> DatasourceSection {
+        return DatasourceSection(
+            title: "Bots",
+            items: botDefinitions.map {
+                datasource(
+                    title: $0.title,
+                    icon: $0.avatarAssetName,
+                    key: "bot",
+                    subtitle: $0.description,
+                    jid: $0.jid,
+                    iconRenderingMode: .alwaysOriginal
+                )
+            }
+        )
+    }
+
+    private static func qrSection() -> DatasourceSection {
+        return DatasourceSection(
+            title: nil,
+            items: [
+                datasource(title: "Scan QR code", icon: "qrcode.viewfinder", key: "qr_code")
+            ]
+        )
+    }
+
     private func loadDatasource() {
-        
+        func normalSections(with items: [Datasource], includeBots: Bool) -> [DatasourceSection] {
+            var sections = [
+                DatasourceSection(title: nil, items: items)
+            ]
+            if includeBots {
+                sections.append(Self.botSection())
+            }
+            sections.append(Self.qrSection())
+            return sections
+        }
+
         if CommonConfigManager.shared.config.locked_conversation_type == "none" {
             if let filterGroupCreation = self.filterGroupCreation {
-                if CommonConfigManager.shared.config.support_groupchats {
-                    if filterGroupCreation {
-                        self.datasource = [
-                            [
-                                Datasource(title: "Create group", iconImage: nil, icon: "person.2", key: "create_group", subtitle: ""),
-                                Datasource(title: "Create incognito group", iconImage:  nil, icon: "xabber.incognito.variant", key: "create_incognito", subtitle: "")
-                            ]
-                        ]
-                    } else {
-                        self.datasource = [
-                            [
-                                Datasource(title: "Add contact", iconImage: nil ,icon: "person", key: "add_contact", subtitle: ""),
-                                Datasource(title: "Start secret chat", iconImage: nil, icon: "custom.lock.bubble.left", key: "start_secret_chat", subtitle: ""),
-                            ],
-                            [
-                                Datasource(title: "Scan QR code", iconImage: nil, icon: "qrcode.viewfinder", key: "qr_code", subtitle: ""),
-                            ]
-                        ]
-                    }
-                } else {
+                if CommonConfigManager.shared.config.support_groupchats, filterGroupCreation {
                     self.datasource = [
-                        [
-                            Datasource(title: "Add contact", iconImage: nil ,icon: "person", key: "add_contact", subtitle: ""),
-                            Datasource(title: "Start secret chat", iconImage: nil, icon: "custom.lock.bubble.left", key: "start_secret_chat", subtitle: ""),
-                        ],
-                        [
-                            Datasource(title: "Scan QR code", iconImage: nil, icon: "qrcode.viewfinder", key: "qr_code", subtitle: ""),
-                        ]
+                        DatasourceSection(
+                            title: nil,
+                            items: [
+                                Self.datasource(title: "Create group", icon: "person.2", key: "create_group"),
+                                Self.datasource(title: "Create incognito group", icon: "xabber.incognito.variant", key: "create_incognito")
+                            ]
+                        )
                     ]
+                } else {
+                    self.datasource = normalSections(
+                        with: [
+                            Self.datasource(title: "Add contact", icon: "person", key: "add_contact"),
+                            Self.datasource(title: "Start secret chat", icon: "custom.lock.bubble.left", key: "start_secret_chat")
+                        ],
+                        includeBots: false
+                    )
                 }
+            } else if CommonConfigManager.shared.config.support_groupchats {
+                self.datasource = normalSections(
+                    with: [
+                        Self.datasource(title: "Add contact", icon: "person", key: "add_contact"),
+                        Self.datasource(title: "Create group", icon: "person.2", key: "create_group"),
+                        Self.datasource(title: "Create incognito group", icon: "xabber.incognito.variant", key: "create_incognito"),
+                        Self.datasource(title: "Start secret chat", icon: "custom.lock.bubble.left", key: "start_secret_chat")
+                    ],
+                    includeBots: true
+                )
             } else {
-                if CommonConfigManager.shared.config.support_groupchats {
-                    
-                    self.datasource = [
-                        [
-                            Datasource(title: "Add contact", iconImage: nil ,icon: "person", key: "add_contact", subtitle: ""),
-                            Datasource(title: "Create group", iconImage: nil, icon: "person.2", key: "create_group", subtitle: ""),
-                            Datasource(title: "Create incognito group", iconImage:  nil, icon: "xabber.incognito.variant", key: "create_incognito", subtitle: ""),
-                            Datasource(title: "Start secret chat", iconImage: nil, icon: "custom.lock.bubble.left", key: "start_secret_chat", subtitle: ""),
-                        ],
-                        [
-                            Datasource(title: "Scan QR code", iconImage: nil, icon: "qrcode.viewfinder", key: "qr_code", subtitle: ""),
-                        ]
-                    ]
+                self.datasource = normalSections(
+                    with: [
+                        Self.datasource(title: "Add contact", icon: "person", key: "add_contact"),
+                        Self.datasource(title: "Start secret chat", icon: "custom.lock.bubble.left", key: "start_secret_chat")
+                    ],
+                    includeBots: true
+                )
+            }
+        } else {
+            self.datasource = normalSections(
+                with: [
+                    Self.datasource(title: "Add contact", icon: "person.fill", key: "add_contact")
+                ],
+                includeBots: self.filterGroupCreation == nil
+            )
+        }
+    }
+
+    private func setBotSelectionInProgress(_ value: Bool) {
+        let apply = {
+            self.botSelectionInProgress = value
+            self.tableView.isUserInteractionEnabled = !value
+        }
+
+        if Thread.isMainThread {
+            apply()
+        } else {
+            DispatchQueue.main.async {
+                apply()
+            }
+        }
+    }
+
+    private func conversationType() -> ClientSynchronizationManager.ConversationType {
+        return ClientSynchronizationManager.ConversationType(
+            rawValue: CommonConfigManager.shared.config.locked_conversation_type
+        ) ?? .regular
+    }
+
+    private func existingRosterSubscription(owner: String, jid: String) -> RosterStorageItem.Subsccribtion? {
+        do {
+            let realm = try WRealm.safe()
+            return realm
+                .object(
+                    ofType: RosterStorageItem.self,
+                    forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner)
+                )?
+                .subscribtion
+        } catch {
+            DDLogDebug("CreateNewEntityViewController: \(#function). \(error.localizedDescription)")
+        }
+        return nil
+    }
+
+    private func openBotChat(owner: String, jid: String, conversationType: ClientSynchronizationManager.ConversationType) {
+        DispatchQueue.main.async {
+            self.setBotSelectionInProgress(false)
+            let presentingViewController = self.navigationController?.presentingViewController ?? self.presentationController?.presentingViewController
+
+            let route: (UIViewController) -> Void = { presenter in
+                if let delegate = self.leftMenuSelectRootCategoryDelegate {
+                    delegate.openChatlistWithChat(owner: owner, jid: jid, conversationType: conversationType, configure: nil)
                 } else {
-                    self.datasource = [
-                        [
-                            Datasource(title: "Add contact", iconImage: nil ,icon: "person", key: "add_contact", subtitle: ""),
-                            Datasource(title: "Start secret chat", iconImage: nil, icon: "custom.lock.bubble.left", key: "start_secret_chat", subtitle: ""),
-                        ],
-                        [
-                            Datasource(title: "Scan QR code", iconImage: nil, icon: "qrcode.viewfinder", key: "qr_code", subtitle: ""),
-                        ]
-                    ]
+                    let vc = ChatViewController()
+                    vc.jid = jid
+                    vc.owner = owner
+                    vc.conversationType = conversationType
+
+                    showStacked(vc, in: presenter)
                 }
             }
-            
-            
-        } else {
-            self.datasource = [
-                [
-                    Datasource(title: "Add contact", iconImage: nil ,icon: "person.fill", key: "add_contact", subtitle: ""),
-                ],
-                [
-                    Datasource(title: "Scan QR code", iconImage: nil, icon: "qrcode.viewfinder", key: "qr_code", subtitle: ""),
-                ]
-            ]
+
+            if let presentingViewController = presentingViewController {
+                self.dismiss(animated: true) {
+                    route(presentingViewController)
+                }
+            } else {
+                route(self)
+            }
         }
-        
-        
-        
+    }
+
+    private func showBotSelectionError(_ message: String) {
+        DispatchQueue.main.async {
+            self.setBotSelectionInProgress(false)
+            self.view.makeToast(message)
+        }
+    }
+
+    private func handleBotSelection(_ item: Datasource) {
+        guard !botSelectionInProgress,
+              let jid = item.jid,
+              let bot = Self.botDefinitions.first(where: { $0.jid == jid }) else {
+            return
+        }
+
+        guard let owner = AccountManager.shared.users.first?.jid,
+              let account = AccountManager.shared.find(for: owner) else {
+            showBotSelectionError(
+                "No connected accounts found.".localizeString(
+                    id: "dialog_add_contact__error__text_no_accounts",
+                    arguments: []
+                )
+            )
+            return
+        }
+
+        let conversationType = self.conversationType()
+        setBotSelectionInProgress(true)
+
+        if !Self.shouldEnsureRoster(for: existingRosterSubscription(owner: owner, jid: jid)) {
+            account.action { user, _ in
+                user.lastChats.initChat(jid: jid, conversationType: conversationType)
+                self.openBotChat(owner: owner, jid: jid, conversationType: conversationType)
+            }
+            return
+        }
+
+        account.action { user, stream in
+            user.presences.subscribe(stream, jid: jid)
+            user.presences.subscribed(stream, jid: jid)
+            user.roster.setContact(
+                stream,
+                jid: jid,
+                nickname: bot.title,
+                shouldAddSystemMessage: true
+            ) { _, error, result in
+                if result {
+                    user.lastChats.initChat(jid: jid, conversationType: conversationType)
+                    self.openBotChat(owner: owner, jid: jid, conversationType: conversationType)
+                } else {
+                    DDLogDebug("CreateNewEntityViewController: failed to add bot \(jid) to roster: \(error ?? "unknown")")
+                    self.showBotSelectionError("Unexpected error".localizeString(id: "unexpected_error", arguments: []))
+                }
+            }
+        }
     }
         
     public func configure() {
@@ -189,36 +371,36 @@ extension CreateNewEntityViewController: UITableViewDataSource {
     }
     
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return datasource[section].count
+        return datasource[section].items.count
     }
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         guard let cell = tableView.dequeueReusableCell(withIdentifier: MenuItemTableCell.cellName, for: indexPath) as? MenuItemTableCell else {
             fatalError()
         }
-        let item = datasource[indexPath.section][indexPath.row]
-        cell.configure(title: item.title, badge: "", icon: item.icon, isImportant: false)
+        let item = datasource[indexPath.section].items[indexPath.row]
+        cell.configure(
+            title: item.title,
+            subtitle: item.subtitle,
+            badge: "",
+            icon: item.icon,
+            isImportant: false,
+            iconRenderingMode: item.iconRenderingMode
+        )
         cell.backgroundColor = .white
         cell.layer.cornerRadius = 0
         cell.layer.masksToBounds = false
         cell.separatorInset = UIEdgeInsets(top: 0, left: 72, bottom: 0, right: 16)
         cell.accessoryType = .disclosureIndicator
         cell.selectionStyle = .none
-//
-//        let cell = UITableViewCell(style: .value1, reuseIdentifier: "tablecell")
-//        
-//        cell.textLabel?.text = datasource[indexPath.section][indexPath.row].title
-//        if let image = datasource[indexPath.section][indexPath.row].iconImage {
-//            cell.imageView?.image = image.withRenderingMode(.alwaysTemplate)
-//            cell.imageView?.contentMode = .scaleAspectFit
-//            cell.tintColor = .tintColor
-//        } else {
-//            cell.imageView?.image = imageLiteral(datasource[indexPath.section][indexPath.row].icon, dimension: 24)
-//        }
-//        cell.selectionStyle = .none
-//        cell.accessoryType = .disclosureIndicator
-//        
+        cell.accessibilityLabel = item.title
+        cell.accessibilityValue = item.subtitle.isEmpty ? nil : item.subtitle
+
         return cell
+    }
+
+    func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+        return datasource[section].title
     }
 }
 
@@ -243,7 +425,8 @@ extension CreateNewEntityViewController: UITableViewDelegate {
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        let key = self.datasource[indexPath.section][indexPath.row].key
+        let item = self.datasource[indexPath.section].items[indexPath.row]
+        let key = item.key
         switch key {
             case "add_contact":
                 let vc = AddNewContactViewController()
@@ -267,6 +450,8 @@ extension CreateNewEntityViewController: UITableViewDelegate {
                 let vc = QRCodeScannerViewController()
                 vc.leftMenuSelectRootCategoryDelegate = leftMenuSelectRootCategoryDelegate
                 self.navigationController?.pushViewController(vc, animated: true)
+            case "bot":
+                handleBotSelection(item)
             default:
                 break
         }

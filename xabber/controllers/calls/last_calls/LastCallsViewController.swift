@@ -106,12 +106,13 @@ class LastCallsViewController: BaseViewController {
     }
 
     internal static func emptyStateDescriptor(
+        hasResolvedSnapshot: Bool,
         isLoading: Bool,
         isSearchActive: Bool,
         callHistoryIsEmpty: Bool,
         hasCallableContacts: Bool
     ) -> CoreListEmptyStateDescriptor? {
-        guard !isLoading, !isSearchActive, callHistoryIsEmpty else {
+        guard hasResolvedSnapshot, !isLoading, !isSearchActive, callHistoryIsEmpty else {
             return nil
         }
 
@@ -147,6 +148,60 @@ class LastCallsViewController: BaseViewController {
             .contains {
                 ($0.getPrimaryResource()?.entity ?? .contact) == .contact
             }
+    }
+
+    internal static func enabledAccountJids(in realm: Realm) -> Set<String> {
+        Set(realm.objects(AccountStorageItem.self)
+            .filter("enabled == true")
+            .compactMap { $0.jid })
+    }
+
+    internal static func callDatasource(in realm: Realm, enabledAccounts: Set<String>) -> [Datasource] {
+        guard enabledAccounts.isNotEmpty else {
+            return []
+        }
+
+        let items = Array(realm.objects(MessageStorageItem.self)
+            .filter(
+                "owner IN %@ AND messageType == %@ AND isDeleted == false",
+                Array(enabledAccounts),
+                MessageStorageItem.MessageDisplayType.call.rawValue
+            )
+            .sorted(byKeyPath: "date", ascending: false)
+            .prefix(50))
+        let owners = Array(Set(items.map { $0.owner }))
+        let jids = Array(Set(items.map { $0.opponent }))
+        let rosterItems = owners.isEmpty || jids.isEmpty
+            ? []
+            : realm.objects(RosterStorageItem.self)
+                .filter("owner IN %@ AND jid IN %@", owners, jids)
+                .toArray()
+        let rosterByKey = Dictionary(
+            uniqueKeysWithValues: rosterItems.map { item in
+                (RosterStorageItem.genPrimary(jid: item.jid, owner: item.owner), item)
+            }
+        )
+
+        return items.compactMap { item in
+            let rosterItem = rosterByKey[RosterStorageItem.genPrimary(jid: item.opponent, owner: item.owner)]
+            let stateUnwr = (item.callMetadata?["callState"] as? String) ?? ""
+            let displayState = Self.displayDirection(
+                for: MessageStorageItem.VoIPCallState(rawValue: stateUnwr) ?? .none,
+                outgoing: item.outgoing
+            )
+
+            return Datasource(
+                owner: item.owner,
+                jid: item.opponent,
+                username: rosterItem?.displayName ?? item.opponent,
+                avatarUrl: rosterItem?.avatarMinUrl ?? rosterItem?.avatarMaxUrl ?? rosterItem?.oldschoolAvatarKey,
+                date: item.date,
+                direction: displayState,
+                outgoing: item.outgoing,
+                messagePrimary: item.primary,
+                referencePrimary: item.references.first?.primary
+            )
+        }
     }
     
     struct Datasource: DiffAware {
@@ -265,6 +320,7 @@ class LastCallsViewController: BaseViewController {
     internal func load() {
         do {
             let realm = try WRealm.safe()
+            enabledAccounts.accept(Self.enabledAccountJids(in: realm))
             displayNames = realm.objects(RosterDisplayNameStorageItem.self)
             calls = realm.objects(MessageStorageItem.self)
                 .filter("owner IN %@ AND messageType == %@",
@@ -275,22 +331,50 @@ class LastCallsViewController: BaseViewController {
             DDLogDebug("cant get list of last calls")
         }
     }
+
+    internal func reloadCallDatasource() {
+        do {
+            let realm = try WRealm.safe()
+            let accounts = Self.enabledAccountJids(in: realm)
+            if enabledAccounts.value != accounts {
+                enabledAccounts.accept(accounts)
+            }
+            let results = Self.callDatasource(in: realm, enabledAccounts: accounts)
+            applyCallDatasource(results)
+            isCallHistoryLoaded = true
+            refreshEmptyStateVisibility(callHistoryIsEmpty: results.isEmpty)
+        } catch {
+            DDLogDebug("LastCallsViewController: \(#function). \(error.localizedDescription)")
+        }
+    }
+
+    internal func applyCallDatasource(_ results: [Datasource]) {
+        let changes = diff(old: self.datasource, new: results)
+        UIView.performWithoutAnimation {
+            self.tableView.reload(
+                changes: changes,
+                section: 0,
+                insertionAnimation: .none,
+                deletionAnimation: .none,
+                replacementAnimation: .none,
+                updateData: {
+                    self.datasource = results
+                }
+            ) { _ in }
+        }
+    }
     
     internal func subscribe() {
         bag = DisposeBag()
         
         do {
             let realm = try WRealm.safe()
-            
-            Observable
-                .collection(from: realm.objects(AccountStorageItem.self).filter("enabled == %@", true))
-                .subscribe(onNext: { (results) in
-                    let jids: [String] = results.compactMap{ return $0.jid }
-                    if jids.count != self.enabledAccounts.value.count {
-                        self.enabledAccounts.accept(Set(jids))
-                    }
-                })
-                .disposed(by: bag)
+            let accountsCollection = realm.objects(AccountStorageItem.self).filter("enabled == true")
+            let callMessagesCollection = realm.objects(MessageStorageItem.self).filter(
+                "messageType == %@ AND isDeleted == false",
+                MessageStorageItem.MessageDisplayType.call.rawValue
+            )
+            let rosterCollection = realm.objects(RosterStorageItem.self)
             
             Observable
                 .collection(from: realm
@@ -320,92 +404,15 @@ class LastCallsViewController: BaseViewController {
                     }
                 })
                 .disposed(by: bag)
-            
             Observable
-                .collection(from: realm
-                    .objects(MessageStorageItem.self)
-                    .filter("owner IN %@ AND messageType == %@ AND isDeleted == false",
-                            Array(enabledAccounts.value),
-                            MessageStorageItem.MessageDisplayType.call.rawValue)
-                    .sorted(byKeyPath: "date", ascending: false))
-//                .debounce(.milliseconds(50), scheduler: MainScheduler.asyncInstance)
-                .map { (results) -> [Datasource] in
-                    let items = Array(results.prefix(50))
-                    let owners = Array(Set(items.map { $0.owner }))
-                    let jids = Array(Set(items.map { $0.opponent }))
-                    let rosterByKey: [String: RosterStorageItem]
-                    do {
-                        let realm = try WRealm.safe()
-                        let rosterItems = owners.isEmpty || jids.isEmpty
-                            ? []
-                            : realm.objects(RosterStorageItem.self)
-                                .filter("owner IN %@ AND jid IN %@", owners, jids)
-                                .toArray()
-                        rosterByKey = Dictionary(
-                            uniqueKeysWithValues: rosterItems.map { item in
-                                (RosterStorageItem.genPrimary(jid: item.jid, owner: item.owner), item)
-                            }
-                        )
-                    } catch {
-                        DDLogDebug("LastCallsViewController: \(#function). \(error.localizedDescription)")
-                        rosterByKey = [:]
-                    }
-                    return items.compactMap {
-                        item in
-                        let rosterItem = rosterByKey[RosterStorageItem.genPrimary(jid: item.opponent, owner: item.owner)]
-                        let stateUnwr = (item.callMetadata?["callState"] as? String) ?? ""
-                        let displayState = Self.displayDirection(
-                            for: MessageStorageItem.VoIPCallState(rawValue: stateUnwr) ?? .none,
-                            outgoing: item.outgoing
-                        )
-                        
-                        return Datasource(
-                            owner: item.owner,
-                            jid: item.opponent,
-                            username: rosterItem?.displayName ?? item.opponent,
-                            avatarUrl: rosterItem?.avatarMinUrl ?? rosterItem?.avatarMaxUrl ?? rosterItem?.oldschoolAvatarKey,
-                            date: item.date,
-                            direction: displayState,
-                            outgoing: item.outgoing,
-                            messagePrimary: item.primary,
-                            referencePrimary: item.references.first?.primary
-                        )
-                    }
-                }
-                .subscribe { (results) in
-                    let changes = diff(old: self.datasource, new: results)
-                    UIView.performWithoutAnimation {
-                        self.tableView.reload(
-                            changes: changes,
-                            section: 0,
-                            insertionAnimation: .none,
-                            deletionAnimation: .none,
-                            replacementAnimation: .none,
-                            updateData: {
-                                self.datasource = results
-                        }) { (result) in
-                            
-                        }
-                    }
-                    self.isCallHistoryLoaded = true
-                    self.refreshEmptyStateVisibility(callHistoryIsEmpty: results.isEmpty)
-                   
-                } onError: { (error) in
-                    
-                } onCompleted: {
-                    
-                } onDisposed: {
-                    
-                }
-                .disposed(by: bag)
-
-            Observable
-                .collection(from: realm
-                    .objects(RosterStorageItem.self)
-                    .filter("owner IN %@", Array(enabledAccounts.value)))
+                .merge([
+                    Observable.collection(from: accountsCollection).map { _ in () },
+                    Observable.collection(from: callMessagesCollection).map { _ in () },
+                    Observable.collection(from: rosterCollection).map { _ in () }
+                ])
                 .debounce(.milliseconds(150), scheduler: MainScheduler.asyncInstance)
                 .subscribe { _ in
-                    self.refreshEmptyStateVisibility()
+                    self.reloadCallDatasource()
                 } onError: { _ in
 
                 } onCompleted: {
@@ -415,6 +422,7 @@ class LastCallsViewController: BaseViewController {
                 }
                 .disposed(by: bag)
 
+            reloadCallDatasource()
             
             isEmptyViewShowed
                 .asObservable()
@@ -442,7 +450,7 @@ class LastCallsViewController: BaseViewController {
     }
 
     internal func openAddContactFlow() {
-        let vc = AddNewContactViewController()
+        let vc = CreateNewEntityViewController()
         vc.leftMenuSelectRootCategoryDelegate = leftMenuDelegate
         showModal(vc, parent: self)
     }
@@ -456,6 +464,7 @@ class LastCallsViewController: BaseViewController {
         }
 
         let descriptor = Self.emptyStateDescriptor(
+            hasResolvedSnapshot: enabledAccounts.value.isNotEmpty,
             isLoading: !isCallHistoryLoaded,
             isSearchActive: isSearchActive ?? searchController.isActive,
             callHistoryIsEmpty: callHistoryIsEmpty ?? datasource.isEmpty,

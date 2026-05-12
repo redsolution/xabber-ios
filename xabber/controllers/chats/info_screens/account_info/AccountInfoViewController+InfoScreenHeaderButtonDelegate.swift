@@ -244,6 +244,8 @@ extension AccountInfoViewController: InfoScreenHeaderDelegate {
                         }
                 }
                 DDLogDebug("AccountInfoVC, InfoScreenButtonDelegate: \(#function). Fail to set avatar.")
+            }, queuedCallback: {
+                self.afterSettingAvatar(image: image)
             })
         } fail: {
             AccountManager.shared.find(for: self.jid)?.action({ (user, stream) in
@@ -277,6 +279,8 @@ extension AccountInfoViewController: InfoScreenHeaderDelegate {
                             }
                     }
                     DDLogDebug("AccountInfoVC, InfoScreenButtonDelegate: \(#function). Fail to set avatar.")
+                }, queuedCallback: {
+                    self.afterSettingAvatar(image: image)
                 })
             })
         }

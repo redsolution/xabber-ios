@@ -24,6 +24,19 @@ import WebRTC
 import CocoaLumberjack
 
 extension VoIPManager: VoIPCallDelegate {
+    private func activeContext(for call: VoIPCall) -> CallSessionContext? {
+        guard self.currentCall === call,
+              self.currentSession?.callId == call.callId else {
+            return nil
+        }
+        return self.session(for: call.callId)
+    }
+
+    private func isRemoteSessionUnavailable(condition: String?, text: String?) -> Bool {
+        return condition == "service-unavailable" ||
+            (text?.range(of: "User session not found", options: [.caseInsensitive, .diacriticInsensitive]) != nil)
+    }
+
     private func terminationReasonForReject(
         call: VoIPCall,
         context: CallSessionContext,
@@ -84,19 +97,21 @@ extension VoIPManager: VoIPCallDelegate {
     }
 
     func VoIPCallEndCallAnswerElsewhere(_ call: VoIPCall) {
+        guard activeContext(for: call) != nil else { return }
         self.finishCurrentCall(reason: .answeredElsewhere, trigger: .remoteEvent, shouldReportToCallKit: true)
     }
     
     func VoIPCallEndCallRejected(_ call: VoIPCall) {
+        guard activeContext(for: call) != nil else { return }
         self.finishCurrentCall(reason: .declinedElsewhere, trigger: .remoteEvent, shouldReportToCallKit: true)
     }
     
     func VoIPCallDidChangeState(_ call: VoIPCall, to state: VoIPCall.State) {
+        guard let context = activeContext(for: call) else { return }
+
         DispatchQueue.main.async {
             self.callScreenDelegate?.didChangeState(to: state)
         }
-
-        guard let context = self.session(for: call.callId) else { return }
 
         switch state {
         case .confirmed:
@@ -135,21 +150,36 @@ extension VoIPManager: VoIPCallDelegate {
     }
    
     func VoIPCallDidAccepted(_ call: VoIPCall) {
-        guard let context = self.session(for: call.callId), call.outgoing else { return }
+        guard let context = activeContext(for: call), call.outgoing else { return }
         context.remoteAcceptReceived = true
         context.outgoingTimeoutTask?.cancel()
         context.outgoingTimeoutTask = nil
         context.phase = .waitingRemoteOffer
         self.scheduleMediaSetupTimeout(for: context)
     }
+
+    func VoIPCallDidSendPropose(_ call: VoIPCall) {
+        guard let context = activeContext(for: call),
+              call.outgoing,
+              context.phase == .startingSignaling else {
+            return
+        }
+        DDLogDebug("VoIPManager: sent propose acknowledged owner=\(context.owner) callId=\(context.callId) phase=\(context.phase)")
+        context.proposeSendTimeoutTask?.cancel()
+        context.proposeSendTimeoutTask = nil
+        context.phase = .waitingRemoteOffer
+        self.scheduleOutgoingTimeout(for: context)
+    }
    
     func VoIPCallDidExpired(_ call: VoIPCall) {
+        guard activeContext(for: call) != nil else { return }
         self.finishCurrentCall(reason: .signalingError, trigger: .confirmationFailure, shouldReportToCallKit: true)
     }
    
     func VoIPCallDidHeld(_ call: VoIPCall) {}
    
     func VoIPCallDidEndWith(_ call: VoIPCall, error: Error?, byActiveStream: Bool) {
+        guard activeContext(for: call) != nil else { return }
         let reason = terminationReasonFor(error: error)
         self.finishCurrentCall(reason: reason, trigger: .connectionFailure, shouldReportToCallKit: true)
 
@@ -161,7 +191,7 @@ extension VoIPManager: VoIPCallDelegate {
     }
    
     func VoIPCallDidReceive(_ call: VoIPCall, sessionDescription: RTCSessionDescription) {
-        guard let context = self.session(for: call.callId) else { return }
+        guard let context = activeContext(for: call) else { return }
 
         switch sessionDescription.type {
         case .offer:
@@ -171,12 +201,14 @@ extension VoIPManager: VoIPCallDelegate {
             }
             context.remoteOfferReceived = true
             self.webRTC?.set(remoteSdp: sessionDescription) { error in
+                guard let activeContext = self.activeContext(for: call), activeContext === context else { return }
                 if let error {
                     DDLogDebug(error.localizedDescription)
                     self.finishCurrentCall(reason: .webRTCFailure, trigger: .mediaFailure, shouldReportToCallKit: true)
                     return
                 }
                 self.webRTC?.answer { sdp, answerError in
+                    guard let activeContext = self.activeContext(for: call), activeContext === context else { return }
                     if let answerError {
                         DDLogDebug(answerError.localizedDescription)
                         self.finishCurrentCall(reason: .webRTCFailure, trigger: .mediaFailure, shouldReportToCallKit: true)
@@ -187,13 +219,14 @@ extension VoIPManager: VoIPCallDelegate {
                         return
                     }
                     context.phase = .connectingMedia
-                    self.currentCall?.sessionDescription(sessionDescription: sdp)
+                    call.sessionDescription(sessionDescription: sdp)
                     self.scheduleMediaSetupTimeout(for: context)
                 }
             }
                
         case .prAnswer:
             self.webRTC?.set(remoteSdp: sessionDescription) { error in
+                guard self.activeContext(for: call) != nil else { return }
                 if let error {
                     DDLogDebug(error.localizedDescription)
                     self.finishCurrentCall(reason: .webRTCFailure, trigger: .mediaFailure, shouldReportToCallKit: true)
@@ -206,6 +239,7 @@ extension VoIPManager: VoIPCallDelegate {
                 return
             }
             self.webRTC?.set(remoteSdp: sessionDescription) { error in
+                guard let activeContext = self.activeContext(for: call), activeContext === context else { return }
                 if let error {
                     DDLogDebug(error.localizedDescription)
                     self.finishCurrentCall(reason: .webRTCFailure, trigger: .mediaFailure, shouldReportToCallKit: true)
@@ -221,10 +255,12 @@ extension VoIPManager: VoIPCallDelegate {
     }
    
     func VoIPCallDidReceive(_ call: VoIPCall, iceCandidate: RTCIceCandidate) {
+        guard activeContext(for: call) != nil else { return }
         self.webRTC?.set(remoteCandidate: iceCandidate)
     }
    
     func VoIPCallDidChangeVideoState(_ call: VoIPCall, to state: VoIPCall.VideoState, myself: Bool) {
+        guard activeContext(for: call) != nil else { return }
         if myself {
             self.callScreenDelegate?.didChangeMyVideoMode(to: state)
         } else {
@@ -233,19 +269,18 @@ extension VoIPManager: VoIPCallDelegate {
     }
    
     func VoIPCallDidUpdateContactJid(_ call: VoIPCall) {
-        if let context = self.session(for: call.callId) {
-            context.jid = call.jid
-        }
+        guard let context = activeContext(for: call) else { return }
+        context.jid = call.jid
         DispatchQueue.main.async {
             if self.shouldChangeVideoModeAfterConnecting {
-                _ = self.currentCall?.changeVideoState(to: self.isVideoEnabled ? .enabled : .disabled)
+                _ = call.changeVideoState(to: self.isVideoEnabled ? .enabled : .disabled)
                 self.shouldChangeVideoModeAfterConnecting = false
             }
         }
     }
    
     func VoIPCallDidReceiveRejectMessage(_ call: VoIPCall, endReason: String?, callInitiator: String?, isCarbon: Bool, fromCurrentDevice: Bool) {
-        guard let context = self.session(for: call.callId) else { return }
+        guard let context = activeContext(for: call) else { return }
         if context.phase == .ending || context.phase == .ended {
             return
         }
@@ -258,5 +293,21 @@ extension VoIPManager: VoIPCallDelegate {
             fromCurrentDevice: fromCurrentDevice
         )
         self.finishCurrentCall(reason: reason, trigger: .remoteEvent, shouldReportToCallKit: true)
+    }
+
+    func VoIPCallDidReceiveJingleError(_ call: VoIPCall, action: String, condition: String?, text: String?) {
+        guard let context = activeContext(for: call),
+              isRemoteSessionUnavailable(condition: condition, text: text) else {
+            return
+        }
+
+        switch action {
+        case "session-initiate":
+            self.finishCurrentCall(reason: .signalingError, trigger: .mediaFailure, shouldReportToCallKit: true)
+        case "session-info" where context.phase != .connected:
+            self.finishCurrentCall(reason: .signalingError, trigger: .mediaFailure, shouldReportToCallKit: true)
+        default:
+            break
+        }
     }
 }

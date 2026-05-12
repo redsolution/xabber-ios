@@ -1557,6 +1557,7 @@ class ChatViewController: MessagesViewController {
         updateNavbarTitleWidth()
         updateUnreadMentionsNavigatorFrame(animated: false)
         updateScrollDownButtonFrame(animated: false)
+        updateInitialMessageOverlayFrame()
 //        updateInsets()  // Recompute and apply as above
     }
     
@@ -2021,6 +2022,7 @@ class ChatViewController: MessagesViewController {
 
         self.updateUnreadMentionsNavigatorFrame(animated: false)
         self.updateScrollDownButtonFrame(animated: false)
+        self.updateInitialMessageOverlayFrame()
         
         (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
             .cache.invalidate()

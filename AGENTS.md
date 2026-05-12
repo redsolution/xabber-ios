@@ -8,7 +8,7 @@ Build, test, and maintain the Xabber iOS codebase with a strong bias toward safe
 
 - Product: Xabber iOS XMPP client
 - Repo root: `/Users/igor.boldin/projects/xabber/fabric/xabber/xabber_ios_whitelabel/xabber/xabber_ios_core`
-- Vault root: `/Users/igor.boldin/projects/xabber/vault/projects/xabber`
+- Vault root: `/Users/igor.boldin/projects/xabber/xabber`
 - Main targets:
   - `xabber`
   - `xabber-push-extension`
@@ -63,20 +63,20 @@ For any non-trivial bug fix, feature, refactor, investigation, or multi-file cha
 ### Canonical vault files
 
 Read these before major work:
-- `/Users/igor.boldin/projects/xabber/vault/projects/xabber/README.md`
-- `/Users/igor.boldin/projects/xabber/vault/projects/xabber/architecture.md`
-- `/Users/igor.boldin/projects/xabber/vault/projects/xabber/shared/interfaces.md`
-- `/Users/igor.boldin/projects/xabber/vault/projects/xabber/shared/dependencies.md`
-- `/Users/igor.boldin/projects/xabber/vault/projects/xabber/shared/integration-map.md`
+- `/Users/igor.boldin/projects/xabber/xabber/README.md`
+- `/Users/igor.boldin/projects/xabber/xabber/architecture.md`
+- `/Users/igor.boldin/projects/xabber/xabber/shared/interfaces.md`
+- `/Users/igor.boldin/projects/xabber/xabber/shared/dependencies.md`
+- `/Users/igor.boldin/projects/xabber/xabber/shared/integration-map.md`
 
 Then read the relevant agent context:
-- Lead: `/Users/igor.boldin/projects/xabber/vault/projects/xabber/agents/lead/context.md`
-- UI: `/Users/igor.boldin/projects/xabber/vault/projects/xabber/agents/ui/context.md`
-- XMPP: `/Users/igor.boldin/projects/xabber/vault/projects/xabber/agents/xmpp/context.md`
-- Business logic: `/Users/igor.boldin/projects/xabber/vault/projects/xabber/agents/business-logic/context.md`
-- Push: `/Users/igor.boldin/projects/xabber/vault/projects/xabber/agents/push/context.md`
-- Calls: `/Users/igor.boldin/projects/xabber/vault/projects/xabber/agents/calls/context.md`
-- Tests: `/Users/igor.boldin/projects/xabber/vault/projects/xabber/agents/tests/context.md`
+- Lead: `/Users/igor.boldin/projects/xabber/xabber/agents/lead/context.md`
+- UI: `/Users/igor.boldin/projects/xabber/xabber/agents/ui/context.md`
+- XMPP: `/Users/igor.boldin/projects/xabber/xabber/agents/xmpp/context.md`
+- Business logic: `/Users/igor.boldin/projects/xabber/xabber/agents/business-logic/context.md`
+- Push: `/Users/igor.boldin/projects/xabber/xabber/agents/push/context.md`
+- Calls: `/Users/igor.boldin/projects/xabber/xabber/agents/calls/context.md`
+- Tests: `/Users/igor.boldin/projects/xabber/xabber/agents/tests/context.md`
 
 ### Agent mapping
 
@@ -94,18 +94,18 @@ Map work to the vault agents like this:
 - Before major work, read the shared docs and the relevant agent `context.md`.
 - During active work, record findings and temporary reasoning in the relevant agent `notes.md`.
 - For any non-trivial request, create or update a standalone task note under:
-  - `/Users/igor.boldin/projects/xabber/vault/projects/xabber/tasks/open/`
-  - `/Users/igor.boldin/projects/xabber/vault/projects/xabber/tasks/in-progress/`
-  - `/Users/igor.boldin/projects/xabber/vault/projects/xabber/tasks/blocked/`
-  - `/Users/igor.boldin/projects/xabber/vault/projects/xabber/tasks/done/`
+  - `/Users/igor.boldin/projects/xabber/xabber/tasks/open/`
+  - `/Users/igor.boldin/projects/xabber/xabber/tasks/in-progress/`
+  - `/Users/igor.boldin/projects/xabber/xabber/tasks/blocked/`
+  - `/Users/igor.boldin/projects/xabber/xabber/tasks/done/`
 - When work crosses agent boundaries, create or update a standalone handoff note under:
-  - `/Users/igor.boldin/projects/xabber/vault/projects/xabber/handoffs/outgoing/`
-  - `/Users/igor.boldin/projects/xabber/vault/projects/xabber/handoffs/incoming/`
+  - `/Users/igor.boldin/projects/xabber/xabber/handoffs/outgoing/`
+  - `/Users/igor.boldin/projects/xabber/xabber/handoffs/incoming/`
 - When a durable architectural or behavioral decision is made, record it in the relevant agent `decisions.md` and update shared docs if multiple areas are affected.
 - When a topic becomes stable and broadly useful, move it out of `notes.md` into:
-  - `/Users/igor.boldin/projects/xabber/vault/projects/xabber/docs/`
+  - `/Users/igor.boldin/projects/xabber/xabber/docs/`
   - or an agent `decisions.md`
-  - or `/Users/igor.boldin/projects/xabber/vault/projects/xabber/shared/` when it is a cross-agent contract
+  - or `/Users/igor.boldin/projects/xabber/xabber/shared/` when it is a cross-agent contract
 
 ### Automatic workflow for non-trivial requests
 

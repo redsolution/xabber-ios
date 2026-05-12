@@ -271,7 +271,14 @@ class OnboardingViewController: SimpleBaseViewController {
     private final func onPrivacyButtonTouchUp(_ sender: UIButton) {
         FeedbackManager.shared.tap()
         let vc = PrivacySettingsViewController()
-        self.navigationController?.pushViewController(vc, animated: true)
+        vc.navigationItem.setLeftBarButton(
+            UIBarButtonItem(barButtonSystemItem: .cancel, target: vc, action: #selector(SimpleBaseViewController.close(_:))),
+            animated: false
+        )
+        let navigationController = UINavigationController(rootViewController: vc)
+        navigationController.modalPresentationStyle = .formSheet
+        navigationController.modalTransitionStyle = .coverVertical
+        self.present(navigationController, animated: true, completion: nil)
     }
     
     override func viewWillAppear(_ animated: Bool) {
@@ -280,8 +287,8 @@ class OnboardingViewController: SimpleBaseViewController {
         self.signUpButton.setTitle("Create new account".localizeString(id: "xmpp_login__button_sign_up", arguments: []), for: .normal)
         self.activityIndicator.removeFromSuperview()
         self.signInButton.alpha = 1.0
-        title = " "
-        self.navigationController?.title = " "
+        title = nil
+        self.navigationController?.title = nil
         self.navigationItem.largeTitleDisplayMode = .never
         self.navigationController?.navigationBar.prefersLargeTitles = false
         self.navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)

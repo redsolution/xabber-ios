@@ -274,6 +274,8 @@ extension AccountEditViewController {
                             }
                     }
                     DDLogDebug("AccountEditViewController+Flow: \(#function). Eror with uploading avatar.")
+                }, queuedCallback: {
+                    afterSettingAvatar(image: image)
                 })
             }
 //            UserAvatarManagerBase.updateLocalAvatar(owner: self.jid, for: self.jid, username: user.username, with: self.avatarImage)

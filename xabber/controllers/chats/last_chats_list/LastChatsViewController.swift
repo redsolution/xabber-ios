@@ -555,6 +555,9 @@ class LastChatsViewController: BaseViewController {
     internal var archivedSectionSubtitleText: NSAttributedString = NSAttributedString()
     
     internal var editedIndexPath: IndexPath? = nil
+    internal var activeSwipeActionDatasourceKey: String? = nil
+    internal var pendingSwipeActionReloadDatasourceKey: String? = nil
+    internal var pendingSwipeActionTableReload: Bool = false
     
     public var archivedMode: Bool = false
     
@@ -601,7 +604,7 @@ class LastChatsViewController: BaseViewController {
             self.playerViewToolbar.swapState(to: .playing)
             self.playerViewToolbar.configure(title: AudioManager.shared.currentPlayingTitle, subtitle: AudioManager.shared.currentPlayingSubtitle)
         }
-        self.tableView.reloadData()
+        self.reloadTableViewOrDeferForActiveSwipe()
     }
     
     internal func updateTitle(_ value: Filter) {
@@ -630,6 +633,14 @@ class LastChatsViewController: BaseViewController {
         
     }
     
+    private final func scrollTableViewToTop(animated: Bool) {
+        let offset = CGPoint(
+            x: tableView.contentOffset.x,
+            y: -tableView.adjustedContentInset.top
+        )
+        tableView.setContentOffset(offset, animated: animated)
+    }
+
     internal func updateDatasource(_ value: Filter) {
         do {
             let realm = try  WRealm.safe()
@@ -648,7 +659,7 @@ class LastChatsViewController: BaseViewController {
                                         argumentArray: [false,
                                                         0,
                                                         Array(enabledAccounts.value)])
-                tableView.scrollToRow(at: IndexPath(row: 0, section: 0), at: .top, animated: false)
+                scrollTableViewToTop(animated: false)
             case .archived:
                 predicate = NSPredicate(format: "isArchived == %@ AND owner IN %@", argumentArray: [true, Array(enabledAccounts.value)])
             case .saved:
@@ -775,7 +786,7 @@ class LastChatsViewController: BaseViewController {
     
     var unreadedJids: [String] = []
     
-    private final func datasourceKey(jid: String, owner: String) -> String {
+    internal final func datasourceKey(jid: String, owner: String) -> String {
         [jid, owner].prp()
     }
     
@@ -788,6 +799,63 @@ class LastChatsViewController: BaseViewController {
             uniquingKeysWith: { _, new in new }
         )
         self.refreshEmptyStateVisibility()
+    }
+
+    internal static func hasStructuralTableChanges(_ changes: ChangesWithIndexPath) -> Bool {
+        return changes.deletes.isNotEmpty || changes.inserts.isNotEmpty || changes.moves.isNotEmpty
+    }
+
+    private final func filteredReloadIndexPathsPreservingActiveSwipe(_ indexPaths: [IndexPath]) -> [IndexPath] {
+        let filtered = Self.filterReloadIndexPaths(
+            indexPaths,
+            datasource: self.datasource,
+            activeSwipeActionDatasourceKey: self.activeSwipeActionDatasourceKey
+        )
+        if filtered.count != indexPaths.count, let activeSwipeActionDatasourceKey {
+            self.pendingSwipeActionReloadDatasourceKey = activeSwipeActionDatasourceKey
+        }
+        return filtered
+    }
+
+    internal final func reloadTableViewOrDeferForActiveSwipe() {
+        guard activeSwipeActionDatasourceKey == nil else {
+            pendingSwipeActionTableReload = true
+            pendingSwipeActionReloadDatasourceKey = activeSwipeActionDatasourceKey
+            return
+        }
+        tableView.reloadData()
+    }
+
+    internal final func finishActiveSwipeActionEditing() {
+        let shouldReloadTable = pendingSwipeActionTableReload
+        let reloadKey = pendingSwipeActionReloadDatasourceKey
+
+        activeSwipeActionDatasourceKey = nil
+        pendingSwipeActionTableReload = false
+        pendingSwipeActionReloadDatasourceKey = nil
+
+        guard shouldReloadTable || reloadKey != nil else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            guard self.activeSwipeActionDatasourceKey == nil else {
+                if shouldReloadTable {
+                    self.pendingSwipeActionTableReload = true
+                }
+                self.pendingSwipeActionReloadDatasourceKey = reloadKey ?? self.activeSwipeActionDatasourceKey
+                return
+            }
+            if shouldReloadTable {
+                self.tableView.reloadData()
+                return
+            }
+            guard let reloadKey,
+                  let row = self.datasource.firstIndex(where: { Self.swipeActionDatasourceKey(for: $0) == reloadKey }) else {
+                return
+            }
+            UIView.performWithoutAnimation {
+                self.tableView.reloadRows(at: [IndexPath(row: row, section: 0)], with: .none)
+            }
+        }
     }
 
     internal static func shouldShowEmptyState(
@@ -1343,6 +1411,20 @@ class LastChatsViewController: BaseViewController {
             self.finishDatasetUpdateCycle()
             return
         }
+
+        guard Self.hasStructuralTableChanges(changes) else {
+            prepare()
+            let replacements = self.filteredReloadIndexPathsPreservingActiveSwipe(changes.replaces)
+            if replacements.isNotEmpty {
+                UIView.performWithoutAnimation {
+                    // Replacement rows can switch between skeleton, chat, and special-message cells.
+                    // Reload them so UITableView can dequeue the correct reuse identifier.
+                    self.tableView.reloadRows(at: replacements, with: .none)
+                }
+            }
+            self.finishDatasetUpdateCycle()
+            return
+        }
         
         self.tableView.performBatchUpdates({
             prepare()
@@ -1360,11 +1442,12 @@ class LastChatsViewController: BaseViewController {
             }
         }, completion: { result in
             self.finishDatasetUpdateCycle()
-            if changes.replaces.isEmpty { return }
+            let replacements = self.filteredReloadIndexPathsPreservingActiveSwipe(changes.replaces)
+            if replacements.isEmpty { return }
             UIView.performWithoutAnimation {
                 // Replacement rows can switch between skeleton, chat, and special-message cells.
                 // Reload them so UITableView can dequeue the correct reuse identifier.
-                self.tableView.reloadRows(at: changes.replaces, with: .none)
+                self.tableView.reloadRows(at: replacements, with: .none)
             }
         })
     }
@@ -1485,23 +1568,17 @@ class LastChatsViewController: BaseViewController {
             .asObservable()
             .debounce(.milliseconds(150), scheduler: MainScheduler.asyncInstance)
             .subscribe(onNext: { (result) in
-                func updateDatasource() {
-                    self.tableView.reloadRows(at: result.compactMap {
-                        item in
-                        if let row = self.datasourceIndexByKey[self.datasourceKey(jid: item.jid, owner: item.owner)] {
-                            return IndexPath(row: row, section: 0)
-                        }
-                        return nil
-                    }, with: .none)
+                let indexPaths = result.compactMap {
+                    item in
+                    if let row = self.datasourceIndexByKey[self.datasourceKey(jid: item.jid, owner: item.owner)] {
+                        return IndexPath(row: row, section: 0)
+                    }
+                    return nil
                 }
-                if #available(iOS 11.0, *) {
-                    self.tableView.performBatchUpdates({
-                        updateDatasource()
-                    }, completion: nil)
-                } else {
-                    self.tableView.beginUpdates()
-                    updateDatasource()
-                    self.tableView.endUpdates()
+                let reloads = self.filteredReloadIndexPathsPreservingActiveSwipe(indexPaths)
+                guard !reloads.isEmpty else { return }
+                UIView.performWithoutAnimation {
+                    self.tableView.reloadRows(at: reloads, with: .none)
                 }
             })
             .disposed(by: bag)
@@ -1793,7 +1870,7 @@ class LastChatsViewController: BaseViewController {
     }
 
     internal func openAddContactFlow() {
-        let vc = AddNewContactViewController()
+        let vc = CreateNewEntityViewController()
         vc.leftMenuSelectRootCategoryDelegate = leftMenuSelectRootCategoryDelegate
         showModal(vc, parent: self)
     }
@@ -1872,7 +1949,7 @@ class LastChatsViewController: BaseViewController {
     }
     
     override func reloadDatasource() {
-        tableView.reloadData()
+        reloadTableViewOrDeferForActiveSwipe()
     }
     
     override func viewWillAppear(_ animated: Bool) {
@@ -1959,7 +2036,7 @@ extension LastChatsViewController: MulticastAVAudioPlayerDelegate {
         print("finish")
         self.playerViewToolbar.swapState(to: .paused)
         AudioManager.shared.player = nil
-        self.tableView.reloadData()
+        self.reloadTableViewOrDeferForActiveSwipe()
     }
 }
 
@@ -1969,7 +2046,7 @@ extension LastChatsViewController: SharedPlayerViewDelegate {
         self.playerViewToolbar.swapState(to: .paused)
         AudioManager.shared.player?.stop()
         AudioManager.shared.player = nil
-        self.tableView.reloadData()
+        self.reloadTableViewOrDeferForActiveSwipe()
     }
     
     func sharedPlayerViewPlay(_ view: SharedPlayerView) {
@@ -2028,13 +2105,13 @@ extension LastChatsViewController: SharedAudioPlayerPanelDelegate {
         self.playerViewToolbar.swapState(to: .playing)
         self.playerViewToolbar.configure(title: AudioManager.shared.currentPlayingTitle, subtitle: AudioManager.shared.currentPlayingSubtitle)
 //        }
-        self.tableView.reloadData()
+        self.reloadTableViewOrDeferForActiveSwipe()
     }
     
     func shouldHide() {
         self.playerViewToolbar.stopTimer()
         self.playerViewToolbar.swapState(to: .paused)
         AudioManager.shared.player = nil
-        self.tableView.reloadData()
+        self.reloadTableViewOrDeferForActiveSwipe()
     }
 }

@@ -26,6 +26,40 @@ import MaterialComponents
 import SignalProtocolObjC
 @testable import xabber
 
+final class CreateNewEntityBotTests: XCTestCase {
+    func testBotDefinitionsExposeExpectedRows() {
+        XCTAssertEqual(
+            CreateNewEntityViewController.botDefinitions,
+            [
+                CreateNewEntityViewController.BotDefinition(
+                    title: "Call Me Bot",
+                    jid: "call.me.bot@test.xabber.org",
+                    description: "Answers calls and mirrors your camera video.",
+                    avatarAssetName: "create_new_entity_call_me_bot_avatar"
+                ),
+                CreateNewEntityViewController.BotDefinition(
+                    title: "Reply Me Bot",
+                    jid: "reply.me.bot@test.xabber.org",
+                    description: "Echo bot that sends your messages back.",
+                    avatarAssetName: "create_new_entity_reply_me_bot_avatar"
+                )
+            ]
+        )
+    }
+
+    func testBotRosterPolicySkipsAlreadyMutualContacts() {
+        XCTAssertFalse(CreateNewEntityViewController.shouldEnsureRoster(for: .both))
+    }
+
+    func testBotRosterPolicyRequiresRosterEnsureWhenMissingOrNotMutual() {
+        XCTAssertTrue(CreateNewEntityViewController.shouldEnsureRoster(for: nil))
+        XCTAssertTrue(CreateNewEntityViewController.shouldEnsureRoster(for: RosterStorageItem.Subsccribtion.none))
+        XCTAssertTrue(CreateNewEntityViewController.shouldEnsureRoster(for: .to))
+        XCTAssertTrue(CreateNewEntityViewController.shouldEnsureRoster(for: .from))
+        XCTAssertTrue(CreateNewEntityViewController.shouldEnsureRoster(for: .undefined))
+    }
+}
+
 final class EULAAcceptanceTests: XCTestCase {
     private func makeDefaults(file: StaticString = #filePath, line: UInt = #line) throws -> (UserDefaults, String) {
         let suiteName = "xabber.eula.tests.\(UUID().uuidString)"
@@ -277,6 +311,47 @@ private final class NoOpVoIPTimeoutScheduler: VoIPCallTimeoutScheduling {
     }
 }
 
+private final class CapturingVoIPScheduledTask: VoIPScheduledTask {
+    let interval: TimeInterval
+    private let block: () -> Void
+    private(set) var cancelCount: Int = 0
+    private(set) var isCancelled: Bool = false
+
+    init(interval: TimeInterval, block: @escaping () -> Void) {
+        self.interval = interval
+        self.block = block
+    }
+
+    func cancel() {
+        cancelCount += 1
+        isCancelled = true
+    }
+
+    func fire() {
+        guard !isCancelled else { return }
+        block()
+    }
+}
+
+private final class CapturingVoIPTimeoutScheduler: VoIPCallTimeoutScheduling {
+    private(set) var tasks: [CapturingVoIPScheduledTask] = []
+
+    @discardableResult
+    func schedule(after interval: TimeInterval, _ block: @escaping () -> Void) -> VoIPScheduledTask {
+        let task = CapturingVoIPScheduledTask(interval: interval, block: block)
+        tasks.append(task)
+        return task
+    }
+}
+
+private final class CapturingXMPPStream: XMPPStream {
+    private(set) var capturedConnectTimeout: TimeInterval?
+
+    override func connect(withTimeout timeout: TimeInterval) throws {
+        capturedConnectTimeout = timeout
+    }
+}
+
 private final class TestCallScreenDelegate: VoIPCallManagerDelegate {
     private(set) var dismissCount = 0
     private(set) var states: [VoIPCall.State] = []
@@ -299,7 +374,191 @@ private final class TestCallScreenDelegate: VoIPCallManagerDelegate {
 }
 
 @MainActor
+final class AvatarPickerViewControllerTests: XCTestCase {
+
+    func testEmojiSelectionStoresSelectedEmojiForSaveCallback() {
+        let viewController = AvatarPickerViewController()
+        viewController.loadViewIfNeeded()
+        let emoji = "\u{1F600}"
+
+        viewController.onEmojiSelected(emoji)
+
+        XCTAssertEqual(viewController.lastSettedEmoji, emoji)
+    }
+}
+
+final class VoIPICEConfigurationTests: XCTestCase {
+
+    private func decodeServers(_ plist: String) throws -> [VoIPICEServerConfiguration] {
+        let data = Data(plist.utf8)
+        return try PropertyListDecoder().decode([VoIPICEServerConfiguration].self, from: data)
+    }
+
+    func testDecodesIceServerUrlsAndCredentialsFromPlist() throws {
+        let servers = try decodeServers("""
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <array>
+            <dict>
+                <key>urls</key>
+                <array>
+                    <string>stun:stun.example.com:3478</string>
+                    <string>turn:turn.example.com:3478</string>
+                </array>
+                <key>username</key>
+                <string>xclient</string>
+                <key>credential</key>
+                <string>local-test-secret</string>
+            </dict>
+        </array>
+        </plist>
+        """)
+
+        XCTAssertEqual(servers.count, 1)
+        XCTAssertEqual(servers.first?.urls, [
+            "stun:stun.example.com:3478",
+            "turn:turn.example.com:3478"
+        ])
+        XCTAssertEqual(servers.first?.username, "xclient")
+        XCTAssertEqual(servers.first?.credential, "local-test-secret")
+    }
+
+    func testDecodesSingleIceServerUrlAndTrimsEmptyValues() throws {
+        let servers = try decodeServers("""
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <array>
+            <dict>
+                <key>url</key>
+                <string> stun:stun.example.com:3478 </string>
+            </dict>
+        </array>
+        </plist>
+        """)
+
+        XCTAssertEqual(servers.first?.urls, ["stun:stun.example.com:3478"])
+        XCTAssertNil(servers.first?.username)
+        XCTAssertNil(servers.first?.credential)
+    }
+
+    func testEmptyIceServerConfigurationsAreIgnored() {
+        let servers = VoIPICEConfiguration.rtcIceServers(from: [
+            VoIPICEServerConfiguration(urls: ["  "])
+        ])
+
+        XCTAssertTrue(servers.isEmpty)
+    }
+}
+
+final class VoIPCallIQRoutingTests: XCTestCase {
+
+    private func makeJingleIQ(action: String) -> XMPPIQ {
+        let jingle = DDXMLElement(name: "jingle", xmlns: "urn:xmpp:jingle:1")
+        jingle.addAttribute(withName: "action", stringValue: action)
+        return XMPPIQ(iqType: .set, to: nil, elementID: UUID().uuidString, child: jingle)
+    }
+
+    func testSessionInitiateRoutesToSessionDescriptionHandler() {
+        let iq = makeJingleIQ(action: "session-initiate")
+
+        XCTAssertEqual(VoIPCall.incomingIQRoute(for: iq), .sessionDescription)
+    }
+
+    func testSessionAcceptRoutesToSessionDescriptionHandler() {
+        let iq = makeJingleIQ(action: "session-accept")
+
+        XCTAssertEqual(VoIPCall.incomingIQRoute(for: iq), .sessionDescription)
+    }
+
+    func testSessionInfoRoutesToCandidateHandler() {
+        let iq = makeJingleIQ(action: "session-info")
+
+        XCTAssertEqual(VoIPCall.incomingIQRoute(for: iq), .candidate)
+    }
+
+    func testVideoStateRoutesToVideoStateHandler() {
+        let video = DDXMLElement(name: "video")
+        video.addAttribute(withName: "id", stringValue: "call-id")
+        video.addAttribute(withName: "state", stringValue: "enable")
+        let query = DDXMLElement(name: "query", xmlns: VoIPCall.namespace)
+        query.addChild(video)
+        let iq = XMPPIQ(iqType: .set, to: nil, elementID: UUID().uuidString, child: query)
+
+        XCTAssertEqual(VoIPCall.incomingIQRoute(for: iq), .videoState)
+    }
+
+    func testJingleErrorRoutesToJingleErrorHandler() {
+        let jingle = DDXMLElement(name: "jingle", xmlns: "urn:xmpp:jingle:1")
+        jingle.addAttribute(withName: "action", stringValue: "session-initiate")
+        let iq = XMPPIQ(iqType: .error, to: nil, elementID: UUID().uuidString, child: jingle)
+
+        XCTAssertEqual(VoIPCall.incomingIQRoute(for: iq), .jingleError)
+    }
+
+    func testEmptyResultRoutesToAcknowledgementAndIsIgnored() {
+        let iq = XMPPIQ(iqType: .result, to: nil, elementID: UUID().uuidString, child: nil)
+        let call = VoIPCall(
+            owner: "owner@example.com",
+            fullJid: "peer@example.com/resource",
+            callId: "call-id",
+            callUUID: UUID(),
+            outgoing: true
+        )
+
+        XCTAssertEqual(VoIPCall.incomingIQRoute(for: iq), .acknowledgement)
+        XCTAssertTrue(call.xmppStream(call.stream, didReceive: iq))
+    }
+
+    func testUnrelatedIQIsUnhandled() {
+        let query = DDXMLElement(name: "query", xmlns: "jabber:iq:version")
+        let iq = XMPPIQ(iqType: .get, to: nil, elementID: UUID().uuidString, child: query)
+        let call = VoIPCall(
+            owner: "owner@example.com",
+            fullJid: "peer@example.com/resource",
+            callId: "call-id",
+            callUUID: UUID(),
+            outgoing: true
+        )
+
+        XCTAssertEqual(VoIPCall.incomingIQRoute(for: iq), .unhandled)
+        XCTAssertFalse(call.xmppStream(call.stream, didReceive: iq))
+    }
+}
+
+@MainActor
 final class VoIPTerminationReasonTests: XCTestCase {
+
+    private func withInMemoryRealm(_ body: () throws -> Void) rethrows {
+        let previousConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(inMemoryIdentifier: "VoIPTerminationReasonTests-\(name)-\(UUID().uuidString)")
+        defer { Realm.Configuration.defaultConfiguration = previousConfiguration }
+        try body()
+    }
+
+    private func installAccount(owner: String, deviceId: String) -> Account {
+        AccountManager.shared.users.removeAll { $0.jid == owner }
+        let account = Account(jid: owner, queue: .main)
+        account.devices.deviceId = deviceId
+        AccountManager.shared.users.append(account)
+        return account
+    }
+
+    private func makeAcceptMessage(
+        from: String,
+        to: String,
+        callId: String,
+        deviceId: String
+    ) throws -> DDXMLElement {
+        let document = try DDXMLDocument(xmlString: """
+        <message type="chat" from="\(from)" to="\(to)">
+          <accept xmlns="\(VoIPCall.namespace)" id="\(callId)"/>
+          <device xmlns="https://xabber.com/protocol/devices" id="\(deviceId)"/>
+        </message>
+        """, options: 0)
+        return try XCTUnwrap(document.rootElement())
+    }
 
     func testProviderConfigurationMatchesSingleCallCapabilities() {
         let configuration = VoIPManager.providerConfiguration()
@@ -362,6 +621,152 @@ final class VoIPTerminationReasonTests: XCTestCase {
         XCTAssertTrue(manager.currentCall === call)
         XCTAssertTrue(delegate.states.isEmpty)
         XCTAssertTrue(delegate.micStates.isEmpty)
+    }
+
+    func testRuntimeRemoteAcceptForOutgoingCallDoesNotEndCurrentCall() throws {
+        try withInMemoryRealm {
+            let owner = "owner@example.com"
+            let peer = "peer@example.com"
+            _ = installAccount(owner: owner, deviceId: "iphone-device")
+            defer { AccountManager.shared.users.removeAll { $0.jid == owner } }
+
+            let manager = VoIPManager()
+            let call = VoIPCall(
+                owner: owner,
+                fullJid: "\(peer)/ipad-voip",
+                callId: "call-id",
+                callUUID: UUID(),
+                outgoing: true
+            )
+            let context = manager.registerSession(
+                callId: call.callId,
+                callUUID: call.callUUID,
+                owner: call.owner,
+                jid: call.jid,
+                outgoing: true,
+                phase: .waitingRemoteOffer
+            )
+            manager.currentCall = call
+            let message = try makeAcceptMessage(
+                from: "\(peer)/ipad-voip",
+                to: "\(owner)/iphone-voip",
+                callId: call.callId,
+                deviceId: "ipad-device"
+            )
+
+            XCTAssertTrue(manager.onReceiveMessage(message, owner: owner, archivedDate: nil, runtime: true))
+            XCTAssertTrue(manager.currentCall === call)
+            XCTAssertEqual(manager.currentSession?.callId, call.callId)
+            XCTAssertEqual(context.phase, .waitingRemoteOffer)
+            XCTAssertNil(context.lastTerminationReason)
+        }
+    }
+
+    func testRuntimeLocalAcceptFromOtherDeviceEndsIncomingAsAnsweredElsewhere() throws {
+        try withInMemoryRealm {
+            let owner = "owner@example.com"
+            let peer = "peer@example.com"
+            _ = installAccount(owner: owner, deviceId: "iphone-device")
+            defer { AccountManager.shared.users.removeAll { $0.jid == owner } }
+
+            let manager = VoIPManager()
+            let call = VoIPCall(
+                owner: owner,
+                fullJid: "\(peer)/caller-voip",
+                callId: "call-id",
+                callUUID: UUID(),
+                outgoing: false
+            )
+            let context = manager.registerSession(
+                callId: call.callId,
+                callUUID: call.callUUID,
+                owner: call.owner,
+                jid: call.jid,
+                outgoing: false,
+                phase: .ringing
+            )
+            manager.currentCall = call
+            let message = try makeAcceptMessage(
+                from: "\(owner)/ipad-voip",
+                to: "\(peer)/caller-voip",
+                callId: call.callId,
+                deviceId: "ipad-device"
+            )
+
+            XCTAssertTrue(manager.onReceiveMessage(message, owner: owner, archivedDate: nil, runtime: true))
+            XCTAssertEqual(context.lastTerminationReason, .answeredElsewhere)
+            XCTAssertNil(manager.currentCall)
+            XCTAssertNil(manager.currentSession)
+        }
+    }
+
+    func testStaleVoIPCallCallbacksDoNotMutateActiveSessionOrScreenState() {
+        let manager = VoIPManager()
+        let delegate = TestCallScreenDelegate()
+        let activeCall = VoIPCall(
+            owner: "owner@example.com",
+            fullJid: "peer@example.com/resource",
+            callId: "active-call",
+            callUUID: UUID(),
+            outgoing: true
+        )
+        let activeContext = manager.registerSession(
+            callId: activeCall.callId,
+            callUUID: activeCall.callUUID,
+            owner: activeCall.owner,
+            jid: activeCall.jid,
+            outgoing: true,
+            phase: .waitingRemoteOffer
+        )
+        let staleCall = VoIPCall(
+            owner: "owner@example.com",
+            fullJid: "peer@example.com/resource",
+            callId: "stale-call",
+            callUUID: UUID(),
+            outgoing: true
+        )
+        manager.currentCall = activeCall
+        manager.callScreenDelegate = delegate
+
+        manager.VoIPCallDidChangeState(staleCall, to: .accepted)
+        manager.VoIPCallDidEndWith(staleCall, error: nil, byActiveStream: true)
+        manager.VoIPCallDidEndWith(staleCall, error: VoIPCallError.xmppErrorConnectionFailed, byActiveStream: false)
+
+        XCTAssertTrue(manager.currentCall === activeCall)
+        XCTAssertEqual(manager.currentSession?.callId, activeCall.callId)
+        XCTAssertEqual(activeContext.phase, .waitingRemoteOffer)
+        XCTAssertTrue(delegate.states.isEmpty)
+    }
+
+    func testUnavailableJingleSessionInitiateErrorEndsAsSignalingFailure() {
+        let manager = VoIPManager()
+        let call = VoIPCall(
+            owner: "owner@example.com",
+            fullJid: "peer@example.com/resource",
+            callId: "call-id",
+            callUUID: UUID(),
+            outgoing: false
+        )
+        let context = manager.registerSession(
+            callId: call.callId,
+            callUUID: call.callUUID,
+            owner: call.owner,
+            jid: call.jid,
+            outgoing: false,
+            phase: .connectingMedia
+        )
+        manager.currentCall = call
+
+        manager.VoIPCallDidReceiveJingleError(
+            call,
+            action: "session-initiate",
+            condition: "service-unavailable",
+            text: "User session not found"
+        )
+
+        XCTAssertEqual(context.lastTerminationReason, .signalingError)
+        XCTAssertNil(manager.currentCall)
+        XCTAssertNil(manager.currentSession)
     }
 
     func testLegacyStateMappingRespectsDirectionSensitiveReasons() {
@@ -520,11 +925,20 @@ final class VoIPTerminationReasonTests: XCTestCase {
             outgoing: true,
             phase: .waitingRemoteOffer
         )
+        let unsentOutgoingContext = CallSessionContext(
+            callId: "unsent-outgoing-call",
+            callUUID: UUID(),
+            owner: "owner@example.com",
+            jid: "peer@example.com/resource",
+            outgoing: true,
+            phase: .startingSignaling
+        )
 
         XCTAssertTrue(manager.shouldSendReject(trigger: .localEnd, call: incomingCall, context: incomingContext))
         XCTAssertTrue(manager.shouldSendReject(trigger: .endActionTimeout, call: incomingCall, context: incomingContext))
         XCTAssertTrue(manager.shouldSendReject(trigger: .outgoingUnansweredTimeout, call: outgoingCall, context: outgoingContext))
 
+        XCTAssertFalse(manager.shouldSendReject(trigger: .outgoingUnansweredTimeout, call: outgoingCall, context: unsentOutgoingContext))
         XCTAssertFalse(manager.shouldSendReject(trigger: .incomingUnansweredTimeout, call: incomingCall, context: incomingContext))
         XCTAssertFalse(manager.shouldSendReject(trigger: .confirmationFailure, call: incomingCall, context: incomingContext))
         XCTAssertFalse(manager.shouldSendReject(trigger: .appAcceptFailure, call: incomingCall, context: incomingContext))
@@ -598,6 +1012,209 @@ final class VoIPTerminationReasonTests: XCTestCase {
         XCTAssertEqual(callElement?.attributeStringValue(forName: "end-reason"), "noanswer")
     }
 
+    func testOutgoingProposeBeforeAuthenticationIsQueued() {
+        let call = VoIPCall(
+            owner: "owner@example.com",
+            fullJid: "peer@example.com/resource",
+            callId: "call-id",
+            callUUID: UUID(),
+            outgoing: true
+        )
+
+        call.proposeCall()
+
+        let message = call.stanzaQueue.first as? XMPPMessage
+        let propose = message?.element(forName: "propose", xmlns: VoIPCall.namespace)
+
+        XCTAssertEqual(call.state, .proposed)
+        XCTAssertEqual(propose?.attributeStringValue(forName: "id"), "call-id")
+        XCTAssertNil(message?.element(forName: "reject", xmlns: VoIPCall.namespace))
+    }
+
+    func testVoIPStreamConnectionSettingsUseManualAccountHostAndPort() throws {
+        try withInMemoryRealm {
+            let owner = "owner@example.com"
+            let account = installAccount(owner: owner, deviceId: "iphone-device")
+            defer { AccountManager.shared.users.removeAll { $0.jid == owner } }
+            account.manuallySetHost = true
+            account.host = "xmpp.manual.example.com"
+            account.port = 5223
+            let call = VoIPCall(
+                owner: owner,
+                fullJid: "peer@example.com/resource",
+                callId: "call-id",
+                callUUID: UUID(),
+                outgoing: true
+            )
+            let stream = CapturingXMPPStream()
+            call.stream = stream
+
+            call.start(shouldConfirmOnAuthenticate: false)
+            call.queue.sync {}
+
+            XCTAssertEqual(stream.hostName, "xmpp.manual.example.com")
+            XCTAssertEqual(stream.hostPort, UInt16(5223))
+            XCTAssertEqual(stream.capturedConnectTimeout, 15.0)
+            XCTAssertEqual(stream.myJID?.resource, "\(AccountManager.defaultResource)_voip_call-id")
+        }
+    }
+
+    func testQueuedProposeSurvivesPreAuthenticationDisconnectDuringStartup() {
+        let owner = "owner@example.com"
+        let call = VoIPCall(
+            owner: owner,
+            fullJid: "peer@example.com/resource",
+            callId: "call-id",
+            callUUID: UUID(),
+            outgoing: true
+        )
+        call.stream.myJID = XMPPJID(string: owner, resource: "test-voip-resource")
+        call.proposeCall()
+
+        call.xmppStreamDidDisconnect(
+            call.stream,
+            withError: NSError(domain: "test.voip", code: -1001, userInfo: [NSLocalizedDescriptionKey: "timed out"])
+        )
+
+        XCTAssertNotNil((call.stanzaQueue.first as? XMPPMessage)?.element(forName: "propose", xmlns: VoIPCall.namespace))
+        XCTAssertEqual(call.state, .proposed)
+        XCTAssertNil((call.stanzaQueue.first as? XMPPMessage)?.element(forName: "reject", xmlns: VoIPCall.namespace))
+    }
+
+    func testOutgoingCallWaitsForProposeSendBeforeNoAnswerTimer() {
+        let manager = VoIPManager()
+        let scheduler = CapturingVoIPTimeoutScheduler()
+        manager.timeoutScheduler = scheduler
+        let call = VoIPCall(
+            owner: "owner@example.com",
+            fullJid: "peer@example.com/resource",
+            callId: "call-id",
+            callUUID: UUID(),
+            outgoing: true
+        )
+        let context = manager.registerSession(
+            callId: call.callId,
+            callUUID: call.callUUID,
+            owner: call.owner,
+            jid: call.jid,
+            outgoing: true,
+            phase: .startingSignaling
+        )
+        manager.currentCall = call
+
+        manager.scheduleProposeSendTimeout(for: context)
+        call.proposeCall()
+
+        XCTAssertEqual(context.phase, .startingSignaling)
+        XCTAssertNotNil(context.proposeSendTimeoutTask)
+        XCTAssertNil(context.outgoingTimeoutTask)
+        XCTAssertEqual(scheduler.tasks.map(\.interval), [30.0])
+    }
+
+    func testProposeSentStartsOutgoingNoAnswerTimeout() {
+        let manager = VoIPManager()
+        let scheduler = CapturingVoIPTimeoutScheduler()
+        manager.timeoutScheduler = scheduler
+        let call = VoIPCall(
+            owner: "owner@example.com",
+            fullJid: "peer@example.com/resource",
+            callId: "call-id",
+            callUUID: UUID(),
+            outgoing: true
+        )
+        let context = manager.registerSession(
+            callId: call.callId,
+            callUUID: call.callUUID,
+            owner: call.owner,
+            jid: call.jid,
+            outgoing: true,
+            phase: .startingSignaling
+        )
+        let proposeTask = TestScheduledTask()
+        context.proposeSendTimeoutTask = proposeTask
+        manager.currentCall = call
+
+        manager.VoIPCallDidSendPropose(call)
+
+        XCTAssertEqual(proposeTask.cancelCount, 1)
+        XCTAssertNil(context.proposeSendTimeoutTask)
+        XCTAssertEqual(context.phase, .waitingRemoteOffer)
+        XCTAssertNotNil(context.outgoingTimeoutTask)
+        XCTAssertEqual(scheduler.tasks.map(\.interval), [30.0])
+    }
+
+    func testUnsentProposeTimeoutEndsConnectionFailureWithoutNoAnswerReject() {
+        let manager = VoIPManager()
+        let scheduler = CapturingVoIPTimeoutScheduler()
+        let delegate = TestCallScreenDelegate()
+        manager.timeoutScheduler = scheduler
+        manager.callScreenDelegate = delegate
+        let call = VoIPCall(
+            owner: "owner@example.com",
+            fullJid: "peer@example.com/resource",
+            callId: "call-id",
+            callUUID: UUID(),
+            outgoing: true
+        )
+        let context = manager.registerSession(
+            callId: call.callId,
+            callUUID: call.callUUID,
+            owner: call.owner,
+            jid: call.jid,
+            outgoing: true,
+            phase: .startingSignaling
+        )
+        manager.currentCall = call
+        call.proposeCall()
+        XCTAssertNotNil((call.stanzaQueue.first as? XMPPMessage)?.element(forName: "propose", xmlns: VoIPCall.namespace))
+
+        manager.scheduleProposeSendTimeout(for: context)
+        scheduler.tasks.last?.fire()
+
+        XCTAssertEqual(context.lastTerminationReason, .connectionError)
+        XCTAssertNil(manager.currentCall)
+        XCTAssertNil(manager.currentSession)
+        XCTAssertTrue(call.stanzaQueue.isEmpty)
+        XCTAssertFalse(call.shouldSendReject)
+        XCTAssertEqual(delegate.states, [.ended])
+    }
+
+    func testStaleProposeSentCallbackDoesNotMutateActiveContext() {
+        let manager = VoIPManager()
+        let activeCall = VoIPCall(
+            owner: "owner@example.com",
+            fullJid: "peer@example.com/resource",
+            callId: "active-call",
+            callUUID: UUID(),
+            outgoing: true
+        )
+        let activeContext = manager.registerSession(
+            callId: activeCall.callId,
+            callUUID: activeCall.callUUID,
+            owner: activeCall.owner,
+            jid: activeCall.jid,
+            outgoing: true,
+            phase: .startingSignaling
+        )
+        let proposeTask = TestScheduledTask()
+        activeContext.proposeSendTimeoutTask = proposeTask
+        let staleCall = VoIPCall(
+            owner: "owner@example.com",
+            fullJid: "peer@example.com/resource",
+            callId: "stale-call",
+            callUUID: UUID(),
+            outgoing: true
+        )
+        manager.currentCall = activeCall
+
+        manager.VoIPCallDidSendPropose(staleCall)
+
+        XCTAssertEqual(activeContext.phase, .startingSignaling)
+        XCTAssertEqual(proposeTask.cancelCount, 0)
+        XCTAssertNil(activeContext.outgoingTimeoutTask)
+        XCTAssertTrue(manager.currentCall === activeCall)
+    }
+
     func testAcceptGuardFailureQueuesNoAcceptOrReject() {
         let call = VoIPCall(
             owner: "owner@example.com",
@@ -630,6 +1247,7 @@ final class VoIPTerminationReasonTests: XCTestCase {
             phase: .awaitingConfirmation
         )
         context.didReportIncomingCall = true
+        manager.currentCall = call
 
         manager.requestIncomingAnswer(call: call, context: context, action: nil)
 
@@ -676,7 +1294,6 @@ final class VoIPTerminationReasonTests: XCTestCase {
     func testCallScreenRetryStatesAreLimitedToTerminalFailures() {
         XCTAssertTrue(VoIPCall.State.notConfirmed.shouldRetryFromCallScreen)
         XCTAssertTrue(VoIPCall.State.disconnected.shouldRetryFromCallScreen)
-        XCTAssertTrue(VoIPCall.State.ended.shouldRetryFromCallScreen)
 
         XCTAssertFalse(VoIPCall.State.initiated.shouldRetryFromCallScreen)
         XCTAssertFalse(VoIPCall.State.proposed.shouldRetryFromCallScreen)
@@ -684,6 +1301,7 @@ final class VoIPTerminationReasonTests: XCTestCase {
         XCTAssertFalse(VoIPCall.State.accepted.shouldRetryFromCallScreen)
         XCTAssertFalse(VoIPCall.State.connecting.shouldRetryFromCallScreen)
         XCTAssertFalse(VoIPCall.State.connected.shouldRetryFromCallScreen)
+        XCTAssertFalse(VoIPCall.State.ended.shouldRetryFromCallScreen)
         XCTAssertFalse(VoIPCall.State.holded.shouldRetryFromCallScreen)
     }
 
@@ -697,11 +1315,13 @@ final class VoIPTerminationReasonTests: XCTestCase {
             phase: .ringing
         )
         let incoming = TestScheduledTask()
+        let propose = TestScheduledTask()
         let outgoing = TestScheduledTask()
         let confirmation = TestScheduledTask()
         let media = TestScheduledTask()
 
         context.incomingTimeoutTask = incoming
+        context.proposeSendTimeoutTask = propose
         context.outgoingTimeoutTask = outgoing
         context.confirmationTimeoutTask = confirmation
         context.mediaSetupTimeoutTask = media
@@ -709,10 +1329,12 @@ final class VoIPTerminationReasonTests: XCTestCase {
         context.cancelTimers()
 
         XCTAssertEqual(incoming.cancelCount, 1)
+        XCTAssertEqual(propose.cancelCount, 1)
         XCTAssertEqual(outgoing.cancelCount, 1)
         XCTAssertEqual(confirmation.cancelCount, 1)
         XCTAssertEqual(media.cancelCount, 1)
         XCTAssertNil(context.incomingTimeoutTask)
+        XCTAssertNil(context.proposeSendTimeoutTask)
         XCTAssertNil(context.outgoingTimeoutTask)
         XCTAssertNil(context.confirmationTimeoutTask)
         XCTAssertNil(context.mediaSetupTimeoutTask)
@@ -2056,7 +2678,7 @@ final class NotificationsFeatureTests: XCTestCase {
 
         let controller = NotificationsListViewController()
         let snapshot = controller.buildDatasourceSnapshot(filter: .mentions, filterAccount: owner)
-        let rows = snapshot.flatMap(\.childs).filter { !$0.isHeader }
+        let rows = snapshot.datasource.flatMap(\.childs).filter { !$0.isHeader }
         XCTAssertEqual(rows.count, 1)
         XCTAssertEqual(rows.first?.category, .mention)
         XCTAssertEqual(rows.first?.title.string, "Romeo mentioned you")
@@ -2219,7 +2841,7 @@ final class NotificationsFeatureTests: XCTestCase {
 
         let controller = NotificationsListViewController()
         let snapshot = controller.buildDatasourceSnapshot(filter: .mentions, filterAccount: owner)
-        let rows = snapshot.flatMap(\.childs).filter { !$0.isHeader }
+        let rows = snapshot.datasource.flatMap(\.childs).filter { !$0.isHeader }
 
         XCTAssertEqual(rows.count, 1)
         XCTAssertEqual(rows.first?.category, .mention)
@@ -7393,6 +8015,17 @@ final class ChatListUnreadMentionBadgeTests: XCTestCase {
         XCTAssertFalse(LastChatsViewController.Datasource.compareContent(withoutMention, withMention))
     }
 
+    func testLastChatsViewControllerUnreadFilterHandlesEmptyDatasource() {
+        let controller = LastChatsViewController()
+        controller.loadViewIfNeeded()
+        controller.enabledAccounts.accept(Set([owner]))
+
+        controller.updateDatasource(.unread)
+
+        XCTAssertTrue(controller.datasource.isEmpty)
+        XCTAssertEqual(controller.tableView.numberOfRows(inSection: 0), 0)
+    }
+
     func testLastChatsViewControllerMapsUnreadMentionFlagFromStorage() throws {
         try insertLastChat(
             jid: "group@example.com",
@@ -7569,6 +8202,150 @@ final class ChatListUnreadMentionBadgeTests: XCTestCase {
     }
 }
 
+@MainActor
+final class LastChatsSwipeActionTests: XCTestCase {
+
+    func testSwipeActionIconsResolve() {
+        LastChatsViewController.swipeActionIconNames.forEach { iconName in
+            XCTAssertNotNil(imageLiteral(iconName), "Expected swipe action icon to resolve: \(iconName)")
+        }
+    }
+
+    func testDirectChatsAllowCallAndBlockActions() {
+        let directTypes: [ClientSynchronizationManager.ConversationType] = [
+            .regular,
+            .omemo,
+            .omemo1,
+            .axolotl
+        ]
+
+        directTypes.forEach { conversationType in
+            let item = makeDatasource(conversationType: conversationType)
+
+            XCTAssertTrue(LastChatsViewController.canShowCallAction(for: item))
+            XCTAssertTrue(LastChatsViewController.canShowBlockAction(for: item))
+        }
+    }
+
+    func testGroupAndChannelRowsAllowBlockButNotCall() {
+        let groupRows: [ClientSynchronizationManager.ConversationType] = [
+            .group,
+            .channel
+        ]
+
+        groupRows.forEach { conversationType in
+            let item = makeDatasource(conversationType: conversationType)
+
+            XCTAssertFalse(LastChatsViewController.canShowCallAction(for: item))
+            XCTAssertTrue(LastChatsViewController.canShowBlockAction(for: item))
+        }
+    }
+
+    func testSavedNotificationAndSpecialRowsDoNotExposeNewActions() {
+        let saved = makeDatasource(conversationType: .saved)
+        let notification = makeDatasource(conversationType: .notifications)
+        let contactRequest = makeDatasource(conversationType: .regular, specialMessageKind: .contact)
+        let invite = makeDatasource(conversationType: .group, specialMessageKind: .invite)
+
+        [saved, notification, contactRequest, invite].forEach { item in
+            XCTAssertFalse(LastChatsViewController.canShowCallAction(for: item))
+            XCTAssertFalse(LastChatsViewController.canShowBlockAction(for: item))
+        }
+    }
+
+    func testActiveSwipeRowReloadFilteringRemovesOnlyActiveRow() {
+        let direct = makeDatasource(jid: "romeo@example.com", conversationType: .regular)
+        let group = makeDatasource(jid: "room@example.com", conversationType: .group)
+        let datasource = [direct, group]
+        let activeKey = LastChatsViewController.swipeActionDatasourceKey(for: group)
+
+        let filtered = LastChatsViewController.filterReloadIndexPaths(
+            [
+                IndexPath(row: 0, section: 0),
+                IndexPath(row: 1, section: 0),
+                IndexPath(row: 2, section: 0)
+            ],
+            datasource: datasource,
+            activeSwipeActionDatasourceKey: activeKey
+        )
+
+        XCTAssertEqual(filtered, [
+            IndexPath(row: 0, section: 0),
+            IndexPath(row: 2, section: 0)
+        ])
+    }
+
+    func testActiveSwipeRowReloadFilteringCanRemoveAllReloads() {
+        let direct = makeDatasource(jid: "romeo@example.com", conversationType: .regular)
+        let datasource = [direct]
+        let activeKey = LastChatsViewController.swipeActionDatasourceKey(for: direct)
+
+        let filtered = LastChatsViewController.filterReloadIndexPaths(
+            [IndexPath(row: 0, section: 0)],
+            datasource: datasource,
+            activeSwipeActionDatasourceKey: activeKey
+        )
+
+        XCTAssertTrue(filtered.isEmpty)
+    }
+
+    func testReloadOnlyChangesDoNotRequireStructuralTableBatch() {
+        let reloadOnly = ChangesWithIndexPath(
+            inserts: [],
+            deletes: [],
+            replaces: [IndexPath(row: 0, section: 0)],
+            moves: []
+        )
+        let structural = ChangesWithIndexPath(
+            inserts: [IndexPath(row: 1, section: 0)],
+            deletes: [],
+            replaces: [IndexPath(row: 0, section: 0)],
+            moves: []
+        )
+
+        XCTAssertFalse(LastChatsViewController.hasStructuralTableChanges(reloadOnly))
+        XCTAssertTrue(LastChatsViewController.hasStructuralTableChanges(structural))
+    }
+
+    private func makeDatasource(
+        jid: String = "romeo@example.com",
+        conversationType: ClientSynchronizationManager.ConversationType,
+        specialMessageKind: LastChatsViewController.SpecialMessageKind = .none
+    ) -> LastChatsViewController.Datasource {
+        LastChatsViewController.Datasource(
+            jid: jid,
+            owner: "owner@example.com",
+            username: "Romeo",
+            attributedUsername: nil,
+            message: "Hello",
+            date: Date(timeIntervalSince1970: 1_711_283_200),
+            state: nil,
+            isMute: false,
+            isSynced: true,
+            status: .offline,
+            entity: conversationType == .regular || conversationType.isEncrypted ? .contact : .groupchat,
+            conversationType: conversationType,
+            unread: 0,
+            unreadString: nil,
+            hasUnreadMention: false,
+            color: .clear,
+            isDraft: false,
+            hasAttachment: false,
+            userNickname: nil,
+            isSystemMessage: false,
+            isPinned: false,
+            subRequest: false,
+            isEncrypted: conversationType.isEncrypted,
+            avatarUrl: nil,
+            hasErrorInChat: false,
+            updateTS: 0,
+            isVerificationActionRequired: false,
+            specialMessageKind: specialMessageKind,
+            avatars: []
+        )
+    }
+}
+
 final class ChatListEmptyStateTests: XCTestCase {
 
     func testMainChatsEmptyShowsEmptyStateWhenNotLoadingAndSearchInactive() {
@@ -7648,6 +8425,50 @@ final class ChatListEmptyStateTests: XCTestCase {
 
 final class ListEmptyStateTests: XCTestCase {
 
+    private func makeContactDatasource(
+        title: String = "Alice",
+        jid: String = "alice@example.com",
+        isHeader: Bool = false
+    ) -> ContactsViewController.Datasource {
+        ContactsViewController.Datasource(
+            owner: "owner@example.com",
+            title: title,
+            jid: jid,
+            subtitle: jid,
+            groups: [],
+            conversationType: .regular,
+            isHeader: isHeader
+        )
+    }
+
+    private func makeCallDatasource() -> LastCallsViewController.Datasource {
+        LastCallsViewController.Datasource(
+            owner: "owner@example.com",
+            jid: "alice@example.com",
+            username: "Alice",
+            avatarUrl: nil,
+            date: Date(timeIntervalSince1970: 1),
+            direction: .outgoing,
+            outgoing: true,
+            messagePrimary: "call-1",
+            referencePrimary: nil
+        )
+    }
+
+    private func makeNotificationChild(isHeader: Bool = false) -> NotificationsListViewController.DatasourceChild {
+        NotificationsListViewController.DatasourceChild(
+            primary: isHeader ? "header" : "notification-1",
+            category: .info,
+            owner: "owner@example.com",
+            jid: "alice@example.com",
+            title: NSAttributedString(string: isHeader ? "Header" : "Notification"),
+            date: Date(timeIntervalSince1970: 1),
+            badgeIcon: "info.circle",
+            isRead: false,
+            isHeader: isHeader
+        )
+    }
+
     func testSharedEmptyStateConfiguresButtonIdentifierAndInvokesCallback() {
         let view = EmptyStateView()
         var didTapButton = false
@@ -7678,6 +8499,7 @@ final class ListEmptyStateTests: XCTestCase {
             isGroup: false,
             category: "all",
             filteredGroups: Set<String>(),
+            hasResolvedSnapshot: true,
             visibleDatasourceIsEmpty: true,
             featureHasAnyContent: false,
             isSearchActive: false
@@ -7695,6 +8517,7 @@ final class ListEmptyStateTests: XCTestCase {
             isGroup: false,
             category: "online",
             filteredGroups: Set<String>(),
+            hasResolvedSnapshot: true,
             visibleDatasourceIsEmpty: true,
             featureHasAnyContent: true,
             isSearchActive: false
@@ -7712,6 +8535,7 @@ final class ListEmptyStateTests: XCTestCase {
                 isGroup: false,
                 category: "all",
                 filteredGroups: Set<String>(),
+                hasResolvedSnapshot: true,
                 visibleDatasourceIsEmpty: true,
                 featureHasAnyContent: false,
                 isSearchActive: true
@@ -7722,7 +8546,39 @@ final class ListEmptyStateTests: XCTestCase {
                 isGroup: false,
                 category: "all",
                 filteredGroups: Set<String>(),
+                hasResolvedSnapshot: true,
                 visibleDatasourceIsEmpty: false,
+                featureHasAnyContent: false,
+                isSearchActive: false
+            )
+        )
+    }
+
+    func testContactsWithVisibleRowHideEmptyState() {
+        let datasource = [[makeContactDatasource()]]
+
+        XCTAssertFalse(ContactsViewController.visibleDatasourceIsEmpty(datasource))
+        XCTAssertNil(
+            ContactsViewController.emptyStateDescriptor(
+                isGroup: false,
+                category: "all",
+                filteredGroups: Set<String>(),
+                hasResolvedSnapshot: true,
+                visibleDatasourceIsEmpty: ContactsViewController.visibleDatasourceIsEmpty(datasource),
+                featureHasAnyContent: true,
+                isSearchActive: false
+            )
+        )
+    }
+
+    func testContactsUnresolvedSnapshotHidesEmptyState() {
+        XCTAssertNil(
+            ContactsViewController.emptyStateDescriptor(
+                isGroup: false,
+                category: "all",
+                filteredGroups: Set<String>(),
+                hasResolvedSnapshot: false,
+                visibleDatasourceIsEmpty: true,
                 featureHasAnyContent: false,
                 isSearchActive: false
             )
@@ -7734,6 +8590,7 @@ final class ListEmptyStateTests: XCTestCase {
             isGroup: true,
             category: "public",
             filteredGroups: Set<String>(),
+            hasResolvedSnapshot: true,
             visibleDatasourceIsEmpty: true,
             featureHasAnyContent: false,
             isSearchActive: false
@@ -7751,6 +8608,7 @@ final class ListEmptyStateTests: XCTestCase {
             isGroup: true,
             category: "public",
             filteredGroups: Set<String>(),
+            hasResolvedSnapshot: true,
             visibleDatasourceIsEmpty: true,
             featureHasAnyContent: true,
             isSearchActive: false
@@ -7762,8 +8620,34 @@ final class ListEmptyStateTests: XCTestCase {
         XCTAssertNil(descriptor?.action)
     }
 
+    func testGroupsWithVisibleRowHideEmptyState() {
+        let groupRow = ContactsViewController.Datasource(
+            owner: "owner@example.com",
+            title: "Public Group",
+            jid: "group@example.com",
+            subtitle: "A group",
+            groups: [],
+            conversationType: .group
+        )
+        let datasource = [[groupRow]]
+
+        XCTAssertFalse(ContactsViewController.visibleDatasourceIsEmpty(datasource))
+        XCTAssertNil(
+            ContactsViewController.emptyStateDescriptor(
+                isGroup: true,
+                category: "public",
+                filteredGroups: Set<String>(),
+                hasResolvedSnapshot: true,
+                visibleDatasourceIsEmpty: ContactsViewController.visibleDatasourceIsEmpty(datasource),
+                featureHasAnyContent: true,
+                isSearchActive: false
+            )
+        )
+    }
+
     func testCallsEmptyWithCallableContactsShowsStartCallDescriptor() {
         let descriptor = LastCallsViewController.emptyStateDescriptor(
+            hasResolvedSnapshot: true,
             isLoading: false,
             isSearchActive: false,
             callHistoryIsEmpty: true,
@@ -7779,6 +8663,7 @@ final class ListEmptyStateTests: XCTestCase {
 
     func testCallsEmptyWithoutCallableContactsShowsAddContactDescriptor() {
         let descriptor = LastCallsViewController.emptyStateDescriptor(
+            hasResolvedSnapshot: true,
             isLoading: false,
             isSearchActive: false,
             callHistoryIsEmpty: true,
@@ -7794,6 +8679,7 @@ final class ListEmptyStateTests: XCTestCase {
     func testCallsEmptyStateIsHiddenWhileLoadingSearchingOrNonEmpty() {
         XCTAssertNil(
             LastCallsViewController.emptyStateDescriptor(
+                hasResolvedSnapshot: true,
                 isLoading: true,
                 isSearchActive: false,
                 callHistoryIsEmpty: true,
@@ -7802,6 +8688,7 @@ final class ListEmptyStateTests: XCTestCase {
         )
         XCTAssertNil(
             LastCallsViewController.emptyStateDescriptor(
+                hasResolvedSnapshot: true,
                 isLoading: false,
                 isSearchActive: true,
                 callHistoryIsEmpty: true,
@@ -7810,6 +8697,7 @@ final class ListEmptyStateTests: XCTestCase {
         )
         XCTAssertNil(
             LastCallsViewController.emptyStateDescriptor(
+                hasResolvedSnapshot: true,
                 isLoading: false,
                 isSearchActive: false,
                 callHistoryIsEmpty: false,
@@ -7818,14 +8706,51 @@ final class ListEmptyStateTests: XCTestCase {
         )
     }
 
+    func testCallsWithCallHistoryHideEmptyStateRegardlessOfCallableContacts() {
+        let datasource = [makeCallDatasource()]
+
+        XCTAssertNil(
+            LastCallsViewController.emptyStateDescriptor(
+                hasResolvedSnapshot: true,
+                isLoading: false,
+                isSearchActive: false,
+                callHistoryIsEmpty: datasource.isEmpty,
+                hasCallableContacts: true
+            )
+        )
+        XCTAssertNil(
+            LastCallsViewController.emptyStateDescriptor(
+                hasResolvedSnapshot: true,
+                isLoading: false,
+                isSearchActive: false,
+                callHistoryIsEmpty: datasource.isEmpty,
+                hasCallableContacts: false
+            )
+        )
+    }
+
+    func testCallsUnresolvedSnapshotHidesEmptyState() {
+        XCTAssertNil(
+            LastCallsViewController.emptyStateDescriptor(
+                hasResolvedSnapshot: false,
+                isLoading: false,
+                isSearchActive: false,
+                callHistoryIsEmpty: true,
+                hasCallableContacts: false
+            )
+        )
+    }
+
     func testNotificationsEmptyDescriptorsHaveNoButton() {
         let allDescriptor = NotificationsListViewController.emptyStateDescriptor(
             filter: .all,
+            hasResolvedSnapshot: true,
             isLoading: false,
             hasNotificationRows: false
         )
         let mentionsDescriptor = NotificationsListViewController.emptyStateDescriptor(
             filter: .mentions,
+            hasResolvedSnapshot: true,
             isLoading: false,
             hasNotificationRows: false
         )
@@ -7843,6 +8768,7 @@ final class ListEmptyStateTests: XCTestCase {
         XCTAssertNil(
             NotificationsListViewController.emptyStateDescriptor(
                 filter: .all,
+                hasResolvedSnapshot: true,
                 isLoading: true,
                 hasNotificationRows: false
             )
@@ -7850,8 +8776,60 @@ final class ListEmptyStateTests: XCTestCase {
         XCTAssertNil(
             NotificationsListViewController.emptyStateDescriptor(
                 filter: .all,
+                hasResolvedSnapshot: true,
                 isLoading: false,
                 hasNotificationRows: true
+            )
+        )
+    }
+
+    func testNotificationsWithNonHeaderRowHideEmptyState() {
+        let datasource = [
+            NotificationsListViewController.Datasource(
+                title: "Today",
+                key: "today",
+                childs: [makeNotificationChild()]
+            )
+        ]
+
+        XCTAssertTrue(NotificationsListViewController.hasNotificationRows(datasource))
+        XCTAssertNil(
+            NotificationsListViewController.emptyStateDescriptor(
+                filter: .all,
+                hasResolvedSnapshot: true,
+                isLoading: false,
+                hasNotificationRows: NotificationsListViewController.hasNotificationRows(datasource)
+            )
+        )
+    }
+
+    func testNotificationsHeaderOnlySnapshotMayShowEmptyState() {
+        let datasource = [
+            NotificationsListViewController.Datasource(
+                title: "Header",
+                key: "header",
+                childs: [makeNotificationChild(isHeader: true)]
+            )
+        ]
+
+        XCTAssertFalse(NotificationsListViewController.hasNotificationRows(datasource))
+        XCTAssertNotNil(
+            NotificationsListViewController.emptyStateDescriptor(
+                filter: .all,
+                hasResolvedSnapshot: true,
+                isLoading: false,
+                hasNotificationRows: NotificationsListViewController.hasNotificationRows(datasource)
+            )
+        )
+    }
+
+    func testNotificationsUnresolvedSnapshotHidesEmptyState() {
+        XCTAssertNil(
+            NotificationsListViewController.emptyStateDescriptor(
+                filter: .all,
+                hasResolvedSnapshot: false,
+                isLoading: false,
+                hasNotificationRows: false
             )
         )
     }
@@ -7866,6 +8844,17 @@ final class ListEmptyStateTests: XCTestCase {
         XCTAssertEqual(view.subtitleLabel.text, "Chats you archive will appear here.".localizeString(id: "archived_chats_empty_subtitle", arguments: []))
         XCTAssertFalse(view.subtitleLabel.isHidden)
         XCTAssertTrue(view.addContactButton.isHidden)
+    }
+
+    func testArchivedChatNonEmptyDatasourceHidesEmptyState() {
+        XCTAssertFalse(
+            LastChatsViewController.shouldShowEmptyState(
+                filter: .archived,
+                isLoading: false,
+                isSearchActive: false,
+                datasourceIsEmpty: false
+            )
+        )
     }
 }
 
@@ -8776,6 +9765,92 @@ final class ComposerMentionsTests: XCTestCase {
         let hitView = inputView.hitTest(point, with: nil)
         XCTAssertNotNil(hitView)
         XCTAssertTrue(hitView === inputView.mentionPanel || hitView?.isDescendant(of: inputView.mentionPanel) == true)
+    }
+}
+
+final class ChatInitialMessageOverlayLayoutTests: XCTestCase {
+
+    private let viewBounds = CGRect(x: 0, y: 0, width: 390, height: 844)
+    private let safeAreaInsets = UIEdgeInsets(top: 47, left: 0, bottom: 34, right: 0)
+
+    func testOverlayFrameIsCenteredWhenKeyboardIsHiddenAndSpaceIsSufficient() {
+        let frame = ChatViewController.InitialMessageOverlayLayoutPolicy.frame(
+            viewBounds: viewBounds,
+            safeAreaInsets: safeAreaInsets,
+            inputTopY: 761
+        )
+
+        XCTAssertEqual(frame.width, 340, accuracy: 0.001)
+        XCTAssertEqual(frame.height, 340, accuracy: 0.001)
+        XCTAssertEqual(frame.midX, viewBounds.midX, accuracy: 0.001)
+        XCTAssertEqual(frame.midY, 404, accuracy: 0.001)
+        XCTAssertLessThanOrEqual(frame.maxY, 761)
+    }
+
+    func testOverlayFrameStaysAboveComposerWhenKeyboardIsVisible() {
+        let inputTopY: CGFloat = 461
+        let frame = ChatViewController.InitialMessageOverlayLayoutPolicy.frame(
+            viewBounds: viewBounds,
+            safeAreaInsets: safeAreaInsets,
+            inputTopY: inputTopY
+        )
+
+        XCTAssertEqual(frame.height, 340, accuracy: 0.001)
+        XCTAssertLessThan(frame.midY, viewBounds.midY)
+        XCTAssertLessThanOrEqual(frame.maxY, inputTopY - 12 + 0.001)
+    }
+
+    func testOverlayFrameShrinksInsideConstrainedVisibleHeight() {
+        let inputTopY: CGFloat = 170
+        let frame = ChatViewController.InitialMessageOverlayLayoutPolicy.frame(
+            viewBounds: viewBounds,
+            safeAreaInsets: safeAreaInsets,
+            inputTopY: inputTopY
+        )
+
+        XCTAssertGreaterThan(frame.height, 0)
+        XCTAssertLessThan(frame.height, 340)
+        XCTAssertLessThanOrEqual(frame.maxY, inputTopY - 12 + 0.001)
+    }
+
+    func testInitialMessageOverlayContentsStayInsideShrunkOuterFrame() {
+        let overlayView = ChatViewController.InitialMessageOverlayView(frame: .zero)
+        overlayView.update(
+            frame: CGRect(x: 0, y: 0, width: 340, height: 120),
+            conversationType: .regular
+        )
+
+        XCTAssertGreaterThanOrEqual(overlayView.iconButton.frame.minY, 0)
+        XCTAssertLessThanOrEqual(overlayView.iconButton.frame.maxY, overlayView.bounds.maxY + 0.001)
+        XCTAssertGreaterThanOrEqual(overlayView.containerView.frame.minY, 0)
+        XCTAssertLessThanOrEqual(overlayView.containerView.frame.maxY, overlayView.bounds.maxY + 0.001)
+    }
+
+    func testKeyboardOverlapHeightHandlesHiddenVisibleAndPartialFrames() {
+        XCTAssertEqual(
+            ChatViewController.keyboardOverlapHeight(
+                viewBounds: viewBounds,
+                keyboardFrameInView: CGRect(x: 0, y: 544, width: 390, height: 300)
+            ),
+            300,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            ChatViewController.keyboardOverlapHeight(
+                viewBounds: viewBounds,
+                keyboardFrameInView: CGRect(x: 0, y: 844, width: 390, height: 300)
+            ),
+            0,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            ChatViewController.keyboardOverlapHeight(
+                viewBounds: viewBounds,
+                keyboardFrameInView: CGRect(x: 0, y: 760, width: 390, height: 300)
+            ),
+            84,
+            accuracy: 0.001
+        )
     }
 }
 
@@ -10107,7 +11182,6 @@ private final class FakeCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
     var statsResponses: [CloudStorageQuotaAPIResponse] = []
     var slotResponses: [CloudStorageQuotaAPIResponse] = []
     var uploadResponses: [CloudStorageQuotaAPIResponse] = []
-    var avatarUploadResponses: [CloudStorageQuotaAPIResponse] = []
     var listResponses: [CloudStorageQuotaAPIResponse] = []
     var avatarListResponses: [CloudStorageQuotaAPIResponse] = []
     var deleteResponses: [CloudStorageQuotaAPIResponse] = []
@@ -10116,7 +11190,6 @@ private final class FakeCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
     private(set) var statsBaseURLs: [URL] = []
     private(set) var slotBaseURLs: [URL] = []
     private(set) var uploadBaseURLs: [URL] = []
-    private(set) var avatarUploadBaseURLs: [URL] = []
     private(set) var listBaseURLs: [URL] = []
     private(set) var avatarListBaseURLs: [URL] = []
     private(set) var deleteBaseURLs: [URL] = []
@@ -10124,10 +11197,11 @@ private final class FakeCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
     private(set) var statsTokens: [String] = []
     private(set) var slotTokens: [String] = []
     private(set) var uploadTokens: [String] = []
-    private(set) var avatarUploadTokens: [String] = []
     private(set) var listTokens: [String] = []
     private(set) var avatarListTokens: [String] = []
     private(set) var deleteTokens: [String] = []
+    private(set) var uploadContexts: [String] = []
+    private(set) var uploadData: [Data] = []
     private(set) var listTypes: [MimeIconTypes] = []
     private(set) var listPages: [Int] = []
     private(set) var deleteFileIDs: [Int] = []
@@ -10135,7 +11209,6 @@ private final class FakeCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
     private(set) var statsCallCount = 0
     private(set) var slotCallCount = 0
     private(set) var uploadCallCount = 0
-    private(set) var avatarUploadCallCount = 0
     private(set) var listCallCount = 0
     private(set) var avatarListCallCount = 0
     private(set) var deleteCallCount = 0
@@ -10169,29 +11242,35 @@ private final class FakeCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
         uploadCallCount += 1
         uploadBaseURLs.append(baseURL)
         uploadTokens.append(token)
-        completion(uploadResponses.isEmpty ? .response(statusCode: 200, value: [
+        uploadContexts.append(context)
+        uploadData.append(data)
+        let response = uploadResponses.isEmpty
+            ? defaultUploadResponse(data: data, filename: filename, context: context)
+            : uploadResponses.removeFirst()
+        completion(response)
+    }
+
+    private func defaultUploadResponse(data: Data, filename: String, context: String) -> CloudStorageQuotaAPIResponse {
+        if context == "avatar" {
+            return .response(statusCode: 200, value: [
+                "file": "https://gallery.example/avatar",
+                "hash": "avatar-hash",
+                "name": filename,
+                "quota": 3000,
+                "used": data.count,
+                "size": data.count,
+                "thumbnails": []
+            ])
+        }
+
+        return .response(statusCode: 200, value: [
             "file": "https://gallery.example/file",
             "name": filename,
             "hash": "hash",
             "quota": 3000,
             "used": data.count,
             "id": 7
-        ]) : uploadResponses.removeFirst())
-    }
-
-    func uploadAvatar(baseURL: URL, token: String, data: Data, filename: String, mimeType: String, createThumbnails: Bool, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
-        avatarUploadCallCount += 1
-        avatarUploadBaseURLs.append(baseURL)
-        avatarUploadTokens.append(token)
-        completion(avatarUploadResponses.isEmpty ? .response(statusCode: 200, value: [
-            "file": "https://gallery.example/avatar",
-            "hash": "avatar-hash",
-            "name": filename,
-            "quota": 3000,
-            "used": data.count,
-            "size": data.count,
-            "thumbnails": []
-        ]) : avatarUploadResponses.removeFirst())
+        ])
     }
 
     func deleteMedia(baseURL: URL, token: String, fileID: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
@@ -10702,6 +11781,28 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         XCTAssertEqual(fakeClient.quotaCallCount, 0)
     }
 
+    func testTokenExchangePostsGalleryTokenReadyNotification() throws {
+        fakeTokenClient.exchangeResponses = [.response(statusCode: 200, value: ["token": "basic-confirm-token"])]
+        let manager = XabberUploadManager(withOwner: owner)
+        let expectation = expectation(description: "token ready notification")
+        let observer = NotificationCenter.default.addObserver(
+            forName: .cloudStorageGalleryTokenDidChange,
+            object: nil,
+            queue: nil
+        ) { notification in
+            XCTAssertEqual(notification.userInfo?["jid"] as? String, self.owner)
+            XCTAssertEqual(notification.userInfo?["galleryType"] as? String, AccountGalleryType.basic.rawValue)
+            XCTAssertEqual(notification.userInfo?["galleryURL"] as? String, self.basicGalleryURL.absoluteString)
+            XCTAssertEqual(notification.userInfo?["galleryIdentity"] as? String, AccountGalleryConfiguration(owner: self.owner).currentGalleryIdentity)
+            expectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        XCTAssertTrue(try manager.read(withIQ: makeConfirmIQ(code: "basic-code", url: "https://gallery.example/api/v1/account/xmpp_code_request/xmpp_auth")))
+
+        wait(for: [expectation], timeout: 1)
+    }
+
     func testStatsRefreshUsesSelectedPremiumGalleryEndpoint() throws {
         let configuration = AccountGalleryConfiguration(owner: owner)
         configuration.reconcilePremiumGalleryAvailability(
@@ -10837,6 +11938,26 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         account.cloudStorage.enable()
 
         XCTAssertEqual(fakeTokenClient.codeRequestBaseURLs.map(\.absoluteString), ["https://gallery.example/api/"])
+        XCTAssertEqual(fakeTokenClient.codeRequestFullJIDs, [account.xmppStream.myJID?.full ?? ""])
+    }
+
+    func testDiscoveredBasicGalleryURLRequestsAuthImmediatelyWhenPremiumIsSelected() throws {
+        let account = makeAccount()
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        configuration.reconcilePremiumGalleryAvailability(isAvailable: true, storageURL: premiumGalleryURL.absoluteString)
+        configuration.storeToken("premium-token", galleryType: .premium, baseURL: premiumGalleryURL)
+        let elementId = "media-gallery-disco"
+        account.disco.queryIds.insert(elementId)
+
+        XCTAssertTrue(try account.disco.readFeatures(withIQ: makeMediaGalleryDiscoIQ(
+            id: elementId,
+            galleryURL: "https://discovered-gallery.example/api/v1/"
+        )))
+
+        XCTAssertEqual(configuration.basicGalleryURL?.absoluteString, "https://discovered-gallery.example/api/")
+        XCTAssertEqual(account.cloudStorage.node, "https://premium.example/api/")
+        XCTAssertEqual(account.avatarUploader.node, "https://premium.example/api/")
+        XCTAssertEqual(fakeTokenClient.codeRequestBaseURLs.map(\.absoluteString), ["https://discovered-gallery.example/api/"])
         XCTAssertEqual(fakeTokenClient.codeRequestFullJIDs, [account.xmppStream.myJID?.full ?? ""])
     }
 
@@ -11138,8 +12259,157 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         })
         wait(for: [expectation], timeout: 1)
 
-        XCTAssertEqual(fakeClient.avatarUploadBaseURLs.first?.absoluteString, "https://premium.example/api/")
-        XCTAssertEqual(fakeClient.avatarUploadTokens.first, "premium-token")
+        XCTAssertEqual(fakeClient.uploadBaseURLs.first?.absoluteString, "https://premium.example/api/")
+        XCTAssertEqual(fakeClient.uploadTokens.first, "premium-token")
+        XCTAssertEqual(fakeClient.uploadContexts, ["avatar"])
+    }
+
+    func testAvatarUploadQueuesWhenGalleryURLIsMissingAndDoesNotUploadImmediately() {
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        configuration.clearPersistedState()
+        SettingManager.shared.removeItem(for: owner, scope: .xabberUploadManager, key: "node")
+        let manager = AvatarUploadManager(withOwner: owner)
+        var queued = false
+        var didFail = false
+
+        manager.setAvatar(image: testImage(), successCallback: {
+            XCTFail("Queued upload should not complete immediately")
+        }, failureCallback: { _, _ in
+            didFail = true
+        }, queuedCallback: {
+            queued = true
+        })
+
+        XCTAssertTrue(queued)
+        XCTAssertFalse(didFail)
+        XCTAssertEqual(fakeClient.uploadCallCount, 0)
+    }
+
+    func testAvatarUploadQueuesWhenTokenIsMissingAndRequestsAuth() {
+        let account = makeAccount()
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        configuration.clearToken(galleryType: .basic, baseURL: basicGalleryURL)
+        var queued = false
+
+        account.avatarUploader.setAvatar(image: testImage(), successCallback: {
+            XCTFail("Queued upload should not complete immediately")
+        }, failureCallback: { status, error in
+            XCTFail("Queued upload should not fail immediately: \(status) \(error)")
+        }, queuedCallback: {
+            queued = true
+        })
+
+        XCTAssertTrue(queued)
+        XCTAssertEqual(fakeClient.uploadCallCount, 0)
+        XCTAssertEqual(fakeTokenClient.codeRequestBaseURLs.map(\.absoluteString), ["https://gallery.example/api/"])
+        XCTAssertEqual(fakeTokenClient.codeRequestFullJIDs, [account.xmppStream.myJID?.full ?? ""])
+    }
+
+    func testQueuedAvatarUploadFlushesAfterTokenReadyNotification() {
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        configuration.clearToken(galleryType: .basic, baseURL: basicGalleryURL)
+        let manager = AvatarUploadManager(withOwner: owner)
+
+        manager.setAvatar(image: testImage(), successCallback: {
+            XCTFail("Queued upload should not retain success UI callbacks")
+        }, failureCallback: { status, error in
+            XCTFail("Queued upload should not fail immediately: \(status) \(error)")
+        }, queuedCallback: {})
+        XCTAssertEqual(fakeClient.uploadCallCount, 0)
+
+        configuration.storeToken("basic-token-ready", galleryType: .basic, baseURL: basicGalleryURL)
+        postGalleryTokenDidChange()
+
+        XCTAssertEqual(fakeClient.uploadCallCount, 1)
+        XCTAssertEqual(fakeClient.uploadBaseURLs.first?.absoluteString, "https://gallery.example/api/")
+        XCTAssertEqual(fakeClient.uploadTokens.first, "basic-token-ready")
+        XCTAssertEqual(fakeClient.uploadContexts, ["avatar"])
+    }
+
+    func testQueuedAvatarUploadKeepsLatestImagePerTarget() {
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        configuration.clearToken(galleryType: .basic, baseURL: basicGalleryURL)
+        let manager = AvatarUploadManager(withOwner: owner)
+        let firstImage = testImage(color: .red)
+        let secondImage = testImage(color: .blue)
+        let expectedData = secondImage.pngData()
+
+        manager.setAvatar(image: firstImage, queuedCallback: {})
+        manager.setAvatar(image: secondImage, queuedCallback: {})
+        configuration.storeToken("basic-token-ready", galleryType: .basic, baseURL: basicGalleryURL)
+        postGalleryTokenDidChange()
+
+        XCTAssertEqual(fakeClient.uploadCallCount, 1)
+        XCTAssertEqual(fakeClient.uploadData.first, expectedData)
+    }
+
+    func testQueuedGroupAvatarUploadFlushesAfterTokenReadyNotification() {
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        configuration.clearToken(galleryType: .basic, baseURL: basicGalleryURL)
+        let manager = AvatarUploadManager(withOwner: owner)
+        var queued = false
+
+        manager.setGrpoupAvatar(groupchat: "room@conference.xabber.com", image: testImage(), successCallback: {
+            XCTFail("Queued group upload should not retain success UI callbacks")
+        }, failureCallback: { status, error in
+            XCTFail("Queued group upload should not fail immediately: \(status) \(error)")
+        }, queuedCallback: {
+            queued = true
+        })
+        XCTAssertTrue(queued)
+        XCTAssertEqual(fakeClient.uploadCallCount, 0)
+
+        configuration.storeToken("basic-token-ready", galleryType: .basic, baseURL: basicGalleryURL)
+        postGalleryTokenDidChange()
+
+        XCTAssertEqual(fakeClient.uploadCallCount, 1)
+        XCTAssertEqual(fakeClient.uploadContexts, ["avatar"])
+    }
+
+    func testAvatarUploadAcceptsUnifiedFilesUploadThumbnailResponse() {
+        fakeClient.uploadResponses = [.response(statusCode: 200, value: [
+            "file": "https://gallery.example/avatar",
+            "hash": "avatar-hash",
+            "name": "avatar.png",
+            "quota": 3000,
+            "used": 128,
+            "size": 128,
+            "thumbnail": [
+                "url": "https://gallery.example/avatar-128.webp",
+                "width": 128,
+                "height": 128
+            ]
+        ])]
+        let manager = AvatarUploadManager(withOwner: owner)
+        let expectation = expectation(description: "avatar upload")
+
+        manager.setAvatar(image: testImage(), successCallback: {
+            expectation.fulfill()
+        }, failureCallback: { status, error in
+            XCTFail("Avatar upload failed: \(status) \(error)")
+        })
+        wait(for: [expectation], timeout: 1)
+
+        XCTAssertEqual(fakeClient.uploadContexts, ["avatar"])
+    }
+
+    func testAvatarMetadataPublishResultConsumesPendingQueryId() throws {
+        let elementId = "Avatar: publish-ack"
+        let manager = AvatarUploadManager(withOwner: owner)
+        manager.queryIds.insert(elementId)
+        let document = try DDXMLDocument(xmlString: """
+        <iq type="result" id="\(elementId)" from="\(owner)">
+          <pubsub xmlns="http://jabber.org/protocol/pubsub">
+            <publish node="urn:xmpp:avatar:metadata">
+              <item id="avatar-hash"/>
+            </publish>
+          </pubsub>
+        </iq>
+        """, options: 0)
+        let iq = XMPPIQ(from: try XCTUnwrap(document.rootElement()))
+
+        XCTAssertTrue(manager.read(withIQ: iq))
+        XCTAssertFalse(manager.queryIds.contains(elementId))
     }
 
     func testDeletionUsesSelectedPremiumGalleryEndpoint() {
@@ -11177,6 +12447,38 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         return XMPPIQ(from: try XCTUnwrap(document.rootElement()))
     }
 
+    private func makeMediaGalleryDiscoIQ(id: String, galleryURL: String) throws -> XMPPIQ {
+        let document = try DDXMLDocument(xmlString: """
+        <iq type="result" id="\(id)" from="xabber.com">
+          <query xmlns="http://jabber.org/protocol/disco#info">
+            <x xmlns="jabber:x:data" type="result">
+              <field var="FORM_TYPE"><value>urn:xabber:http:url</value></field>
+              <field var="urn:xabber:http:url:mediagallery"><value>\(galleryURL)</value></field>
+            </x>
+          </query>
+        </iq>
+        """, options: 0)
+        return XMPPIQ(from: try XCTUnwrap(document.rootElement()))
+    }
+
+    private func postGalleryTokenDidChange() {
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        guard let currentGalleryURL = configuration.currentGalleryURL else {
+            XCTFail("Expected current gallery URL")
+            return
+        }
+        NotificationCenter.default.post(
+            name: .cloudStorageGalleryTokenDidChange,
+            object: nil,
+            userInfo: [
+                "jid": owner,
+                "galleryType": configuration.currentGalleryType.rawValue,
+                "galleryURL": currentGalleryURL.absoluteString,
+                "galleryIdentity": configuration.currentGalleryIdentity
+            ]
+        )
+    }
+
     private func seedQuota(quota: Int, total: Int, images: Int) {
         let realm = try! WRealm.safe()
         let item = AccountQuotaStorageItem()
@@ -11203,9 +12505,9 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         ]
     }
 
-    private func testImage() -> UIImage {
+    private func testImage(color: UIColor = .red) -> UIImage {
         UIGraphicsBeginImageContextWithOptions(CGSize(width: 1, height: 1), false, 1)
-        UIColor.red.setFill()
+        color.setFill()
         UIRectFill(CGRect(x: 0, y: 0, width: 1, height: 1))
         let image = UIGraphicsGetImageFromCurrentImageContext() ?? UIImage()
         UIGraphicsEndImageContext()

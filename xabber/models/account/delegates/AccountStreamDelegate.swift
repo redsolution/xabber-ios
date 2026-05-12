@@ -268,6 +268,7 @@ extension Account: XMPPStreamDelegate {
                 _ = self.syncManager.checkNextPage(sender, in: iq)
                 break
             case self.avatarManager.read(withIQ: iq): break
+            case self.avatarUploader.read(withIQ: iq): break
             case self.roster.read(withIQ: iq): break
             case self.mam.read(sender, withIQ: iq):
                 self.messages.storeMessagesNow()

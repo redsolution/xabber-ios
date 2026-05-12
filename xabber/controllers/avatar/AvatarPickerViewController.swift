@@ -441,12 +441,27 @@ class AvatarPickerViewController: BaseViewController {
     private final func onEditAvatarButtonTouchUpInside(_ sender: UIButton) {
         let vc = EmojiPickerViewController()
         vc.delegate = self
-        showModal(vc, parent: self)
+        presentModal(vc)
+    }
+
+    private final func presentModal(_ vc: UIViewController) {
+        let navigationController = UINavigationController(rootViewController: vc)
+        navigationController.modalPresentationStyle = .formSheet
+        navigationController.modalTransitionStyle = .coverVertical
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            if let popoverController = navigationController.popoverPresentationController {
+                popoverController.sourceView = view
+                popoverController.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 0, height: 0)
+                popoverController.permittedArrowDirections = [.any]
+            }
+        }
+        present(navigationController, animated: true, completion: nil)
     }
 }
 
 extension AvatarPickerViewController: EmojiPickerViewControllerDelegate {
     func onEmojiSelected(_ emoji: String) {
+        lastSettedEmoji = emoji
         avatarView.label.text = emoji
         avatarView.layoutIfNeeded()
         makeButtonEnabled(true)
