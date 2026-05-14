@@ -535,91 +535,7 @@ class LastChatsViewController: BaseViewController {
         return view
     }()
 
-    private let floatingToolbarHeight: CGFloat = 44
-    private let floatingToolbarBottomOffset: CGFloat = 4
-    private let floatingToolbarHorizontalInset: CGFloat = 16
-    private let floatingToolbarContentInset: CGFloat = 10
-    private let floatingToolbarButtonSize: CGFloat = 44
-    private let floatingToolbarIconSize: CGFloat = 20
-    private let floatingToolbarMaxWidth: CGFloat = 360
-
-    private let floatingToolbarContainerView: UIView = {
-        let view = UIView(frame: .zero)
-
-        view.translatesAutoresizingMaskIntoConstraints = false
-        view.backgroundColor = .clear
-        view.layer.shadowColor = UIColor.black.cgColor
-        view.layer.shadowOpacity = 0.16
-        view.layer.shadowRadius = 18
-        view.layer.shadowOffset = CGSize(width: 0, height: 8)
-
-        return view
-    }()
-
-    private let floatingToolbarEffectView: UIVisualEffectView = {
-        let effect: UIVisualEffect
-        if #available(iOS 26.0, *) {
-            let glassEffect = UIGlassEffect(style: .regular)
-            glassEffect.isInteractive = true
-            effect = glassEffect
-        } else {
-            effect = UIBlurEffect(style: .systemMaterial)
-        }
-        let view = UIVisualEffectView(effect: effect)
-
-        view.translatesAutoresizingMaskIntoConstraints = false
-        view.clipsToBounds = true
-        if #available(iOS 26.0, *) {
-            view.cornerConfiguration = .capsule()
-        } else {
-            view.layer.cornerRadius = 22
-            view.layer.cornerCurve = .continuous
-        }
-        view.layer.borderWidth = 1.0 / UIScreen.main.scale
-        view.layer.borderColor = UIColor.separator.withAlphaComponent(0.34).cgColor
-
-        return view
-    }()
-
-    private let floatingToolbarFilterButton: UIButton = {
-        let button = UIButton(type: .system)
-
-        button.translatesAutoresizingMaskIntoConstraints = false
-        button.tintColor = .black
-        button.backgroundColor = .clear
-        button.accessibilityLabel = "Unread chats filter"
-
-        return button
-    }()
-
-    private let floatingToolbarUnreadCounterLabel: UILabel = {
-        let label = UILabel(frame: .zero)
-
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.font = UIFont.systemFont(ofSize: 15, weight: .semibold)
-        label.textColor = .label
-        label.textAlignment = .center
-        label.text = CommonConfigManager.shared.config.app_name
-        label.numberOfLines = 1
-        label.adjustsFontSizeToFitWidth = true
-        label.minimumScaleFactor = 0.75
-        label.setContentHuggingPriority(.required, for: .horizontal)
-        label.setContentCompressionResistancePriority(.required, for: .horizontal)
-        label.accessibilityLabel = CommonConfigManager.shared.config.app_name
-
-        return label
-    }()
-
-    private let floatingToolbarAddButton: UIButton = {
-        let button = UIButton(type: .system)
-
-        button.translatesAutoresizingMaskIntoConstraints = false
-        button.tintColor = .black
-        button.backgroundColor = .clear
-        button.accessibilityLabel = "Add"
-
-        return button
-    }()
+    private let floatingBottomBarView = FloatingBottomBarView(frame: .zero)
 
     private var unreadCounterBag: DisposeBag = DisposeBag()
     
@@ -1708,96 +1624,52 @@ class LastChatsViewController: BaseViewController {
     }
 
     private final func setupFloatingToolbar() {
-        guard self.floatingToolbarContainerView.superview == nil else {
-            self.view.bringSubviewToFront(self.floatingToolbarContainerView)
+        guard self.floatingBottomBarView.superview == nil else {
+            self.view.bringSubviewToFront(self.floatingBottomBarView)
             self.updateFloatingToolbarFilterButtonState()
             self.updateUnreadChatsCounter()
             self.updateTableInsetsForFloatingToolbar()
             return
         }
 
-        self.view.addSubview(self.floatingToolbarContainerView)
-        self.floatingToolbarContainerView.addSubview(self.floatingToolbarEffectView)
-
-        let contentView = self.floatingToolbarEffectView.contentView
-        contentView.addSubview(self.floatingToolbarFilterButton)
-        contentView.addSubview(self.floatingToolbarUnreadCounterLabel)
-        contentView.addSubview(self.floatingToolbarAddButton)
-
-        self.configureFloatingToolbarButton(
-            self.floatingToolbarFilterButton,
-            imageName: "line.3.horizontal.decrease.circle"
-        )
-        self.configureFloatingToolbarButton(self.floatingToolbarAddButton, imageName: "plus")
-        self.floatingToolbarFilterButton.addTarget(
+        self.view.addSubview(self.floatingBottomBarView)
+        self.floatingBottomBarView.leftButton.addTarget(
             self,
             action: #selector(onFilterButtonTouchUpInside),
             for: .touchUpInside
         )
-        self.floatingToolbarAddButton.addTarget(
+        self.floatingBottomBarView.rightButton.addTarget(
             self,
             action: #selector(onAddButtonTouchUpInside),
             for: .touchUpInside
         )
 
-        let fullWidthConstraint = self.floatingToolbarContainerView.widthAnchor.constraint(
+        let fullWidthConstraint = self.floatingBottomBarView.widthAnchor.constraint(
             equalTo: self.view.safeAreaLayoutGuide.widthAnchor,
-            constant: -self.floatingToolbarHorizontalInset * 2
+            constant: -FloatingBottomBarView.Metrics.horizontalInset * 2
         )
         fullWidthConstraint.priority = .defaultHigh
 
         NSLayoutConstraint.activate([
-            self.floatingToolbarContainerView.centerXAnchor.constraint(equalTo: self.view.safeAreaLayoutGuide.centerXAnchor),
-            self.floatingToolbarContainerView.bottomAnchor.constraint(
+            self.floatingBottomBarView.centerXAnchor.constraint(equalTo: self.view.safeAreaLayoutGuide.centerXAnchor),
+            self.floatingBottomBarView.bottomAnchor.constraint(
                 equalTo: self.view.safeAreaLayoutGuide.bottomAnchor,
-                constant: -self.floatingToolbarBottomOffset
+                constant: -FloatingBottomBarView.Metrics.bottomOffset
             ),
-            self.floatingToolbarContainerView.leadingAnchor.constraint(
+            self.floatingBottomBarView.leadingAnchor.constraint(
                 greaterThanOrEqualTo: self.view.safeAreaLayoutGuide.leadingAnchor,
-                constant: self.floatingToolbarHorizontalInset
+                constant: FloatingBottomBarView.Metrics.horizontalInset
             ),
-            self.floatingToolbarContainerView.trailingAnchor.constraint(
+            self.floatingBottomBarView.trailingAnchor.constraint(
                 lessThanOrEqualTo: self.view.safeAreaLayoutGuide.trailingAnchor,
-                constant: -self.floatingToolbarHorizontalInset
+                constant: -FloatingBottomBarView.Metrics.horizontalInset
             ),
             fullWidthConstraint,
-            self.floatingToolbarContainerView.widthAnchor.constraint(lessThanOrEqualToConstant: self.floatingToolbarMaxWidth),
-            self.floatingToolbarContainerView.heightAnchor.constraint(equalToConstant: self.floatingToolbarHeight),
-
-            self.floatingToolbarEffectView.topAnchor.constraint(equalTo: self.floatingToolbarContainerView.topAnchor),
-            self.floatingToolbarEffectView.leadingAnchor.constraint(equalTo: self.floatingToolbarContainerView.leadingAnchor),
-            self.floatingToolbarEffectView.trailingAnchor.constraint(equalTo: self.floatingToolbarContainerView.trailingAnchor),
-            self.floatingToolbarEffectView.bottomAnchor.constraint(equalTo: self.floatingToolbarContainerView.bottomAnchor),
-
-            self.floatingToolbarFilterButton.leadingAnchor.constraint(
-                equalTo: contentView.leadingAnchor,
-                constant: self.floatingToolbarContentInset
-            ),
-            self.floatingToolbarFilterButton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            self.floatingToolbarFilterButton.widthAnchor.constraint(equalToConstant: self.floatingToolbarButtonSize),
-            self.floatingToolbarFilterButton.heightAnchor.constraint(equalToConstant: self.floatingToolbarButtonSize),
-
-            self.floatingToolbarAddButton.trailingAnchor.constraint(
-                equalTo: contentView.trailingAnchor,
-                constant: -self.floatingToolbarContentInset
-            ),
-            self.floatingToolbarAddButton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            self.floatingToolbarAddButton.widthAnchor.constraint(equalToConstant: self.floatingToolbarButtonSize),
-            self.floatingToolbarAddButton.heightAnchor.constraint(equalToConstant: self.floatingToolbarButtonSize),
-
-            self.floatingToolbarUnreadCounterLabel.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
-            self.floatingToolbarUnreadCounterLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            self.floatingToolbarUnreadCounterLabel.leadingAnchor.constraint(
-                greaterThanOrEqualTo: self.floatingToolbarFilterButton.trailingAnchor,
-                constant: 8
-            ),
-            self.floatingToolbarUnreadCounterLabel.trailingAnchor.constraint(
-                lessThanOrEqualTo: self.floatingToolbarAddButton.leadingAnchor,
-                constant: -8
-            )
+            self.floatingBottomBarView.widthAnchor.constraint(lessThanOrEqualToConstant: FloatingBottomBarView.Metrics.maxWidth),
+            self.floatingBottomBarView.heightAnchor.constraint(equalToConstant: FloatingBottomBarView.Metrics.height)
         ])
 
-        self.view.bringSubviewToFront(self.floatingToolbarContainerView)
+        self.view.bringSubviewToFront(self.floatingBottomBarView)
         self.updateFloatingToolbarFilterButtonState()
         self.updateUnreadChatsCounter()
         self.updateTableInsetsForFloatingToolbar()
@@ -1833,8 +1705,7 @@ class LastChatsViewController: BaseViewController {
             counterText = "\(unreadChatsCount) unread chats"
         }
 
-        self.floatingToolbarUnreadCounterLabel.text = counterText
-        self.floatingToolbarUnreadCounterLabel.accessibilityLabel = counterText
+        self.floatingBottomBarView.setTitle(counterText)
         self.updateFloatingToolbarFilterButtonState()
     }
 
@@ -1844,32 +1715,15 @@ class LastChatsViewController: BaseViewController {
             ? "line.3.horizontal.decrease.circle.fill"
             : "line.3.horizontal.decrease.circle"
 
-        self.configureFloatingToolbarButton(
-            self.floatingToolbarFilterButton,
-            imageName: imageName
-        )
-        self.floatingToolbarFilterButton.accessibilityValue = isUnreadFilterActive ? "On" : "Off"
-        self.floatingToolbarContainerView.isHidden = !self.shouldShowBottomBar || self.filter.value == .saved
-        self.floatingToolbarEffectView.layer.borderColor = UIColor.separator.withAlphaComponent(0.34).cgColor
-    }
-
-    private final func configureFloatingToolbarButton(
-        _ button: UIButton,
-        imageName: String
-    ) {
-        let image = imageLiteral(imageName, dimension: self.floatingToolbarIconSize)
-
-        button.configuration = nil
-        button.setImage(image, for: .normal)
-        button.tintColor = .black
-        button.backgroundColor = .clear
-        button.layer.cornerRadius = 0
+        self.floatingBottomBarView.updateLeftButton(imageName: imageName, isActive: isUnreadFilterActive)
+        self.floatingBottomBarView.isHidden = !self.shouldShowBottomBar || self.filter.value == .saved
+        self.floatingBottomBarView.refreshAppearance()
     }
 
     private final func updateTableInsetsForFloatingToolbar() {
-        let isToolbarVisible = !self.floatingToolbarContainerView.isHidden
+        let isToolbarVisible = self.floatingBottomBarView.superview != nil && !self.floatingBottomBarView.isHidden
         let bottomInset = isToolbarVisible
-            ? self.floatingToolbarHeight + self.floatingToolbarBottomOffset + 12
+            ? FloatingBottomBarView.Metrics.reservedBottomInset
             : 0
 
         if self.tableView.contentInset.bottom != bottomInset {
@@ -2168,7 +2022,7 @@ class LastChatsViewController: BaseViewController {
     override func shouldChangeFrame() {
         super.shouldChangeFrame()
         self.updateTableInsetsForFloatingToolbar()
-        self.view.bringSubviewToFront(self.floatingToolbarContainerView)
+        self.view.bringSubviewToFront(self.floatingBottomBarView)
     }
     
     

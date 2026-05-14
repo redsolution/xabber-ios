@@ -16,6 +16,31 @@ import RxSwift
 import RxCocoa
 import RxRealm
 
+enum LeftMenuSurfaceEffectFactory {
+    static let fallbackBlurStyle: UIBlurEffect.Style = .systemThinMaterial
+    static let nativeGlassTintColor = UIColor.systemBackground.withAlphaComponent(0.16)
+    static let fallbackSurfaceBackgroundColor = UIColor.systemBackground.withAlphaComponent(0.28)
+
+    static func makeEffect(prefersNativeGlass: Bool = true) -> UIVisualEffect {
+        if prefersNativeGlass, #available(iOS 26.0, *) {
+            let effect = UIGlassEffect(style: .regular)
+            effect.tintColor = nativeGlassTintColor
+            effect.isInteractive = false
+            return effect
+        }
+
+        return UIBlurEffect(style: fallbackBlurStyle)
+    }
+
+    static func surfaceBackgroundColor(prefersNativeGlass: Bool = true) -> UIColor {
+        if prefersNativeGlass, #available(iOS 26.0, *) {
+            return .clear
+        }
+
+        return fallbackSurfaceBackgroundColor
+    }
+}
+
 class LeftMenuViewController: UIViewController {
     private enum ExperimentLayout {
         static let menuSurfaceHorizontalInset: CGFloat = 16
@@ -198,9 +223,9 @@ class LeftMenuViewController: UIViewController {
     }()
 
     private let menuSurfaceView: UIVisualEffectView = {
-        let view = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
+        let view = UIVisualEffectView(effect: LeftMenuSurfaceEffectFactory.makeEffect())
 
-        view.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.28)
+        view.backgroundColor = LeftMenuSurfaceEffectFactory.surfaceBackgroundColor()
         view.layer.cornerRadius = 24
         view.layer.cornerCurve = .continuous
         view.clipsToBounds = true

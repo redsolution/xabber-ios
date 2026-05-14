@@ -56,6 +56,7 @@ class ModernXabberInputView: UIView {
         static let composerVerticalInset: CGFloat = 0
         static let composerCornerRadius: CGFloat = 22
         static let buttonSize: CGFloat = 44
+        static let textVerticalInset: CGFloat = 4
         static let verticalReserve: CGFloat = ModernXabberInputView.defaultBarHeight - ModernXabberInputView.minimumComposerHeight
         static let contentTopOffset: CGFloat = 6
         static let previewHorizontalInset: CGFloat = 8
@@ -93,14 +94,8 @@ class ModernXabberInputView: UIView {
                 prefersNativeGlass: prefersNativeGlass
             )
         )
-        view.isUserInteractionEnabled = false
-        view.clipsToBounds = true
-        return view
-    }
-
-    private static func makeGlassTintView() -> UIView {
-        let view = UIView(frame: .zero)
-        view.isUserInteractionEnabled = false
+        view.isUserInteractionEnabled = interactive
+        view.contentView.isUserInteractionEnabled = interactive
         view.clipsToBounds = true
         return view
     }
@@ -1457,7 +1452,8 @@ class ModernXabberInputView: UIView {
 
     private struct LiquidGlassLayoutState: Equatable {
         let bounds: CGRect
-        let contentFrame: CGRect
+        let composerFrame: CGRect
+        let contentBounds: CGRect
         let textFieldFrame: CGRect
         let attachButtonFrame: CGRect
         let timerButtonFrame: CGRect
@@ -1472,6 +1468,10 @@ class ModernXabberInputView: UIView {
     private var lastLiquidGlassLayoutState: LiquidGlassLayoutState?
     
     private var textViewHeightAnchor: NSLayoutConstraint?
+    private var didActivateComposerConstraints = false
+    private var textFieldTrailingToTimerConstraint: NSLayoutConstraint?
+    private var textFieldTrailingToSendConstraint: NSLayoutConstraint?
+
     /// The maximum height that the InputTextView can reach
     final var maxTextViewHeight: CGFloat = 130 {
         didSet {
@@ -1483,28 +1483,28 @@ class ModernXabberInputView: UIView {
     /// The height that will fit the current text in the InputTextView based on its current bounds
     
     private var inputTextViewMaxWidth: CGFloat = 326.0
+
+    private var composerTextVerticalPadding: CGFloat {
+        LiquidGlassMetrics.textVerticalInset * 2
+    }
+
+    private var requiredTextViewFittingHeight: CGFloat {
+        let fittingWidth = textField.bounds.width > 0 ? textField.bounds.width : inputTextViewMaxWidth
+        let maxTextViewSize = CGSize(width: fittingWidth, height: .greatestFiniteMagnitude)
+        return textField.sizeThatFits(maxTextViewSize).height.rounded(.down)
+    }
     
     public var requiredInputTextViewHeight: CGFloat {
         if isSelectionPanelShowed {
             return ModernXabberInputView.minimumComposerHeight
         }
-        let fittingWidth = textField.bounds.width > 0 ? textField.bounds.width : inputTextViewMaxWidth
-        let maxTextViewSize = CGSize(width: fittingWidth, height: .greatestFiniteMagnitude)
-//        print("maxTextViewSize", maxTextViewSize, textField.sizeThatFits(maxTextViewSize).height.rounded(.down))
-        return max(ModernXabberInputView.minimumComposerHeight, textField.sizeThatFits(maxTextViewSize).height.rounded(.down))
+        let textViewHeight = min(self.requiredTextViewFittingHeight, self.maxTextViewHeight)
+        return max(ModernXabberInputView.minimumComposerHeight, textViewHeight + self.composerTextVerticalPadding)
     }
     
-    let blurredEffectView: UIVisualEffectView = {
-        let blurEffect = UIBlurEffect(style: .systemMaterial)
-        let blurredEffectView = UIVisualEffectView(effect: blurEffect)
-        
-        return blurredEffectView
-    }()
-
     private let mainInputShadowView: UIView = {
         let view = UIView(frame: .zero)
-        view.isUserInteractionEnabled = false
-        ModernXabberInputView.applyGlassShadow(to: view)
+        view.isUserInteractionEnabled = true
         return view
     }()
 
@@ -1517,38 +1517,6 @@ class ModernXabberInputView: UIView {
         return view
     }()
 
-    private let textFieldGlassView: UIView = {
-        let view = ModernXabberInputView.makeGlassTintView()
-        view.isHidden = true
-        view.layer.borderWidth = 0
-        view.backgroundColor = .clear
-        return view
-    }()
-
-    private let attachButtonGlassView: UIView = {
-        let view = ModernXabberInputView.makeGlassTintView()
-        view.isHidden = true
-        view.layer.borderWidth = 0
-        view.backgroundColor = .clear
-        return view
-    }()
-
-    private let timerButtonGlassView: UIView = {
-        let view = ModernXabberInputView.makeGlassTintView()
-        view.isHidden = true
-        view.layer.borderWidth = 0
-        view.backgroundColor = .clear
-        return view
-    }()
-
-    private let sendButtonGlassView: UIView = {
-        let view = ModernXabberInputView.makeGlassTintView()
-        view.isHidden = true
-        view.layer.borderWidth = 0
-        view.backgroundColor = .clear
-        return view
-    }()
-        
     let textField: InputTextView = {
         let field = InputTextView(frame: .zero)
         
@@ -1846,44 +1814,46 @@ class ModernXabberInputView: UIView {
         )
     }
 
-    private func layoutComposerControls(contentHeight: CGFloat) {
-        let buttonSize = LiquidGlassMetrics.buttonSize
-        let buttonY = max(0, contentHeight - buttonSize)
-        let width = max(0, self.bounds.width)
-        let trailingTimerWidth = self.timerButton.isHidden ? 0 : buttonSize
-        let textMinX = buttonSize
-        let textMaxX = max(textMinX, width - buttonSize - trailingTimerWidth)
-
-        self.attachButton.frame = CGRect(
-            origin: CGPoint(x: 0, y: buttonY),
-            size: CGSize(square: buttonSize)
-        )
-        self.textField.frame = CGRect(
-            origin: CGPoint(x: textMinX, y: 0),
-            size: CGSize(width: max(0, textMaxX - textMinX), height: contentHeight)
-        )
-        self.timerButton.frame = CGRect(
-            origin: CGPoint(x: max(0, width - buttonSize * 2), y: buttonY),
-            size: CGSize(square: buttonSize)
-        )
-        self.sendButton.frame = CGRect(
-            origin: CGPoint(x: max(0, width - buttonSize), y: buttonY),
-            size: CGSize(square: buttonSize)
-        )
+    private func updateComposerControlLayout() {
+        let shouldTrailToTimer = !self.timerButton.isHidden
+        self.textFieldTrailingToTimerConstraint?.isActive = shouldTrailToTimer
+        self.textFieldTrailingToSendConstraint?.isActive = !shouldTrailToTimer
+        self.mainInputGlassView.layoutIfNeeded()
+        self.contentView.layoutIfNeeded()
         self.startPositionSendButton = self.sendButton.center
+    }
+
+    private func currentComposerContentHeight() -> CGFloat {
+        max(ModernXabberInputView.minimumComposerHeight, self.cachedIntrinsicContentSize.height)
+    }
+
+    private func composerFrame(contentHeight: CGFloat) -> CGRect {
+        let rawFrame = CGRect(
+            x: 0,
+            y: self.topInset + LiquidGlassMetrics.contentTopOffset,
+            width: max(0, self.bounds.width),
+            height: contentHeight
+        ).insetBy(
+            dx: LiquidGlassMetrics.composerHorizontalInset,
+            dy: LiquidGlassMetrics.composerVerticalInset
+        )
+        return CGRect(
+            x: rawFrame.minX,
+            y: rawFrame.minY,
+            width: max(0, rawFrame.width),
+            height: max(0, rawFrame.height)
+        )
+    }
+
+    private func updateComposerContentLayout() {
+        self.updateComposerControlLayout()
     }
 
     public func setupFrames(_ frame: CGRect) {
         self.frame = frame
-        let contentHeight = max(ModernXabberInputView.minimumComposerHeight, self.cachedIntrinsicContentSize.height)
-        self.contentView.frame = CGRect(
-            origin: CGPoint(x: 0, y: LiquidGlassMetrics.contentTopOffset),
-            size: CGSize(width: self.bounds.width, height: contentHeight)
-        )
-        self.layoutComposerControls(contentHeight: contentHeight)
-        
-//        blurredEffectView.frame = self.bounds
+        self.updateComposerContentLayout()
         self.backgroundColor = .clear
+        self.layoutLiquidGlassAppearance()
         self.updateBottomPanels(withOffset: 0)
         self.selectionPanel.update()
         self.recordPanel.update()
@@ -1891,23 +1861,24 @@ class ModernXabberInputView: UIView {
     }
     
     final func setup() {
-        
-        
-//        self.addSubview(self.blurredEffectView)
         self.backgroundColor = .clear
         self.addSubview(self.mainInputShadowView)
         self.mainInputShadowView.addSubview(self.mainInputGlassView)
         self.contentView.backgroundColor = .clear
-        self.contentView.addSubview(self.textFieldGlassView)
-        self.contentView.addSubview(self.attachButtonGlassView)
-        self.contentView.addSubview(self.timerButtonGlassView)
-        self.contentView.addSubview(self.sendButtonGlassView)
+        self.contentView.isUserInteractionEnabled = true
+        [
+            self.contentView,
+            self.attachButton,
+            self.textField,
+            self.timerButton,
+            self.sendButton
+        ].forEach { $0.translatesAutoresizingMaskIntoConstraints = false }
+        self.mainInputGlassView.contentView.addSubview(self.contentView)
         self.contentView.addSubview(self.attachButton)
         self.contentView.addSubview(self.textField)
         self.contentView.addSubview(self.timerButton)
         self.contentView.addSubview(self.sendButton)
         self.contentView.addSubview(self.stateButton)
-        self.addSubview(self.contentView)
         
         self.sendButton.delegate = self
         [
@@ -2245,18 +2216,12 @@ class ModernXabberInputView: UIView {
             }
         }
         doAnimate {
-            let contentHeight = max(ModernXabberInputView.minimumComposerHeight, self.cachedIntrinsicContentSize.height)
-            self.contentView.frame = CGRect(
-                origin: CGPoint(x: 0, y: self.topInset + LiquidGlassMetrics.contentTopOffset),
-                size: CGSize(width: self.bounds.width, height: contentHeight)
-            )
-            self.layoutComposerControls(contentHeight: contentHeight)
+            self.updateComposerContentLayout()
             let frame = CGRect(
                 origin: CGPoint(x: self.frame.minX, y: screenHeight - inputHeight),
                 size: CGSize(width: self.bounds.width, height: inputHeight)
             )
             self.frame = frame
-            self.blurredEffectView.frame = self.bounds
 //            NSLayoutConstraint.activate([
 //                self.heightAnchor.constraint(equalToConstant: inputHeight)
 //            ])
@@ -2270,7 +2235,41 @@ class ModernXabberInputView: UIView {
     open var heightConstraint: NSLayoutConstraint? = nil
     
     final func activateConstraints() {
-        
+        guard !self.didActivateComposerConstraints else { return }
+        self.didActivateComposerConstraints = true
+
+        let textTrailingToTimer = self.textField.trailingAnchor.constraint(equalTo: self.timerButton.leadingAnchor)
+        let textTrailingToSend = self.textField.trailingAnchor.constraint(equalTo: self.sendButton.leadingAnchor)
+        self.textFieldTrailingToTimerConstraint = textTrailingToTimer
+        self.textFieldTrailingToSendConstraint = textTrailingToSend
+
+        NSLayoutConstraint.activate([
+            self.contentView.leadingAnchor.constraint(equalTo: self.mainInputGlassView.contentView.leadingAnchor),
+            self.contentView.trailingAnchor.constraint(equalTo: self.mainInputGlassView.contentView.trailingAnchor),
+            self.contentView.topAnchor.constraint(equalTo: self.mainInputGlassView.contentView.topAnchor),
+            self.contentView.bottomAnchor.constraint(equalTo: self.mainInputGlassView.contentView.bottomAnchor),
+
+            self.attachButton.leadingAnchor.constraint(equalTo: self.contentView.leadingAnchor),
+            self.attachButton.bottomAnchor.constraint(equalTo: self.contentView.bottomAnchor),
+            self.attachButton.widthAnchor.constraint(equalToConstant: LiquidGlassMetrics.buttonSize),
+            self.attachButton.heightAnchor.constraint(equalToConstant: LiquidGlassMetrics.buttonSize),
+
+            self.textField.leadingAnchor.constraint(equalTo: self.attachButton.trailingAnchor),
+            self.textField.topAnchor.constraint(equalTo: self.contentView.topAnchor, constant: LiquidGlassMetrics.textVerticalInset),
+            self.textField.bottomAnchor.constraint(equalTo: self.contentView.bottomAnchor, constant: -LiquidGlassMetrics.textVerticalInset),
+
+            self.timerButton.trailingAnchor.constraint(equalTo: self.sendButton.leadingAnchor),
+            self.timerButton.bottomAnchor.constraint(equalTo: self.contentView.bottomAnchor),
+            self.timerButton.widthAnchor.constraint(equalToConstant: LiquidGlassMetrics.buttonSize),
+            self.timerButton.heightAnchor.constraint(equalToConstant: LiquidGlassMetrics.buttonSize),
+
+            self.sendButton.trailingAnchor.constraint(equalTo: self.contentView.trailingAnchor),
+            self.sendButton.bottomAnchor.constraint(equalTo: self.contentView.bottomAnchor),
+            self.sendButton.widthAnchor.constraint(equalToConstant: LiquidGlassMetrics.buttonSize),
+            self.sendButton.heightAnchor.constraint(equalToConstant: LiquidGlassMetrics.buttonSize)
+        ])
+
+        self.updateComposerControlLayout()
     }
 
     override func layoutSubviews() {
@@ -2284,9 +2283,18 @@ class ModernXabberInputView: UIView {
     }
 
     private func layoutLiquidGlassAppearance() {
+        let contentHeight = self.currentComposerContentHeight()
+        let composerFrame = self.composerFrame(contentHeight: contentHeight)
+        self.mainInputShadowView.isHidden = self.state == .selection || self.state == .search || self.state == .skeleton
+        self.mainInputShadowView.frame = composerFrame
+        self.mainInputGlassView.frame = self.mainInputShadowView.bounds
+        ModernXabberInputView.applyToolbarGlassLayer(to: self.mainInputGlassView)
+        self.updateComposerContentLayout()
+
         let layoutState = LiquidGlassLayoutState(
             bounds: self.bounds,
-            contentFrame: self.contentView.frame,
+            composerFrame: composerFrame,
+            contentBounds: self.contentView.bounds,
             textFieldFrame: self.textField.frame,
             attachButtonFrame: self.attachButton.frame,
             timerButtonFrame: self.timerButton.frame,
@@ -2300,52 +2308,15 @@ class ModernXabberInputView: UIView {
         guard layoutState != self.lastLiquidGlassLayoutState else { return }
         self.lastLiquidGlassLayoutState = layoutState
 
-        let rawComposerFrame = self.contentView.frame.insetBy(
-            dx: LiquidGlassMetrics.composerHorizontalInset,
-            dy: LiquidGlassMetrics.composerVerticalInset
-        )
-        let composerFrame = CGRect(
-            x: rawComposerFrame.minX,
-            y: rawComposerFrame.minY,
-            width: max(0, rawComposerFrame.width),
-            height: max(0, rawComposerFrame.height)
-        )
-        let composerRadius = LiquidGlassMetrics.composerCornerRadius
-
-        self.mainInputShadowView.isHidden = self.state == .selection || self.state == .search || self.state == .skeleton
-        self.mainInputShadowView.frame = composerFrame
-        self.mainInputGlassView.frame = self.mainInputShadowView.bounds
-        ModernXabberInputView.applyToolbarGlassLayer(to: self.mainInputGlassView)
-        self.mainInputShadowView.layer.shadowPath = UIBezierPath(
-            roundedRect: self.mainInputShadowView.bounds,
-            cornerRadius: composerRadius
-        ).cgPath
-
-        [
-            self.textFieldGlassView,
-            self.attachButtonGlassView,
-            self.timerButtonGlassView,
-            self.sendButtonGlassView
-        ].forEach { glassView in
-            glassView.isHidden = true
-            glassView.backgroundColor = .clear
-            glassView.layer.borderWidth = 0
-            glassView.layer.borderColor = UIColor.clear.cgColor
-        }
         self.updateLiquidGlassColors()
     }
 
-    private func layoutButtonGlassView(_ glassView: UIView, behind button: UIButton) {
-        glassView.isHidden = true
-        glassView.backgroundColor = .clear
-        glassView.layer.borderWidth = 0
-        button.layer.borderWidth = 0
-        button.layer.cornerCurve = .continuous
-        button.backgroundColor = .clear
-    }
-
     private func updateLiquidGlassColors() {
-        self.mainInputShadowView.layer.shadowColor = UIColor.black.cgColor
+        self.mainInputShadowView.layer.shadowColor = nil
+        self.mainInputShadowView.layer.shadowOpacity = 0
+        self.mainInputShadowView.layer.shadowRadius = 0
+        self.mainInputShadowView.layer.shadowOffset = .zero
+        self.mainInputShadowView.layer.shadowPath = nil
         self.mainInputGlassView.layer.borderColor = UIColor.separator.withAlphaComponent(LiquidGlassMetrics.toolbarBorderAlpha).cgColor
         self.textField.backgroundColor = .clear
         self.textField.layer.borderWidth = 0
@@ -2356,16 +2327,6 @@ class ModernXabberInputView: UIView {
             self.sendButton,
             self.stateButton
         ].forEach { ModernXabberInputView.removeChrome(from: $0) }
-        [
-            self.textFieldGlassView,
-            self.attachButtonGlassView,
-            self.timerButtonGlassView,
-            self.sendButtonGlassView
-        ].forEach { glassView in
-            glassView.backgroundColor = .clear
-            glassView.layer.borderWidth = 0
-            glassView.layer.borderColor = UIColor.clear.cgColor
-        }
     }
     
     @objc
@@ -2378,7 +2339,10 @@ class ModernXabberInputView: UIView {
         self.textField.placeholderLabel.isHidden = !self.textField.text.isEmpty
         self.message = trimmedText
         
-        if force || (requiredInputTextViewHeight != textField.bounds.height) {
+        let currentContentHeight = self.contentView.bounds.height > 0
+            ? self.contentView.bounds.height
+            : self.currentComposerContentHeight()
+        if force || abs(requiredInputTextViewHeight - currentContentHeight) > 0.5 {
             invalidateIntrinsicContentSize()
         }
 
@@ -2395,6 +2359,7 @@ class ModernXabberInputView: UIView {
             } else {
                 self.changeSendButtonState(to: .record)
             }
+            self.updateComposerControlLayout()
         }
         self.delegate?.onTextDidChange(to: trimmedText.isEmpty ? nil : trimmedText)
         self.updateMentionSuggestions()
@@ -2599,11 +2564,7 @@ class ModernXabberInputView: UIView {
         
         //UIView.animate(withDuration: 0.16, delay: 0.0, options: [.curveEaseIn]) {
         UIView.performWithoutAnimation {
-            self.contentView.frame = CGRect(
-                origin: CGPoint(x: 0, y: self.topInset + LiquidGlassMetrics.contentTopOffset),
-                size: CGSize(width: self.bounds.width, height: contentHeight)
-            )
-            self.layoutComposerControls(contentHeight: contentHeight)
+            self.updateComposerContentLayout()
             self.layoutMentionPanel()
             self.delegate?.onHeightChanged(to: inputHeight, bar: 0)
             self.update(screenHeight: self.screenHeight, keyboardHeight: self.keyboardHeight)
@@ -2619,7 +2580,11 @@ class ModernXabberInputView: UIView {
     ///
     /// - Returns: The required intrinsicContentSize
     final func calculateIntrinsicContentSize() -> CGSize {
-        var inputTextViewHeight = requiredInputTextViewHeight
+        if self.isSelectionPanelShowed {
+            return CGSize(width: UIView.noIntrinsicMetric, height: ModernXabberInputView.minimumComposerHeight)
+        }
+
+        var inputTextViewHeight = self.requiredTextViewFittingHeight
         if inputTextViewHeight >= maxTextViewHeight {
             if !isOverMaxTextViewHeight {
 //                textViewHeightAnchor?.isActive = true
@@ -2635,7 +2600,10 @@ class ModernXabberInputView: UIView {
             }
         }
         
-        let requiredHeight = inputTextViewHeight
+        let requiredHeight = max(
+            ModernXabberInputView.minimumComposerHeight,
+            inputTextViewHeight + self.composerTextVerticalPadding
+        )
 //        print("requiredHeight", requiredHeight)
 //        self.delegate?.heightDidChange(self, to: requiredHeight)
         return CGSize(width: UIView.noIntrinsicMetric, height: requiredHeight)

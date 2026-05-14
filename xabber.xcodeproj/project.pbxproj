@@ -71,6 +71,9 @@
 		4DDD5CA8292DEC18003AD478 /* MusicBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DDD5CA7292DEC18003AD478 /* MusicBox.swift */; };
 		4DFF74FE2851E4550036AE0D /* SimpleTableViewController+SwitchCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DFF74FD2851E4550036AE0D /* SimpleTableViewController+SwitchCell.swift */; };
 		4E0000022F60000000ABC001 /* AppRootCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E0000012F60000000ABC001 /* AppRootCoordinator.swift */; };
+		4E1000022F66000000ABC001 /* FloatingBottomBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E1000012F66000000ABC001 /* FloatingBottomBarView.swift */; };
+		4E1000042F66000000ABC001 /* FloatingBottomBarViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E1000032F66000000ABC001 /* FloatingBottomBarViewTests.swift */; };
+		4E1000062F66000000ABC001 /* LeftMenuSurfaceEffectFactoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E1000052F66000000ABC001 /* LeftMenuSurfaceEffectFactoryTests.swift */; };
 		660093C722DEEDBD00C5F16B /* LastChatsViewController+UITableViewAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660093C622DEEDBD00C5F16B /* LastChatsViewController+UITableViewAction.swift */; };
 		660093C922DF2A5F00C5F16B /* LastCallsViewController+EmptyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660093C822DF2A5F00C5F16B /* LastCallsViewController+EmptyView.swift */; };
 		660093CB22DF2CFD00C5F16B /* LastCallsViewController+UITableViewAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660093CA22DF2CFD00C5F16B /* LastCallsViewController+UITableViewAction.swift */; };
@@ -1059,6 +1062,9 @@
 		4DDD5CA7292DEC18003AD478 /* MusicBox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicBox.swift; sourceTree = "<group>"; };
 		4DFF74FD2851E4550036AE0D /* SimpleTableViewController+SwitchCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SimpleTableViewController+SwitchCell.swift"; sourceTree = "<group>"; };
 		4E0000012F60000000ABC001 /* AppRootCoordinator.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AppRootCoordinator.swift; sourceTree = "<group>"; };
+		4E1000012F66000000ABC001 /* FloatingBottomBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingBottomBarView.swift; sourceTree = "<group>"; };
+		4E1000032F66000000ABC001 /* FloatingBottomBarViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingBottomBarViewTests.swift; sourceTree = "<group>"; };
+		4E1000052F66000000ABC001 /* LeftMenuSurfaceEffectFactoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeftMenuSurfaceEffectFactoryTests.swift; sourceTree = "<group>"; };
 		58D918EA4C5D9244619D4BEE /* Pods_xabberTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_xabberTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		5A01438B65BCB76802280911 /* Pods-xabber.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-xabber.release.xcconfig"; path = "Target Support Files/Pods-xabber/Pods-xabber.release.xcconfig"; sourceTree = "<group>"; };
 		660093C622DEEDBD00C5F16B /* LastChatsViewController+UITableViewAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LastChatsViewController+UITableViewAction.swift"; sourceTree = "<group>"; };
@@ -3627,6 +3633,8 @@
 		66AE4E7624E12F7C00FF11DC /* xabberTests */ = {
 			isa = PBXGroup;
 			children = (
+				4E1000032F66000000ABC001 /* FloatingBottomBarViewTests.swift */,
+				4E1000052F66000000ABC001 /* LeftMenuSurfaceEffectFactoryTests.swift */,
 				66AE4E7724E12F7C00FF11DC /* xabberTests.swift */,
 				66AE4E7924E12F7C00FF11DC /* Info.plist */,
 				66AE4E7F24E189EF00FF11DC /* XabberXMPPTests.swift */,
@@ -4281,6 +4289,7 @@
 			isa = PBXGroup;
 			children = (
 				66FA15DF2BD7C514009AAC55 /* BottomBarView.swift */,
+				4E1000012F66000000ABC001 /* FloatingBottomBarView.swift */,
 			);
 			path = bottom_bar;
 			sourceTree = "<group>";
@@ -5337,6 +5346,7 @@
 				669E185B2089EBE100D59D38 /* UIImageExtension.swift in Sources */,
 				4DDD5CA8292DEC18003AD478 /* MusicBox.swift in Sources */,
 				665002AB23E951410009F351 /* ChatViewController+SelectionPanel.swift in Sources */,
+				4E1000022F66000000ABC001 /* FloatingBottomBarView.swift in Sources */,
 				663426CA2C8F0DF700F6873E /* ChangeChatStateProtocol.swift in Sources */,
 				6695786427A1317A00A6C4AB /* OmemoManager.swift in Sources */,
 				6678A6BC2E0D5C2B00C2449B /* BaseRootViewController.swift in Sources */,
@@ -5503,6 +5513,8 @@
 				66AE4E8024E189EF00FF11DC /* XabberXMPPTests.swift in Sources */,
 				66B48FDA26F858EC0088D6A4 /* Base64Extras.swift in Sources */,
 				66AE4E7824E12F7C00FF11DC /* xabberTests.swift in Sources */,
+				4E1000042F66000000ABC001 /* FloatingBottomBarViewTests.swift in Sources */,
+				4E1000062F66000000ABC001 /* LeftMenuSurfaceEffectFactoryTests.swift in Sources */,
 				66D2B585253EFED100299578 /* XabberAssetsTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

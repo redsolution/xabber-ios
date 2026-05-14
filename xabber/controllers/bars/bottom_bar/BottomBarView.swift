@@ -29,8 +29,9 @@ class BottomBarView: UIView {
     }()
     
     let blurredEffectView: UIVisualEffectView = {
-        let blurEffect = UIBlurEffect(style: .systemMaterial)
-        let blurredEffectView = UIVisualEffectView(effect: blurEffect)
+        let blurredEffectView = UIVisualEffectView(effect: BottomBarGlassEffectFactory.makeEffect())
+        blurredEffectView.backgroundColor = .clear
+        blurredEffectView.isOpaque = false
         
         return blurredEffectView
     }()
@@ -96,8 +97,10 @@ class BottomBarView: UIView {
     
     override init(frame: CGRect) {
         super.init(frame: frame)
+        self.backgroundColor = .clear
+        self.isOpaque = false
         self.addSubview(blurredEffectView)
-        self.addSubview(stack)
+        self.blurredEffectView.contentView.addSubview(stack)
         if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
             stack.fillSuperviewWithOffset(top: 0, bottom: bottomInset, left: 8, right: 8)
         } else {

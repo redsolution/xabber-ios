@@ -9873,6 +9873,119 @@ final class ComposerMentionsTests: XCTestCase {
         XCTAssertNotNil(hitView)
         XCTAssertTrue(hitView === inputView.mentionPanel || hitView?.isDescendant(of: inputView.mentionPanel) == true)
     }
+
+    func testComposerControlsAreHostedInsidePrimaryGlassContentView() throws {
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 390,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+        inputView.layoutIfNeeded()
+
+        let effectView = try XCTUnwrap(composerEffectView(containing: inputView.textField))
+
+        XCTAssertTrue(effectView.isUserInteractionEnabled)
+        XCTAssertTrue(effectView.contentView.isUserInteractionEnabled)
+        XCTAssertTrue(inputView.contentView.isDescendant(of: effectView.contentView))
+        XCTAssertTrue(inputView.textField.isDescendant(of: effectView.contentView))
+        XCTAssertTrue(inputView.attachButton.isDescendant(of: effectView.contentView))
+        XCTAssertTrue(inputView.timerButton.isDescendant(of: effectView.contentView))
+        XCTAssertTrue(inputView.sendButton.isDescendant(of: effectView.contentView))
+        XCTAssertTrue(inputView.stateButton.isDescendant(of: effectView.contentView))
+    }
+
+    func testComposerTextFieldHasFourPointVerticalPaddingInsidePrimaryGlass() throws {
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 390,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+        inputView.changeState(to: .normal)
+        inputView.layoutIfNeeded()
+        inputView.contentView.layoutIfNeeded()
+
+        let effectView = try XCTUnwrap(composerEffectView(containing: inputView.textField))
+
+        XCTAssertTrue(inputView.textField.isDescendant(of: effectView.contentView))
+        XCTAssertEqual(inputView.textField.frame.minY, 4, accuracy: 0.001)
+        XCTAssertEqual(inputView.contentView.bounds.maxY - inputView.textField.frame.maxY, 4, accuracy: 0.001)
+    }
+
+    func testComposerControlsRemainClearAndBorderlessInsideGlass() {
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 390,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+        inputView.layoutIfNeeded()
+
+        XCTAssertEqual((inputView.textField.backgroundColor ?? .clear).cgColor.alpha, UIColor.clear.cgColor.alpha, accuracy: 0.001)
+        XCTAssertEqual(inputView.textField.layer.borderWidth, 0, accuracy: 0.001)
+        XCTAssertTrue(inputView.textField.layer.borderColor == nil || inputView.textField.layer.borderColor == UIColor.clear.cgColor)
+
+        let composerButtons: [UIButton] = [
+            inputView.attachButton,
+            inputView.timerButton,
+            inputView.sendButton,
+            inputView.stateButton
+        ]
+        composerButtons.forEach { button in
+            XCTAssertEqual((button.backgroundColor ?? .clear).cgColor.alpha, UIColor.clear.cgColor.alpha, accuracy: 0.001)
+            XCTAssertEqual(button.layer.borderWidth, 0, accuracy: 0.001)
+            XCTAssertTrue(button.layer.borderColor == nil || button.layer.borderColor == UIColor.clear.cgColor)
+        }
+    }
+
+    func testComposerUsesNativeGlassEffectWhenAvailable() throws {
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 390,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+        inputView.layoutIfNeeded()
+
+        let effectView = try XCTUnwrap(composerEffectView(containing: inputView.textField))
+
+        if #available(iOS 26.0, *) {
+            XCTAssertTrue(effectView.effect is UIGlassEffect)
+        } else {
+            XCTAssertTrue(effectView.effect is UIBlurEffect)
+        }
+    }
+
+    func testComposerGlassContainerDoesNotAddCustomShadow() throws {
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 390,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+        inputView.layoutIfNeeded()
+
+        let effectView = try XCTUnwrap(composerEffectView(containing: inputView.textField))
+        let containerView = try XCTUnwrap(effectView.superview)
+
+        XCTAssertNil(containerView.layer.shadowColor)
+        XCTAssertEqual(containerView.layer.shadowOpacity, 0, accuracy: 0.001)
+        XCTAssertEqual(containerView.layer.shadowRadius, 0, accuracy: 0.001)
+        XCTAssertEqual(containerView.layer.shadowOffset, .zero)
+        XCTAssertNil(containerView.layer.shadowPath)
+    }
+
+    private func composerEffectView(containing view: UIView) -> UIVisualEffectView? {
+        var currentSuperview = view.superview
+        while let current = currentSuperview {
+            if let effectView = current as? UIVisualEffectView {
+                return effectView
+            }
+            currentSuperview = current.superview
+        }
+        return nil
+    }
 }
 
 final class ChatInitialMessageOverlayLayoutTests: XCTestCase {
